@@ -526,11 +526,6 @@ export async function handleAbortRecordingUpload(
       };
     }
 
-    await reconcileMeetingOnRecordingFailed({
-      recordingId,
-      ownerEmail,
-    });
-
     if (
       transitionExisting.status !== "failed" ||
       transitionExisting.failureCode !== transitionFailureCode
@@ -639,6 +634,10 @@ export async function handleAbortRecordingUpload(
       }
     }
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     return { ok: true, recordingId, chunksCleared: cleared };
   });

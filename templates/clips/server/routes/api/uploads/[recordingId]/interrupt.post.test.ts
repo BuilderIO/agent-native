@@ -156,6 +156,32 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
     );
   });
 
+  it("publishes the failed resumable state before surfacing dispatch failure", async () => {
+    const dispatchError = new Error("meeting finalization dispatch failed");
+    mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(dispatchError);
+
+    await expect(handler({} as any)).rejects.toBe(dispatchError);
+
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.objectContaining({ bytesReceived: 7_864_320 }),
+      expect.objectContaining({
+        status: "failed",
+        retryableInterruption: true,
+      }),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "refresh-signal",
+      expect.objectContaining({ ts: expect.any(Number) }),
+    );
+    expect(mockCompareAndSetAppState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReconcileMeetingOnRecordingFailed.mock.invocationCallOrder[0],
+    );
+    expect(mockWriteAppState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReconcileMeetingOnRecordingFailed.mock.invocationCallOrder[0],
+    );
+  });
+
   it("leaves a storage-parked upload untouched after a delayed interruption", async () => {
     mockSelectRows.rows = [
       {

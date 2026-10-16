@@ -416,10 +416,6 @@ async function failStoredButUnservableRecording(params: {
       recordingPlatform: schema.recordings.recordingPlatform,
     });
   if (failed.length !== 1) return false;
-  await reconcileMeetingOnRecordingFailed({
-    recordingId: id,
-    ownerEmail,
-  });
   const statePublished = await compareAndSetManyAppState([
     {
       key: `recording-upload-${id}`,
@@ -515,6 +511,10 @@ async function failStoredButUnservableRecording(params: {
     }
   }
   await writeAppState("refresh-signal", { ts: Date.now() });
+  await reconcileMeetingOnRecordingFailed({
+    recordingId: id,
+    ownerEmail,
+  });
   return true;
 }
 
@@ -881,11 +881,16 @@ async function completeReadyRecordingBookkeeping(params: {
     params.seekableApplied ??
     stateBoolean(priorState, "seekableApplied") ??
     false;
+  const readyUploadState = { ...(priorState ?? {}) };
+  delete readyUploadState.mediaVerificationAttempt;
+  delete readyUploadState.mediaVerificationNextAttemptAt;
+  delete readyUploadState.mediaVerificationLastError;
 
   await writeAppState(`recording-upload-${params.id}`, {
-    ...(priorState ?? {}),
+    ...readyUploadState,
     recordingId: params.id,
     status: "ready",
+    pendingMediaVerification: false,
     progress: 100,
     uploadAttemptId: params.uploadAttemptId,
     uploadGenerationId: params.uploadGenerationId,
@@ -1281,10 +1286,6 @@ async function consumeHostedAllowanceIfNeeded(params: {
     .returning({ id: schema.recordings.id });
   if (!failed) return false;
 
-  await reconcileMeetingOnRecordingFailed({
-    recordingId: params.id,
-    ownerEmail: params.ownerEmail,
-  });
   await writeAppState(`recording-upload-${params.id}`, {
     recordingId: params.id,
     status: "failed",
@@ -1338,6 +1339,10 @@ async function consumeHostedAllowanceIfNeeded(params: {
       id: params.id,
     });
   }
+  await reconcileMeetingOnRecordingFailed({
+    recordingId: params.id,
+    ownerEmail: params.ownerEmail,
+  });
   return false;
 }
 
@@ -1994,10 +1999,6 @@ export default defineAction({
                 )
                 .returning({ id: schema.recordings.id });
               if (failed) {
-                await reconcileMeetingOnRecordingFailed({
-                  recordingId: id,
-                  ownerEmail,
-                });
                 const failedUploadState = {
                   ...(uploadState ?? {}),
                   recordingId: id,
@@ -2019,6 +2020,10 @@ export default defineAction({
                     ownerEmail,
                   });
                 }
+                await reconcileMeetingOnRecordingFailed({
+                  recordingId: id,
+                  ownerEmail,
+                });
               }
             }
           }
@@ -2252,11 +2257,6 @@ export default defineAction({
             recordingPlatform: schema.recordings.recordingPlatform,
           });
         if (failedRecording)
-          await reconcileMeetingOnRecordingFailed({
-            recordingId: id,
-            ownerEmail,
-          });
-        if (failedRecording)
           trackUploadBlockingFailure({
             id,
             ownerEmail,
@@ -2294,6 +2294,11 @@ export default defineAction({
               updatedAt: now,
             },
           );
+        if (failedRecording)
+          await reconcileMeetingOnRecordingFailed({
+            recordingId: id,
+            ownerEmail,
+          });
         throw new Error(failureReason);
       };
 
@@ -2609,10 +2614,6 @@ export default defineAction({
               "Recording changed before storage failure was saved",
             );
           }
-          await reconcileMeetingOnRecordingFailed({
-            recordingId: id,
-            ownerEmail,
-          });
           trackUploadBlockingFailure({
             id,
             ownerEmail,
@@ -2638,6 +2639,10 @@ export default defineAction({
             updatedAt: now,
           });
           await writeAppState("refresh-signal", { ts: Date.now() });
+          await reconcileMeetingOnRecordingFailed({
+            recordingId: id,
+            ownerEmail,
+          });
           return {
             id,
             status: "failed" as const,

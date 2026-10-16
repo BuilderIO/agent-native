@@ -242,6 +242,33 @@ describe("stop-meeting-recording endReason", () => {
     expect(JSON.stringify(meetingUpdate.endReason)).toContain("is null then");
   });
 
+  it("preserves a pending transcript-finalization claim on a repeated stop", async () => {
+    const db = createDb(
+      [
+        [
+          meeting({
+            visibility: "org",
+            actualEnd: "2026-10-16T16:59:00.000Z",
+          }),
+        ],
+        [{ fullText: "Welcome to the call." }],
+        [{ visibility: "org" }],
+      ],
+      [{ actualEnd: "2026-10-16T16:59:00.000Z" }],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await action.run({ meetingId: "meeting-1", reason: "manual" });
+
+    const meetingUpdate = (db.update as ReturnType<typeof vi.fn>).mock
+      .results[0].value.set.mock.calls[0][0];
+    for (const field of ["updatedAt", "transcriptStatus"]) {
+      expect(meetingUpdate[field]).toMatchObject({ kind: "sql" });
+      expect(JSON.stringify(meetingUpdate[field])).toContain("is null then");
+      expect(JSON.stringify(meetingUpdate[field])).toContain("else");
+    }
+  });
+
   it("returns the terminal state for an ended meeting even after it is trashed", async () => {
     const db = createDb([
       [

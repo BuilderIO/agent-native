@@ -1475,7 +1475,7 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
-  it("tracks a terminal media verification failure with the stable recording join", async () => {
+  it("publishes a terminal media failure before surfacing meeting dispatch errors", async () => {
     mockState.existingRecording.status = "processing";
     mockState.existingRecording.uploadAttemptId = "attempt-1";
     mockState.uploadState = {
@@ -1515,19 +1515,40 @@ describe("finalize-recording media serve verification", () => {
       return null;
     });
     mockCompareAndSetAppState.mockResolvedValue(true);
+    const dispatchError = new Error("meeting finalization dispatch failed");
+    mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(dispatchError);
     mockUpdateReturning.mockResolvedValueOnce([
       { id: "rec_1", uploadAttemptId: "attempt-1" },
     ]);
     vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));
 
-    const result = await finalizeRecording.run({
-      id: "rec_1",
-      mediaVerificationRetryAttempt: 10,
-      uploadAttemptId: "attempt-1",
-      uploadGenerationId: null,
-    });
+    await expect(
+      finalizeRecording.run({
+        id: "rec_1",
+        mediaVerificationRetryAttempt: 10,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: null,
+      }),
+    ).rejects.toBe(dispatchError);
 
-    expect(result).toEqual(expect.objectContaining({ status: "failed" }));
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "recording-upload-rec_1",
+          nextValue: expect.objectContaining({
+            status: "failed",
+            pendingMediaVerification: false,
+          }),
+        }),
+      ]),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "refresh-signal",
+      expect.objectContaining({ ts: expect.any(Number) }),
+    );
+    expect(mockWriteAppState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReconcileMeetingOnRecordingFailed.mock.invocationCallOrder[0],
+    );
     expect(mockTrack).toHaveBeenCalledWith(
       "clips_upload_blocking_failure",
       expect.objectContaining({
@@ -1911,6 +1932,8 @@ describe("finalize-recording media serve verification", () => {
     mockState.uploadState = {
       pendingMediaVerification: true,
       mediaVerificationAttempt: 0,
+      mediaVerificationNextAttemptAt: "2026-10-16T17:00:00.000Z",
+      mediaVerificationLastError: "previous verification failure",
       videoUrl: "https://cdn.example.com/rec_1",
       videoSizeBytes: 11,
       sourceSizeBytes: 11,
@@ -1956,6 +1979,20 @@ describe("finalize-recording media serve verification", () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    const readyUploadWrite = mockWriteAppState.mock.calls.find(
+      ([key, value]) =>
+        key === "recording-upload-rec_1" &&
+        (value as Record<string, unknown>).status === "ready",
+    )?.[1] as Record<string, unknown> | undefined;
+    expect(readyUploadWrite).toMatchObject({
+      status: "ready",
+      pendingMediaVerification: false,
+    });
+    expect(readyUploadWrite).not.toHaveProperty("mediaVerificationAttempt");
+    expect(readyUploadWrite).not.toHaveProperty(
+      "mediaVerificationNextAttemptAt",
+    );
+    expect(readyUploadWrite).not.toHaveProperty("mediaVerificationLastError");
     expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "recording-media-verification-rec_1",
       marker,

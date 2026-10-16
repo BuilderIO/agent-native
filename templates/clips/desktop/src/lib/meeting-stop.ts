@@ -15,6 +15,10 @@ export type StopMeetingBeforeTranscriptFlushResult =
 
 const STOP_CONFIRMATION_RETRY_DELAYS_MS = [150, 450] as const;
 const TERMINAL_MEETING_STOP_ERROR_CODES = new Set(["meeting_not_found"]);
+const TERMINAL_TRANSCRIPT_SAVE_ERRORS = new Set([
+  "404:recording_not_found",
+  "403:forbidden",
+]);
 
 export function isTerminalMeetingStopError(
   error: unknown,
@@ -23,6 +27,18 @@ export function isTerminalMeetingStopError(
     error instanceof ClipsActionError &&
     error.status === 404 &&
     Boolean(error.code && TERMINAL_MEETING_STOP_ERROR_CODES.has(error.code))
+  );
+}
+
+export function isTerminalTranscriptSaveError(
+  error: unknown,
+): error is ClipsActionError {
+  return (
+    error instanceof ClipsActionError &&
+    Boolean(
+      error.code &&
+      TERMINAL_TRANSCRIPT_SAVE_ERRORS.has(`${error.status}:${error.code}`),
+    )
   );
 }
 
@@ -36,7 +52,14 @@ export async function stopMeetingBeforeTranscriptFlush({
 }: StopMeetingBeforeTranscriptFlushOptions): Promise<StopMeetingBeforeTranscriptFlushResult> {
   if (isTerminalMeetingStopError(previousTerminalStopError)) {
     await waitForHistory();
-    await flushTranscript();
+    try {
+      await flushTranscript();
+    } catch (error) {
+      if (isTerminalTranscriptSaveError(error)) {
+        return { status: "terminal", error };
+      }
+      throw error;
+    }
     return { status: "terminal", error: previousTerminalStopError };
   }
 
@@ -66,7 +89,14 @@ export async function stopMeetingBeforeTranscriptFlush({
     }
     if (confirmed) {
       await waitForHistory();
-      await flushTranscript();
+      try {
+        await flushTranscript();
+      } catch (error) {
+        if (isTerminalTranscriptSaveError(error)) {
+          return { status: "terminal", error };
+        }
+        throw error;
+      }
       return { status: "confirmed" };
     }
 
@@ -78,7 +108,14 @@ export async function stopMeetingBeforeTranscriptFlush({
 
   if (terminalStopError !== undefined) {
     await waitForHistory();
-    await flushTranscript();
+    try {
+      await flushTranscript();
+    } catch (error) {
+      if (isTerminalTranscriptSaveError(error)) {
+        return { status: "terminal", error };
+      }
+      throw error;
+    }
     return { status: "terminal", error: terminalStopError };
   }
 

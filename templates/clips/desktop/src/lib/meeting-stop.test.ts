@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ClipsActionError } from "./clips-action";
 import {
   isTerminalMeetingStopError,
+  isTerminalTranscriptSaveError,
   stopMeetingBeforeTranscriptFlush,
 } from "./meeting-stop";
 
@@ -180,6 +181,61 @@ describe("stopMeetingBeforeTranscriptFlush", () => {
     expect(isTerminalMeetingStopError(new Error("Network unavailable"))).toBe(
       false,
     );
+  });
+
+  it("classifies only permanent transcript-save action errors as terminal", () => {
+    expect(
+      isTerminalTranscriptSaveError(
+        new ClipsActionError("Recording not found", 404, "recording_not_found"),
+      ),
+    ).toBe(true);
+    expect(
+      isTerminalTranscriptSaveError(
+        new ClipsActionError("Wrong error code", 403, "recording_not_found"),
+      ),
+    ).toBe(false);
+    expect(
+      isTerminalTranscriptSaveError(
+        new ClipsActionError("Wrong error code", 404, "forbidden"),
+      ),
+    ).toBe(false);
+    expect(
+      isTerminalTranscriptSaveError(
+        new ClipsActionError("Sign in required", 401, "unauthorized"),
+      ),
+    ).toBe(false);
+    expect(
+      isTerminalTranscriptSaveError(new ClipsActionError("Not found", 404)),
+    ).toBe(false);
+    expect(
+      isTerminalTranscriptSaveError(
+        new ClipsActionError("Access denied", 403, "forbidden"),
+      ),
+    ).toBe(true);
+    expect(
+      isTerminalTranscriptSaveError(
+        new ClipsActionError("Server unavailable", 503, "server_error"),
+      ),
+    ).toBe(false);
+    expect(
+      isTerminalTranscriptSaveError(new Error("Network unavailable")),
+    ).toBe(false);
+  });
+
+  it.each([
+    new ClipsActionError("Recording not found", 404, "recording_not_found"),
+    new ClipsActionError("Access denied", 403, "forbidden"),
+  ])("returns terminal when transcript save cannot succeed", async (error) => {
+    const result = await stopMeetingBeforeTranscriptFlush({
+      stopRecording: async () => {},
+      isStopped: async () => true,
+      waitForHistory: async () => {},
+      flushTranscript: async () => {
+        throw error;
+      },
+    });
+
+    expect(result).toEqual({ status: "terminal", error });
   });
 
   it.each([401, 403])(

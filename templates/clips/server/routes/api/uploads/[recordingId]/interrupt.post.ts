@@ -222,10 +222,6 @@ export default defineEventHandler(async (event: H3Event) => {
       });
     }
 
-    await reconcileMeetingOnRecordingFailed({
-      recordingId,
-      ownerEmail,
-    });
     const uploadStateUpdated = await compareAndSetAppState(
       uploadStateKey,
       uploadStateRaw,
@@ -247,6 +243,10 @@ export default defineEventHandler(async (event: H3Event) => {
       );
     }
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     console.info("[upload-interrupt] resumable state preserved", {
       recordingId,

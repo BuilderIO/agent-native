@@ -493,6 +493,67 @@ describe("upload lease", () => {
     expect(rows[0]).toEqual({ status: "released", quota_bytes: 0 });
   });
 
+  it("finishes cleanup for every expired upload before surfacing dispatch failures", async () => {
+    const recordingIds = [
+      "hosted-dispatch-failure-a",
+      "hosted-dispatch-failure-b",
+    ];
+    for (const recordingId of recordingIds) {
+      await insertRecording({
+        id: recordingId,
+        status: "uploading",
+        lease: iso(-1_000),
+        storageMode: "hosted",
+      });
+      await execute(client, {
+        sql: `INSERT INTO clips_hosted_clip_allowances
+              (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+              VALUES (?, ?, ?, 'reserved', ?, ?)`,
+        args: [recordingId, "owner@example.com", "user-1", 250, iso(-1_000)],
+      });
+      await execute(client, {
+        sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+        args: [
+          `resumable-session-${recordingId}`,
+          JSON.stringify({
+            providerId: "clips-hosted",
+            sessionId: `session-${recordingId}`,
+            meta: { objectKey: `clips/${recordingId}.webm` },
+            bytesUploaded: 10,
+          }),
+        ],
+      });
+    }
+    mockAbortResumableUploadSession.mockClear();
+    mockReconcileMeetingOnRecordingFailed
+      .mockRejectedValueOnce(new Error("dispatch unavailable"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(reapExpiredUploads({ now: NOW })).rejects.toThrow(
+      "Meeting finalization dispatch failed for 1 expired upload(s)",
+    );
+
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(2);
+    expect(mockReleaseHostedClipAllowanceAfterCleanup).toHaveBeenCalledTimes(2);
+    expect(
+      mockReconcileMeetingOnRecordingFailed.mock.calls
+        .map(([input]) => (input as { recordingId: string }).recordingId)
+        .sort(),
+    ).toEqual(recordingIds);
+    for (const recordingId of recordingIds) {
+      const { rows: allowanceRows } = await execute(client, {
+        sql: `SELECT status FROM clips_hosted_clip_allowances WHERE recording_id = ?`,
+        args: [recordingId],
+      });
+      expect(allowanceRows[0]).toEqual({ status: "released" });
+      const { rows: sessionRows } = await execute(client, {
+        sql: `SELECT key FROM application_state WHERE key = ?`,
+        args: [`resumable-session-${recordingId}`],
+      });
+      expect(sessionRows).toEqual([]);
+    }
+  });
+
   it("retries hosted reservation release after confirmed cleanup", async () => {
     await insertRecording({
       id: "hosted-release-retry",

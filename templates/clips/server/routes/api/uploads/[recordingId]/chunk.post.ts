@@ -803,12 +803,6 @@ export async function handleRecordingChunk(
           ),
         )
         .returning({ id: schema.recordings.id });
-      if (failed.length === 1) {
-        await reconcileMeetingOnRecordingFailed({
-          recordingId,
-          ownerEmail,
-        });
-      }
       return failed.length === 1;
     };
 
@@ -947,6 +941,10 @@ export async function handleRecordingChunk(
           ownerEmail,
         });
       }
+      await reconcileMeetingOnRecordingFailed({
+        recordingId,
+        ownerEmail,
+      });
       setResponseStatus(event, 409);
       return {
         ok: false,
@@ -1052,6 +1050,10 @@ export async function handleRecordingChunk(
           recordingId,
           err: err instanceof Error ? err.message : String(err),
         });
+      });
+      await reconcileMeetingOnRecordingFailed({
+        recordingId,
+        ownerEmail,
       });
       setResponseStatus(event, 413);
       return {
@@ -1383,10 +1385,6 @@ export async function handleRecordingChunk(
         if (failed.length !== 1) {
           throw err;
         }
-        await reconcileMeetingOnRecordingFailed({
-          recordingId,
-          ownerEmail,
-        });
         const failedUploadSnapshot = await readUploadStateForRepair({
           recordingId,
           mode: "buffered",
@@ -1433,6 +1431,10 @@ export async function handleRecordingChunk(
             failureReason,
             updatedAt: new Date().toISOString(),
           },
+        });
+        await reconcileMeetingOnRecordingFailed({
+          recordingId,
+          ownerEmail,
         });
         if (
           repairResult.outcome === "unreadable" ||
@@ -1759,6 +1761,10 @@ async function handleResumableChunk(
         recordingId,
         err: error instanceof Error ? error.message : String(error),
       });
+    });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
     });
     setResponseStatus(event, 413);
     return {
@@ -2248,10 +2254,6 @@ async function handleResumableChunk(
         recordingPlatform: schema.recordings.recordingPlatform,
       });
     if (failed.length !== 1) throw err;
-    await reconcileMeetingOnRecordingFailed({
-      recordingId,
-      ownerEmail,
-    });
     const failedUploadSnapshot = await readUploadStateForRepair({
       recordingId,
       mode: "resumable",
@@ -2305,6 +2307,10 @@ async function handleResumableChunk(
         failureReason,
         updatedAt: failedAt,
       },
+    });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
     });
     if (
       repairResult.outcome === "unreadable" ||

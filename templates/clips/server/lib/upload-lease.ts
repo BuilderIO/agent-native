@@ -216,6 +216,17 @@ export interface ReapResult {
   hostedCleanupFailed: number;
 }
 
+class UploadReaperDispatchError extends Error {
+  constructor(
+    readonly dispatchFailures: Array<{ recordingId: string; error: unknown }>,
+  ) {
+    super(
+      `Meeting finalization dispatch failed for ${dispatchFailures.length} expired upload(s): ${dispatchFailures.map(({ recordingId }) => recordingId).join(", ")}`,
+    );
+    this.name = "UploadReaperDispatchError";
+  }
+}
+
 export async function markHostedCleanupConfirmed(
   recordingId: string,
   videoUrl: string | null = null,
@@ -382,6 +393,7 @@ export async function reapExpiredUploads(
   let resumableCleanupFailed = 0;
   let hostedReservationsReleased = 0;
   let hostedCleanupFailed = 0;
+  let terminatedRows: Array<Record<string, unknown>> = [];
   if (!dryRun) {
     for (const row of (pendingHostedReleases.rows as Array<
       Record<string, unknown>
@@ -559,8 +571,7 @@ export async function reapExpiredUploads(
       ],
     });
 
-    const terminatedRows =
-      (result.rows as Array<Record<string, unknown>>) ?? [];
+    terminatedRows = (result.rows as Array<Record<string, unknown>>) ?? [];
     const terminated = new Set(terminatedRows.map((row) => String(row.id)));
     expired = expired.filter((row) => terminated.has(row.id));
     failed = terminated.size;
@@ -569,10 +580,6 @@ export async function reapExpiredUploads(
       if (typeof row.owner_email !== "string") {
         throw new Error("Upload timeout row is missing owner email");
       }
-      await reconcileMeetingOnRecordingFailed({
-        recordingId: String(row.id),
-        ownerEmail: row.owner_email,
-      });
       trackRecordingFailure({
         recordingId: String(row.id),
         userId: row.owner_email,
@@ -714,6 +721,31 @@ export async function reapExpiredUploads(
   const scratchKeysDeleted = dryRun
     ? (await selectUnclaimedChunkKeys(limit)).length
     : await deleteUnclaimedChunkScratch(limit);
+
+  if (!dryRun) {
+    const dispatchFailures: Array<{ recordingId: string; error: unknown }> = [];
+    for (const row of terminatedRows) {
+      const recordingId = String(row.id);
+      if (typeof row.owner_email !== "string") {
+        dispatchFailures.push({
+          recordingId,
+          error: new Error("Upload timeout row is missing owner email"),
+        });
+        continue;
+      }
+      try {
+        await reconcileMeetingOnRecordingFailed({
+          recordingId,
+          ownerEmail: row.owner_email,
+        });
+      } catch (error) {
+        dispatchFailures.push({ recordingId, error });
+      }
+    }
+    if (dispatchFailures.length > 0) {
+      throw new UploadReaperDispatchError(dispatchFailures);
+    }
+  }
 
   return {
     dryRun,

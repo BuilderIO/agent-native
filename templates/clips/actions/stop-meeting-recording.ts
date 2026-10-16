@@ -107,15 +107,14 @@ export default defineAction({
     // concurrent stops (desktop detector and a manual click, say) cannot race
     // the read above. The reason rides the same actual_end transition, so a
     // retry can never attach a cause to an end it did not perform.
-    // transcriptStatus stays a plain write: live rows start as "pending", so
-    // "pending" cannot be read as a finalizer claim here; finalize-meeting's
-    // own compare-and-swap guards its claim.
+    // Preserve the first stop's timestamp and transcript state: finalize-meeting
+    // uses both fields as a claim, and repeated stops must not invalidate it.
     const [stoppedMeeting] = await db
       .update(schema.meetings)
       .set({
         actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
-        updatedAt: nowIso,
-        transcriptStatus: hasTranscript ? "ready" : "failed",
+        updatedAt: sql`case when ${schema.meetings.actualEnd} is null then ${nowIso} else ${schema.meetings.updatedAt} end`,
+        transcriptStatus: sql`case when ${schema.meetings.actualEnd} is null then ${hasTranscript ? "ready" : "failed"} else ${schema.meetings.transcriptStatus} end`,
         ...(args.reason
           ? {
               endReason: sql`case when ${schema.meetings.actualEnd} is null then ${args.reason} else ${schema.meetings.endReason} end`,
