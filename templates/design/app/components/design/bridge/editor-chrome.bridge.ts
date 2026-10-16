@@ -24804,6 +24804,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       cancelMoveDrag();
     }
     function onUp(ev) {
+      onMove(ev);
       var controllerEnd = bridgeMoveController.pointerUp(
         bridgeGesturePointer(ev),
       );
