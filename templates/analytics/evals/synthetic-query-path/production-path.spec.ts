@@ -20,6 +20,8 @@ import {
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { FirstPartyAnalyticsValidationError } from "../../server/lib/first-party-analytics-errors.js";
+
 const providerBoundary = vi.hoisted(() => ({
   activeCaseKey: "",
   metricMetadataPageNumbers: [] as number[],
@@ -182,6 +184,7 @@ type Case = {
 type Capture = {
   output?: AgentRunOutput;
   receipt?: EvalProductionPathReceipt;
+  failureReason?: "aborted" | "production_path_failed";
   actionCalls: Step[];
   actionResults: unknown[];
   metricMetadataPages: number[];
@@ -207,6 +210,8 @@ type SafeCsvRow = {
   provenance_distinguished: boolean;
   event_taxonomy_grounded: boolean;
   bounded_grouping_verified: boolean;
+  first_party_div_recovery_verified: boolean;
+  organization_grain_verified: boolean;
   partial_warning_disclosed: boolean;
   latency_ms: number;
   input_tokens: number;
@@ -736,6 +741,130 @@ const cases: readonly Case[] = [
       );
     },
   },
+  {
+    key: "synthetic-dbt-organization-description-does-not-change-grain",
+    prompt:
+      "SYNTHETIC: Show synthetic weekly active product users from 2026-09-01 to 2026-09-30 by organization with weekly buckets. Do not change the requested organization grain based on unrelated descriptive wording.",
+    actionAllowlist: ["query-dbt-semantic-metric", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["query-dbt-semantic-metric"] },
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          groupBy: [
+            { name: "metric_time", grain: "WEEK" },
+            { name: "synthetic_organization_id" },
+          ],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+      },
+    ],
+    finalText:
+      "The synthetic MetricFlow result for 2026-09-01 through 2026-09-30 is 18 weekly active product users, grouped by organization and week. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const queryCall = actionCalls.find(
+        (call) => call.name === "query-dbt-semantic-metric",
+      );
+      const success = actionResults.find(
+        (result) =>
+          result &&
+          typeof result === "object" &&
+          (result as { status?: unknown }).status === "success",
+      ) as
+        | {
+            querySpec?: {
+              timeRange?: { startDate?: string; endDate?: string };
+              groupBy?: Array<{ name?: string; grain?: string }>;
+            };
+            metric?: {
+              dimensions?: Array<{ name?: string; description?: string }>;
+            };
+          }
+        | undefined;
+      const text = output?.text.toLowerCase() ?? "";
+      return (
+        output?.toolCalls.filter((name) => name === "query-dbt-semantic-metric")
+          .length === 1 &&
+        queryCall?.input.metricName ===
+          "synthetic_weekly_active_product_users" &&
+        JSON.stringify(success?.querySpec?.timeRange) ===
+          JSON.stringify({ startDate: "2026-09-01", endDate: "2026-09-30" }) &&
+        success?.querySpec?.groupBy?.some(
+          (group) => group.name === "synthetic_organization_id",
+        ) === true &&
+        success.metric?.dimensions?.some(
+          (dimension) =>
+            dimension.name === "synthetic_organization_id" &&
+            dimension.description === "Top-level tier of each organization.",
+        ) === true &&
+        text.includes("grouped by organization and week") &&
+        text.includes("synthetic fixture") &&
+        !text.includes("does not match the requested organization grain")
+      );
+    },
+  },
+  {
+    key: "synthetic-first-party-div-recovery",
+    prompt:
+      "SYNTHETIC: Calculate average synthetic event rows per day in September. If first-party Analytics rejects DIV, rewrite it once with division by NULLIF while preserving the source and date range.",
+    actionAllowlist: ["query-agent-native-analytics", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["query-agent-native-analytics"] },
+      },
+      {
+        name: "query-agent-native-analytics",
+        input: {
+          sql: "SELECT DIV(SUM(event_count), COUNT(DISTINCT event_date)) AS avg_events_per_day FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+        },
+      },
+      {
+        name: "query-agent-native-analytics",
+        input: {
+          sql: "SELECT SUM(event_count) / NULLIF(COUNT(DISTINCT event_date), 0) AS avg_events_per_day FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+        },
+      },
+    ],
+    finalText:
+      "The synthetic average is 4.2 event rows per day for 2026-09-01 through 2026-09-30. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const calls = actionCalls.filter(
+        (call) => call.name === "query-agent-native-analytics",
+      );
+      const failed = actionResults[0] as { error?: string } | undefined;
+      const succeeded = actionResults[1] as
+        | { rows?: Array<Record<string, unknown>> }
+        | undefined;
+      const firstSql = String(calls[0]?.input.sql ?? "");
+      const correctedSql = String(calls[1]?.input.sql ?? "");
+      const text = output?.text.toLowerCase() ?? "";
+      return (
+        calls.length === 2 &&
+        firstSql.includes("DIV(SUM(event_count)") &&
+        correctedSql.includes("/ NULLIF(COUNT(DISTINCT event_date), 0)") &&
+        correctedSql.includes("analytics_event_daily_rollups") &&
+        correctedSql.includes("event_date >= '2026-09-01'") &&
+        correctedSql.includes("event_date < '2026-10-01'") &&
+        failed?.error?.includes(
+          "The first-party Analytics SQL policy rejects DIV()",
+        ) === true &&
+        failed.error.includes("numerator / NULLIF(denominator, 0)") &&
+        failed.error.includes("same source, filters, and grain") &&
+        !failed.error.includes("provider detail") &&
+        succeeded?.rows?.[0]?.avg_events_per_day === 4.2 &&
+        text.includes("synthetic average is 4.2") &&
+        text.includes("synthetic fixture") &&
+        output?.toolCalls.filter(
+          (name) => name === "query-agent-native-analytics",
+        ).length === 2
+      );
+    },
+  },
 ];
 
 const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
@@ -759,6 +888,8 @@ const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
   "provenance_distinguished",
   "event_taxonomy_grounded",
   "bounded_grouping_verified",
+  "first_party_div_recovery_verified",
+  "organization_grain_verified",
   "partial_warning_disclosed",
   "latency_ms",
   "input_tokens",
@@ -782,6 +913,10 @@ function renderSafeCsv(rows: readonly SafeCsvRow[]): string {
       ),
     ].join("\n") + "\n"
   );
+}
+
+function isBaselineRun(): boolean {
+  return process.env.ANALYTICS_QUERY_EVAL_PHASE === "baseline";
 }
 
 function makeEngine(testCase: Case): AgentEngine {
@@ -865,11 +1000,11 @@ function safeRow(
   const actionCallCount = callNames.filter(
     (name) => name !== "tool-search",
   ).length;
+  const aborted =
+    capture.failureReason === "aborted" ||
+    Boolean(output?.error && /abort|timeout/i.test(output.error));
   return {
-    phase:
-      process.env.ANALYTICS_QUERY_EVAL_PHASE === "baseline"
-        ? "baseline"
-        : "candidate",
+    phase: isBaselineRun() ? "baseline" : "candidate",
     source_revision: /^[0-9a-f]{40}(?:\+worktree)?$/.test(
       process.env.ANALYTICS_QUERY_EVAL_SOURCE_REVISION ?? "",
     )
@@ -881,11 +1016,12 @@ function safeRow(
     score: scored ? 1 : 0,
     reason_code: scored
       ? "pass"
-      : output?.ok
-        ? "contract_failed"
-        : "production_path_failed",
+      : aborted
+        ? "aborted"
+        : (capture.failureReason ??
+          (output?.ok ? "contract_failed" : "production_path_failed")),
     completed: output?.ok === true,
-    aborted: Boolean(output?.error && /abort|timeout/i.test(output.error)),
+    aborted,
     production_path_invoked: receipt?.productionAgentLoopInvoked === true,
     guard_applied: receipt?.finalResponseGuardApplied === true,
     usage_captured:
@@ -899,6 +1035,12 @@ function safeRow(
     schema_search_call_count: callNames.filter(
       (name) => name === "search-bigquery-schema",
     ).length,
+    first_party_div_recovery_verified:
+      testCase.key === "synthetic-first-party-div-recovery" && scored,
+    organization_grain_verified:
+      testCase.key ===
+        "synthetic-dbt-organization-description-does-not-change-grain" &&
+      scored,
     provenance_distinguished:
       testCase.key === "synthetic-source-provenance-ambiguity" &&
       (output?.text.toLowerCase().includes("approved") ?? false) &&
@@ -914,6 +1056,7 @@ function safeRow(
         "synthetic-dbt-paginated-bounded-grouping",
         "synthetic-dbt-rolling-window-product-category",
         "synthetic-latest-monthly-ai-credits-by-workspace",
+        "synthetic-dbt-organization-description-does-not-change-grain",
       ].includes(testCase.key) &&
       (output?.text
         .toLowerCase()
@@ -964,6 +1107,19 @@ async function runCase(
       .mockResolvedValueOnce({
         rows: [{ signups: 42 }],
         schema: [{ name: "signups", type: "number" }],
+      });
+  }
+  if (testCase.key === "synthetic-first-party-div-recovery") {
+    providerBoundary.queryFirstPartyAnalytics
+      .mockRejectedValueOnce(
+        new FirstPartyAnalyticsValidationError(
+          "unsupported_function",
+          "First-party analytics queries cannot call unapproved SQL function div",
+        ),
+      )
+      .mockResolvedValueOnce({
+        rows: [{ avg_events_per_day: 4.2 }],
+        schema: [{ name: "avg_events_per_day", type: "number" }],
       });
   }
   providerBoundary.searchAnalyticsQueryCatalog.mockReset();
@@ -1249,6 +1405,9 @@ async function runCase(
         const isMonthlyCreditsCase =
           providerBoundary.activeCaseKey ===
           "synthetic-latest-monthly-ai-credits-by-workspace";
+        const isOrganizationDescriptionCase =
+          providerBoundary.activeCaseKey ===
+          "synthetic-dbt-organization-description-does-not-change-grain";
         const metric = {
           name: isCampaignCategoryCase
             ? "synthetic_campaign_attributed_users"
@@ -1282,7 +1441,9 @@ async function runCase(
               : [
                   {
                     name: "synthetic_organization_id",
-                    description: "Synthetic organization grouping.",
+                    description: isOrganizationDescriptionCase
+                      ? "Top-level tier of each organization."
+                      : "Synthetic organization grouping.",
                     type: "CATEGORICAL",
                     queryableGranularities: [],
                   },
@@ -1327,6 +1488,9 @@ async function runCase(
         const isMonthlyCreditsCase =
           providerBoundary.activeCaseKey ===
           "synthetic-latest-monthly-ai-credits-by-workspace";
+        const isOrganizationDescriptionCase =
+          providerBoundary.activeCaseKey ===
+          "synthetic-dbt-organization-description-does-not-change-grain";
         return {
           response: {
             ok: true,
@@ -1356,7 +1520,15 @@ async function runCase(
                               synthetic_monthly_ai_credits_consumed: 42,
                             },
                           ]
-                        : [[18]],
+                        : isOrganizationDescriptionCase
+                          ? [
+                              {
+                                metric_time: "2026-09-07",
+                                synthetic_organization_id: "org_synthetic_a",
+                                synthetic_weekly_active_product_users: 18,
+                              },
+                            ]
+                          : [[18]],
                   }),
                 },
               },
@@ -1460,11 +1632,30 @@ async function runCase(
     threshold: 1,
   };
   const report = await runEvals([evalCase], runner, { persist: false });
-  if (!capture.output || !capture.receipt) {
-    throw new Error("Synthetic production path omitted output or receipt.");
-  }
   capture.metricMetadataPages = [...providerBoundary.metricMetadataPageNumbers];
   return { capture, passed: report.results[0]?.passed === true };
+}
+
+async function runCaseForEval(
+  testCase: Case,
+): Promise<{ capture: Capture; passed: boolean }> {
+  try {
+    return await runCase(testCase);
+  } catch (error) {
+    const reason =
+      error instanceof Error && /abort|timeout/i.test(error.message)
+        ? "aborted"
+        : "production_path_failed";
+    return {
+      capture: {
+        failureReason: reason,
+        actionCalls: [],
+        actionResults: [],
+        metricMetadataPages: [],
+      },
+      passed: false,
+    };
+  }
 }
 
 beforeAll(async () => {
@@ -1480,80 +1671,88 @@ describe("Analytics synthetic production-path query quality", () => {
     it(`${testCase.key} passes through the production chat path twice`, async () => {
       const caseRows: SafeCsvRow[] = [];
       for (const replicate of [1, 2]) {
-        const { capture, passed } = await runCase(testCase);
+        const { capture, passed } = await runCaseForEval(testCase);
         const row = safeRow(testCase, replicate, capture);
         csvRows.push(row);
         caseRows.push(row);
         expect(passed).toBe(row.score === 1);
       }
       for (const row of caseRows) {
-        expect(
-          row.reason_code,
-          `${testCase.key} replicate ${row.replicate}`,
-        ).toBe("pass");
-        expect(row.production_path_invoked).toBe(true);
-        expect(row.guard_applied).toBe(true);
-        expect(row.usage_captured).toBe(true);
+        if (!isBaselineRun() || row.score === 1) {
+          expect(
+            row.reason_code,
+            `${testCase.key} replicate ${row.replicate}`,
+          ).toBe("pass");
+          expect(row.production_path_invoked).toBe(true);
+          expect(row.guard_applied).toBe(true);
+          expect(row.usage_captured).toBe(true);
+        }
       }
     });
   }
 
-  it("corrects a first-party SQL failure once without exposing backend text", async () => {
-    const testCase: Case = {
-      key: "synthetic-first-party-unsupported-sql-recovery",
-      prompt:
-        "SYNTHETIC: Count synthetic signup events in September. If FILTER is unsupported by the first-party BigQuery path, rewrite it once as a conditional aggregate and report only the synthetic result.",
-      actionAllowlist: ["query-agent-native-analytics", "tool-search"],
-      steps: [
-        {
-          name: "query-agent-native-analytics",
-          input: {
-            sql: "SELECT COUNT(*) FILTER (WHERE event_name = 'signup') AS signups FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+  const candidateOnlyIt = isBaselineRun() ? it.skip : it;
+  candidateOnlyIt(
+    "corrects a first-party SQL failure once without exposing backend text",
+    async () => {
+      const testCase: Case = {
+        key: "synthetic-first-party-unsupported-sql-recovery",
+        prompt:
+          "SYNTHETIC: Count synthetic signup events in September. If FILTER is unsupported by the first-party BigQuery path, rewrite it once as a conditional aggregate and report only the synthetic result.",
+        actionAllowlist: ["query-agent-native-analytics", "tool-search"],
+        steps: [
+          {
+            name: "query-agent-native-analytics",
+            input: {
+              sql: "SELECT COUNT(*) FILTER (WHERE event_name = 'signup') AS signups FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+            },
           },
-        },
-        {
-          name: "query-agent-native-analytics",
-          input: {
-            sql: "SELECT SUM(CASE WHEN event_name = 'signup' THEN event_count ELSE 0 END) AS signups FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+          {
+            name: "query-agent-native-analytics",
+            input: {
+              sql: "SELECT SUM(CASE WHEN event_name = 'signup' THEN event_count ELSE 0 END) AS signups FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+            },
           },
+        ],
+        finalText:
+          "The first-party query rejected FILTER syntax. I rewrote it as conditional aggregation and reran it successfully: the synthetic result is 42 signups for September 2026. This is a synthetic fixture, not a live Builder.io measurement.",
+        check: ({ output, actionCalls, actionResults }) => {
+          const calls = actionCalls.filter(
+            (call) => call.name === "query-agent-native-analytics",
+          );
+          const failed = actionResults[0] as { error?: string } | undefined;
+          const succeeded = actionResults[1] as
+            | { rows?: Array<Record<string, unknown>> }
+            | undefined;
+          const text = output?.text.toLowerCase() ?? "";
+          return (
+            calls.length === 2 &&
+            String(calls[0]?.input.sql).includes("FILTER (WHERE") &&
+            String(calls[1]?.input.sql).includes("CASE WHEN") &&
+            failed?.error?.includes(
+              "unsupported_sql; recovery=rewrite_once",
+            ) === true &&
+            failed.error.includes("SUM(CASE WHEN condition THEN value") &&
+            !failed.error.includes("secret_column") &&
+            succeeded?.rows?.[0]?.signups === 42 &&
+            text.includes("rewrote it as conditional aggregation") &&
+            text.includes("synthetic result is 42 signups") &&
+            text.includes("synthetic fixture") &&
+            output?.toolCalls.filter(
+              (name) => name === "query-agent-native-analytics",
+            ).length === 2
+          );
         },
-      ],
-      finalText:
-        "The first-party query rejected FILTER syntax. I rewrote it as conditional aggregation and reran it successfully: the synthetic result is 42 signups for September 2026. This is a synthetic fixture, not a live Builder.io measurement.",
-      check: ({ output, actionCalls, actionResults }) => {
-        const calls = actionCalls.filter(
-          (call) => call.name === "query-agent-native-analytics",
-        );
-        const failed = actionResults[0] as { error?: string } | undefined;
-        const succeeded = actionResults[1] as
-          | { rows?: Array<Record<string, unknown>> }
-          | undefined;
-        const text = output?.text.toLowerCase() ?? "";
-        return (
-          calls.length === 2 &&
-          String(calls[0]?.input.sql).includes("FILTER (WHERE") &&
-          String(calls[1]?.input.sql).includes("CASE WHEN") &&
-          failed?.error?.includes("unsupported_sql; recovery=rewrite_once") ===
-            true &&
-          failed.error.includes("SUM(CASE WHEN condition THEN value") &&
-          !failed.error.includes("secret_column") &&
-          succeeded?.rows?.[0]?.signups === 42 &&
-          text.includes("rewrote it as conditional aggregation") &&
-          text.includes("synthetic result is 42 signups") &&
-          text.includes("synthetic fixture") &&
-          output?.toolCalls.filter(
-            (name) => name === "query-agent-native-analytics",
-          ).length === 2
-        );
-      },
-    };
+      };
 
-    for (const replicate of [1, 2]) {
-      const { capture, passed } = await runCase(testCase);
-      expect(passed, `synthetic retry replicate ${replicate}`).toBe(true);
-      expect(capture.receipt?.finalResponseGuardApplied).toBe(true);
-    }
-  }, 60_000);
+      for (const replicate of [1, 2]) {
+        const { capture, passed } = await runCase(testCase);
+        expect(passed, `synthetic retry replicate ${replicate}`).toBe(true);
+        expect(capture.receipt?.finalResponseGuardApplied).toBe(true);
+      }
+    },
+    60_000,
+  );
 
   it("keeps the exported CSV on its allowlisted, privacy-safe schema", async () => {
     const header = SAFE_CSV_COLUMNS.join(",");
@@ -1577,10 +1776,12 @@ describe("Analytics synthetic production-path query quality", () => {
     ).toBe(false);
     expect(renderSafeCsv([]).split("\n")[0]).toBe(header);
     if (process.env.ANALYTICS_QUERY_EVAL_WRITE_CSV === "1") {
-      const target = path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "SYNTHETIC-analytics-query-quality-v2.csv",
-      );
+      const target = process.env.ANALYTICS_QUERY_EVAL_OUTPUT
+        ? path.resolve(process.env.ANALYTICS_QUERY_EVAL_OUTPUT)
+        : path.join(
+            path.dirname(fileURLToPath(import.meta.url)),
+            "SYNTHETIC-analytics-query-quality-v2.csv",
+          );
       await writeFile(target, renderSafeCsv(csvRows), { mode: 0o600 });
     }
   });
