@@ -89,7 +89,9 @@ type Row = Record<string, unknown>;
 /**
  * Every row of a keyset scan, a page at a time. A page starts at the last key
  * it saw, inclusive, and drops that row again: a key may be '', and nothing
- * sorts before '' to start an exclusive scan from.
+ * sorts before '' to start an exclusive scan from. Each read returns at most
+ * `batch` rows, the row it resumes from included, so a batch sized to the
+ * query budget stays inside it.
  */
 async function* keysetPages(
   readPage: (from: string[], limit: number) => Promise<Row[]>,
@@ -97,9 +99,11 @@ async function* keysetPages(
   width: number,
   batch: number,
 ): AsyncGenerator<Row[]> {
+  // A page holding only the row it resumes from would end the scan early.
+  if (batch < 2) throw new Error("A keyset batch must hold at least two rows");
   let last: string[] | null = null;
   while (true) {
-    const rows = await readPage(last ?? Array(width).fill(""), batch + 1);
+    const rows = await readPage(last ?? Array(width).fill(""), batch);
     const resumed = last !== null && rows.length > 0 && sameKey(rows[0], last);
     const fresh = resumed ? rows.slice(1) : rows;
     if (fresh.length === 0) return;
@@ -334,7 +338,14 @@ function appliesTo(markdown: string, operation: SuggestionOperation) {
   return resolveMarkdownSuggestionRange(markdown, operation) !== null;
 }
 
-/** Where a pending suggestion's anchor lands, or why it cannot be judged. */
+/**
+ * Where a pending suggestion's anchor lands, or why it cannot be judged. This
+ * follows Content's accept path up to placing the anchor, the step
+ * canonicalizing can break. It does not replay the checks after placement
+ * (the structure check, collection and inline-database refusals) or the
+ * fallback through ranges of already accepted sibling suggestions, so a
+ * stranded anchor may still be placed that way.
+ */
 function suggestionOutcome(
   operations: Record<string, unknown>[],
   page: AgentFormPage,

@@ -1040,11 +1040,27 @@ describe("stored-form census against a local database", () => {
     await db.execute(
       "INSERT INTO document_comments (id, document_id, thread_id, content, quoted_text, author_email) SELECT 'bulk-comment-' || lpad(i::text, 3, '0'), 'page-agent', 't', 'c', 'bold claim', 'a@example.com' FROM generate_series(0, 449) AS i",
     );
+    let largestRead = 0;
+    const counting: DbExec = {
+      ...db,
+      close: async () => {},
+      transaction: (fn) =>
+        db.transaction!((tx) =>
+          fn({
+            ...tx,
+            execute: async (statement) => {
+              const result = await tx.execute(statement);
+              largestRead = Math.max(largestRead, result.rows.length);
+              return result;
+            },
+          }),
+        ),
+    };
     const census = async () => {
       const { run, stdout } = cli(
         ["--database-url-env=CENSUS_URL", "--max-ids=1000"],
         { CENSUS_URL: "pglite:memory" },
-        async () => ({ ...db, close: async () => {} }),
+        async () => counting,
       );
       expect(await run).toBe(0);
       return JSON.parse(stdout.join(""));
@@ -1052,6 +1068,8 @@ describe("stored-form census against a local database", () => {
 
     const report = await census();
     expect(report.scanned.documents).toBe(4 + 250 + 1);
+    // A batch is 32 MiB of 256 KiB bodies or quotes, the resumed row included.
+    expect(largestRead).toBe(128);
     expect(report.bodies.canonicalButMisread.pageIds).toContain("");
     const comments = Object.values(
       report.agentFormPages.commentAnchors as Record<string, { items: number }>,
