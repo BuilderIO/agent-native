@@ -8,7 +8,7 @@ import {
   findNetlifyReleaseMigrationIssues,
   validateBetaPrebuiltReleaseEnvironment,
   validateBetaSchemaOwnerRuntimeContract,
-  validateFrameworkOnlyReleaseScript,
+  validateStarterReleaseScript,
   validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
@@ -152,17 +152,21 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
     assert.deepEqual(validateManagedDrizzleMigrationOwnership(), []);
   });
 
-  it("rejects any release entrypoint beyond the framework migration", () => {
+  it("accepts only the starter release entrypoint", () => {
     const frameworkOnly = `
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
 import { loadEnv } from "@agent-native/core/scripts";
-import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+import {
+  runAppReleaseMigrations,
+  runFrameworkReleaseMigrations,
+} from "@agent-native/core/server";
 
 loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
+    await runAppReleaseMigrations();
   });
 }
 
@@ -173,21 +177,27 @@ try {
 }
 `;
     assert.deepEqual(
-      validateFrameworkOnlyReleaseScript(
-        frameworkOnly,
+      validateStarterReleaseScript(frameworkOnly, "migrate-production.ts"),
+      [],
+    );
+    // A framework-only script leaves a starter app's own tables uncreated on a
+    // release-owned deploy, which skips them at boot.
+    assert.notDeepEqual(
+      validateStarterReleaseScript(
+        frameworkOnly.replace("    await runAppReleaseMigrations();\n", ""),
         "migrate-production.ts",
       ),
       [],
     );
     assert.notDeepEqual(
-      validateFrameworkOnlyReleaseScript(
+      validateStarterReleaseScript(
         `import { runMigrations } from "../server/plugins/db.ts";\n${frameworkOnly}`,
         "migrate-production.ts",
       ),
       [],
     );
     assert.notDeepEqual(
-      validateFrameworkOnlyReleaseScript(
+      validateStarterReleaseScript(
         `${frameworkOnly}\nasync function runAppMigrations() { await main(); }`,
         "migrate-production.ts",
       ),

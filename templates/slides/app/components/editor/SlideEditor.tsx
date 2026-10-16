@@ -99,6 +99,7 @@ import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
   storedPathOfRenderedElement,
+  NO_ANIMATION_TARGETS,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
 import {
@@ -1216,11 +1217,11 @@ interface SlideEditorProps {
   layersOpen?: boolean;
   /** Close the document layers panel. */
   onCloseLayers?: () => void;
-  /** Open transitions for the currently selected canvas element. */
-  onOpenAnimations?: (target: SelectedAnimationTarget) => void;
+  /** Open transitions for the currently selected canvas elements. */
+  onOpenAnimations?: (targets: SelectedAnimationTarget[]) => void;
   /** Keep the parent in sync with the current canvas selection. */
-  onSelectedAnimationTargetChange?: (
-    target: SelectedAnimationTarget | null,
+  onSelectedAnimationTargetsChange?: (
+    targets: SelectedAnimationTarget[],
   ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
@@ -1243,6 +1244,8 @@ interface SlideEditorProps {
   /** Called by the editor shell before a navigation that must persist the
    *  current contentEditable draft. Returns true when a draft was active. */
   flushInlineEditRef?: { current: (() => boolean) | null };
+  /** Lets the editor shell's app menu reach canvas zoom and object commands. */
+  canvasCommandsRef?: { current: SlideCanvasCommands | null };
   /** Other users (besides the current user) currently viewing/editing THIS
    *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
    *  knows before they clobber someone else's last-writer-wins text edit. */
@@ -1765,6 +1768,16 @@ type ActiveImageCrop = {
   cancel: () => HTMLElement | null;
 };
 
+export interface SlideCanvasCommands {
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  hasObjectSelection: () => boolean;
+  duplicateObjects: () => boolean;
+  deleteObjects: () => boolean;
+}
+
 export default function SlideEditor({
   slide,
   slidePosition,
@@ -1804,7 +1817,7 @@ export default function SlideEditor({
   layersOpen = false,
   onCloseLayers,
   onOpenAnimations,
-  onSelectedAnimationTargetChange,
+  onSelectedAnimationTargetsChange,
   slideId,
   comments = [],
   onSelectCommentThread,
@@ -1814,6 +1827,7 @@ export default function SlideEditor({
   onInlineEditEnd,
   onFlushInlineEdit,
   flushInlineEditRef,
+  canvasCommandsRef,
   presentUsers = [],
   recentEdits = [],
   onComment,
@@ -2083,6 +2097,19 @@ export default function SlideEditor({
     userSetCanvasZoomRef.current = true;
     setCanvasZoom(Math.round(next));
   }, []);
+
+  const canvasZoomIn = useCallback(() => {
+    const next = CANVAS_ZOOM_PRESETS.find((preset) => preset > canvasZoom);
+    setManualCanvasZoom(
+      next ?? CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
+    );
+  }, [canvasZoom, setManualCanvasZoom]);
+  const canvasZoomOut = useCallback(() => {
+    const previous = [...CANVAS_ZOOM_PRESETS]
+      .reverse()
+      .find((preset) => preset < canvasZoom);
+    setManualCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
+  }, [canvasZoom, setManualCanvasZoom]);
 
   usePinchZoom({
     containerRef: scrollContainerRef,
@@ -3024,24 +3051,45 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml],
   );
 
-  const getSelectedAnimationTarget =
-    useCallback((): SelectedAnimationTarget | null => {
-      const element = selectedImg ?? resolveSelectedElement();
-      const scope = element?.closest<HTMLElement>("[data-slide-content-scope]");
+  // One target per selected object, in selection order, so the first one picked
+  // is the one that waits for the click.
+  const getSelectedAnimationTargets =
+    useCallback((): SelectedAnimationTarget[] => {
+      const slideContent = getSlideContent();
+      const elements =
+        multiSelection.size > 0
+          ? Array.from(multiSelection).flatMap((id) => {
+              const element = slideContent?.querySelector<HTMLElement>(
+                `[data-builder-id="${id}"]`,
+              );
+              return element ? [element] : [];
+            })
+          : [selectedImg ?? resolveSelectedElement()].filter(
+              (element) => element !== null,
+            );
+      // Every selected object is on the same slide, so one stored source serves all.
+      const scope = elements[0]?.closest<HTMLElement>(
+        "[data-slide-content-scope]",
+      );
       const stored = scope ? getRenderedSlideSource(scope)?.stored : undefined;
-      if (!element || stored === undefined) return null;
-      // The path is taken from the stored HTML, the one playback resolves
-      // against. The rendered DOM drops svg and similar elements, so its
-      // indices would point at the wrong object at runtime.
-      const elementPath = storedPathOfRenderedElement(stored, element);
-      if (!elementPath) return null;
-      const elementIndex = elementPath[elementPath.length - 1] ?? 0;
-      return {
-        elementIndex,
-        elementPath,
-        preview: getElementPreview(element, `Element ${elementIndex + 1}`),
-      };
-    }, [resolveSelectedElement, selectedImg]);
+      if (stored === undefined) return NO_ANIMATION_TARGETS;
+      const targets = elements.flatMap((element) => {
+        // The path is taken from the stored HTML, the one playback resolves
+        // against. The rendered DOM drops svg and similar elements, so its
+        // indices would point at the wrong object at runtime.
+        const elementPath = storedPathOfRenderedElement(stored, element);
+        if (!elementPath) return [];
+        const elementIndex = elementPath[elementPath.length - 1] ?? 0;
+        return [
+          {
+            elementIndex,
+            elementPath,
+            preview: getElementPreview(element, `Element ${elementIndex + 1}`),
+          },
+        ];
+      });
+      return targets.length > 0 ? targets : NO_ANIMATION_TARGETS;
+    }, [getSlideContent, multiSelection, resolveSelectedElement, selectedImg]);
 
   const commentOnSelectedElement = useCallback(() => {
     const target = selectedImg ?? resolveSelectedElement();
@@ -3065,8 +3113,8 @@ export default function SlideEditor({
   }, [ensureCommentObjectId, onComment, resolveSelectedElement, selectedImg]);
 
   useEffect(() => {
-    onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
-  }, [getSelectedAnimationTarget, onSelectedAnimationTargetChange]);
+    onSelectedAnimationTargetsChange?.(getSelectedAnimationTargets());
+  }, [getSelectedAnimationTargets, onSelectedAnimationTargetsChange]);
 
   const buildSelectionState = useCallback(
     (
@@ -5518,6 +5566,39 @@ export default function SlideEditor({
     storeCopiedObjects(selection);
     return deleteSelectedElements(selection);
   }, [deleteSelectedElements, getClipboardSelection, storeCopiedObjects]);
+
+  const canvasZoomEnabled = !slide.excalidrawData;
+  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
+  const canZoomIn =
+    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
+  useEffect(() => {
+    if (!canvasCommandsRef) return;
+    const commands: SlideCanvasCommands = {
+      canZoomIn: canvasZoomEnabled && canZoomIn,
+      canZoomOut: canvasZoomEnabled && canZoomOut,
+      zoomIn: canvasZoomIn,
+      zoomOut: canvasZoomOut,
+      hasObjectSelection: () => getClipboardSelection() !== null,
+      duplicateObjects: duplicateSelectedObjects,
+      deleteObjects: () => deleteSelectedElements(),
+    };
+    canvasCommandsRef.current = commands;
+    return () => {
+      if (canvasCommandsRef.current === commands) {
+        canvasCommandsRef.current = null;
+      }
+    };
+  }, [
+    canvasCommandsRef,
+    canZoomIn,
+    canZoomOut,
+    canvasZoomEnabled,
+    canvasZoomIn,
+    canvasZoomOut,
+    deleteSelectedElements,
+    duplicateSelectedObjects,
+    getClipboardSelection,
+  ]);
 
   // The object payload stays editor-local while its native marker identifies
   // an in-app layer copy. It intentionally does not survive a deck switch.
@@ -10309,7 +10390,7 @@ export default function SlideEditor({
   const multiSelectionBounds = unionDomRects(
     Array.from(multiSelectionRects.values()).map((value) => value.rect),
   );
-  const zoomControls = slide.excalidrawData
+  const zoomControls = !canvasZoomEnabled
     ? undefined
     : {
         value: canvasZoom,
@@ -10444,11 +10525,6 @@ export default function SlideEditor({
     </>
   );
 
-  // Excalidraw slides have no selectable slide content, so the row collapses
-  // to its slide-level state — but that state owns the background picker, and
-  // SlideRenderer paints `slide.background` behind the drawing, so the row has
-  // to stay mounted or that background becomes uneditable. Write access is
-  // supplied by the caller for both standalone and embedded editors.
   const setSelectedImageFit = (newFit: "cover" | "contain") => {
     if (!imageOverlay || imageOverlay.objectFit === newFit) return;
     finishImageCrop(true);
@@ -10502,8 +10578,8 @@ export default function SlideEditor({
     onComment: commentOnSelectedElement,
     onOpenAnimations: onOpenAnimations
       ? () => {
-          const target = getSelectedAnimationTarget();
-          if (target) onOpenAnimations(target);
+          const targets = getSelectedAnimationTargets();
+          if (targets.length > 0) onOpenAnimations(targets);
         }
       : undefined,
     onChange: applySelectedStylePatch,
@@ -10540,6 +10616,11 @@ export default function SlideEditor({
     onAgentQuickPick: sendQuickPickToAgent,
   };
 
+  // Excalidraw slides have no selectable slide content, so the row collapses
+  // to its slide-level state — but that state owns the background picker, and
+  // SlideRenderer paints `slide.background` behind the drawing, so the row has
+  // to stay mounted or that background becomes uneditable. Write access is
+  // supplied by the caller for both standalone and embedded editors.
   const showContextToolbars = !readOnly;
   const contextToolbar = showContextToolbars ? (
     <div

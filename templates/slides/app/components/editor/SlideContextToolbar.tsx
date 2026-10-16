@@ -153,6 +153,49 @@ function alignIcon(textAlign: string) {
   return IconAlignLeft;
 }
 
+type StyleScrubProps = {
+  snapshot: SlideStyleSnapshot;
+  onChange: (patch: SlideStylePatch) => boolean | void;
+  className?: string;
+};
+
+function OpacityScrub({ snapshot, onChange, className }: StyleScrubProps) {
+  const t = useT();
+  return (
+    <VisualScrubInput
+      label={t("styleInspector.opacity")}
+      icon={IconGridDots}
+      prefix="icon"
+      value={snapshot.opacity}
+      min={0}
+      max={100}
+      step={5}
+      unit="%"
+      className={className}
+      onChange={(opacity) => onChange({ opacity: String(opacity / 100) })}
+    />
+  );
+}
+
+function CornerRadiusScrub({ snapshot, onChange, className }: StyleScrubProps) {
+  const t = useT();
+  return (
+    <VisualScrubInput
+      label={t("styleInspector.cornerRadius")}
+      icon={IconBorderRadius}
+      prefix="icon"
+      value={snapshot.borderRadius}
+      min={0}
+      max={96}
+      unit="px"
+      className={className}
+      onChange={(radius) =>
+        onChange({ borderRadius: `${formatValue(radius)}px` })
+      }
+    />
+  );
+}
+
 function Divider() {
   return <div className={TOOLBAR_DIVIDER} />;
 }
@@ -321,7 +364,17 @@ export function SlideContextToolbar({
   // The field holds what was typed until the object paints it; a refused
   // rotation never will, so the field starts over from what the object paints.
   const [refusedRotations, setRefusedRotations] = useState(0);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("");
+  // Start each open from the selected text's own link, never the last URL typed.
+  const openLinkPopover = (open: boolean) => {
+    if (open) {
+      const node = window.getSelection()?.anchorNode;
+      const element = node instanceof Element ? node : node?.parentElement;
+      setLinkHref(element?.closest("a[href]")?.getAttribute("href") ?? "");
+    }
+    setLinkOpen(open);
+  };
   const [lockRatio, setLockRatio] = useState(false);
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
@@ -444,32 +497,17 @@ export function SlideContextToolbar({
         : [];
 
   const opacityControl = snapshot && (
-    <VisualScrubInput
-      label={t("styleInspector.opacity")}
-      icon={IconGridDots}
-      prefix="icon"
-      value={snapshot.opacity}
-      min={0}
-      max={100}
-      step={5}
-      unit="%"
+    <OpacityScrub
+      snapshot={snapshot}
+      onChange={onChange}
       className={SCRUB_CLASS}
-      onChange={(opacity) => onChange({ opacity: String(opacity / 100) })}
     />
   );
   const radiusControl = snapshot && (
-    <VisualScrubInput
-      label={t("styleInspector.cornerRadius")}
-      icon={IconBorderRadius}
-      prefix="icon"
-      value={snapshot.borderRadius}
-      min={0}
-      max={96}
-      unit="px"
+    <CornerRadiusScrub
+      snapshot={snapshot}
+      onChange={onChange}
       className={SCRUB_CLASS}
-      onChange={(radius) =>
-        onChange({ borderRadius: `${formatValue(radius)}px` })
-      }
     />
   );
   const sizeControls = snapshot && (
@@ -889,7 +927,7 @@ export function SlideContextToolbar({
       <Divider />
       {onSetLink && (
         <>
-          <Popover>
+          <Popover open={linkOpen} onOpenChange={openLinkPopover}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <PopoverTrigger asChild>
@@ -917,6 +955,7 @@ export function SlideContextToolbar({
                 onSubmit={(event) => {
                   event.preventDefault();
                   onSetLink(linkHref.trim() || null);
+                  setLinkOpen(false);
                 }}
               >
                 <Input
