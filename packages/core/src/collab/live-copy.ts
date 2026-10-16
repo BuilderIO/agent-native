@@ -543,51 +543,85 @@ function persistOutcome(docId: string, value: unknown): LiveCopyOutcome {
   );
 }
 
+/** A caller's own write, added to the transaction of one live-copy write. */
+export type LiveCopyCallPersist = (tx: DbExec) => Promise<void>;
+
+async function runLiveCopyTransaction(
+  docId: string,
+  write: (tx: DbExec) => Promise<void>,
+): Promise<void> {
+  const exec = getDbExec();
+  if (typeof exec.transaction !== "function") {
+    throw new LiveCopyError(
+      "write_refused",
+      docId,
+      `Live copy ${docId} needs a database that supports transactions.`,
+      { reason: "no_transactions" },
+    );
+  }
+  await exec.transaction(write);
+}
+
+async function runCallPersist(
+  docId: string,
+  tx: DbExec,
+  persist: LiveCopyCallPersist,
+): Promise<void> {
+  const value: unknown = await withDbExec(tx, () => persist(tx));
+  if (value !== undefined) {
+    throw new TypeError(
+      `The persist passed for live copy ${docId} must return nothing.`,
+    );
+  }
+}
+
 /**
- * Commits a derived state: the binding's persist hook, then the versioned
- * `_collab_docs` write, in one transaction. Returns null when another
- * writer moved the version first; nothing is written in that case.
+ * Commits a derived state: the binding's persist hook, the caller's, then
+ * the versioned `_collab_docs` write, in one transaction. Returns null when
+ * another writer moved the version first; nothing is written in that case.
  */
 export async function commitLiveCopy(
   binding: LiveCopyBinding,
   commit: LiveCopyCommit,
+  callPersist?: LiveCopyCallPersist,
 ): Promise<LiveCopyOutcome | null> {
   assertOwnTransaction(commit.docId, "commitLiveCopy");
   await ensureTable();
-  const exec = getDbExec();
   let outcome: LiveCopyOutcome = { liveCopy: "derived" };
-  const write = async (tx: DbExec) => {
-    const persist = binding.persist;
-    if (persist) {
-      // The pool's own transaction does not scope getDbExec(); without this,
-      // app helpers inside persist query a second connection, outside the
-      // row locks persist holds.
-      const value = await withDbExec(tx, () => persist(tx, commit));
-      outcome = persistOutcome(commit.docId, value);
-    }
-    const saved = await trySaveYDocStateWithClient(
-      tx,
-      commit.docId,
-      commit.state,
-      commit.text,
-      commit.previousVersion,
-    );
-    if (!saved) throw new CommitVersionConflict();
-  };
-
-  if (typeof exec.transaction !== "function") {
-    throw new LiveCopyError(
-      "write_refused",
-      commit.docId,
-      `Live copy ${commit.docId} needs a database that supports transactions.`,
-      { reason: "no_transactions" },
-    );
-  }
   try {
-    await exec.transaction(write);
+    await runLiveCopyTransaction(commit.docId, async (tx) => {
+      const persist = binding.persist;
+      if (persist) {
+        // The pool's own transaction does not scope getDbExec(); without
+        // this, app helpers inside persist query a second connection,
+        // outside the row locks persist holds.
+        const value = await withDbExec(tx, () => persist(tx, commit));
+        outcome = persistOutcome(commit.docId, value);
+      }
+      if (callPersist) await runCallPersist(commit.docId, tx, callPersist);
+      const saved = await trySaveYDocStateWithClient(
+        tx,
+        commit.docId,
+        commit.state,
+        commit.text,
+        commit.previousVersion,
+      );
+      if (!saved) throw new CommitVersionConflict();
+    });
     return outcome;
   } catch (error) {
     if (error instanceof CommitVersionConflict) return null;
     throw error;
   }
+}
+
+/** Runs a caller's persist by itself, for a write that committed nothing. */
+export async function persistLiveCopyCall(
+  docId: string,
+  callPersist: LiveCopyCallPersist,
+): Promise<void> {
+  assertOwnTransaction(docId, "persistLiveCopyCall");
+  await runLiveCopyTransaction(docId, (tx) =>
+    runCallPersist(docId, tx, callPersist),
+  );
 }

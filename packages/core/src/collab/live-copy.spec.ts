@@ -853,6 +853,97 @@ describe("mutateLiveCopy", () => {
     expect(error).toMatchObject({ code: "version_conflict", reason: "2" });
   });
 
+  it("commits a call's own rows with its edit, or neither", async () => {
+    const order: string[] = [];
+    let peerWrites = 0;
+    let seededState = new Uint8Array(0);
+    const binding = define({
+      runner: intercepted(async (task) => {
+        if (task !== "liveCopy.edit" || peerWrites > 0) return;
+        peerWrites += 1;
+        const { trySaveYDocStateWithClient } = await import("./storage.js");
+        const peer = clientEdit(seededState, appendParagraph("peer"));
+        await trySaveYDocStateWithClient(
+          exec,
+          "live:doc",
+          Y.mergeUpdates([seededState, peer]),
+          "base\npeer",
+          0,
+        );
+      }),
+      persist: async () => {
+        order.push("binding");
+      },
+    });
+    seededState = (
+      await manager.seedLiveCopy(binding, "live:doc", { source: "base" })
+    ).state;
+    const claim = (id: string) =>
+      pglite
+        .prepare("SELECT body, version FROM bodies WHERE doc_id = ?")
+        .get(id);
+    const claimWith = (id: string) => async (tx: DbExec, change: unknown) => {
+      order.push("call");
+      const { version } = change as { version: number };
+      await tx.execute({
+        sql: "INSERT INTO bodies (doc_id, body, version) VALUES (?, ?, ?)",
+        args: [id, JSON.stringify(change), version],
+      });
+    };
+
+    // A peer commit forces a second attempt; the first attempt's claim
+    // rolls back with it.
+    const accepted = await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "accepted" },
+      persist: claimWith("claim:1"),
+    });
+    expect(accepted).toMatchObject({ changed: true, version: 2, attempts: 2 });
+    expect(order).toEqual(["binding", "binding", "call", "binding", "call"]);
+    expect(await claim("claim:1")).toEqual({
+      body: JSON.stringify({ changed: true, version: 2, text: accepted.text }),
+      version: 2,
+    });
+
+    // A throw rolls back the edit too, and nothing is broadcast.
+    const broadcasts = emitted.length;
+    const error = await rejection(
+      manager.mutateLiveCopy(binding, "live:doc", {
+        edit: "append",
+        input: { text: "lost" },
+        persist: async (tx, change) => {
+          await claimWith("claim:2")(tx, change);
+          throw new Error("suggestion already decided");
+        },
+      }),
+    );
+    expect(error.message).toBe("suggestion already decided");
+    expect(await claim("claim:2")).toBeUndefined();
+    expect(await row("live:doc")).toMatchObject({ version: 2 });
+    expect(emitted).toHaveLength(broadcasts);
+
+    // An edit that changes nothing still records the call's rows.
+    await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "unchanged",
+      persist: claimWith("claim:3"),
+    });
+    expect(await claim("claim:3")).toEqual({
+      body: JSON.stringify({ changed: false, version: 2, text: accepted.text }),
+      version: 2,
+    });
+
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(binding, "live:doc", {
+          edit: "append",
+          input: { text: "x" },
+          persist: (async () => ({ derived: false })) as never,
+        }),
+      ),
+    ).toBeInstanceOf(TypeError);
+    expect(await row("live:doc")).toMatchObject({ version: 2 });
+  });
+
   it("rolls back the whole commit when the persist hook throws", async () => {
     let fail = false;
     const binding = define({
