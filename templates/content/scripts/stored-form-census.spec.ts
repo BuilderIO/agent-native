@@ -305,6 +305,47 @@ describe("stored-form census guards (SF-09)", () => {
     }
   });
 
+  it("refuses a URL parameter value outside its list, without printing it", async () => {
+    for (const parameter of ["sslmode", "channel_binding"]) {
+      const { run, events } = cli(
+        BRANCH_ARGS,
+        {
+          CENSUS_URL: targetUrl(
+            "reader",
+            BRANCH_HOST,
+            `neondb?${parameter}=${PASSWORD}`,
+            "",
+          ),
+          [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+        },
+        neverConnect,
+      );
+      expect(await run, parameter).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1]).toContain(
+        `sets ${parameter} to a value it does not take`,
+      );
+      expect(events.join("\n")).not.toContain(PASSWORD);
+    }
+    const accepted = cli(
+      BRANCH_ARGS,
+      {
+        CENSUS_URL: targetUrl(
+          "reader",
+          BRANCH_HOST,
+          "neondb?sslmode=verify-full&channel_binding=require",
+          "",
+        ),
+        [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+      },
+      async (target) => {
+        throw new Error(`could not reach ${target}`);
+      },
+    );
+    expect(await accepted.run).toBe(1);
+    expect(accepted.events).toContain("connect");
+  });
+
   it("never prints the password, from a mistyped flag or a driver error", async () => {
     const url = targetUrl("reader", BRANCH_HOST, "neondb");
     const mistyped = cli(

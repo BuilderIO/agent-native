@@ -108,7 +108,22 @@ const TARGET_URL =
   /^postgres(?:ql)?:\/\/(?:[^\s@/?#\\]*@)?([^\s@/?#\\:[\]]+)(?::\d{1,5})?(?:\/[^\s@/?#\\]*)?(?:\?[^\s@#\\]*)?$/i;
 const PLAIN_HOSTNAME =
   /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/;
-const ALLOWED_URL_PARAMETERS = new Set(["sslmode", "channel_binding"]);
+// Each value comes from a fixed list: a driver error can quote the URL, and a
+// URL without a password has nothing to redact a misplaced secret by.
+const ALLOWED_URL_PARAMETERS = new Map([
+  [
+    "sslmode",
+    new Set([
+      "disable",
+      "allow",
+      "prefer",
+      "require",
+      "verify-ca",
+      "verify-full",
+    ]),
+  ],
+  ["channel_binding", new Set(["disable", "prefer", "require"])],
+]);
 
 /**
  * What a host is called for the production comparison. A Neon endpoint is the
@@ -169,11 +184,18 @@ export function resolveCensusTarget(
       `${options.databaseUrlEnv} must name its database in letters, digits, _ and -`,
     );
   }
-  // The parameter's name is not printed: it could be a misplaced password.
-  for (const key of parsed.searchParams.keys()) {
-    if (!ALLOWED_URL_PARAMETERS.has(key)) {
+  // The parameter's name and value are not printed: either could be a
+  // misplaced password.
+  for (const [key, value] of parsed.searchParams) {
+    const values = ALLOWED_URL_PARAMETERS.get(key);
+    if (!values) {
       throw new CensusRefusal(
-        `${options.databaseUrlEnv} has a URL parameter other than ${[...ALLOWED_URL_PARAMETERS].join(" and ")}, which are the only ones supported`,
+        `${options.databaseUrlEnv} has a URL parameter other than ${[...ALLOWED_URL_PARAMETERS.keys()].join(" and ")}, which are the only ones supported`,
+      );
+    }
+    if (!values.has(value)) {
+      throw new CensusRefusal(
+        `${options.databaseUrlEnv} sets ${key} to a value it does not take (${[...values].join(", ")})`,
       );
     }
   }
