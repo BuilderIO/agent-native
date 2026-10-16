@@ -162,10 +162,10 @@ const recipe: NonNullable<UseCase["recipes"]>[number] = {
   id: "test-recipe",
   title: "Test recipe",
   when: "Test when",
-  do: "Test action",
+  steps: ["Test first action", "Test second action"],
   prompt: "  Test prompt\n  ",
-  you_get: "Test output",
-  save: "Test saved artifact",
+  result: "Test output",
+  tip: "Test next-time tip",
   how_often: "Test frequency",
 };
 const angle: NonNullable<UseCase["angles"]>[number] = {
@@ -203,31 +203,99 @@ function dom(html: string) {
   return new DOMParser().parseFromString(html, "text/html");
 }
 function expectRecipeSlots(
-  card: Element,
+  content: Element,
   recipe: NonNullable<UseCase["recipes"]>[number],
 ) {
   const slots = [
-    ["campaign-recipe-tag", "DIV"],
-    ["campaign-recipe-title", "H3"],
     ["campaign-recipe-when", "P"],
-    ["campaign-recipe-do", "DL"],
+    ["campaign-recipe-steps", "OL"],
     ...(recipe.prompt ? [["campaign-recipe-prompt", "DIV"]] : []),
-    ["campaign-recipe-result", "DL"],
-    ...(recipe.save ? [["campaign-recipe-footer", "DL"]] : []),
+    ["campaign-recipe-result", "P"],
+    ...(recipe.tip ? [["campaign-recipe-tip", "P"]] : []),
   ];
-  expect([...card.children].map((node) => node.tagName)).toEqual(
+  expect([...content.children].map((node) => node.tagName)).toEqual(
     slots.map(([, tag]) => tag),
   );
   for (const [index, [className]] of slots.entries())
-    expect(card.children[index].classList.contains(className)).toBe(true);
-  expect(card.querySelector(".campaign-recipe-empty")).toBeNull();
-  expect(card.querySelector(":scope > [aria-hidden]")).toBeNull();
+    expect(content.children[index].classList.contains(className)).toBe(true);
+  expect(content.querySelector(".campaign-recipe-when")?.textContent).toBe(
+    recipe.when,
+  );
+  const steps = content.querySelector(".campaign-recipe-steps")!;
+  expect([...steps.children].map((node) => node.tagName)).toEqual(
+    recipe.steps.map(() => "LI"),
+  );
+  expect([...steps.children].map((node) => node.textContent)).toEqual(
+    recipe.steps,
+  );
+  expect(content.querySelector(".campaign-recipe-result")?.textContent).toBe(
+    recipe.result,
+  );
   expect(
-    card.querySelectorAll(":scope > .campaign-recipe-prompt"),
+    content.querySelectorAll(":scope > .campaign-recipe-prompt"),
   ).toHaveLength(recipe.prompt ? 1 : 0);
+  if (recipe.prompt) {
+    expect(
+      content.querySelector(".campaign-recipe-prompt pre code")?.textContent,
+    ).toBe(recipe.prompt.trim());
+    expect(content.querySelectorAll(".code-block")).toHaveLength(1);
+  } else {
+    expect(content.querySelector("pre, code, button, .code-block")).toBeNull();
+  }
   expect(
-    card.querySelectorAll(":scope > .campaign-recipe-footer"),
-  ).toHaveLength(recipe.save ? 1 : 0);
+    content.querySelectorAll(":scope > .campaign-recipe-tip"),
+  ).toHaveLength(recipe.tip ? 1 : 0);
+  const tip = content.querySelector(".campaign-recipe-tip");
+  if (recipe.tip) {
+    expect(tip?.querySelector("strong")?.textContent).toBe("Next time:");
+    expect(tip?.textContent).toBe(`Next time: ${recipe.tip}`);
+  } else {
+    expect(content.textContent).not.toContain("Next time:");
+  }
+  expect(
+    content.querySelector("dl, dt, dd, .campaign-recipe-empty"),
+  ).toBeNull();
+  expect(content.querySelector(":scope > [aria-hidden]")).toBeNull();
+}
+function expectRecipeAccordion(
+  document: Document,
+  recipes: NonNullable<UseCase["recipes"]>,
+) {
+  const section = document.querySelector(".campaign-faq.campaign-recipes")!;
+  expect(section).not.toBeNull();
+  expect(section.querySelector("h2")?.id).toBe("use-case-recipes-heading");
+  expect(section.firstElementChild?.classList.contains("flex-col")).toBe(true);
+  expect(section.firstElementChild?.classList.contains("lg:flex-row")).toBe(
+    false,
+  );
+  expect(
+    section.querySelectorAll(".campaign-recipes-grid, .campaign-recipe-card"),
+  ).toHaveLength(0);
+  const triggers = [...section.querySelectorAll("button[aria-expanded]")];
+  expect(triggers).toHaveLength(recipes.length);
+  for (const [index, recipe] of recipes.entries()) {
+    const trigger = triggers[index];
+    expect(trigger.id).toBe(`use-case-recipes-${recipe.id}-trigger`);
+    expect(trigger.getAttribute("aria-expanded")).toBe(String(index === 0));
+    const tag = trigger.querySelector(".campaign-frequency-tag")!;
+    expect(tag.textContent).toBe(recipe.how_often);
+    expect(tag.getAttribute("aria-label")).toBe(
+      `How often: ${recipe.how_often}`,
+    );
+    const question = trigger.cloneNode(true) as Element;
+    question.querySelector(".campaign-frequency-tag")!.remove();
+    expect(question.textContent?.trim()).toBe(recipe.title);
+    expect(tag.parentElement?.lastElementChild).toBe(tag);
+    expect(tag.parentElement?.textContent?.startsWith(recipe.title)).toBe(true);
+    const panelId = `use-case-recipes-${recipe.id}-panel`;
+    expect(trigger.getAttribute("aria-controls")).toBe(panelId);
+    const panel = document.getElementById(panelId)!;
+    expect(panel.getAttribute("role")).toBe("region");
+    expect(panel.getAttribute("aria-labelledby")).toBe(trigger.id);
+    expect(panel.getAttribute("aria-hidden")).toBe(String(index !== 0));
+    expectRecipeSlots(panel.querySelector(".campaign-recipe-content")!, recipe);
+  }
+  return section;
 }
 
 describe("public campaign frontend", () => {
@@ -1525,7 +1593,16 @@ describe("public campaign frontend", () => {
       ...useCase,
       ...fields,
       internal: "PRIVATE",
-      recipes: [{ ...recipe, internal: "PRIVATE", audience: "PRIVATE" }],
+      recipes: [
+        {
+          ...recipe,
+          internal: "PRIVATE",
+          audience: "PRIVATE",
+          do: "PRIVATE-LEGACY-ACTION",
+          you_get: "PRIVATE-LEGACY-RESULT",
+          save: "PRIVATE-LEGACY-SAVE",
+        },
+      ],
       angles: [{ ...angle, internal: "PRIVATE", strategy: "PRIVATE" }],
     };
     const next = {
@@ -1681,69 +1758,24 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("renders ordered recipes with optional prompt/save and connections without inventing absent sections", () => {
-    const { prompt: _prompt, save: _save, ...minimalRecipe } = recipe;
+  it("renders ordered recipe answers with optional prompt/tip and connections without inventing absent sections", () => {
+    const { prompt: _prompt, tip: _tip, ...minimalRecipe } = recipe;
     const second = { ...minimalRecipe, id: "second", title: "Second recipe" };
+    const third = { ...minimalRecipe, id: "third", title: "Third recipe" };
+    const recipes = [recipe, second, third];
     const document = dom(
       markup(
         <UseCasePage
           item={{
             ...useCase,
-            recipes: [recipe, second],
+            recipes,
             connects_to: ["Test calendar", "Test CRM"],
           }}
           articles={[]}
         />,
       ),
     );
-    const grid = document.querySelector("section .campaign-recipes-grid")!;
-    for (const className of ["grid", "md:grid-cols-2", "lg:grid-cols-3"])
-      expect(grid.classList.contains(className)).toBe(true);
-    const recipes = [...grid.querySelectorAll(":scope > article")];
-    expect(
-      recipes.map((node) => node.querySelector("h3")?.textContent),
-    ).toEqual([recipe.title, second.title]);
-    for (const [index, item] of [recipe, second].entries()) {
-      const card = recipes[index];
-      expect(card.classList.contains("campaign-recipe-card")).toBe(true);
-      expectRecipeSlots(card, item);
-      const [tag, title, when, action] = [...card.children];
-      const output = card.querySelector(":scope > .campaign-recipe-result")!;
-      expect(
-        tag
-          .querySelector(".campaign-frequency-tag")
-          ?.getAttribute("aria-label"),
-      ).toBe(`How often: ${item.how_often}`);
-      expect(title.textContent).toBe(item.title);
-      expect(when.textContent).toBe(item.when);
-      expect(when.classList.contains("campaign-body")).toBe(true);
-      expect(action.querySelector("dt")?.textContent).toBe("Do");
-      expect(action.querySelector("dd")?.textContent).toBe(item.do);
-      expect(output.querySelector("dt")?.textContent).toBe("You get");
-      expect(output.querySelector("dd")?.textContent).toBe(item.you_get);
-      expect(
-        [...card.querySelectorAll("dt")].map((node) => node.textContent),
-      ).toEqual(
-        index === 0
-          ? ["Do", "You get", "Save for next time"]
-          : ["Do", "You get"],
-      );
-      expect(card.textContent).not.toMatch(/How often|When/);
-    }
-    const footer = recipes[0].lastElementChild!;
-    expect(footer.classList.contains("border-t")).toBe(true);
-    expect(footer.querySelector("dt")?.textContent).toBe("Save for next time");
-    expect(footer.querySelector("dd")?.textContent).toBe(recipe.save);
-    expect(recipes[0].querySelector("pre code")?.textContent).toBe(
-      recipe.prompt!.trim(),
-    );
-    expect(recipes[0].children).toHaveLength(7);
-    expect(recipes[1].children).toHaveLength(5);
-    expect(
-      recipes[1].querySelector("pre, code, button, .code-block"),
-    ).toBeNull();
-    expect(recipes[1].textContent).not.toContain("Save for next time");
-    expect(recipes[1].textContent).not.toContain(recipe.save);
+    expectRecipeAccordion(document, recipes);
     expect(document.querySelector("#how-it-works")?.textContent).toContain(
       "Works with: Test calendar, Test CRM",
     );
@@ -1760,64 +1792,107 @@ describe("public campaign frontend", () => {
         />,
       ),
     );
+    expect(absent.querySelector(".campaign-recipes")).toBeNull();
     expect(absent.querySelectorAll("article")).toHaveLength(0);
     expect(absent.body.textContent).not.toContain("Ways to use");
     expect(absent.body.textContent).not.toContain("Works with:");
     expect(absent.body.textContent).not.toContain("What to do next");
+    expect(
+      dom(markup(<UseCasePage item={useCase} articles={[]} />)).querySelector(
+        ".campaign-recipes",
+      ),
+    ).toBeNull();
   });
 
   it.each([
-    { prompt: recipe.prompt, save: undefined },
-    { prompt: undefined, save: recipe.save },
-    { prompt: recipe.prompt, save: recipe.save },
-    { prompt: undefined, save: undefined },
+    { prompt: recipe.prompt, tip: undefined },
+    { prompt: undefined, tip: recipe.tip },
+    { prompt: recipe.prompt, tip: recipe.tip },
+    { prompt: undefined, tip: undefined },
   ])(
-    "renders recipe prompt and saved artifact independently (%#)",
-    ({ prompt, save }) => {
+    "renders recipe prompt and next-time tip independently (%#)",
+    ({ prompt, tip }) => {
+      const item = { ...recipe, prompt, tip };
       const document = dom(
         markup(
-          <UseCasePage
-            item={{ ...useCase, recipes: [{ ...recipe, prompt, save }] }}
-            articles={[]}
-          />,
+          <UseCasePage item={{ ...useCase, recipes: [item] }} articles={[]} />,
         ),
       );
-      const rendered = document.querySelector("article")!;
-      expect(rendered.querySelectorAll(".code-block")).toHaveLength(
-        prompt ? 1 : 0,
+      expectRecipeAccordion(document, [item]);
+      const content = document.querySelector(".campaign-recipe-content")!;
+      expect(content.children).toHaveLength(
+        3 + Number(!!prompt) + Number(!!tip),
       );
-      expect(
-        [...rendered.querySelectorAll("dt")].map((node) => node.textContent),
-      ).toEqual(
-        save ? ["Do", "You get", "Save for next time"] : ["Do", "You get"],
-      );
-      expect(rendered.querySelector("h3 + p")?.textContent).toBe(recipe.when);
-      expect(
-        rendered.querySelector(".campaign-frequency-tag")?.textContent,
-      ).toBe(recipe.how_often);
-      expectRecipeSlots(rendered, { ...recipe, prompt, save });
-      expect(rendered.children).toHaveLength(
-        5 + Number(!!prompt) + Number(!!save),
-      );
-      if (prompt) {
-        expect(
-          rendered.querySelector(".campaign-recipe-prompt pre code")
-            ?.textContent,
-        ).toBe(prompt.trim());
-      } else {
-        expect(rendered.querySelector("pre, code, button")).toBeNull();
-      }
-      const footer = rendered.querySelector(":scope > .campaign-recipe-footer");
-      if (save) {
-        expect(footer?.classList.contains("border-t")).toBe(true);
-        expect(footer?.querySelector("dd")?.textContent).toBe(save);
-      } else {
-        expect(footer).toBeNull();
-        expect(rendered.textContent).not.toContain("Save for next time");
-        expect(rendered.textContent).not.toContain(recipe.save);
-      }
+      if (!tip) expect(content.textContent).not.toContain(recipe.tip);
     },
   );
+
+  it("opens, closes and reopens recipe panels and tracks only user openings", () => {
+    const recipes = [
+      recipe,
+      { ...recipe, id: "second", title: "Second recipe" },
+      { ...recipe, id: "third", title: "Third recipe" },
+    ];
+    const view = renderCampaign(
+      <UseCasePage item={{ ...useCase, recipes }} articles={[]} />,
+    );
+    const section =
+      view.container.querySelector<HTMLElement>(".campaign-recipes")!;
+    const triggers = within(section)
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("aria-expanded"));
+    expect(triggers).toHaveLength(3);
+    const recipeEvents = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "recipe_open");
+    const expectOpen = (openIndex: number | null) => {
+      for (const [index, trigger] of triggers.entries()) {
+        expect(trigger.getAttribute("aria-expanded")).toBe(
+          String(index === openIndex),
+        );
+        const panel = view.container.querySelector(
+          `#${trigger.getAttribute("aria-controls")}`,
+        )!;
+        expect(panel.getAttribute("aria-hidden")).toBe(
+          String(index !== openIndex),
+        );
+        expectRecipeSlots(
+          panel.querySelector(".campaign-recipe-content")!,
+          recipes[index],
+        );
+      }
+    };
+    expectOpen(0);
+    expect(recipeEvents()).toEqual([]);
+    fireEvent.click(triggers[0]);
+    expectOpen(null);
+    expect(recipeEvents()).toEqual([]);
+    fireEvent.click(triggers[1]);
+    expectOpen(1);
+    expect(recipeEvents()).toEqual([
+      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
+    ]);
+    fireEvent.click(triggers[1]);
+    expectOpen(null);
+    expect(recipeEvents()).toHaveLength(1);
+    fireEvent.click(triggers[1]);
+    expectOpen(1);
+    expect(recipeEvents()).toEqual([
+      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
+      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
+    ]);
+    fireEvent.click(triggers[2]);
+    expectOpen(2);
+    fireEvent.click(triggers[0]);
+    expectOpen(0);
+    expect(recipeEvents()).toEqual([
+      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
+      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
+      ["recipe_open", { slug: useCase.slug, recipe_id: "third" }],
+      ["recipe_open", { slug: useCase.slug, recipe_id: recipe.id }],
+    ]);
+  });
 
   it.each([true, false])(
     "CodeBlock calls onCopySuccess only after copyText succeeds (%s)",
@@ -1857,9 +1932,23 @@ describe("public campaign frontend", () => {
     "emits recipe_copy only for successful prompt copies (%s)",
     async (success) => {
       vi.mocked(copyText).mockResolvedValue(success);
+      const { prompt: _prompt, ...withoutPrompt } = recipe;
       const view = renderCampaign(
-        <UseCasePage item={{ ...useCase, recipes: [recipe] }} articles={[]} />,
+        <UseCasePage
+          item={{
+            ...useCase,
+            recipes: [{ ...withoutPrompt, id: "first" }, recipe],
+          }}
+          articles={[]}
+        />,
       );
+      expect(view.queryByRole("button", { name: "Copy code" })).toBeNull();
+      const trigger = view.container.querySelector<HTMLButtonElement>(
+        `#use-case-recipes-${recipe.id}-trigger`,
+      )!;
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(trigger);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
       vi.mocked(trackEvent).mockClear();
       await act(async () => {
         fireEvent.click(view.getByRole("button", { name: "Copy code" }));
@@ -1886,7 +1975,7 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("SSR uses the same accessible clock tag above index titles, in the hero and atop recipes", () => {
+  it("SSR uses the same accessible clock tag above index titles, in the hero and after recipe titles", () => {
     const item = {
       ...useCase,
       how_often_label: "Every week",
@@ -1927,12 +2016,12 @@ describe("public campaign frontend", () => {
       heroTag.compareDocumentPosition(page.querySelector("h1")!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(recipeTag.closest("article")?.querySelector("h3")?.textContent).toBe(
-      recipe.title,
-    );
-    expect(recipeTag.parentElement?.nextElementSibling?.textContent).toBe(
-      recipe.title,
-    );
+    const trigger = recipeTag.closest("button[aria-expanded]")!;
+    expect(trigger.id).toBe(`use-case-recipes-${recipe.id}-trigger`);
+    expect(trigger.textContent?.trim().startsWith(recipe.title)).toBe(true);
+    const question = recipeTag.parentElement!;
+    expect(question.lastElementChild).toBe(recipeTag);
+    expect(question.textContent?.startsWith(recipe.title)).toBe(true);
     const absent = dom(markup(<UseCasePage item={useCase} articles={[]} />));
     expect(absent.querySelector(".campaign-frequency-tag")).toBeNull();
   });
@@ -2310,33 +2399,29 @@ describe("public campaign frontend", () => {
       [...expected].sort(),
     );
     const document = dom(markup(<UseCasePage {...data} />));
-    const recipes = [...document.querySelectorAll(".campaign-recipe-card")];
+    const recipeSection = expectRecipeAccordion(document, data.item.recipes!);
     expect(data.item.recipes!.map((recipe) => recipe.prompt)).toEqual([
       undefined,
       undefined,
       undefined,
     ]);
-    expect(data.item.recipes!.map((recipe) => !!recipe.save)).toEqual([
+    expect(data.item.recipes!.map((recipe) => !!recipe.tip)).toEqual([
       true,
       false,
       false,
     ]);
-    expect(recipes.map((card) => card.children.length)).toEqual([6, 5, 5]);
-    expect(document.querySelector(".campaign-recipe-empty")).toBeNull();
-    for (const [index, card] of recipes.entries()) {
-      expectRecipeSlots(card, data.item.recipes![index]);
+    const answers = [
+      ...recipeSection.querySelectorAll(".campaign-recipe-content"),
+    ];
+    expect(answers.map((answer) => answer.children.length)).toEqual([4, 3, 3]);
+    expect(recipeSection.querySelector(".campaign-recipe-empty")).toBeNull();
+    for (const answer of answers)
       expect(
-        card.querySelector(".campaign-recipe-prompt, pre, code, button"),
+        answer.querySelector(".campaign-recipe-prompt, pre, code, button"),
       ).toBeNull();
-    }
-    expect(document.querySelectorAll(".campaign-recipe-footer")).toHaveLength(
+    expect(recipeSection.querySelectorAll(".campaign-recipe-tip")).toHaveLength(
       1,
     );
-    expect(
-      recipes[0].querySelector(".campaign-recipe-footer dd")?.textContent,
-    ).toBe(data.item.recipes![0].save);
-    for (const card of recipes.slice(1))
-      expect(card.textContent).not.toContain("Save for next time");
     const section = [...document.querySelectorAll("section")].find(
       (node) => node.querySelector("h2")?.textContent === "What to do next",
     )!;
@@ -2356,7 +2441,7 @@ describe("public campaign frontend", () => {
     ).toBe(crm.item.title);
   });
 
-  it("SSR renders all fifteen real replacement lists and only present recipe slots without tables or column headings", async () => {
+  it("SSR renders all fifteen real replacement lists and every recipe answer, including closed panels, without tables or column headings", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
@@ -2387,47 +2472,8 @@ describe("public campaign frontend", () => {
         expect(Object.keys(entry)).toEqual(["text"]);
       for (const label of ["What you use", "For", "Where it breaks"])
         expect(section.textContent).not.toContain(label);
-      const cards = [...document.querySelectorAll(".campaign-recipe-card")];
-      expect(cards, item.slug).toHaveLength(3);
-      for (const [index, card] of cards.entries()) {
-        const recipe = item.recipes![index];
-        expectRecipeSlots(card, recipe);
-        expect(
-          card.children[0].querySelector(".campaign-frequency-tag")
-            ?.textContent,
-        ).toBe(recipe.how_often);
-        expect(card.children[1].textContent).toBe(recipe.title);
-        expect(card.children[2].textContent).toBe(recipe.when);
-        expect(
-          [...card.querySelectorAll("dt")].map((node) => node.textContent),
-        ).toEqual(
-          recipe.save
-            ? ["Do", "You get", "Save for next time"]
-            : ["Do", "You get"],
-        );
-        expect(card.querySelector(".campaign-recipe-do dd")?.textContent).toBe(
-          recipe.do,
-        );
-        expect(
-          card.querySelector(".campaign-recipe-result dd")?.textContent,
-        ).toBe(recipe.you_get);
-        if (recipe.prompt) {
-          expect(card.querySelector("pre code")?.textContent).toBe(
-            recipe.prompt.trim(),
-          );
-        } else {
-          expect(
-            card.querySelector("pre, code, button, .code-block"),
-          ).toBeNull();
-        }
-        if (recipe.save) {
-          expect(
-            card.querySelector(".campaign-recipe-footer dd")?.textContent,
-          ).toBe(recipe.save);
-        } else {
-          expect(card.textContent).not.toContain("Save for next time");
-        }
-      }
+      expect(item.recipes, item.slug).toHaveLength(3);
+      expectRecipeAccordion(document, item.recipes!);
     }
   });
 
@@ -2469,7 +2515,7 @@ describe("public campaign frontend", () => {
     expect(page.querySelector(".theme-img-light")?.getAttribute("src")).toBe(
       TEMPLATE_SCREENSHOTS.content.light,
     );
-    expect(page.querySelectorAll("article")).toHaveLength(3);
+    expectRecipeAccordion(page, content.recipes!);
     expect(categories).toEqual([
       "clips",
       "design",

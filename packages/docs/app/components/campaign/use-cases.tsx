@@ -318,36 +318,32 @@ export function UseCasePage({
         </section>
       ) : null}
       {item.recipes?.length ? (
-        <section className="border-x border-b border-[var(--docs-border)]">
-          <div className="campaign-section">
-            <SectionHeader
-              eyebrow={t("campaign.recipes")}
-              heading={t("campaign.waysToUse")}
-            />
-          </div>
-          <div className="campaign-recipes-grid grid gap-px border-t border-[var(--docs-border)] bg-[var(--docs-border)] md:grid-cols-2 lg:grid-cols-3">
-            {item.recipes.map((recipe) => (
-              <article
-                key={recipe.id}
-                className="campaign-recipe-card min-w-0 bg-[var(--b-bg-page)]"
-              >
-                <div className="campaign-recipe-tag">
-                  <CampaignFrequencyTag text={recipe.how_often} />
-                </div>
-                <h3 className="campaign-recipe-title campaign-card-title">
-                  {recipe.title}
-                </h3>
-                <p className="campaign-recipe-when campaign-body m-0 whitespace-pre-line">
+        <TemplateLandingFaq
+          key={item.slug}
+          className="campaign-faq campaign-recipes"
+          layout="stacked"
+          eyebrow={t("campaign.recipes")}
+          title={t("campaign.waysToUse")}
+          idPrefix="use-case-recipes"
+          onItemOpen={(recipeId) =>
+            trackEvent("recipe_open", { slug: item.slug, recipe_id: recipeId })
+          }
+          items={item.recipes.map((recipe) => ({
+            id: recipe.id,
+            question: recipe.title,
+            metadata: <CampaignFrequencyTag text={recipe.how_often} />,
+            answer: (
+              <div className="campaign-recipe-content min-w-0">
+                <p className="campaign-recipe-when m-0 whitespace-pre-line">
                   {recipe.when}
                 </p>
-                <dl className="campaign-recipe-do m-0">
-                  <dt className="campaign-label">{t("campaign.recipeDo")}</dt>
-                  <dd className="campaign-body m-0 whitespace-pre-line">
-                    {recipe.do}
-                  </dd>
-                </dl>
+                <ol className="campaign-recipe-steps m-0 list-decimal ps-6">
+                  {recipe.steps.map((step, index) => (
+                    <li key={index}>{step}</li>
+                  ))}
+                </ol>
                 {recipe.prompt ? (
-                  <div className="campaign-recipe-prompt min-w-0 max-w-full overflow-x-auto">
+                  <div className="campaign-recipe-prompt min-w-0 w-full">
                     <CodeBlock
                       code={recipe.prompt}
                       lang="text"
@@ -362,28 +358,19 @@ export function UseCasePage({
                     />
                   </div>
                 ) : null}
-                <dl className="campaign-recipe-result m-0">
-                  <dt className="campaign-label">
-                    {t("campaign.recipeYouGet")}
-                  </dt>
-                  <dd className="campaign-body m-0 whitespace-pre-line">
-                    {recipe.you_get}
-                  </dd>
-                </dl>
-                {recipe.save ? (
-                  <dl className="campaign-recipe-footer m-0 border-t border-[var(--docs-border)]">
-                    <dt className="campaign-label">
-                      {t("campaign.recipeSave")}
-                    </dt>
-                    <dd className="campaign-body m-0 whitespace-pre-line">
-                      {recipe.save}
-                    </dd>
-                  </dl>
+                <p className="campaign-recipe-result m-0 whitespace-pre-line">
+                  {recipe.result}
+                </p>
+                {recipe.tip ? (
+                  <p className="campaign-recipe-tip m-0 whitespace-pre-line">
+                    <strong>{t("campaign.recipeNextTime")}</strong>{" "}
+                    {recipe.tip}
+                  </p>
                 ) : null}
-              </article>
-            ))}
-          </div>
-        </section>
+              </div>
+            ),
+          }))}
+        />
       ) : null}
       {item.story ? (
         <figure className="campaign-section m-0 space-y-[var(--spacing-6)] border-x border-[var(--docs-border)]">

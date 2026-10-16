@@ -162,10 +162,10 @@ const recipe = {
   id: "sample-recipe",
   title: "Draft a summary",
   when: "After a meeting",
-  do: "Ask for a summary",
+  steps: ["Open the meeting", "Ask for a summary"],
   prompt: "Summarize the meeting",
-  you_get: "A summary",
-  save: "Keep the summary",
+  result: "A summary",
+  tip: "Keep the summary",
   how_often: "Every meeting",
 };
 const angle = {
@@ -310,7 +310,7 @@ describe("campaign content", () => {
       }),
     ).useCases[0];
     expect(populated).toMatchObject(optionalFields);
-    const { prompt: _prompt, save: _save, ...minimalRecipe } = recipe;
+    const { prompt: _prompt, tip: _tip, ...minimalRecipe } = recipe;
     const { old_way_body: _oldWay, ...minimalAngle } = angle;
     const minimal = parseCampaignContent(
       sources({
@@ -338,6 +338,20 @@ describe("campaign content", () => {
       ).useCases[0],
     ).toMatchObject(emptyArrays);
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it.each([1, 2, 3, 4])("accepts recipes with %i nonempty steps", (count) => {
+    const steps = Array.from(
+      { length: count },
+      (_, index) => ` Step ${index + 1} `,
+    );
+    const content = parseCampaignContent(
+      sources({
+        "sample.yaml": yaml({ ...useCase, recipes: [{ ...recipe, steps }] }),
+      }),
+    );
+    expect(content.useCases).toHaveLength(1);
+    expect(content.useCases[0].recipes).toEqual([{ ...recipe, steps }]);
   });
 
   it.each(["daily", "weekly", "per-project", "occasional"])(
@@ -376,6 +390,9 @@ describe("campaign content", () => {
               ...recipe,
               internal: "PRIVATE-RECIPE",
               audience: "PRIVATE-RECIPE-AUDIENCE",
+              do: "PRIVATE-LEGACY-ACTION",
+              you_get: "PRIVATE-LEGACY-RESULT",
+              save: "PRIVATE-LEGACY-SAVE",
             },
           ],
           angles: [
@@ -399,18 +416,44 @@ describe("campaign content", () => {
       [null, 42, {}].map((value) => ({ field, value })),
     ),
     { field: "recipes", value: "recipe" },
-    ...["id", "title", "when", "do", "you_get", "how_often"].flatMap((key) =>
+    ...["id", "title", "when", "result", "how_often"].flatMap((key) =>
       [undefined, "  ", 3].map((value) => ({
         field: "recipes",
         value: [{ ...recipe, [key]: value }],
       })),
     ),
-    ...["prompt", "save"].flatMap((key) =>
+    ...["prompt", "tip"].flatMap((key) =>
       [" ", null, 3].map((value) => ({
         field: "recipes",
         value: [{ ...recipe, [key]: value }],
       })),
     ),
+    ...[
+      undefined,
+      null,
+      "Ask for a summary",
+      {},
+      [],
+      Array.from({ length: 5 }, () => "A step"),
+      ...[undefined, "", " \t ", null, 3, false, {}, []].map((step) => [step]),
+      ["Valid step", " "],
+    ].map((steps) => ({
+      field: "recipes",
+      value: [{ ...recipe, steps }],
+    })),
+    {
+      field: "recipes",
+      value: [
+        {
+          ...recipe,
+          steps: undefined,
+          result: undefined,
+          do: "Legacy action",
+          you_get: "Legacy output",
+          save: "Legacy artifact",
+        },
+      ],
+    },
     { field: "recipes", value: [{ ...recipe, id: "Invalid ID" }] },
     { field: "recipes", value: [null] },
     { field: "connects_to", value: [""] },
@@ -800,6 +843,19 @@ describe("campaign content", () => {
         replacementConclusions[item.slug],
       );
       expect(item.recipes, item.slug).toHaveLength(3);
+      for (const recipe of item.recipes!) {
+        expect(Array.isArray(recipe.steps), item.slug).toBe(true);
+        expect(recipe.steps.length, item.slug).toBeGreaterThanOrEqual(1);
+        expect(recipe.steps.length, item.slug).toBeLessThanOrEqual(4);
+        for (const step of recipe.steps) {
+          expect(typeof step, item.slug).toBe("string");
+          expect(step.trim().length, item.slug).toBeGreaterThan(0);
+        }
+        expect(typeof recipe.result, item.slug).toBe("string");
+        expect(recipe.result.trim().length, item.slug).toBeGreaterThan(0);
+        for (const removed of ["do", "you_get", "save"])
+          expect(recipe, item.slug).not.toHaveProperty(removed);
+      }
       expect(
         new Set(item.recipes!.map((recipe) => recipe.id)).size,
         item.slug,

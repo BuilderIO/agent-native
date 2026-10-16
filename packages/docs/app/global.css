@@ -424,38 +424,46 @@ a.campaign-inline-link {
   margin-block-start: 24px;
 }
 
-.campaign-page .campaign-recipes-grid {
-  grid-auto-rows: auto;
-  row-gap: 0;
+.campaign-page .campaign-recipe-content > * + * {
+  margin-block-start: 12px;
 }
 
-.campaign-page .campaign-recipe-card {
-  display: grid;
-  align-content: start;
-  row-gap: 0;
-  padding: 24px;
+.campaign-page .campaign-recipe-steps,
+.campaign-page .campaign-recipe-result,
+.campaign-page .campaign-recipe-tip {
+  color: var(--fg);
 }
 
-.campaign-page .campaign-recipe-title {
-  padding-block-start: 16px;
+.campaign-page .code-block {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
-.campaign-page .campaign-recipe-when {
-  padding-block-start: 8px;
+.campaign-page .code-block pre {
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0;
+  padding: 12px 56px 12px 16px;
+  font-family: var(--font-mono);
+  font-size: var(--b-t-paragraph-2);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
 }
 
-.campaign-page
-  :is(.campaign-recipe-do, .campaign-recipe-prompt, .campaign-recipe-result) {
-  padding-block-start: 20px;
+.campaign-page .code-block pre code {
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
-.campaign-page .campaign-recipe-card dd {
-  padding-block-start: 6px;
-}
-
-.campaign-page .campaign-recipe-footer {
-  margin-block-start: 20px;
-  padding-block-start: 20px;
+.campaign-page .code-block > button {
+  opacity: 1;
 }
 
 .campaign-page .campaign-faq > div > div:first-child {

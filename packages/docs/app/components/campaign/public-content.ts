@@ -31,14 +31,14 @@ export function publicUseCase(item: UseCase): UseCase {
         }
       : undefined,
     recipes: item.recipes?.map(
-      ({ id, title, when, do: action, prompt, you_get, save, how_often }) => ({
+      ({ id, title, when, steps, prompt, result, tip, how_often }) => ({
         id,
         title,
         when,
-        do: action,
+        steps,
         prompt,
-        you_get,
-        save,
+        result,
+        tip,
         how_often,
       }),
     ),

@@ -100,10 +100,10 @@ const useCaseSchema = z.object({
         id: slug,
         title: text,
         when: text,
-        do: text,
+        steps: z.array(text).min(1).max(4),
         prompt: text.optional(),
-        you_get: text,
-        save: text.optional(),
+        result: text,
+        tip: text.optional(),
         how_often: text,
       }),
     )
