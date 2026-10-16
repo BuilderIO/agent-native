@@ -864,6 +864,45 @@ export default defineAction({
           if (scoped?.documentId === id) {
             await scoped.write(tx as unknown as ReturnType<typeof getDb>);
           }
+          if (parentId) {
+            // Last, after the import lock the write above can take, which
+            // undo-import holds while it locks pages. A move or Trash of the
+            // parent holds its row until it commits, so this reads the result.
+            const [parent] = await tx
+              .select({
+                ownerEmail: schema.documents.ownerEmail,
+                spaceId: schema.documents.spaceId,
+                orgId: schema.documents.orgId,
+                visibility: schema.documents.visibility,
+                trashedAt: schema.documents.trashedAt,
+              })
+              .from(schema.documents)
+              .where(eq(schema.documents.id, parentId))
+              .for("share");
+            if (!parent) {
+              throw new ActionContractError("Parent document not found.", {
+                errorCode: "DOCUMENT_NOT_FOUND",
+                statusCode: 404,
+              });
+            }
+            if (parent.trashedAt) {
+              throw new ActionContractError("Parent document is in Trash", {
+                errorCode: "PARENT_TRASHED",
+                statusCode: 409,
+              });
+            }
+            if (
+              parent.ownerEmail !== ownerEmail ||
+              parent.spaceId !== spaceId ||
+              (parent.orgId ?? null) !== orgId ||
+              parent.visibility !== visibility
+            ) {
+              throw new ActionContractError(
+                "The parent page moved or changed access while this page was being created. Read it again and retry.",
+                { errorCode: "PARENT_SCOPE_CHANGED", statusCode: 409 },
+              );
+            }
+          }
           return true;
         });
         measurement.outcome = insertedDocument ? "written" : "replayed";

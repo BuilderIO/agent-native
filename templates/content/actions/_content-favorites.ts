@@ -46,6 +46,24 @@ export async function favoriteDocumentIds(
   return new Set(rows.map((row: { documentId: string }) => row.documentId));
 }
 
+export async function favoriteMembershipIds(
+  db: Db,
+  userEmail: string,
+  documentId: string,
+): Promise<string[]> {
+  const favoritesDatabaseId = favoritesSystemIds(userEmail).databaseId;
+  const rows = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, favoritesDatabaseId),
+        eq(schema.contentDatabaseItems.documentId, documentId),
+      ),
+    );
+  return rows.map((row: { id: string }) => row.id);
+}
+
 export async function setFavoriteMembership(args: {
   db: Db;
   userEmail: string;

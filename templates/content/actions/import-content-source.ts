@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestOrgId,
@@ -25,6 +25,7 @@ import {
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   favoriteDocumentIds,
+  favoriteMembershipIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
@@ -34,6 +35,7 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
@@ -411,6 +413,13 @@ export default defineAction({
         }
 
         const mutation = await db.transaction(async (tx) => {
+          // Removing a favorite deletes its membership, and an edit locks a
+          // page's memberships before the page, so this does too.
+          const heldFavoriteIds =
+            file.isFavorite === false
+              ? await favoriteMembershipIds(tx, currentUserEmail, id)
+              : [];
+          await lockDatabaseMemberships(tx, heldFavoriteIds);
           await tx
             .select({ id: schema.documents.id })
             .from(schema.documents)
@@ -553,6 +562,17 @@ export default defineAction({
             );
           }
           if (lockedFavoriteChanged) {
+            if (
+              file.isFavorite === false &&
+              (await favoriteMembershipIds(tx, currentUserEmail, id)).some(
+                (membershipId) => !heldFavoriteIds.includes(membershipId),
+              )
+            ) {
+              throw new ActionContractError(
+                "The page's Favorites membership changed while it was being imported. Import it again.",
+                { errorCode: "DATABASE_MEMBERSHIPS_CHANGED", statusCode: 409 },
+              );
+            }
             await setFavoriteMembership({
               db: tx,
               userEmail: currentUserEmail,
