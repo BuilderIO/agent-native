@@ -137,6 +137,7 @@ import {
   invalidZoomMeetingIds,
   zoomFilterLines,
 } from "../../shared/zoom-meeting-filter";
+import { activeConnectionMasksLocalCredentialFailure } from "./source-readiness";
 
 type Provider =
   | "manual"
@@ -1059,6 +1060,13 @@ function providerReadinessCallout(
             t("sources.readiness.providerUnknown")),
       tone: "attention",
       icon: IconAlertTriangle,
+    };
+  }
+  if (activeConnectionMasksLocalCredentialFailure(provider)) {
+    return {
+      ...providerConnectionReadiness(provider, t),
+      label: t("sources.readinessLabel"),
+      title: t("sources.connectTheProvider"),
     };
   }
   if (workspace?.hasActiveWorkspaceConnection) {
