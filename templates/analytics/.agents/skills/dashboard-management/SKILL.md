@@ -443,7 +443,7 @@ Use conditional blocks for optional filters:
 
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
-To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter.
+To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people add presets themselves: checking two or more values that no preset matches offers Save as group at the bottom of the dropdown, which appends the same `presets` entry, so treat a preset you did not write as someone's saved choice and keep it unless asked.
 
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 

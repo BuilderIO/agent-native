@@ -1075,6 +1075,7 @@ interface SlideEditorProps {
     slideIdOverride?: string,
     options?: UpdateSlideOptions,
   ) => string | undefined;
+  onPasteSlideClipboard?: (event: ClipboardEvent) => boolean;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -1722,6 +1723,7 @@ export default function SlideEditor({
   slide,
   slidePosition,
   onUpdateSlide,
+  onPasteSlideClipboard,
   readOnly = false,
   contextToolbarSlot,
   wideContextToolbarSlot,
@@ -1851,16 +1853,10 @@ export default function SlideEditor({
   const copiedObjectClipboardRef = useRef<{
     copied: CopiedSlideObjects;
     clipboardId: string;
-    nativeClipboardMode: "pending" | "rich" | "text-only" | "failed";
-    copySequence: number;
-    copySessionId: number;
     deckId?: string;
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
-  const copiedObjectCopySequenceRef = useRef(0);
-  const copiedObjectClipboardSessionRef = useRef(0);
-  const overlappingNativeClipboardIdsRef = useRef(new Map<string, string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
@@ -5305,47 +5301,21 @@ export default function SlideEditor({
       const clipboard = {
         copied,
         clipboardId: createSlideObjectId(),
-        nativeClipboardMode: "pending" as const,
-        copySequence: copiedObjectCopySequenceRef.current++,
-        copySessionId: copiedObjectClipboardSessionRef.current,
         deckId,
         slideId: slide.id,
         sourceRect: selection[0]?.getBoundingClientRect(),
       };
       copiedObjectClipboardRef.current = clipboard;
-      overlappingNativeClipboardIdsRef.current.clear();
       setHasCopiedObject(true);
       const clipboardWrite = writeSlideObjectClipboard(
         clipboard.clipboardId,
         copied,
       );
-      void clipboardWrite.then(
-        (mode) => {
-          const currentClipboard = copiedObjectClipboardRef.current;
-          if (
-            mode === "rich" &&
-            currentClipboard &&
-            currentClipboard.copySequence > clipboard.copySequence &&
-            currentClipboard.copySessionId === clipboard.copySessionId
-          ) {
-            overlappingNativeClipboardIdsRef.current.set(
-              clipboard.clipboardId,
-              currentClipboard.clipboardId,
-            );
-          }
-          if (currentClipboard?.clipboardId === clipboard.clipboardId) {
-            currentClipboard.nativeClipboardMode = mode;
-          }
-        },
-        () => {
-          if (
-            copiedObjectClipboardRef.current?.clipboardId ===
-            clipboard.clipboardId
-          ) {
-            copiedObjectClipboardRef.current.nativeClipboardMode = "failed";
-          }
-        },
-      );
+      void clipboardWrite.catch(() => {
+        console.warn(
+          "Native slide object clipboard unavailable; use in-app Paste.",
+        );
+      });
       return clipboard;
     },
     [deckId, slide.id, storedFormOfCopy],
@@ -5388,20 +5358,11 @@ export default function SlideEditor({
     return deleteSelectedElements(selection);
   }, [deleteSelectedElements, getClipboardSelection, storeCopiedObjects]);
 
-  // The object payload stays editor-local, while its native marker makes the
-  // latest in-app layer copy observable alongside external clipboard copies.
-  // It intentionally does not survive a deck switch.
+  // The object payload stays editor-local while its native marker identifies
+  // an in-app layer copy. It intentionally does not survive a deck switch.
   useEffect(() => {
-    const clearOverlappingClipboardIds = () => {
-      overlappingNativeClipboardIdsRef.current.clear();
-    };
-    copiedObjectClipboardSessionRef.current += 1;
     copiedObjectClipboardRef.current = null;
-    overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
-    window.addEventListener("blur", clearOverlappingClipboardIds);
-    return () =>
-      window.removeEventListener("blur", clearOverlappingClipboardIds);
   }, [deckId]);
 
   // One window listener for object copy/paste/duplicate. Native text editing
@@ -5472,6 +5433,7 @@ export default function SlideEditor({
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
       if (e.defaultPrevented) return;
+      if (onPasteSlideClipboard?.(e)) return;
       const active = document.activeElement;
       if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       if (
@@ -5508,38 +5470,25 @@ export default function SlideEditor({
         pasteLocalClipboard();
         return;
       }
-      // An older rich write can settle after a newer copy. Remember only that
-      // overlap, so clipboard-history markers are not remapped by default.
-      if (
-        nativeClipboardId &&
-        overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
-          clipboard.clipboardId
-      ) {
-        pasteLocalClipboard();
-        return;
-      }
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
         (type) =>
           type.startsWith("text/") &&
           Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
-      // Markerless text-only writes cannot prove ownership. Readable native
-      // text stays authoritative above; only empty events use the local copy.
-      // Pending or failed native writes have no trustworthy provenance, so
-      // keep Cmd/Ctrl+V usable through the local copy when the event is empty.
-      if (
-        clipboard.nativeClipboardMode === "pending" ||
-        clipboard.nativeClipboardMode === "failed"
-      ) {
-        pasteLocalClipboard();
-        return;
-      }
+      // Empty native clipboard events can use the editor-local object copy.
       pasteLocalClipboard();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
-  }, [deckId, getClipboardSelection, pasteSlideObjects, readOnly, slide.id]);
+  }, [
+    deckId,
+    getClipboardSelection,
+    onPasteSlideClipboard,
+    pasteSlideObjects,
+    readOnly,
+    slide.id,
+  ]);
 
   // Appearance clipboard shortcuts are deliberately separate from object
   // copy/paste. The Alt modifier keeps Cmd/Ctrl+C/V available for duplicating

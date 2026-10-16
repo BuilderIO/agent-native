@@ -633,6 +633,32 @@ const messages = {
     waiting: "대기 중…",
     nativeSpeechPrimary: "네이티브 음성이 기본 전사 소스로 유지됩니다.",
   },
+  transcriptImport: {
+    addFile: "스크립트 파일 추가",
+    imported: "가져옴",
+    replaceTitle: "스크립트를 교체할까요?",
+    replaceDescription: "{{fileName}}이(가) 현재 스크립트를 대체합니다.",
+    replace: "교체",
+    regenerateOverImportTitle: "가져온 스크립트를 교체할까요?",
+    regenerateOverImportDescription:
+      "녹화 오디오로 만든 새 스크립트가 파일에서 가져온 스크립트를 대체합니다.",
+    added: "스크립트를 추가했습니다",
+    replaced: "스크립트를 교체했습니다",
+    failed: "스크립트를 추가하지 못했습니다",
+    invalidFile: "{{fileName}}을(를) 읽지 못했습니다",
+    errorEmpty: "파일에 스크립트 텍스트가 없습니다.",
+    errorTooLarge: "파일이 너무 커서 가져올 수 없습니다.",
+    errorNotUtf8:
+      "파일이 UTF-8 텍스트가 아닙니다. UTF-8로 저장한 후 다시 시도하세요.",
+    errorMissingTiming:
+      "{{line}}번째 줄: 00:00:01.000 --> 00:00:04.000 같은 자막 타이밍 줄이 필요합니다.",
+    errorBadTiming: "{{line}}번째 줄: 자막 타이밍을 읽을 수 없습니다.",
+    errorBadRange: "{{line}}번째 줄: 자막이 시작하기 전에 끝납니다.",
+    errorMissingTimestamp:
+      "{{line}}번째 줄: 0:21 또는 [0:21] 같은 시작 시간이 필요합니다.",
+    errorOutOfOrder: "{{line}}번째 줄: 이 시간이 바로 앞의 시간보다 이릅니다.",
+    errorPastEnd: "{{line}}번째 줄: 이 시간이 동영상 끝보다 늦습니다.",
+  },
   thumbnailPicker: {
     failedCapture: "프레임을 캡처하지 못했습니다.",
     failedGif: "GIF 생성 실패 — 더 짧은 범위를 시도해보세요",

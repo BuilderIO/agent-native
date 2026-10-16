@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
@@ -10,6 +10,10 @@ import { useEffect, useRef } from "react";
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 import { addBytesProcessed } from "./cost-tracker";
+import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
+  dashboardCacheScope,
+} from "./prefetch-keys";
 
 export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
 
@@ -200,11 +204,38 @@ export function useSqlQuery(
     reportScreenshot?: boolean;
     refreshToken?: number;
     staleTime?: number;
+    /**
+     * Keeps the last result shown, with `isPlaceholderData` set, while a
+     * different SQL string loads or fails, but only for this same scope and
+     * account. The result of a failed query is never replaced by old rows:
+     * `error` stays set beside them.
+     */
+    retainPreviousScope?: string;
   },
 ) {
+  // The signed-in user and org are part of the cache key, so one account's
+  // rows are never read, refreshed, or shown for another. A loading,
+  // unavailable, signed-out or signing-out session is no account: nothing is
+  // read from the cache and no protected query starts until it is
+  // authenticated.
+  const { session, status } = useSession();
+  const sessionReady = status === "authenticated" && session !== null;
+  const accountScope = sessionReady
+    ? dashboardCacheScope(session)
+    : DASHBOARD_SESSION_LOADING_SCOPE;
+  const scopedQueryKey = [...queryKey, accountScope];
+  const retainScope = options?.retainPreviousScope;
+  const queryKeyHash = JSON.stringify(scopedQueryKey);
+  const lastShown = useRef<{
+    data: SqlQueryResult;
+    queryKeyHash: string;
+    accountScope: string;
+    retainScope: string;
+  } | null>(null);
   const successfulRefreshToken = useRef(0);
   const refreshToken = options?.refreshToken ?? 0;
-  const enabled = options?.enabled ?? true;
+  const wantsQuery = options?.enabled ?? true;
+  const enabled = wantsQuery && sessionReady;
   const latestRefreshToken = useRef(refreshToken);
   const latestStartedRefreshToken = useRef(refreshToken);
   latestRefreshToken.current = refreshToken;
@@ -212,7 +243,7 @@ export function useSqlQuery(
   const previousEnabled = useRef(enabled);
   const queryClient = useQueryClient();
   const query = useQuery<SqlQueryResult>({
-    queryKey,
+    queryKey: scopedQueryKey,
     queryFn: async ({ signal }) => {
       const currentRefreshToken = latestRefreshToken.current;
       latestStartedRefreshToken.current = currentRefreshToken;
@@ -238,6 +269,22 @@ export function useSqlQuery(
   const refetch = query.refetch;
 
   useEffect(() => {
+    if (query.data && sessionReady && retainScope !== undefined) {
+      lastShown.current = {
+        data: query.data,
+        queryKeyHash,
+        accountScope,
+        retainScope,
+      };
+    } else if (
+      lastShown.current?.accountScope !== accountScope ||
+      lastShown.current?.retainScope !== retainScope
+    ) {
+      lastShown.current = null;
+    }
+  }, [query.data, sessionReady, retainScope, queryKeyHash, accountScope]);
+
+  useEffect(() => {
     const wasEnabled = previousEnabled.current;
     previousEnabled.current = enabled;
     const refreshTokenChanged = refreshToken > previousRefreshToken.current;
@@ -255,9 +302,39 @@ export function useSqlQuery(
       return;
     }
     void queryClient
-      .cancelQueries({ queryKey, exact: true })
+      .cancelQueries({ queryKey: scopedQueryKey, exact: true })
       .then(() => refetch());
-  }, [enabled, query.isFetching, queryClient, queryKey, refetch, refreshToken]);
+  }, [
+    enabled,
+    query.isFetching,
+    queryClient,
+    scopedQueryKey,
+    refetch,
+    refreshToken,
+  ]);
 
+  if (!sessionReady && wantsQuery) {
+    return {
+      ...query,
+      data: undefined,
+      isPlaceholderData: false,
+      isLoading: true,
+    };
+  }
+  const held = lastShown.current;
+  if (
+    query.data === undefined &&
+    enabled &&
+    held &&
+    held.accountScope === accountScope &&
+    held.retainScope === retainScope
+  ) {
+    return {
+      ...query,
+      data: held.data,
+      isPlaceholderData: held.queryKeyHash !== queryKeyHash,
+      isLoading: false,
+    };
+  }
   return query;
 }

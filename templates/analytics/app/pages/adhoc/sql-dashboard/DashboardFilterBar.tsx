@@ -4,9 +4,17 @@ import {
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
+  IconPlus,
   IconUser,
 } from "@tabler/icons-react";
-import { useCallback, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -50,6 +58,7 @@ import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
+  MAX_FILTER_PRESETS,
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
@@ -157,6 +166,10 @@ interface DashboardFilterBarProps {
     filters: Record<string, string>,
     isDefault: boolean,
   ) => void | Promise<void>;
+  // Passed only in edit mode: a preset changes the dashboard for everyone who
+  // can see it, so view mode never offers one.
+  onSavePreset?: (filterId: string, preset: FilterPreset) => void;
+  shared?: boolean;
 }
 
 export function DashboardFilterBar({
@@ -164,6 +177,8 @@ export function DashboardFilterBar({
   views = NO_VIEWS,
   viewsRefreshing = false,
   onSaveView,
+  onSavePreset,
+  shared = false,
 }: DashboardFilterBarProps) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -288,6 +303,10 @@ export function DashboardFilterBar({
                     searchParams.has(FILTER_PARAM_PREFIX + key)
                   }
                   setValue={(updates) => setParam(updates)}
+                  onSavePreset={
+                    onSavePreset && ((preset) => onSavePreset(f.id, preset))
+                  }
+                  shared={shared}
                 />
               ))}
             </div>
@@ -473,10 +492,14 @@ function MultiSelectFilter({
   filter,
   value,
   setValue,
+  onSavePreset,
+  shared,
 }: {
   filter: DashboardFilter;
   value: string;
   setValue: (updates: Record<string, string>) => void;
+  onSavePreset?: (preset: FilterPreset) => void;
+  shared: boolean;
 }) {
   const t = useT();
   const labelId = useId();
@@ -484,6 +507,22 @@ function MultiSelectFilter({
   const optionsListId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [naming, setNaming] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const saveAsGroupRef = useRef<HTMLButtonElement>(null);
+  const refocusSaveAsGroupRef = useRef(false);
+  useEffect(() => {
+    if (naming || !refocusSaveAsGroupRef.current) return;
+    refocusSaveAsGroupRef.current = false;
+    saveAsGroupRef.current?.focus();
+  }, [naming]);
+  // A save unmounts the name form, and a rejected save then unmounts the group
+  // it showed. Until the dropdown closes, focus that falls to the page goes to
+  // the saved group, or back to Save as group once that group is gone.
+  const savedPresetLabelRef = useRef<string | null>(null);
+  const focusIfLost = (button: HTMLButtonElement | null) => {
+    if (button && document.activeElement === document.body) button.focus();
+  };
   const seenOptionValues = new Set<string>();
   const options = (filter.options ?? []).filter((option) => {
     if (seenOptionValues.has(option.value)) return false;
@@ -546,6 +585,35 @@ function MultiSelectFilter({
         : selected.filter((value) => value !== optionValue),
     );
 
+  // A save rejects a value with no option, so a URL-only value rules a group out.
+  const canSaveGroup =
+    onSavePreset !== undefined &&
+    presets.length < MAX_FILTER_PRESETS &&
+    !normalizedQuery &&
+    selectedSet.size >= 2 &&
+    !allOptionsSelected &&
+    !selectedPreset &&
+    selected.every((selectedValue) => seenOptionValues.has(selectedValue));
+  const trimmedGroupName = groupName.trim();
+  const groupNameTaken = presets.some(
+    (preset) => preset.label === trimmedGroupName,
+  );
+  const stopNaming = () => {
+    setNaming(false);
+    setGroupName("");
+  };
+  const saveGroup = () => {
+    if (!onSavePreset || !trimmedGroupName || groupNameTaken) return;
+    savedPresetLabelRef.current = trimmedGroupName;
+    onSavePreset({
+      label: trimmedGroupName,
+      values: options
+        .filter((option) => selectedSet.has(option.value))
+        .map((option) => option.value),
+    });
+    stopNaming();
+  };
+
   return (
     <div className="flex flex-col gap-1">
       <label id={labelId} className="text-xs text-muted-foreground font-medium">
@@ -555,7 +623,10 @@ function MultiSelectFilter({
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (!nextOpen) setQuery("");
+          if (nextOpen) return;
+          savedPresetLabelRef.current = null;
+          setQuery("");
+          stopNaming();
         }}
       >
         <PopoverTrigger asChild>
@@ -581,6 +652,13 @@ function MultiSelectFilter({
           align="start"
           // Room for Select all, a preset and Clear all on one row.
           className={presets.length > 0 ? "w-72" : "w-64"}
+          onEscapeKeyDown={(event) => {
+            if (!naming) return;
+            // Escape in the name field backs out of naming, not the dropdown.
+            event.preventDefault();
+            refocusSaveAsGroupRef.current = true;
+            stopNaming();
+          }}
         >
           <MenuSearchInput
             aria-controls={optionsListId}
@@ -589,11 +667,14 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1.5">
+          {/* Presets wrap inside their own column, so Select all and Clear all
+              keep their places on the first line however many groups exist. */}
+          <div className="flex items-start gap-1 border-b px-2 py-1.5">
             <Button
               type="button"
               variant="ghost"
               size="xs"
+              className="shrink-0"
               disabled={noFilteredOptions || allFilteredOptionsSelected}
               onClick={selectAllFiltered}
             >
@@ -603,13 +684,18 @@ function MultiSelectFilter({
               <div
                 role="group"
                 aria-label={t("sqlDashboard.presets")}
-                className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1"
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
               >
                 {presets.map((preset) => {
                   const active = presetSelected(preset);
                   return (
                     <Button
                       key={preset.label}
+                      ref={(button) => {
+                        if (savedPresetLabelRef.current === preset.label) {
+                          focusIfLost(button);
+                        }
+                      }}
                       type="button"
                       variant="ghost"
                       size="xs"
@@ -632,6 +718,7 @@ function MultiSelectFilter({
                 type="button"
                 variant="ghost"
                 size="xs"
+                className="ml-auto shrink-0"
                 onClick={() => setSelected([])}
               >
                 {t("sqlDashboard.clearAll")}
@@ -672,6 +759,63 @@ function MultiSelectFilter({
               {noFilteredOptions ? t("sqlDashboard.noValuesFound") : ""}
             </div>
           </div>
+          {canSaveGroup && (
+            <div className="border-t p-1">
+              {naming ? (
+                <form
+                  className="flex flex-col gap-1 p-0.5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveGroup();
+                  }}
+                >
+                  {/* The name gets the full width: beside "Save for everyone"
+                      (longer still in most locales) it would scroll out of view. */}
+                  <Input
+                    size="sm"
+                    autoFocus
+                    value={groupName}
+                    onChange={(event) => setGroupName(event.target.value)}
+                    placeholder={t("sqlDashboard.groupName")}
+                    aria-label={t("sqlDashboard.groupName")}
+                    aria-invalid={groupNameTaken}
+                  />
+                  {groupNameTaken && (
+                    <p role="alert" className="px-1 text-xs text-destructive">
+                      {t("sqlDashboard.groupNameTaken")}
+                    </p>
+                  )}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="self-end"
+                    disabled={!trimmedGroupName || groupNameTaken}
+                  >
+                    {shared
+                      ? t("sqlDashboard.saveForEveryone")
+                      : t("explorer.save")}
+                  </Button>
+                </form>
+              ) : (
+                <Button
+                  ref={(button) => {
+                    saveAsGroupRef.current = button;
+                    if (savedPresetLabelRef.current !== null) {
+                      focusIfLost(button);
+                    }
+                  }}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => setNaming(true)}
+                >
+                  <IconPlus />
+                  {t("sqlDashboard.saveAsGroup")}
+                </Button>
+              )}
+            </div>
+          )}
         </PopoverContent>
       </Popover>
     </div>
@@ -683,6 +827,8 @@ interface FilterControlProps {
   vars: Record<string, string>;
   hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
+  onSavePreset?: (preset: FilterPreset) => void;
+  shared: boolean;
 }
 
 function FilterControl({
@@ -690,6 +836,8 @@ function FilterControl({
   vars,
   hasParam,
   setValue,
+  onSavePreset,
+  shared,
 }: FilterControlProps) {
   const t = useT();
   if (filter.type === "date-range") {
@@ -791,6 +939,8 @@ function FilterControl({
         filter={filter}
         value={vars[filter.id] || ""}
         setValue={setValue}
+        onSavePreset={onSavePreset}
+        shared={shared}
       />
     );
   }

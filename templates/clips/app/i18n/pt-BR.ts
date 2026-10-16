@@ -648,6 +648,33 @@ const messages = {
     nativeSpeechPrimary:
       "A fala nativa continua sendo a principal fonte de transcrição.",
   },
+  transcriptImport: {
+    addFile: "Adicionar arquivo de transcrição",
+    imported: "Importada",
+    replaceTitle: "Substituir a transcrição?",
+    replaceDescription: "{{fileName}} substituirá a transcrição atual.",
+    replace: "Substituir",
+    regenerateOverImportTitle: "Substituir a transcrição importada?",
+    regenerateOverImportDescription:
+      "Uma nova transcrição feita a partir do áudio da gravação substituirá a importada de um arquivo.",
+    added: "Transcrição adicionada",
+    replaced: "Transcrição substituída",
+    failed: "Não foi possível adicionar a transcrição",
+    invalidFile: "Não foi possível ler {{fileName}}",
+    errorEmpty: "O arquivo não tem texto de transcrição.",
+    errorTooLarge: "O arquivo é grande demais para importar.",
+    errorNotUtf8:
+      "O arquivo não está em texto UTF-8. Salve-o como UTF-8 e tente novamente.",
+    errorMissingTiming:
+      "Linha {{line}}: era esperada uma linha de tempo da legenda como 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "Linha {{line}}: não foi possível ler o tempo da legenda.",
+    errorBadRange: "Linha {{line}}: a legenda termina antes de começar.",
+    errorMissingTimestamp:
+      "Linha {{line}}: era esperado um horário de início como 0:21 ou [0:21].",
+    errorOutOfOrder:
+      "Linha {{line}}: este horário vem antes do horário anterior.",
+    errorPastEnd: "Linha {{line}}: este horário é posterior ao fim do vídeo.",
+  },
   thumbnailPicker: {
     failedCapture: "Falha ao capturar o quadro",
     failedGif: "Falha ao gerar GIF — tente um intervalo menor",
