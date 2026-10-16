@@ -1491,6 +1491,24 @@ describe("realDataFinalGuard", () => {
     ).toMatchObject({
       retryMessage: expect.stringContaining("same bounded date range"),
     });
+    const threePeriodText =
+      "Compare activation rate over the last 3 months vs the previous 3 months and the equivalent period one year ago.";
+    expect(
+      evaluate(
+        [recentCall, previousCall, equivalentPreviousCall],
+        [recentResult, previousResult, equivalentPreviousResult],
+        threePeriodText,
+      ),
+    ).toBeNull();
+    expect(
+      evaluate(
+        [recentCall, previousCall],
+        [recentResult, previousResult],
+        threePeriodText,
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
     expect(
       evaluate(
         [recentCall],
@@ -1547,6 +1565,88 @@ describe("realDataFinalGuard", () => {
       }),
     );
     expect(yearBoundaryResult).toBeNull();
+  });
+
+  it("validates today and yesterday against their year-ago dates", () => {
+    const runStartedAt = Date.UTC(2026, 9, 1, 23, 59);
+    const evaluate = (
+      userText: string,
+      currentRange: { startDate: string; endDate: string },
+      priorRange: { startDate: string; endDate: string },
+      key: string,
+      includePrior = true,
+    ) => {
+      const currentCall = dbtMetricCall(currentRange, [], `${key}-current`);
+      const priorCall = dbtMetricCall(priorRange, [], `${key}-prior`);
+      const currentResult = dbtMetricResult(
+        { groupBy: [], timeRange: currentRange },
+        undefined,
+        {},
+        `${key}-current`,
+      );
+      const priorResult = dbtMetricResult(
+        { groupBy: [], timeRange: priorRange },
+        undefined,
+        {},
+        `${key}-prior`,
+      );
+      return realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: "The activation rate was 42% now and 39% last year.",
+          runStartedAt,
+          toolCalls: includePrior ? [currentCall, priorCall] : [currentCall],
+          toolResults: includePrior
+            ? [currentResult, priorResult]
+            : [currentResult],
+        }),
+      );
+    };
+
+    expect(
+      evaluate(
+        "Compare activation rate today vs one year ago.",
+        { startDate: "2026-10-01", endDate: "2026-10-01" },
+        { startDate: "2025-10-01", endDate: "2025-10-01" },
+        "today",
+      ),
+    ).toBeNull();
+    expect(
+      evaluate(
+        "Compare activation rate today vs one year ago.",
+        { startDate: "2026-10-01", endDate: "2026-10-01" },
+        { startDate: "2025-10-01", endDate: "2025-10-01" },
+        "today-missing-prior",
+        false,
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        "Compare activation rate yesterday vs one year ago.",
+        { startDate: "2026-09-30", endDate: "2026-09-30" },
+        { startDate: "2025-09-30", endDate: "2025-09-30" },
+        "yesterday",
+      ),
+    ).toBeNull();
+  });
+
+  it("fails closed on invalid explicit dates in a year-ago comparison", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Compare activation rate from 2026-13-01 to 2026-13-07 vs the equivalent period one year ago.",
+        draftText: "The activation rate was 42%.",
+        runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+        toolCalls: [],
+        toolResults: [],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
   });
 
   it("validates both explicit date ranges in a comparison", () => {

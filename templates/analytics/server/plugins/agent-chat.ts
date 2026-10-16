@@ -1161,9 +1161,16 @@ function requestedExplicitDateRanges(userText: string): DbtMetricTimeRange[] {
     ...userText.matchAll(
       /\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/gi,
     ),
-  ].flatMap((match) =>
-    match[1] && match[2] ? [{ startDate: match[1], endDate: match[2] }] : [],
-  );
+  ].flatMap((match) => {
+    const startDate = match[1];
+    const endDate = match[2];
+    if (!startDate || !endDate) return [];
+    const parsedStart = parseUtcDateOnly(startDate);
+    const parsedEnd = parseUtcDateOnly(endDate);
+    return parsedStart && parsedEnd && parsedStart <= parsedEnd
+      ? [{ startDate, endDate }]
+      : [];
+  });
 }
 
 function requestedExplicitDateRange(
@@ -1177,6 +1184,24 @@ function dateRange(start: Date, end: Date): DbtMetricTimeRange {
     startDate: start.toISOString().slice(0, 10),
     endDate: end.toISOString().slice(0, 10),
   };
+}
+
+function parseUtcDateOnly(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+    ? date
+    : null;
+}
+
+function equivalentYearAgoRange(
+  currentRange: DbtMetricTimeRange,
+): DbtMetricTimeRange | null {
+  const start = parseUtcDateOnly(currentRange.startDate);
+  const end = parseUtcDateOnly(currentRange.endDate);
+  if (!start || !end || start > end) return null;
+  return dateRange(addUtcMonths(start, -12), addUtcMonths(end, -12));
 }
 
 function addUtcDays(date: Date, count: number): Date {
@@ -1392,6 +1417,20 @@ function requestedCalendarRange(
   return null;
 }
 
+function requestedFirstComparisonRange(
+  userText: string,
+  now: Date,
+): DbtMetricTimeRange | null {
+  const comparisonConnector = userText.match(
+    /\b(?:vs\.?|versus|against|compared\s+to)\b/i,
+  );
+  if (comparisonConnector?.index === undefined) return null;
+  return requestedCalendarRange(
+    userText.slice(0, comparisonConnector.index),
+    now,
+  );
+}
+
 function requestedComparisonCalendarRanges(
   userText: string,
   now: Date,
@@ -1433,6 +1472,10 @@ function requestedComparisonCalendarRanges(
   );
   const [currentWindow] = currentWindows;
   const [previousWindow] = previousWindows;
+  const equivalentYearAgo =
+    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i.test(
+      userText,
+    );
   if (rollingWindows.length >= 2) {
     if (
       rollingWindows.length !== 2 ||
@@ -1459,21 +1502,20 @@ function requestedComparisonCalendarRanges(
       addUtcDays(currentStart, -inclusiveDays),
       addUtcDays(currentStart, -1),
     );
-    return [currentRange, previousRange];
+    const ranges = [currentRange, previousRange];
+    if (equivalentYearAgo) {
+      const priorYearRange = equivalentYearAgoRange(currentRange);
+      if (!priorYearRange) return [];
+      ranges.push(priorYearRange);
+    }
+    return ranges;
   }
 
-  if (
-    /\b(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i.test(
-      userText,
-    )
-  ) {
-    const currentRange = requestedCalendarRange(userText, now);
+  if (equivalentYearAgo) {
+    const currentRange = requestedFirstComparisonRange(userText, now);
     if (!currentRange) return [];
-    const previousRange = dateRange(
-      addUtcMonths(new Date(`${currentRange.startDate}T00:00:00.000Z`), -12),
-      addUtcMonths(new Date(`${currentRange.endDate}T00:00:00.000Z`), -12),
-    );
-    return [currentRange, previousRange];
+    const priorYearRange = equivalentYearAgoRange(currentRange);
+    return priorYearRange ? [currentRange, priorYearRange] : [];
   }
 
   const explicitDateRanges = requestedExplicitDateRanges(userText);
