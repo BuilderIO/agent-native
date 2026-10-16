@@ -17,6 +17,7 @@ import {
 import { isIsoCalendarDate } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
+  failIfChangedSince,
   inAnnotationScope,
   writeInAnnotationScope,
   requireAnnotationScope,
@@ -91,6 +92,8 @@ export type SaveDataNoteInput = {
   matchEvents?: string[];
   unlessEvents?: string[];
   panels?: DataNotePanelRef[];
+  /** The updatedAt the edit was made from; a later save refuses it. */
+  expectedUpdatedAt?: string;
 };
 
 type NoteFields = Omit<DataNote, "id" | "addedBy" | "updatedAt">;
@@ -233,6 +236,7 @@ async function updateNote(
 ): Promise<DataNote> {
   const existing = await findNote(tx, scope, id);
   if (!existing) notFound(id);
+  failIfChangedSince("data note", input.expectedUpdatedAt, existing.updatedAt);
   const columns = toColumns(cleanNote(input, toDataNote(existing)));
   const given = Object.fromEntries(
     Object.entries(columns).filter(

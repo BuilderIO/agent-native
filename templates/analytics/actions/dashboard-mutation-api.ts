@@ -38,8 +38,12 @@ type DashboardPatch = {
   variables?: Record<string, string>;
   /** Id of another dashboard to nest this one under in the sidebar. */
   parentId?: string;
-  /** Key-date sets (ids from list-key-dates) to leave off this dashboard's charts. */
-  annotations?: { hiddenKeyDateSets?: string[] };
+  /** What this dashboard hides. Each list given replaces that list; one left out is kept. */
+  annotations?: {
+    /** Key-date set ids from list-key-dates. */
+    hiddenKeyDateSets?: string[];
+    hiddenDataNotes?: { noteId: string; panelId: string }[];
+  };
 };
 
 type PanelTimeScope =
@@ -773,6 +777,20 @@ export function sameJsonValue(left: unknown, right: unknown): boolean {
   );
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * A dashboard's `annotations` keeps one list per kind of thing it hides, and
+ * a patch names only the lists it changes, so hiding a key-date set can't show
+ * the hidden notes again.
+ */
+function patchedAnnotations(current: unknown, patch: unknown): unknown {
+  return isPlainObject(current) && isPlainObject(patch)
+    ? { ...current, ...patch }
+    : patch;
+}
+
 function hasSameJsonProperty(
   record: Record<string, unknown>,
   key: string,
@@ -1042,7 +1060,11 @@ export function applyDashboardMutationOperations(
         }
         case "setDashboard": {
           const changedFields: string[] = [];
-          for (const [key, value] of Object.entries(op.patch)) {
+          for (const [key, patch] of Object.entries(op.patch)) {
+            const value =
+              key === "annotations"
+                ? patchedAnnotations(config.annotations, patch)
+                : patch;
             if (hasSameJsonProperty(config, key, value)) continue;
             config[key] = value;
             dashboardFieldsChanged.add(key);

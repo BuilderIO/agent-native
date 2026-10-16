@@ -4,6 +4,7 @@ import type { KeyDate, KeyDateSet } from "@shared/key-dates";
 import { useId, useRef, useState } from "react";
 
 import {
+  editedVersion,
   isPendingAnnotation,
   useDeleteKeyDate,
   useSaveKeyDate,
@@ -126,7 +127,12 @@ function KeyDateForm({
   const handleSave = () => {
     if (!canSave) return;
     const input: KeyDateInput = {
-      ...(existing ? { id: existing.id } : {}),
+      ...(existing
+        ? {
+            id: existing.id,
+            expectedUpdatedAt: editedVersion(existing.id, existing.updatedAt),
+          }
+        : {}),
       ...(chosenSet ? { setId: chosenSet.id } : { setName: setName.trim() }),
       date,
       label: label.trim(),

@@ -87,6 +87,12 @@ export default defineAction({
       .max(50)
       .optional()
       .describe("Charts the note shows on whatever their SQL counts"),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "The note's updatedAt from list-data-notes when the edit was made; refuses the edit if it changed since",
+      ),
   }),
   run: async (input) => saveDataNote(requireDataNoteScope(), input),
 });

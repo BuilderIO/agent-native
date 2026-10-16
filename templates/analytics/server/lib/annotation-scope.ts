@@ -51,6 +51,24 @@ export async function lockAnnotationScope(
   );
 }
 
+/**
+ * Refuses an edit made from a copy older than the saved one, so a form opened
+ * before someone else's save can't quietly undo it. Call it under the lock.
+ */
+export function failIfChangedSince(
+  what: "data note" | "key date",
+  expectedUpdatedAt: string | undefined,
+  updatedAt: string,
+): void {
+  if (expectedUpdatedAt === undefined || expectedUpdatedAt === updatedAt) {
+    return;
+  }
+  fail(
+    `This ${what} changed after you opened it, so your edit wasn't saved. Open it again and redo the edit.`,
+    { errorCode: "annotation_conflict", statusCode: 409 },
+  );
+}
+
 /** Runs `write` in one transaction that holds the scope's lock from its start. */
 export function writeInAnnotationScope<T>(
   scope: AnnotationScope,

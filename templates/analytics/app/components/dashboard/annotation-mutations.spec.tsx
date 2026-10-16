@@ -56,6 +56,7 @@ vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 import { i18nCatalog } from "../../i18n";
 import {
+  editedVersion,
   isPendingAnnotation,
   useDeleteDataNote,
   useDeleteKeyDate,
@@ -150,8 +151,8 @@ async function owner(useWrite: () => Write, input: unknown) {
   await flush();
   return {
     unmount,
-    succeed: async () => {
-      settle.resolve({});
+    succeed: async (saved: unknown = {}) => {
+      settle.resolve(saved);
       await flush();
     },
     fail: async (message = "Network down") => {
@@ -346,6 +347,29 @@ describe("annotation writes", () => {
 
     await add.fail();
     expect(sets()).toEqual([{ ...LAUNCHES, name: "Releases" }, CHANGES]);
+  });
+
+  it("lets an edit opened before this tab's own save came back follow that save", async () => {
+    const opened = SETUP_INCIDENT.updatedAt;
+    const retitle = await owner(useSaveDataNote, {
+      id: SETUP_INCIDENT.id,
+      title: "Setup outage",
+      expectedUpdatedAt: opened,
+    });
+    expect(editedVersion(SETUP_INCIDENT.id, opened)).toBe(opened);
+
+    await retitle.succeed({
+      ...SETUP_INCIDENT,
+      title: "Setup outage",
+      updatedAt: "2026-10-16T09:00:00.000Z",
+    });
+
+    expect(editedVersion(SETUP_INCIDENT.id, opened)).toBe(
+      "2026-10-16T09:00:00.000Z",
+    );
+    expect(
+      editedVersion(CONNECT_UNDERCOUNT.id, CONNECT_UNDERCOUNT.updatedAt),
+    ).toBe(CONNECT_UNDERCOUNT.updatedAt);
   });
 
   it("keeps a later edit to the same note when an earlier one fails", async () => {

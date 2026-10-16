@@ -14,7 +14,10 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
 }));
 
-vi.mock("@/components/dashboard/annotation-mutations", () => ({
+vi.mock("@/components/dashboard/annotation-mutations", async (actual) => ({
+  ...(await actual<
+    typeof import("@/components/dashboard/annotation-mutations")
+  >()),
   useSaveDataNote: () => ({ mutate: mocks.save }),
   useDeleteDataNote: () => ({ mutate: mocks.remove }),
 }));
@@ -269,6 +272,7 @@ describe("DataNoteDialog", () => {
     expect(mocks.save).toHaveBeenCalledWith(
       expect.objectContaining({
         id: CONNECT_UNDERCOUNT.id,
+        expectedUpdatedAt: CONNECT_UNDERCOUNT.updatedAt,
         title: CONNECT_UNDERCOUNT.title,
         startDate: "2026-10-02",
         endDate: today(),

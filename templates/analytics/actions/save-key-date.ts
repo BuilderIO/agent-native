@@ -40,6 +40,12 @@ export default defineAction({
       .min(1)
       .max(120)
       .describe('Short label shown on charts, for example "Product Hunt live"'),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "The date's updatedAt from list-key-dates when the edit was made; refuses the edit if it changed since",
+      ),
   }),
   run: async (input) => saveKeyDate(requireKeyDateScope(), input),
 });
