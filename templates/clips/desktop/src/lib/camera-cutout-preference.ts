@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 /**
  * "Remove camera background" preference. Stored in localStorage (all Clips
  * windows share the tauri://localhost origin) and broadcast as a Tauri
- * event so the bubble, the popover and a running recording follow a toggle
+ * event so the bubble and a running recording follow a Settings toggle
  * live.
  */
 export const CAMERA_CUTOUT_STORAGE_KEY = "clips:camera-cutout";

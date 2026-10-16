@@ -3,7 +3,6 @@ import {
   IconChevronDown,
   IconMicrophone,
   IconRefresh,
-  IconUserScan,
   IconVolume2,
 } from "@tabler/icons-react";
 import { useMemo } from "react";
@@ -56,8 +55,6 @@ export function MediaDeviceRow({
   onToggle,
   systemAudio,
   onSystemAudioToggle,
-  backgroundRemoval,
-  onBackgroundRemovalToggle,
   meterActive = true,
 }: {
   kind: "camera" | "mic";
@@ -70,8 +67,6 @@ export function MediaDeviceRow({
   onToggle: (v: boolean) => void;
   systemAudio?: boolean;
   onSystemAudioToggle?: (v: boolean) => void;
-  backgroundRemoval?: boolean;
-  onBackgroundRemovalToggle?: (v: boolean) => void;
   meterActive?: boolean;
 }) {
   const current = useMemo(
@@ -213,30 +208,6 @@ export function MediaDeviceRow({
               <TooltipContent side="left">{`${
                 systemAudio ? "Turn off" : "Turn on"
               } system audio`}</TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-      ) : null}
-      {kind === "camera" && on && onBackgroundRemovalToggle ? (
-        <div
-          className={`row ${backgroundRemoval ? "row-on" : "row-off"} system-audio-row`}
-        >
-          <span className="row-icon system-audio-icon" aria-hidden>
-            <IconUserScan size={20} stroke={1.75} />
-          </span>
-          <span className="system-audio-label">Remove background</span>
-          <div className="row-trailing-control">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Switch
-                  checked={!!backgroundRemoval}
-                  onCheckedChange={onBackgroundRemovalToggle}
-                  label="Remove background"
-                />
-              </TooltipTrigger>
-              <TooltipContent side="left">{`${
-                backgroundRemoval ? "Show" : "Remove"
-              } camera background`}</TooltipContent>
             </Tooltip>
           </div>
         </div>

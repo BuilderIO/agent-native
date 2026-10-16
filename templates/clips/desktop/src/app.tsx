@@ -1052,7 +1052,6 @@ export function App({
   const [cameraOn, setCameraOn] = useState<boolean>(
     initialCaptureSetup.cameraOn,
   );
-  const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [micOffConfirmOpen, setMicOffConfirmOpen] = useState(false);
   const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
@@ -5028,8 +5027,6 @@ export function App({
             onRefresh={() => requestDeviceAccess("camera")}
             on={cameraOn}
             onToggle={toggleCamera}
-            backgroundRemoval={cameraCutout}
-            onBackgroundRemovalToggle={setCameraCutout}
           />
 
           <MediaDeviceRow
@@ -6616,6 +6613,7 @@ function Setup({
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
+  const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
@@ -7777,6 +7775,17 @@ function Setup({
                 onCheckedChange={setVoiceCleanupEnabled}
                 disabled={captureControlsLocked}
                 label="Voice cleanup"
+              />
+            }
+          />
+          <SettingsRow
+            label="Remove background"
+            description="Shows only you in the camera bubble"
+            control={
+              <SettingsSwitch
+                checked={cameraCutout}
+                onCheckedChange={setCameraCutout}
+                label="Remove background"
               />
             }
           />
