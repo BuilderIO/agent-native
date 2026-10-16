@@ -192,6 +192,10 @@ export async function processWebContent(
       )
     : null;
   const htmlExtractionFailed = Boolean(shouldExtract && extracted === null);
+  // When extraction fails the "extracted" content is really the raw markup, so
+  // searches run against raw bytes and must be labeled as such, not "extracted".
+  const fallbackSearchSource: WebSearchSource =
+    html && !htmlExtractionFailed ? "extracted" : "raw";
   const baseContent = contentForMode(mode, options.body, extracted);
   const fullContent = options.saveContentFormat
     ? options.saveContentFormat === "text"
@@ -241,11 +245,14 @@ export async function processWebContent(
   }
 
   if (mode === "matches") {
+    if (htmlExtractionFailed) {
+      applyFallbackBody(result, options.body, maxChars);
+    }
     const matchResult = findWebContentMatches({
       raw: options.body,
       extracted: baseContent,
       search,
-      fallbackSearchSource: html ? "extracted" : "raw",
+      fallbackSearchSource,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
@@ -264,7 +271,7 @@ export async function processWebContent(
       raw: options.body,
       extracted: baseContent,
       search,
-      fallbackSearchSource: html ? "extracted" : "raw",
+      fallbackSearchSource,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;
@@ -362,10 +369,15 @@ function isHtmlResponse(contentType: string | null, body: string): boolean {
 
 function isHtmlParserRejection(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  // linkedom (and callers that touch a null documentElement) surface the
-  // missing root this way; keep the fallback narrow so peer/Readability/
-  // Turndown failures still propagate.
-  return /documentElement/i.test(error.message);
+  // linkedom surfaces a missing root as a null `documentElement`; Turndown
+  // collapses the same unparseable markup (e.g. a frameset served as
+  // text/html) to a null root and throws reading `firstChild`. Match only
+  // those null-root shapes so peer-not-installed and other failures still
+  // propagate.
+  return (
+    /documentElement/i.test(error.message) ||
+    /null \(reading 'firstChild'\)/i.test(error.message)
+  );
 }
 
 async function safeExtractHtml(

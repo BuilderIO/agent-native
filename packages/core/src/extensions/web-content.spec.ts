@@ -114,6 +114,48 @@ describe("processWebContent", () => {
     },
   );
 
+  it("falls back to raw text when a real frameset body makes the HTML-to-markdown parser reject it", async () => {
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+    // A frameset page served as text/html collapses Turndown's root, so the
+    // real parser throws reading `firstChild` with no mocking involved.
+    const body =
+      "<!doctype html><html><head><title>Login</title></head>" +
+      "<frameset cols='200,*'><frame src='/nav'><frame src='/main'></frameset></html>";
+
+    const result = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+      extract: "none",
+    });
+
+    expect(result.content).toBe(body);
+    expect(result.truncated).toBe(false);
+    expect(formatWebContentResult(result)).toContain("frameset");
+  });
+
+  it("attaches the raw body and labels searchSource raw when matches mode hits a real parser rejection", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const body =
+      "<!doctype html><html><frameset rows='80,*'>" +
+      "<frame src='/top' name='topbar'><frame src='/body' name='content'></frameset></html>";
+
+    const result = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "matches",
+      extract: "none",
+      search: { query: "topbar" },
+    });
+
+    expect(result.content).toBe(body);
+    expect(result.searchSource).toBe("raw");
+    expect(result.matches?.length).toBeGreaterThan(0);
+  });
+
   it.each(["links", "metadata"] as const)(
     "truncates the structured-mode fallback body for %s when maxChars is set",
     async (responseMode) => {
