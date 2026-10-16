@@ -24,6 +24,18 @@ import {
 
 const REQUIRED_CORE_COVERAGE = [
   {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard repeat paste moves relative roots 16px under an RTL containing block",
+  },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves relative roots without an anchor across screens",
+  },
+  {
     shard: "inspector-3a",
     file: "canvas-chords.spec.ts",
     title: "Keyboard repeat paste preserves mixed positioned and flow roots",
@@ -295,6 +307,29 @@ const REQUIRED_CORE_COVERAGE = [
     file: "canvas-chords.spec.ts",
     title: "Cmd+Shift+R places a margin-offset copy at the target bounds",
   },
+  {
+    shard: "inspector-4a",
+    file: "interaction-walkthrough-2.spec.ts",
+    title:
+      "Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-walkthrough-8.spec.ts",
+    title: "Cmd+D duplicates every selected screen in one undo step",
+  },
+  {
+    shard: "position-3",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "an open pasted SVG continues from its endpoint and closes without adding a fill",
+  },
+  {
+    shard: "inspector-1b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "closing an edited pasted SVG restores authored fill opacity through history and reload",
+  },
 ] as const;
 
 test("required core Design interaction coverage has explicit regression pins", () => {
@@ -316,7 +351,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 88);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 94);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

@@ -7,7 +7,12 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { hashAgentToolApprovalKey } from "./approval-key.js";
+import {
+  AGENT_TOOL_APPROVAL_MIGRATIONS,
+  AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+} from "./tool-approval-migrations.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
@@ -58,6 +63,10 @@ export const agentToolApprovalsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version <= 3),
+    ),
   ],
 });
 
@@ -91,6 +100,10 @@ export const agentToolApprovalPoliciesStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version === 4),
+    ),
   ],
 });
 

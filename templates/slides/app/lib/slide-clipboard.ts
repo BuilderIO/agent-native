@@ -1,3 +1,4 @@
+import { isAnimationTrigger } from "@shared/api";
 import {
   clampTransitionSpeed,
   normalizeSlideTransition,
@@ -389,6 +390,12 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
       ) {
         return null;
       }
+      if (
+        animation.trigger !== undefined &&
+        !isAnimationTrigger(animation.trigger)
+      ) {
+        return null;
+      }
       animations.push({
         id: animation.id,
         elementIndex: animation.elementIndex,
@@ -397,6 +404,9 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
           : {}),
         ...(animation.byParagraph !== undefined
           ? { byParagraph: animation.byParagraph }
+          : {}),
+        ...(animation.trigger !== undefined
+          ? { trigger: animation.trigger }
           : {}),
         type: animation.type as AnimationType,
       });

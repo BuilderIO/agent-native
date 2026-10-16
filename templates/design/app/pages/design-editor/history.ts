@@ -54,12 +54,12 @@ export const YJS_REDO_SELECTION_META_KEY = "design-editor-selection-after";
 
 export function stampYjsUndoSelectionAfter(
   undoManager: Y.UndoManager | null | undefined,
-  previousTop: YjsUndoStackTop,
+  _previousTop: YjsUndoStackTop,
   snapshot: YjsUndoSelectionSnapshot,
 ): void {
   const stack = undoManager?.undoStack;
   const top = stack?.[stack.length - 1];
-  if (!top || top === previousTop) return;
+  if (!top) return;
   top.meta.set(YJS_REDO_SELECTION_META_KEY, snapshot);
 }
 
@@ -625,6 +625,16 @@ export function stampLocalContentHistorySelectionAfter(
   const top = stack[stack.length - 1];
   if (!top || top === previousTop) return;
   top.selectionAfter = snapshot;
+}
+
+export function stampLocalContentHistorySelectionBefore(
+  stack: ContentHistoryChange[],
+  previousTop: ContentHistoryChange | undefined,
+  snapshot: YjsUndoSelectionSnapshot,
+): void {
+  const top = stack[stack.length - 1];
+  if (!top || top === previousTop) return;
+  top.selectionBefore = snapshot;
 }
 
 export function stampContentHistorySelectionAfter(

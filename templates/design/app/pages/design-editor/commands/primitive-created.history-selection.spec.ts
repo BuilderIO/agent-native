@@ -68,6 +68,7 @@ it("stamps the selection established by primitive creation into content and Yjs 
     localContentUndoSelection: {
       undoStackRef: localContentUndoStackRef,
       undoStackTopBefore: previousLocalEntry,
+      selectionBefore,
     },
     yjsUndoSelection: {
       undoManagerRef,
@@ -89,6 +90,7 @@ it("stamps the selection established by primitive creation into content and Yjs 
     selectedElement: null,
     selectedLayerIds: ["frame"],
   });
+  expect(createdLocalEntry.selectionBefore).toEqual(selectionBefore);
   expect(readYjsUndoSelection(previousYjsItem)).toBeUndefined();
   expect(previousLocalEntry.selectionAfter).toBeUndefined();
 });

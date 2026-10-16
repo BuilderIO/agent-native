@@ -25,7 +25,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -2265,7 +2264,6 @@ function CenterPlaybackOverlay({
                   container={menuPortalContainer}
                 >
                   <DropdownMenuLabel>Speed</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
                   {SPEED_OPTIONS.map((rate) => (
                     <DropdownMenuItem
                       key={rate}

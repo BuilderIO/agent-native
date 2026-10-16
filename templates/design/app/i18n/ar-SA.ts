@@ -1681,6 +1681,8 @@ export default {
     tweaksPlaceholder: "خيارات التمييز، الكثافة، نصف القطر، الوضع الداكن...",
     designExport: "تصدير Design",
     designPreview: "معاينة Design",
+    preview: "معاينة",
+    publish: "نشر",
     presentMode: "الوضع الحالي",
     useThisDirection: "استخدم هذا الاتجاه",
     variantHandoffHelp: "الصق هذا الملخص في وكيل الترميز الخاص بك للمتابعة.",

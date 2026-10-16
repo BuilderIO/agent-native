@@ -896,7 +896,7 @@ describe("AgentEngine registry", () => {
       );
     });
 
-    it("keeps explicitly selected BYOK provider model ids", async () => {
+    it("keeps explicitly selected BYOK provider model ids except known-outdated ones", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "anthropic",
@@ -906,7 +906,7 @@ describe("AgentEngine registry", () => {
       } as any;
 
       expect(normalizeModelForEngine(engine, "claude-sonnet-5")).toBe(
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
       );
       expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
         "claude-next-preview",

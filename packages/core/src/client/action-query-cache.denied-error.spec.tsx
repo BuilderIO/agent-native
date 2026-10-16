@@ -147,7 +147,7 @@ function singleActionResponse(
     });
   }
   return new Response(
-    JSON.stringify({ designs: [{ title: "saved for Bob" }] }),
+    JSON.stringify({ designs: [{ title: "fresh for Bob" }] }),
     {
       status: 200,
       headers: {
@@ -315,6 +315,9 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
         "Action get-private-data failed: Alice private data denied",
     ),
   ).toBe(false);
+  await expect
+    .poll(() => client.getQueryState(HELD_KEY)?.fetchStatus)
+    .toBe("fetching");
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
     "pending",
   );
@@ -476,6 +479,8 @@ it("characterizes Gate scope changes separately from direct binding", async () =
                       "Alice private data denied",
                     )
                   : await bobFetch.promise;
+            } else if (requestedAction === "list-designs") {
+              response = await bobHeldFetch.promise;
             } else {
               response = singleActionResponse(requestedAction, false, "");
             }
@@ -507,6 +512,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
           );
         return bobFetch.promise;
       }
+      if (action === "list-designs") return bobHeldFetch.promise;
       return singleActionResponse(action, false, "");
     },
   );
@@ -544,12 +550,15 @@ it("characterizes Gate scope changes separately from direct binding", async () =
     ),
   ).toBe(false);
   expect(client.getQueryData(HELD_KEY)).toBeUndefined();
+  await expect
+    .poll(() => client.getQueryState(HELD_KEY)?.fetchStatus)
+    .toBe("fetching");
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
     "pending",
   );
-  await act(async () =>
-    bobFetch.resolve(singleActionResponse("get-private-data", false, "")),
-  );
+  await act(async () => {
+    bobFetch.resolve(singleActionResponse("get-private-data", false, ""));
+  });
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
@@ -564,6 +573,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   await expect
     .poll(() => container?.querySelector('[data-testid="held"]')?.textContent)
     .toBe("fresh for Bob");
+  expect(records.has(SCOPE_B)).toBe(false);
   // The denial cleared the query's data, so Bob's read is a first fetch and
   // goes alone instead of joining a batch.
   expect(batchedActions.flat()).not.toContain("get-private-data");

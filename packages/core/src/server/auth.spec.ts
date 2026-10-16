@@ -6,6 +6,7 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import type { AuthPageProps } from "../shared/auth-page-types.js";
 import {
@@ -1451,7 +1452,12 @@ describe("server/auth", () => {
       let failLegacySessionRemoval = false;
       let transactionSessions: Map<string, string> | undefined;
       const execute = vi.fn(
-        async (query: { sql: string; args?: unknown[] }) => {
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const ledger = storeLedgerResult(
+            typeof query === "string" ? query : query.sql,
+          );
+          if (ledger) return ledger;
+          if (typeof query === "string") return { rows: [] };
           const token = query.args?.[0] as string | undefined;
           const sessions = transactionSessions ?? legacySessions;
           if (query.sql.includes("SELECT email, created_at FROM sessions")) {
@@ -5587,7 +5593,11 @@ describe("server/auth", () => {
       ]);
       expect(signUpEmail).toHaveBeenCalledTimes(1);
       expect(signInEmail).toHaveBeenCalledTimes(2);
-      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(
+        logSpy.mock.calls.filter((call) =>
+          String(call[0]).includes("Local dev auto-login ready"),
+        ),
+      ).toHaveLength(1);
       const generatedPassword = signUpEmail.mock.calls[0]?.[0]?.body?.password;
       const logOutput = logSpy.mock.calls.flat().join(" ");
       expect(generatedPassword).toBeTypeOf("string");

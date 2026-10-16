@@ -1652,6 +1652,8 @@ export default {
     tweaksPlaceholder: "强调色选项、密度、圆角、深色模式...",
     designExport: "Design 导出",
     designPreview: "Design 预览",
+    preview: "预览",
+    publish: "发布",
     presentMode: "呈现模式",
     useThisDirection: "使用这个方向",
     variantHandoffHelp: "将此摘要粘贴到您的编码代理中以继续。",

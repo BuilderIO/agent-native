@@ -123,6 +123,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "inline text edit commits, undo and redo restore exact content, and reload keeps it",
   },
   {
+    shard: "inspector-4a",
+    file: "interaction-walkthrough-2.spec.ts",
+    title:
+      "Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4",
+  },
+  {
     shard: "inspector-4b",
     file: "inspector-styles.spec.ts",
     title: "export rows add, remove, and reset when selection changes",
@@ -440,6 +446,23 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "pasted SVG is an editable sized layer and image scale mode writes object-fit",
   },
   {
+    shard: "inspector-1b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "closing an edited pasted SVG restores authored fill opacity through history and reload",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-walkthrough-8.spec.ts",
+    title: "Cmd+D duplicates every selected screen in one undo step",
+  },
+  {
+    shard: "position-3",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "an open pasted SVG continues from its endpoint and closes without adding a fill",
+  },
+  {
     shard: "drag-1a",
     file: "drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts",
     title: "dragging from empty canvas marquee-selects the elements it covers",
@@ -527,6 +550,18 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "inspector-3a",
     file: "canvas-chords.spec.ts",
     title: "Keyboard repeat paste preserves mixed positioned and flow roots",
+  },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard repeat paste moves relative roots 16px under an RTL containing block",
+  },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves relative roots without an anchor across screens",
   },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 

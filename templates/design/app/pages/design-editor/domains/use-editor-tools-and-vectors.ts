@@ -807,6 +807,7 @@ export function useEditorToolsAndVectors({
           localContentUndoSelection: {
             undoStackRef: localContentUndoStackRef,
             undoStackTopBefore: localContentUndoStackTopBefore,
+            selectionBefore: yjsSelectionBefore,
           },
         },
       );

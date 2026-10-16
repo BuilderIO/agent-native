@@ -47,6 +47,31 @@ describe("stampYjsUndoSelectionAfter / readYjsRedoSelection", () => {
     expect(readYjsUndoSelection(um.undoStack[0])).toEqual(beforeSnap);
     expect(readYjsRedoSelection(um.undoStack[0])).toEqual(afterSnap);
   });
+
+  it("updates the redo selection when a later create coalesces into the same item", () => {
+    const um = fakeUndoManager();
+    const item = { meta: new Map<unknown, unknown>() };
+    const beforeSnap = {
+      selectedElement: null,
+      selectedLayerIds: ["before"],
+    };
+    const firstAfterSnap = {
+      selectedElement: null,
+      selectedLayerIds: ["first"],
+    };
+    const latestAfterSnap = {
+      selectedElement: null,
+      selectedLayerIds: ["second"],
+    };
+    item.meta.set("design-editor-selection-before", beforeSnap);
+    item.meta.set("design-editor-selection-after", firstAfterSnap);
+    um.undoStack.push(item);
+
+    stampYjsUndoSelectionAfter(um as any, item, latestAfterSnap);
+
+    expect(readYjsUndoSelection(item)).toEqual(beforeSnap);
+    expect(readYjsRedoSelection(item)).toEqual(latestAfterSnap);
+  });
 });
 
 describe("forwardYjsUndoStackItemMeta", () => {

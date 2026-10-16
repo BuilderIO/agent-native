@@ -20,6 +20,10 @@ import { resolveLocalHistorySelection } from "@/pages/design-editor/history-iden
 const CONTENT_WITH_BOX_A = `<!doctype html><html data-agent-native-node-id="html-1"><body data-agent-native-node-id="body-1">
 <div data-agent-native-node-id="box-a" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div>
 </body></html>`;
+const CONTENT_WITH_BOX_A_AND_BOX_B = `<!doctype html><html data-agent-native-node-id="html-1"><body data-agent-native-node-id="body-1">
+<div data-agent-native-node-id="box-a" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div>
+<div data-agent-native-node-id="box-b" style="position:absolute;left:40px;top:10px;width:20px;height:20px"></div>
+</body></html>`;
 const CONTENT_WITHOUT_BOX_A = `<!doctype html><html data-agent-native-node-id="html-1"><body data-agent-native-node-id="body-1"></body></html>`;
 
 function sourceBoxA() {
@@ -335,6 +339,60 @@ it("restores a created layer selection after local-history redo without Yjs", ()
   expect(localContentUndoStackRef.current).toEqual([entry]);
   expect(localContentRedoStackRef.current).toEqual([]);
   expect(selectedLayerIds).toEqual([createdNode.id]);
+  expect(selectedElement).toMatchObject({
+    sourceLayerIdentity: { screenId: "file-1" },
+  });
+});
+
+it("restores the pre-create selection when local-history undo removes a new layer", () => {
+  const { node: selectedNode, element: selectedNodeElement } = sourceBoxA();
+  let selectedElement: unknown = null;
+  let selectedLayerIds: string[] = ["box-b"];
+  const entry: ContentHistoryChange = {
+    fileId: "file-1",
+    before: CONTENT_WITH_BOX_A,
+    after: CONTENT_WITH_BOX_A_AND_BOX_B,
+    selectionBefore: {
+      selectedElement: selectedNodeElement,
+      selectedLayerIds: [selectedNode.id],
+    },
+    selectionAfter: {
+      selectedElement: null,
+      selectedLayerIds: ["box-b"],
+    },
+  };
+  const localContentUndoStackRef = { current: [entry] };
+  const localContentRedoStackRef = { current: [] as ContentHistoryChange[] };
+  const historyOrderRef = { current: ["content"] };
+  const args = baseArgs({
+    activeFile: {
+      id: "file-1",
+      fileType: "html",
+      updatedAt: "2024-01-01T00:00:00Z",
+    },
+    getFreshActiveContent: () => CONTENT_WITH_BOX_A_AND_BOX_B,
+    getScreenContent: () => CONTENT_WITH_BOX_A_AND_BOX_B,
+    historyOrderRef,
+    localContentRedoStackRef,
+    localContentUndoStackRef,
+    setSelectedElement: vi.fn((update: unknown) => {
+      selectedElement =
+        typeof update === "function"
+          ? (update as (previous: unknown) => unknown)(selectedElement)
+          : update;
+    }),
+    setSelectedLayerIdsState: vi.fn((update: unknown) => {
+      selectedLayerIds =
+        typeof update === "function"
+          ? (update as (previous: string[]) => string[])(selectedLayerIds)
+          : (update as string[]);
+    }),
+  });
+
+  runUndo(args);
+
+  expect(localContentRedoStackRef.current).toEqual([entry]);
+  expect(selectedLayerIds).toEqual([selectedNode.id]);
   expect(selectedElement).toMatchObject({
     sourceLayerIdentity: { screenId: "file-1" },
   });

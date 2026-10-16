@@ -1724,6 +1724,8 @@ export default {
     tweaksPlaceholder: "Options d’accent, densité, rayon, mode sombre...",
     designExport: "Export Design",
     designPreview: "Aperçu de Design",
+    preview: "Aperçu",
+    publish: "Publier",
     presentMode: "Mode Présent",
     useThisDirection: "Utilisez cette direction",
     variantHandoffHelp:
