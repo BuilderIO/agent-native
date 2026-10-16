@@ -2016,6 +2016,56 @@ export function liveCopyBodySaveResult(args: {
   return { contentPersisted: args.titleSaved };
 }
 
+/**
+ * What an editor writing a page's body through its live copy does with an
+ * update's acknowledgment. An update the server already had, such as a resend
+ * whose first answer was lost, changes nothing, so its answer cannot say
+ * whether the server still writes the body from the live copy.
+ */
+export function liveCopyAcknowledgmentAction(
+  ack: CollabUpdateAck,
+): "keep" | "leave" | "confirm" {
+  if (ack.liveCopy === "not_derived") return "leave";
+  return ack.liveCopy === "unchanged" ? "confirm" : "keep";
+}
+
+/** Whether the server still writes the page's body from its live copy. */
+export async function confirmLiveCopyWritePath(
+  readDocument: () => Promise<Pick<Document, "writePath"> | null | undefined>,
+): Promise<boolean> {
+  const writePath = (await readDocument())?.writePath;
+  if (!writePath)
+    throw new Error("The page did not say how its body is written.");
+  return writePath === "live_copy";
+}
+
+/**
+ * Whether a save on a live-copy page sends its title, and against which base.
+ * The page's body commits move its updatedAt without touching the title, so
+ * only a title another writer changed makes this one stale.
+ */
+export function liveCopyTitleSave(args: {
+  title: string;
+  lastSavedTitle: string;
+  documentTitle: string;
+  titleBase: string | undefined;
+}):
+  | { send: false; renamedElsewhere: boolean }
+  | { send: true; titleBase: string } {
+  if (args.title === args.lastSavedTitle)
+    return { send: false, renamedElsewhere: false };
+  const titleBase = args.titleBase ?? args.lastSavedTitle;
+  if (
+    titleRenamedByAnotherWriter({
+      documentTitle: args.documentTitle,
+      titleBase,
+      title: args.title,
+    })
+  )
+    return { send: false, renamedElsewhere: true };
+  return { send: true, titleBase };
+}
+
 export function enqueueDocumentSave<T>(
   queueRef: MutableRefObject<Promise<void>>,
   save: () => Promise<T>,
@@ -3419,13 +3469,39 @@ function PageEditorSessionBody({
   }
   const bodyWritesThroughLiveCopy = liveCopyBody === true && collabEnabled;
   bodyWritesThroughLiveCopyRef.current = bodyWritesThroughLiveCopy;
-  const handleUpdateAcknowledged = useCallback((ack: CollabUpdateAck) => {
-    if (ack.liveCopy !== "not_derived" || !bodyWritesThroughLiveCopyRef.current)
-      return;
-    bodyWritesThroughLiveCopyRef.current = false;
-    setLiveCopyBody(false);
-    leaveLiveCopyRef.current();
-  }, []);
+  const liveCopyWritePathCheckRef = useRef<Promise<void> | null>(null);
+  const handleUpdateAcknowledged = useCallback(
+    (ack: CollabUpdateAck) => {
+      if (!bodyWritesThroughLiveCopyRef.current) return;
+      const leave = () => {
+        if (!bodyWritesThroughLiveCopyRef.current) return;
+        bodyWritesThroughLiveCopyRef.current = false;
+        setLiveCopyBody(false);
+        leaveLiveCopyRef.current();
+      };
+      const action = liveCopyAcknowledgmentAction(ack);
+      if (action === "leave") return leave();
+      if (action !== "confirm" || liveCopyWritePathCheckRef.current) return;
+      liveCopyWritePathCheckRef.current = confirmLiveCopyWritePath(() =>
+        callAction("get-document", { id: documentId }, { method: "GET" }),
+      )
+        .then((stillLiveCopy) => {
+          if (!stillLiveCopy) leave();
+        })
+        .catch((error) => {
+          // A later acknowledgment settles it: a changed update answers
+          // derived or not_derived, and a no-op one checks again.
+          console.warn(
+            "Could not confirm that this page's body is still written from its live copy.",
+            error,
+          );
+        })
+        .finally(() => {
+          liveCopyWritePathCheckRef.current = null;
+        });
+    },
+    [documentId],
+  );
   const {
     ydoc,
     awareness,
@@ -4097,51 +4173,47 @@ function PageEditorSessionBody({
       options: DocumentSaveOptions,
     ): Promise<DocumentSaveResult> => {
       let titleSaved = true;
-      const titleIsStale =
-        options.titleBase === undefined &&
-        !!documentUpdatedAtRef.current &&
-        !!lastSavedTitleRef.current.updatedAt &&
-        documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
-      if (title !== lastSavedTitleRef.current.title && !titleIsStale) {
+      const titleSave = liveCopyTitleSave({
+        title,
+        lastSavedTitle: lastSavedTitleRef.current.title,
+        documentTitle: documentTitleRef.current,
+        titleBase: options.titleBase,
+      });
+      if (!titleSave.send) {
+        if (titleSave.renamedElsewhere) titleSaved = false;
+      } else {
+        const saved = await persistDocumentUpdates(
+          { title },
+          {
+            allowQueuedSave: options.allowQueuedSave,
+            requireActiveEditorSession: options.requireActiveEditorSession,
+            historySessionId: options.historySessionId,
+            telemetryOrigin: options.telemetryOrigin,
+            titleBase: titleSave.titleBase,
+          },
+        );
         if (
-          titleRenamedByAnotherWriter({
-            documentTitle: documentTitleRef.current,
-            titleBase: options.titleBase,
-            title,
-          })
+          isDocumentUpdateConflict(saved) ||
+          isDocumentUpdateSuperseded(saved) ||
+          isDocumentUpdatePreservationRequired(saved)
         ) {
           titleSaved = false;
         } else {
-          const saved = await persistDocumentUpdates(
-            { title },
-            {
-              allowQueuedSave: options.allowQueuedSave,
-              requireActiveEditorSession: options.requireActiveEditorSession,
-              historySessionId: options.historySessionId,
-              telemetryOrigin: options.telemetryOrigin,
-              titleBase: options.titleBase,
-            },
-          );
-          if (
-            isDocumentUpdateConflict(saved) ||
-            isDocumentUpdateSuperseded(saved) ||
-            isDocumentUpdatePreservationRequired(saved)
-          ) {
-            titleSaved = false;
-          } else {
-            adoptConfirmedSaveWatermarks({
-              saved,
-              savedAt: saved.updatedAt ?? new Date().toISOString(),
-              title,
-              content: lastSavedContentRef.current.content,
-              updates: { title },
-              lastSavedTitleRef,
-              lastSavedContentRef,
-            });
-          }
+          adoptConfirmedSaveWatermarks({
+            saved,
+            savedAt: saved.updatedAt ?? new Date().toISOString(),
+            title,
+            content: lastSavedContentRef.current.content,
+            updates: { title },
+            lastSavedTitleRef,
+            lastSavedContentRef,
+          });
         }
       }
       const bodyAcknowledged = await flushBeforeSave(flushCollabUpdates);
+      // An acknowledgment that could not say where the body went is checked
+      // before the save reports.
+      await liveCopyWritePathCheckRef.current;
       return liveCopyBodySaveResult({
         titleSaved,
         bodyAcknowledged,
@@ -5295,19 +5367,24 @@ function PageEditorSessionBody({
         return false;
       }
 
+      // The collab client's pagehide flush and kept updates carry a
+      // live-copy page's body.
+      const liveCopyBody = bodyWritesThroughLiveCopyRef.current;
       const serverUpdatedAt = documentUpdatedAtRef.current;
-      const titleIsStale =
-        !!serverUpdatedAt &&
-        !!lastSavedTitleRef.current.updatedAt &&
-        serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
+      const titleIsStale = liveCopyBody
+        ? titleRenamedByAnotherWriter({
+            documentTitle: documentTitleRef.current,
+            titleBase: pending.titleBase,
+            title: pending.title,
+          })
+        : !!serverUpdatedAt &&
+          !!lastSavedTitleRef.current.updatedAt &&
+          serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
         !!documentRevisionRef.current &&
         !!pending.contentBase.revision &&
         documentRevisionRef.current !== pending.contentBase.revision;
 
-      // The collab client's pagehide flush and kept updates carry a
-      // live-copy page's body.
-      const liveCopyBody = bodyWritesThroughLiveCopyRef.current;
       const titleChanged = pending.title !== pending.titleBase;
       const contentChanged =
         !liveCopyBody && pending.content !== pending.contentBase.content;

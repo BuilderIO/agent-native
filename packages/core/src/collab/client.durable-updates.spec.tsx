@@ -180,6 +180,27 @@ describe("collab durable updates", () => {
     expect(outboxKeys()).toHaveLength(1);
   });
 
+  it("sends an account's kept updates when it signs in on an open doc", async () => {
+    const grace = { ...USER, email: "grace@example.com" };
+    const first = await mountReady({ durableUpdates: true, user: grace });
+    updateResponses = ["offline"];
+    first().ydoc!.getText("t").insert(0, "theirs");
+    await expect(first().flushUpdates()).resolves.toBe(false);
+    await closeTab();
+    await mountReady({ durableUpdates: true });
+    sentUpdates = [];
+
+    await mountReady({ durableUpdates: true, user: grace });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const server = new Y.Doc();
+    for (const update of sentUpdates) Y.applyUpdate(server, update);
+    expect(server.getText("t").toString()).toBe("theirs");
+    expect(outboxKeys()).toEqual([]);
+  });
+
   it("keeps nothing without durableUpdates", async () => {
     const result = await mountReady({});
     updateResponses = ["offline"];
@@ -210,6 +231,26 @@ describe("collab durable updates", () => {
     await act(async () => {
       window.dispatchEvent(new Event("online"));
       await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(sentUpdates).toHaveLength(1);
+    expect(outboxKeys()).toEqual([]);
+  });
+
+  it("sends promptly when the tab is back online during a request that fails", async () => {
+    const result = await mountReady({ durableUpdates: true });
+    updateResponses = ["offline", "offline"];
+    result().ydoc!.getText("t").insert(0, "typed offline");
+    await expect(result().flushUpdates()).resolves.toBe(false);
+
+    const failing = result().flushUpdates();
+    window.dispatchEvent(new Event("online"));
+    await act(async () => {
+      await expect(failing).resolves.toBe(false);
+    });
+    sentUpdates = [];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
     });
 
     expect(sentUpdates).toHaveLength(1);

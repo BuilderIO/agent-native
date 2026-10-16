@@ -342,6 +342,7 @@ class CollabDocConnection {
   private updateHandlerAttached = false;
   private keepsUnsentUpdates = false;
   private unsentUpdatesRestored = false;
+  private onlineDuringUpdate = false;
   private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2)}`;
@@ -618,6 +619,8 @@ class CollabDocConnection {
       if (this.flushTimer) clearTimeout(this.flushTimer);
       this.flushTimer = null;
       this.updateErrors = 0;
+      // Kept updates are per account.
+      this.unsentUpdatesRestored = false;
     }
     if (
       prev &&
@@ -897,7 +900,11 @@ class CollabDocConnection {
   // A tab that comes back online sends what it kept without waiting out the
   // retry backoff it built up while offline.
   private handleOnline = (): void => {
-    if (!this.keepsUnsentUpdates || this.updateInFlight) return;
+    if (!this.keepsUnsentUpdates) return;
+    if (this.updateInFlight) {
+      this.onlineDuringUpdate = true;
+      return;
+    }
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -991,10 +998,13 @@ class CollabDocConnection {
       this.updateErrors++;
     } finally {
       clearTimeout(timeout);
+      let online = false;
       if (keepalive) this.keepaliveInFlight = false;
       else {
         this.updateInFlight = false;
         this.updateAbortController = null;
+        online = this.onlineDuringUpdate;
+        this.onlineDuringUpdate = false;
       }
       if (!this.disposed && this.pendingUpdates.length && !this.flushTimer) {
         this.flushTimer = setTimeout(
@@ -1002,7 +1012,7 @@ class CollabDocConnection {
             this.flushTimer = null;
             void this.flushPendingUpdates();
           },
-          this.updateErrors
+          this.updateErrors && !online
             ? calcBackoff(this.updateErrors)
             : UPDATE_DEBOUNCE_MS,
         );
