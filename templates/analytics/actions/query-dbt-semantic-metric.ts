@@ -162,6 +162,25 @@ const metricQuerySpecSchema = z
     }
   });
 type MetricQuerySpec = z.infer<typeof metricQuerySpecSchema>;
+const metricDefinitionSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  type: z.string().optional(),
+  dimensionsCount: z.number(),
+  dimensionsTruncated: z.boolean(),
+  dimensions: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string().optional(),
+      type: z.string().optional(),
+      queryableGranularities: z.array(z.string()),
+    }),
+  ),
+  queryableGranularities: z.array(z.string()),
+  queryableGranularitiesCount: z.number(),
+  queryableGranularitiesTruncated: z.boolean(),
+});
+type MetricDefinition = z.infer<typeof metricDefinitionSchema>;
 const queryMetricOutputSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("connection_selection_required"),
@@ -177,6 +196,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     queryId: z.string().optional(),
     nextPage: z.string().optional(),
     querySpec: metricQuerySpecSchema.optional(),
+    metric: metricDefinitionSchema.optional(),
     message: z.string(),
   }),
   z.object({
@@ -207,26 +227,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   }),
   z.object({
     status: z.literal("success"),
-    metric: z
-      .object({
-        name: z.string(),
-        description: z.string().optional(),
-        type: z.string().optional(),
-        dimensionsCount: z.number(),
-        dimensionsTruncated: z.boolean(),
-        dimensions: z.array(
-          z.object({
-            name: z.string(),
-            description: z.string().optional(),
-            type: z.string().optional(),
-            queryableGranularities: z.array(z.string()),
-          }),
-        ),
-        queryableGranularities: z.array(z.string()),
-        queryableGranularitiesCount: z.number(),
-        queryableGranularitiesTruncated: z.boolean(),
-      })
-      .optional(),
+    metric: metricDefinitionSchema.optional(),
     querySpec: metricQuerySpecSchema,
     rows: z.array(z.unknown()),
     rowCount: z.number(),
@@ -243,6 +244,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     queryId: z.string(),
     nextPage: z.string().optional(),
     querySpec: metricQuerySpecSchema,
+    metric: metricDefinitionSchema.optional(),
     message: z.string(),
     connection: metricConnectionSchema,
     source: z.literal("dbt-semantic-layer"),
@@ -257,6 +259,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     queryId: z.string().optional(),
     nextPage: z.string().optional(),
     querySpec: metricQuerySpecSchema.optional(),
+    metric: metricDefinitionSchema.optional(),
     message: z.string(),
   }),
 ]);
@@ -299,6 +302,7 @@ type MetricResultCursor = {
   rowOffset: number;
   rowsBeforePage: number;
   querySpec: MetricQuerySpec;
+  metricDefinition?: MetricDefinition;
 };
 
 type DecodedMetricResultCursor = MetricResultCursor & {
@@ -331,7 +335,29 @@ function encodeMetricResultCursor(
   cursor: MetricResultCursor,
   token: string,
 ): string {
-  const payload = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+  let cursorWithMetric = cursor;
+  let payload = Buffer.from(JSON.stringify(cursorWithMetric)).toString(
+    "base64url",
+  );
+  if (payload.length > 1_880 && cursor.metricDefinition) {
+    cursorWithMetric = {
+      ...cursor,
+      metricDefinition: {
+        name: cursor.metricDefinition.name,
+        dimensionsCount: cursor.metricDefinition.dimensionsCount,
+        dimensionsTruncated: true,
+        dimensions: [],
+        queryableGranularities: [],
+        queryableGranularitiesCount:
+          cursor.metricDefinition.queryableGranularitiesCount,
+        queryableGranularitiesTruncated:
+          cursor.metricDefinition.queryableGranularitiesCount > 0,
+      },
+    };
+    payload = Buffer.from(JSON.stringify(cursorWithMetric)).toString(
+      "base64url",
+    );
+  }
   const signature = metricResultCursorSignature(payload, token).toString(
     "base64url",
   );
@@ -381,10 +407,24 @@ function decodeMetricResultCursor(
     }
     const parsedQuerySpec = metricQuerySpecSchema.safeParse(parsed.querySpec);
     if (!parsedQuerySpec.success) return null;
+    const parsedMetricDefinition =
+      parsed.metricDefinition === undefined
+        ? undefined
+        : metricDefinitionSchema.safeParse(parsed.metricDefinition);
+    if (
+      parsedMetricDefinition &&
+      (!parsedMetricDefinition.success ||
+        parsedMetricDefinition.data.name !== parsed.metricName)
+    ) {
+      return null;
+    }
     const querySpec = parsedQuerySpec.data;
     return {
       ...(parsed as Omit<MetricResultCursor, "querySpec">),
       querySpec,
+      ...(parsedMetricDefinition?.success
+        ? { metricDefinition: parsedMetricDefinition.data }
+        : {}),
       encodedPayload: payload,
       signature,
     };
@@ -499,6 +539,40 @@ function normalizedMetricQuerySpec(
         `${right.name}:${right.grain ?? ""}`,
       ),
     ),
+  };
+}
+
+function metricDefinitionSummary(
+  metricName: string,
+  metric: Record<string, unknown>,
+): MetricDefinition {
+  const dimensions = Array.isArray(metric.dimensions)
+    ? metric.dimensions
+        .map(record)
+        .filter((dimension) => typeof dimension.name === "string")
+    : [];
+  const granularities = queryableGranularities(metric.queryableGranularities);
+  return {
+    name: metricName,
+    ...(typeof metric.description === "string"
+      ? { description: metric.description }
+      : {}),
+    ...(typeof metric.type === "string" ? { type: metric.type } : {}),
+    dimensionsCount: dimensions.length,
+    dimensionsTruncated: dimensions.length > 30,
+    dimensions: dimensions.slice(0, 30).map((dimension) => ({
+      name: dimension.name as string,
+      ...(typeof dimension.description === "string"
+        ? { description: dimension.description }
+        : {}),
+      ...(typeof dimension.type === "string" ? { type: dimension.type } : {}),
+      queryableGranularities: queryableGranularities(
+        dimension.queryableGranularities,
+      ),
+    })),
+    queryableGranularities: granularities.slice(0, 10),
+    queryableGranularitiesCount: granularities.length,
+    queryableGranularitiesTruncated: granularities.length > 10,
   };
 }
 
@@ -631,6 +705,25 @@ function dateDayNumber(value: string): number | null {
   return canonical === value ? timestamp / 86_400_000 : null;
 }
 
+function fullCalendarMonthRange(
+  timeRange: NonNullable<MetricQuerySpec["timeRange"]>,
+): { startMonth: string; endMonth: string } | null {
+  const [endYear, endMonth] = timeRange.endDate.split("-").map(Number);
+  const lastDayOfEndMonth = new Date(Date.UTC(endYear!, endMonth!, 0))
+    .toISOString()
+    .slice(0, 10);
+  if (
+    timeRange.startDate !== `${timeRange.startDate.slice(0, 7)}-01` ||
+    timeRange.endDate !== lastDayOfEndMonth
+  ) {
+    return null;
+  }
+  return {
+    startMonth: timeRange.startDate,
+    endMonth: `${timeRange.endDate.slice(0, 7)}-01`,
+  };
+}
+
 function queryableGranularities(value: unknown): string[] {
   return Array.isArray(value)
     ? value
@@ -709,9 +802,15 @@ function validateMetricQuerySpec(
 
   const where = querySpec.timeRange
     ? (() => {
-        if (!metricGranularities.includes("DAY")) {
+        const monthRange = fullCalendarMonthRange(querySpec.timeRange);
+        const filterGrain = metricGranularities.includes("DAY")
+          ? "day"
+          : metricGranularities.includes("MONTH") && monthRange
+            ? "month"
+            : null;
+        if (!filterGrain) {
           fail(
-            "This metric does not support day-grain filtering on metric_time, so the requested date range cannot be applied safely.",
+            "This metric cannot apply the requested date range at a supported time grain. Use daily-capable metrics for partial-day ranges, or give month-only metrics complete calendar months.",
             {
               errorCode: "dbt_metric_grain_unsupported",
               statusCode: 400,
@@ -719,12 +818,16 @@ function validateMetricQuerySpec(
           );
         }
         const { startDate, endDate } = querySpec.timeRange;
+        const filterStart =
+          filterGrain === "month" ? monthRange!.startMonth : startDate;
+        const filterEnd =
+          filterGrain === "month" ? monthRange!.endMonth : endDate;
         return [
           {
-            sql: `{{ TimeDimension('metric_time', 'day') }} >= '${startDate}'`,
+            sql: `{{ TimeDimension('metric_time', '${filterGrain}') }} >= '${filterStart}'`,
           },
           {
-            sql: `{{ TimeDimension('metric_time', 'day') }} <= '${endDate}'`,
+            sql: `{{ TimeDimension('metric_time', '${filterGrain}') }} <= '${filterEnd}'`,
           },
         ];
       })()
@@ -842,7 +945,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 export default defineAction({
   description:
-    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. Each scalar query must choose a bounded inclusive date range up to 366 days or explicitly set allTime:true; grouped queries require a bounded range. Returns the metric definition, querySpec, rows, and explicit permission, deployment, or connection states. Grouped time columns are returned as metric_time__<GRAIN>. It cannot run dbt jobs or accept arbitrary GraphQL.",
+    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. Each scalar query must choose a bounded inclusive date range up to 366 days or explicitly set allTime:true; grouped queries require a bounded range. Daily-capable metrics accept exact dates; monthly-only metrics require complete calendar months. Unsupported filter grains return an explicit error. Returns the metric definition, querySpec, rows, and explicit permission, deployment, or connection states. Grouped time columns are returned as metric_time__<GRAIN>. It cannot run dbt jobs or accept arbitrary GraphQL.",
   schema: z
     .object({
       metricName: z
@@ -897,7 +1000,7 @@ export default defineAction({
       timeRange: metricTimeRangeSchema
         .optional()
         .describe(
-          `Inclusive metric_time date range in YYYY-MM-DD format; maximum ${MAX_METRIC_QUERY_DAYS} days. Required for grouped queries and one of timeRange or allTime:true is required for scalar queries.`,
+          `Inclusive metric_time date range in YYYY-MM-DD format; maximum ${MAX_METRIC_QUERY_DAYS} days. Metrics with MONTH but no DAY granularity require a full calendar-month range. Required for grouped queries and one of timeRange or allTime:true is required for scalar queries.`,
         ),
       allTime: z
         .literal(true)
@@ -1186,6 +1289,7 @@ export default defineAction({
     const deadline = setTimeout(() => controller.abort(), 12_000);
     let activeQueryId = queryId;
     let initialResultPageCursor: string | undefined;
+    let activeMetricDefinition = resultCursor?.metricDefinition;
     try {
       let metric: Record<string, unknown> = { name: metricName };
       if (!activeQueryId) {
@@ -1317,6 +1421,7 @@ export default defineAction({
           };
         }
         metric = exactMatches[0]!;
+        activeMetricDefinition = metricDefinitionSummary(metricName, metric);
         if (!activeQueryId) {
           const metricQuery = validateMetricQuerySpec(metric, activeQuerySpec);
           const created = await executeGraphQl({
@@ -1357,6 +1462,9 @@ export default defineAction({
           rowOffset: 0,
           rowsBeforePage: 0,
           querySpec: activeQuerySpec,
+          ...(activeMetricDefinition
+            ? { metricDefinition: activeMetricDefinition }
+            : {}),
         },
         token.value,
       );
@@ -1449,6 +1557,9 @@ export default defineAction({
                     rowOffset: nextRowOffset,
                     rowsBeforePage,
                     querySpec: activeQuerySpec,
+                    ...(activeMetricDefinition
+                      ? { metricDefinition: activeMetricDefinition }
+                      : {}),
                   },
                   token.value,
                 )
@@ -1463,50 +1574,17 @@ export default defineAction({
                       rowOffset: 0,
                       rowsBeforePage: rowsBeforeNextPage,
                       querySpec: activeQuerySpec,
+                      ...(activeMetricDefinition
+                        ? { metricDefinition: activeMetricDefinition }
+                        : {}),
                     },
                     token.value,
                   )
                 : undefined;
-          const dimensions = Array.isArray(metric.dimensions)
-            ? metric.dimensions
-                .map(record)
-                .filter((dimension) => typeof dimension.name === "string")
-            : [];
-          const allMetricGranularities = queryableGranularities(
-            metric.queryableGranularities,
-          );
           return {
             status: "success",
-            ...(!resultCursor
-              ? {
-                  metric: {
-                    name: metricName,
-                    ...(typeof metric.description === "string"
-                      ? { description: metric.description }
-                      : {}),
-                    ...(typeof metric.type === "string"
-                      ? { type: metric.type }
-                      : {}),
-                    dimensionsCount: dimensions.length,
-                    dimensionsTruncated: dimensions.length > 30,
-                    dimensions: dimensions.slice(0, 30).map((dimension) => ({
-                      name: dimension.name as string,
-                      ...(typeof dimension.description === "string"
-                        ? { description: dimension.description }
-                        : {}),
-                      ...(typeof dimension.type === "string"
-                        ? { type: dimension.type }
-                        : {}),
-                      queryableGranularities: queryableGranularities(
-                        dimension.queryableGranularities,
-                      ),
-                    })),
-                    queryableGranularities: allMetricGranularities.slice(0, 10),
-                    queryableGranularitiesCount: allMetricGranularities.length,
-                    queryableGranularitiesTruncated:
-                      allMetricGranularities.length > 10,
-                  },
-                }
+            ...(activeMetricDefinition
+              ? { metric: activeMetricDefinition }
               : {}),
             querySpec: activeQuerySpec,
             rows: resultRows,
@@ -1540,6 +1618,7 @@ export default defineAction({
         queryId: activeQueryId,
         nextPage: resultCursor ? nextPage! : initialResultPageCursor,
         querySpec: activeQuerySpec,
+        ...(activeMetricDefinition ? { metric: activeMetricDefinition } : {}),
         message:
           "The MetricFlow query is still running. Call this action again with the same metricName, queryId, and returned nextPage cursor to continue polling.",
         connection: { id: selected.id, label: selected.label },
@@ -1555,6 +1634,9 @@ export default defineAction({
               queryId: activeQueryId!,
               nextPage: resultCursor ? nextPage! : initialResultPageCursor!,
               querySpec: activeQuerySpec,
+              ...(activeMetricDefinition
+                ? { metric: activeMetricDefinition }
+                : {}),
             }
           : {};
         return {
@@ -1578,6 +1660,9 @@ export default defineAction({
             queryId: activeQueryId,
             nextPage: resultCursor ? nextPage! : initialResultPageCursor,
             querySpec: activeQuerySpec,
+            ...(activeMetricDefinition
+              ? { metric: activeMetricDefinition }
+              : {}),
             message: `${error.message} Retry with the same queryId and nextPage cursor to resume.`,
             connection: { id: selected.id, label: selected.label },
             source: "dbt-semantic-layer",
@@ -1599,6 +1684,9 @@ export default defineAction({
             queryId: activeQueryId,
             nextPage: resultCursor ? nextPage! : initialResultPageCursor,
             querySpec: activeQuerySpec,
+            ...(activeMetricDefinition
+              ? { metric: activeMetricDefinition }
+              : {}),
             message:
               "The MetricFlow query exceeded the action time budget. Retry with the same queryId and nextPage cursor to resume.",
             connection: { id: selected.id, label: selected.label },

@@ -271,6 +271,107 @@ describe("query-dbt-semantic-metric", () => {
     expect(action.outputSchema.parse(result)).toEqual(result);
   });
 
+  it("filters full calendar months at month grain for monthly-only metrics", async () => {
+    const timeRange = { startDate: "2026-08-01", endDate: "2026-10-31" };
+    const groupBy = [
+      { name: "metric_time", grain: "MONTH" as const },
+      { name: "workspace_id" },
+    ];
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: {
+              items: [
+                {
+                  name: "monthly_ai_credits_consumed",
+                  dimensions: [
+                    {
+                      name: "workspace_id",
+                      type: "CATEGORICAL",
+                      queryableGranularities: [],
+                    },
+                  ],
+                  queryableGranularities: ["MONTH"],
+                },
+              ],
+              totalItems: 1,
+              totalPages: 1,
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: { createQuery: { queryId: "fake_monthly_query" } },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({
+                data: [["2026-10-01", "workspace-synthetic", 42]],
+              }),
+            },
+          },
+        }),
+      );
+
+    const result = await runAction({
+      metricName: "monthly_ai_credits_consumed",
+      groupBy,
+      timeRange,
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: "success",
+      querySpec: { groupBy, timeRange },
+      rows: [["2026-10-01", "workspace-synthetic", 42]],
+    });
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[1]?.[0].body.variables.where,
+    ).toEqual([
+      {
+        sql: "{{ TimeDimension('metric_time', 'month') }} >= '2026-08-01'",
+      },
+      {
+        sql: "{{ TimeDimension('metric_time', 'month') }} <= '2026-10-01'",
+      },
+    ]);
+  });
+
+  it("rejects partial calendar months for monthly-only metric filters", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult({
+        data: {
+          metricsPaginated: {
+            items: [
+              {
+                name: "monthly_ai_credits_consumed",
+                dimensions: [],
+                queryableGranularities: ["MONTH"],
+              },
+            ],
+            totalItems: 1,
+            totalPages: 1,
+          },
+        },
+      }),
+    );
+
+    await expect(
+      runAction({
+        metricName: "monthly_ai_credits_consumed",
+        timeRange: { startDate: "2026-08-15", endDate: "2026-10-31" },
+      }),
+    ).rejects.toMatchObject({ errorCode: "dbt_metric_grain_unsupported" });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("groups an exact metric by returned dimensions and preserves its bounded time range across pages", async () => {
     const dimensions = [
       {
@@ -387,16 +488,114 @@ describe("query-dbt-semantic-metric", () => {
     })) as any;
     expect(second).toMatchObject({
       status: "success",
+      metric: {
+        name: "weekly_active_product_users",
+        dimensions: [
+          {
+            name: "root_org_id",
+            description: "Synthetic organization identifier",
+          },
+        ],
+      },
       querySpec: { groupBy, timeRange: metricTimeRange },
       rows: rows.slice(20),
       rowCount: 5,
       truncated: false,
     });
-    expect(second).not.toHaveProperty("metric");
     expect(action.outputSchema.parse(second)).toEqual(second);
     expect(
       mocks.executeProviderApiRequest.mock.calls[3]?.[0].body.query,
     ).toContain("query AnalyticsMetricResult");
+  });
+
+  it("preserves metric dimensions through a pending result and cursor-only continuation", async () => {
+    const dimensions = [
+      {
+        name: "root_org_id",
+        description: "Owning organization identifier",
+        type: "CATEGORICAL",
+        queryableGranularities: [],
+      },
+    ];
+    const groupBy = [
+      { name: "metric_time", grain: "WEEK" as const },
+      { name: "root_org_id" },
+    ];
+    const timeRange = { startDate: "2026-07-01", endDate: "2026-07-31" };
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        metricMetadataResult("weekly_active_product_users", dimensions),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: { createQuery: { queryId: "fake_pending_group_query" } },
+        }),
+      )
+      .mockRejectedValueOnce(providerRequestTimeoutError())
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({
+                data: [
+                  {
+                    metric_time__WEEK: "2026-07-06",
+                    root_org_id: "org-1",
+                    weekly_active_product_users: 12,
+                  },
+                ],
+              }),
+            },
+          },
+        }),
+      );
+
+    const pending = (await runAction({
+      metricName: "weekly_active_product_users",
+      groupBy,
+      timeRange,
+      limit: 20,
+    })) as any;
+
+    expect(pending).toMatchObject({
+      status: "pending",
+      queryId: "fake_pending_group_query",
+      metric: {
+        name: "weekly_active_product_users",
+        dimensions: [
+          {
+            name: "root_org_id",
+            description: "Owning organization identifier",
+          },
+        ],
+      },
+      querySpec: { groupBy, timeRange },
+    });
+
+    const continued = await runAction({
+      metricName: "weekly_active_product_users",
+      queryId: pending.queryId,
+      nextPage: pending.nextPage,
+      limit: 20,
+    });
+
+    expect(continued).toMatchObject({
+      status: "success",
+      metric: pending.metric,
+      querySpec: { groupBy, timeRange },
+      rows: [
+        {
+          metric_time__WEEK: "2026-07-06",
+          root_org_id: "org-1",
+          weekly_active_product_users: 12,
+        },
+      ],
+    });
+    expect(action.outputSchema.parse(pending)).toEqual(pending);
+    expect(action.outputSchema.parse(continued)).toEqual(continued);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(4);
   });
 
   it("returns the known synthetic grouped metric answer", async () => {
@@ -1069,7 +1268,12 @@ describe("query-dbt-semantic-metric", () => {
     expect(requests[1]?.body.variables.limit).toBeUndefined();
   });
 
-  it.each(["querySpec", "signature", "malformedRowOffset"] as const)(
+  it.each([
+    "querySpec",
+    "metricDefinition",
+    "signature",
+    "malformedRowOffset",
+  ] as const)(
     "rejects a metric result cursor with a tampered %s",
     async (tamper) => {
       const rows = Array.from({ length: 25 }, (_, index) => [index + 1]);
@@ -1116,9 +1320,17 @@ describe("query-dbt-semantic-metric", () => {
                 },
               },
             }
-          : tamper === "malformedRowOffset"
-            ? { ...parsedPayload, rowOffset: 1_000 }
-            : parsedPayload;
+          : tamper === "metricDefinition"
+            ? {
+                ...parsedPayload,
+                metricDefinition: {
+                  ...parsedPayload.metricDefinition,
+                  dimensions: [{ name: "organization_id" }],
+                },
+              }
+            : tamper === "malformedRowOffset"
+              ? { ...parsedPayload, rowOffset: 1_000 }
+              : parsedPayload;
       const encodedTamperedPayload = Buffer.from(
         JSON.stringify(tamperedPayload),
       ).toString("base64url");
@@ -1376,7 +1588,12 @@ describe("query-dbt-semantic-metric", () => {
       rowCount: 1,
       truncated: false,
     });
-    expect(resumed).not.toHaveProperty("metric");
+    expect(resumed).toMatchObject({
+      metric: {
+        name: "active_workspaces",
+        dimensions: [],
+      },
+    });
     expect(action.outputSchema.parse(resumed)).toEqual(resumed);
     expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(4);
     expect(

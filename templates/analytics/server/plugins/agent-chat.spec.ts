@@ -908,8 +908,10 @@ describe("realDataFinalGuard", () => {
       isError: false,
       content: JSON.stringify({
         status: "success",
+        metricName: "activation_rate",
         metric: {
           name: "activation_rate",
+          queryableGranularities: ["DAY", "WEEK", "MONTH"],
           dimensions: [
             {
               name: "organization_id",
@@ -1713,6 +1715,7 @@ describe("realDataFinalGuard", () => {
             isError: false,
             content: JSON.stringify({
               status: "success",
+              metricName: "activation_rate",
               querySpec: { groupBy: [], timeRange: resultPageRange },
               rows: [{ activation_rate: 42 }],
               truncated: true,
@@ -1747,6 +1750,7 @@ describe("realDataFinalGuard", () => {
             isError: false,
             content: JSON.stringify({
               status: "success",
+              metricName: "activation_rate",
               querySpec: { groupBy: [], timeRange: resultPageRange },
               rows: [{ activation_rate: 42 }],
               truncated: true,
@@ -1801,6 +1805,7 @@ describe("realDataFinalGuard", () => {
             isError: false,
             content: JSON.stringify({
               status: "pending",
+              metricName: "activation_rate",
               querySpec: { groupBy: [], timeRange: resultPageRange },
               nextPage: "opaque-cursor",
               message: "The MetricFlow query is still running.",
@@ -3348,6 +3353,19 @@ describe("realDataFinalGuard", () => {
         }),
       ),
     ).toBeNull();
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "How many signups did we get yesterday?",
+          draftText:
+            "The partial result reports 42 signups yesterday; BigQuery warned that one shard was unavailable, so the total may be incomplete. The returned total is complete.",
+          toolResults,
+        }),
+      ),
+    ).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining("result may be partial"),
+    });
     for (const draftText of [
       "The signups were 42 yesterday; a sample dashboard is available here.",
       "BigQuery returned a partial result: 42 signups yesterday.",

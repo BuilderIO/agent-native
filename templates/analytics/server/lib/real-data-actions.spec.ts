@@ -9,6 +9,7 @@ import {
   hasCompleteBigQuerySchemaSearch,
   hasCompleteBigQuerySchemaSearchMatches,
   hasCompleteEmptyBigQuerySchemaSearch,
+  hasBigQueryPartialDisclosure,
   hasDashboardConstructionAttempt,
   hasEmptyFindDataResult,
   hasExplicitPartialDisclosure,
@@ -302,6 +303,38 @@ describe("real data action classification", () => {
     expect(failedDataQueryAttemptMessage([capped])).toContain(
       "1,000-row result cap",
     );
+  });
+
+  it("clears a recoverable dbt status only after the same query completes", () => {
+    const querySpec = {
+      groupBy: [{ name: "metric_time", grain: "WEEK" }],
+      timeRange: { startDate: "2026-10-05", endDate: "2026-10-11" },
+    };
+    const cursor = `metric-results-v5.AA.${"A".repeat(43)}`;
+    const interrupted = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "provider_error",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        nextPage: cursor,
+        querySpec,
+      }),
+    };
+    const completed = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        querySpec,
+        rows: [{ metric_time: "2026-10-05", activation_rate: 42 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([interrupted, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
   });
 
   it.each([
@@ -1631,6 +1664,101 @@ describe("incomplete evidence detection", () => {
           content: JSON.stringify({ rows: [{ count: 42 }], truncated: true }),
         },
       ]),
+    ).toBe(true);
+  });
+
+  it("requires every meaningful BigQuery warning to be disclosed", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        content: JSON.stringify({
+          rows: [{ count: 42 }],
+          partial: true,
+          warnings: [
+            { reason: "other", message: "One shard was unavailable" },
+            {
+              reason: "resourcesExceeded",
+              message: "A regional partition was skipped due to quota",
+            },
+          ],
+        }),
+      },
+    ];
+
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result and warned that one shard was unavailable.",
+        toolResults,
+      ),
+    ).toBe(false);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result and warned about the shard.",
+        toolResults,
+      ),
+    ).toBe(false);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result. Warning: one shard was returned, and the retry details are in the quota dashboard.",
+        [
+          {
+            name: "bigquery",
+            content: JSON.stringify({
+              partial: true,
+              warnings: [
+                {
+                  reason: "other",
+                  message:
+                    "One shard was unavailable; retry after quota failure",
+                },
+              ],
+            }),
+          },
+        ],
+      ),
+    ).toBe(false);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result. Warning: one shard was unavailable; a regional partition was skipped due to quota.",
+        toolResults,
+      ),
+    ).toBe(true);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result. Warning: one shard was unavailable; a regional partition was skipped due to quota. The returned total is complete.",
+        toolResults,
+      ),
+    ).toBe(false);
+
+    const malformedWarningResults = [
+      {
+        name: "bigquery",
+        content: JSON.stringify({
+          partial: true,
+          warnings: [
+            { reason: "other", message: "One shard was unavailable" },
+            { reason: "other" },
+          ],
+        }),
+      },
+    ];
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result with a warning; the row cap may omit additional rows. One shard was unavailable.",
+        malformedWarningResults,
+      ),
+    ).toBe(false);
+
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result; the row cap may omit additional rows.",
+        [
+          {
+            name: "bigquery",
+            content: JSON.stringify({ partial: true, warnings: [] }),
+          },
+        ],
+      ),
     ).toBe(true);
   });
 

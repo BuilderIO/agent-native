@@ -1204,6 +1204,72 @@ function isSuccessfulDbtSemanticMetricResult(result: {
   );
 }
 
+function isRecoveredDbtContinuation(
+  result: { name?: string; isError?: boolean; content?: string },
+  index: number,
+  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+): boolean {
+  if (
+    !isDbtSemanticMetricActionName(String(result.name ?? "")) ||
+    result.isError
+  ) {
+    return false;
+  }
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    record.status !== "pending" &&
+    record.status !== "provider_error" &&
+    !(record.status === "success" && typeof record.nextPage === "string")
+  ) {
+    return false;
+  }
+  if (
+    typeof record.queryId !== "string" ||
+    !record.queryId ||
+    typeof record.metricName !== "string" ||
+    typeof record.nextPage !== "string" ||
+    typeof record.querySpec !== "object" ||
+    record.querySpec === null ||
+    Array.isArray(record.querySpec)
+  ) {
+    return false;
+  }
+  const querySpec = JSON.stringify(record.querySpec);
+  return results.slice(index + 1).some((candidate) => {
+    if (
+      !isDbtSemanticMetricActionName(String(candidate.name ?? "")) ||
+      candidate.isError
+    ) {
+      return false;
+    }
+    const candidatePayload = tryParseJsonContent(
+      String(candidate.content ?? ""),
+    );
+    if (
+      !candidatePayload ||
+      typeof candidatePayload !== "object" ||
+      Array.isArray(candidatePayload)
+    ) {
+      return false;
+    }
+    const candidateRecord = candidatePayload as Record<string, unknown>;
+    return (
+      candidateRecord.status === "success" &&
+      candidateRecord.queryId === record.queryId &&
+      candidateRecord.metricName === record.metricName &&
+      JSON.stringify(candidateRecord.querySpec) === querySpec &&
+      Array.isArray(candidateRecord.rows) &&
+      candidateRecord.rows.length > 0 &&
+      candidateRecord.nextPage === undefined &&
+      candidateRecord.truncated !== true
+    );
+  });
+}
+
 function hasEvidencePayload(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
 
@@ -1377,6 +1443,9 @@ export function hasPartialBigQueryResult(
   });
 }
 
+const BIGQUERY_COMPLETENESS_CLAIM =
+  /\b(?:(?:the\s+)?(?:returned|reported|overall|query|bigquery)\s+)?(?:total|result|count|number|figure|value|rows?|output|dataset)\s+(?:is|are|was|were|remains?|remain)\s+(?:still\s+)?(?:complete|full|exhaustive|comprehensive)\b|\b(?:complete|full|exhaustive|comprehensive)\s+(?:returned|reported|overall\s+)?(?:total|result|count|number|figure|value|rows?|output|dataset)\b|\b(?:all|every|the\s+entire)\s+(?:rows?|results?|records?)\s+(?:(?:are|were|is|was)\s+)?(?:included|present|accounted\s+for)\b/i;
+
 export function hasBigQueryPartialDisclosure(
   text: string,
   toolResults:
@@ -1399,22 +1468,32 @@ export function hasBigQueryPartialDisclosure(
     ) {
       return [];
     }
-    const warnings = Array.isArray(record.warnings)
-      ? record.warnings.flatMap((warning) => {
-          if (
-            !warning ||
-            typeof warning !== "object" ||
-            Array.isArray(warning)
-          ) {
-            return [];
-          }
-          const message = (warning as Record<string, unknown>).message;
-          return typeof message === "string" && message.trim() ? [message] : [];
-        })
-      : [];
-    return [{ warnings }];
+    const hasWarningsField = Object.prototype.hasOwnProperty.call(
+      record,
+      "warnings",
+    );
+    if (!hasWarningsField) return [{ warnings: [], malformedWarnings: false }];
+    if (!Array.isArray(record.warnings)) {
+      return [{ warnings: [], malformedWarnings: true }];
+    }
+    const warnings: string[] = [];
+    let malformedWarnings = false;
+    for (const warning of record.warnings) {
+      if (!warning || typeof warning !== "object" || Array.isArray(warning)) {
+        malformedWarnings = true;
+        continue;
+      }
+      const message = (warning as Record<string, unknown>).message;
+      if (typeof message !== "string" || !message.trim()) {
+        malformedWarnings = true;
+        continue;
+      }
+      warnings.push(message);
+    }
+    return [{ warnings, malformedWarnings }];
   });
   if (relevantResults.length === 0) return true;
+  if (BIGQUERY_COMPLETENESS_CLAIM.test(text)) return false;
 
   const mentionsPartialBigQueryResult =
     /\bbigquery\b[^.!?\n]{0,120}\b(?:partial|truncated|incomplete)\b|\b(?:partial|truncated|incomplete)\b[^.!?\n]{0,120}\bbigquery\b/i.test(
@@ -1422,37 +1501,99 @@ export function hasBigQueryPartialDisclosure(
     );
   if (!mentionsPartialBigQueryResult) return false;
 
-  return relevantResults.every(({ warnings }) => {
+  return relevantResults.every(({ warnings, malformedWarnings }) => {
+    if (malformedWarnings) return false;
     if (warnings.length === 0) {
       return /\b(?:may|might|could)\s+omit\b|\bonly\s+(?:the\s+)?returned\s+rows\b|\bnot\s+(?:a\s+)?complete\b|\b(?:row|result)\s+cap\b|\bremaining\s+rows\s+(?:were|are)\s+not\s+included\b/i.test(
         text,
       );
     }
     if (!/\bwarn(?:ing|ed|s)?\b/i.test(text)) return false;
-    const normalizedText = text.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+    const answerTokens = new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? []);
     const warningStopWords = new Set([
+      "a",
+      "about",
+      "after",
+      "all",
+      "also",
+      "an",
+      "and",
+      "any",
+      "are",
+      "as",
+      "at",
+      "be",
+      "been",
+      "before",
+      "being",
+      "but",
+      "by",
+      "can",
+      "could",
+      "did",
+      "do",
+      "does",
+      "during",
+      "for",
+      "from",
+      "had",
+      "has",
+      "have",
+      "here",
+      "if",
+      "in",
+      "incomplete",
+      "into",
+      "is",
+      "it",
+      "its",
+      "may",
+      "might",
+      "not",
+      "of",
+      "on",
+      "or",
+      "partial",
+      "per",
+      "result",
+      "results",
+      "should",
+      "some",
+      "than",
+      "that",
+      "the",
+      "then",
+      "this",
+      "through",
+      "to",
+      "truncated",
+      "up",
+      "was",
+      "were",
+      "with",
+      "without",
+      "would",
       "bigquery",
       "returned",
       "warning",
       "warnings",
+      "warn",
+      "warned",
       "query",
-      "result",
-      "results",
       "data",
-      "this",
-      "that",
-      "with",
-      "from",
     ]);
-    const warningTokens = warnings.flatMap((warning) =>
-      (warning.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []).filter(
-        (token) => !warningStopWords.has(token),
-      ),
-    );
-    return (
-      warningTokens.length === 0 ||
-      warningTokens.some((token) => normalizedText.includes(token))
-    );
+    return warnings.every((warning) => {
+      const warningTokens = new Set(
+        warning
+          .toLowerCase()
+          .match(/[a-z0-9]+/g)
+          ?.filter((token) => !warningStopWords.has(token)) ?? [],
+      );
+      return (
+        warningTokens.size > 0 &&
+        [...warningTokens].every((token) => answerTokens.has(token))
+      );
+    });
   });
 }
 
@@ -1512,14 +1653,17 @@ export function hasDataQueryAttempt(
   });
 }
 
-function isFailedDataQueryAttempt(result: {
-  name?: string;
-  isError?: boolean;
-  content?: string;
-}): boolean {
+function isFailedDataQueryAttempt(
+  result: { name?: string; isError?: boolean; content?: string },
+  index: number,
+  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+): boolean {
   const name = String(result.name ?? "");
   if (isDbtSemanticMetricActionName(name)) {
-    return dbtSemanticMetricFailure(result) !== null;
+    return (
+      dbtSemanticMetricFailure(result) !== null &&
+      !isRecoveredDbtContinuation(result, index, results)
+    );
   }
   const isDataQuery =
     isGroundingActionName(name) ||
@@ -1542,7 +1686,8 @@ export function failedDataQueryAttemptMessage(
     | Array<{ name?: string; isError?: boolean; content?: string }>
     | undefined,
 ): string | null {
-  const failed = (toolResults ?? []).find(isFailedDataQueryAttempt);
+  const results = toolResults ?? [];
+  const failed = results.find(isFailedDataQueryAttempt);
   if (!failed) return null;
   const name = String(failed.name ?? "data-source query");
   const dbtFailure = dbtSemanticMetricFailure(failed);
@@ -1559,10 +1704,12 @@ export function hasFailedDbtSemanticMetricQuery(
     | Array<{ name?: string; isError?: boolean; content?: string }>
     | undefined,
 ): boolean {
-  return (toolResults ?? []).some(
-    (result) =>
+  const results = toolResults ?? [];
+  return results.some(
+    (result, index) =>
       isDbtSemanticMetricActionName(String(result.name ?? "")) &&
-      dbtSemanticMetricFailure(result) !== null,
+      dbtSemanticMetricFailure(result) !== null &&
+      !isRecoveredDbtContinuation(result, index, results),
   );
 }
 

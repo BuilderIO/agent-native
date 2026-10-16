@@ -141,6 +141,20 @@ const rollingThreeMonthRange = {
   startDate: rollingWindowStart.toISOString().slice(0, 10),
   endDate: rollingWindowEnd.toISOString().slice(0, 10),
 };
+const latestCompleteMonthEnd = new Date(
+  Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 0),
+);
+const latestCompleteMonthsStart = new Date(
+  Date.UTC(
+    latestCompleteMonthEnd.getUTCFullYear(),
+    latestCompleteMonthEnd.getUTCMonth() - 2,
+    1,
+  ),
+);
+const threeCompleteCalendarMonthsRange = {
+  startDate: latestCompleteMonthsStart.toISOString().slice(0, 10),
+  endDate: latestCompleteMonthEnd.toISOString().slice(0, 10),
+};
 let evalHarnessSha256 = "";
 
 type Step = { name: string; input: Record<string, unknown> };
@@ -178,6 +192,7 @@ type SafeCsvRow = {
   bigquery_call_count: number;
   schema_search_call_count: number;
   provenance_distinguished: boolean;
+  event_taxonomy_grounded: boolean;
   bounded_grouping_verified: boolean;
   partial_warning_disclosed: boolean;
   latency_ms: number;
@@ -425,6 +440,131 @@ const cases: readonly Case[] = [
     },
   },
   {
+    key: "synthetic-latest-skill-event-taxonomy",
+    prompt:
+      "SYNTHETIC: Which event and properties represent skill invocations by workspace? Identify the source grain and do not report a live count.",
+    actionAllowlist: ["find-data", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["find-data"] },
+      },
+      {
+        name: "find-data",
+        input: {
+          question: "synthetic skill invocation event properties by workspace",
+          limit: 8,
+        },
+      },
+    ],
+    finalText:
+      "The approved synthetic dictionary entry describes the skill invoked event with skill_name and workspace_id, at one row per skill invocation. Counting distinct users also requires a verified actor identifier. This is reference metadata only; no live event count was queried.",
+    check: ({ output, actionResults }) => {
+      const text = output?.text.toLowerCase() ?? "";
+      const result = actionResults[0] as
+        | {
+            results?: Array<{
+              metric?: string;
+              origin?: string;
+              status?: string;
+              grain?: string;
+              definition?: string;
+            }>;
+          }
+        | undefined;
+      const eventDefinition = result?.results?.find(
+        (candidate) =>
+          candidate.origin === "approved-dictionary" &&
+          candidate.status === "approved",
+      );
+      return (
+        output?.toolCalls.filter((name) => name === "find-data").length === 1 &&
+        eventDefinition?.metric === "Synthetic skill invoked event" &&
+        eventDefinition.grain === "one row per skill invocation" &&
+        eventDefinition.definition?.includes("workspace_id") === true &&
+        text.includes("approved synthetic dictionary entry") &&
+        text.includes("skill invoked event") &&
+        text.includes("skill_name") &&
+        text.includes("workspace_id") &&
+        text.includes("one row per skill invocation") &&
+        text.includes("verified actor identifier") &&
+        text.includes("no live event count")
+      );
+    },
+  },
+  {
+    key: "synthetic-latest-monthly-ai-credits-by-workspace",
+    prompt:
+      "SYNTHETIC: Show AI credits consumed by workspace for each of the last three full calendar months, from " +
+      threeCompleteCalendarMonthsRange.startDate +
+      " through " +
+      threeCompleteCalendarMonthsRange.endDate +
+      ". Use an exact owner-defined metric, preserve month and workspace grain, and do not confuse this with workspace membership.",
+    actionAllowlist: ["query-dbt-semantic-metric", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["query-dbt-semantic-metric"] },
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_monthly_ai_credits_consumed",
+          groupBy: [
+            { name: "metric_time", grain: "MONTH" },
+            { name: "synthetic_workspace_id" },
+          ],
+          timeRange: threeCompleteCalendarMonthsRange,
+        },
+      },
+    ],
+    finalText:
+      "The synthetic MetricFlow result for " +
+      threeCompleteCalendarMonthsRange.startDate +
+      " through " +
+      threeCompleteCalendarMonthsRange.endDate +
+      " has monthly buckets by workspace. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const queryCall = actionCalls.find(
+        (call) => call.name === "query-dbt-semantic-metric",
+      );
+      const success = actionResults.find(
+        (result) =>
+          result &&
+          typeof result === "object" &&
+          (result as { status?: unknown }).status === "success",
+      ) as
+        | {
+            metricName?: string;
+            querySpec?: {
+              timeRange?: { startDate?: string; endDate?: string };
+              groupBy?: Array<{ name?: string; grain?: string }>;
+            };
+            rows?: Array<Record<string, unknown>>;
+          }
+        | undefined;
+      const groupBy = success?.querySpec?.groupBy ?? [];
+      const text = output?.text.toLowerCase() ?? "";
+      return (
+        output?.toolCalls.filter((name) => name === "query-dbt-semantic-metric")
+          .length === 1 &&
+        queryCall?.input.metricName ===
+          "synthetic_monthly_ai_credits_consumed" &&
+        JSON.stringify(success?.querySpec?.timeRange) ===
+          JSON.stringify(threeCompleteCalendarMonthsRange) &&
+        groupBy.some(
+          (group) => group.name === "metric_time" && group.grain === "MONTH",
+        ) &&
+        groupBy.some((group) => group.name === "synthetic_workspace_id") &&
+        success?.rows?.some(
+          (row) => row.synthetic_workspace_id === "workspace_synthetic_a",
+        ) === true &&
+        text.includes("monthly buckets by workspace") &&
+        text.includes("synthetic fixture")
+      );
+    },
+  },
+  {
     key: "synthetic-bigquery-partial-warning-disclosed",
     prompt:
       "SYNTHETIC: Report the returned synthetic activation count from BigQuery. If the result has warnings, state that it is partial and include the warning.",
@@ -528,6 +668,7 @@ const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
   "bigquery_call_count",
   "schema_search_call_count",
   "provenance_distinguished",
+  "event_taxonomy_grounded",
   "bounded_grouping_verified",
   "partial_warning_disclosed",
   "latency_ms",
@@ -673,17 +814,27 @@ function safeRow(
       testCase.key === "synthetic-source-provenance-ambiguity" &&
       (output?.text.toLowerCase().includes("approved") ?? false) &&
       (output?.text.toLowerCase().includes("unapproved") ?? false),
+    event_taxonomy_grounded:
+      testCase.key === "synthetic-latest-skill-event-taxonomy" &&
+      (output?.text.toLowerCase().includes("approved synthetic dictionary") ??
+        false) &&
+      (output?.text.toLowerCase().includes("one row per skill invocation") ??
+        false),
     bounded_grouping_verified:
       [
         "synthetic-dbt-paginated-bounded-grouping",
         "synthetic-dbt-rolling-window-product-category",
+        "synthetic-latest-monthly-ai-credits-by-workspace",
       ].includes(testCase.key) &&
       (output?.text
         .toLowerCase()
         .includes(
           testCase.key === "synthetic-dbt-rolling-window-product-category"
             ? "grouped by product category"
-            : "grouped by organization and week",
+            : testCase.key ===
+                "synthetic-latest-monthly-ai-credits-by-workspace"
+              ? "monthly buckets by workspace"
+              : "grouped by organization and week",
         ) ??
         false),
     partial_warning_disclosed:
@@ -713,28 +864,43 @@ async function runCase(
   providerBoundary.resolveWorkspaceConnectionCredentialForApp.mockReset();
   providerBoundary.executeProviderApiRequest.mockReset();
   const catalogFixture = {
-    candidates: [
-      {
-        metric: "Synthetic Workspace Seats",
-        definition: "Current synthetic workspace roster membership.",
-        origin: "approved-dictionary",
-        approved: true,
-        status: "approved",
-        grain: "one row per synthetic user and workspace",
-        source: "synthetic dbt model",
-      },
-      {
-        metric: "Synthetic Weekly Active Product Users",
-        definition: "Weekly unique synthetic actors with a product event.",
-        origin: "source-index",
-        approved: false,
-        status: "unapproved",
-        grain: "one row per synthetic user and week",
-        source: "synthetic application instrumentation",
-      },
-    ],
-    searched: 2,
-    of: 2,
+    candidates:
+      testCase.key === "synthetic-latest-skill-event-taxonomy"
+        ? [
+            {
+              metric: "Synthetic skill invoked event",
+              definition:
+                "Synthetic event with skill_name and workspace_id properties.",
+              origin: "approved-dictionary",
+              approved: true,
+              status: "approved",
+              grain: "one row per skill invocation",
+              source: "synthetic instrumentation dictionary",
+            },
+          ]
+        : [
+            {
+              metric: "Synthetic Workspace Seats",
+              definition: "Current synthetic workspace roster membership.",
+              origin: "approved-dictionary",
+              approved: true,
+              status: "approved",
+              grain: "one row per synthetic user and workspace",
+              source: "synthetic dbt model",
+            },
+            {
+              metric: "Synthetic Weekly Active Product Users",
+              definition:
+                "Weekly unique synthetic actors with a product event.",
+              origin: "source-index",
+              approved: false,
+              status: "unapproved",
+              grain: "one row per synthetic user and week",
+              source: "synthetic application instrumentation",
+            },
+          ],
+    searched: testCase.key === "synthetic-latest-skill-event-taxonomy" ? 1 : 2,
+    of: testCase.key === "synthetic-latest-skill-event-taxonomy" ? 1 : 2,
     truncated: false,
     nextPage: null,
     searchedDashboardCount: 0,
@@ -778,7 +944,12 @@ async function runCase(
           sourceIndexSourcesFreshness: null,
           sourceIndexScanCoverage: null,
         }
-      : catalogFixture,
+      : testCase.key === "synthetic-latest-skill-event-taxonomy"
+        ? {
+            ...catalogFixture,
+            searchedDictionaryEntryCount: 1,
+          }
+        : catalogFixture,
   );
   providerBoundary.getBigQueryProjectId.mockResolvedValue("synthetic-project");
   providerBoundary.listBigQueryTablesPage.mockResolvedValue({
@@ -885,13 +1056,20 @@ async function runCase(
         const isCampaignCategoryCase =
           providerBoundary.activeCaseKey ===
           "synthetic-dbt-rolling-window-product-category";
+        const isMonthlyCreditsCase =
+          providerBoundary.activeCaseKey ===
+          "synthetic-latest-monthly-ai-credits-by-workspace";
         const metric = {
           name: isCampaignCategoryCase
             ? "synthetic_campaign_attributed_users"
-            : "synthetic_weekly_active_product_users",
+            : isMonthlyCreditsCase
+              ? "synthetic_monthly_ai_credits_consumed"
+              : "synthetic_weekly_active_product_users",
           description: isCampaignCategoryCase
             ? "Synthetic campaign-attributed users by product category."
-            : "Weekly active synthetic product users.",
+            : isMonthlyCreditsCase
+              ? "Synthetic AI credits consumed by workspace and month."
+              : "Weekly active synthetic product users.",
           type: "simple",
           dimensions: isCampaignCategoryCase
             ? [
@@ -902,15 +1080,26 @@ async function runCase(
                   queryableGranularities: [],
                 },
               ]
-            : [
-                {
-                  name: "synthetic_organization_id",
-                  description: "Synthetic organization grouping.",
-                  type: "CATEGORICAL",
-                  queryableGranularities: [],
-                },
-              ],
-          queryableGranularities: ["DAY", "WEEK"],
+            : isMonthlyCreditsCase
+              ? [
+                  {
+                    name: "synthetic_workspace_id",
+                    description: "Synthetic workspace grouping.",
+                    type: "CATEGORICAL",
+                    queryableGranularities: [],
+                  },
+                ]
+              : [
+                  {
+                    name: "synthetic_organization_id",
+                    description: "Synthetic organization grouping.",
+                    type: "CATEGORICAL",
+                    queryableGranularities: [],
+                  },
+                ],
+          queryableGranularities: isMonthlyCreditsCase
+            ? ["MONTH"]
+            : ["DAY", "WEEK"],
         };
         const items =
           pageNum === 1 ? [{ name: "synthetic_other_metric" }] : [metric];
@@ -945,6 +1134,9 @@ async function runCase(
         const isCampaignCategoryCase =
           providerBoundary.activeCaseKey ===
           "synthetic-dbt-rolling-window-product-category";
+        const isMonthlyCreditsCase =
+          providerBoundary.activeCaseKey ===
+          "synthetic-latest-monthly-ai-credits-by-workspace";
         return {
           response: {
             ok: true,
@@ -962,7 +1154,19 @@ async function runCase(
                             synthetic_campaign_attributed_users: 18,
                           },
                         ]
-                      : [[18]],
+                      : isMonthlyCreditsCase
+                        ? [
+                            {
+                              metric_time:
+                                threeCompleteCalendarMonthsRange.endDate.slice(
+                                  0,
+                                  7,
+                                ) + "-01",
+                              synthetic_workspace_id: "workspace_synthetic_a",
+                              synthetic_monthly_ai_credits_consumed: 42,
+                            },
+                          ]
+                        : [[18]],
                   }),
                 },
               },

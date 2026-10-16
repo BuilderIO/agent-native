@@ -1455,6 +1455,315 @@ function dbtMetricTimeScopeMismatch(
       .filter((item): item is string => item !== null)
       .sort();
   };
+  const normalizeMetricName = (value: unknown) =>
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  const pairedCallForResult = (index: number) => {
+    const result = toolResults[index];
+    const resultToolCallId = result?.toolCallId;
+    const matchingCalls = toolCalls.filter(
+      (call) =>
+        analyticsActionName(call.name) === "query-dbt-semantic-metric" &&
+        (resultToolCallId ? call.toolCallId === resultToolCallId : false),
+    );
+    const namedCalls = toolCalls.filter(
+      (call) => analyticsActionName(call.name) === "query-dbt-semantic-metric",
+    );
+    const namedResults = toolResults.filter(
+      (candidate) =>
+        analyticsActionName(candidate.name) === "query-dbt-semantic-metric",
+    );
+    if (resultToolCallId) {
+      return matchingCalls.length === 1 ? matchingCalls[0] : undefined;
+    }
+    return namedCalls.length === 1 && namedResults.length === 1
+      ? namedCalls[0]
+      : undefined;
+  };
+  const querySpecsMatch = (
+    left: Record<string, unknown>,
+    right: Record<string, unknown>,
+  ) => {
+    const leftRange = metricTimeRange(left.timeRange);
+    const rightRange = metricTimeRange(right.timeRange);
+    const leftGroupBy = normalizedGroupBy(left.groupBy);
+    const rightGroupBy = normalizedGroupBy(right.groupBy);
+    return (
+      (left.allTime === true) === (right.allTime === true) &&
+      leftGroupBy !== null &&
+      rightGroupBy !== null &&
+      JSON.stringify(leftGroupBy) === JSON.stringify(rightGroupBy) &&
+      (leftRange === null) === (rightRange === null) &&
+      (!leftRange ||
+        (leftRange.startDate === rightRange?.startDate &&
+          leftRange.endDate === rightRange?.endDate))
+    );
+  };
+  const recoveredDbtProviderError = (
+    priorIndex: number,
+    priorOutput: Record<string, unknown>,
+    currentIndex: number,
+    expectedQueryId: string,
+    expectedMetricName: string,
+    expectedQuerySpec: Record<string, unknown>,
+  ) => {
+    if (
+      priorOutput.status !== "provider_error" ||
+      priorOutput.queryId !== expectedQueryId ||
+      normalizeMetricName(priorOutput.metricName) !== expectedMetricName ||
+      typeof priorOutput.nextPage !== "string" ||
+      !/^metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}$/.test(
+        priorOutput.nextPage,
+      )
+    ) {
+      return false;
+    }
+    const priorSpec = actionSummaryRecord(priorOutput.querySpec);
+    if (
+      priorSpec.kind !== "record" ||
+      !querySpecsMatch(priorSpec.record, expectedQuerySpec)
+    ) {
+      return false;
+    }
+    const errorCall = pairedCallForResult(priorIndex);
+    const errorInput = actionSummaryRecord(errorCall?.input);
+    if (errorInput.kind !== "record") return false;
+    const errorInputQueryId = errorInput.record.queryId;
+    if (errorInputQueryId === undefined) {
+      if (
+        normalizeMetricName(errorInput.record.metricName) !==
+          expectedMetricName ||
+        !querySpecsMatch(errorInput.record, priorSpec.record)
+      ) {
+        return false;
+      }
+    } else if (
+      errorInputQueryId !== expectedQueryId ||
+      typeof errorInput.record.nextPage !== "string" ||
+      !/^metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}$/.test(
+        errorInput.record.nextPage,
+      ) ||
+      errorInput.record.timeRange !== undefined ||
+      errorInput.record.groupBy !== undefined ||
+      errorInput.record.allTime !== undefined
+    ) {
+      return false;
+    }
+
+    return queryResultIndexes.some((resumedIndex) => {
+      if (resumedIndex <= priorIndex || resumedIndex > currentIndex) {
+        return false;
+      }
+      const resumedResult = toolResults[resumedIndex];
+      if (!resumedResult || resumedResult.isError) return false;
+      const resumedOutput = actionSummaryRecord(resumedResult.content);
+      if (
+        resumedOutput.kind !== "record" ||
+        (resumedOutput.record.status !== "success" &&
+          resumedOutput.record.status !== "pending") ||
+        resumedOutput.record.queryId !== expectedQueryId
+      ) {
+        return false;
+      }
+      const resumedCall = pairedCallForResult(resumedIndex);
+      const resumedInput = actionSummaryRecord(resumedCall?.input);
+      return (
+        resumedInput.kind === "record" &&
+        resumedInput.record.queryId === expectedQueryId &&
+        resumedInput.record.nextPage === priorOutput.nextPage
+      );
+    });
+  };
+  const resolveDbtResultEvidence = (index: number) => {
+    const result = toolResults[index];
+    if (!result || result.isError) return null;
+    const parsedOutput = actionSummaryRecord(result.content);
+    if (parsedOutput.kind !== "record") return null;
+    const output = parsedOutput.record;
+    if (output.status !== "success" && output.status !== "pending") {
+      return null;
+    }
+    const parsedQuerySpec = actionSummaryRecord(output.querySpec);
+    if (parsedQuerySpec.kind !== "record") return null;
+    const querySpec = parsedQuerySpec.record;
+    const parsedOutputMetric = actionSummaryRecord(output.metric);
+    if (parsedOutputMetric.kind === "invalid") return null;
+    const outputMetric =
+      parsedOutputMetric.kind === "record" ? parsedOutputMetric.record : null;
+    const metricName = normalizeMetricName(
+      output.metricName ?? outputMetric?.name,
+    );
+    const call = pairedCallForResult(index);
+    if (!call) return null;
+    const parsedInput = actionSummaryRecord(call.input);
+    if (parsedInput.kind !== "record") return null;
+    const input = parsedInput.record;
+    const inputMetricName = normalizeMetricName(input.metricName);
+    if (!metricName || inputMetricName !== metricName) return null;
+
+    const hasResultCursor =
+      typeof input.nextPage === "string" &&
+      /^metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}$/.test(
+        input.nextPage,
+      );
+    const isContinuation = typeof input.queryId === "string";
+    let effectiveInput = input;
+    let metricDefinition = outputMetric;
+
+    if (isContinuation) {
+      if (
+        !hasResultCursor ||
+        typeof output.queryId !== "string" ||
+        input.queryId !== output.queryId ||
+        input.timeRange !== undefined ||
+        input.groupBy !== undefined ||
+        input.allTime !== undefined
+      ) {
+        return null;
+      }
+
+      let originalInput: Record<string, unknown> | undefined;
+      const priorMetricDefinitions: Record<string, unknown>[] = [];
+      for (const priorIndex of queryResultIndexes) {
+        if (priorIndex >= index) break;
+        const prior = toolResults[priorIndex];
+        if (!prior || prior.isError) continue;
+        const parsedPrior = actionSummaryRecord(prior.content);
+        if (parsedPrior.kind !== "record") continue;
+        const priorOutput = parsedPrior.record;
+        if (priorOutput.queryId !== input.queryId) continue;
+        const priorStatus = priorOutput.status;
+        const recoveredProviderError = recoveredDbtProviderError(
+          priorIndex,
+          priorOutput,
+          index,
+          input.queryId as string,
+          metricName,
+          querySpec,
+        );
+        if (
+          normalizeMetricName(priorOutput.metricName) !== metricName ||
+          (priorStatus !== "success" &&
+            priorStatus !== "pending" &&
+            !recoveredProviderError)
+        ) {
+          return null;
+        }
+        const parsedPriorSpec = actionSummaryRecord(priorOutput.querySpec);
+        if (
+          parsedPriorSpec.kind !== "record" ||
+          !querySpecsMatch(parsedPriorSpec.record, querySpec)
+        ) {
+          return null;
+        }
+        const priorMetric = actionSummaryRecord(priorOutput.metric);
+        if (priorMetric.kind === "invalid") return null;
+        if (priorMetric.kind === "record") {
+          if (normalizeMetricName(priorMetric.record.name) !== metricName) {
+            return null;
+          }
+          if (!recoveredProviderError) {
+            priorMetricDefinitions.push(priorMetric.record);
+          }
+        }
+        const priorCall = pairedCallForResult(priorIndex);
+        if (!priorCall) return null;
+        const parsedPriorInput = actionSummaryRecord(priorCall.input);
+        if (parsedPriorInput.kind !== "record") return null;
+        const priorInput = parsedPriorInput.record;
+        if (priorInput.queryId === undefined) {
+          if (normalizeMetricName(priorInput.metricName) !== metricName) {
+            return null;
+          }
+          if (
+            originalInput &&
+            !querySpecsMatch(
+              {
+                groupBy: originalInput.groupBy ?? [],
+                timeRange: originalInput.timeRange,
+                allTime: originalInput.allTime === true,
+              },
+              {
+                groupBy: priorInput.groupBy ?? [],
+                timeRange: priorInput.timeRange,
+                allTime: priorInput.allTime === true,
+              },
+            )
+          ) {
+            return null;
+          }
+          originalInput = priorInput;
+        }
+      }
+      if (priorMetricDefinitions.length > 1) {
+        if (
+          priorMetricDefinitions.some(
+            (definition) =>
+              definition.dimensionsCount !==
+                priorMetricDefinitions[0]?.dimensionsCount ||
+              (definition.dimensionsTruncated !== true &&
+                priorMetricDefinitions[0]?.dimensionsTruncated !== true &&
+                JSON.stringify(definition.dimensions) !==
+                  JSON.stringify(priorMetricDefinitions[0]?.dimensions)),
+          )
+        ) {
+          return null;
+        }
+      }
+      if (originalInput) {
+        effectiveInput = originalInput;
+      } else {
+        // The action validates the signed cursor before returning this querySpec.
+        effectiveInput = {
+          metricName: input.metricName,
+          groupBy: querySpec.groupBy,
+          ...(querySpec.timeRange ? { timeRange: querySpec.timeRange } : {}),
+          ...(querySpec.allTime === true ? { allTime: true } : {}),
+        };
+      }
+      const priorCompleteMetricDefinition = priorMetricDefinitions.find(
+        (definition) => definition.dimensionsTruncated !== true,
+      );
+      if (
+        priorCompleteMetricDefinition &&
+        (metricDefinition?.dimensionsTruncated === true || !metricDefinition)
+      ) {
+        metricDefinition = priorCompleteMetricDefinition;
+      }
+    } else if (hasResultCursor || input.nextPage !== undefined) {
+      return null;
+    }
+
+    const inputRange = metricTimeRange(effectiveInput.timeRange);
+    const outputRange = metricTimeRange(querySpec.timeRange);
+    const inputGroupBy = normalizedGroupBy(effectiveInput.groupBy ?? []);
+    const outputGroupBy = normalizedGroupBy(querySpec.groupBy);
+    if (
+      (effectiveInput.allTime === true) !== (querySpec.allTime === true) ||
+      inputRange?.startDate !== outputRange?.startDate ||
+      inputRange?.endDate !== outputRange?.endDate ||
+      inputGroupBy === null ||
+      outputGroupBy === null ||
+      JSON.stringify(inputGroupBy) !== JSON.stringify(outputGroupBy)
+    ) {
+      return null;
+    }
+    if (
+      metricDefinition &&
+      normalizeMetricName(metricDefinition.name) !== metricName
+    ) {
+      return null;
+    }
+    return {
+      output,
+      querySpec,
+      input: effectiveInput,
+      metricName,
+      metricDefinition,
+    };
+  };
   const comparisonResultIndexes: number[] = [];
   if (expectedComparisonRanges) {
     const expectedRangeKeys = new Set(
@@ -1481,75 +1790,21 @@ function dbtMetricTimeScopeMismatch(
     let comparisonMetricName: string | undefined;
     let comparisonGroupBy: string | undefined;
     for (const index of latestResultByExpectedRange.values()) {
-      const result = toolResults[index];
-      const parsed = actionSummaryRecord(result?.content);
-      if (parsed.kind !== "record") return true;
-      const output = parsed.record;
-      const querySpec = actionSummaryRecord(output.querySpec);
-      if (querySpec.kind !== "record" || querySpec.record.allTime === true) {
-        return true;
-      }
-      const resultRange = metricTimeRange(querySpec.record.timeRange);
+      const evidence = resolveDbtResultEvidence(index);
+      if (!evidence) return true;
+      const resultRange = metricTimeRange(evidence.querySpec.timeRange);
       if (!resultRange) return true;
-
-      const metric = actionSummaryRecord(output.metric);
-      if (metric.kind === "invalid") return true;
-      const metricRecord = metric.kind === "record" ? metric.record : null;
-      const metricName = String(output.metricName ?? metricRecord?.name ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
-      const resultToolCallId = result?.toolCallId;
-      const matchingCalls = toolCalls.filter(
-        (call) =>
-          analyticsActionName(call.name) === "query-dbt-semantic-metric" &&
-          (resultToolCallId ? call.toolCallId === resultToolCallId : false),
-      );
-      const namedCalls = toolCalls.filter(
-        (call) =>
-          analyticsActionName(call.name) === "query-dbt-semantic-metric",
-      );
-      const namedResults = toolResults.filter(
-        (candidate) =>
-          analyticsActionName(candidate.name) === "query-dbt-semantic-metric",
-      );
-      const pairedCall = resultToolCallId
-        ? matchingCalls.length === 1
-          ? matchingCalls[0]
-          : undefined
-        : namedCalls.length === 1 && namedResults.length === 1
-          ? namedCalls[0]
-          : undefined;
-      const parsedInput = pairedCall
-        ? actionSummaryRecord(pairedCall.input)
-        : { kind: "absent" as const };
-      if (parsedInput.kind !== "record" || !metricName) return true;
-      const inputMetricName = String(parsedInput.record.metricName ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
-      const inputRange = metricTimeRange(parsedInput.record.timeRange);
-      const inputGroupBy = normalizedGroupBy(parsedInput.record.groupBy ?? []);
-      const outputGroupBy = normalizedGroupBy(querySpec.record.groupBy);
-      if (
-        parsedInput.record.allTime === true ||
-        inputMetricName !== metricName ||
-        inputRange?.startDate !== resultRange.startDate ||
-        inputRange?.endDate !== resultRange.endDate ||
-        inputGroupBy === null ||
-        outputGroupBy === null ||
-        JSON.stringify(inputGroupBy) !== JSON.stringify(outputGroupBy)
-      ) {
-        return true;
-      }
+      const outputGroupBy = normalizedGroupBy(evidence.querySpec.groupBy);
+      if (!outputGroupBy) return true;
       const groupByKey = JSON.stringify(outputGroupBy);
       if (
-        (comparisonMetricName && comparisonMetricName !== metricName) ||
+        (comparisonMetricName &&
+          comparisonMetricName !== evidence.metricName) ||
         (comparisonGroupBy && comparisonGroupBy !== groupByKey)
       ) {
         return true;
       }
-      comparisonMetricName = metricName;
+      comparisonMetricName = evidence.metricName;
       comparisonGroupBy = groupByKey;
       comparisonResultIndexes.push(index);
     }
@@ -1569,13 +1824,9 @@ function dbtMetricTimeScopeMismatch(
   if (resultIndex === -1) return false;
   const result = toolResults[resultIndex];
   if (!result) return true;
-
-  const parsedOutput = actionSummaryRecord(result.content);
-  if (parsedOutput.kind !== "record") return true;
-  const output = parsedOutput.record;
-  const parsedQuerySpec = actionSummaryRecord(output.querySpec);
-  if (parsedQuerySpec.kind !== "record") return true;
-  const querySpec = parsedQuerySpec.record;
+  const evidence = resolveDbtResultEvidence(resultIndex);
+  if (!evidence) return true;
+  const { querySpec, input: matchingInput } = evidence;
   const resultRange = metricTimeRange(querySpec.timeRange);
   if (querySpec.allTime === true || !resultRange) return true;
 
@@ -1595,79 +1846,30 @@ function dbtMetricTimeScopeMismatch(
     if (openEndedRequest) return true;
   }
 
-  const parsedOutputMetric = actionSummaryRecord(output.metric);
-  if (parsedOutputMetric.kind === "invalid") return true;
-  const outputMetric =
-    parsedOutputMetric.kind === "record" ? parsedOutputMetric.record : null;
-  const normalizeMetricName = (value: unknown) =>
-    String(value ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "");
-  const outputMetricName = normalizeMetricName(
-    output.metricName ?? outputMetric?.name,
-  );
-  const resultToolCallId = toolResults[resultIndex]?.toolCallId;
-  const matchingCalls = toolCalls.filter(
-    (call) =>
-      analyticsActionName(call.name) === "query-dbt-semantic-metric" &&
-      (resultToolCallId ? call.toolCallId === resultToolCallId : false),
-  );
-  const namedCalls = toolCalls.filter(
-    (call) => analyticsActionName(call.name) === "query-dbt-semantic-metric",
-  );
-  const namedResults = toolResults.filter(
-    (candidate) =>
-      analyticsActionName(candidate.name) === "query-dbt-semantic-metric",
-  );
-  const pairedCall = resultToolCallId
-    ? matchingCalls.length === 1
-      ? matchingCalls[0]
-      : undefined
-    : namedCalls.length === 1 && namedResults.length === 1
-      ? namedCalls[0]
-      : undefined;
-  const pairedInput =
-    pairedCall &&
-    analyticsActionName(pairedCall.name) === "query-dbt-semantic-metric"
-      ? actionSummaryRecord(pairedCall.input)
-      : { kind: "absent" as const };
-  const matchingInput =
-    pairedInput.kind === "record" &&
-    (!outputMetricName ||
-      normalizeMetricName(pairedInput.record.metricName) === outputMetricName)
-      ? pairedInput.record
-      : null;
-  if (!matchingInput || matchingInput.allTime === true) return true;
-
-  const inputRange = metricTimeRange(matchingInput.timeRange);
-  if (
-    inputRange?.startDate !== resultRange.startDate ||
-    inputRange.endDate !== resultRange.endDate
-  ) {
-    return true;
-  }
-
-  const inputGroupBy = normalizedGroupBy(matchingInput.groupBy ?? []);
-  const outputGroupBy = normalizedGroupBy(querySpec.groupBy);
-  if (
-    inputGroupBy === null ||
-    outputGroupBy === null ||
-    JSON.stringify(inputGroupBy) !== JSON.stringify(outputGroupBy)
-  ) {
-    return true;
-  }
+  if (matchingInput.allTime === true) return true;
 
   const breakdownClause = userText.match(
     /\b(?:grouped\s+by|breakdown\s+by|split\s+by|per|by)\s+([^?.!,;\n]{1,100})/i,
   )?.[1];
   if (!breakdownClause) return false;
+  const outputMetric = evidence.metricDefinition;
   const dimensions = Array.isArray(outputMetric?.dimensions)
     ? outputMetric.dimensions.map((dimension) => {
         const parsed = actionSummaryRecord(dimension);
         return parsed.kind === "record" ? parsed.record : {};
       })
     : [];
+  if (
+    !outputMetric ||
+    outputMetric.dimensionsTruncated === true ||
+    (Number.isSafeInteger(outputMetric.dimensionsCount) &&
+      Number(outputMetric.dimensionsCount) > dimensions.length)
+  ) {
+    return true;
+  }
+  const requestedTimeGrain = breakdownClause
+    .match(/\b(day|week|month|quarter|year)s?\b/i)?.[1]
+    ?.toUpperCase();
   const requestedDimensionMatches = new Set<string>();
   const dimensionAliases = [
     {
@@ -1701,15 +1903,29 @@ function dbtMetricTimeScopeMismatch(
   ];
   for (const { canonical, pattern } of dimensionAliases) {
     if (!pattern.test(breakdownClause)) continue;
+    if (canonical === "metric_time") {
+      const supportedGrains = Array.isArray(outputMetric.queryableGranularities)
+        ? outputMetric.queryableGranularities.filter(
+            (grain): grain is string => typeof grain === "string",
+          )
+        : [];
+      if (
+        !requestedTimeGrain ||
+        !supportedGrains.some(
+          (grain) => grain.toUpperCase() === requestedTimeGrain,
+        )
+      ) {
+        return true;
+      }
+      requestedDimensionMatches.add("metric_time");
+      continue;
+    }
     const matches = dimensions.filter((dimension) => {
       const evidence =
         `${String(dimension.name ?? "")} ${String(dimension.description ?? "")}`.replace(
           /[_-]/g,
           " ",
         );
-      if (canonical === "metric_time") {
-        return dimension.name === "metric_time";
-      }
       return pattern.test(evidence);
     });
     if (matches.length !== 1) return true;
@@ -1746,9 +1962,6 @@ function dbtMetricTimeScopeMismatch(
   ) {
     return true;
   }
-  const requestedTimeGrain = breakdownClause
-    .match(/\b(day|week|month|quarter|year)\b/i)?.[1]
-    ?.toUpperCase();
   return (
     requestedTimeGrain !== undefined &&
     !normalizedGroupBy(querySpec.groupBy)?.includes(
