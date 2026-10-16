@@ -42,6 +42,7 @@ import {
   insertFirstPartyAnalyticsRows,
   insertFirstPartyAnalyticsRowsWithResults,
   queryFirstPartyAnalyticsInBigQuery,
+  renderFirstPartyAnalyticsBigQueryRequestSql,
 } from "./first-party-analytics-backend.js";
 import {
   firstPartyCacheKey,
@@ -1567,6 +1568,54 @@ export async function validateFirstPartyAnalyticsSqlForScope(
     "bigquery",
   );
   assertFirstPartyAnalyticsBigQuerySql(sql);
+}
+
+/**
+ * The exact BigQuery SQL a first-party panel query sends, for a dry-run cost
+ * estimate. Mirrors the BigQuery branch of `queryFirstPartyAnalytics` with the
+ * dashboard panel's default options; returns `sql-store` when the query would
+ * not reach BigQuery at all.
+ */
+/**
+ * The BigQuery request a first-party query would send, for a dry run. SQL the
+ * policy rejects comes back as `invalid`; a failure to load the backend
+ * throws, since it says nothing about the query.
+ */
+export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
+  sql: string,
+  scope: AnalyticsScope,
+  signal?: AbortSignal,
+): Promise<
+  | { target: "bigquery"; sql: string }
+  | { target: "sql-store" }
+  | { target: "invalid"; error: unknown }
+> {
+  let shaped: ReturnType<typeof validateFirstPartyAnalyticsSqlShape>;
+  try {
+    shaped = validateFirstPartyAnalyticsSqlShape(sql);
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  const backend = await getFirstPartyAnalyticsBackend(scope, signal);
+  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
+    return { target: "sql-store" };
+  }
+  let scoped: ReturnType<typeof scopedAnalyticsSql>;
+  try {
+    validateAnalyticsSqlFunctions(shaped, "bigquery");
+    scoped = scopedAnalyticsSql(sql, scope);
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  const table = await getFirstPartyAnalyticsTable(backend.table, signal);
+  return {
+    target: "bigquery",
+    sql: renderFirstPartyAnalyticsBigQueryRequestSql(
+      scoped.sql,
+      scoped.args,
+      table,
+    ),
+  };
 }
 
 export async function queryFirstPartyAnalytics(
