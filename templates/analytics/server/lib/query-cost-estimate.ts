@@ -116,7 +116,8 @@ export async function estimateBigQuerySql(
     });
   } catch (error) {
     if (isAbort(error, signal)) throw error;
-    return error instanceof BigQueryDryRunPreparationError
+    return error instanceof BigQueryDryRunPreparationError &&
+      error.notConfigured
       ? {
           status: "failed",
           failure: "not_connected",

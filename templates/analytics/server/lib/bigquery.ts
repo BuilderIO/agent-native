@@ -961,11 +961,18 @@ export interface DryRunQueryOptions {
 }
 
 export class BigQueryDryRunPreparationError extends Error {
-  constructor() {
+  /** True when the failure was missing BigQuery credentials or project. */
+  readonly notConfigured: boolean;
+
+  constructor(options: { notConfigured?: boolean } = {}) {
     super("BigQuery dry-run request preparation failed");
     this.name = "BigQueryDryRunPreparationError";
+    this.notConfigured = options.notConfigured === true;
   }
 }
+
+const BIGQUERY_NOT_CONFIGURED_PATTERN =
+  /GOOGLE_APPLICATION_CREDENTIALS_JSON not configured|BIGQUERY_PROJECT_ID|service account|Token exchange failed/i;
 
 export interface DryRunQueryResult {
   error: string | null;
@@ -1048,7 +1055,11 @@ export async function dryRunQuerySchema(
       throw error;
     }
     if (options.wrapPreparationErrors) {
-      throw new BigQueryDryRunPreparationError();
+      throw new BigQueryDryRunPreparationError({
+        notConfigured:
+          error instanceof Error &&
+          BIGQUERY_NOT_CONFIGURED_PATTERN.test(error.message),
+      });
     }
     throw error;
   }

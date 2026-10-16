@@ -3,7 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   dryRun: vi.fn(),
   renderFirstParty: vi.fn(),
-  PreparationError: class BigQueryDryRunPreparationError extends Error {},
+  PreparationError: class BigQueryDryRunPreparationError extends Error {
+    notConfigured: boolean;
+    constructor(options: { notConfigured?: boolean } = {}) {
+      super("prep failed");
+      this.notConfigured = options.notConfigured === true;
+    }
+  },
 }));
 
 vi.mock("./bigquery.js", () => ({
@@ -136,11 +142,18 @@ describe("estimateBigQuerySql", () => {
     });
   });
 
-  it("says BigQuery isn't connected when preparation fails", async () => {
-    mocks.dryRun.mockRejectedValueOnce(new mocks.PreparationError());
+  it("says BigQuery isn't connected only when credentials are missing", async () => {
+    mocks.dryRun.mockRejectedValueOnce(
+      new mocks.PreparationError({ notConfigured: true }),
+    );
     await expect(estimateBigQuerySql("SELECT 1", null)).resolves.toMatchObject({
       status: "failed",
       failure: "not_connected",
+    });
+    mocks.dryRun.mockRejectedValueOnce(new mocks.PreparationError());
+    await expect(estimateBigQuerySql("SELECT 1", null)).resolves.toMatchObject({
+      status: "failed",
+      failure: "no_estimate",
     });
   });
 

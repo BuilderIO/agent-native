@@ -203,6 +203,7 @@ describe("estimate-query-cost action", () => {
     expect(result.panels).toHaveLength(2);
     expect(result.total.estimatedBytes).toBe(191 * GIB);
     expect(result.summary).toContain("2 panels (2 priced)");
+    expect(result.summary).toContain("per full refresh");
     expect(result.summary).toContain('"Big"');
     expect(result.summary).not.toContain('"Small"');
   });
@@ -222,7 +223,10 @@ describe("estimate-query-cost action", () => {
 
     const result = await run({ dashboardId: "seed-dashboard" });
 
-    expect(mocks.countReports).toHaveBeenCalledWith("seed-dashboard", "org-1");
+    expect(mocks.countReports).toHaveBeenCalledWith("seed-dashboard", {
+      email: "caller@example.test",
+      orgId: "org-1",
+    });
     expect(result.runsPerMonth).toBe(30);
   });
 
@@ -249,6 +253,62 @@ describe("estimate-query-cost action", () => {
       failure: "timeout",
     });
     expect(result.summary).toContain("1 panel could not be estimated");
+    expect(result.summary).not.toContain("full refresh");
+  });
+
+  it("treats a null or empty run count as not given", async () => {
+    mocks.getDashboard.mockResolvedValue({ kind: "sql", config: {} });
+    mocks.countReports.mockResolvedValue(1);
+    mocks.resolvePanels.mockReturnValue([
+      {
+        panelId: "small",
+        title: "Small",
+        source: "bigquery",
+        query: "SELECT 1",
+      },
+    ]);
+
+    for (const runsPerMonth of [null, ""]) {
+      const result = await run({ dashboardId: "d1", runsPerMonth });
+      expect(result.runsPerMonth).toBe(30);
+      expect(result.runsPerMonthBasis).toBe("1 enabled daily email report");
+    }
+  });
+
+  it("says when program panels leave the total partial", async () => {
+    mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
+    mocks.resolvePanels.mockReturnValueOnce([
+      {
+        panelId: "small",
+        title: "Small",
+        source: "bigquery",
+        query: "SELECT 1",
+      },
+      { panelId: "prog", title: "Prog", source: "program", query: "{}" },
+    ]);
+    mocks.estimateResolvedPanel.mockImplementation(async (panel) =>
+      panel.source === "program"
+        ? {
+            panelId: panel.panelId,
+            title: panel.title,
+            source: panel.source,
+            status: "not_estimated",
+            reason: "program",
+          }
+        : {
+            panelId: panel.panelId,
+            title: panel.title,
+            source: panel.source,
+            ...costFromBytes(GIB, null),
+          },
+    );
+
+    const result = await run({ dashboardId: "d1" });
+
+    expect(result.summary).toContain("per refresh of the priced panels only");
+    expect(result.summary).toContain(
+      "1 panel may read BigQuery but isn't priced here.",
+    );
   });
 
   it("estimates one panel and reports unknown panel ids", async () => {

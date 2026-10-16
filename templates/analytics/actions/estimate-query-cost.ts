@@ -123,12 +123,12 @@ export default defineAction({
       .describe(
         "Dashboard filter values keyed by filter id, e.g. {timeRange:'90d'}. Omit for the defaults a fresh tab shows.",
       ),
-    runsPerMonth: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(100_000)
-      .optional()
+    // null and "" mean "not given", not 0, so the report-schedule default holds.
+    runsPerMonth: z
+      .preprocess(
+        (value) => (value === null || value === "" ? undefined : value),
+        z.coerce.number().int().min(0).max(100_000).optional(),
+      )
       .describe(
         "Scheduled runs per month, e.g. 30 for a daily job or 8640 for a 5-minute alert. For a dashboard this defaults to one run a day per enabled email report; for raw SQL there is no monthly figure without it.",
       ),
@@ -239,7 +239,7 @@ export default defineAction({
 
     const reportSchedules = await countEnabledDashboardReportSubscriptions(
       dashboardId,
-      orgId,
+      { email: userEmail, orgId },
     );
     const runsPerMonth =
       args.runsPerMonth ??
@@ -272,6 +272,15 @@ export default defineAction({
     const priced = panels.filter(
       (panel) => panel.status === "estimated",
     ).length;
+    const notEstimated = panels.filter(
+      (panel) => panel.status === "not_estimated",
+    ).length;
+    const omitted = Math.max(0, selected.length - MAX_PANELS);
+    // Panels outside BigQuery cost nothing; any other gap makes the total partial.
+    const totalScope =
+      failed + notEstimated + omitted === 0
+        ? "per full refresh"
+        : "per refresh of the priced panels only";
     const monthly =
       total.usdPerMonth === null
         ? "no scheduled runs"
@@ -301,12 +310,18 @@ export default defineAction({
       summary:
         (priced === 0
           ? `${panels.length} panel${panels.length === 1 ? "" : "s"}: none read BigQuery, so nothing was priced.`
-          : `${panels.length} panel${panels.length === 1 ? "" : "s"} (${priced} priced): ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} per full refresh, ${monthly}.`) +
+          : `${panels.length} panel${panels.length === 1 ? "" : "s"} (${priced} priced): ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} ${totalScope}, ${monthly}.`) +
         (flagged.length
           ? ` Over threshold: ${flagged.map((panel) => `"${panel.title}" (${describeEstimate(panel)})`).join("; ")}.`
           : "") +
         (failed
           ? ` ${failed} panel${failed === 1 ? "" : "s"} could not be estimated.`
+          : "") +
+        (notEstimated
+          ? ` ${notEstimated} panel${notEstimated === 1 ? "" : "s"} may read BigQuery but ${notEstimated === 1 ? "isn't" : "aren't"} priced here.`
+          : "") +
+        (omitted
+          ? ` ${omitted} panel${omitted === 1 ? "" : "s"} past the first ${MAX_PANELS} ${omitted === 1 ? "wasn't" : "weren't"} estimated (see omittedPanelIds).`
           : ""),
     };
   },
