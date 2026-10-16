@@ -88,7 +88,7 @@ function expectExactHistory(initial: string, top: string) {
 
 describe("history integrity: a list toggle followed by any edit stays undoable", () => {
   it("keeps undo working when typing follows an ordered toggle", () => {
-    const el = boot(MIXED);
+    boot(MIXED);
     const initial = live();
     toggleList("ordered");
     type(session!.element, "a b");
@@ -96,7 +96,7 @@ describe("history integrity: a list toggle followed by any edit stays undoable",
   });
 
   it("keeps undo working when Cmd+B follows a bullet toggle", () => {
-    const el = boot(MIXED);
+    boot(MIXED);
     const initial = live();
     toggleList("bullet");
     press(session!.element, "Meta+b");
@@ -104,7 +104,7 @@ describe("history integrity: a list toggle followed by any edit stays undoable",
   });
 
   it("keeps undo working when Backspace follows an ordered toggle", () => {
-    const el = boot(MIXED);
+    boot(MIXED);
     const initial = live();
     toggleList("ordered");
     caret(textOf(session!.element, "quoted"), 6);
@@ -113,7 +113,7 @@ describe("history integrity: a list toggle followed by any edit stays undoable",
   });
 
   it("keeps undo working when pasted html follows a bullet toggle", () => {
-    const el = boot(MIXED);
+    boot(MIXED);
     const initial = live();
     toggleList("bullet");
     caret(textOf(session!.element, "quoted"), 6);
@@ -125,7 +125,7 @@ describe("history integrity: a list toggle followed by any edit stays undoable",
   });
 
   it("keeps undo working across markdown shortcuts and a second toggle", () => {
-    const el = boot(TWO_PARAS);
+    boot(TWO_PARAS);
     const initial = live();
     toggleList("bullet");
     const first = textOf(session!.element, "First");
@@ -139,7 +139,7 @@ describe("history integrity: a list toggle followed by any edit stays undoable",
 
 describe("history integrity: a list toggle never nests an item in an item", () => {
   it("flattens an existing list into the new list's items", () => {
-    const el = boot(MIXED);
+    boot(MIXED);
     toggleList("ordered");
     expect(session!.element.querySelector("li li")).toBeNull();
     expect(
@@ -151,7 +151,7 @@ describe("history integrity: a list toggle never nests an item in an item", () =
   });
 
   it("flattens two adjacent lists of different kinds on a toggle", () => {
-    const el = boot(
+    boot(
       "<ul><li>First paragraph here</li></ul><ol><li>Second paragraph there</li></ol>",
     );
     toggleList("ordered");

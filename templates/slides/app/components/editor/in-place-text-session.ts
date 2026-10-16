@@ -3786,7 +3786,7 @@ export function startInPlaceTextSession(
       head.setStart(startContainer, startOffset);
       head.insertNode(document.createTextNode(ZERO_WIDTH_SPACE));
     }
-    const [first, offset] = textPoint(clone, 0);
+    const [first] = textPoint(clone, 0);
     // Text that only starts inside a nested list is not this line's text.
     if (hasRenderedContent(clone) && nearestBlock(first, el) === clone) {
       // The split's own copies of the inline ancestors are not content.

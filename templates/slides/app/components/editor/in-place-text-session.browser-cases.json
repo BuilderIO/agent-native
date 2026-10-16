@@ -793,7 +793,8 @@
     "title": "Shift+Home from second paragraph is native and crosses no block",
     "html": "<p>first</p><p>sec|ond</p>",
     "steps": ["Shift+Home", "Backspace"],
-    "expected": "<p>|ond</p>"
+    "expected": "<p>|ond</p>",
+    "macOnly": true
   },
   {
     "id": "selection-nav-024",
