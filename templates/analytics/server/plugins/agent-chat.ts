@@ -2098,9 +2098,9 @@ export function realDataFinalGuard(
   ) {
     return {
       retryMessage:
-        "BigQuery returned rows alongside one or more warnings, so the result may be partial even though the query completed. Retry only if you can resolve the warning; otherwise report the returned figures as partial and include the warning instead of presenting them as complete.",
+        "The BigQuery result is partial, truncated, or carries warnings. A truncated tool result may omit the completeness metadata. Do not present complete totals. Prefer a bounded aggregate query that returns a compact result; otherwise label the available figures as partial and include any warning that remains visible.",
       fallbackMessage:
-        "BigQuery returned a partial result with a warning, so I can't present the result as complete. The available figures need to be labeled partial and accompanied by the warning.",
+        "The BigQuery result is incomplete or its output was truncated, so I can't present the available figures as complete. The answer must label them partial and include any warning that remains visible.",
       maxRetries: 2,
     };
   }

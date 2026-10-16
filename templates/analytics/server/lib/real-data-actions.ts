@@ -437,11 +437,17 @@ function completeBigQuerySchemaSearchPayloads(
       return [];
     }
     const record = payload as Record<string, unknown>;
+    const schemaSearchHasErrors =
+      (record.errors !== undefined &&
+        (!Array.isArray(record.errors) || record.errors.length > 0)) ||
+      (record.errorCount !== undefined &&
+        (!Number.isSafeInteger(record.errorCount) || record.errorCount !== 0));
     if (
       record.mode !== "table-search" ||
       typeof record.search !== "string" ||
       !record.search.trim() ||
       !Array.isArray(record.tables) ||
+      schemaSearchHasErrors ||
       !Number.isSafeInteger(record.searched) ||
       !Number.isSafeInteger(record.of) ||
       record.truncated !== false ||
@@ -1121,6 +1127,12 @@ function tryParseJsonContent(content: string): unknown {
   }
 }
 
+function hasAgentToolResultTruncationMarker(content: string): boolean {
+  return /\n\n\.\.\.\[truncated — full result was [\d,]+ chars; only first [\d,]+ shown\]/.test(
+    content,
+  );
+}
+
 const DBT_METRIC_STATUS_RECOVERY: Record<string, string> = {
   ambiguous_metric:
     "Inspect the dbt metric metadata and ask which exact metric the user means before retrying.",
@@ -1430,7 +1442,9 @@ export function hasPartialBigQueryResult(
     if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
       return false;
     }
-    const payload = tryParseJsonContent(String(result.content ?? ""));
+    const content = String(result.content ?? "");
+    if (hasAgentToolResultTruncationMarker(content)) return true;
+    const payload = tryParseJsonContent(content);
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return false;
     }
@@ -1456,7 +1470,11 @@ export function hasBigQueryPartialDisclosure(
     if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
       return [];
     }
-    const payload = tryParseJsonContent(String(result.content ?? ""));
+    const content = String(result.content ?? "");
+    if (hasAgentToolResultTruncationMarker(content)) {
+      return [{ warnings: [], malformedWarnings: false }];
+    }
+    const payload = tryParseJsonContent(content);
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return [];
     }
@@ -1504,8 +1522,13 @@ export function hasBigQueryPartialDisclosure(
   return relevantResults.every(({ warnings, malformedWarnings }) => {
     if (malformedWarnings) return false;
     if (warnings.length === 0) {
-      return /\b(?:may|might|could)\s+omit\b|\bonly\s+(?:the\s+)?returned\s+rows\b|\bnot\s+(?:a\s+)?complete\b|\b(?:row|result)\s+cap\b|\bremaining\s+rows\s+(?:were|are)\s+not\s+included\b/i.test(
-        text,
+      return (
+        /\b(?:the\s+)?(?:bigquery\s+)?(?:tool\s+)?(?:output|result)\s+(?:was\s+)?truncated\b/i.test(
+          text,
+        ) ||
+        /\b(?:may|might|could)\s+omit\b|\bonly\s+(?:the\s+)?returned\s+rows\b|\bnot\s+(?:a\s+)?complete\b|\b(?:row|result)\s+cap\b|\bremaining\s+rows\s+(?:were|are)\s+not\s+included\b/i.test(
+          text,
+        )
       );
     }
     if (!/\bwarn(?:ing|ed|s)?\b/i.test(text)) return false;

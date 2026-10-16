@@ -3340,8 +3340,10 @@ describe("realDataFinalGuard", () => {
       ),
     ).toMatchObject({
       maxRetries: 2,
-      retryMessage: expect.stringContaining("result may be partial"),
-      fallbackMessage: expect.stringContaining("partial result with a warning"),
+      retryMessage: expect.stringContaining("result is partial"),
+      fallbackMessage: expect.stringContaining(
+        "incomplete or its output was truncated",
+      ),
     });
     expect(
       realDataFinalGuard(
@@ -3364,7 +3366,7 @@ describe("realDataFinalGuard", () => {
       ),
     ).toMatchObject({
       maxRetries: 2,
-      retryMessage: expect.stringContaining("result may be partial"),
+      retryMessage: expect.stringContaining("result is partial"),
     });
     for (const draftText of [
       "The signups were 42 yesterday; a sample dashboard is available here.",
@@ -3381,7 +3383,7 @@ describe("realDataFinalGuard", () => {
       ).toMatchObject({
         maxRetries: 2,
         fallbackMessage: expect.stringContaining(
-          "partial result with a warning",
+          "incomplete or its output was truncated",
         ),
       });
     }
@@ -3412,7 +3414,43 @@ describe("realDataFinalGuard", () => {
     );
 
     expect(unrelatedSample).toMatchObject({
-      fallbackMessage: expect.stringContaining("partial result with a warning"),
+      fallbackMessage: expect.stringContaining(
+        "incomplete or its output was truncated",
+      ),
+    });
+    expect(disclosed).toBeNull();
+  });
+
+  it("requires disclosure when the production tool-result limit truncates BigQuery metadata", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        isError: false,
+        content:
+          '{"rows":[{"signups":42}],"partial":true\n\n...[truncated — full result was 200,000 chars; only first 50,000 shown]',
+      },
+    ];
+    const undisclosed = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get yesterday?",
+        draftText: "We got 42 signups yesterday.",
+        toolResults,
+      }),
+    );
+    const disclosed = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get yesterday?",
+        draftText:
+          "BigQuery returned 42 signups, but the tool output was truncated, so the displayed rows may omit additional results.",
+        toolResults,
+      }),
+    );
+
+    expect(undisclosed).toMatchObject({
+      maxRetries: 2,
+      fallbackMessage: expect.stringContaining(
+        "incomplete or its output was truncated",
+      ),
     });
     expect(disclosed).toBeNull();
   });

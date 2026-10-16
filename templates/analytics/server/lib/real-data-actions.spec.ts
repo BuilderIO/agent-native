@@ -144,11 +144,44 @@ describe("real data action classification", () => {
         nextPage: null,
       }),
     };
+    const schemaWithErrors = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        errors: ["A table's metadata could not be read"],
+        errorCount: 1,
+        truncated: false,
+        nextPage: null,
+      }),
+    };
+    const schemaWithNoErrors = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        errors: [],
+        errorCount: 0,
+        truncated: false,
+        nextPage: null,
+      }),
+    };
 
     expect(hasEmptyFindDataResult([findData])).toBe(true);
     expect(hasCompleteBigQuerySchemaSearch([partialSchema])).toBe(false);
     expect(hasCompleteEmptyBigQuerySchemaSearch([partialSchema])).toBe(false);
     expect(hasCompleteBigQuerySchemaSearch([completeEmptySchema])).toBe(true);
+    expect(hasCompleteBigQuerySchemaSearch([schemaWithErrors])).toBe(false);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([schemaWithErrors])).toBe(
+      false,
+    );
+    expect(hasCompleteBigQuerySchemaSearch([schemaWithNoErrors])).toBe(true);
     expect(hasCompleteEmptyBigQuerySchemaSearch([completeEmptySchema])).toBe(
       true,
     );
@@ -1665,6 +1698,23 @@ describe("incomplete evidence detection", () => {
         },
       ]),
     ).toBe(true);
+    const truncatedResult = {
+      name: "bigquery",
+      content:
+        '{"rows":[{"value":"large synthetic row"}],"partial":true\n\n...[truncated — full result was 200,000 chars; only first 50,000 shown]',
+    };
+    expect(hasPartialBigQueryResult([truncatedResult])).toBe(true);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "The BigQuery tool output was truncated, so displayed rows may omit results and the reported count is partial.",
+        [truncatedResult],
+      ),
+    ).toBe(true);
+    expect(
+      hasBigQueryPartialDisclosure("BigQuery returned 42 rows.", [
+        truncatedResult,
+      ]),
+    ).toBe(false);
   });
 
   it("requires every meaningful BigQuery warning to be disclosed", () => {
