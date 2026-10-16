@@ -39,6 +39,7 @@ import {
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
+import { RECORDER_MIC_TRACK_ENDED_EVENT } from "./recorder-events";
 import {
   RECORDER_DISCARD_EVENT,
   recorderStopTargetsRecording,
@@ -154,6 +155,16 @@ function startBrowserMicLevelEmitter(stream: MediaStream): () => void {
 
   let stopped = false;
   let frame = 0;
+  let trackEnded = false;
+  const microphoneTracks = stream.getAudioTracks();
+  const handleTrackEnded = () => {
+    if (stopped || trackEnded) return;
+    trackEnded = true;
+    emit(RECORDER_MIC_TRACK_ENDED_EVENT, {}).catch(() => {});
+  };
+  microphoneTracks.forEach((track) =>
+    track.addEventListener("ended", handleTrackEnded),
+  );
   const tick = () => {
     if (stopped) return;
     analyser.getByteTimeDomainData(data);
@@ -172,6 +183,9 @@ function startBrowserMicLevelEmitter(stream: MediaStream): () => void {
 
   return () => {
     stopped = true;
+    microphoneTracks.forEach((track) =>
+      track.removeEventListener("ended", handleTrackEnded),
+    );
     window.cancelAnimationFrame(frame);
     source.disconnect();
     analyser.disconnect();
