@@ -1298,9 +1298,17 @@ interface SqlChartProps {
 
 /**
  * `rows` are the table's rows in display order; `resultRows` are every row
- * the query returned, before `config.limit`.
+ * the query returned, before `config.limit`, and `resultTruncated` says the
+ * query itself returned only part of its rows.
  */
 export type TableRowClickHandler = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+  resultTruncated: boolean,
+) => void;
+
+type TableRendererRowClick = (
   row: Record<string, unknown>,
   rows: Record<string, unknown>[],
   resultRows: Record<string, unknown>[],
@@ -1696,7 +1704,17 @@ export function SqlChart({
         onSaveColumns={onSaveColumns}
         columnWidths={columnWidths}
         onColumnWidthChange={onColumnWidthChange}
-        onRowClick={onTableRowClick}
+        onRowClick={
+          onTableRowClick
+            ? (row, displayRows, resultRows) =>
+                onTableRowClick(
+                  row,
+                  displayRows,
+                  resultRows,
+                  result?.truncated === true,
+                )
+            : undefined
+        }
         isRowActive={isTableRowActive}
       />,
     );
@@ -2179,7 +2197,7 @@ function TableRenderer({
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
   columnWidths?: Record<string, number>;
   onColumnWidthChange?: (columnKey: string, width: number | null) => void;
-  onRowClick?: TableRowClickHandler;
+  onRowClick?: TableRendererRowClick;
   isRowActive?: (row: Record<string, unknown>) => boolean;
 }) {
   const t = useT();

@@ -61,6 +61,8 @@ export interface RowBreakdownSelection {
   rows: Record<string, unknown>[];
   /** Every row the panel query returned, before the table's row limit. */
   resultRows: Record<string, unknown>[];
+  /** The panel query returned only part of its rows. */
+  resultTruncated: boolean;
   /** When this row was opened; a breakdown fetched before then cost this row nothing. */
   openedAt: number;
 }
@@ -228,6 +230,7 @@ export function RowBreakdownSheet({
         row: next,
         rows: panelRows,
         resultRows,
+        resultTruncated: selection.resultTruncated,
         openedAt: Date.now(),
       });
     }
@@ -452,7 +455,8 @@ export function RowBreakdownSheet({
             </table>
           )}
         </div>
-        {plan.kind === "query" && query.data?.truncated ? (
+        {(plan.kind === "query" && query.data?.truncated) ||
+        (plan.kind === "reuse" && selection?.resultTruncated) ? (
           <p className="text-xs text-muted-foreground">
             {t("sqlDashboard.rowBreakdownTruncated")}
           </p>

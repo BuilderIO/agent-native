@@ -249,25 +249,10 @@ export function SqlChartCard({
     isValidPanelBreakdowns(panel.config?.breakdowns)
       ? panel.config.breakdowns
       : null;
-  const [breakdownSelection, setBreakdownSelection] =
-    useState<RowBreakdownSelection | null>(null);
-  const breakdownRowProps = breakdowns
-    ? {
-        onTableRowClick: (
-          row: Record<string, unknown>,
-          rows: Record<string, unknown>[],
-          resultRows: Record<string, unknown>[],
-        ) =>
-          setBreakdownSelection({
-            row,
-            rows,
-            resultRows,
-            openedAt: Date.now(),
-          }),
-        isTableRowActive: (row: Record<string, unknown>) =>
-          row === breakdownSelection?.row,
-      }
-    : {};
+  const [openBreakdown, setOpenBreakdown] = useState<{
+    scope: string;
+    selection: RowBreakdownSelection;
+  } | null>(null);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -320,9 +305,34 @@ export function SqlChartCard({
   const shouldLoadData =
     visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
-  // New filters or a refresh change every number in the open row, so close it
-  // rather than show a split of rows that are no longer on screen.
-  useEffect(() => setBreakdownSelection(null), [resolvedSql, refreshToken]);
+  // New filters or a refresh change every number in the open row. A row opened
+  // under other ones is closed in the same render, before the sheet could start
+  // a breakdown query on the new filters.
+  const breakdownScope = `${resolvedSql ?? ""}
+${refreshToken}`;
+  const breakdownSelection =
+    openBreakdown?.scope === breakdownScope ? openBreakdown.selection : null;
+  const setBreakdownSelection = (selection: RowBreakdownSelection | null) =>
+    setOpenBreakdown(selection ? { scope: breakdownScope, selection } : null);
+  const breakdownRowProps = breakdowns
+    ? {
+        onTableRowClick: (
+          row: Record<string, unknown>,
+          rows: Record<string, unknown>[],
+          resultRows: Record<string, unknown>[],
+          resultTruncated: boolean,
+        ) =>
+          setBreakdownSelection({
+            row,
+            rows,
+            resultRows,
+            resultTruncated,
+            openedAt: Date.now(),
+          }),
+        isTableRowActive: (row: Record<string, unknown>) =>
+          row === breakdownSelection?.row,
+      }
+    : {};
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
