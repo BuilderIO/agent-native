@@ -3422,7 +3422,7 @@ export function VisualEditor({
     ) => {
       const guards = guardsRef.current;
       // Commands and uploads reach here without an update the guards see.
-      if (!guards || guards.joinPending) return "failed" as const;
+      if (!guards || guards.isJoinPending()) return "failed" as const;
       try {
         const serialized = serializeEditorDraftForPersistence(editorToPersist);
         if (serialized === null)

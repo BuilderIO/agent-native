@@ -780,11 +780,13 @@ class CollabDocConnection {
       states?: Array<{ clientId: number; state: string }>;
     } | null;
     if (this.disposed) return false;
-    if (strict && !Array.isArray(awarenessData?.states)) {
+    // Read as an empty list, an answer without states would remove every
+    // collaborator this client knows.
+    if (!Array.isArray(awarenessData?.states)) {
       throw new Error("Awareness response has no states");
     }
     const remoteStates: RemoteAwarenessSnapshot[] = [];
-    for (const remote of awarenessData?.states || []) {
+    for (const remote of awarenessData.states) {
       let state: unknown;
       try {
         state = JSON.parse(remote.state);

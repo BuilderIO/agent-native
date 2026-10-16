@@ -89,6 +89,7 @@ describe("a joining editor's saves", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await act(async () => root.unmount());
     queryClient.clear();
     awareness.destroy();
@@ -104,7 +105,7 @@ describe("a joining editor's saves", () => {
     });
   }
 
-  async function open(join: "pending" | "failed", live = LIVE) {
+  async function mount(join: "pending" | "failed", live = LIVE) {
     prosemirrorJSONToYXmlFragment(
       getSchema(createVisualEditorExtensions()),
       nfmToDoc(live),
@@ -150,10 +151,15 @@ describe("a joining editor's saves", () => {
         ),
       ),
     );
+    return { onSaveContent, onChange };
+  }
+
+  async function open(join: "pending" | "failed", live = LIVE) {
+    const saves = await mount(join, live);
     await settle();
     const editor = captured.editor!;
     expect(editor.isEditable).toBe(false);
-    return { editor, onSaveContent, onChange };
+    return { editor, ...saves };
   }
 
   it.each(["pending", "failed"] as const)(
@@ -182,6 +188,33 @@ describe("a joining editor's saves", () => {
       expect(onChange).not.toHaveBeenCalled();
     },
   );
+
+  it("saves nothing typed or received between its seed and its first reconcile", async () => {
+    vi.useFakeTimers();
+    const { onSaveContent, onChange } = await mount("pending");
+    // The seed's timer fires; the first reconcile runs 25 ms later.
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    const editor = captured.editor!;
+    const editableInGap = editor.isEditable;
+    act(() =>
+      editor.view.dispatch(
+        editor.state.tr
+          .insertText(" mine", editor.state.doc.content.size - 1)
+          .setMeta("uiEvent", "input"),
+      ),
+    );
+    act(() =>
+      ydoc.transact(() => {
+        const paragraph = ydoc.getXmlFragment("default").get(0) as Y.XmlElement;
+        (paragraph.get(0) as Y.XmlText).insert(0, "remote ");
+      }, "peer"),
+    );
+    expect(editor.getText()).toContain("remote Alpha");
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(onSaveContent).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(editableInGap).toBe(false);
+  });
 
   it.each(["pending", "failed"] as const)(
     "keeps the slash menu shut while the join is %s",

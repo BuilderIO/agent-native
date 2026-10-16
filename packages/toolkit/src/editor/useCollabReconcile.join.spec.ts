@@ -336,7 +336,8 @@ async function openCWhileASaves(
   {
     snapshotB = STORED,
     snapshotC = STORED,
-  }: { snapshotB?: Snapshot; snapshotC?: Snapshot } = {},
+    settleMs = 200,
+  }: { snapshotB?: Snapshot; snapshotC?: Snapshot; settleMs?: number } = {},
 ): Promise<void> {
   act(() =>
     root.render(
@@ -357,7 +358,7 @@ async function openCWhileASaves(
       }),
     ),
   );
-  await act(async () => vi.advanceTimersByTimeAsync(200));
+  await act(async () => vi.advanceTimersByTimeAsync(settleMs));
 }
 
 describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
@@ -713,6 +714,31 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       act(remoteEdit);
       expect(tabs.remoteReports.C).toHaveBeenCalledTimes(1);
       expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("neither edits nor saves between its seed and its first reconcile", async () => {
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    vi.useFakeTimers();
+    try {
+      // The seed's timer has fired; the first reconcile runs 25 ms later.
+      await openCWhileASaves(tabs, { settleMs: 1 });
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(
+        tabs.results.C!.shouldIgnoreUpdate(
+          tabs.editors
+            .C!.state.tr.insertText("typed ", 1)
+            .setMeta("uiEvent", "input"),
+        ),
+      ).toBe(true);
+      act(() =>
+        tabs.editAsA((author) => author.commands.insertContentAt(1, "remote ")),
+      );
+      expect(tabs.remoteReports.C).not.toHaveBeenCalled();
+      expect(tabs.saves.C).not.toHaveBeenCalled();
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
     } finally {
       tabs.dispose();
     }

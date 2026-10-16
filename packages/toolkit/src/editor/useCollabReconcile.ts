@@ -75,6 +75,11 @@ const HELD_REVISION_FIELD = "reconciledRevision";
 
 const JOIN_READ_ONLY = new PluginKey("collabJoinReadOnly");
 
+type JoinEvidence =
+  | { ydoc: YDoc; status: "pending" }
+  | { ydoc: YDoc; status: "ready"; peers: Map<number, unknown> }
+  | { ydoc: YDoc; status: "failed"; error: unknown };
+
 /**
  * The stored revision a collaborator's report vouches for. Only a person's
  * editor that flushes its updates before reporting vouches for one.
@@ -243,8 +248,9 @@ export interface UseCollabReconcileResult {
    * True while a joining client does not know whether its doc holds the
    * stored body, including after it failed to learn. Nothing may save the doc
    * meanwhile: it can lack a stored-only edit, which the save would delete.
+   * A function, read when saving: the join starts between renders.
    */
-  joinPending: boolean;
+  isJoinPending: () => boolean;
   isSettingContentRef: MutableRefObject<boolean>;
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
   reportRemoteUpdate: (transaction: Transaction) => void;
@@ -398,12 +404,41 @@ export function useCollabReconcile({
   // open, and the doc as the server has it after that, which holds every
   // update behind those reports. A report that arrives during the catch-up is
   // not covered by it, so a changed report means catching up again.
-  const [joinEvidence, setJoinEvidence] = useState<
-    | { ydoc: YDoc; status: "pending" }
-    | { ydoc: YDoc; status: "ready"; peers: Map<number, unknown> }
-    | { ydoc: YDoc; status: "failed"; error: unknown }
-    | null
-  >(null);
+  const [joinEvidence, setJoinEvidence] = useState<JoinEvidence | null>(null);
+  // The gates read this, not the state: an update can arrive between a join
+  // starting and the render that shows it.
+  const joinEvidenceRef = useRef<JoinEvidence | null>(null);
+  const putJoinEvidence = (next: JoinEvidence | null) => {
+    joinEvidenceRef.current = next;
+    setJoinEvidence(next);
+  };
+  const isJoinPending = () => {
+    const evidence = joinEvidenceRef.current;
+    return (
+      joinsOnPeerEvidence &&
+      evidence?.ydoc === ydoc &&
+      evidence?.status !== "ready"
+    );
+  };
+  const editableRef = useRef(editable);
+  editableRef.current = editable;
+  // A plugin rather than `setEditable`, which the seed sets back to `editable`.
+  // `useEditor` without deps copies `isEditable` into the editor's options on
+  // every render, so a render while the plugin holds leaves the editor
+  // read-only after it goes unless `editable` is set back.
+  const holdJoinReadOnly = () => {
+    if (!editor || editor.isDestroyed || JOIN_READ_ONLY.get(editor.state))
+      return;
+    editor.registerPlugin(
+      new Plugin({ key: JOIN_READ_ONLY, props: { editable: () => false } }),
+    );
+  };
+  const releaseJoinReadOnly = () => {
+    if (!editor || editor.isDestroyed || !JOIN_READ_ONLY.get(editor.state))
+      return;
+    editor.unregisterPlugin(JOIN_READ_ONLY);
+    editor.setEditable(editableRef.current, false);
+  };
   const joinEvidenceRequestRef = useRef<{
     ydoc: YDoc;
     cancel: () => void;
@@ -428,12 +463,9 @@ export function useCollabReconcile({
       clearTimeout(retry);
     };
     joinEvidenceRequestRef.current = { ydoc: doc, cancel: stop };
-    setJoinEvidence({ ydoc: doc, status: "pending" });
-    const settle = (
-      evidence:
-        | { ydoc: YDoc; status: "ready"; peers: Map<number, unknown> }
-        | { ydoc: YDoc; status: "failed"; error: unknown },
-    ) => {
+    putJoinEvidence({ ydoc: doc, status: "pending" });
+    holdJoinReadOnly();
+    const settle = (evidence: Exclude<JoinEvidence, { status: "pending" }>) => {
       if (settled) return;
       stop();
       if (evidence.status === "failed")
@@ -441,9 +473,7 @@ export function useCollabReconcile({
           "Could not learn who else holds this document; leaving it as it is until a retry",
           evidence.error,
         );
-      setJoinEvidence((current) =>
-        current?.ydoc === doc ? evidence : current,
-      );
+      if (joinEvidenceRef.current?.ydoc === doc) putJoinEvidence(evidence);
     };
     const fail = (error: unknown) =>
       settle({ ydoc: doc, status: "failed", error });
@@ -504,27 +534,11 @@ export function useCollabReconcile({
   // client's doc has no stored body under it: a save would delete whatever the
   // stored body holds that the doc lacks, and a replace once evidence arrives
   // would delete anything typed meanwhile. So it neither edits nor saves.
-  const joinPending =
-    joinsOnPeerEvidence &&
-    joinEvidence?.ydoc === ydoc &&
-    joinEvidence?.status !== "ready";
-  // A plugin rather than `setEditable`, which the seed sets back to `editable`.
-  // `useEditor` without deps copies `isEditable` into the editor's options on
-  // every render, so a render while the plugin holds leaves the editor
-  // read-only after it goes unless `editable` is set back.
-  const editableRef = useRef(editable);
-  editableRef.current = editable;
+  const joinPending = isJoinPending();
   useEffect(() => {
-    if (!joinPending || !editor || editor.isDestroyed) return;
-    editor.registerPlugin(
-      new Plugin({ key: JOIN_READ_ONLY, props: { editable: () => false } }),
-    );
-    return () => {
-      if (editor.isDestroyed) return;
-      editor.unregisterPlugin(JOIN_READ_ONLY);
-      editor.setEditable(editableRef.current, false);
-    };
-  }, [editor, joinPending]);
+    if (joinPending) holdJoinReadOnly();
+    else releaseJoinReadOnly();
+  }, [editor, joinPending, joinEvidence]);
   // A failed join is moot once the doc holds the stored body, whether the
   // stored body or the doc moved. That body becomes the base at once: the doc
   // can move on again before the next reconcile, which would then find it
@@ -548,7 +562,7 @@ export function useCollabReconcile({
       if (contentRevision)
         holdAuthoritativeBase({ value, revision: contentRevision });
       reportedConflictRevisionRef.current = null;
-      setJoinEvidence(null);
+      putJoinEvidence(null);
     };
     check();
     editor.on("update", check);
@@ -673,6 +687,26 @@ export function useCollabReconcile({
   const seededRef = useRef(false);
   const [seeded, setSeeded] = useState(false);
   const markSeeded = () => {
+    // The first reconcile runs a moment after this, and until it starts the
+    // join the doc would report its updates as edits of the stored body.
+    if (
+      joinsOnPeerEvidence &&
+      contentRevision &&
+      value.trim() &&
+      !collabBackedSnapshot &&
+      pendingCollabSnapshot?.ydoc !== ydoc &&
+      lastAppliedSerializedRef.current === null &&
+      editor &&
+      !editor.isDestroyed
+    ) {
+      const callbacks = reconcileCallbacksRef.current;
+      const currentMarkdown = callbacks.getMarkdown(editor);
+      if (
+        currentMarkdown.trim() &&
+        currentMarkdown !== callbacks.normalizeValue(value)
+      )
+        requestJoinEvidence(ydoc!);
+    }
     seededRef.current = true;
     if (requestInitialSeed) setSeeded(true);
   };
@@ -1154,7 +1188,10 @@ export function useCollabReconcile({
         lastAppliedSerializedRef.current === null &&
         currentMarkdown.trim()
       ) {
-        const evidence = joinEvidence?.ydoc === ydoc ? joinEvidence : null;
+        const evidence =
+          joinEvidenceRef.current?.ydoc === ydoc
+            ? joinEvidenceRef.current
+            : null;
         if (!evidence) {
           requestJoinEvidence(ydoc!);
           return;
@@ -1451,7 +1488,8 @@ export function useCollabReconcile({
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
-    if (!editable || isSettingContentRef.current || joinPending) return true;
+    if (!editable || isSettingContentRef.current || isJoinPending())
+      return true;
     if (collab && !seededRef.current) {
       const firstSyncedEmptyUserEdit =
         collabSynced &&
@@ -1476,7 +1514,7 @@ export function useCollabReconcile({
       !collab ||
       !collabSynced ||
       !seededRef.current ||
-      joinPending ||
+      isJoinPending() ||
       !editor ||
       editor.isDestroyed ||
       isSettingContentRef.current ||
@@ -1508,11 +1546,12 @@ export function useCollabReconcile({
     joinEvidenceFailed:
       joinEvidence?.ydoc === ydoc && joinEvidence?.status === "failed",
     retryJoinEvidence: () => {
+      if (!ydoc || joinEvidenceRef.current?.ydoc !== ydoc) return;
       joinEvidenceRequestRef.current?.cancel();
       joinEvidenceRequestRef.current = null;
-      setJoinEvidence(null);
+      requestJoinEvidence(ydoc);
     },
-    joinPending,
+    isJoinPending,
     isSettingContentRef,
     shouldIgnoreUpdate,
     reportRemoteUpdate,

@@ -1054,6 +1054,44 @@ describe("useCollaborativeDoc connection registry", () => {
     },
   );
 
+  it.each([
+    { answer: "null", body: "null" },
+    { answer: "no states", body: "{}" },
+  ])(
+    "keeps the collaborators it knows when a poll's presence answer is $answer",
+    async ({ body }) => {
+      const { mock: fallback } = makeFetchMock();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).includes("/awareness") && init?.method === "POST") {
+            return new Response(body);
+          }
+          return fallback(input);
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-poll-unreadable"
+          onResult={(next) => (result = next)}
+          user={{ name: "Local", email: "local@example.com", color: "c" }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+      result!.awareness!.getStates().set(77, peer);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+
+      expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+    },
+  );
+
   it("reports discovery unavailable without a document", async () => {
     let result: UseCollaborativeDocResult | undefined;
     mount(<Probe docId={null} onResult={(next) => (result = next)} />);
