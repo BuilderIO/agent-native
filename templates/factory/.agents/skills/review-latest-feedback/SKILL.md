@@ -151,6 +151,9 @@ handle a distinct question as its own row.
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
+- **Blocked on human owner (retain 👀, add 🎫):** name the distinct action's
+  owner in the status reply. Reporter-only requests stay in the waiting group
+  without `🎫`.
 - **Owned elsewhere:** use only for an unmarked item when accessible evidence
   confirms an active owner; marks owned by another task are skipped by the
   ownership gate.

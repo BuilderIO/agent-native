@@ -81,6 +81,7 @@ const canonicalDispositions = new Set([
   "Asked",
   "Clarification needed",
   "Blocked on reporter",
+  "Blocked on human owner",
   "Owned elsewhere",
 ]);
 
@@ -1896,6 +1897,24 @@ if (args[0] === "--self-test" && args.length === 1) {
     // Handoff-only work remains In progress and can carry 🎫 without a fixed scope.
     validateInventory(withUnownedTicket());
     validateInventory(
+      withUnownedTicket({
+        disposition: "Blocked on human owner",
+        handoffs: [
+          {
+            scope: "scheduled canary credentials",
+            owner: "Repository Actions admin",
+            action: "configure VERCEL_TOKEN",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Blocked on human owner",
+          evidence: "Repository Actions admin must configure VERCEL_TOKEN.",
+          text: "Blocked on human owner: Repository Actions admin must configure VERCEL_TOKEN.",
+        },
+      }),
+    );
+    validateInventory(
       withHandoffReply(
         "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product owner to choose the remaining behavior.",
       ),
@@ -2156,7 +2175,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 14 positive cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 15 positive cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
