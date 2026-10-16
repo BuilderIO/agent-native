@@ -76,6 +76,10 @@ import {
   unusedOutputConditions,
 } from "./output-outcomes.js";
 import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
+import {
+  normalizeReplayOrigin,
+  parseAllowedReplayOrigins,
+} from "./replay-origins.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
@@ -416,34 +420,6 @@ function replayInteger(value: unknown): number | null {
     return Number(value);
   }
   return null;
-}
-
-function normalizeReplayOrigin(
-  value: string | null | undefined,
-): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
-
-function parseAllowedReplayOrigins(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => normalizeReplayOrigin(replayString(item)))
-      .filter((item): item is string => Boolean(item));
-  }
-  if (typeof value !== "string" || !value.trim()) return [];
-  try {
-    return parseAllowedReplayOrigins(JSON.parse(value));
-  } catch {
-    return value
-      .split(/[\n,]/)
-      .map((item) => normalizeReplayOrigin(item.trim()))
-      .filter((item): item is string => Boolean(item));
-  }
 }
 
 function positiveReplayLimit(value: unknown, fallback: number): number {

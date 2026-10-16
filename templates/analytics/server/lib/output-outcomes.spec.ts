@@ -130,10 +130,10 @@ const exported = (
 
 describe("outputUrl", () => {
   const pages = (
-    firstUrl: string,
+    firstUrl: string | null,
     lastUrl: string | null = null,
-    app: string | null = "slides",
-  ) => ({ firstUrl, lastUrl, app });
+    allowedOrigins = [new URL((firstUrl ?? lastUrl)!).origin],
+  ) => ({ firstUrl, lastUrl, allowedOrigins });
 
   it("links a deck on the host its session was recorded on", () => {
     expect(
@@ -166,7 +166,7 @@ describe("outputUrl", () => {
   });
 
   it("keeps the mount when the recording started in another workspace app", () => {
-    // The tab moved from Mail into Slides, then from Slides back to Mail.
+    // The tab moved from Mail into Slides.
     expect(
       outputUrl(
         "slides",
@@ -177,17 +177,40 @@ describe("outputUrl", () => {
         ),
       ),
     ).toBe("https://team.example.com/slides/deck/deck-1");
+  });
+
+  it("links only to an origin the recording's replay key accepts", () => {
+    const allowed = ["https://slides.example.com"];
     expect(
       outputUrl(
         "slides",
         "deck-1",
-        pages(
-          "https://team.example.com/",
-          "https://team.example.com/mail/inbox",
-          "mail",
-        ),
+        pages("https://slides.example.com/deck/new", null, allowed),
       ),
-    ).toBe("https://team.example.com/slides/deck/deck-1");
+    ).toBe("https://slides.example.com/deck/deck-1");
+    expect(
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages(null, "https://slides.example.com/deck/new", allowed),
+      ),
+    ).toBe("https://slides.example.com/deck/deck-1");
+    // An uploader can send any URL, and a key that accepts any origin vouches
+    // for none.
+    expect(
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages("https://phish.example.net/deck/new", null, allowed),
+      ),
+    ).toBeNull();
+    expect(
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages("https://slides.example.com/deck/new", null, []),
+      ),
+    ).toBeNull();
   });
 });
 
@@ -282,18 +305,28 @@ describe("output outcomes on Postgres", () => {
     await client.query(`
       CREATE TABLE session_recordings (
         id text PRIMARY KEY,
+        public_key_id text NOT NULL,
         session_id text NOT NULL,
         owner_email text NOT NULL,
         org_id text,
         visibility text NOT NULL DEFAULT 'private',
         first_url text,
         last_url text,
-        app text,
         started_at text NOT NULL,
         ended_at text,
         last_ingested_at text
       )
     `);
+    await client.query(`
+      CREATE TABLE analytics_public_keys (
+        id text PRIMARY KEY,
+        replay_allowed_origins text NOT NULL DEFAULT '[]'
+      )
+    `);
+    await client.query(
+      `INSERT INTO analytics_public_keys (id, replay_allowed_origins)
+       VALUES ('pk-slides', '["https://slides.example.com"]'), ('pk-any', '[]')`,
+    );
     await client.query(`
       CREATE TABLE session_recording_shares (
         id text PRIMARY KEY,
@@ -326,13 +359,18 @@ describe("output outcomes on Postgres", () => {
   async function addRecording(
     id: string,
     sessionId: string,
-    owner: { ownerEmail?: string; orgId?: string | null } = {},
+    owner: {
+      ownerEmail?: string;
+      orgId?: string | null;
+      publicKeyId?: string;
+    } = {},
   ) {
     await client.query(
-      `INSERT INTO session_recordings (id, session_id, owner_email, org_id, first_url, started_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO session_recordings (id, public_key_id, session_id, owner_email, org_id, first_url, started_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         id,
+        owner.publicKeyId ?? "pk-slides",
         sessionId,
         owner.ownerEmail ?? OWNER,
         owner.orgId === undefined ? ORG : owner.orgId,
@@ -408,6 +446,20 @@ describe("output outcomes on Postgres", () => {
       INSIDE_WINDOW,
     );
     expect(open.outputs["r-unused"]?.[0]?.status).toBe("open");
+  });
+
+  it("links no deck from a recording whose replay key accepts any origin", async () => {
+    await ingest([made("s1", "deck-1")]);
+    await addRecording("r1", "s1", { publicKeyId: "pk-any" });
+
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r1"],
+      AFTER_WINDOW,
+    );
+    expect(result.outputs.r1).toMatchObject([
+      { outputId: "deck-1", status: "unused", url: null },
+    ]);
   });
 
   it("reads a use that came after the window as unused", async () => {

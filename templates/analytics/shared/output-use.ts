@@ -106,8 +106,8 @@ export function outputIdOf(properties: EventProperties): string | null {
 export interface OutputRecordingPages {
   firstUrl: string | null;
   lastUrl: string | null;
-  /** The app that recorded the latest page. */
-  app: string | null;
+  /** Origins the recording's replay key accepts uploads from; [] when any. */
+  allowedOrigins: readonly string[];
 }
 
 function recordedPage(value: string | null): URL | null {
@@ -124,6 +124,8 @@ function recordedPage(value: string | null): URL | null {
 /**
  * Where a session's output opens: the app origin the session was recorded on,
  * its mount path, and the output's page. The app checks access when it opens.
+ * A recording's URLs are whatever its uploader sent, so only an origin the
+ * replay key's owner allowed becomes a link; otherwise this is null.
  */
 export function outputUrl(
   app: string,
@@ -136,19 +138,18 @@ export function outputUrl(
     const page = recordedPage(value);
     return page ? [page] : [];
   });
-  if (!pages.length) return null;
+  const origin = pages[0]?.origin;
+  if (!origin || !recording.allowedOrigins.includes(origin)) return null;
   // A workspace deploy mounts each app at `/<app id>` on one origin, and a
-  // tab's recording follows it from app to app. Reading that prefix as the
-  // mount assumes the app has no route of its own there (Slides has none). A
-  // session never spans origins, so when another app recorded the latest page,
-  // this origin serves several apps and is a workspace, whichever page shows.
+  // tab's recording follows it from app to app, so either page may show the
+  // mount. Reading that prefix as the mount assumes the app has no route of
+  // its own there (Slides has none). The recording's app label can't decide
+  // it: without a declared app it is the hostname's first label.
   const mount = `/${app}`;
-  const mounted =
-    pages.some(
-      (page) =>
-        page.pathname === mount || page.pathname.startsWith(`${mount}/`),
-    ) || Boolean(recording.app && recording.app !== app);
-  return `${pages[0].origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
+  const mounted = pages.some(
+    (page) => page.pathname === mount || page.pathname.startsWith(`${mount}/`),
+  );
+  return `${origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
 }
 
 /**

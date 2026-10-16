@@ -17,6 +17,7 @@ import {
   type SessionRecordingOutputs,
 } from "../../shared/output-use.js";
 import { getDb, schema } from "../db/index.js";
+import { parseAllowedReplayOrigins } from "./replay-origins.js";
 import {
   recordingTenantSql,
   type SessionEventIndexInputRow,
@@ -465,6 +466,7 @@ export async function getSessionRecordingOutputs(
   const omittedOutputs: Record<string, number> = {};
   if (!ids.length) return { outputs, omittedOutputs, coverageStartedAt };
   const r = schema.sessionRecordings;
+  const keys = schema.analyticsPublicKeys;
   const readable: Array<{
     id: string;
     sessionId: string;
@@ -472,7 +474,7 @@ export async function getSessionRecordingOutputs(
     orgId: string | null;
     firstUrl: string | null;
     lastUrl: string | null;
-    app: string | null;
+    allowedOrigins: string | null;
     gapped?: boolean;
   }> = await db
     .select({
@@ -482,7 +484,10 @@ export async function getSessionRecordingOutputs(
       orgId: r.orgId,
       firstUrl: r.firstUrl,
       lastUrl: r.lastUrl,
-      app: r.app,
+      allowedOrigins: sql<string | null>`(
+        select ${keys.replayAllowedOrigins} from ${keys}
+        where ${keys.id} = ${r.publicKeyId}
+      )`,
       // Coverage is created after the gap table, so it is safe to read here.
       ...(coveredTenants.size
         ? {
@@ -647,6 +652,11 @@ export async function getSessionRecordingOutputs(
     if (madeCount > listed.length) {
       omittedOutputs[recording.id] = madeCount - listed.length;
     }
+    const pages = {
+      firstUrl: recording.firstUrl,
+      lastUrl: recording.lastUrl,
+      allowedOrigins: parseAllowedReplayOrigins(recording.allowedOrigins),
+    };
     outputs[recording.id] = listed.map(({ output, status }) => ({
       app: output.app as OutputUseApp,
       outputType: output.outputType,
@@ -656,7 +666,7 @@ export async function getSessionRecordingOutputs(
       status,
       usedEvent: status === "used" ? output.usedEvent : null,
       usedAt: status === "used" ? output.firstUsedAt : null,
-      url: outputUrl(output.app, output.outputId, recording),
+      url: outputUrl(output.app, output.outputId, pages),
     }));
   }
   return { outputs, omittedOutputs, coverageStartedAt };

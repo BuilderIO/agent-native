@@ -352,9 +352,10 @@ agent answers about browser recordings in the Analytics template.
   with `outputs` and `omittedOutputs` by recording id and
   `outputCoverageStartedAt`. Statuses are `used`, `unused`, `open` (window
   still open), and `unmeasured`; `url` is the recording's app origin, its
-  `/<app>` workspace mount when the recording shows one (its first or last
-  page is under it, or another app recorded its latest page, which only a
-  workspace origin allows), and the rule's `outputPath`. The app checks access when it opens.
+  `/<app>` workspace mount when its first or last page is under it, and the
+  rule's `outputPath`. Recorded URLs come from the uploader, so `url` is null
+  unless the recording's replay key lists that origin (a key that accepts any
+  origin links nothing). The app checks access when it opens.
 - `getSessionRecordingOutputs` is the one reader. Per readable recording it
   gives `[]` for none, null when they are unknown (a recording from another
   tenant, since a share grants the recording, not its events, one whose
