@@ -370,14 +370,12 @@ function contentMatches(
   const toolCallMatch = Boolean(
     typeof candidate.id === "string" && toolMessageIds?.has(candidate.id),
   );
-  // No tool-call index: non-empty text matches only when this snapshot
-  // already has the root's tool calls. Empty text never matches, so a
-  // tool-only reply and any missing actions stay on the root.
-  if (rootToolCalls(root).length > 0 && toolMessageIds === undefined) {
-    if (!rootText || !candidateText) return false;
-    return (
-      sameText && snapshotRepresentsRootContent(root, candidate, toolMessageIds)
-    );
+  // Matching text alone must not hide the root's durable tool-call parts.
+  if (
+    rootToolCalls(root).length > 0 &&
+    !snapshotRepresentsRootContent(root, candidate, toolMessageIds)
+  ) {
+    return false;
   }
   return (
     (sameText && (rootText.length > 0 || candidateText.length > 0)) ||

@@ -384,30 +384,116 @@ function holdsMessage(run: AgentRunState, messageId: string): boolean {
   );
 }
 
+type TimestampOrder =
+  | { kind: "known"; value: number }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
+function timestampOrder(value: string | undefined): TimestampOrder {
+  if (value === undefined) return { kind: "absent" };
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp)
+    ? { kind: "known", value: timestamp }
+    : { kind: "unreadable" };
+}
+
+function knownTimestampValues(orders: TimestampOrder[]): number[] | undefined {
+  const values: number[] = [];
+  for (const order of orders) {
+    if (order.kind !== "known") return undefined;
+    values.push(order.value);
+  }
+  return values;
+}
+
+function terminalWriterStatus(
+  writers: AgentRunState[],
+): "complete" | "error" | undefined {
+  const orders = knownTimestampValues(
+    writers.map((run) => timestampOrder(run.startedAt)),
+  );
+  if (orders) {
+    const latestOrder = Math.max(...orders);
+    const latestWriters = writers.filter(
+      (_run, index) => orders[index] === latestOrder,
+    );
+    const outcomes = new Set(
+      latestWriters.map((run) => run.status === "completed"),
+    );
+    if (outcomes.size > 1) return undefined;
+    return outcomes.has(true) ? "complete" : "error";
+  }
+  if (writers.every((run) => run.status === "completed")) return "complete";
+  if (writers.every((run) => run.status !== "completed")) return "error";
+  return undefined;
+}
+
 function claimFoldedAssistant(
   thread: AgentThreadState,
   runId: RunId,
 ): AgentThreadState {
   const current = thread.runs[runId];
-  if (current?.activeMessageId || current?.inheritedMessageId) return thread;
-  let inherited: string | undefined;
+  if (
+    !current ||
+    isTerminalRunStatus(current.status) ||
+    current.activeMessageId ||
+    current.inheritedMessageId
+  ) {
+    return thread;
+  }
+  const currentOrder = timestampOrder(current.startedAt);
+  if (currentOrder.kind !== "known") return thread;
+  let inherited: { messageId: string; order: number; runId: RunId } | undefined;
   for (const run of Object.values(thread.runs)) {
-    if (run.id === runId) break;
+    if (run.id === runId) continue;
     const held = run.activeMessageId ?? run.inheritedMessageId;
-    if (isTerminalRunStatus(run.status) || !held) continue;
+    if (!held) continue;
+    const order = timestampOrder(run.startedAt);
+    if (order.kind !== "known" || order.value > currentOrder.value) continue;
     const message = thread.messages.find((item) => item.id === held);
     if (message?.role === "assistant" && message.status === "streaming") {
-      inherited = held;
+      if (
+        !inherited ||
+        order.value > inherited.order ||
+        (order.value === inherited.order && run.id < inherited.runId)
+      ) {
+        inherited = { messageId: held, order: order.value, runId: run.id };
+      }
     }
   }
   return inherited
-    ? updateRun(thread, runId, { inheritedMessageId: inherited })
+    ? updateRun(thread, runId, { inheritedMessageId: inherited.messageId })
     : thread;
 }
 
+export function reconcileFoldedAssistantClaims(
+  thread: AgentThreadState,
+): AgentThreadState {
+  const activeRuns = Object.values(thread.runs)
+    .filter((run) => !isTerminalRunStatus(run.status))
+    .sort((left, right) => {
+      const leftOrder = timestampOrder(left.startedAt);
+      const rightOrder = timestampOrder(right.startedAt);
+      if (leftOrder.kind === "known" && rightOrder.kind === "known") {
+        if (leftOrder.value !== rightOrder.value) {
+          return leftOrder.value < rightOrder.value ? -1 : 1;
+        }
+      } else if (leftOrder.kind === "known") {
+        return 1;
+      } else if (rightOrder.kind === "known") {
+        return -1;
+      }
+      return left.id.localeCompare(right.id);
+    });
+  return activeRuns.reduce(
+    (current, run) => claimFoldedAssistant(current, run.id),
+    thread,
+  );
+}
+
 /**
- * Settles a shared reply nobody is still writing with the outcome of the last
- * run that wrote it.
+ * Settles a shared reply from its latest-started terminal writer once no run
+ * can extend it.
  */
 function releaseSharedMessage(
   thread: AgentThreadState,
@@ -415,12 +501,13 @@ function releaseSharedMessage(
 ): AgentThreadState {
   const runs = Object.values(thread.runs);
   if (runs.some((run) => holdsMessage(run, messageId))) return thread;
-  const owner = runs.findLast(
+  const writers = runs.filter(
     (run) =>
       isTerminalRunStatus(run.status) && run.activeMessageId === messageId,
   );
-  if (!owner) return thread;
-  const status = owner.status === "completed" ? "complete" : "error";
+  if (!writers.length) return thread;
+  const status = terminalWriterStatus(writers);
+  if (!status) return thread;
   return {
     ...thread,
     messages: thread.messages.map((message) =>
@@ -635,14 +722,38 @@ function settleRunItems(
           message: "The run ended before the action reported a result.",
         }
       : undefined;
+  const terminalWriterCounts = new Map<string, number>();
+  for (const run of Object.values(runs)) {
+    if (!isTerminalRunStatus(run.status) || !run.activeMessageId) continue;
+    terminalWriterCounts.set(
+      run.activeMessageId,
+      (terminalWriterCounts.get(run.activeMessageId) ?? 0) + 1,
+    );
+  }
+  const heldMessageIds = new Set(
+    Object.values(runs)
+      .filter((run) => !isTerminalRunStatus(run.status))
+      .flatMap((run) => [run.activeMessageId, run.inheritedMessageId])
+      .filter((messageId): messageId is string => messageId !== undefined),
+  );
   const settled: AgentThreadState = {
     ...thread,
     runs,
-    messages: thread.messages.map((message) =>
-      message.status === "streaming" && messageIds.has(message.id)
-        ? { ...message, status: status === "completed" ? "complete" : "error" }
-        : message,
-    ),
+    messages: thread.messages.map((message) => {
+      if (message.status !== "streaming" || !messageIds.has(message.id)) {
+        return message;
+      }
+      if (
+        heldMessageIds.has(message.id) ||
+        (terminalWriterCounts.get(message.id) ?? 0) > 1
+      ) {
+        return message;
+      }
+      return {
+        ...message,
+        status: status === "completed" ? "complete" : "error",
+      };
+    }),
     tools: Object.fromEntries(
       Object.entries(thread.tools).map(([id, tool]) => [
         id,
@@ -705,12 +816,14 @@ function settleRunItems(
       }),
     ),
   };
-  // A continuation that never wrote to the reply it inherited leaves it with
-  // the outcome of the run that did.
-  const inherited = thread.runs[runId]?.inheritedMessageId;
-  return inherited && !messageIds.has(inherited)
-    ? releaseSharedMessage(settled, inherited)
-    : settled;
+  const sharedMessageIds = new Set(messageIds);
+  const inheritedMessageId = settled.runs[runId]?.inheritedMessageId;
+  if (inheritedMessageId) sharedMessageIds.add(inheritedMessageId);
+  let reconciled = settled;
+  for (const messageId of sharedMessageIds) {
+    reconciled = releaseSharedMessage(reconciled, messageId);
+  }
+  return reconciled;
 }
 
 export type AgentEventAdmission =

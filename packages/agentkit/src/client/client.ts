@@ -57,6 +57,7 @@ import {
   createAgentThreadState,
   hasActiveAgentRuns,
   selectLatestAgentRun,
+  reconcileFoldedAssistantClaims,
   reduceAgentEvent,
   retireSupersededConnectionRequests,
   settleRunProjection,
@@ -2544,9 +2545,8 @@ export class AgentKitClient implements AgentKitController {
           const localRun = this.getThread(threadId).runs[runId];
           const inheritedMessageId =
             run.inheritedMessageId ??
-            (localRun
-              ? localRun.inheritedMessageId
-              : snapshotRun?.inheritedMessageId);
+            localRun?.inheritedMessageId ??
+            snapshotRun?.inheritedMessageId;
           const refreshedRun = {
             ...(responseIsBehindCursor && snapshotRun
               ? { ...snapshotRun, ...run, status: snapshotRun.status }
@@ -4910,6 +4910,11 @@ export class AgentKitClient implements AgentKitController {
       (run): run is TerminalRunState =>
         this.isTerminalStatus(run.status) && !pendingCatchUpRunIds.has(run.id),
     );
+    const runAssociatedMessageIds = new Set(
+      runs
+        .flatMap((run) => [run.activeMessageId, run.inheritedMessageId])
+        .filter((messageId): messageId is string => messageId !== undefined),
+    );
     // A snapshot lists a request with the status it had when it was written, so
     // every load re-retires what the live event order already retired.
     const settled = retireSupersededConnectionRequests(
@@ -4958,7 +4963,9 @@ export class AgentKitClient implements AgentKitController {
     return {
       ...settled,
       messages: settled.messages.map((message) =>
-        message.role === "assistant" && message.status === "streaming"
+        message.role === "assistant" &&
+        message.status === "streaming" &&
+        !runAssociatedMessageIds.has(message.id)
           ? { ...message, status: settledMessageStatus }
           : message,
       ),
@@ -5455,7 +5462,7 @@ export class AgentKitClient implements AgentKitController {
         ? latestUser?.id
         : hydrated.suggestionsUserMessageId;
     return this.settleTerminalThread(
-      projected,
+      reconcileFoldedAssistantClaims(projected),
       snapshot,
       this.terminalRunCatchUpIds(snapshot.id),
       this.terminalRunCatchUpFailureIds(snapshot.id),
@@ -5801,9 +5808,20 @@ export class AgentKitClient implements AgentKitController {
           ? incoming
           : current;
     const lastSequence = Math.max(current.lastSequence, incoming.lastSequence);
-    return preferred.lastSequence === lastSequence
-      ? preferred
-      : { ...preferred, lastSequence };
+    const fallback = preferred === current ? incoming : current;
+    return {
+      ...preferred,
+      lastSequence,
+      startedAt: preferred.startedAt ?? fallback.startedAt,
+      completedAt: preferred.completedAt ?? fallback.completedAt,
+      activeMessageId: preferred.activeMessageId ?? fallback.activeMessageId,
+      inheritedMessageId:
+        preferred.inheritedMessageId ??
+        (preferred.activeMessageId === undefined ||
+        preferred.activeMessageId === fallback.inheritedMessageId
+          ? fallback.inheritedMessageId
+          : undefined),
+    };
   }
 
   private mergeQueuedMessages(

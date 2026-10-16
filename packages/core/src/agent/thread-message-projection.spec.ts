@@ -156,4 +156,45 @@ describe("assistant root projection", () => {
       false,
     );
   });
+
+  it("keeps a tool-bearing root when indexed calls have no message id", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Answer complete" },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-repository-part",
+              data: {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "search",
+                args: { query: "example" },
+              },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-text",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      toolCalls: [
+        { id: "call-1", name: "search", input: { query: "example" } },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(false);
+    expect(result.snapshotMessageIdsByRootMessageId.has("server-run-one")).toBe(
+      false,
+    );
+  });
 });
