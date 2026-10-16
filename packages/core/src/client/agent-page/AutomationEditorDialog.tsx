@@ -300,9 +300,7 @@ export function AutomationEditorDialog({
           resourceId: automation.resourceId,
           triggerType: trigger === "email" ? "event" : trigger,
           body: body.trim(),
-          ...(trigger === "schedule"
-            ? { schedule, timezone, condition: null }
-            : {}),
+          ...(trigger === "schedule" ? { schedule, timezone } : {}),
           ...(trigger === "event"
             ? { event: eventName, condition: eventCondition.trim() || null }
             : {}),
@@ -317,9 +315,7 @@ export function AutomationEditorDialog({
           scope,
           triggerType: trigger === "email" ? "event" : trigger,
           body: body.trim(),
-          ...(trigger === "schedule"
-            ? { schedule, timezone, condition: null }
-            : {}),
+          ...(trigger === "schedule" ? { schedule, timezone } : {}),
           ...(trigger === "event"
             ? { event: eventName, condition: eventCondition.trim() || null }
             : {}),

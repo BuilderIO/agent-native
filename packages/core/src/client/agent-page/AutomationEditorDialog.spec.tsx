@@ -287,6 +287,24 @@ describe("AutomationEditorDialog", () => {
     }
   });
 
+  it("edits an existing scheduled automation without a condition field", () => {
+    render({ automation: explicitAutomation() });
+
+    click("Save changes");
+
+    expect(onSave).toHaveBeenCalledWith({
+      operation: "update",
+      resourceId: "automation-1",
+      triggerType: "schedule",
+      body: "Summarize customer updates.",
+      schedule: "  */15 * * * *  ",
+      timezone: "UTC",
+      sharing: { kind: "personal" },
+    });
+    const payload = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.hasOwn(payload, "condition")).toBe(false);
+  });
+
   it("switches an existing event to manual without stale trigger fields", () => {
     render({
       automation: explicitAutomation({
@@ -333,6 +351,8 @@ describe("AutomationEditorDialog", () => {
         timezone: "Europe/Paris",
       }),
     );
+    const payload = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.hasOwn(payload, "condition")).toBe(false);
   });
 
   it("submits a selected registered app event and optional condition", () => {

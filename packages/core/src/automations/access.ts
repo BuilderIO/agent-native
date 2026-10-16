@@ -293,7 +293,7 @@ function explicitSharingSummary(
   }
   return {
     source: "explicit",
-    visibility: "private",
+    visibility: grants.length > 0 ? "shared" : "private",
     organizationId: overlay.organizationId?.trim() || null,
     grantCount: grants.length,
   };

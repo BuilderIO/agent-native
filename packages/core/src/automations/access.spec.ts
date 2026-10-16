@@ -224,7 +224,7 @@ describe("automation access", () => {
         },
         sharing: {
           source: "explicit",
-          visibility: "private",
+          visibility: "shared",
           grants: [
             {
               email: "viewer@example.com",
@@ -323,7 +323,7 @@ describe("automation access", () => {
         effectiveRole: "collaborate",
         owningOrganizationId: null,
         sharing: expect.objectContaining({
-          visibility: "private",
+          visibility: "shared",
           organizationId: "org-1",
         }),
       }),
