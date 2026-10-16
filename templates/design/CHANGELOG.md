@@ -3,11 +3,22 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-16
+
+### Fixed
+
+- Shift-drag keeps selected screens, screen nudges stay with the canvas selection, and Code refreshes when reopened.
+
 ## 2026-10-15
 
 ### Added
 
 - External Design agents can delete screens when you ask them.
+
+### Fixed
+
+- Empty inspector section titles stay compact
+- Fixed local screen, account, and storage setup when route or connection data is unavailable.
 
 ## 2026-10-14
 
@@ -46,6 +57,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Dropping a layer in the empty end of an auto-layout row of buttons keeps it in the row as the last item
+- Layers dropped onto another screen, or beside an auto-layout frame they don't fit, land where they are released instead of the screen's top-left corner
+- Moving a layer in the Layers panel, including from the board into a screen, keeps it where it sits on the canvas
 - Home prompt suggestions stay hidden until AI is connected
 - Undo reliably restores screen positions after repeated keyboard nudges
 - Comment pins no longer show in Interact mode or paint over the editor panels.
