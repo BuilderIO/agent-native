@@ -251,6 +251,74 @@ describe("canonicalizeNfmWithFidelity", () => {
     expect(() => requireLosslessNfm(nested(4_000))).toThrow(NfmFidelityError);
   });
 
+  it("reads pages of unclosed and nested containers in linear time", () => {
+    const nestedDetails = (depth: number) =>
+      `${"<details>\n".repeat(depth)}x\n${"</details>\n".repeat(depth)}`;
+    const started = performance.now();
+    for (const opener of [
+      "<details>",
+      '<callout icon="i">',
+      "<columns>",
+      '<synced_block url="u">',
+      "<meeting-notes>",
+    ])
+      canonicalizeNfm(`${opener}\n`.repeat(20_000));
+    canonicalizeNfm("<details>\n- a\n  - b\n".repeat(10_000));
+    canonicalizeNfm(
+      `<details>\n${'<callout icon="i">\n'.repeat(20_000)}</details>`,
+    );
+    canonicalizeNfm(nestedDetails(2_000));
+    canonicalizeNfm(
+      Array.from(
+        { length: 1_000 },
+        (_, i) => `${"\t".repeat(i)}<callout icon="i">`,
+      ).join("\n"),
+    );
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("reads containers nested past the depth limit as text and reports it", () => {
+    const nested = (depth: number) =>
+      `${"<details>\n".repeat(depth)}x\n${"</details>\n".repeat(depth)}`;
+    expect(canonicalizeNfmWithFidelity(nested(33)).losses).toEqual([]);
+    const deep = canonicalizeNfmWithFidelity(nested(34));
+    expect(deep.losses).toEqual([
+      { kind: "dropped-formatting", count: 1, samples: ["<details>"] },
+    ]);
+    expect(() => requireLosslessNfm(nested(34))).toThrow(NfmFidelityError);
+  });
+
+  it("reads the runs of one link under a long URL in linear time", () => {
+    const started = performance.now();
+    // Read only: the writer repeats the URL for every run.
+    nfmToDoc(`[${"a`x`".repeat(60_000)}](${"u".repeat(60_000)})`);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("compares a long leaf under deep nesting in linear time", () => {
+    const depth = 300;
+    const markdown = `${Array.from(
+      { length: depth },
+      (_, i) => `${"\t".repeat(i)}- x`,
+    ).join("\n")}\n${"\t".repeat(depth)}${"a".repeat(3_000_000)}`;
+    const started = performance.now();
+    expect(canonicalizeNfmWithFidelity(markdown).losses).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("reads math in link text and an image's alt as main does", () => {
+    const [math] = nfmToDoc("[$]$](u)").content;
+    expect(math.content?.map((node) => node.type)).toEqual([
+      "text",
+      "notionInlineAtom",
+      "text",
+    ]);
+    expect(lossKinds("[$]$](u)")).toEqual([]);
+    expect(nfmToDoc("![$]$](u)").content[0].type).toBe("paragraph");
+    expect(nfmToDoc("![`]`](u)").content[0].type).toBe("paragraph");
+    expect(nfmToDoc("![a](u)").content[0].type).toBe("image");
+  });
+
   it("reads a table with more rows than a call takes arguments", () => {
     const table = canonicalizeNfm(`| a |\n| - |\n${"| b |\n".repeat(130_000)}`);
     expect(table.startsWith('<table header-row="true">')).toBe(true);
