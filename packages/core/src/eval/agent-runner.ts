@@ -584,7 +584,8 @@ function failedProductionPathOutput(
   error: string,
   durationMs: number,
 ): AgentRunOutput {
-  return { ...output, ok: false, error, durationMs };
+  const cause = output.error ? `${error} Cause: ${output.error}` : error;
+  return { ...output, ok: false, error: cause, durationMs };
 }
 
 function validateProductionContext(

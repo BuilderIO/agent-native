@@ -753,9 +753,8 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
 
     expect(output.ok).toBe(false);
     expect(output.error).toBe(
-      "Production agent run failed before usage was captured.",
+      "Production agent run failed before usage was captured. Cause: provider failure details",
     );
-    expect(output.error).not.toContain("provider failure details");
   });
 
   it("accepts an empty production prefetch result", async () => {
