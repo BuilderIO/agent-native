@@ -618,14 +618,43 @@ test("does not select Design dependencies for test or typecheck", () => {
   ]);
 });
 
-test("routes Design pin reporter changes to the fixed core lane only", () => {
-  const reporter = classifyChangedPaths([
-    "templates/design/e2e/retry-failure-reporter.ts",
+test("routes Design pin attestation inputs to core regression", () => {
+  const attestationInputs = [
+    {
+      path: "templates/design/e2e/retry-failure-reporter.ts",
+      full: false,
+      broad: false,
+    },
+    {
+      path: "scripts/guard-design-e2e-regression-pins.ts",
+      full: false,
+      broad: false,
+    },
+    {
+      path: "scripts/design-e2e-regression-pins.ts",
+      full: true,
+      broad: true,
+    },
+  ];
+
+  for (const { path, full, broad } of attestationInputs) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
+    assert.equal(scope.full, full, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, broad, path);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [], path);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, [], path);
+  }
+
+  const selectorTest = classifyChangedPaths([
+    "scripts/design-e2e-regression-pins.test.ts",
   ]);
-  assert.equal(reporter.checks.design_canvas_core_regression, true);
-  assert.equal(reporter.checks.design_canvas_broad_workflows, false);
-  assert.deepEqual(reporter.designCanvasE2eSpecs, []);
-  assert.deepEqual(reporter.designCanvasE2eDiagnosticSpecs, []);
+  assert.equal(selectorTest.checks.design_canvas_core_regression, false);
+  assert.equal(selectorTest.checks.design_canvas_broad_workflows, false);
+  assert.equal(selectorTest.checks.guards, true);
+  assert.deepEqual(selectorTest.scriptTests, [
+    "scripts/design-e2e-regression-pins.test.ts",
+  ]);
 
   const config = classifyChangedPaths([
     "templates/design/playwright.config.ts",
@@ -2874,6 +2903,7 @@ test(
         "scripts/ci-change-scope.ts",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/design-e2e-regression-pins.test.ts",
         "scripts/guard-no-unbounded-table-reads.test.ts",
         "scripts/deploy-alerts-workflow.test.ts",
         "scripts/package-release-workflow.test.ts",

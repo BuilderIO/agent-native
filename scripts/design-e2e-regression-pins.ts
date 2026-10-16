@@ -1270,11 +1270,91 @@ function normalizedTestPath(
   ts: typeof TypeScript,
 ): string[] {
   const candidate = unwrapExpression(expression, ts);
+  const isDynamicKnownTestModifier = (value: TypeScript.Expression) => {
+    const access = unwrapExpression(value, ts);
+    if (
+      !ts.isElementAccessExpression(access) ||
+      !access.argumentExpression ||
+      constantStringExpression(access.argumentExpression, ts) !== undefined
+    ) {
+      return false;
+    }
+    const receiverPath = normalizedTestPath(access.expression, lookup, ts);
+    return (
+      (receiverPath.length === 1 && receiverPath[0] === "test") ||
+      (receiverPath.length === 2 &&
+        receiverPath[0] === "test" &&
+        receiverPath[1] === "describe")
+    );
+  };
   if (ts.isCallExpression(candidate)) {
+    const boundFunction = unwrapExpression(candidate.expression, ts);
+    const boundFunctionName = ts.isPropertyAccessExpression(boundFunction)
+      ? boundFunction.name.text
+      : ts.isElementAccessExpression(boundFunction) &&
+          boundFunction.argumentExpression
+        ? constantStringExpression(boundFunction.argumentExpression, ts)
+        : undefined;
+    const boundReceiver =
+      ts.isPropertyAccessExpression(boundFunction) ||
+      ts.isElementAccessExpression(boundFunction)
+        ? boundFunction.expression
+        : undefined;
+    if (boundFunctionName === "bind" && boundReceiver) {
+      if (isDynamicKnownTestModifier(boundReceiver)) {
+        return ["test", "dynamic-bound"];
+      }
+      const boundPath = normalizedTestPath(boundReceiver, lookup, ts);
+      if (
+        (boundPath.length === 2 &&
+          boundPath[0] === "test" &&
+          TEST_MODIFIERS.has(boundPath[1]!)) ||
+        (boundPath.length === 3 &&
+          boundPath[0] === "test" &&
+          boundPath[1] === "describe" &&
+          TEST_MODIFIERS.has(boundPath[2]!))
+      ) {
+        return [...boundPath, "bound"];
+      }
+    }
     const factoryPath = normalizedTestPath(candidate.expression, lookup, ts);
+    if (
+      factoryPath.length === 2 &&
+      factoryPath[0] === "test" &&
+      factoryPath[1] === "dynamic-bound"
+    ) {
+      return factoryPath;
+    }
+    if (factoryPath.at(-1) === "bind") {
+      const modifierPath = factoryPath.slice(0, -1);
+      if (
+        (modifierPath.length === 2 &&
+          modifierPath[0] === "test" &&
+          TEST_MODIFIERS.has(modifierPath[1]!)) ||
+        (modifierPath.length === 3 &&
+          modifierPath[0] === "test" &&
+          modifierPath[1] === "describe" &&
+          TEST_MODIFIERS.has(modifierPath[2]!))
+      ) {
+        return [...modifierPath, "bound"];
+      }
+    }
     if (factoryPath[0] === "test" && factoryPath.at(-1) === "extend") {
       return ["test"];
     }
+  }
+  const bindMemberName = ts.isPropertyAccessExpression(candidate)
+    ? candidate.name.text
+    : ts.isElementAccessExpression(candidate) && candidate.argumentExpression
+      ? constantStringExpression(candidate.argumentExpression, ts)
+      : undefined;
+  if (
+    bindMemberName === "bind" &&
+    (ts.isPropertyAccessExpression(candidate) ||
+      ts.isElementAccessExpression(candidate)) &&
+    isDynamicKnownTestModifier(candidate.expression)
+  ) {
+    return ["test", "dynamic-bound"];
   }
   const segments = propertyPath(candidate, ts);
   const alias = lookup(segments[0] ?? "", candidate);
@@ -1347,30 +1427,163 @@ function testCallKind(
     }
     return undefined;
   };
+  const testInfoBoundModifierFor = (candidate: TypeScript.Expression) => {
+    const boundCall = unwrapExpression(candidate, ts);
+    if (ts.isIdentifier(boundCall)) {
+      const alias = testInfoAliases.modifierAlias(
+        boundCall,
+        testInfoBindings,
+        testInfoMaybeBindings,
+      );
+      return alias?.bound ? alias : undefined;
+    }
+    const boundFunction = ts.isCallExpression(boundCall)
+      ? unwrapExpression(boundCall.expression, ts)
+      : boundCall;
+    const methodName = ts.isPropertyAccessExpression(boundFunction)
+      ? boundFunction.name.text
+      : ts.isElementAccessExpression(boundFunction) &&
+          boundFunction.argumentExpression
+        ? constantStringExpression(boundFunction.argumentExpression, ts)
+        : undefined;
+    const receiver =
+      ts.isPropertyAccessExpression(boundFunction) ||
+      ts.isElementAccessExpression(boundFunction)
+        ? boundFunction.expression
+        : undefined;
+    if (methodName === "bind" && receiver) return testInfoModifierFor(receiver);
+    if (ts.isCallExpression(boundCall) && ts.isIdentifier(boundFunction)) {
+      const alias = testInfoAliases.modifierAlias(
+        boundFunction,
+        testInfoBindings,
+        testInfoMaybeBindings,
+      );
+      return alias?.bound ? alias : undefined;
+    }
+    return undefined;
+  };
   const isDynamicTestRootAccess = (candidate: TypeScript.Expression) => {
     const access = unwrapExpression(candidate, ts);
+    if (
+      !ts.isElementAccessExpression(access) ||
+      !access.argumentExpression ||
+      constantStringExpression(access.argumentExpression, ts) !== undefined
+    ) {
+      return false;
+    }
+    return aliases.resolve(access.expression).join(".") === "test";
+  };
+  const isDynamicKnownTestModifierAccess = (
+    candidate: TypeScript.Expression,
+  ) => {
+    const access = unwrapExpression(candidate, ts);
+    if (
+      !ts.isElementAccessExpression(access) ||
+      !access.argumentExpression ||
+      constantStringExpression(access.argumentExpression, ts) !== undefined
+    ) {
+      return false;
+    }
+    const receiverPath = aliases.resolve(access.expression).join(".");
+    return receiverPath === "test" || receiverPath === "test.describe";
+  };
+  const isBoundDynamicTestModifier = (candidate: TypeScript.Expression) => {
+    const boundCall = unwrapExpression(candidate, ts);
+    if (!ts.isCallExpression(boundCall)) return false;
+    const boundFunction = unwrapExpression(boundCall.expression, ts);
+    const methodName = ts.isPropertyAccessExpression(boundFunction)
+      ? boundFunction.name.text
+      : ts.isElementAccessExpression(boundFunction) &&
+          boundFunction.argumentExpression
+        ? constantStringExpression(boundFunction.argumentExpression, ts)
+        : undefined;
+    const receiver =
+      ts.isPropertyAccessExpression(boundFunction) ||
+      ts.isElementAccessExpression(boundFunction)
+        ? boundFunction.expression
+        : undefined;
     return (
-      ts.isElementAccessExpression(access) &&
-      access.argumentExpression !== undefined &&
-      constantStringExpression(access.argumentExpression, ts) === undefined &&
-      aliases.resolve(access.expression).join(".") === "test"
+      methodName === "bind" &&
+      receiver !== undefined &&
+      isDynamicKnownTestModifierAccess(receiver)
     );
   };
+  const boundTestPath =
+    testPath.at(-1) === "bound" ? testPath.slice(0, -1) : [];
+  const testInfoBoundModifier = testInfoBoundModifierFor(expression);
+  if (
+    testInfoBoundModifier &&
+    (testInfoBoundModifier.modifier ||
+      ("dynamic" in testInfoBoundModifier && testInfoBoundModifier.dynamic))
+  ) {
+    return {
+      kind: "runtime",
+      ...(testInfoBoundModifier.modifier
+        ? { modifier: testInfoBoundModifier.modifier }
+        : {}),
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
+  if (
+    isBoundDynamicTestModifier(expression) ||
+    (testPath.length === 2 &&
+      testPath[0] === "test" &&
+      testPath[1] === "dynamic-bound")
+  ) {
+    return {
+      kind: "runtime",
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
+  if (
+    (boundTestPath.length === 2 &&
+      boundTestPath[0] === "test" &&
+      TEST_MODIFIERS.has(boundTestPath[1]!)) ||
+    (boundTestPath.length === 3 &&
+      boundTestPath[0] === "test" &&
+      boundTestPath[1] === "describe" &&
+      TEST_MODIFIERS.has(boundTestPath[2]!))
+  ) {
+    return {
+      kind: "runtime",
+      modifier: boundTestPath.at(-1),
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
   if (
     ts.isPropertyAccessExpression(expression) &&
     (expression.name.text === "call" || expression.name.text === "apply")
   ) {
     const target = expression.expression;
     const targetPath = aliases.resolve(target);
-    const testInfoModifier = testInfoModifierFor(target);
+    const dynamicBoundTarget =
+      targetPath.length === 2 &&
+      targetPath[0] === "test" &&
+      targetPath[1] === "dynamic-bound";
+    const boundTargetPath =
+      targetPath.at(-1) === "bind" ? targetPath.slice(0, -1) : [];
+    const testInfoModifier =
+      testInfoBoundModifierFor(target) ?? testInfoModifierFor(target);
     let modifier =
-      targetPath.length === 2 && TEST_MODIFIERS.has(targetPath[1]!)
-        ? targetPath[1]
-        : targetPath.length === 3 &&
-            targetPath[1] === "info" &&
-            TEST_MODIFIERS.has(targetPath[2]!)
-          ? targetPath[2]
-          : undefined;
+      boundTargetPath.length === 2 &&
+      boundTargetPath[0] === "test" &&
+      TEST_MODIFIERS.has(boundTargetPath[1]!)
+        ? boundTargetPath[1]
+        : boundTargetPath.length === 3 &&
+            boundTargetPath[0] === "test" &&
+            boundTargetPath[1] === "describe" &&
+            TEST_MODIFIERS.has(boundTargetPath[2]!)
+          ? boundTargetPath[2]
+          : targetPath.length === 2 && TEST_MODIFIERS.has(targetPath[1]!)
+            ? targetPath[1]
+            : targetPath.length === 3 &&
+                targetPath[1] === "info" &&
+                TEST_MODIFIERS.has(targetPath[2]!)
+              ? targetPath[2]
+              : undefined;
     const targetSegments = propertyPath(target, ts);
     const targetRoot = rootIdentifier(target, ts);
     if (!modifier && targetRoot && targetSegments.length === 2) {
@@ -1393,9 +1606,12 @@ function testCallKind(
       )?.modifier;
     }
     if (
+      dynamicBoundTarget ||
       modifier ||
       testInfoModifier?.modifier ||
-      testInfoModifier?.dynamic ||
+      (testInfoModifier &&
+        "dynamic" in testInfoModifier &&
+        testInfoModifier.dynamic) ||
       isDynamicTestRootAccess(target)
     ) {
       return {
@@ -1821,6 +2037,7 @@ type TestInfoBinding = {
     modifier: string;
     source?: TypeScript.Identifier;
     directTestInfo?: boolean;
+    bound?: boolean;
   };
 };
 
@@ -1832,7 +2049,13 @@ type TestInfoAliasResolver = {
     identifier: TypeScript.Identifier,
     knownBindings: ReadonlySet<TypeScript.Node>,
     maybeBindings: ReadonlySet<TypeScript.Node>,
-  ): { modifier: string; status: "known" | "ambiguous" } | undefined;
+  ):
+    | {
+        modifier: string;
+        status: "known" | "ambiguous";
+        bound?: boolean;
+      }
+    | undefined;
   isTestInfo(
     identifier: TypeScript.Identifier,
     knownBindings: ReadonlySet<TypeScript.Node>,
@@ -1894,6 +2117,68 @@ function testInfoAliases(
     }
   };
 
+  const lookupCollectedBinding = (identifier: TypeScript.Identifier) => {
+    let scope: TypeScript.Node | undefined = identifier;
+    while (scope) {
+      const bindings = scopes.get(scope);
+      if (bindings?.has(identifier.text)) return bindings.get(identifier.text);
+      scope = scope.parent;
+    }
+    return undefined;
+  };
+
+  const boundModifierAlias = (
+    expression: TypeScript.Expression,
+  ): NonNullable<TestInfoBinding["modifierAlias"]> | undefined => {
+    const candidate = unwrapExpression(expression, ts);
+    if (ts.isCallExpression(candidate)) {
+      const callee = unwrapExpression(candidate.expression, ts);
+      if (ts.isIdentifier(callee)) {
+        const alias = lookupCollectedBinding(callee)?.modifierAlias;
+        if (alias?.bound) return alias;
+      }
+    }
+    const boundFunction = ts.isCallExpression(candidate)
+      ? unwrapExpression(candidate.expression, ts)
+      : candidate;
+    const methodName = ts.isPropertyAccessExpression(boundFunction)
+      ? boundFunction.name.text
+      : ts.isElementAccessExpression(boundFunction) &&
+          boundFunction.argumentExpression
+        ? constantStringExpression(boundFunction.argumentExpression, ts)
+        : undefined;
+    if (methodName !== "bind") return undefined;
+    const modifierAccess =
+      ts.isPropertyAccessExpression(boundFunction) ||
+      ts.isElementAccessExpression(boundFunction)
+        ? unwrapExpression(boundFunction.expression, ts)
+        : undefined;
+    if (!modifierAccess) return undefined;
+    const modifier = ts.isPropertyAccessExpression(modifierAccess)
+      ? modifierAccess.name.text
+      : ts.isElementAccessExpression(modifierAccess) &&
+          modifierAccess.argumentExpression
+        ? constantStringExpression(modifierAccess.argumentExpression, ts)
+        : undefined;
+    if (!modifier || !TEST_MODIFIERS.has(modifier)) return undefined;
+    const receiver =
+      ts.isPropertyAccessExpression(modifierAccess) ||
+      ts.isElementAccessExpression(modifierAccess)
+        ? unwrapExpression(modifierAccess.expression, ts)
+        : undefined;
+    if (receiver && ts.isIdentifier(receiver)) {
+      return { modifier, source: receiver, bound: true };
+    }
+    if (
+      receiver &&
+      ts.isCallExpression(receiver) &&
+      aliases.resolve(receiver.expression).join(".") === "test.info"
+    ) {
+      return { modifier, directTestInfo: true, bound: true };
+    }
+    return undefined;
+  };
+
   const collect = (node: TypeScript.Node) => {
     if (ts.isVariableDeclaration(node)) {
       const isVar =
@@ -1908,12 +2193,14 @@ function testInfoAliases(
         const testInfoCall =
           ts.isCallExpression(initializer) &&
           aliases.resolve(initializer.expression).join(".") === "test.info";
+        const boundModifier = boundModifierAlias(node.initializer);
         bind(
           scope,
           node.name,
           ts.isIdentifier(initializer) ? initializer : undefined,
           mutable,
           testInfoCall,
+          boundModifier,
         );
       } else if (ts.isObjectBindingPattern(node.name) && node.initializer) {
         const initializer = unwrapExpression(node.initializer, ts);
@@ -2110,6 +2397,7 @@ function testInfoAliases(
       if (sourceStatus === "not-test-info") return undefined;
       return {
         modifier: alias.modifier,
+        ...(alias.bound ? { bound: true } : {}),
         status:
           sourceStatus === "ambiguous" || writtenBindings.has(binding.node)
             ? "ambiguous"

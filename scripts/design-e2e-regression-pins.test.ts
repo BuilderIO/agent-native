@@ -685,6 +685,152 @@ test("computed Playwright modifiers resolve or fail closed", () => {
     );
   }
 
+  const dynamicRootModifierBind = [
+    'test("pinned behavior", () => {',
+    '  const modifier = "skip";',
+    '  test[modifier].bind(test)(true, "dynamic root bind suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(dynamicRootModifierBind, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  const dynamicAliasedModifierBind = [
+    'test("pinned behavior", () => {',
+    '  const modifier = "skip";',
+    "  const bind = test[modifier].bind;",
+    '  bind(test)(true, "dynamic aliased bind suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(dynamicAliasedModifierBind, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  const dynamicSuiteModifierBind = [
+    'const modifier = "skip";',
+    'test.describe[modifier].bind(test.describe)("suite", () => {',
+    '  test("pinned behavior", () => {});',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(dynamicSuiteModifierBind, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  for (const invocation of [
+    'test.skip.bind(test)(true, "bound suppression");',
+    'test.fixme.bind(test)(true, "bound suppression");',
+    'test.skip["bind"](test)(true, "computed bind suppression");',
+    'test["skip"].bind(test)(true, "computed modifier suppression");',
+    'test.skip.bind.call(test.skip, test)(true, "called bind suppression");',
+    'test.skip.bind.apply(test.skip, [test])(true, "applied bind suppression");',
+    'test.describe.skip.bind(test.describe)("suite", () => {});',
+    'test.describe.fixme.bind(test.describe)("suite", () => {});',
+  ]) {
+    const source = [
+      'test("pinned behavior", () => {',
+      `  ${invocation}`,
+      "});",
+    ].join("\n");
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      invocation,
+    );
+  }
+
+  for (const invocation of [
+    'testInfo.skip.bind(testInfo)(true, "bound TestInfo suppression");',
+    'test.info().skip.bind(test.info())(true, "bound factory suppression");',
+    'testInfo.skip.bind.call(testInfo.skip, testInfo)(true, "called TestInfo bind");',
+  ]) {
+    const source = [
+      'test("pinned behavior", (_fixtures, testInfo) => {',
+      `  ${invocation}`,
+      "});",
+    ].join("\n");
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      invocation,
+    );
+  }
+
+  const storedBoundModifier = [
+    'test("pinned behavior", () => {',
+    "  const skip = test.skip.bind(test);",
+    '  skip(true, "stored bound suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(storedBoundModifier, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  for (const source of [
+    [
+      'test("pinned behavior", () => {',
+      "  const bind = test.skip.bind;",
+      '  bind(test)(true, "aliased bind suppression");',
+      "});",
+    ].join("\n"),
+    [
+      'test("pinned behavior", () => {',
+      "  const bind = test.skip.bind;",
+      '  bind.call(test.skip, test)(true, "called aliased bind suppression");',
+      "});",
+    ].join("\n"),
+    [
+      'test("pinned behavior", () => {',
+      "  const bind = test.skip.bind;",
+      "  const skip = bind(test);",
+      '  skip(true, "aliased bound suppression");',
+      "});",
+    ].join("\n"),
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      source,
+    );
+  }
+
+  for (const source of [
+    [
+      'test("pinned behavior", (_fixtures, testInfo) => {',
+      "  const bind = testInfo.skip.bind;",
+      '  bind(testInfo)(true, "aliased TestInfo bind suppression");',
+      "});",
+    ].join("\n"),
+    [
+      'test("pinned behavior", (_fixtures, testInfo) => {',
+      "  const bind = testInfo.skip.bind;",
+      '  bind.call(testInfo.skip, testInfo)(true, "called aliased TestInfo bind");',
+      "});",
+    ].join("\n"),
+    [
+      'test("pinned behavior", (_fixtures, testInfo) => {',
+      "  const bind = testInfo.skip.bind;",
+      "  const skip = bind(testInfo);",
+      '  skip(true, "stored aliased TestInfo bound suppression");',
+      "});",
+    ].join("\n"),
+    [
+      'test("pinned behavior", (_fixtures, testInfo) => {',
+      "  const skip = testInfo.skip.bind(testInfo);",
+      '  skip(true, "stored TestInfo bound suppression");',
+      "});",
+    ].join("\n"),
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      source,
+    );
+  }
+
   for (const invocation of [
     'testInfo[modifier].call(testInfo, true, "dynamic TestInfo call");',
     'testInfo[modifier].apply(testInfo, [true, "dynamic TestInfo apply"]);',
@@ -727,9 +873,12 @@ test("Playwright fixture, step, info, timeout, and hook calls remain valid", () 
     "test.beforeEach(() => {});",
     'test("pinned behavior", async () => {',
     '  await test.step("child", () => {});',
+    '  await test.step.bind(test)("bound child", () => {});',
     "  const info = test.info();",
     '  await info.attach("artifact", { body: "text", contentType: "text/plain" });',
+    '  await info.attach.bind(info)("bound-artifact", { body: "text", contentType: "text/plain" });',
     '  info.outputPath("artifact.txt");',
+    '  info.outputPath.bind(info)("bound-artifact.txt");',
     "});",
   ].join("\n");
 

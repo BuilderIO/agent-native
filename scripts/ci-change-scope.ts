@@ -121,6 +121,8 @@ const DESIGN_CANVAS_E2E_SHARED_HELPER_SPECS = new Map([
 ]);
 
 const DESIGN_CANVAS_PIN_ATTESTATION_FILES = new Set([
+  "scripts/design-e2e-regression-pins.ts",
+  "scripts/guard-design-e2e-regression-pins.ts",
   "templates/design/e2e/retry-failure-reporter.ts",
 ]);
 
