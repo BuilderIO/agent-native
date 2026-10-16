@@ -6756,6 +6756,71 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
   });
 
+  it("does not undo a local slide addition after a remote image-prompt edit", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-slide-prompt-deck");
+    const initial: Deck = {
+      id: "undo-remote-slide-prompt-deck",
+      title: "Undo Remote Slide Prompt Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>First</h1></div>',
+          notes: "Original notes",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let addedSlideId = "";
+    await act(async () => {
+      addedSlideId =
+        result.current.pasteSlide(initial.id, "slide-1", {
+          content: '<div class="fmd-slide"><h1>Pasted</h1></div>',
+          notes: "",
+          layout: "content",
+        }) ?? "";
+      await result.current.flushDeckSave(initial.id);
+    });
+    const deckWithAddedSlide = result.current.getDeck(initial.id)!;
+    const remoteImagePrompt = "Describe a blue sailboat at sunset";
+    setAccessibleDeck({
+      ...deckWithAddedSlide,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: deckWithAddedSlide.slides.map((slide) =>
+        slide.id === addedSlideId
+          ? { ...slide, imagePrompt: remoteImagePrompt }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    const remotelyEditedSlide = result.current
+      .getDeck(initial.id)!
+      .slides.find((slide) => slide.id === addedSlideId);
+    expect(remotelyEditedSlide?.imagePrompt).toBe(remoteImagePrompt);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+  });
+
   it("merges server layout-fit revisions into optimistic slide writes", async () => {
     window.history.pushState({}, "", "/deck/fit-revision-deck");
     const initial: Deck = {

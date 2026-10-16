@@ -3214,12 +3214,7 @@ function slideMatchesUndoSnapshot(
   slide: Slide,
   fields: Partial<Omit<Slide, "id" | "imageLoading">> & { content: string },
 ): boolean {
-  const ignoredFields = new Set([
-    "id",
-    "imageLoading",
-    "imagePrompt",
-    "layoutFitRevision",
-  ]);
+  const ignoredFields = new Set(["id", "imageLoading", "layoutFitRevision"]);
   const fieldsToCompare = new Set([
     ...Object.keys(fields),
     ...Object.keys(slide),

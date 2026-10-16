@@ -192,6 +192,26 @@ describe("slide image replacement", () => {
     expect(image.style.left).toBe("120px");
   });
 
+  it("applies snapshot geometry to a bare image source change when live geometry is unchanged", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="old-image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent
+      .replace("old-image.png", "new-image.png")
+      .replace("left:40px", "left:90px")
+      .replace("width:320px", "width:640px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector<HTMLImageElement>("img")!;
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("src")).toBe("new-image.png");
+    expect(image.style.left).toBe("90px");
+    expect(image.style.width).toBe("640px");
+  });
+
   it("keeps live slide nodes when the saved image geometry already matches", () => {
     const previousContent =
       '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';

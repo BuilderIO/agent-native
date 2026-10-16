@@ -835,12 +835,9 @@ export function swapImageSourcesInPlace(
   liveImages.forEach((image, index) => {
     const previousImage = previousImages[index]!;
     const nextImage = nextImages[index]!;
-    const sourceChanged =
-      previousImage.getAttribute("src") !== nextImage.getAttribute("src");
     const preserveLiveGeometry =
-      sourceChanged ||
-      (!image.closest(".fmd-pptx-image") &&
-        !hasSameImageGeometryStyles(image, previousImage));
+      !image.closest(".fmd-pptx-image") &&
+      !hasSameImageGeometryStyles(image, previousImage);
     updateImageAttributesInPlace(image, nextImage, preserveLiveGeometry);
   });
   previousFrames.forEach((frame, index) => {
