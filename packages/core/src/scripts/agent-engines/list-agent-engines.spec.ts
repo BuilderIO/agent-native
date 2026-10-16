@@ -12,6 +12,7 @@ describe("list-agent-engines", () => {
   let defaultAuthority: { allowed: boolean };
 
   beforeEach(() => {
+    vi.doUnmock("../../server/credential-provider.js");
     vi.resetModules();
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
