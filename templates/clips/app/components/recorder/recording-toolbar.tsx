@@ -69,6 +69,7 @@ function useLiveMicrophoneMeter({
   const [level, setLevel] = useState<number | null>(null);
   const [silentForMs, setSilentForMs] = useState(0);
   const hadLiveAnalyserRef = useRef(false);
+  const hasHeardAudioRef = useRef(false);
   const getMicrophoneTrackRef = useRef(getMicrophoneTrack);
   getMicrophoneTrackRef.current = getMicrophoneTrack;
 
@@ -77,6 +78,7 @@ function useLiveMicrophoneMeter({
     setSilentForMs(0);
     if (!active) {
       hadLiveAnalyserRef.current = false;
+      hasHeardAudioRef.current = false;
       return;
     }
     if (isPaused || !microphoneEnabled) return;
@@ -161,6 +163,7 @@ function useLiveMicrophoneMeter({
       const handleTrackEnded = () => {
         cleanup();
         if (disposed) return;
+        hasHeardAudioRef.current = false;
         setLevel(null);
         setSilentForMs(MIC_SILENCE_WARNING_MS);
       };
@@ -178,6 +181,7 @@ function useLiveMicrophoneMeter({
         const now = performance.now();
 
         if (audible) {
+          hasHeardAudioRef.current = true;
           silenceStartedAt = null;
           clearSilenceWarningTimeout();
           setLevel(rms);
@@ -250,6 +254,7 @@ function useLiveMicrophoneMeter({
       microphoneEnabled,
       paused: isPaused || !active,
       silentForMs,
+      hasHeardAudio: hasHeardAudioRef.current,
     }),
   };
 }

@@ -761,6 +761,7 @@ export function RecordingPill() {
     let recordingActive = false;
     let recordingPaused = false;
     let microphoneEnabled: boolean | null = null;
+    let hasHeardAudio = false;
     let lastAudibleAt = performance.now();
     let micSilenceTimer: ReturnType<typeof setTimeout> | null = null;
     const clearMicSilenceTimer = () => {
@@ -780,9 +781,15 @@ export function RecordingPill() {
         microphoneEnabled,
         paused: recordingPaused,
         silentForMs: now - lastAudibleAt,
+        hasHeardAudio,
       });
       setMicWarning(warning);
-      if (warning || recordingPaused || microphoneEnabled !== true) {
+      if (
+        warning ||
+        recordingPaused ||
+        microphoneEnabled !== true ||
+        hasHeardAudio
+      ) {
         return;
       }
       micSilenceTimer = setTimeout(
@@ -828,6 +835,7 @@ export function RecordingPill() {
         recordingActive = false;
         recordingPaused = false;
         microphoneEnabled = null;
+        hasHeardAudio = false;
         syncMicWarning();
         if (modeRef.current === "done") {
           if (stallTimerRef.current) {
@@ -856,9 +864,15 @@ export function RecordingPill() {
     );
     track(
       safeListen<boolean>("clips:toolbar-enabled", (payload) => {
+        const wasRecordingActive = recordingActive;
         recordingActive = !!payload;
-        if (recordingActive) lastAudibleAt = performance.now();
-        else microphoneEnabled = null;
+        if (recordingActive) {
+          if (!wasRecordingActive) hasHeardAudio = false;
+          lastAudibleAt = performance.now();
+        } else {
+          hasHeardAudio = false;
+          microphoneEnabled = null;
+        }
         syncMicWarning();
         setEnabled(!!payload);
         setPendingAction(null);
@@ -922,6 +936,9 @@ export function RecordingPill() {
         ) {
           lastAudibleAt = performance.now();
         }
+        if (payload?.recordingId !== sessionRef.current.recordingId) {
+          hasHeardAudio = false;
+        }
         microphoneEnabled = nextMicrophoneEnabled;
         sessionRef.current = payload ?? {};
         if (payload?.viewUrl) setViewUrl(payload.viewUrl);
@@ -943,6 +960,7 @@ export function RecordingPill() {
             microphoneEnabled === true &&
             level >= MIC_AUDIBLE_LEVEL
           ) {
+            hasHeardAudio = true;
             lastAudibleAt = performance.now();
           }
           syncMicWarning();

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -53,14 +53,17 @@ vi.mock("../../../shared/recording-playhead", () => ({
   RecordingPlayhead: ({
     onStop,
     onConfirmChange,
+    meter,
   }: {
     onStop: () => void;
+    meter?: ReactNode;
     onConfirmChange?: (change: {
       type: "open";
       enteredPaused: boolean;
     }) => void;
   }) => (
     <>
+      <div data-testid="recording-meter">{meter}</div>
       <button onClick={onStop}>Stop recording</button>
       <button
         onClick={() =>
@@ -153,6 +156,10 @@ describe("completion card actions", () => {
     );
     expect(found, `button ${label}`).toBeDefined();
     return found!;
+  }
+
+  function audioWarning() {
+    return host.querySelector('[aria-label="No microphone audio detected"]');
   }
 
   async function showCard(ok = false) {
@@ -330,6 +337,38 @@ describe("completion card actions", () => {
       tauriEvents.emit("clips:tray-stop-request", undefined),
     );
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
+  });
+
+  it("warns for startup silence, then suppresses silence alerts after mic audio", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "silent-start",
+        microphoneEnabled: true,
+      });
+      await vi.advanceTimersByTimeAsync(5_001);
+    });
+    expect(audioWarning()).not.toBeNull();
+
+    await act(async () =>
+      tauriEvents.emit("voice:audio-level", { source: "mic", level: 0.1 }),
+    );
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => tauriEvents.emit("clips:toolbar-preparing", {}));
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "next-clip",
+        microphoneEnabled: true,
+      });
+      await vi.advanceTimersByTimeAsync(5_001);
+    });
+    expect(audioWarning()).not.toBeNull();
   });
 
   it("re-measures the completion card after a resize during the native layout guard", async () => {
