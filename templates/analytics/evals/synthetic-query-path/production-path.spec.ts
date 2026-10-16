@@ -1701,12 +1701,10 @@ beforeAll(async () => {
       error instanceof Error &&
       /Cannot find module .*first-party-analytics-errors/i.test(error.message)
     ) {
-      const { FirstPartyAnalyticsUnsupportedSqlError } =
-        await import("../../server/lib/first-party-analytics-backend.js");
+      // The baseline SQL policy throws this exact plain Error; candidate code uses the typed validation error above.
       createUnsupportedDivError = () =>
-        new FirstPartyAnalyticsUnsupportedSqlError(
-          "unsupported SQL function DIV",
-          "First-party BigQuery query cannot translate DIV",
+        new Error(
+          "First-party analytics queries cannot call unapproved SQL function div",
         );
     } else {
       throw error;
