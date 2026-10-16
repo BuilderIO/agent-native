@@ -91,11 +91,12 @@ export function dashboardFilterPreferenceUpdate({
   // the write rather than compare against the `{}` the hook returns meanwhile.
   if (savedState !== "success") return null;
   const filters = dashboardFilterParams(searchParams);
-  // Without the views list the page can't reopen the saved view, so its
-  // absence from the URL doesn't mean it was closed.
+  // Until the views list is read (a refetch counts as unread), the page can't
+  // reopen the saved view, so its absence from the URL doesn't mean it was
+  // closed.
   const viewId =
     searchParams.get("view") ??
-    (viewsState === "error" ? saved.viewId : undefined);
+    (viewsState === "success" ? undefined : saved.viewId);
   if (sameDashboardFilterMap(saved.filters, filters) && saved.viewId === viewId)
     return null;
   return viewId ? { filters, viewId } : { filters };

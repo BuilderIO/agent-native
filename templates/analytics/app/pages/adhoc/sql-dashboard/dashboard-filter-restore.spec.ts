@@ -346,18 +346,24 @@ describe("dashboardFilterPreferenceUpdate", () => {
     ).toEqual({ filters: personalFilters });
   });
 
-  it("keeps the saved view while the views list can't be read", () => {
-    expect(
-      update(
-        { filters: personalFilters, viewId: "q3" },
-        "f_timeRange=30d&f_emailFilter=all",
-        "success",
-        "error",
-      ),
-    ).toEqual({
-      filters: { f_timeRange: "30d", f_emailFilter: "all" },
-      viewId: "q3",
-    });
+  it.each(["error", "loading"] as const)(
+    "keeps the saved view while the views list is unread (%s)",
+    (viewsState) => {
+      expect(
+        update(
+          { filters: personalFilters, viewId: "q3" },
+          "f_timeRange=30d&f_emailFilter=all",
+          "success",
+          viewsState,
+        ),
+      ).toEqual({
+        filters: { f_timeRange: "30d", f_emailFilter: "all" },
+        viewId: "q3",
+      });
+    },
+  );
+
+  it("writes nothing when only the views list is unread", () => {
     expect(
       update(
         { filters: personalFilters, viewId: "q3" },
