@@ -683,6 +683,23 @@ describe("multi-select dashboard filter", () => {
       expect(onEditPreset).not.toHaveBeenCalled();
     });
 
+    it("drops an abandoned rename, so coming back to its group doesn't reopen the draft", () => {
+      const onEditPreset = vi.fn();
+      render(paidUrl, withPresets, { onEditPreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+      typeInto(groupNameInput(), "Premium");
+
+      act(() => optionCheckbox("Enterprise").click());
+      act(() => optionCheckbox("Enterprise").click());
+
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("true");
+      expect(() => groupNameInput()).toThrow("not rendered");
+      act(() => popoverButton("Rename group…").click());
+      expect(groupNameInput().value).toBe("Paid");
+      expect(onEditPreset).not.toHaveBeenCalled();
+    });
+
     it("starts Save as group from an empty name after an abandoned rename", () => {
       render(paidUrl, withPresets, { onEditPreset: vi.fn() });
       act(() => trigger().click());

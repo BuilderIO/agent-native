@@ -622,16 +622,13 @@ function MultiSelectFilter({
     (preset) => preset !== renaming && preset.label === trimmedGroupName,
   );
   const groupNameUnchanged = renaming?.label === trimmedGroupName;
-  // Each opening sets the name, so text typed into a form that closed unsaved
-  // never carries into the next one.
-  const startNaming = (next: GroupNaming) => {
-    setGroupName(next.kind === "rename" ? next.label : "");
-    setNaming(next);
-  };
   const stopNaming = () => {
     setNaming(null);
     setGroupName("");
   };
+  // A name form that can no longer show is over, so coming back to its
+  // selection never brings back a draft the user walked away from.
+  if (naming && !nameFormOpen) stopNaming();
   const saveGroupName = () => {
     if (
       !onEditPreset ||
@@ -867,7 +864,7 @@ function MultiSelectFilter({
                   variant="ghost"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => startNaming({ kind: "add" })}
+                  onClick={() => setNaming({ kind: "add" })}
                 >
                   <IconPlus />
                   {t("sqlDashboard.saveAsGroup")}
@@ -880,13 +877,14 @@ function MultiSelectFilter({
                     variant="ghost"
                     size="sm"
                     className="w-full justify-start"
-                    onClick={() =>
-                      selectedPreset &&
-                      startNaming({
+                    onClick={() => {
+                      if (!selectedPreset) return;
+                      setGroupName(selectedPreset.label);
+                      setNaming({
                         kind: "rename",
                         label: selectedPreset.label,
-                      })
-                    }
+                      });
+                    }}
                   >
                     <IconPencil />
                     {t("sqlDashboard.renameGroup")}
