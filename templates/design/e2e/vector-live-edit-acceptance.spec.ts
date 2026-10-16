@@ -403,8 +403,7 @@ test("a grouped pasted SVG edits only the selected path through undo and reload"
     .toBe(editedTargetPath);
 });
 
-// fixme: product bug: Closing the path with the Pen tool moves the Pasted SVG layer from left:400/top:300 to left:810/top:630 (its offset applied twice), off
-test.fixme("an open pasted SVG continues from its endpoint and closes without adding a fill", async ({
+test("an open pasted SVG continues from its endpoint and closes without adding a fill", async ({
   app,
 }) => {
   const page = app.page;
@@ -683,8 +682,7 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
     .toBe(14);
 });
 
-// fixme: product bug: Closing the path moves the layer from left:400/top:300 to left:810/top:630 (the inspector shows X 810, Y 630) and it disappears off the
-test.fixme("closing an edited pasted SVG restores authored fill opacity through history and reload", async ({
+test("closing an edited pasted SVG restores authored fill opacity through history and reload", async ({
   app,
 }) => {
   const page = app.page;

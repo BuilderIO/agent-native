@@ -594,6 +594,7 @@ export interface ContentHistoryChange {
   };
   isCheckpoint?: boolean;
   selectionBefore?: YjsUndoSelectionSnapshot;
+  selectionAfter?: YjsUndoSelectionSnapshot;
 }
 
 export interface ContentHistoryGroup {
@@ -614,6 +615,16 @@ export function captureContentUndoStackTop(
   stack: readonly ContentHistoryEntry[],
 ): ContentUndoStackTop {
   return stack[stack.length - 1];
+}
+
+export function stampLocalContentHistorySelectionAfter(
+  stack: ContentHistoryChange[],
+  previousTop: ContentHistoryChange | undefined,
+  snapshot: YjsUndoSelectionSnapshot,
+): void {
+  const top = stack[stack.length - 1];
+  if (!top || top === previousTop) return;
+  top.selectionAfter = snapshot;
 }
 
 export function stampContentHistorySelectionAfter(

@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 
 import type {
   ContentHistoryEntry,
+  ContentHistoryChange,
   ContentHistorySelectionAfterMap,
   GeometryHistorySelection,
 } from "@/pages/design-editor/history";
@@ -27,6 +28,19 @@ it("stamps the selection established by primitive creation into content and Yjs 
     after: "<main><rect /><frame /></main>",
   };
   const contentUndoStackRef = { current: [previousEntry, createdEntry] };
+  const previousLocalEntry: ContentHistoryChange = {
+    fileId: "board",
+    before: "<main />",
+    after: "<main><rect /></main>",
+  };
+  const createdLocalEntry: ContentHistoryChange = {
+    fileId: "board",
+    before: "<main><rect /></main>",
+    after: "<main><rect /><frame /></main>",
+  };
+  const localContentUndoStackRef = {
+    current: [previousLocalEntry, createdLocalEntry],
+  };
   const contentHistorySelectionAfterRef: {
     current: ContentHistorySelectionAfterMap;
   } = { current: new WeakMap() };
@@ -51,6 +65,10 @@ it("stamps the selection established by primitive creation into content and Yjs 
     contentHistorySelectionAfterRef,
     contentUndoStackTopBefore: previousEntry,
     captureCurrentSelection,
+    localContentUndoSelection: {
+      undoStackRef: localContentUndoStackRef,
+      undoStackTopBefore: previousLocalEntry,
+    },
     yjsUndoSelection: {
       undoManagerRef,
       undoStackTopBefore: previousYjsItem,
@@ -67,7 +85,12 @@ it("stamps the selection established by primitive creation into content and Yjs 
     selectedElement: null,
     selectedLayerIds: ["frame"],
   });
+  expect(createdLocalEntry.selectionAfter).toEqual({
+    selectedElement: null,
+    selectedLayerIds: ["frame"],
+  });
   expect(readYjsUndoSelection(previousYjsItem)).toBeUndefined();
+  expect(previousLocalEntry.selectionAfter).toBeUndefined();
 });
 
 function primitiveCreatedArgs(): PrimitiveCreatedArgs {

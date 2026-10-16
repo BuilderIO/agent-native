@@ -145,10 +145,17 @@ export function writeBackVectorEditedPenPath(
     const oldLeft = parsePixelValue(svg.style.left);
     const oldTop = parsePixelValue(svg.style.top);
     if (!oldViewBox || oldLeft === null || oldTop === null) return null;
+    const authoredWidth = parsePixelValue(svg.style.width);
+    const authoredHeight = parsePixelValue(svg.style.height);
 
     const strokeOverlay = svg.querySelector<SVGUseElement>(
       ":scope > use[data-an-vector-stroke-overlay]",
     );
+    const preservePastedSvgFrame =
+      svg.getAttribute("data-an-primitive") === "pasted-svg" &&
+      !strokeOverlay &&
+      authoredWidth === oldViewBox.width &&
+      authoredHeight === oldViewBox.height;
     const originalOverflow = svg.getAttribute(
       "data-an-vector-stroke-original-overflow",
     );
@@ -197,15 +204,19 @@ export function writeBackVectorEditedPenPath(
     }
 
     svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
-    svg.setAttribute(
-      "viewBox",
-      `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
-    );
-    svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
-    svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
-    svg.style.width = `${Math.max(1, geometry.width)}px`;
-    svg.style.height = `${Math.max(1, geometry.height)}px`;
-    if (strokeOverlay) svg.style.overflow = "visible";
+    if (preservePastedSvgFrame) {
+      svg.style.overflow = "visible";
+    } else {
+      svg.setAttribute(
+        "viewBox",
+        `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
+      );
+      svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
+      svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
+      svg.style.width = `${Math.max(1, geometry.width)}px`;
+      svg.style.height = `${Math.max(1, geometry.height)}px`;
+      if (strokeOverlay) svg.style.overflow = "visible";
+    }
     if (!isClosed && strokeOverlay && originalOverflow !== null) {
       const svgStyle = svg.style;
       if (originalOverflow) {

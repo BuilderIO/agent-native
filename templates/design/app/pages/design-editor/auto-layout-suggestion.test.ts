@@ -89,6 +89,20 @@ describe("inferAutoLayoutSuggestion", () => {
     });
   });
 
+  it("keeps differently sized column children aligned to their shared start edge", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 117, height: 50 },
+      children: [
+        { id: "title", x: 0, y: 0, width: 117, height: 24 },
+        { id: "creator", x: 0, y: 32, width: 30, height: 18 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "flex-start",
+    });
+  });
+
   it("suggests column flow for a stack of rows wider than the stack is tall", () => {
     const suggestion = inferAutoLayoutSuggestion({
       container: { id: "container", x: 0, y: 0, width: 424, height: 176 },

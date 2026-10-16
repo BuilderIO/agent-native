@@ -170,6 +170,7 @@ export function useEditorToolsAndVectors({
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     selectedLayerIdsStateRef,
+    localContentUndoStackRef,
     overviewSelectedScreenIdsRef,
     explicitOverviewScreenSelectionRef,
     prepareTextCreationFinalization,
@@ -775,6 +776,10 @@ export function useEditorToolsAndVectors({
       const contentUndoStackTopBefore = captureContentUndoStackTop(
         contentUndoStackRef.current,
       );
+      const localContentUndoStackTopBefore =
+        localContentUndoStackRef.current[
+          localContentUndoStackRef.current.length - 1
+        ];
       const result = handleCreatePrimitive(activeFile.id, primitive);
       if (!result) return false;
       const resultNodeId = typeof result === "string" ? result : nodeId;
@@ -799,6 +804,10 @@ export function useEditorToolsAndVectors({
             undoStackTopBefore: yjsUndoStackTopBefore,
             selectionBefore: yjsSelectionBefore,
           },
+          localContentUndoSelection: {
+            undoStackRef: localContentUndoStackRef,
+            undoStackTopBefore: localContentUndoStackTopBefore,
+          },
         },
       );
       return resultNodeId;
@@ -811,6 +820,7 @@ export function useEditorToolsAndVectors({
       contentUndoStackRef,
       handleCreatePrimitive,
       handlePrimitiveCreated,
+      localContentUndoStackRef,
       selectedElement,
       selectedLayerIdsState,
       undoManagerRef,

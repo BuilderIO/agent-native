@@ -394,8 +394,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  // fixme: product bug: Add auto layout stretches the creator text from its 30px hug width to the wrapper's 117px. The wrapper is saved without align-items, so
-  test.fixme("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
+  test("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
     app,
     page,
   }) => {
@@ -424,6 +423,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       display: "flex",
       "flex-direction": "column",
       gap: "8px",
+      "align-items": "flex-start",
     });
     expect(styleOf(wrapped.get("title"))).toEqual({
       margin: "0",

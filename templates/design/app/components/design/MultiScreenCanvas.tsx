@@ -558,6 +558,7 @@ import {
   pointsToPath,
   polygonPointsForBox,
   previewDraftPrimitive,
+  removeScreenContentOffsetFromPenPath,
   shapeClosingHandles,
 } from "./multi-screen/draft-primitives";
 import {
@@ -1047,6 +1048,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     frameId: string;
     nodeId: string;
     path: PenPath;
+    screenContentOffset?: Point;
   } | null>(null);
   const seedSelectedPenContinuationRef = useRef<() => void>(() => {});
   useEffect(() => {
@@ -6582,6 +6584,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       options?: {
         nextTool?: "move" | "pen";
         reparentTargetIdentity?: ScreenProjectionNodeIdentity;
+        screenContentOffset?: Point;
         updateNodeId?: string;
       },
     ): PersistedDraftPrimitive | null => {
@@ -6608,14 +6611,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             height: 1,
           });
           if (options?.updateNodeId) {
+            const sourcePath = boardPrimitive.penPath
+              ? options.screenContentOffset
+                ? removeScreenContentOffsetFromPenPath(
+                    boardPrimitive.penPath,
+                    options.screenContentOffset,
+                  )
+                : boardPrimitive.penPath
+              : undefined;
             const updated = Boolean(
               boardFileId &&
-              boardPrimitive.penPath &&
-              onUpdatePenPath?.(
-                boardFileId,
-                options.updateNodeId,
-                boardPrimitive.penPath,
-              ),
+              sourcePath &&
+              onUpdatePenPath?.(boardFileId, options.updateNodeId, sourcePath),
             );
             return updated
               ? { frameId: boardFileId!, nodeId: options.updateNodeId }
@@ -6668,13 +6675,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         measuredMetadata,
       );
       if (options?.updateNodeId) {
+        const sourcePath = localPrimitive.penPath
+          ? options.screenContentOffset
+            ? removeScreenContentOffsetFromPenPath(
+                localPrimitive.penPath,
+                options.screenContentOffset,
+              )
+            : localPrimitive.penPath
+          : undefined;
         const updated = Boolean(
-          localPrimitive.penPath &&
-          onUpdatePenPath?.(
-            targetFrame.id,
-            options.updateNodeId,
-            localPrimitive.penPath,
-          ),
+          sourcePath &&
+          onUpdatePenPath?.(targetFrame.id, options.updateNodeId, sourcePath),
         );
         return updated
           ? { frameId: targetFrame.id, nodeId: options.updateNodeId }
@@ -6878,6 +6889,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (continuation) {
         const persisted = persistDraftPrimitive(draft, continuation.frameId, {
           updateNodeId: continuation.nodeId,
+          screenContentOffset: continuation.screenContentOffset,
         });
         if (!persisted) {
           activePenPathRef.current = path;
@@ -10936,6 +10948,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       frameId,
       nodeId: selectedPenPathNodeId,
       path: canvasPath,
+      screenContentOffset: { x: offset.x - scrollX, y: offset.y - scrollY },
     };
   }, [getCanvasPoint, penActive, selectedPenPathNodeId]);
   seedSelectedPenContinuationRef.current = seedSelectedPenContinuation;

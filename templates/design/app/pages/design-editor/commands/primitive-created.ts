@@ -14,9 +14,11 @@ import { PENDING_TEXT_EDIT_TIMEOUT_MS } from "@/components/design/design-canvas/
 import type { ElementInfo } from "@/components/design/types";
 import {
   stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
   type ContentHistoryEntry,
+  type ContentHistoryChange,
   type ContentHistorySelectionAfterMap,
   type GeometryHistorySelection,
   type YjsUndoSelectionSnapshot,
@@ -73,6 +75,10 @@ export interface PrimitiveCreatedHistorySelectionArgs {
     undoManagerRef: RefObject<Y.UndoManager | null>;
     undoStackTopBefore: YjsUndoStackTop;
     selectionBefore: YjsUndoSelectionSnapshot;
+  };
+  localContentUndoSelection?: {
+    undoStackRef: RefObject<ContentHistoryChange[]>;
+    undoStackTopBefore: ContentHistoryChange | undefined;
   };
 }
 
@@ -145,6 +151,15 @@ export function runPrimitiveCreated(
         selectedElement: null,
         selectedLayerIds: [nodeId],
       });
+    }
+    if (historySelection.localContentUndoSelection) {
+      const { undoStackRef, undoStackTopBefore } =
+        historySelection.localContentUndoSelection;
+      stampLocalContentHistorySelectionAfter(
+        undoStackRef.current,
+        undoStackTopBefore,
+        { selectedElement: null, selectedLayerIds: [nodeId] },
+      );
     }
     stampContentHistorySelectionAfter(
       historySelection.contentUndoStackRef.current,

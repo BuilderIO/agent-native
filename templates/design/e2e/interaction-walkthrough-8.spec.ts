@@ -507,8 +507,7 @@ test.fixme("Cmd+D places screen duplicates in free slots above the source, and g
     .toStrictEqual([redoneId]);
 });
 
-// fixme: product bug, intermittent: after a screen duplicate the editor GETs collab state and POSTs awareness to a stale room and gets 404
-test.fixme("Cmd+D duplicates every selected screen in one undo step", async ({
+test("Cmd+D duplicates every selected screen in one undo step", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Source"), {
@@ -549,6 +548,7 @@ test.fixme("Cmd+D duplicates every selected screen in one undo step", async ({
   await app.page
     .locator(`[data-frame-id="${sourceId}"] [data-screen-card]`)
     .click();
+  await app.settled();
   await expect
     .poll(() => selectedScreenIds(app.page))
     .toStrictEqual([sourceId]);
