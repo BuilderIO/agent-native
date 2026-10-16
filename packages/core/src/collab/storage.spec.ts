@@ -189,6 +189,8 @@ describe("strictBase64ToUint8Array", () => {
     const bytes = new Uint8Array(5 * 1024 * 1024).map(
       (_, index) => index % 251,
     );
-    expect(strictBase64ToUint8Array(toBase64(bytes))).toEqual(bytes);
+    const decoded = strictBase64ToUint8Array(toBase64(bytes));
+    // Element-wise toEqual on 5 MiB takes most of the test timeout.
+    expect(decoded && Buffer.from(decoded).equals(bytes)).toBe(true);
   });
 });

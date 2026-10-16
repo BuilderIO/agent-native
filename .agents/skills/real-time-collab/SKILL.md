@@ -293,7 +293,9 @@ Then:
   Other write helpers throw `write_refused` for covered documents, and
   `getDoc`, `getText` and `getJson` throw `read_refused`; read with
   `readLiveCopy`. Do not work around either. All three throw `not_live_copy`
-  for a document the binding does not cover. Call these writers outside any
+  for a document the binding does not cover, and for a binding that was
+  released or replaced; call them with the binding `defineLiveCopy` returned
+  last. Call these writers outside any
   transaction; they refuse a caller's. Rows that must commit with one edit
   (say, the suggestion it accepts) go in `mutateLiveCopy`'s `persist` option,
   which runs in the edit's own transaction. On a changed edit, core stops an
