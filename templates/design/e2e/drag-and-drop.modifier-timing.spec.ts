@@ -197,14 +197,12 @@ test("the platform modifier after pointerdown removes a flow child from flow and
       app.page,
       ignored.get("control-child")?.attrs.style,
     ),
-  ).toMatchObject({
-    width: "100px",
-    height: "48px",
-    "background-color": "rgb(99, 102, 241)",
-    position: "absolute",
-    left: "16px",
-    top: "16px",
-  });
+  ).toEqual(
+    await normalizeStyleAttribute(
+      app.page,
+      "width: 100px; height: 48px; background: rgb(99, 102, 241); position: absolute; left: 16px; top: 16px;",
+    ),
+  );
   expectOnlyChanged(seeded, ignored, ["control-child"]);
   expect(await app.designRect("control-child")).toEqual({
     x: 536,
@@ -267,11 +265,12 @@ test("the platform modifier after pointerdown removes a flow child from flow and
       app.page,
       returned.get("control-child")?.attrs.style,
     ),
-  ).toMatchObject({
-    width: "100px",
-    height: "48px",
-    "background-color": "rgb(99, 102, 241)",
-  });
+  ).toEqual(
+    await normalizeStyleAttribute(
+      app.page,
+      "width: 100px; height: 48px; background: rgb(99, 102, 241);",
+    ),
+  );
   expectOnlyChanged(ignored, returned, ["control-child"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Control Child"]);
 

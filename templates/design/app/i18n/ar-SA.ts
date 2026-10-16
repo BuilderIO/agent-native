@@ -1760,6 +1760,8 @@ export default {
       description: "اختر مسارًا لإضافته كإطار جديد، أو أدخل مسارًا.",
       searchPlaceholder: "البحث في المسارات…",
       noRoutes: "لا توجد مسارات مطابقة",
+      noDiscoveredRoutes:
+        "لم يتم العثور على مسارات في هذا التطبيق. أدخل مسارًا لإضافة شاشة.",
       useCustomPath: 'إضافة "{{path}}"',
       viewportDesktop: "سطح المكتب",
       viewportMobile: "الجوال",

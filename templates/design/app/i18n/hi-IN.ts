@@ -1764,6 +1764,8 @@ export default {
       description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
       searchPlaceholder: "Routes खोजें…",
       noRoutes: "कोई मेल खाता route नहीं मिला",
+      noDiscoveredRoutes:
+        "इस app में कोई route नहीं मिला। स्क्रीन जोड़ने के लिए कोई path टाइप करें।",
       useCustomPath: '"{{path}}" जोड़ें',
       viewportDesktop: "Desktop",
       viewportMobile: "Mobile",

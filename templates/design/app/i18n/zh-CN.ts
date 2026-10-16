@@ -1729,6 +1729,7 @@ export default {
       description: "选择一个路由作为新屏幕，或输入路径。",
       searchPlaceholder: "搜索路由…",
       noRoutes: "未找到匹配的路由",
+      noDiscoveredRoutes: "此应用未发现路由。输入路径即可添加屏幕。",
       useCustomPath: "添加“{{path}}”",
       viewportDesktop: "桌面版",
       viewportMobile: "移动版",

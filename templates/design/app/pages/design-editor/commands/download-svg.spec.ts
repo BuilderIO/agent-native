@@ -2,9 +2,18 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { trackBrowserDesignExported } from "@/lib/design-export-tracking";
+
 import { buildStaticForeignObjectSvg } from "../export-capture";
 import { runDownloadAllScreensPdf } from "./download-all-screens-pdf";
 import { resolveSvgExportIframe, runDownloadSvg } from "./download-svg";
+
+const toastMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  success: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({ toast: toastMocks }));
 
 vi.mock("@/lib/design-export-tracking", () => ({
   browserDesignExportErrorType: () => "unknown",
@@ -50,6 +59,51 @@ describe("resolveSvgExportIframe", () => {
 });
 
 describe("runDownloadSvg", () => {
+  it("exports a single-view inline screen without waiting for the content-size bridge", async () => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    iframe.dataset.designSourceType = "inline";
+    document.body.append(iframe);
+    iframe.contentDocument!.body.innerHTML = "<main>Inline screen</main>";
+    const downloads: Array<{ blob: Blob; filename: string }> = [];
+    const tracking = vi.mocked(trackBrowserDesignExported);
+    tracking.mockClear();
+    toastMocks.error.mockClear();
+
+    try {
+      const task = runDownloadSvg({
+        activeCanvasSourceType: "inline",
+        activePreviewFrameId: "screen-1",
+        design: null,
+        exportScreenId: "screen-1",
+        exportScreenSourceType: "inline",
+        fallbackExportName: (extension) => `design.${extension}`,
+        requireContentSizeReport: false,
+        pngExportingRef: { current: false },
+        selectedElement: null,
+        setSvgExporting: () => undefined,
+        t: (key) => key,
+        triggerBlobDownload: (blob, filename) =>
+          downloads.push({ blob, filename }),
+      });
+      await vi.runAllTimersAsync();
+      await task;
+
+      expect(downloads).toHaveLength(1);
+      expect(await downloads[0]!.blob.text()).toContain("Inline screen");
+      expect(tracking).toHaveBeenLastCalledWith(
+        "svg",
+        expect.objectContaining({ status: "completed" }),
+      );
+      expect(toastMocks.error).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      document.body.replaceChildren();
+    }
+  });
+
   it("promotes the requested overview screen and waits for its exact preview", async () => {
     document.body.replaceChildren();
     const unrelated = document.createElement("iframe");
@@ -244,6 +298,75 @@ describe("runDownloadSvg", () => {
     expect(setSvgExporting).not.toHaveBeenCalled();
     expect(pngExportingRef.current).toBe(true);
   });
+
+  it.each(["absent", "throws"] as const)(
+    "reports a mounted preview with %s contentDocument immediately",
+    async (contentDocumentState) => {
+      document.body.replaceChildren();
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("data-screen-iframe-id", "screen-1");
+      document.body.append(iframe);
+      Object.defineProperty(iframe, "contentDocument", {
+        configurable: true,
+        get: () => {
+          if (contentDocumentState === "throws") {
+            throw new DOMException("Blocked frame access", "SecurityError");
+          }
+          return null;
+        },
+      });
+      let performanceCalls = 0;
+      const performanceNow = vi
+        .spyOn(window.performance, "now")
+        .mockImplementation(() => (performanceCalls++ === 0 ? 0 : 20_000));
+      const prepareScreenForExport = vi.fn();
+      const releaseScreenFromExport = vi.fn();
+      const setSvgExporting = vi.fn();
+      const pngExportingRef = { current: false };
+      const tracking = vi.mocked(trackBrowserDesignExported);
+      tracking.mockClear();
+      toastMocks.error.mockClear();
+
+      try {
+        await runDownloadSvg({
+          activeCanvasSourceType: "inline",
+          activePreviewFrameId: "screen-1",
+          design: null,
+          exportScreenId: "screen-1",
+          exportScreenSourceType: "inline",
+          fallbackExportName: (extension) => `design.${extension}`,
+          requireContentSizeReport: true,
+          pngExportingRef,
+          prepareScreenForExport,
+          releaseScreenFromExport,
+          selectedElement: null,
+          setSvgExporting,
+          t: (key) => key,
+          triggerBlobDownload: vi.fn(),
+        });
+
+        expect(performanceCalls).toBe(1);
+        expect(prepareScreenForExport).toHaveBeenCalledOnce();
+        expect(releaseScreenFromExport).toHaveBeenCalledOnce();
+        expect(setSvgExporting).toHaveBeenNthCalledWith(1, true);
+        expect(setSvgExporting).toHaveBeenNthCalledWith(2, false);
+        expect(pngExportingRef.current).toBe(false);
+        expect(tracking).toHaveBeenLastCalledWith(
+          "svg",
+          expect.objectContaining({
+            status: "failed",
+            errorType: "export_error",
+          }),
+        );
+        expect(toastMocks.error).toHaveBeenLastCalledWith(
+          "designEditor.toasts.svgExportError",
+        );
+      } finally {
+        performanceNow.mockRestore();
+        document.body.replaceChildren();
+      }
+    },
+  );
 
   it("downloads parseable XML when the preview contains Alpine directives", async () => {
     const iframe = document.createElement("iframe");

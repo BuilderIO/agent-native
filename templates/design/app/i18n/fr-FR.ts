@@ -1806,6 +1806,8 @@ export default {
         "Choisissez une route à ajouter comme nouveau cadre, ou saisissez un chemin.",
       searchPlaceholder: "Rechercher des routes…",
       noRoutes: "Aucune route correspondante",
+      noDiscoveredRoutes:
+        "Aucune route détectée dans cette application. Saisissez un chemin pour ajouter un écran.",
       useCustomPath: "Ajouter « {{path}} »",
       viewportDesktop: "Bureau",
       viewportMobile: "Mobile",

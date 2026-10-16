@@ -1196,6 +1196,7 @@ export function useEditorExportAndHandoff({
           activeCanvasSourceType,
           activePreviewFrameId,
           design,
+          requireContentSizeReport: viewMode === "overview",
           exportTracking,
           exportScreenId,
           exportScreenSourceType: exportScreen?.sourceType,

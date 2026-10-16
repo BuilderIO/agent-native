@@ -143,6 +143,21 @@ function normalizeScope(scope: string): string {
   return scope.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function replyStatesDisposition(text: string, disposition: string): boolean {
+  const visibleText = text.replace(/[*_`]/g, "");
+  const escapedDisposition = disposition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const label = new RegExp(
+    `(?:^|[\\n.!?;:]\\s*)${escapedDisposition}(?=$|[\\s:—–.!?;,()-])`,
+    "i",
+  );
+  if (label.test(visibleText)) return true;
+
+  return (
+    disposition.toLowerCase() === "fixed" &&
+    /\bis\s+fixed(?=$|[\s:—–.!?;,()-])/i.test(visibleText)
+  );
+}
+
 function validateInventory(inventory: Inventory): string[] {
   if (!inventory || !Array.isArray(inventory.channels)) {
     throw new Error("Expected { cutoffTs, channels } in the inventory JSON");
@@ -422,12 +437,15 @@ function validateInventory(inventory: Inventory): string[] {
           }
           if (
             reply.disposition !== parent.disposition ||
-            !reply.evidence?.trim() ||
-            !reply.text?.trim() ||
-            !reply.text.toLowerCase().includes(reply.disposition.toLowerCase())
+            typeof reply.evidence !== "string" ||
+            !reply.evidence.trim() ||
+            typeof reply.text !== "string" ||
+            !reply.text.trim() ||
+            !replyStatesDisposition(reply.text, parent.disposition) ||
+            !reply.text.includes(reply.evidence.trim())
           ) {
             throw new Error(
-              `${parentName}: status reply must state the current disposition and its evidence`,
+              `${parentName}: status reply must state the exact disposition and include its recorded evidence`,
             );
           }
         }
@@ -510,6 +528,11 @@ function validateInventory(inventory: Inventory): string[] {
         if (handoffs.length === 0 && hasTicket) {
           throw new Error(
             `${parentName}: this actor's 🎫 needs a distinct handoff owner and action`,
+          );
+        }
+        if (parent.disposition === "Fixed" && handoffs.length > 0) {
+          throw new Error(
+            `${parentName}: Fixed disposition cannot retain unfinished handoffs; use Partially fixed`,
           );
         }
 
@@ -686,7 +709,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                   threadParentTs: "10.000000",
                   actorId: "USWEEPER",
                   disposition: "Fixed",
-                  evidence: "Focused test passed in the open PR; merge pending",
+                  evidence: "focused test passed in the open PR; merge pending",
                   text: "Fixed: focused test passed in the open PR; merge pending",
                 },
                 fixedScopes: [
@@ -906,6 +929,53 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "status reply does not claim the disposition inside a negated phrase",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    statusReply: {
+                      ...parent.statusReply!,
+                      evidence: "Not fixed — the route is still broken",
+                      text: "Not fixed — the route is still broken",
+                    },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "status reply must include its recorded evidence",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    statusReply: {
+                      ...parent.statusReply!,
+                      text: "Fixed — a different note",
+                    },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
       name: "fixed scope without a checkmark",
       inventory: {
         ...valid,
@@ -981,6 +1051,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     statusReply: {
                       ...parent.statusReply!,
                       disposition: "Partially fixed",
+                      evidence: "further work remains in progress.",
                       text: "Partially fixed: further work remains in progress.",
                     },
                     fixedScopes: [],
@@ -1044,6 +1115,49 @@ if (args[0] === "--self-test" && args.length === 1) {
                       owner: "Steve",
                       action: "approve PR #1",
                     },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "Fixed disposition cannot retain an unfinished handoff",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    reactionOwners: {
+                      eyes: ["USWEEPER"],
+                      white_check_mark: ["USWEEPER"],
+                      ticket: ["USWEEPER"],
+                    },
+                    reactionSummary:
+                      "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
+                    reactionDecision: {
+                      checkmark: {
+                        state: "present",
+                        reason: "Verified initial route screen fix",
+                      },
+                      ticket: {
+                        state: "present",
+                        reason: "Another distinct human-owned action remains",
+                      },
+                    },
+                    handoffs: [
+                      {
+                        scope: "secondary request",
+                        owner: "Product owner",
+                        action: "choose the remaining behavior",
+                      },
+                    ],
                   }
                 : parent,
             ),
@@ -1179,6 +1293,8 @@ if (args[0] === "--self-test" && args.length === 1) {
                         ...parent.statusReply!,
                         threadParentTs: "9.500000",
                         disposition: "Partially fixed",
+                        evidence:
+                          "the verified scope is complete; a separate handoff remains.",
                         text: "Partially fixed: the verified scope is complete; a separate handoff remains.",
                       },
                       reactionOwners: {

@@ -154,6 +154,12 @@ export function AddLocalhostScreenDialog({
     !connectionError &&
     availableConnections.length === 0 &&
     search.trim().length === 0;
+  const showNoDiscoveredRoutes =
+    !connectionsFetching &&
+    !connectionError &&
+    Boolean(selectedConnection) &&
+    routes.length === 0 &&
+    search.trim().length === 0;
   const showNoRoutes =
     !connectionsFetching &&
     !connectionError &&
@@ -292,6 +298,11 @@ export function AddLocalhostScreenDialog({
             {showNoLocalConnectionHint ? (
               <CommandEmpty>
                 {t("designEditor.import.localDescription")}
+              </CommandEmpty>
+            ) : null}
+            {showNoDiscoveredRoutes ? (
+              <CommandEmpty>
+                {t("designEditor.addLocalhostScreen.noDiscoveredRoutes")}
               </CommandEmpty>
             ) : null}
             {showNoRoutes ? (

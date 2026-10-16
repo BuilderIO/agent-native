@@ -8,8 +8,10 @@ needs a current disposition and a matching status reply by that same actor
 under that same parent. A same-run fix gets its final reply after verification;
 continuing work gets a concrete progress reply. An earlier generic “taking a
 look” does not satisfy this update. If an existing reply already names the
-current disposition and its evidence, read it back and record its timestamp
-and author ID instead of duplicating it.
+exact canonical disposition label and includes its recorded evidence verbatim,
+read it back and record its timestamp and author ID instead of duplicating it.
+Do not accept a vague or negated substring such as `Not fixed` as the `Fixed`
+label. Use `Partially fixed` while any distinct handoff remains unfinished.
 
 Channel reads may expose a thread reply as a separate row. Resolve its
 `thread_ts` or permalink and inventory it as a reply to the root, not as a new

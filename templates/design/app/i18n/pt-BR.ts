@@ -1791,6 +1791,8 @@ export default {
         "Escolha uma rota para adicionar como novo quadro, ou digite um caminho.",
       searchPlaceholder: "Buscar rotas…",
       noRoutes: "Nenhuma rota encontrada",
+      noDiscoveredRoutes:
+        "Nenhuma rota foi encontrada neste app. Digite um caminho para adicionar uma tela.",
       useCustomPath: 'Adicionar "{{path}}"',
       viewportDesktop: "Desktop",
       viewportMobile: "Celular",

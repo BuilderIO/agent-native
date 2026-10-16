@@ -1728,6 +1728,7 @@ export default {
       description: "選擇一個路由做為新畫面，或輸入路徑。",
       searchPlaceholder: "搜尋路由…",
       noRoutes: "找不到符合的路由",
+      noDiscoveredRoutes: "此應用程式未找到路由。輸入路徑即可新增畫面。",
       useCustomPath: "新增「{{path}}」",
       viewportDesktop: "桌面版",
       viewportMobile: "行動版",

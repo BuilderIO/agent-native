@@ -1713,6 +1713,8 @@ export default {
       description: "Pick a route to add as a new frame, or type a path.",
       searchPlaceholder: "Search routes…",
       noRoutes: "No matching routes",
+      noDiscoveredRoutes:
+        "This app has no discovered routes. Type a path to add a screen.",
       useCustomPath: 'Add "{{path}}"',
       viewportDesktop: "Desktop",
       viewportMobile: "Mobile",

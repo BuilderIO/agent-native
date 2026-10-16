@@ -98,6 +98,14 @@ than the eyed source message. Record the source `ts` separately from the root
 
 After the reply, add and read back reactions before advancing:
 
+- Start the reply with the exact canonical disposition label (`Fixed`,
+  `Partially fixed`, `In progress`, etc.) and include the recorded evidence
+  verbatim. A vague or negated substring such as `Not fixed` does not record
+  `Fixed`; the inventory checker enforces the visible label and evidence.
+- Use `Partially fixed` whenever any distinct report scope remains unfinished,
+  including a scope handed to another human. `Fixed` means no unfinished
+  handoff remains.
+
 - `✅` for any verified **Fixed** source scope, including a fix in an open PR.
   State its proof and whether it is merged or live; the checkmark records a
   verified source fix, not shipment. Keep `👀` while another scope is active,

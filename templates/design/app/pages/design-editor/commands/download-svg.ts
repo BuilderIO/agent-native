@@ -25,6 +25,7 @@ export interface DownloadSvgArgs {
   activeCanvasSourceType?: "inline" | "localhost" | "fusion";
   design: DesignData | null;
   activePreviewFrameId?: string | null;
+  requireContentSizeReport?: boolean;
   exportScreenId?: string | null;
   exportScreenSourceType?: string | null;
   /** Join keys for the `design_exported` this command reports. */
@@ -44,9 +45,14 @@ const SCREEN_PREVIEW_READY_TIMEOUT_MS = 15_000;
 async function waitForSvgExportIframe(args: {
   activeCanvasSourceType?: DownloadSvgArgs["activeCanvasSourceType"];
   activePreviewFrameId?: string | null;
+  requireContentSizeReport?: boolean;
   waitForMount: boolean;
   exportScreenSourceType?: string | null;
-}): Promise<HTMLIFrameElement | null> {
+}): Promise<
+  | { kind: "ready"; iframe: HTMLIFrameElement; doc: Document }
+  | { kind: "unreadable"; iframe: HTMLIFrameElement }
+  | null
+> {
   const deadline =
     window.performance.now() +
     (args.waitForMount ? SCREEN_PREVIEW_READY_TIMEOUT_MS : 0);
@@ -57,36 +63,34 @@ async function waitForSvgExportIframe(args: {
       ),
       args.activePreviewFrameId,
     );
-    if (!args.waitForMount) return iframe?.isConnected ? iframe : null;
     if (iframe?.isConnected) {
       let doc: Document | null = null;
       try {
         doc = iframe.contentDocument;
-        if (!doc?.documentElement) doc = null;
       } catch {
-        doc = null;
+        return { kind: "unreadable", iframe };
       }
+      if (!doc) return { kind: "unreadable", iframe };
+      if (!doc.documentElement && doc.readyState === "complete") {
+        return { kind: "unreadable", iframe };
+      }
+      if (!args.waitForMount) return { kind: "ready", iframe, doc };
       const sourceType =
         normalizeDesignSourceType(
           iframe.dataset.designSourceType ?? args.exportScreenSourceType,
         ) ??
         args.activeCanvasSourceType ??
         "inline";
-      const sourceTypeWasProvided = Boolean(
-        iframe.dataset.designSourceType ??
-        args.exportScreenSourceType ??
-        args.activeCanvasSourceType,
-      );
       const bridgeWindow = doc?.defaultView as
         | (Window & { __agentNativeContentSizeReport?: boolean })
         | null;
       if (
         doc?.readyState === "complete" &&
-        (!sourceTypeWasProvided ||
-          sourceType !== "inline" ||
+        (sourceType !== "inline" ||
+          args.requireContentSizeReport !== true ||
           bridgeWindow?.__agentNativeContentSizeReport === true)
       ) {
-        return iframe;
+        return { kind: "ready", iframe, doc };
       }
     }
     if (window.performance.now() >= deadline) {
@@ -119,6 +123,7 @@ export async function runDownloadSvg(
     exportTracking,
     exportScreenId,
     exportScreenSourceType,
+    requireContentSizeReport,
     fallbackExportName,
     pngExportingRef,
     prepareScreenForExport,
@@ -142,6 +147,7 @@ export async function runDownloadSvg(
     const iframe = await waitForSvgExportIframe({
       activeCanvasSourceType,
       activePreviewFrameId,
+      requireContentSizeReport,
       waitForMount: Boolean(exportScreenId),
       exportScreenSourceType,
     });
@@ -154,26 +160,26 @@ export async function runDownloadSvg(
       toast.error(t("designEditor.toasts.openScreenSvg"));
       return;
     }
-    const doc = iframe.contentDocument;
-    if (!doc?.documentElement) {
+    if (iframe.kind === "unreadable") {
       trackBrowserDesignExported("svg", {
         ...exportTracking,
         status: "failed",
-        errorType: "no_preview",
+        errorType: "export_error",
       });
       toast.error(t("designEditor.toasts.svgExportError"));
       return;
     }
+    const { iframe: previewIframe, doc } = iframe;
     await waitForExportReady(doc);
     const width = Math.max(
       doc.documentElement.scrollWidth,
       doc.body?.scrollWidth ?? 0,
-      iframe?.clientWidth ?? 0,
+      previewIframe.clientWidth,
     );
     const height = Math.max(
       doc.documentElement.scrollHeight,
       doc.body?.scrollHeight ?? 0,
-      iframe?.clientHeight ?? 0,
+      previewIframe.clientHeight,
     );
     const clone = doc.documentElement.cloneNode(true) as HTMLElement;
     clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");

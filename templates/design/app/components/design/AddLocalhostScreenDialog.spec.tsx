@@ -40,6 +40,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         (
           {
             "designEditor.addLocalhostScreen.noRoutes": "No matching routes",
+            "designEditor.addLocalhostScreen.noDiscoveredRoutes":
+              "This app has no discovered routes. Type a path to add a screen.",
             "designEditor.import.localDescription":
               "Connect any running local app with /visual-edit.",
             "common.genericError": "Something went wrong",
@@ -286,6 +288,28 @@ describe("AddLocalhostScreenDialog localhost route selection", () => {
     expect(container.textContent).toContain("No matching routes");
     expect(container.textContent).not.toContain('Add "/login"');
     expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("explains when a selected app has no discovered routes", () => {
+    mocks.connectionResult = {
+      data: {
+        connections: [{ id: "localhost-1", name: "Local app", routes: [] }],
+      },
+      isFetching: false,
+    };
+    renderDialog("localhost-1");
+
+    expect(container.textContent).toContain(
+      "This app has no discovered routes. Type a path to add a screen.",
+    );
+    expect(container.textContent).not.toContain('Add "/login"');
+
+    searchFor("/login");
+
+    expect(container.textContent).not.toContain(
+      "This app has no discovered routes. Type a path to add a screen.",
+    );
+    expect(container.textContent).toContain('Add "/login"');
   });
 
   it("adds a custom route through the selected localhost connection", () => {
