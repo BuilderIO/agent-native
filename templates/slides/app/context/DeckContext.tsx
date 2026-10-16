@@ -3214,8 +3214,27 @@ function slideMatchesUndoSnapshot(
   slide: Slide,
   fields: Partial<Omit<Slide, "id" | "imageLoading">> & { content: string },
 ): boolean {
-  return Object.entries(fields).every(([field, expectedValue]) => {
+  const ignoredFields = new Set([
+    "id",
+    "imageLoading",
+    "imagePrompt",
+    "layoutFitRevision",
+  ]);
+  const fieldsToCompare = new Set([
+    ...Object.keys(fields),
+    ...Object.keys(slide),
+  ]);
+  return [...fieldsToCompare].every((field) => {
+    if (ignoredFields.has(field)) return true;
+
     const currentValue = (slide as unknown as Record<string, unknown>)[field];
+    const expectedValue = Object.hasOwn(fields, field)
+      ? (fields as Record<string, unknown>)[field]
+      : field === "notes"
+        ? ""
+        : field === "layout"
+          ? "content"
+          : undefined;
     if (field === "content" && typeof expectedValue === "string") {
       return (
         typeof currentValue === "string" &&
@@ -3223,9 +3242,10 @@ function slideMatchesUndoSnapshot(
           slideUndoContentSignature(expectedValue)
       );
     }
-    return expectedValue === null
-      ? currentValue === undefined
-      : equalDeckValue(currentValue, expectedValue);
+    return equalDeckValue(
+      currentValue === null ? undefined : currentValue,
+      expectedValue === null ? undefined : expectedValue,
+    );
   });
 }
 

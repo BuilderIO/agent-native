@@ -833,12 +833,15 @@ export function swapImageSourcesInPlace(
     }
   }
   liveImages.forEach((image, index) => {
-    const previousSource = previousImages[index]!.getAttribute("src");
-    updateImageAttributesInPlace(
-      image,
-      nextImages[index],
-      previousSource !== nextImages[index]!.getAttribute("src"),
-    );
+    const previousImage = previousImages[index]!;
+    const nextImage = nextImages[index]!;
+    const sourceChanged =
+      previousImage.getAttribute("src") !== nextImage.getAttribute("src");
+    const preserveLiveGeometry =
+      sourceChanged ||
+      (!image.closest(".fmd-pptx-image") &&
+        !hasSameImageGeometryStyles(image, previousImage));
+    updateImageAttributesInPlace(image, nextImage, preserveLiveGeometry);
   });
   previousFrames.forEach((frame, index) => {
     const nextFrame = nextFrames[index]!;
