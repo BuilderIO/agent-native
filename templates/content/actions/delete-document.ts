@@ -360,14 +360,16 @@ async function selectMembershipIdsForDatabases(
   return rows.map((row) => row.id);
 }
 
+// One walk for every root: roots nested in each other's subtrees, as an
+// import's pages are, would otherwise be walked once per ancestor.
 async function collectDocumentSubtreeForDelete(
   db: ReturnType<typeof getDb>,
-  rootId: string,
+  rootIds: readonly string[],
   ownerEmail: string,
 ) {
-  const documentIds = new Set([rootId]);
+  const documentIds = new Set(rootIds);
   const ownedDatabaseIds = new Set<string>();
-  let frontier = [rootId];
+  let frontier = [...documentIds];
 
   while (frontier.length > 0) {
     const next = new Set<string>();
@@ -535,24 +537,33 @@ type LifecycleRoot = { id: string; ownerEmail: string };
 
 async function collectTrashScope(
   db: ReturnType<typeof getDb>,
-  root: LifecycleRoot,
+  roots: readonly LifecycleRoot[],
 ) {
-  const subtree = await collectDocumentSubtreeForDelete(
-    db,
-    root.id,
-    root.ownerEmail,
-  );
-  const memberships = await selectMembershipsForDocuments(
-    db,
-    subtree.documentIds,
-  );
-  return {
-    documentIds: subtree.documentIds,
-    databaseIds: [
+  const rootIdsByOwner = new Map<string, string[]>();
+  for (const root of roots) {
+    const rootIds = rootIdsByOwner.get(root.ownerEmail) ?? [];
+    rootIds.push(root.id);
+    rootIdsByOwner.set(root.ownerEmail, rootIds);
+  }
+  const documentIds: string[] = [];
+  const databaseIds: string[] = [];
+  for (const [ownerEmail, rootIds] of rootIdsByOwner) {
+    const subtree = await collectDocumentSubtreeForDelete(
+      db,
+      rootIds,
+      ownerEmail,
+    );
+    const memberships = await selectMembershipsForDocuments(
+      db,
+      subtree.documentIds,
+    );
+    documentIds.push(...subtree.documentIds);
+    databaseIds.push(
       ...subtree.ownedDatabaseIds,
       ...memberships.map((membership) => membership.databaseId),
-    ],
-  };
+    );
+  }
+  return { documentIds, databaseIds };
 }
 
 async function selectMembershipsOfDatabases(
@@ -594,13 +605,17 @@ export async function lockLifecycleGroup(
   },
 ): Promise<LifecycleGroupLocks> {
   const collectScope = async () => {
+    const scopes = [];
+    if (args.operation === "trash") {
+      scopes.push(await collectTrashScope(db, args.roots));
+    } else {
+      for (const root of args.roots) {
+        scopes.push(await collectRestoreScope(db, root.id, root.ownerEmail));
+      }
+    }
     const documentIds = new Set<string>();
     const databaseIds = new Set<string>();
-    for (const root of args.roots) {
-      const scope =
-        args.operation === "trash"
-          ? await collectTrashScope(db, root)
-          : await collectRestoreScope(db, root.id, root.ownerEmail);
+    for (const scope of scopes) {
       for (const id of scope.documentIds) documentIds.add(id);
       for (const id of scope.databaseIds) databaseIds.add(id);
     }
@@ -658,7 +673,7 @@ export async function trashDocumentSubtree(
   origin?: string,
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
-    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+    await collectDocumentSubtreeForDelete(db, [id], ownerEmail);
   const memberships = await selectMembershipsForDocuments(db, documentIds);
   if (
     [
@@ -917,25 +932,8 @@ export async function deleteDocumentRootsRecursive(
   rootIds: string[],
   ownerEmail: string,
 ): Promise<string[]> {
-  const collectScope = async () => {
-    const documentIds = new Set<string>();
-    const ownedDatabaseIds = new Set<string>();
-    for (const rootId of rootIds) {
-      const scope = await collectDocumentSubtreeForDelete(
-        db,
-        rootId,
-        ownerEmail,
-      );
-      for (const documentId of scope.documentIds) documentIds.add(documentId);
-      for (const databaseId of scope.ownedDatabaseIds) {
-        ownedDatabaseIds.add(databaseId);
-      }
-    }
-    return {
-      documentIds: [...documentIds],
-      ownedDatabaseIds: [...ownedDatabaseIds],
-    };
-  };
+  const collectScope = () =>
+    collectDocumentSubtreeForDelete(db, rootIds, ownerEmail);
   const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
     db,
     ownerEmail,
