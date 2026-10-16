@@ -777,25 +777,34 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (ch === "`") {
-      const openRun = delimiterRunLength(input, i, "`");
-      const end = codeSpanEnd(i, openRun, codeRuns);
-      if (end !== -1) {
-        const close = end - openRun;
-        flush();
-        let codeText = input
-          .slice(i + openRun, close)
-          .replace(/<br\/?>/g, "\n");
-        if (
-          codeText.startsWith(" ") &&
-          codeText.endsWith(" ") &&
-          codeText.trim().length > 0
-        ) {
-          codeText = codeText.slice(1, -1);
-        }
-        out.push(textNode(codeText, [{ type: "code" }]));
-        i = end;
+      // A run with no closer stays text, and so does each backtick of it
+      // until what is left of the run finds one: ```a`` is ` then code `a`.
+      // The run is walked once, since measuring it again from each backtick
+      // is quadratic in its length.
+      const runEnd = i + delimiterRunLength(input, i, "`");
+      let at = i;
+      let end = codeSpanEnd(at, runEnd - at, codeRuns);
+      while (end === -1 && ++at < runEnd)
+        end = codeSpanEnd(at, runEnd - at, codeRuns);
+      buf += input.slice(i, at);
+      if (end === -1) {
+        i = runEnd;
         continue;
       }
+      const openRun = runEnd - at;
+      const close = end - openRun;
+      flush();
+      let codeText = input.slice(at + openRun, close).replace(/<br\/?>/g, "\n");
+      if (
+        codeText.startsWith(" ") &&
+        codeText.endsWith(" ") &&
+        codeText.trim().length > 0
+      ) {
+        codeText = codeText.slice(1, -1);
+      }
+      out.push(textNode(codeText, [{ type: "code" }]));
+      i = end;
+      continue;
     }
 
     if (input.startsWith("<br/>", i) || input.startsWith("<br>", i)) {
@@ -1925,6 +1934,20 @@ function spacedLinesFrom(lines: string[]): Int32Array {
   return next;
 }
 
+const lineTabCounts = new WeakMap<string[], Int32Array>();
+
+// Each line's leading tabs, kept in step with the rewrites below. Every list
+// depth scans the lines nested under it, so measuring a line again at each
+// depth makes a deeply nested page cubic.
+function tabCountsOf(lines: string[]): Int32Array {
+  let counts = lineTabCounts.get(lines);
+  if (counts) return counts;
+  counts = new Int32Array(lines.length);
+  for (let i = 0; i < lines.length; i++) counts[i] = leadingTabs(lines[i]);
+  lineTabCounts.set(lines, counts);
+  return counts;
+}
+
 // Agents nest list items with spaces, and CommonMark puts a line inside the
 // innermost item whose text column it reaches. The parser nests by tabs, so
 // a list run's space-indented lines are rewritten as the tab-indented lines
@@ -1943,18 +1966,20 @@ function normalizeSpaceIndentedListRun(
   const write = (index: number, depth: number, text: string) => {
     if (!originals.has(index)) originals.set(index, lines[index]);
     lines[index] = "\t".repeat(depth) + text;
+    tabCounts[index] = depth + leadingTabs(text);
   };
   const spaced = spacedLinesFrom(lines);
+  const tabCounts = tabCountsOf(lines);
   const open: Array<{ content: number; depth: number }> = [];
   let blank = false;
   let continuing = false;
   for (let i = start; i < lines.length && spaced[i] < lines.length; i++) {
     const line = lines[i];
-    if (!line.trim()) {
+    const tabs = tabCounts[i];
+    if (!line.slice(tabs).trim()) {
       blank = true;
       continue;
     }
-    const tabs = leadingTabs(line);
     if (tabs < indent) break;
     const afterBlank = blank;
     blank = false;
@@ -1965,7 +1990,13 @@ function normalizeSpaceIndentedListRun(
       if (fence) {
         while (
           i + 1 < lines.length &&
-          !closesFence(lines[i + 1].trim().match(FENCE_CLOSE), fence[1])
+          !closesFence(
+            lines[i + 1]
+              .slice(tabCounts[i + 1])
+              .trim()
+              .match(FENCE_CLOSE),
+            fence[1],
+          )
         )
           i++;
         i++;
@@ -2006,13 +2037,24 @@ function normalizeSpaceIndentedListRun(
     }
     const fence = matchFenceOpen(text);
     if (fence) {
+      // An unclosed fence runs to the page's end in the tab form, so one
+      // whose item ends first reads as on main and takes nothing with it.
+      if (
+        fenceLeavesItem(lines, tabCounts, i, indent, parent.content, fence[1])
+      )
+        break;
       write(i, depth, text);
       for (i++; i < lines.length; i++) {
-        const body = lines[i].slice(Math.min(indent, leadingTabs(lines[i])));
+        const tabs = tabCounts[i];
+        const closes = closesFence(
+          lines[i].slice(tabs).trim().match(FENCE_CLOSE),
+          fence[1],
+        );
+        const body = lines[i].slice(Math.min(indent, tabs));
         let strip = 0;
         while (strip < spaces && body[strip] === " ") strip++;
         write(i, depth, body.slice(strip));
-        if (closesFence(body.trim().match(FENCE_CLOSE), fence[1])) break;
+        if (closes) break;
       }
       continuing = false;
       continue;
@@ -2027,6 +2069,29 @@ function normalizeSpaceIndentedListRun(
     continuing = true;
   }
   return originals;
+}
+
+function fenceLeavesItem(
+  lines: string[],
+  tabCounts: Int32Array,
+  open: number,
+  indent: number,
+  content: number,
+  marker: string,
+): boolean {
+  for (let i = open + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const tabs = tabCounts[i];
+    const rest = line.slice(tabs).trim();
+    if (closesFence(rest.match(FENCE_CLOSE), marker)) return false;
+    if (!rest) continue;
+    if (tabs < indent) return true;
+    if (tabs > indent) continue;
+    let spaces = 0;
+    while (line[indent + spaces] === " ") spaces++;
+    if (spaces < content) return true;
+  }
+  return false;
 }
 
 function parseList(
@@ -2085,7 +2150,11 @@ function parseList(
   }
   // No try/finally: it grows this recursive frame, and a parse that throws
   // abandons its lines anyway.
-  for (const [index, line] of originals) lines[index] = line;
+  const tabCounts = tabCountsOf(lines);
+  for (const [index, line] of originals) {
+    lines[index] = line;
+    tabCounts[index] = leadingTabs(line);
+  }
 
   if (kind === "task") {
     return { nodes: [{ type: "taskList", content: items }], end: i };

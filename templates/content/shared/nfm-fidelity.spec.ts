@@ -162,6 +162,21 @@ describe("canonicalizeNfmWithFidelity", () => {
     canonicalizeNfm(`[${ascending}](u)`);
     canonicalizeNfm(`<table>\n<tr>\n<td>${ascending}</td>\n</tr>\n</table>`);
     canonicalizeNfm(runs(Array.from({ length: 400 }, (_, i) => 400 - i)));
+    canonicalizeNfm(`a${"`".repeat(80_000)}`);
+    canonicalizeNfm(`*${"`".repeat(80_000)}*`);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("reads space-indented lines under deep tab nesting in linear time", () => {
+    const nested = (under: string) =>
+      Array.from(
+        { length: 1_000 },
+        (_, depth) => `${"\t".repeat(depth)}- a\n${"\t".repeat(depth)}${under}`,
+      ).join("\n") + "\nafter";
+    const started = performance.now();
+    canonicalizeNfm(nested("  - b"));
+    canonicalizeNfm(nested("  > q"));
+    canonicalizeNfm(nested("  ```"));
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 

@@ -344,6 +344,19 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     canonical: "- a\n\t```js\n\tx = 1\n\t\n\ty = 2\n\t```\n- b",
   },
   {
+    id: "space-nested-fence-unclosed",
+    origin: "agent",
+    markdown: "- a\n  ```\n  x\n\nafter",
+    canonical: "- a\n  \\`\\`\\`\n  x\nafter",
+    note: "An unclosed fence runs to the page's end in the tab form, so one whose item ends first is not nested. It reads as on main.",
+  },
+  {
+    id: "space-nested-fence-to-page-end",
+    origin: "agent",
+    markdown: "- a\n  ```\n  x",
+    canonical: "- a\n\t```\n\tx\n\t```",
+  },
+  {
     id: "space-nested-quote",
     origin: "agent",
     markdown: "- a\n  > q\n- b",
