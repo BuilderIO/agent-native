@@ -94,6 +94,7 @@ const D4 = {
   viewport: "1280x800",
   blocks: 4,
   runsPerBlock: 7,
+  settleMs: 8000,
   metric: "editablePainted",
 };
 const D4_EXIT_CODES = { PASS: 0, FAIL: 1, UNMEASURED: 2 };
@@ -119,7 +120,7 @@ const clickPath = args.get("click-path");
 const runs = Number(args.get("runs") ?? 10);
 const blockCount = Number(args.get("blocks") ?? D4.blocks);
 const runsPerBlock = Number(args.get("runs-per-block") ?? D4.runsPerBlock);
-const settleMs = Number(args.get("settle-ms") ?? 8000);
+const settleMs = Number(args.get("settle-ms") ?? D4.settleMs);
 const timeoutMs = Number(args.get("timeout-ms") ?? 30000);
 const outPath = args.get("out");
 const stability = args.get("stability") === "true";
@@ -165,6 +166,7 @@ const d4Deviations = [
   ["viewport", `${viewportWidth}x${viewportHeight}`, D4.viewport],
   ["blocks", blockCount, D4.blocks],
   ["runs per block", runsPerBlock, D4.runsPerBlock],
+  ["settle-ms", settleMs, D4.settleMs],
   ["latency-ms", latencyMs, 0],
   ["jitter-ms", jitterMs, 0],
 ]
