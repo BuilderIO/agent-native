@@ -2374,6 +2374,12 @@ export function App({
                 processingLookbackIdsRef.current.delete(item.id);
               });
           },
+          (error) => {
+            console.warn(
+              "[clips-popover] inspecting a pending earlier screen time item failed; retrying after page traversal:",
+              error,
+            );
+          },
         );
       } catch (error) {
         // Nothing starts on a failed read; the next tick reads again.

@@ -59,8 +59,16 @@ function callLookbackActionFor<T>(
 export function visitPendingRecordingContextPage(
   page: PendingRecordingContextPage,
   visitItem: (item: RecordingContextItem) => void,
+  onItemError?: (error: unknown, item: RecordingContextItem) => void,
 ): PendingRecordingContextCursor | null {
-  for (const item of page.items) visitItem(item);
+  for (const item of page.items) {
+    try {
+      visitItem(item);
+    } catch (error) {
+      if (!onItemError) throw error;
+      onItemError(error, item);
+    }
+  }
   return page.nextCursor;
 }
 

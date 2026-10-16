@@ -347,6 +347,32 @@ describe("visitPendingRecordingContextPage", () => {
       page.nextCursor,
     );
   });
+
+  it("continues page traversal when one item's origin lookup fails", () => {
+    const page = {
+      items: [{ id: "ctx1" }, { id: "ctx2" }, { id: "ctx3" }],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    } satisfies PendingRecordingContextPage;
+    const originReads: string[] = [];
+    const errors: Array<{ error: unknown; itemId: string }> = [];
+    const unreadableOrigin = new Error("local storage unreadable");
+
+    const cursor = visitPendingRecordingContextPage(
+      page,
+      (item) => {
+        originReads.push(item.id);
+        if (item.id === "ctx2") throw unreadableOrigin;
+      },
+      (error, item) => errors.push({ error, itemId: item.id }),
+    );
+
+    expect(originReads).toEqual(["ctx1", "ctx2", "ctx3"]);
+    expect(errors).toEqual([{ error: unreadableOrigin, itemId: "ctx2" }]);
+    expect(cursor).toEqual(page.nextCursor);
+  });
 });
 
 describe("getRecordingContextItem", () => {
