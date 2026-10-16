@@ -823,10 +823,17 @@ them; marking them applied would leave fresh installs without default rows.
      hosted requests run neither list-origin nor `kind: "data"` migrations. `after:` orders the release
      pass where a migration reads another store's tables (observability
      after chat threads).
-   - **2b:** org, context-xray, observational memory and the trigger-event
-     queue, the lists that also run at plugin boot. Hosted apps without
-     release migrations keep running those through their old bookkeeping, as
-     on main; everything else uses the ledger.
+   - **2b, done:** org (new `org` store), context-xray (new `context_xray`
+     store), observational memory (appended to its store) and the
+     trigger-event queue (its ad hoc ensure became the
+     `automation_trigger_events` store). The first three also ran at plugin
+     boot on main, so their entries are marked `ranAtBoot`: local runtimes
+     import their history from the old tables once (an old database imports
+     all 34 org and 3 context-xray entries and re-runs none), and hosted apps
+     without release migrations keep running them through `runMigrations` and
+     the old table, exactly as before. The org and auth plugins now call
+     `orgStore.ready()`. `release-migrations.ts` runs only the store pass,
+     Better Auth and the sharing indexes.
    - **2c:** Better Auth, which needs once-only handling (its v4 expires every
      signing key).
 3. **Upgrade convergence test (Q9). Done in Phase 1.**

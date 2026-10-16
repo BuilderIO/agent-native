@@ -16,7 +16,11 @@ import type { StoreMigration } from "./store-registry.js";
 export function fromMigrationEntries(
   table: string,
   entries: readonly MigrationEntry[],
-  options: { data?: readonly (string | number)[] } = {},
+  options: {
+    data?: readonly (string | number)[];
+    /** The list also ran at plugin boot on main, not only at release. */
+    ranAtBoot?: boolean;
+  } = {},
 ): StoreMigration[] {
   const data = new Set(options.data ?? []);
   return entries.map((entry) => {
@@ -39,7 +43,13 @@ export function fromMigrationEntries(
             }
           }
         : undefined,
-      legacy: { table, version: entry.version, name: entry.name },
+      legacy: {
+        table,
+        version: entry.version,
+        name: entry.name,
+        ranAtBoot: options.ranAtBoot,
+        entry: options.ranAtBoot ? entry : undefined,
+      },
     } satisfies StoreMigration;
   });
 }

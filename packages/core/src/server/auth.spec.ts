@@ -5593,7 +5593,11 @@ describe("server/auth", () => {
       ]);
       expect(signUpEmail).toHaveBeenCalledTimes(1);
       expect(signInEmail).toHaveBeenCalledTimes(2);
-      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(
+        logSpy.mock.calls.filter((call) =>
+          String(call[0]).includes("Local dev auto-login ready"),
+        ),
+      ).toHaveLength(1);
       const generatedPassword = signUpEmail.mock.calls[0]?.[0]?.body?.password;
       const logOutput = logSpy.mock.calls.flat().join(" ");
       expect(generatedPassword).toBeTypeOf("string");
