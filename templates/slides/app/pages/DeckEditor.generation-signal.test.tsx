@@ -82,6 +82,7 @@ const mocks = vi.hoisted(() => ({
   })),
   abortStalledRun: vi.fn(),
   toastError: vi.fn(),
+  translate: (key: string) => key,
 }));
 
 vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
@@ -262,7 +263,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/client/i18n")>();
   return {
     ...original,
-    useT: () => (key: string) => key,
+    useT: () => mocks.translate,
   };
 });
 vi.mock("@agent-native/core/client/org", () => ({
@@ -1733,6 +1734,7 @@ describe("DeckEditor generation signal wiring", () => {
   });
 
   it("retries an unknown snapshot refresh so the saved-prompt retry can proceed", async () => {
+    vi.useFakeTimers();
     mocks.broadGenerating = false;
     mocks.deck.generationContext = {
       ...mocks.deck.generationContext,
@@ -1754,12 +1756,13 @@ describe("DeckEditor generation signal wiring", () => {
     }) as HTMLButtonElement;
     expect(retryButton.disabled).toBe(true);
 
-    await waitFor(() =>
-      expect(mocks.deck.generationContext).toMatchObject({
-        generationFailureSlidesFingerprint:
-          partialGenerationFailureSlidesFingerprint([]),
-      }),
-    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureSlidesFingerprint:
+        partialGenerationFailureSlidesFingerprint([]),
+    });
     expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(2);
     expect(retryButton.disabled).toBe(false);
     expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
