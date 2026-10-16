@@ -41,6 +41,12 @@ import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DOCUMENT_BODY_BYTES = 512 * 1024;
+const TRASHED_PAGE_SKIP =
+  "Skipped update: the page is in Trash. Restore it, then import again.";
+
+type ContentTx = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 function nanoid(size = 12): string {
   const chars =
@@ -346,6 +352,10 @@ export default defineAction({
         continue;
       }
 
+      if (existing?.trashedAt) {
+        skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
+        continue;
+      }
       if (existing) {
         const existingSpaceId = existing.spaceId ?? defaultSpaceId;
         ownerById.set(id, existing.ownerEmail as string);
@@ -412,7 +422,7 @@ export default defineAction({
           continue;
         }
 
-        const mutation = await db.transaction(async (tx) => {
+        const applyUpdate = async (tx: ContentTx) => {
           // Removing a favorite deletes its membership, and an edit locks a
           // page's memberships before the page, so this does too.
           const heldFavoriteIds =
@@ -442,6 +452,13 @@ export default defineAction({
             .limit(1);
           if (!locked) {
             throw new Error(`Document "${id}" no longer exists.`);
+          }
+          if (locked.trashedAt) {
+            return {
+              changed: false,
+              visibilityForbidden: false,
+              trashed: true,
+            };
           }
 
           const lockedTitleChanged = file.title !== locked.title;
@@ -582,8 +599,30 @@ export default defineAction({
             });
           }
           return { changed: true, visibilityForbidden: false };
-        });
+        };
+        let mutation: Awaited<ReturnType<typeof applyUpdate>>;
+        try {
+          mutation = await db.transaction(applyUpdate);
+        } catch (err) {
+          // Earlier files have committed; one file's conflict fails only it.
+          if (
+            !(err instanceof ActionContractError) ||
+            err.errorCode !== "DATABASE_MEMBERSHIPS_CHANGED"
+          ) {
+            throw err;
+          }
+          errors.push({ path: file.path, reason: err.message });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
+          continue;
+        }
 
+        if (mutation.trashed) {
+          skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
+          continue;
+        }
         if (mutation.visibilityForbidden) {
           skipped.push({
             path: file.path,

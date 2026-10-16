@@ -351,6 +351,7 @@ export default defineAction({
       id: string;
       position: number;
     }> | null = null;
+    let appendToParent = false;
 
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
@@ -459,6 +460,26 @@ export default defineAction({
               parentId: args.parentId,
             });
           }
+          if (appendToParent) {
+            // Read under the page-tree lock every reparent takes, so two
+            // appends to one parent can't both take the same last position.
+            const [last] = await tx
+              .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+              .from(schema.documents)
+              .where(
+                args.parentId
+                  ? and(
+                      eq(schema.documents.ownerEmail, ownerEmail),
+                      eq(schema.documents.parentId, args.parentId),
+                    )
+                  : and(
+                      eq(schema.documents.ownerEmail, ownerEmail),
+                      rootSectionFilter(existing),
+                      sql`parent_id IS NULL`,
+                    ),
+              );
+            updates.position = nextAppendPosition(last?.max);
+          }
           await assertDocumentMetadataDatabaseScope({
             db: tx,
             documentId: id,
@@ -559,28 +580,10 @@ export default defineAction({
         },
       );
     } else if (args.parentId !== undefined) {
-      const parentId = args.parentId;
+      appendToParent = true;
       await withPositionLock(
-        documentsPositionScope(ownerEmail, parentId),
-        async () => {
-          const maxPos = await db
-            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-            .from(schema.documents)
-            .where(
-              parentId
-                ? and(
-                    eq(schema.documents.ownerEmail, ownerEmail),
-                    eq(schema.documents.parentId, parentId),
-                  )
-                : and(
-                    eq(schema.documents.ownerEmail, ownerEmail),
-                    rootSectionFilter(existing),
-                    sql`parent_id IS NULL`,
-                  ),
-            );
-          updates.position = nextAppendPosition(maxPos[0]?.max);
-          await runMoveTransaction();
-        },
+        documentsPositionScope(ownerEmail, args.parentId),
+        runMoveTransaction,
       );
     } else {
       await runMoveTransaction();

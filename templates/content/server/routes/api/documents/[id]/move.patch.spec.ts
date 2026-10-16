@@ -54,6 +54,18 @@ describe("Content REST page move", () => {
     );
   });
 
+  it("passes a position-only move to move-document as a sibling index", async () => {
+    mocks.moveDocument.mockResolvedValue({ id: "page-1", position: 2 });
+    await expect(patch("page-1", { position: 2 })).resolves.toEqual({
+      id: "page-1",
+      position: 2,
+    });
+    expect(mocks.moveDocument).toHaveBeenCalledWith(
+      { id: "page-1", parentId: undefined, position: 2 },
+      expect.objectContaining({ caller: "http" }),
+    );
+  });
+
   it("passes move-document's typed refusal through", async () => {
     const refusal = new ActionContractError(
       "A document cannot be moved under itself",

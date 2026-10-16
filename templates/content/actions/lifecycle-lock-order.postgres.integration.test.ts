@@ -2198,6 +2198,108 @@ parentId: "${seed.ids.moved}"
       }
     });
 
+    it("refuses a move to another space of a page turned into a collection while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.child]);
+          await tx.insert(schema.contentDatabases).values({
+            id: `${seed.key}_c1`,
+            ownerEmail: OWNER,
+            spaceId: seed.ids.fromSpace,
+            documentId: seed.ids.child,
+            title: "Converted",
+            createdAt: STAMP,
+            updatedAt: STAMP,
+          });
+        },
+        () =>
+          asOwner(() =>
+            moveDocument.run({ id: seed.ids.moved, spaceId: seed.ids.toSpace }),
+          ),
+      );
+      await expect(moved).rejects.toMatchObject({
+        errorCode: "PAGE_CONTAINS_COLLECTION",
+        statusCode: 409,
+      });
+      for (const page of [seed.ids.moved, seed.ids.child]) {
+        expect(await readPage(page)).toMatchObject({
+          spaceId: seed.ids.fromSpace,
+        });
+      }
+    });
+
+    it("skips an imported update of a page already in Trash", async () => {
+      const seed = await seedSpaceMove();
+      await getDb()
+        .update(schema.documents)
+        .set({ trashedAt: STAMP, trashRootId: seed.ids.child })
+        .where(eq(schema.documents.id, seed.ids.child));
+      const imported = await asOwner(() =>
+        importContentSource.run({
+          files: {
+            "child.md": `---
+id: "${seed.ids.child}"
+title: "Renamed"
+parentId: "${seed.ids.moved}"
+position: 8
+---
+`,
+          },
+        }),
+      );
+      expect(imported).toMatchObject({
+        updated: [],
+        skipped: [
+          {
+            path: "child.md",
+            reason:
+              "Skipped update: the page is in Trash. Restore it, then import again.",
+          },
+        ],
+      });
+      expect(await readPage(seed.ids.child)).toMatchObject({
+        title: "Child",
+        position: 0,
+      });
+    });
+
+    it("skips an imported update of a page that moves to Trash while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const { action: imported } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.child]);
+          await tx
+            .update(schema.documents)
+            .set({ trashedAt: STAMP, trashRootId: seed.ids.child })
+            .where(eq(schema.documents.id, seed.ids.child));
+        },
+        () =>
+          asOwner(() =>
+            importContentSource.run({
+              files: {
+                "child.md": `---
+id: "${seed.ids.child}"
+title: "Renamed"
+---
+`,
+              },
+            }),
+          ),
+      );
+      await expect(imported).resolves.toMatchObject({
+        updated: [],
+        skipped: [
+          {
+            path: "child.md",
+            reason:
+              "Skipped update: the page is in Trash. Restore it, then import again.",
+          },
+        ],
+      });
+      expect((await readPage(seed.ids.child)).title).toBe("Child");
+    });
+
     it("skips an imported layout update for a page that moves to Trash while it waits", async () => {
       const seed = await seedSpaceMove();
       const file = (position: number) => ({
@@ -2407,25 +2509,59 @@ position: 7
         });
       }
 
-    it("refuses an imported favorite removal when the page is favorited while it waits", async () => {
+    it("fails only the imported file whose favorite removal races a new favorite", async () => {
       const seed = await seedImportedFavorite(false);
-      const { action: imported } = await raceAgainst(async (tx) => {
-        await lockDocumentRows(tx, [seed.ids.page]);
-        await tx
-          .insert(schema.contentDatabaseItems)
-          .values(
-            itemValues(
-              seed.ids.membership,
-              favoritesSystemIds(OWNER).databaseId,
-              seed.ids.page,
-              0,
-            ),
-          );
-      }, seed.importUnfavorited);
-      await expect(imported).rejects.toMatchObject({
-        errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
-        statusCode: 409,
+      const other = `${seed.ids.page}_other`;
+      await getDb()
+        .insert(schema.documents)
+        .values(pageValues(other, null, "Other", { spaceId: seed.ids.space }));
+      await getDb()
+        .insert(schema.contentDatabaseItems)
+        .values(itemValues(`${other}_item`, seed.ids.files, other, 1));
+      const { action: imported } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.page]);
+          await tx
+            .insert(schema.contentDatabaseItems)
+            .values(
+              itemValues(
+                seed.ids.membership,
+                favoritesSystemIds(OWNER).databaseId,
+                seed.ids.page,
+                0,
+              ),
+            );
+        },
+        () =>
+          asOwner(() =>
+            importContentSource.run({
+              files: {
+                "favorite.md": `---
+id: "${seed.ids.page}"
+title: "Favorite"
+isFavorite: false
+---
+`,
+                "other.md": `---
+id: "${other}"
+title: "Other renamed"
+---
+`,
+              },
+            }),
+          ),
+      );
+      await expect(imported).resolves.toMatchObject({
+        errors: [
+          {
+            path: "favorite.md",
+            reason:
+              "The page's Favorites membership changed while it was being imported. Import it again.",
+          },
+        ],
+        updated: [{ id: other, path: "other.md" }],
       });
+      expect((await readPage(other)).title).toBe("Other renamed");
       const memberships = await getDb()
         .select({ id: schema.contentDatabaseItems.id })
         .from(schema.contentDatabaseItems)
@@ -2597,6 +2733,35 @@ position: 7
         .where(inArray(schema.documents.id, [ids.root, ids.member, ids.owner]));
       expect(remaining).toHaveLength(3);
       expect(await readCollection(ids.collection)).toBeDefined();
+    });
+
+    it("appends a moved page after a page another move appended while it waited", async () => {
+      const seed = await seedPageTree();
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: seed.ids.otherParent, position: 1 })
+            .where(eq(schema.documents.id, seed.ids.later));
+        },
+        () =>
+          asOwner(() =>
+            moveDocument.run({
+              id: seed.ids.moved,
+              parentId: seed.ids.otherParent,
+            }),
+          ),
+      );
+      await moved;
+      expect(await readPage(seed.ids.later)).toMatchObject({
+        parentId: seed.ids.otherParent,
+        position: 1,
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        parentId: seed.ids.otherParent,
+        position: 2,
+      });
     });
 
     it.each([

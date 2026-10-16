@@ -103,29 +103,28 @@ async function membershipIdsOf(tx: ContentDb, documentIds: string[]) {
   return membershipIds;
 }
 
-/** A page read under the root that has since left it would move with it. */
-async function pagesLeftSubtree(tx: ContentDb, rootId: string, ids: string[]) {
-  const idSet = new Set(ids);
-  const pages = new Map<
-    string,
-    { parentId: string | null; trashParentId: string | null }
-  >();
+async function readLockedPages(tx: ContentDb, ids: string[]) {
+  const pages: PageSubtreeDocument[] = [];
   for (const idGroup of groups(ids)) {
-    // guard:allow-unscoped — re-reads only the parent links of pages the move already access-checked and holds locked.
-    const rows: Array<{
-      id: string;
-      parentId: string | null;
-      trashParentId: string | null;
-    }> = await tx
-      .select({
-        id: schema.documents.id,
-        parentId: schema.documents.parentId,
-        trashParentId: schema.documents.trashParentId,
-      })
-      .from(schema.documents)
-      .where(inArray(schema.documents.id, idGroup));
-    for (const row of rows) pages.set(row.id, row);
+    // guard:allow-unscoped — re-reads pages the move already access-checked and holds locked.
+    pages.push(
+      ...(await tx
+        .select()
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, idGroup))),
+    );
   }
+  return pages;
+}
+
+/** A page read under the root that has since left it would move with it. */
+function pagesLeftSubtree(
+  lockedPages: PageSubtreeDocument[],
+  rootId: string,
+  ids: string[],
+) {
+  const idSet = new Set(ids);
+  const pages = new Map(lockedPages.map((page) => [page.id, page]));
   return ids.some((id) => {
     if (id === rootId) return false;
     const page = pages.get(id);
@@ -161,17 +160,21 @@ async function lockMoveBetweenSpaces(args: {
   await lockDatabaseMemberships(tx, membershipIds);
   await lockDocumentRows(tx, parentId ? [...ids, parentId] : ids);
   const lockedMembershipIds = new Set(membershipIds);
+  const lockedPages = await readLockedPages(tx, ids);
   if (
     (await membershipIdsOf(tx, ids)).some(
       (id) => !lockedMembershipIds.has(id),
     ) ||
-    (await pagesLeftSubtree(tx, root.id, ids))
+    pagesLeftSubtree(lockedPages, root.id, ids)
   ) {
     throw contractError(
       "This page changed while it was being moved. Try again.",
       "PAGE_SUBTREE_CHANGED",
     );
   }
+  // A page turned into a collection while the move waited would leave the
+  // collection behind in the old space.
+  await assertSubtreeCanChangeSpace(tx, lockedPages);
 
   const [current] = await tx
     .select({
