@@ -20,11 +20,13 @@ function rowReadiness(
     tokenConfigured,
     environmentId: typeof value === "string" ? value : null,
   });
+  // Only a non-string saved value is corrupt. A blank string is missing, and the
+  // readiness function reports it that way, so the two paths agree.
   if (
     readiness === "environment_missing" &&
     value !== undefined &&
     value !== null &&
-    value !== ""
+    typeof value !== "string"
   ) {
     return "environment_invalid";
   }

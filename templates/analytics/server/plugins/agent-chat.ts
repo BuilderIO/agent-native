@@ -542,6 +542,8 @@ const DBT_FALLBACK_NOT_APPROVED =
 // so. Only that case retries, and only once: unrelated BigQuery answers never
 // asked dbt, so they pass through untouched.
 function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
+  // An empty draft has no figure for the disclosure to describe.
+  if (context.text.trim() === "") return null;
   const results = context.toolResults ?? [];
   const named = (name: unknown, target: string) =>
     String(name ?? "")
@@ -560,15 +562,15 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   ) {
     return null;
   }
-  // The warehouse answer must come after the dbt failure: that ordering is what
-  // makes it the fallback for this metric rather than an unrelated query.
-  const warehouseAnswered = results.some(
-    (result, index) =>
-      index > latestDbtIndex &&
-      named(result.name, "bigquery") &&
-      result.isError !== true &&
-      isBigQueryRowsPayload(result.content),
+  // The fallback answer is the first warehouse read after the dbt failure. A later
+  // read, or one that errored, is not the answer to this metric.
+  const firstReadAfterDbt = results.find(
+    (result, index) => index > latestDbtIndex && named(result.name, "bigquery"),
   );
+  const warehouseAnswered =
+    firstReadAfterDbt !== undefined &&
+    firstReadAfterDbt.isError !== true &&
+    isBigQueryRowsPayload(firstReadAfterDbt.content);
   if (!warehouseAnswered) return null;
   const disclosed =
     DBT_FALLBACK_SOURCE.test(context.text) &&

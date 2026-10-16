@@ -101,6 +101,15 @@ describe("dbtProviderReadiness", () => {
     ).resolves.toBe("needs_reauth");
   });
 
+  it("reports a blank environment ID as missing, the same way the readiness function does", async () => {
+    await expect(
+      dbtProviderReadiness(
+        [row({ config: { semanticLayerEnvironmentId: "   " } })],
+        "org_test",
+      ),
+    ).resolves.toBe("environment_missing");
+  });
+
   it("reports a corrupt non-string environment ID as invalid without failing the provider", async () => {
     await expect(
       dbtProviderReadiness(

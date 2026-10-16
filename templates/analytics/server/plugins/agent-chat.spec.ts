@@ -954,6 +954,30 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
+  it("does not force the disclosure on an empty draft", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "   ",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not use a later BigQuery read when the first read after the dbt failure errored", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryTimedOut, bigQueryOk],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
   it("does not count an empty BigQuery result as the fallback answer", () => {
     const emptyRead = {
       name: "bigquery",
