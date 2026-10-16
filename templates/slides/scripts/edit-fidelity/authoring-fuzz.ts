@@ -965,6 +965,22 @@ export function isCompetingOutgoingBrowserSessionRequest(
   );
 }
 
+export function isCompetingBrowserSessionRegistration(candidate: {
+  method: string;
+  pathname: string;
+  finishedSuccessfully: boolean;
+  requestStartedDuringNavigation: boolean;
+  requestStartedAfterNavigation: boolean;
+}) {
+  return (
+    candidate.method === "POST" &&
+    candidate.pathname === "/_agent-native/browser-sessions" &&
+    !candidate.finishedSuccessfully &&
+    (candidate.requestStartedDuringNavigation ||
+      candidate.requestStartedAfterNavigation)
+  );
+}
+
 function matchesOutgoingBrowserSessionAbortRequest(
   candidate: OutgoingBrowserSessionNavigationAbort,
 ) {
@@ -2711,18 +2727,17 @@ export async function runAuthoringFuzz(
     }
     return [...reloadNavigationRequests.entries()].some(
       ([otherRequest, otherCandidate]) => {
-        if (
-          otherRequest === request ||
-          (!otherCandidate.requestStartedDuringNavigation &&
-            !otherCandidate.requestStartedAfterNavigation)
-        ) {
-          return false;
-        }
+        if (otherRequest === request) return false;
         const otherUrl = new URL(otherRequest.url());
-        return (
-          otherRequest.method() === "POST" &&
-          otherUrl.pathname === "/_agent-native/browser-sessions"
-        );
+        return isCompetingBrowserSessionRegistration({
+          method: otherRequest.method(),
+          pathname: otherUrl.pathname,
+          finishedSuccessfully: otherCandidate.finishedSuccessfully,
+          requestStartedDuringNavigation:
+            otherCandidate.requestStartedDuringNavigation,
+          requestStartedAfterNavigation:
+            otherCandidate.requestStartedAfterNavigation,
+        });
       },
     );
   };

@@ -40,6 +40,7 @@ import {
   finalizeDeferredOutgoingBrowserSessionAbort,
   isConflictResourceConsoleError,
   isBrowserSessionPath,
+  isCompetingBrowserSessionRegistration,
   isCompetingOutgoingBrowserSessionRequest,
   isCompetingRetiredBrowserSessionTraffic,
   isPostNavigationBrowserSessionTraffic,
@@ -3643,6 +3644,37 @@ it("only treats unfinished same-kind requests as reload competitors", () => {
       requestStartedBeforeMainFrameCommit: true,
     }),
   ).toBe(true);
+});
+
+it("does not count completed registrations as reload competitors", () => {
+  const candidate = {
+    method: "POST",
+    pathname: "/_agent-native/browser-sessions",
+    finishedSuccessfully: false,
+    requestStartedDuringNavigation: true,
+    requestStartedAfterNavigation: false,
+  };
+
+  expect(isCompetingBrowserSessionRegistration(candidate)).toBe(true);
+  expect(
+    isCompetingBrowserSessionRegistration({
+      ...candidate,
+      finishedSuccessfully: true,
+    }),
+  ).toBe(false);
+  expect(
+    isCompetingBrowserSessionRegistration({
+      ...candidate,
+      pathname: "/_agent-native/browser-sessions/session-id/heartbeat",
+    }),
+  ).toBe(false);
+  expect(
+    isCompetingBrowserSessionRegistration({
+      ...candidate,
+      requestStartedDuringNavigation: false,
+      requestStartedAfterNavigation: false,
+    }),
+  ).toBe(false);
 });
 
 it("finalizes a deferred outgoing request before cleanup can discard it", () => {
