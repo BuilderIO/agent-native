@@ -1352,6 +1352,39 @@ describe("runEvalSuite runner creation", () => {
     },
   );
 
+  it("does not let a production adapter disable scoring", async () => {
+    const analyze = vi.fn((run: { text: string }) => run.text);
+    const evalCase = defineEval({
+      name: "adapter-scoreable-flag-is-ignored",
+      input: { prompt: "find active users" },
+      scorers: [{ name: "sentinel", analyze, generateScore: () => 1 }],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: { ...result.output, scoreable: false } as never,
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(suite.report.results[0]).toMatchObject({
+      status: "passed",
+      scores: [{ scorer: "sentinel", score: 1, passed: true }],
+    });
+  });
+
   it("fails closed when an adapter returns a truthy non-boolean ok value", async () => {
     const evalCase = defineEval({
       name: "malformed-production-adapter-ok",

@@ -87,6 +87,14 @@ export interface AgentRunner {
   readonly model: string;
 }
 
+const unscoreableProductionPathOutputs = new WeakSet<AgentRunOutput>();
+
+export function isUnscoreableProductionPathOutput(
+  output: AgentRunOutput,
+): boolean {
+  return unscoreableProductionPathOutputs.has(output);
+}
+
 function toEngineMessages(input: EvalInput): EngineMessage[] {
   const messages: EngineMessage[] = [];
   for (const turn of input.history ?? []) {
@@ -802,16 +810,17 @@ function malformedProductionPathOutput(
   durationMs: number,
   usage?: AgentLoopUsage,
 ): AgentRunOutput {
-  return {
+  const output: AgentRunOutput = {
     text: "",
     toolCalls: [],
     ok: false,
-    scoreable: false,
     error,
     runId: `eval:${crypto.randomUUID()}`,
     durationMs,
     ...(usage ? { usage } : {}),
   };
+  unscoreableProductionPathOutputs.add(output);
+  return output;
 }
 
 function validateProductionContext(

@@ -7,7 +7,10 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { insertEvalResult } from "../observability/store.js";
 import type { EvalResult as ObservabilityEvalResult } from "../observability/types.js";
 import type { AgentRunner } from "./agent-runner.js";
-import { createAgentRunner } from "./agent-runner.js";
+import {
+  createAgentRunner,
+  isUnscoreableProductionPathOutput,
+} from "./agent-runner.js";
 import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
 import { clamp01 } from "./scorer.js";
 import type {
@@ -92,7 +95,7 @@ export async function scoreEval(
   }
 
   const scores: ScorerResult[] = [];
-  if (run.scoreable !== false) {
+  if (!isUnscoreableProductionPathOutput(run)) {
     for (const scorer of evalCase.scorers) {
       scores.push(await runScorer(scorer, run, runner, threshold));
     }
