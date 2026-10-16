@@ -142,7 +142,11 @@ export function resolveAppRuntimeUrl(): string | undefined {
 
 export function getAppProductionUrl(
   event?: H3Event,
-  options: { fallback?: string } = {},
+  options: {
+    fallback?: string;
+    /** The request's origin, for callers that no longer hold the event. */
+    requestOrigin?: string;
+  } = {},
 ): string {
   const envUrl = firstConfiguredPublicUrl([
     "APP_URL",
@@ -159,6 +163,8 @@ export function getAppProductionUrl(
     } catch {
       // fall through
     }
+  } else if (options.requestOrigin) {
+    return stripTrailingSlash(options.requestOrigin);
   }
 
   if (process.env.NODE_ENV === "production") {

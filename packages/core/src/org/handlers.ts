@@ -46,6 +46,10 @@ import {
 } from "../server/credential-provider.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  getRequestContext,
+  getRequestRunContext,
+} from "../server/request-context.js";
 import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
@@ -164,7 +168,13 @@ function normalizeWorkspaceAppDefaultVisibility(
 }
 
 function getInviteAppUrl(event?: H3Event): string {
-  return getAppProductionUrl(event);
+  // Agent and MCP calls arrive without the h3 event; the request context keeps
+  // the origin the event would have given, so the link names the same host.
+  return getAppProductionUrl(event, {
+    requestOrigin:
+      getRequestContext()?.requestOrigin ??
+      getRequestRunContext()?.requestOrigin,
+  });
 }
 
 async function exec() {
