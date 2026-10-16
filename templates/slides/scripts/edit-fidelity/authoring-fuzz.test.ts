@@ -3992,7 +3992,12 @@ it("ignores cleanup heartbeat failures only for a matching canceled registration
   ).toBe(false);
   expect(
     isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
-      { ...candidate, ageMs: 9_000 },
+      { ...candidate, ageMs: 10_999 },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
+      { ...candidate, ageMs: 11_000 },
     ]),
   ).toBe(false);
   expect(

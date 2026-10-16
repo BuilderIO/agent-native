@@ -1590,9 +1590,13 @@ export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
       (candidate) =>
         candidate.competingRegistrationStartedAfterNavigation === true,
     ) &&
-    hasExactlyOneExpectedBrowserSessionAbort(candidates, [
-      browserSessionRegistrationRequestRule,
-    ])
+    hasExactlyOneExpectedBrowserSessionAbort(
+      candidates,
+      [browserSessionRegistrationRequestRule],
+      false,
+      false,
+      cleanupNavigationBrowserSessionMaxRequestAgeMs,
+    )
   );
 }
 
@@ -2360,6 +2364,18 @@ export async function runAuthoringFuzz(
     { method: string; path: string; startedAt: number }
   >();
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
+  const watchedRequestDetails = new Map<
+    any,
+    {
+      requestSequence: number;
+      resourceType: string;
+      requestSourceIsMainFrame: boolean;
+      requestFrameUrl: string | null;
+      mainFrameNavigationStartedAt: number | null;
+      mainFrameNavigationRequestSequence: number | null;
+      mainFrameNavigationCommittedAt: number | null;
+    }
+  >();
   const inFlightBrowserSessionRequests = new Map<
     any,
     {
@@ -2795,6 +2811,7 @@ export async function runAuthoringFuzz(
   };
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
+    const watchedRequestDetailsAtStart = watchedRequestDetails.get(request);
     const navigationCandidate = reloadNavigationRequests.get(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
@@ -2802,6 +2819,7 @@ export async function runAuthoringFuzz(
       hasCompetingClaimStartedAfterNavigation(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    watchedRequestDetails.delete(request);
     inFlightBrowserSessionRequests.delete(request);
     const url = request.url();
     const requestUrl = new URL(url);
@@ -2819,7 +2837,37 @@ export async function runAuthoringFuzz(
       const requestAgeMs =
         requestStartedAt === undefined ? null : Date.now() - requestStartedAt;
       const navigationFacts = reportSaveReloadAccessAbort
-        ? ` pendingAtReload=${requestPendingAtReloadNavigation} requestStartedDuringNavigation=${navigationCandidate?.requestStartedDuringNavigation ?? "unknown"} sameOrigin=${requestUrl.origin === authoringPageOrigin} mainFrameNavigationStarted=${mainFrameNavigationStartedAt !== null}`
+        ? ` ${JSON.stringify({
+            pendingAtReload: requestPendingAtReloadNavigation,
+            requestStartedDuringNavigation:
+              navigationCandidate?.requestStartedDuringNavigation ?? "unknown",
+            sameOrigin: requestUrl.origin === authoringPageOrigin,
+            requestSequence:
+              watchedRequestDetailsAtStart?.requestSequence ?? "unknown",
+            resourceType:
+              watchedRequestDetailsAtStart?.resourceType ?? "unknown",
+            sourceMainFrame:
+              watchedRequestDetailsAtStart?.requestSourceIsMainFrame ??
+              "unknown",
+            frameUrlAtRequest:
+              watchedRequestDetailsAtStart?.requestFrameUrl ?? "unknown",
+            navigationAtRequest: watchedRequestDetailsAtStart
+              ? {
+                  startedAt:
+                    watchedRequestDetailsAtStart.mainFrameNavigationStartedAt,
+                  requestSequence:
+                    watchedRequestDetailsAtStart.mainFrameNavigationRequestSequence,
+                  committedAt:
+                    watchedRequestDetailsAtStart.mainFrameNavigationCommittedAt,
+                }
+              : null,
+            navigationAtFailure: {
+              startedAt: mainFrameNavigationStartedAt,
+              requestSequence: mainFrameNavigationRequestSequence,
+              committedAt: mainFrameNavigationCommittedAt,
+            },
+            pageUrlAtFailure: page.url(),
+          })}`
         : "";
       console.log(
         `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestAgeMs ?? "unknown"} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}${navigationFacts}`,
@@ -2959,6 +3007,15 @@ export async function runAuthoringFuzz(
       isBrowserSessionPath(requestUrl.pathname)
     ) {
       watchedRequests.set(request, startedAt);
+      watchedRequestDetails.set(request, {
+        requestSequence,
+        resourceType: request.resourceType(),
+        requestSourceIsMainFrame,
+        requestFrameUrl,
+        mainFrameNavigationStartedAt,
+        mainFrameNavigationRequestSequence,
+        mainFrameNavigationCommittedAt,
+      });
     }
     const requestStartedDuringNavigation =
       activePhase === "save/reload" &&
@@ -3032,6 +3089,7 @@ export async function runAuthoringFuzz(
   const onRequestSettled = (request: any) => {
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    watchedRequestDetails.delete(request);
     const settledAt = Date.now();
     const browserSessionRequest = inFlightBrowserSessionRequests.get(request);
     if (browserSessionRequest) {
