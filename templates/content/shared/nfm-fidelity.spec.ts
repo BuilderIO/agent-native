@@ -152,6 +152,19 @@ describe("canonicalizeNfmWithFidelity", () => {
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
+  it("reads unmatched backtick runs of many lengths in linear time", () => {
+    const runs = (lengths: number[]) =>
+      lengths.map((length) => "`".repeat(length)).join("a");
+    const ascending = runs(Array.from({ length: 400 }, (_, i) => i + 1));
+    const started = performance.now();
+    canonicalizeNfm(ascending);
+    canonicalizeNfm(`*${ascending}*`);
+    canonicalizeNfm(`[${ascending}](u)`);
+    canonicalizeNfm(`<table>\n<tr>\n<td>${ascending}</td>\n</tr>\n</table>`);
+    canonicalizeNfm(runs(Array.from({ length: 400 }, (_, i) => 400 - i)));
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   it("reads a table with more rows than a call takes arguments", () => {
     const table = canonicalizeNfm(`| a |\n| - |\n${"| b |\n".repeat(130_000)}`);
     expect(table.startsWith('<table header-row="true">')).toBe(true);

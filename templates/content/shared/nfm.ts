@@ -540,14 +540,18 @@ function mergeSpanMark(
 // Code spans and math bind tighter than emphasis, so a delimiter inside one
 // never closes a run outside it: the editor writes the code `*args` in
 // italics as *`*args`*.
-function findToken(s: string, token: string, from: number): number {
-  const unclosedCodeRuns = new Set<number>();
+function findToken(
+  s: string,
+  token: string,
+  from: number,
+  codeRuns: CodeRuns,
+): number {
   for (let i = from; i <= s.length - token.length; i++) {
     if (s[i] === "\\") {
       i++;
       continue;
     }
-    const skipTo = atomicSpanEnd(s, i, unclosedCodeRuns);
+    const skipTo = atomicSpanEnd(s, i, codeRuns);
     if (skipTo !== -1) {
       i = skipTo - 1;
       continue;
@@ -559,32 +563,46 @@ function findToken(s: string, token: string, from: number): number {
 
 /**
  * Where the code span or math starting at `at` ends, or where an unclosed
- * backtick run ends; -1 when neither starts there. `unclosedCodeRuns` keeps a
- * scan linear by remembering run lengths with no closer left.
+ * backtick run ends; -1 when neither starts there.
  */
-function atomicSpanEnd(
-  s: string,
-  at: number,
-  unclosedCodeRuns: Set<number>,
-): number {
+function atomicSpanEnd(s: string, at: number, codeRuns: CodeRuns): number {
   if (s[at] === "$") return matchInlineMathAt(s, at)?.to ?? -1;
   if (s[at] !== "`") return -1;
   const run = delimiterRunLength(s, at, "`");
-  const end = unclosedCodeRuns.has(run) ? -1 : codeSpanEnd(s, at, run);
-  if (end !== -1) return end;
-  unclosedCodeRuns.add(run);
-  return at + run;
+  const end = codeSpanEnd(at, run, codeRuns);
+  return end === -1 ? at + run : end;
 }
 
-function codeSpanEnd(s: string, at: number, run: number): number {
-  const delimiter = "`".repeat(run);
-  for (let search = at + run; ; ) {
-    const close = s.indexOf(delimiter, search);
-    if (close === -1) return -1;
-    const length = delimiterRunLength(s, close, "`");
-    if (length === run) return close + run;
-    search = close + length;
+// Where each backtick run of one source starts, by run length. Every scanner
+// of that source shares it: searching the rest of the source for a closer
+// from each opener is quadratic in a source of unclosed runs of many lengths.
+type CodeRuns = Map<number, number[]>;
+
+function indexCodeRuns(s: string): CodeRuns {
+  const runs: CodeRuns = new Map();
+  for (let at = s.indexOf("`"); at !== -1; ) {
+    const run = delimiterRunLength(s, at, "`");
+    const starts = runs.get(run);
+    if (starts) starts.push(at);
+    else runs.set(run, [at]);
+    at = s.indexOf("`", at + run);
   }
+  return runs;
+}
+
+// A code span closes at the next run of exactly its length; the backticks
+// at `at` may be the end of a longer run an escape split.
+function codeSpanEnd(at: number, run: number, codeRuns: CodeRuns): number {
+  const starts = codeRuns.get(run);
+  if (!starts) return -1;
+  let low = 0;
+  let high = starts.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (starts[mid] <= at) low = mid + 1;
+    else high = mid;
+  }
+  return low < starts.length ? starts[low] + run : -1;
 }
 
 function delimiterRunLength(s: string, from: number, ch: string): number {
@@ -642,6 +660,7 @@ function matchUnderscoreEmphasis(
   input: string,
   start: number,
   misses: number[],
+  codeRuns: CodeRuns,
 ): { from: number; to: number; run: number } | null {
   const run = delimiterRunLength(input, start, "_");
   if (run > 3) return null;
@@ -650,13 +669,12 @@ function matchUnderscoreEmphasis(
     return null;
   const from = start + run;
   if (misses[run] !== undefined && from >= misses[run]) return null;
-  const unclosedCodeRuns = new Set<number>();
   for (let j = from; j < input.length; j++) {
     if (input[j] === "\\") {
       j++;
       continue;
     }
-    const skipTo = atomicSpanEnd(input, j, unclosedCodeRuns);
+    const skipTo = atomicSpanEnd(input, j, codeRuns);
     if (skipTo !== -1) {
       j = skipTo - 1;
       continue;
@@ -717,6 +735,7 @@ function parseInline(input: string): PMNode[] {
   const out: PMNode[] = [];
   let buf = "";
   let i = 0;
+  const codeRuns = indexCodeRuns(input);
   const underscoreMisses: number[] = [];
   const linkCloses = {
     brackets: new Map<number, number>(),
@@ -758,21 +777,10 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (ch === "`") {
-      const openRun = /^`+/.exec(input.slice(i))?.[0].length ?? 0;
-      const delim = "`".repeat(openRun);
-      let searchFrom = i + openRun;
-      let close = -1;
-      while (searchFrom <= input.length - openRun) {
-        const idx = input.indexOf(delim, searchFrom);
-        if (idx === -1) break;
-        const runLen = /^`+/.exec(input.slice(idx))?.[0].length ?? 0;
-        if (runLen === openRun) {
-          close = idx;
-          break;
-        }
-        searchFrom = idx + runLen;
-      }
-      if (close !== -1) {
+      const openRun = delimiterRunLength(input, i, "`");
+      const end = codeSpanEnd(i, openRun, codeRuns);
+      if (end !== -1) {
+        const close = end - openRun;
         flush();
         let codeText = input
           .slice(i + openRun, close)
@@ -785,7 +793,7 @@ function parseInline(input: string): PMNode[] {
           codeText = codeText.slice(1, -1);
         }
         out.push(textNode(codeText, [{ type: "code" }]));
-        i = close + openRun;
+        i = end;
         continue;
       }
     }
@@ -835,7 +843,7 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (input.startsWith("***", i)) {
-      const close = findToken(input, "***", i + 3);
+      const close = findToken(input, "***", i + 3, codeRuns);
       if (close > i + 3) {
         flush();
         const inner = parseInline(input.slice(i + 3, close));
@@ -848,7 +856,7 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (input.startsWith("**", i)) {
-      const close = findToken(input, "**", i + 2);
+      const close = findToken(input, "**", i + 2, codeRuns);
       if (close > i + 2) {
         flush();
         const inner = parseInline(input.slice(i + 2, close));
@@ -860,7 +868,7 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (input.startsWith("~~", i)) {
-      const close = findToken(input, "~~", i + 2);
+      const close = findToken(input, "~~", i + 2, codeRuns);
       if (close > i + 2) {
         flush();
         const inner = parseInline(input.slice(i + 2, close));
@@ -872,7 +880,12 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (ch === "_") {
-      const emphasis = matchUnderscoreEmphasis(input, i, underscoreMisses);
+      const emphasis = matchUnderscoreEmphasis(
+        input,
+        i,
+        underscoreMisses,
+        codeRuns,
+      );
       if (emphasis) {
         flush();
         const inner = parseInline(input.slice(emphasis.from, emphasis.to));
@@ -890,7 +903,7 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (ch === "*") {
-      const close = findToken(input, "*", i + 1);
+      const close = findToken(input, "*", i + 1, codeRuns);
       if (close > i + 1) {
         flush();
         const inner = parseInline(input.slice(i + 1, close));
@@ -902,7 +915,7 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (ch === "[") {
-      const link = matchLink(input, i, linkCloses);
+      const link = matchLink(input, i, linkCloses, codeRuns);
       if (link) {
         flush();
         const inner = parseInline(link.text);
@@ -948,17 +961,17 @@ function findMatchingBracketClose(
   s: string,
   start: number,
   closes = new Map<number, number>(),
+  codeRuns = indexCodeRuns(s),
 ): number {
   const known = closes.get(start);
   if (known !== undefined) return known;
   const openers: number[] = [];
-  const unclosedCodeRuns = new Set<number>();
   for (let i = start; i < s.length; i++) {
     if (s[i] === "\\") {
       i++;
       continue;
     }
-    const skipTo = atomicSpanEnd(s, i, unclosedCodeRuns);
+    const skipTo = atomicSpanEnd(s, i, codeRuns);
     if (skipTo !== -1) {
       i = skipTo - 1;
       continue;
@@ -1021,8 +1034,14 @@ function matchLink(
   s: string,
   start: number,
   closes: { brackets: Map<number, number>; parens: Map<number, number> },
+  codeRuns: CodeRuns,
 ): { text: string; href: string; end: number } | null {
-  const closeBracket = findMatchingBracketClose(s, start, closes.brackets);
+  const closeBracket = findMatchingBracketClose(
+    s,
+    start,
+    closes.brackets,
+    codeRuns,
+  );
   if (closeBracket === -1 || s[closeBracket + 1] !== "(") return null;
   const closeParen = findMatchingParenClose(s, closeBracket + 1, closes.parens);
   if (closeParen === -1) return null;
@@ -2984,6 +3003,7 @@ function splitTableCells(source: string): TableLinePart[] {
     td: source.lastIndexOf("</td>"),
     th: source.lastIndexOf("</th>"),
   };
+  const codeRuns = indexCodeRuns(source);
   const open = /<(t[dh])[\s>]/g;
   let nextGt = -1;
   let last = 0;
@@ -3002,7 +3022,7 @@ function splitTableCells(source: string): TableLinePart[] {
     const close =
       lastClose[tag] < contentFrom
         ? -1
-        : findToken(source, closeTag, contentFrom);
+        : findToken(source, closeTag, contentFrom, codeRuns);
     if (close < 0) {
       // Later open tags of this kind count as unclosed too, so no search
       // runs to the end of the row twice.
