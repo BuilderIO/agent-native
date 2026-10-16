@@ -1042,6 +1042,7 @@ export function SlideContextToolbar({
         <>
           <Divider />
           {positionPopover}
+          {orderMenu}
           {controlsPopover}
         </>
       )}
