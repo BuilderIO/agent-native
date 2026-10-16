@@ -252,6 +252,8 @@ type MdNode = {
   type: string;
   depth?: number;
   value?: string;
+  url?: string;
+  identifier?: string;
   children?: MdNode[];
   position?: { start: { offset?: number } };
 };
@@ -322,23 +324,72 @@ const gfmReader = unified().use(remarkParse).use(remarkGfm);
 // attributes. A GFM reader would count their names as words Content dropped.
 // A line holding only tags becomes an HTML comment rather than a blank line,
 // so the tab-indented children after it cannot continue a list above it.
+// Code is left as written: a tag inside it is text both readers keep.
 const NFM_TAG = String.raw`<\/?[A-Za-z][\w-]*(?:\s+[\w-]+(?:="[^"]*")?)*\s*\/?>`;
 const NFM_TAG_LINE = new RegExp(
   String.raw`^([ \t]*)(?:${NFM_TAG}[ \t]*)+$`,
-  "gm",
+  "m",
 );
 const NFM_INLINE_TAG = new RegExp(NFM_TAG, "g");
 const NFM_BLOCK_ATTRIBUTES =
-  /(^|[^\\])[ \t]*\{[a-z][\w-]*="[^"]*"(?:[ \t]+[a-z][\w-]*="[^"]*")*\}[ \t]*$/gm;
+  /(^|[^\\])[ \t]*\{[a-z][\w-]*="[^"]*"(?:[ \t]+[a-z][\w-]*="[^"]*")*\}[ \t]*$/m;
+const FENCE = /^[ \t]*(`{3,}|~{3,})/;
+const BACKTICK_RUN = /`+/g;
+
+function outsideCodeSpans(line: string, edit: (text: string) => string) {
+  let result = "";
+  let textStart = 0;
+  BACKTICK_RUN.lastIndex = 0;
+  for (let open; (open = BACKTICK_RUN.exec(line)); ) {
+    const closer = new RegExp(`(?<!\`)${open[0]}(?!\`)`, "g");
+    closer.lastIndex = BACKTICK_RUN.lastIndex;
+    const close = closer.exec(line);
+    if (!close) continue;
+    const end = close.index + open[0].length;
+    result +=
+      edit(line.slice(textStart, open.index)) + line.slice(open.index, end);
+    textStart = BACKTICK_RUN.lastIndex = end;
+  }
+  return result + edit(line.slice(textStart));
+}
+
+function withoutNfmSyntax(body: string): string {
+  let fence: string | null = null;
+  return body
+    .split("\n")
+    .map((line) => {
+      const marker = FENCE.exec(line)?.[1];
+      if (fence !== null) {
+        if (
+          marker?.[0] === fence[0] &&
+          marker.length >= fence.length &&
+          line.trim() === marker
+        )
+          fence = null;
+        return line;
+      }
+      if (marker) {
+        fence = marker;
+        return line;
+      }
+      if (NFM_TAG_LINE.test(line))
+        return line.replace(NFM_TAG_LINE, "$1<!-- -->");
+      return outsideCodeSpans(line, (text) =>
+        text.replace(NFM_INLINE_TAG, " "),
+      ).replace(NFM_BLOCK_ATTRIBUTES, "$1");
+    })
+    .join("\n");
+}
+
+function linkTarget(node: MdNode): string | undefined {
+  return node.url ?? node.identifier;
+}
 
 /** What a GitHub-flavored Markdown reader sees, which is how agents write. */
 function gfmProfile(body: string): ReadProfile {
-  const markdown = body
-    .replace(NFM_TAG_LINE, "$1<!-- -->")
-    .replace(NFM_INLINE_TAG, " ")
-    .replace(NFM_BLOCK_ATTRIBUTES, "$1");
+  const markdown = withoutNfmSyntax(body);
   const profile = emptyProfile();
-  const walk = (node: MdNode, listDepth: number) => {
+  const walk = (node: MdNode, listDepth: number, previous?: MdNode) => {
     if (
       node.type !== "link" &&
       (MARKS as readonly string[]).includes(node.type)
@@ -353,9 +404,13 @@ function gfmProfile(body: string): ReadProfile {
       case "linkReference": {
         // A bare URL that GFM links by itself is a display choice, not markup
         // the writer chose, so only `[text](url)`, `[text][ref]` and `<url>`
-        // count.
+        // count. Content keeps two touching links to one place as one link.
         const first = markdown[node.position?.start.offset ?? 0];
-        if (first === "[" || first === "<") profile.marks.link += 1;
+        const continues =
+          previous?.type === node.type &&
+          linkTarget(previous) === linkTarget(node);
+        if ((first === "[" || first === "<") && !continues)
+          profile.marks.link += 1;
         break;
       }
       case "code": {
@@ -393,7 +448,10 @@ function gfmProfile(body: string): ReadProfile {
         break;
     }
     const childDepth = node.type === "list" ? listDepth + 1 : listDepth;
-    for (const child of node.children ?? []) walk(child, childDepth);
+    const children = node.children ?? [];
+    children.forEach((child, index) =>
+      walk(child, childDepth, children[index - 1]),
+    );
   };
   walk(gfmReader.parse(markdown) as MdNode, 0);
   return profile;
@@ -439,15 +497,22 @@ function nfmProfile(document: PMNode): ReadProfile {
         break;
     }
     const children = node.content ?? [];
-    let open = new Set<(typeof MARKS)[number]>();
+    let open = new Set<string>();
     for (const child of children) {
-      const present = new Set(
-        (child.marks ?? []).flatMap((mark) =>
-          NFM_MARK[mark.type] ? [NFM_MARK[mark.type]] : [],
-        ),
-      );
-      for (const mark of present) if (!open.has(mark)) profile.marks[mark] += 1;
-      open = present;
+      // A run continues while the mark does; touching links to different
+      // places are separate links.
+      const present = new Map<string, (typeof MARKS)[number]>();
+      for (const mark of child.marks ?? []) {
+        const kind = NFM_MARK[mark.type];
+        if (!kind) continue;
+        present.set(
+          kind === "link" ? `link\u0000${String(mark.attrs?.href)}` : kind,
+          kind,
+        );
+      }
+      for (const [key, kind] of present)
+        if (!open.has(key)) profile.marks[kind] += 1;
+      open = new Set(present.keys());
     }
     const isList = ["bulletList", "orderedList", "taskList"].includes(
       node.type,

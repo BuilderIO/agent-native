@@ -1,7 +1,15 @@
 import { createDbExec, type DbExec } from "@agent-native/core/db";
 import { prosemirrorJSONToYDoc } from "@tiptap/y-tiptap";
 import { getTableColumns } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { encodeStateAsUpdate } from "yjs";
 
 import {
@@ -13,13 +21,17 @@ import { createContentEditorStructuralSchema } from "../shared/content-editor-st
 import { LIVE_BODY_FIELD } from "../shared/live-body";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "../shared/nfm";
 import {
+  CENSUS_ALLOWED_STATEMENTS,
   CensusRefusal,
   PRODUCTION_HOSTS_ENV,
+  SNAPSHOT_MODE_CHECK,
   databaseHostIdentity,
   readOnlyStatement,
+  redactCredentials,
   runStoredFormCensusCli,
   withReadOnlySnapshot,
 } from "./stored-form-census";
+import { CENSUS_STATEMENTS } from "./stored-form-census-scan";
 
 const PRODUCTION_HOST = "ep-prod-endpoint-123456.us-east-2.aws.neon.tech";
 const BRANCH_HOST = "ep-census-branch-654321.us-east-2.aws.neon.tech";
@@ -191,6 +203,79 @@ describe("stored-form census guards (SF-09)", () => {
     }
   });
 
+  it("refuses a URL whose driver could reach a host other than the one checked", async () => {
+    for (const [url, reason] of [
+      [
+        targetUrl("reader", BRANCH_HOST, `neondb?host=${PRODUCTION_HOST}`),
+        'has URL parameter "host"',
+      ],
+      [
+        targetUrl("reader", BRANCH_HOST, "neondb?options=-c%20x%3Dy"),
+        'has URL parameter "options"',
+      ],
+      [
+        targetUrl("reader", PRODUCTION_HOST.replace(/^e/, "%65"), "neondb"),
+        "must name one plain hostname",
+      ],
+      [
+        targetUrl("reader", `${BRANCH_HOST},${PRODUCTION_HOST}`, "neondb"),
+        "must name one plain hostname",
+      ],
+      [
+        targetUrl("reader", `${PRODUCTION_HOST}.`, "neondb"),
+        "must name one plain hostname",
+      ],
+    ]) {
+      const { run, events } = cli(
+        [
+          "--database-url-env=CENSUS_URL",
+          "--neon-project=project-fixture",
+          "--neon-branch=census/fixture",
+        ],
+        { CENSUS_URL: url, [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST },
+        neverConnect,
+      );
+      expect(await run, url).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1], url).toContain(reason);
+      expect(events.join("\n")).not.toContain(PASSWORD);
+    }
+  });
+
+  it("never prints the password, from a mistyped flag or a driver error", async () => {
+    const url = targetUrl("reader", BRANCH_HOST, "neondb");
+    const mistyped = cli(
+      ["--database-url-env=CENSUS_URL", `--database-url=${url}`],
+      { CENSUS_URL: url, [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST },
+      neverConnect,
+    );
+    expect(await mistyped.run).toBe(1);
+    expect(mistyped.events.join("\n")).not.toContain(PASSWORD);
+    expect(mistyped.events[mistyped.events.length - 1]).toContain(
+      "Unknown argument: --database-url\n",
+    );
+
+    const failing = cli(
+      [
+        "--database-url-env=CENSUS_URL",
+        "--neon-project=project-fixture",
+        "--neon-branch=census/fixture",
+      ],
+      { CENSUS_URL: url, [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST },
+      async (target) => {
+        throw new Error(`could not reach ${target}; password ${PASSWORD}`);
+      },
+    );
+    expect(await failing.run).toBe(1);
+    const failure = failing.events[failing.events.length - 1];
+    expect(failure).toContain("Census failed; no report was produced");
+    expect(failure).not.toContain(PASSWORD);
+
+    expect(redactCredentials(`see ${url} now`)).toBe(
+      `see ${targetUrl("reader", BRANCH_HOST, "neondb", "***")} now`,
+    );
+  });
+
   it("reads its target only from the named variable and requires Neon labels", async () => {
     const missing = cli(
       ["--database-url-env=CENSUS_URL"],
@@ -229,15 +314,22 @@ describe("stored-form census guards (SF-09)", () => {
     );
   });
 
-  it("refuses any statement that is not a plain read", () => {
+  it("sends only its own fixed statements, each a plain read", () => {
+    const notPlainRead = (sql: string) =>
+      !/^SELECT\s/.test(sql) ||
+      /;|\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|DROP|ALTER|CREATE|GRANT|REVOKE|COPY|CALL|DO|INTO|FOR\s+(?:UPDATE|SHARE|NO\s+KEY|KEY))\b|\b(?:nextval|setval|set_config|pg_advisory\w*|pg_notify|pg_terminate_backend|pg_cancel_backend|lo_\w+|dblink\w*)\s*\(/i.test(
+        sql,
+      );
     for (const sql of [
       "INSERT INTO documents (id) VALUES ('x')",
       "UPDATE documents SET content = ''",
       "DELETE FROM _collab_docs",
       "WITH gone AS (DELETE FROM documents RETURNING id) SELECT * FROM gone",
       "SELECT 1; DROP TABLE documents",
+      "SELECT 1 INTO copied",
       "SELECT nextval('seq')",
       "SELECT pg_advisory_lock(1)",
+      "SELECT pg_notify('channel', 'payload')",
       "SELECT id FROM documents FOR UPDATE",
       "SELECT id FROM documents FOR SHARE",
       "SELECT set_config('transaction_read_only', 'off', true)",
@@ -245,11 +337,20 @@ describe("stored-form census guards (SF-09)", () => {
       "SET TRANSACTION READ WRITE",
       "COMMIT",
     ]) {
-      expect(() => readOnlyStatement(sql)).toThrow(CensusRefusal);
+      expect(() => readOnlyStatement(sql), sql).toThrow(CensusRefusal);
+      expect(notPlainRead(sql), sql).toBe(true);
     }
-    expect(
-      readOnlyStatement("SELECT id, created_at, updated_at FROM documents"),
-    ).toBeTruthy();
+    // The list is exact: a harmless read the census does not make is refused.
+    expect(() => readOnlyStatement("SELECT id FROM documents")).toThrow(
+      CensusRefusal,
+    );
+    for (const sql of Object.values(CENSUS_STATEMENTS)) {
+      expect(readOnlyStatement(sql)).toBe(sql);
+      expect(notPlainRead(sql), sql).toBe(false);
+    }
+    expect([...CENSUS_ALLOWED_STATEMENTS].filter(notPlainRead)).toEqual([
+      "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+    ]);
   });
 
   it("reads columns that exist in Content's schema", () => {
@@ -394,6 +495,21 @@ async function createFixture(db: DbExec) {
       }),
     ],
   );
+  // Neither can be accepted, so neither has an anchor to keep or lose.
+  for (const id of ["suggestion-no-operations", "suggestion-title"]) {
+    await insert(
+      "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, actor_kind, base_revision, summary, created_at, updated_at) VALUES (?, 'document', 'page-agent', 'content.document-markdown', 1, 't1', 'agent', 'r3', 'Retitle', 'now', 'now')",
+      [id],
+    );
+  }
+  await insert(
+    "INSERT INTO agent_review_suggestion_operations (id, suggestion_id, ordinal, operation_kind, target_id, before_json, after_json, anchor_json, schema_version) VALUES (?, 'suggestion-title', 0, 'replace_text', 'title', ?, ?, '{}', 1)",
+    [
+      "operation-title",
+      JSON.stringify({ markdown: "Old title" }),
+      JSON.stringify({ markdown: "New title" }),
+    ],
+  );
   await insert(
     "INSERT INTO document_comments (id, document_id, thread_id, content, quoted_text, author_email) VALUES (?, 'page-agent', ?, 'Comment', ?, 'a@example.com')",
     ["comment-1", "thread-1", "bold claim"],
@@ -429,18 +545,22 @@ describe("stored-form census against a local database", () => {
           return fn(tx);
         }),
     };
-    const outcome = await withReadOnlySnapshot(capturing, async (query) => {
-      const [mode] = await query(
-        "SELECT current_setting('transaction_read_only') AS read_only",
-      );
-      await expect(
-        raw!.execute("UPDATE documents SET content = 'overwritten'"),
-      ).rejects.toThrow(/read-only transaction/);
-      return mode.read_only;
-    }).catch((error: unknown) => error);
-    // The refused UPDATE aborts the transaction, so the snapshot ends in an
-    // error rather than a result; what matters is that nothing was written.
-    expect(outcome === "on" || outcome instanceof Error).toBe(true);
+    let mode: Record<string, unknown> | undefined;
+    let write: unknown = "not attempted";
+    await withReadOnlySnapshot(capturing, async (query) => {
+      [mode] = await query(SNAPSHOT_MODE_CHECK);
+      write = await raw!
+        .execute("UPDATE documents SET content = 'overwritten'")
+        .then(
+          () => "written",
+          (error: unknown) => error,
+        );
+    }).catch(() => {
+      // The refused UPDATE aborts the transaction, so ending it can fail.
+    });
+    expect(mode).toEqual({ read_only: "on", isolation: "repeatable read" });
+    expect(write).toBeInstanceOf(Error);
+    expect((write as Error).message).toMatch(/read-only transaction/);
     const rows = await db.execute("SELECT content FROM documents ORDER BY id");
     expect(rows.rows.map((row) => row.content)).not.toContain("overwritten");
   });
@@ -536,13 +656,20 @@ describe("stored-form census against a local database", () => {
       items: 1,
       pageIds: ["page-agent"],
     });
-    const suggestionTotal = Object.values(
-      report.agentFormPages.pendingSuggestions as Record<
-        string,
-        { items: number }
-      >,
-    ).reduce((total, bucket) => total + bucket.items, 0);
-    expect(suggestionTotal).toBe(1);
+    const suggestions = report.agentFormPages.pendingSuggestions as Record<
+      string,
+      { items: number; pageIds: string[] }
+    >;
+    expect(suggestions.notAcceptable).toMatchObject({
+      items: 2,
+      pageIds: ["page-agent"],
+    });
+    expect(
+      Object.values(suggestions).reduce(
+        (total, bucket) => total + bucket.items,
+        0,
+      ),
+    ).toBe(3);
     const commentTotal = Object.values(
       report.agentFormPages.commentAnchors as Record<string, { items: number }>,
     ).reduce((total, bucket) => total + bucket.items, 0);
@@ -565,5 +692,67 @@ describe("stored-form census against a local database", () => {
     expect(report.agentFormPages.drafts).toEqual({
       skipped: "table document_preview_drafts does not exist",
     });
+  });
+
+  it("counts what it could not judge as not judged and the run as incomplete", async () => {
+    await db.execute({
+      sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
+      args: ["page-huge", "word ".repeat(120_000)],
+    });
+    await db.execute({
+      sql: "UPDATE _collab_docs SET yjs_state = ? WHERE doc_id = ?",
+      args: ["!!not a live copy!!", "page-editor"],
+    });
+    const { run, stdout } = cli(
+      ["--database-url-env=CENSUS_URL"],
+      { CENSUS_URL: "pglite:memory" },
+      async () => ({ ...db, close: async () => {} }),
+    );
+    expect(await run).toBe(2);
+    const report = JSON.parse(stdout.join(""));
+    expect(report.complete).toBe(false);
+    expect(report.bodies.tooLarge.pageIds).toEqual(["page-huge"]);
+    expect(report.liveCopies.byOutcome.unreadable.pageIds).toEqual([
+      "page-editor",
+    ]);
+    expect(report.incompleteReasons).toEqual([
+      "bodies over 524288 bytes, not classified: 1",
+      "unreadable live copies: 1",
+    ]);
+  });
+
+  it("keeps its snapshot alive while classifying outlasts the idle timeout", async () => {
+    const sent: string[] = [];
+    const recording: DbExec = {
+      ...db,
+      close: async () => {},
+      transaction: (fn) =>
+        db.transaction!((tx) =>
+          fn({
+            ...tx,
+            execute: (statement) => {
+              sent.push(
+                typeof statement === "string" ? statement : statement.sql,
+              );
+              return tx.execute(statement);
+            },
+          }),
+        ),
+    };
+    let clock = Date.now();
+    const now = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => (clock += 11_000));
+    try {
+      const { run } = cli(
+        ["--database-url-env=CENSUS_URL"],
+        { CENSUS_URL: "pglite:memory" },
+        async () => recording,
+      );
+      expect(await run).toBe(0);
+    } finally {
+      now.mockRestore();
+    }
+    expect(sent).toContain(CENSUS_STATEMENTS.keepalive);
   });
 });

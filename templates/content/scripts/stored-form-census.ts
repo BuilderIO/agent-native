@@ -2,7 +2,10 @@ import { pathToFileURL } from "node:url";
 
 import { closeDbExec, createDbExec, type DbExec } from "@agent-native/core/db";
 
-import { runStoredFormCensusScan } from "./stored-form-census-scan.js";
+import {
+  CENSUS_STATEMENTS,
+  runStoredFormCensusScan,
+} from "./stored-form-census-scan.js";
 
 // Read-only census of Content page bodies for the stored-form rebuild (L6a).
 // It has no write path: every statement goes through `readOnlyStatement`, the
@@ -65,7 +68,11 @@ export function parseCensusArgs(argv: readonly string[]): CensusOptions {
     }
     const match =
       /^--(database-url-env|neon-project|neon-branch|max-ids)=(.*)$/.exec(arg);
-    if (!match) throw new CensusRefusal(`Unknown argument: ${arg}\n\n${USAGE}`);
+    if (!match) {
+      // Only the flag name: a mistyped flag may carry a connection URL.
+      const name = arg.startsWith("--") ? arg.split("=")[0] : "(positional)";
+      throw new CensusRefusal(`Unknown argument: ${name}\n\n${USAGE}`);
+    }
     if (values.has(match[1]))
       throw new CensusRefusal(`--${match[1]} was given twice`);
     values.set(match[1], match[2].trim());
@@ -92,7 +99,10 @@ export function parseCensusArgs(argv: readonly string[]): CensusOptions {
   };
 }
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const PLAIN_HOSTNAME =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/;
+const ALLOWED_URL_PARAMETERS = new Set(["sslmode", "channel_binding"]);
 
 /**
  * What a host is called for the production comparison. A Neon endpoint is the
@@ -136,17 +146,23 @@ export function resolveCensusTarget(
   }
   const parsed = new URL(url);
   const host = parsed.hostname.toLowerCase();
-  if (!host) {
+  // The driver must reach exactly the host the refusal checked. Drivers also
+  // read `?host=`, decode `%xx` in the host, and split `a,b` into fallbacks,
+  // so anything but one plain hostname is refused rather than interpreted.
+  if (host !== "[::1]" && !PLAIN_HOSTNAME.test(host)) {
     throw new CensusRefusal(
-      `${options.databaseUrlEnv} names no host; socket targets are not supported`,
+      `${options.databaseUrlEnv} must name one plain hostname; encoded, multiple, trailing-dot and socket hosts are not supported`,
     );
+  }
+  for (const key of parsed.searchParams.keys()) {
+    if (!ALLOWED_URL_PARAMETERS.has(key)) {
+      throw new CensusRefusal(
+        `${options.databaseUrlEnv} has URL parameter "${key}"; only ${[...ALLOWED_URL_PARAMETERS].join(" and ")} are supported`,
+      );
+    }
   }
   const redacted = new URL(url);
   if (redacted.password) redacted.password = "***";
-  for (const key of [...redacted.searchParams.keys()]) {
-    if (/pass|secret|token|key/i.test(key))
-      redacted.searchParams.set(key, "***");
-  }
   const isNeonHost = host.endsWith(".neon.tech");
   if (isNeonHost && (!options.neonProject || !options.neonBranch)) {
     throw new CensusRefusal(
@@ -210,28 +226,28 @@ export function describeCensusTarget(target: CensusTarget): string[] {
   ];
 }
 
-const READ_STATEMENT = /^\s*(?:SELECT|WITH|SHOW)\b/i;
-const WRITE_KEYWORD =
-  /\b(?:INSERT|UPDATE|DELETE|MERGE|UPSERT|TRUNCATE|DROP|ALTER|CREATE|GRANT|REVOKE|COPY|CALL|DO|LOCK|VACUUM|REINDEX|CLUSTER|REFRESH|NOTIFY|LISTEN|PREPARE|EXECUTE|COMMENT|SECURITY|SHARE|nextval|setval|set_config|dblink\w*|lo_\w+|pg_advisory\w*|pg_terminate_backend|pg_cancel_backend)\b/i;
+const SET_SNAPSHOT_MODE =
+  "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY";
+export const SNAPSHOT_MODE_CHECK =
+  "SELECT current_setting('transaction_read_only') AS read_only, current_setting('transaction_isolation') AS isolation";
+
+/** Every statement the census may send, verbatim. */
+export const CENSUS_ALLOWED_STATEMENTS: ReadonlySet<string> = new Set([
+  SET_SNAPSHOT_MODE,
+  SNAPSHOT_MODE_CHECK,
+  ...Object.values(CENSUS_STATEMENTS),
+]);
 
 /**
- * The census's only way to the database. A statement that is not a plain
- * read is refused before it is sent, so there is no write path to misuse even
- * if the transaction mode were lost.
+ * The census's only way to the database. A statement that is not one of the
+ * census's own fixed reads is refused before it is sent, so there is no write
+ * path to misuse even if the transaction mode were lost. Values travel as
+ * bound parameters, never in the statement text.
  */
 export function readOnlyStatement(sql: string): string {
-  const isTransactionMode =
-    /^\s*SET\s+TRANSACTION\s+ISOLATION\s+LEVEL\s+REPEATABLE\s+READ\s*,\s*READ\s+ONLY\s*$/i.test(
-      sql,
-    );
-  if (isTransactionMode) return sql;
-  if (
-    !READ_STATEMENT.test(sql) ||
-    WRITE_KEYWORD.test(sql) ||
-    sql.includes(";")
-  ) {
+  if (!CENSUS_ALLOWED_STATEMENTS.has(sql)) {
     throw new CensusRefusal(
-      `The census only reads; refused statement: ${sql.slice(0, 80)}`,
+      `The census sends only its own fixed reads; refused statement: ${sql.slice(0, 80)}`,
     );
   }
   return sql;
@@ -262,10 +278,8 @@ export async function withReadOnlySnapshot<T>(
         string,
         unknown
       >[];
-    await query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
-    const [mode] = await query(
-      "SELECT current_setting('transaction_read_only') AS read_only, current_setting('transaction_isolation') AS isolation",
-    );
+    await query(SET_SNAPSHOT_MODE);
+    const [mode] = await query(SNAPSHOT_MODE_CHECK);
     if (mode?.read_only !== "on" || mode?.isolation !== "repeatable read") {
       throw new CensusRefusal(
         `The census transaction is not a read-only snapshot (read_only=${String(mode?.read_only)}, isolation=${String(mode?.isolation)})`,
@@ -283,14 +297,38 @@ export type CensusCliDependencies = {
   connect: (url: string) => Promise<DbExec>;
 };
 
+const URL_CREDENTIALS = /(\/\/[^\s:@/]*):[^\s@/]*@/g;
+
+/** `text` with URL credentials and the target's password replaced. */
+export function redactCredentials(text: string, password = ""): string {
+  const redacted = text.replace(URL_CREDENTIALS, "$1:***@");
+  const secrets = [password, safeDecode(password)].filter(
+    (secret) => secret.length > 0,
+  );
+  return secrets.reduce(
+    (value, secret) => value.split(secret).join("***"),
+    redacted,
+  );
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /** Exit code: 0 complete, 2 incomplete report, 1 refused or failed. */
 export async function runStoredFormCensusCli(
   deps: CensusCliDependencies,
 ): Promise<number> {
   let db: DbExec | undefined;
+  let password = "";
   try {
     const options = parseCensusArgs(deps.argv);
     const target = resolveCensusTarget(options, deps.env);
+    password = target.kind === "pglite" ? "" : new URL(target.url).password;
     for (const line of describeCensusTarget(target)) deps.log(line);
     const refusal = productionRefusal(target, deps.env);
     if (refusal) throw new CensusRefusal(`Refused: ${refusal}`);
@@ -315,10 +353,14 @@ export async function runStoredFormCensusCli(
     );
     return report.complete ? 0 : 2;
   } catch (error) {
+    // Driver errors can quote the connection string they were given.
     deps.log(
-      error instanceof CensusRefusal
-        ? error.message
-        : `Census failed; no report was produced: ${error instanceof Error ? error.message : String(error)}`,
+      redactCredentials(
+        error instanceof CensusRefusal
+          ? error.message
+          : `Census failed; no report was produced: ${error instanceof Error ? error.message : String(error)}`,
+        password,
+      ),
     );
     return 1;
   } finally {

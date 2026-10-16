@@ -15,11 +15,51 @@ type CensusQuery = (
 ) => Promise<Record<string, unknown>[]>;
 
 const PAGE_BATCH = 100;
+const ITEM_BATCH = 200;
 const ORPHAN_BATCH = 1000;
-// Larger live copies are counted without being built. A build has no
-// deadline, so this is what keeps one huge copy from stalling the run.
+// Larger bodies and live copies are counted without being parsed. Parsing has
+// no deadline, so this is what keeps one huge page from stalling the run.
+const MAX_BODY_BYTES = 512 * 1024;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
+// Core's Neon transactions end after 30 seconds idle, and classifying a batch
+// can take longer than that, so the scan pings its snapshot between pages.
+const KEEPALIVE_AFTER_MS = 10_000;
 const SUGGESTION_ADAPTER = "content.document-markdown";
+// The checks validateOperations in server/lib/suggested-edits.ts makes before
+// accepting. A suggestion that fails them can never apply, so it has no
+// anchor to keep or lose.
+const ACCEPTED_OPERATION_KINDS = new Set([
+  "insert_text",
+  "delete_text",
+  "replace_text",
+  "add_text_block",
+  "set_inline_mark",
+]);
+
+/**
+ * Every statement the scan sends, verbatim. The CLI refuses anything else,
+ * so values must travel as bound parameters.
+ */
+export const CENSUS_STATEMENTS = {
+  tables:
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY(?)",
+  keepalive: "SELECT 1 AS alive",
+  documents:
+    "SELECT id, CASE WHEN octet_length(content) <= ? THEN content END AS content, octet_length(content) AS content_bytes, body_revision, collab_body_revision, trashed_at, source_mode, source_kind, source_path FROM documents WHERE id > ? ORDER BY id LIMIT ?",
+  liveCopies:
+    "SELECT doc_id, CASE WHEN octet_length(yjs_state) <= ? THEN yjs_state END AS yjs_state FROM _collab_docs WHERE doc_id = ANY(?)",
+  suggestions:
+    "SELECT id, resource_id FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id > ? OR (resource_id = ? AND id > ?)) ORDER BY resource_id, id LIMIT ?",
+  suggestionOperations:
+    "SELECT suggestion_id, operation_kind, target_id, schema_version, before_json, after_json, anchor_json FROM agent_review_suggestion_operations WHERE suggestion_id = ANY(?) ORDER BY suggestion_id, ordinal",
+  comments:
+    "SELECT id, document_id, quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id > ? OR (document_id = ? AND id > ?)) ORDER BY document_id, id LIMIT ?",
+  drafts:
+    "SELECT document_id, COUNT(*) AS drafts FROM document_preview_drafts WHERE document_id = ANY(?) GROUP BY document_id ORDER BY document_id",
+  collabRows: "SELECT COUNT(*) AS rows FROM _collab_docs",
+  orphans:
+    "SELECT c.doc_id FROM _collab_docs c WHERE c.doc_id > ? AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = c.doc_id) ORDER BY c.doc_id LIMIT ?",
+} as const;
 
 const TABLES = [
   "documents",
@@ -35,6 +75,8 @@ type Page = {
   trashed: boolean;
   sourceOwned: boolean;
 };
+
+type AgentFormPage = Page & { body: string; canonical: string };
 
 class PageBucket {
   pages = 0;
@@ -67,6 +109,7 @@ class ItemBucket {
   constructor(maxIds: number) {
     this.pages = new PageBucket(maxIds);
   }
+  // Rows arrive ordered by page, so a page is counted once.
   add(page: Page, items = 1) {
     this.items += items;
     if (this.lastPage !== page.id) this.pages.add(page);
@@ -85,10 +128,13 @@ class Buckets<T extends PageBucket | ItemBucket> {
     if (!bucket) this.map.set(key, (bucket = this.make()));
     return bucket;
   }
+  pagesIn(key: string): number {
+    return this.map.get(key)?.toJSON().pages ?? 0;
+  }
   toJSON() {
     return Object.fromEntries(
       [...this.map.entries()].sort(([left], [right]) =>
-        left.localeCompare(right),
+        left < right ? -1 : left > right ? 1 : 0,
       ),
     );
   }
@@ -98,8 +144,7 @@ type AnchorOutcome =
   | "survives"
   | "strandedByCanonicalize"
   | "recoveredByCanonicalize"
-  | "alreadyUnanchored"
-  | "unreadable";
+  | "alreadyUnanchored";
 
 function anchorOutcome(
   now: boolean,
@@ -117,7 +162,8 @@ type LiveCopyOutcome =
   | "lossy"
   | "unreadable"
   | "tooLarge"
-  | "missing";
+  | "missing"
+  | "bodyNotRead";
 
 function liveCopyOutcome(state: string, body: string): LiveCopyOutcome {
   const ydoc = new YDoc();
@@ -142,7 +188,7 @@ function liveCopyOutcome(state: string, body: string): LiveCopyOutcome {
 
 function parseJsonObject(
   raw: unknown,
-): { ok: true; value: object } | { ok: false } {
+): { ok: true; value: Record<string, unknown> } | { ok: false } {
   if (typeof raw !== "string") return { ok: false };
   let value: unknown;
   try {
@@ -150,9 +196,50 @@ function parseJsonObject(
   } catch {
     return { ok: false };
   }
-  return value && typeof value === "object"
-    ? { ok: true, value }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ok: true, value: value as Record<string, unknown> }
     : { ok: false };
+}
+
+/** Where a pending suggestion's anchor lands, or why it cannot be judged. */
+function suggestionOutcome(
+  operations: Record<string, unknown>[],
+  page: AgentFormPage,
+): AnchorOutcome | "notAcceptable" | "unreadable" {
+  if (operations.length !== 1) return "notAcceptable";
+  const [row] = operations;
+  const before = parseJsonObject(row.before_json);
+  const after = parseJsonObject(row.after_json);
+  const anchor = parseJsonObject(row.anchor_json);
+  if (
+    !ACCEPTED_OPERATION_KINDS.has(String(row.operation_kind)) ||
+    row.target_id !== "body" ||
+    Number(row.schema_version) !== 1 ||
+    !before.ok ||
+    !after.ok ||
+    !anchor.ok ||
+    typeof before.value.markdown !== "string" ||
+    typeof after.value.markdown !== "string" ||
+    before.value.markdown === after.value.markdown
+  ) {
+    return "notAcceptable";
+  }
+  const operation = {
+    kind: String(row.operation_kind),
+    targetId: "body",
+    schemaVersion: 1,
+    before: before.value,
+    after: after.value,
+    anchor: anchor.value,
+  } as Parameters<typeof resolveMarkdownSuggestionRange>[1];
+  try {
+    return anchorOutcome(
+      resolveMarkdownSuggestionRange(page.body, operation) !== null,
+      resolveMarkdownSuggestionRange(page.canonical, operation) !== null,
+    );
+  } catch {
+    return "unreadable";
+  }
 }
 
 function revisionState(row: Record<string, unknown>) {
@@ -171,8 +258,9 @@ export type StoredFormCensusReport = Awaited<
 /**
  * The census over one read-only snapshot. `query` must already be bound to
  * that snapshot; this function only reads. Every row lands in exactly one
- * bucket per question, and a row the census could not judge is counted as
- * unreadable or too large, never as clean.
+ * bucket per question. A row the census could not judge is counted as
+ * unreadable, too large or not read, never as clean, and marks the report
+ * incomplete.
  *
  * Agent-form pages are those whose body is not canonical, plus canonical
  * bodies a GFM reader sees more in than Content keeps (`__bold__`, a
@@ -186,21 +274,28 @@ export async function runStoredFormCensusScan(
   const itemBucket = () => new ItemBucket(options.maxIds);
   const incompleteReasons: string[] = [];
 
+  let lastQueryAt = Date.now();
+  const read: CensusQuery = async (sql, args) => {
+    const rows = await query(sql, args);
+    lastQueryAt = Date.now();
+    return rows;
+  };
+  const keepAlive = async () => {
+    if (Date.now() - lastQueryAt >= KEEPALIVE_AFTER_MS)
+      await read(CENSUS_STATEMENTS.keepalive);
+  };
+
   const present = new Set(
-    (
-      await query(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY(?)",
-        [[...TABLES]],
-      )
-    ).map((row) => String(row.table_name)),
+    (await read(CENSUS_STATEMENTS.tables, [[...TABLES]])).map((row) =>
+      String(row.table_name),
+    ),
   );
-  const missingTables = TABLES.filter((table) => !present.has(table));
   if (!present.has("documents")) {
     throw new Error(
       "The documents table does not exist here; this is not a Content database",
     );
   }
-  for (const table of missingTables)
+  for (const table of TABLES.filter((table) => !present.has(table)))
     incompleteReasons.push(`table ${table} does not exist`);
   const hasCollab = present.has("_collab_docs");
   const hasSuggestions =
@@ -215,6 +310,7 @@ export async function runStoredFormCensusScan(
     nonCanonical: pageBucket(),
     canonicalizeFailed: pageBucket(),
     unreadable: pageBucket(),
+    tooLarge: pageBucket(),
     notIdempotent: pageBucket(),
     idempotenceThrows: pageBucket(),
     lossy: pageBucket(),
@@ -235,17 +331,18 @@ export async function runStoredFormCensusScan(
 
   let lastId = "";
   while (true) {
-    const rows = await query(
-      "SELECT id, content, body_revision, collab_body_revision, trashed_at, source_mode, source_kind, source_path FROM documents WHERE id > ? ORDER BY id LIMIT ?",
-      [lastId, PAGE_BATCH],
-    );
+    const rows = await read(CENSUS_STATEMENTS.documents, [
+      MAX_BODY_BYTES,
+      lastId,
+      PAGE_BATCH,
+    ]);
     if (rows.length === 0) break;
     const nextLastId = String(rows[rows.length - 1].id);
     if (nextLastId === lastId)
       throw new Error("The documents scan stopped advancing");
     lastId = nextLastId;
 
-    const pages = new Map<string, Page & { body: string; canonical: string }>();
+    const pages = new Map<string, AgentFormPage>();
     const batchPages = new Map<string, Page>();
     const batchBodies = new Map<string, string>();
     for (const row of rows) {
@@ -263,11 +360,14 @@ export async function runStoredFormCensusScan(
       if (page.sourceOwned) scanned.sourceOwned += 1;
       liveCopies.revisions.get(revisionState(row)).add(page);
       if (typeof row.content !== "string") {
-        bodies.unreadable.add(page);
+        if (Number(row.content_bytes) > MAX_BODY_BYTES)
+          bodies.tooLarge.add(page);
+        else bodies.unreadable.add(page);
         continue;
       }
       batchBodies.set(page.id, row.content);
       const result = classifyBody(row.content);
+      await keepAlive();
       if (result.status === "failed") {
         bodies.canonicalizeFailed.add(page);
         continue;
@@ -301,20 +401,24 @@ export async function runStoredFormCensusScan(
     if (hasCollab) {
       const copies = new Map(
         (
-          await query(
-            "SELECT doc_id, CASE WHEN octet_length(yjs_state) <= ? THEN yjs_state END AS yjs_state FROM _collab_docs WHERE doc_id = ANY(?)",
-            [MAX_LIVE_COPY_BASE64_BYTES, [...batchPages.keys()]],
-          )
+          await read(CENSUS_STATEMENTS.liveCopies, [
+            MAX_LIVE_COPY_BASE64_BYTES,
+            [...batchPages.keys()],
+          ])
         ).map((row) => [String(row.doc_id), row.yjs_state]),
       );
       for (const page of batchPages.values()) {
         const body = batchBodies.get(page.id);
+        const state = copies.get(page.id);
         let outcome: LiveCopyOutcome;
         if (!copies.has(page.id)) outcome = "missing";
-        else if (copies.get(page.id) == null) outcome = "tooLarge";
-        else if (body === undefined || typeof copies.get(page.id) !== "string")
-          outcome = "unreadable";
-        else outcome = liveCopyOutcome(copies.get(page.id) as string, body);
+        else if (state == null) outcome = "tooLarge";
+        else if (body === undefined) outcome = "bodyNotRead";
+        else if (typeof state !== "string") outcome = "unreadable";
+        else {
+          outcome = liveCopyOutcome(state, body);
+          await keepAlive();
+        }
         liveCopies.byOutcome.get(outcome).add(page);
       }
     }
@@ -323,71 +427,45 @@ export async function runStoredFormCensusScan(
     if (agentFormIds.length === 0) continue;
 
     if (hasSuggestions) {
-      const suggestionRows = await query(
-        `SELECT s.id, s.resource_id, o.operation_kind, o.target_id, o.schema_version, o.before_json, o.after_json, o.anchor_json
-         FROM agent_review_suggestions s
-         INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
-         WHERE s.resource_type = 'document' AND s.adapter_kind = ? AND s.status = 'pending' AND s.resource_id = ANY(?)
-         ORDER BY s.resource_id, s.id, o.ordinal`,
-        [SUGGESTION_ADAPTER, agentFormIds],
-      );
-      const operationsBySuggestion = new Map<
-        string,
-        Record<string, unknown>[]
-      >();
-      for (const row of suggestionRows) {
-        const id = String(row.id);
-        const operations = operationsBySuggestion.get(id);
-        if (operations) operations.push(row);
-        else operationsBySuggestion.set(id, [row]);
-      }
-      for (const operations of operationsBySuggestion.values()) {
-        const row = operations[0];
-        const page = pages.get(String(row.resource_id))!;
-        const before = parseJsonObject(row.before_json);
-        const after = parseJsonObject(row.after_json);
-        const anchor = parseJsonObject(row.anchor_json);
-        // Content suggestions carry exactly one operation; the accept path
-        // refuses any other shape, so it cannot apply as stored.
-        if (operations.length !== 1 || !before.ok || !after.ok || !anchor.ok) {
-          agentForm.suggestions.get("unreadable").add(page);
-          continue;
+      let lastResource = "";
+      let lastSuggestion = "";
+      while (true) {
+        const suggestions = await read(CENSUS_STATEMENTS.suggestions, [
+          SUGGESTION_ADAPTER,
+          agentFormIds,
+          lastResource,
+          lastResource,
+          lastSuggestion,
+          ITEM_BATCH,
+        ]);
+        if (suggestions.length === 0) break;
+        const last = suggestions[suggestions.length - 1];
+        lastResource = String(last.resource_id);
+        lastSuggestion = String(last.id);
+        const operations = new Map<string, Record<string, unknown>[]>(
+          suggestions.map((row) => [String(row.id), []]),
+        );
+        for (const row of await read(CENSUS_STATEMENTS.suggestionOperations, [
+          [...operations.keys()],
+        ]))
+          operations.get(String(row.suggestion_id))?.push(row);
+        for (const row of suggestions) {
+          const page = pages.get(String(row.resource_id))!;
+          agentForm.suggestions
+            .get(suggestionOutcome(operations.get(String(row.id))!, page))
+            .add(page);
+          await keepAlive();
         }
-        const operation = {
-          kind: String(row.operation_kind),
-          targetId: row.target_id == null ? null : String(row.target_id),
-          schemaVersion: Number(row.schema_version),
-          before: before.value,
-          after: after.value,
-          anchor: anchor.value,
-        } as Parameters<typeof resolveMarkdownSuggestionRange>[1];
-        agentForm.suggestions
-          .get(
-            anchorOutcome(
-              resolveMarkdownSuggestionRange(page.body, operation) !== null,
-              resolveMarkdownSuggestionRange(page.canonical, operation) !==
-                null,
-            ),
-          )
-          .add(page);
       }
     }
 
     if (hasComments) {
-      const commentRows = await query(
-        "SELECT document_id, quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' ORDER BY document_id, id",
-        [agentFormIds],
-      );
       type PageAnchors = {
         now: (quote: string) => boolean;
         after: (quote: string) => boolean;
       };
       const anchorsByPage = new Map<string, PageAnchors | "unreadable">();
-      const anchorsFor = (page: {
-        id: string;
-        body: string;
-        canonical: string;
-      }) => {
+      const anchorsFor = (page: AgentFormPage) => {
         let anchors = anchorsByPage.get(page.id);
         if (anchors === undefined) {
           try {
@@ -402,29 +480,38 @@ export async function runStoredFormCensusScan(
         }
         return anchors;
       };
-      for (const row of commentRows) {
-        const page = pages.get(String(row.document_id))!;
-        const anchors = anchorsFor(page);
-        if (anchors === "unreadable" || typeof row.quoted_text !== "string") {
-          agentForm.comments.get("unreadable").add(page);
-          continue;
+      let lastDocument = "";
+      let lastComment = "";
+      while (true) {
+        const comments = await read(CENSUS_STATEMENTS.comments, [
+          agentFormIds,
+          lastDocument,
+          lastDocument,
+          lastComment,
+          ITEM_BATCH,
+        ]);
+        if (comments.length === 0) break;
+        const last = comments[comments.length - 1];
+        lastDocument = String(last.document_id);
+        lastComment = String(last.id);
+        for (const row of comments) {
+          const page = pages.get(String(row.document_id))!;
+          const anchors = anchorsFor(page);
+          const quote = row.quoted_text;
+          agentForm.comments
+            .get(
+              anchors === "unreadable" || typeof quote !== "string"
+                ? "unreadable"
+                : anchorOutcome(anchors.now(quote), anchors.after(quote)),
+            )
+            .add(page);
+          await keepAlive();
         }
-        agentForm.comments
-          .get(
-            anchorOutcome(
-              anchors.now(row.quoted_text),
-              anchors.after(row.quoted_text),
-            ),
-          )
-          .add(page);
       }
     }
 
     if (hasDrafts) {
-      for (const row of await query(
-        "SELECT document_id, COUNT(*) AS drafts FROM document_preview_drafts WHERE document_id = ANY(?) GROUP BY document_id ORDER BY document_id",
-        [agentFormIds],
-      )) {
+      for (const row of await read(CENSUS_STATEMENTS.drafts, [agentFormIds])) {
         agentForm.drafts.add(
           pages.get(String(row.document_id))!,
           Number(row.drafts),
@@ -436,14 +523,14 @@ export async function runStoredFormCensusScan(
   const orphaned = { rows: 0, docIds: [] as string[], docIdsOmitted: 0 };
   let collabRows: number | null = null;
   if (hasCollab) {
-    const [count] = await query("SELECT COUNT(*) AS rows FROM _collab_docs");
+    const [count] = await read(CENSUS_STATEMENTS.collabRows);
     collabRows = Number(count?.rows);
     let lastDocId = "";
     while (true) {
-      const rows = await query(
-        "SELECT c.doc_id FROM _collab_docs c WHERE c.doc_id > ? AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = c.doc_id) ORDER BY c.doc_id LIMIT ?",
-        [lastDocId, ORPHAN_BATCH],
-      );
+      const rows = await read(CENSUS_STATEMENTS.orphans, [
+        lastDocId,
+        ORPHAN_BATCH,
+      ]);
       if (rows.length === 0) break;
       const next = String(rows[rows.length - 1].doc_id);
       if (next === lastDocId)
@@ -458,12 +545,29 @@ export async function runStoredFormCensusScan(
     orphaned.docIdsOmitted = orphaned.rows - orphaned.docIds.length;
   }
 
-  const liveCopyOutcomes = liveCopies.byOutcome.toJSON();
-  if ((liveCopyOutcomes.tooLarge?.pages ?? 0) > 0) {
-    incompleteReasons.push(
-      `${liveCopyOutcomes.tooLarge!.pages} live copies were over ${MAX_LIVE_COPY_BASE64_BYTES} bytes and were not compared`,
-    );
-  }
+  const notJudged: Array<[string, number]> = [
+    ["unreadable bodies", bodies.unreadable.pages],
+    [
+      `bodies over ${MAX_BODY_BYTES} bytes, not classified`,
+      bodies.tooLarge.pages,
+    ],
+    ["bodies canonicalizeNfm threw on", bodies.canonicalizeFailed.pages],
+    ["unreadable live copies", liveCopies.byOutcome.pagesIn("unreadable")],
+    [
+      `live copies over ${MAX_LIVE_COPY_BASE64_BYTES} bytes, not compared`,
+      liveCopies.byOutcome.pagesIn("tooLarge"),
+    ],
+    [
+      "pages with suggestions whose anchors could not be resolved",
+      agentForm.suggestions.pagesIn("unreadable"),
+    ],
+    [
+      "pages with comments whose anchors could not be checked",
+      agentForm.comments.pagesIn("unreadable"),
+    ],
+  ];
+  for (const [reason, pages] of notJudged)
+    if (pages > 0) incompleteReasons.push(`${reason}: ${pages}`);
 
   return {
     reportVersion: 1,
@@ -487,10 +591,11 @@ export async function runStoredFormCensusScan(
       notIdempotent: bodies.notIdempotent,
       idempotenceThrows: bodies.idempotenceThrows,
       unreadable: bodies.unreadable,
+      tooLarge: bodies.tooLarge,
     },
     liveCopies: hasCollab
       ? {
-          byOutcome: liveCopyOutcomes,
+          byOutcome: liveCopies.byOutcome,
           orphaned,
           collabRevision: liveCopies.revisions,
         }

@@ -133,6 +133,11 @@ describe("body classification", () => {
       ),
       L("$$", "\\int_0^1 x^2 dx", "$$"),
       "Escaped \\< and \\* and price \\$5",
+      "[one](https://a.example)[two](https://b.example)",
+      "[one](https://a.example)[two](https://a.example)",
+      L("```html", '<a href="C:\\temp">x</a>', "```"),
+      L("\t```", '\t<a href="C:\\temp">', "\t```"),
+      'Use `<a href="C:\\temp">` here',
     ]) {
       expect(canonicalizeNfm(body), body).toBe(body);
       expect(classifyBody(body), body).toEqual({
