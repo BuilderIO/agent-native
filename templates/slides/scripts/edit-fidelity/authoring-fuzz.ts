@@ -185,10 +185,15 @@ export function redactBrowserSessionRequestPath(pathname: string) {
 }
 
 export function redactBrowserSessionSensitiveText(value: string) {
-  return value.replace(
-    /(\/_agent-native\/browser-sessions\/)[^/?#\s"'<>]+/g,
-    "$1:session",
-  );
+  return value
+    .replace(
+      /(\/_agent-native\/browser-sessions\/)[^/?#\s"'<>]+/g,
+      "$1:session",
+    )
+    .replace(
+      /("(?:requestSessionId|retiredSessionId|sessionId)"\s*:\s*)"[^"]*"/g,
+      '$1"[redacted]"',
+    );
 }
 
 export function authoringFuzzBrowserSessionCorsHeaders(
@@ -936,7 +941,6 @@ export function isCompetingOutgoingBrowserSessionRequest(
     requestSourceIsMainFrame: boolean;
     requestFrameUrl: string | null;
     finishedSuccessfully: boolean;
-    completedSuccessfullyBeforeNavigation?: boolean;
     mainFrameNavigationRequestSequence: number | null;
     mainFrameNavigationStartedAt: number | null;
     requestSequence: number;
@@ -953,8 +957,7 @@ export function isCompetingOutgoingBrowserSessionRequest(
     requestKind !== null &&
     candidate.outgoingRequestKind === requestKind &&
     candidate.requestSourceIsMainFrame &&
-    (!candidate.finishedSuccessfully ||
-      candidate.completedSuccessfullyBeforeNavigation === true) &&
+    !candidate.finishedSuccessfully &&
     !belongsToReloadedDocument &&
     normalizeDocumentUrl(candidate.requestFrameUrl) !== null &&
     normalizeDocumentUrl(candidate.requestFrameUrl) ===

@@ -1240,6 +1240,21 @@ it("redacts browser-session ids from diagnostic text and URLs", () => {
       "page error at /_agent-native/browser-sessions/private-session-id",
     ),
   ).toBe("page error at /_agent-native/browser-sessions/:session");
+  expect(
+    redactBrowserSessionSensitiveText(
+      JSON.stringify({
+        requestSessionId: "request-secret",
+        retiredSessionId: "retired-secret",
+        sessionId: "session-secret",
+      }),
+    ),
+  ).toBe(
+    JSON.stringify({
+      requestSessionId: "[redacted]",
+      retiredSessionId: "[redacted]",
+      sessionId: "[redacted]",
+    }),
+  );
 });
 
 it("isolates authoring fuzz from the unrelated browser-session service", () => {
@@ -3581,7 +3596,7 @@ it("distinguishes outgoing retired-session traffic from a competing new session"
   ).toBe(true);
 });
 
-it("distinguishes an in-reload completion from a recent pre-navigation request", () => {
+it("only treats unfinished same-kind requests as reload competitors", () => {
   const request = {
     outgoingRequestKind: "poll" as const,
     requestSourceIsMainFrame: true,
@@ -3607,13 +3622,6 @@ it("distinguishes an in-reload completion from a recent pre-navigation request",
       finishedSuccessfully: true,
     }),
   ).toBe(false);
-  expect(
-    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
-      ...request,
-      finishedSuccessfully: true,
-      completedSuccessfullyBeforeNavigation: true,
-    }),
-  ).toBe(true);
   expect(
     isCompetingOutgoingBrowserSessionRequest(
       "heartbeat",
