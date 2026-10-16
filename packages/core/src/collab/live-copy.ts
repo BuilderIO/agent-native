@@ -316,7 +316,7 @@ export async function readStoredLiveCopy(
 ): Promise<StoredLiveCopy> {
   let record;
   try {
-    record = await loadYDocRecordStrict(client, docId);
+    record = await loadYDocRecordStrict(client, docId, binding.maxStateBytes);
   } catch (error) {
     if (error instanceof CollabStateMalformedError) {
       throw new LiveCopyError(
@@ -329,6 +329,14 @@ export async function readStoredLiveCopy(
     throw error;
   }
   if (record.kind === "absent") return { kind: "absent" };
+  if (record.kind === "too_large") {
+    throw new LiveCopyError(
+      "state_too_large",
+      docId,
+      `Stored live copy ${docId} is about ${record.bytes} bytes; the limit is ${binding.maxStateBytes}.`,
+      { reason: String(record.bytes) },
+    );
+  }
   assertStateSize(binding, docId, record.state, "Stored live copy");
   return {
     kind: "stored",

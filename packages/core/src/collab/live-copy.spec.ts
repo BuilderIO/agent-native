@@ -385,6 +385,12 @@ describe("stored state classification", () => {
     expect(
       await rejection(manager.readLiveCopy(binding, "live:big")),
     ).toMatchObject({ code: "state_too_large" });
+    // Not base64 at all: only a check made before decoding can call it too
+    // large rather than malformed.
+    await insertRow("live:junk", "!".repeat(64));
+    expect(
+      await rejection(manager.readLiveCopy(binding, "live:junk")),
+    ).toMatchObject({ code: "state_too_large", reason: "48" });
   });
 });
 
@@ -1924,7 +1930,7 @@ describe("other collab paths", () => {
     const execute = exec.execute.bind(exec);
     exec.execute = async (input) => {
       const sql = typeof input === "string" ? input : input.sql;
-      if (/SELECT yjs_state/i.test(sql)) stateReads.push(sql);
+      if (/(SELECT|END AS) yjs_state/i.test(sql)) stateReads.push(sql);
       return execute(input);
     };
     await manager.applyUpdate(
