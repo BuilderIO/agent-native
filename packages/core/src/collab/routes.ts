@@ -9,6 +9,7 @@ import {
 import type { H3Event } from "h3";
 
 import { readBody } from "../server/h3-helpers.js";
+import { LiveCopyError } from "./live-copy.js";
 import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
@@ -62,7 +63,10 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
         docId,
         base64ToUint8Array(encodedStateVector),
       );
-    } catch {
+    } catch (error) {
+      // A live copy's own failure (malformed state, a busy runner) keeps
+      // its code and status; it says nothing about the state vector.
+      if (error instanceof LiveCopyError) throw error;
       setResponseStatus(event, 400);
       return { error: "stateVector must be base64-encoded" };
     }

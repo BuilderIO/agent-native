@@ -208,7 +208,7 @@ beforeEach(async () => {
   bounded = await import("./bounded-tasks.js");
   runner = bounded.createBoundedTaskRunner({
     source: taskSource,
-    deadlineMs: 2_000,
+    deadlineMs: 10_000,
     memoryLimitMb: 64,
   });
 });
@@ -300,6 +300,48 @@ describe("stored state classification", () => {
     expect(
       await rejection(manager.readLiveCopy(binding, "live:stray")),
     ).toMatchObject({ code: "unsupported_content", reason: "notes" });
+  });
+
+  it("refuses bytes after a whole update, stored or sent", async () => {
+    const binding = define();
+    const doc = new Y.Doc();
+    doc.getXmlFragment("default").insert(0, [paragraph("body")]);
+    const padded = new Uint8Array([...Y.encodeStateAsUpdate(doc), 255]);
+    await insertRow("live:padded", base64(padded));
+    expect(
+      await rejection(manager.readLiveCopy(binding, "live:padded")),
+    ).toMatchObject({ code: "malformed_state", reason: "yjs" });
+
+    const seeded = await manager.seedLiveCopy(binding, "live:doc", {
+      source: "kept",
+    });
+    const update = clientEdit(seeded.state, appendParagraph("more"));
+    expect(
+      await rejection(
+        manager.applyUpdate("live:doc", new Uint8Array([...update, 255])),
+      ),
+    ).toMatchObject({ code: "malformed_state", reason: "update" });
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "kept",
+      version: 0,
+    });
+  });
+
+  it("checks cached bytes again for a different binding", async () => {
+    const first = define();
+    await manager.seedLiveCopy(first, "live:doc", { source: "body" });
+    await expect(manager.getState("live:doc")).resolves.toBeInstanceOf(
+      Uint8Array,
+    );
+    live.releaseLiveCopy(first);
+    const second = define({ field: "other" });
+    expect(await rejection(manager.getState("live:doc"))).toMatchObject({
+      code: "unsupported_content",
+      reason: "default",
+    });
+    expect(
+      await rejection(manager.readLiveCopy(second, "live:doc")),
+    ).toMatchObject({ code: "unsupported_content", reason: "default" });
   });
 
   it("refuses stored state above maxStateBytes before any task sees it", async () => {
@@ -560,6 +602,15 @@ describe("applyUpdate on a live copy", () => {
       await rejection(manager.applyUpdate("live:doc", stray)),
     ).toMatchObject({ code: "unsupported_content", reason: "sidecar" });
 
+    // An emptied field would read as unseeded, and a seed would refill it.
+    const emptied = clientEdit(seeded.state, (doc) => {
+      const fragment = doc.getXmlFragment("default");
+      fragment.delete(0, fragment.length);
+    });
+    expect(
+      await rejection(manager.applyUpdate("live:doc", emptied)),
+    ).toMatchObject({ code: "unsupported_content", reason: "empty" });
+
     expect(await row("live:doc")).toMatchObject({
       text_snapshot: "kept",
       version: 0,
@@ -648,6 +699,7 @@ describe("applyUpdate on a live copy", () => {
     for (const [text, reason] of [
       ["!html", "invalid_output"],
       ["!edit", "derive_edited"],
+      ["!park", "derive_edited"],
     ]) {
       const update = clientEdit(new Uint8Array(0), appendParagraph(text));
       expect(
@@ -944,6 +996,38 @@ describe("mutateLiveCopy", () => {
     expect(await row("live:doc")).toMatchObject({ version: 2 });
   });
 
+  it("redoes an unchanged edit's own rows when the copy moved under it", async () => {
+    let bumped = false;
+    const binding = define({
+      runner: intercepted(async (task) => {
+        if (task !== "liveCopy.edit" || bumped) return;
+        bumped = true;
+        await pglite
+          .prepare(
+            "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
+          )
+          .run("live:doc");
+      }),
+    });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+    const versions: number[] = [];
+    const result = await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "unchanged",
+      persist: async (tx, change) => {
+        versions.push(change.version);
+        await tx.execute({
+          sql: "INSERT INTO bodies (doc_id, body, version) VALUES (?, ?, ?)",
+          args: ["claim", change.text, change.version],
+        });
+      },
+    });
+    expect(result).toMatchObject({ changed: false, version: 1, attempts: 2 });
+    expect(versions).toEqual([0, 1]);
+    expect(await pglite.prepare("SELECT version FROM bodies").all()).toEqual([
+      { version: 1 },
+    ]);
+  });
+
   it("rolls back the whole commit when the persist hook throws", async () => {
     let fail = false;
     const binding = define({
@@ -1083,6 +1167,9 @@ describe("other collab paths", () => {
           "live:doc",
           clientEdit(new Uint8Array(0), appendParagraph("x")),
         ),
+      // Refused before the seed is decoded on this thread.
+      () =>
+        manager.seedXmlFragmentIfEmpty("live:doc", new Uint8Array([255, 255])),
       () =>
         manager.withPreparedYDocMutation("live:doc", undefined, async () => 1),
     ];

@@ -160,8 +160,12 @@ function assertOnlyField(doc: Y.Doc, field: string): void {
  * Yjs parks structs and deletions whose dependencies are missing instead of
  * applying them; derive would never see them.
  */
+function hasParked(doc: Y.Doc): boolean {
+  return doc.store.pendingStructs !== null || doc.store.pendingDs !== null;
+}
+
 function assertIntegrated(doc: Y.Doc, what: string): void {
-  if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) {
+  if (hasParked(doc)) {
     fail(
       "malformed_state",
       "missing_dependencies",
@@ -170,13 +174,29 @@ function assertIntegrated(doc: Y.Doc, what: string): void {
   }
 }
 
+/**
+ * Applies a whole update and reports whether every byte was read.
+ * `Y.applyUpdate` stops after the delete set and ignores the rest, so junk
+ * after a valid prefix would pass as state. The reader is lib0's decoder
+ * shape, which Yjs reads structurally; lib0 is not a dependency of core.
+ */
+function readWhole(doc: Y.Doc, bytes: Uint8Array): boolean {
+  const decoder = { arr: bytes, pos: 0 };
+  Y.readUpdate(decoder as never, doc, null);
+  return decoder.pos === bytes.length;
+}
+
 function load(state: Uint8Array | null, field: string): Y.Doc {
   const doc = new Y.Doc();
   try {
     if (state !== null && state.length > 0) {
+      let whole = false;
       try {
-        Y.applyUpdate(doc, state);
+        whole = readWhole(doc, state);
       } catch {
+        whole = false;
+      }
+      if (!whole) {
         fail("malformed_state", "yjs", "the stored state is not a Yjs update");
       }
       assertIntegrated(doc, "stored state");
@@ -203,12 +223,16 @@ function watchChanges(doc: Y.Doc): { changed(): boolean; stop(): void } {
 
 function applyChange(doc: Y.Doc, update: Uint8Array, what: string): boolean {
   const watch = watchChanges(doc);
+  let whole = false;
   try {
-    Y.applyUpdate(doc, update);
+    whole = readWhole(doc, update);
   } catch {
-    fail("malformed_state", "update", `the ${what} is not a Yjs update`);
+    whole = false;
   } finally {
     watch.stop();
+  }
+  if (!whole) {
+    fail("malformed_state", "update", `the ${what} is not a Yjs update`);
   }
   assertIntegrated(doc, what);
   return watch.changed();
@@ -239,7 +263,8 @@ async function derive(
     watch.stop();
   }
   // An edit here would make the stored text describe a state never stored.
-  if (watch.changed()) {
+  // Parking an update emits no update event, so check for that too.
+  if (watch.changed() || hasParked(doc)) {
     fail("derive_failed", "derive_edited", "derive edited the document");
   }
   if (typeof output === "string") return output;
@@ -330,6 +355,15 @@ export function defineLiveCopyTasks(
           return { kind: "unchanged" };
         }
         assertOnlyField(doc, input.field);
+        // An empty field reads as unseeded, and a seed would then write over
+        // what the user deleted. Editors always keep one block.
+        if (!fieldHasContent(doc, input.field)) {
+          fail(
+            "unsupported_content",
+            "empty",
+            `the update would leave "${input.field}" empty`,
+          );
+        }
         const state = encode(doc, input.maxStateBytes);
         const text = await derive(handlers, doc, input.field);
         return { kind: "changed", state, text };
@@ -373,13 +407,9 @@ export function defineLiveCopyTasks(
           );
         }
         const state = encode(doc, input.maxStateBytes);
+        const update = Y.encodeStateAsUpdate(doc, before);
         const text = await derive(handlers, doc, input.field);
-        return {
-          kind: "changed",
-          state,
-          text,
-          update: Y.encodeStateAsUpdate(doc, before),
-        };
+        return { kind: "changed", state, text, update };
       } finally {
         doc.destroy();
       }
@@ -427,13 +457,9 @@ export function defineLiveCopyTasks(
           );
         }
         const state = encode(doc, input.maxStateBytes);
+        const update = Y.encodeStateAsUpdate(doc, before);
         const text = await derive(handlers, doc, input.field);
-        return {
-          kind: "changed",
-          state,
-          text,
-          update: Y.encodeStateAsUpdate(doc, before),
-        };
+        return { kind: "changed", state, text, update };
       } finally {
         doc.destroy();
       }

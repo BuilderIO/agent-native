@@ -615,13 +615,33 @@ export async function commitLiveCopy(
   }
 }
 
-/** Runs a caller's persist by itself, for a write that committed nothing. */
+/**
+ * Runs a caller's persist by itself, for a write that committed nothing,
+ * while the copy is still at `version`. Returns false, with nothing
+ * written, when another writer moved it first.
+ */
 export async function persistLiveCopyCall(
   docId: string,
+  version: number,
   callPersist: LiveCopyCallPersist,
-): Promise<void> {
+): Promise<boolean> {
   assertOwnTransaction(docId, "persistLiveCopyCall");
-  await runLiveCopyTransaction(docId, (tx) =>
-    runCallPersist(docId, tx, callPersist),
-  );
+  try {
+    await runLiveCopyTransaction(docId, async (tx) => {
+      await runCallPersist(docId, tx, callPersist);
+      // Locked after the app's rows, as a commit locks them, and held to the
+      // end so no commit can slip in before this one lands.
+      const current = await tx.execute({
+        sql: "SELECT version FROM _collab_docs WHERE doc_id = ? FOR SHARE",
+        args: [docId],
+      });
+      if (Number(current.rows[0]?.version) !== version) {
+        throw new CommitVersionConflict();
+      }
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof CommitVersionConflict) return false;
+    throw error;
+  }
 }
