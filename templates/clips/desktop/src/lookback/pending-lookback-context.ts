@@ -119,7 +119,20 @@ export async function settlePendingLookbackContextAfterStop(
         pending.cleanupIntentPersisted = true;
       }
     }
-    const item = await pending.item;
+    let item: RecordingContextItem | null;
+    try {
+      item = await pending.item;
+    } catch (error) {
+      if (pending.cleanupIntentPersisted) {
+        console.warn(
+          "[lookback] failed-stop context request failed; releasing its durable cleanup intent for recovery:",
+          error,
+        );
+        if (contexts.get(recordingId) === pending) contexts.delete(recordingId);
+        return;
+      }
+      throw error;
+    }
     if (item) {
       pending.removalItemId = item.id;
       if (cleanupLifecycle) {

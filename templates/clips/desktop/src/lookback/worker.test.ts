@@ -161,10 +161,12 @@ describe("processRecordingContextItem", () => {
     expect(deps.forgetOrigin).not.toHaveBeenCalled();
   });
 
-  it("aborts a recording creation that never returns", async () => {
+  it("leaves a recording creation timeout pending for retry", async () => {
     vi.useFakeTimers();
     let createSignal: AbortSignal | undefined;
     const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () => item()),
       createRecording: vi.fn(({ signal }) => {
         createSignal = signal;
         return new Promise(() => {});
@@ -176,9 +178,9 @@ describe("processRecordingContextItem", () => {
 
     await expect(processing).resolves.toBe("failed");
     expect(createSignal?.aborted).toBe(true);
-    expect(deps.updates.at(-1)).toEqual(
-      expect.objectContaining({ id: "ctx1", status: "failed" }),
-    );
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.currentItem).toHaveBeenCalledWith("rec1", "ctx1");
+    expect(deps.forgetOrigin).not.toHaveBeenCalled();
   });
 
   it("cancels and releases a native upload that never returns", async () => {

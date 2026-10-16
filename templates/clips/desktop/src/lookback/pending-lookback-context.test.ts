@@ -181,6 +181,36 @@ describe("settlePendingLookbackContextAfterStop", () => {
     ]);
   });
 
+  it("releases the context after its durable cleanup intent can recover a rejected request", async () => {
+    const context = pending("recording-a");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let rejectItem!: (error: Error) => void;
+    context.item = new Promise((_resolve, reject) => {
+      rejectItem = reject;
+    });
+    const contexts = new Map([[context.recordingId, context]]);
+    const persistIntent = vi.fn();
+    const removeItem = vi.fn(async () => {});
+    const settling = settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      false,
+      removeItem,
+      {
+        persistIntent,
+        persistRemovalItem: vi.fn(),
+        clearIntent: vi.fn(),
+      },
+    );
+
+    rejectItem(new Error("network unavailable"));
+    await settling;
+
+    expect(persistIntent).toHaveBeenCalledOnce();
+    expect(contexts.has(context.recordingId)).toBe(false);
+    expect(removeItem).not.toHaveBeenCalled();
+  });
+
   it("attempts server removal when cleanup storage cannot be written", async () => {
     const context = pending("recording-a");
     let resolveItem!: (item: RecordingContextItem) => void;

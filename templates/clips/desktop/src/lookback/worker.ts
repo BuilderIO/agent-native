@@ -217,6 +217,13 @@ async function processRecordingContextItemWithOrigin(
         }),
     );
   } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      console.warn(
+        "[lookback] recording creation timed out; leaving the item pending for retry:",
+        error,
+      );
+      return "failed";
+    }
     return failWithoutFootage(item, error, deps);
   }
 
