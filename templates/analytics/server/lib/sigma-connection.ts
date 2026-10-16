@@ -1,3 +1,5 @@
+import { normalizeSigmaApiBaseUrl } from "@agent-native/core/connections";
+
 export const SIGMA_PROVIDER_ID = "sigma";
 export const SIGMA_DIRECT_CREDENTIALS_KEY = "ANALYTICS_SIGMA_CREDENTIALS";
 export const SIGMA_DIRECT_CONNECTION_MARKER = "analytics-direct";
@@ -10,29 +12,7 @@ export interface SigmaDirectCredentials {
 }
 
 export function normalizeSigmaBaseUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname.toLowerCase();
-    if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.port ||
-      url.search ||
-      url.hash ||
-      url.pathname !== "/" ||
-      !(
-        hostname === "sigmacomputing.com" ||
-        hostname.endsWith(".sigmacomputing.com")
-      )
-    ) {
-      return null;
-    }
-    return url.origin;
-  } catch {
-    // coercion-ok: Invalid URLs are an explicit null validation result.
-    return null;
-  }
+  return normalizeSigmaApiBaseUrl(value);
 }
 
 export function sigmaCredentialField(

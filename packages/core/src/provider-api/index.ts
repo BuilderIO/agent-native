@@ -5,6 +5,7 @@ import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
 } from "../connections/catalog.js";
+import { normalizeSigmaApiBaseUrl } from "../connections/sigma-api.js";
 import {
   assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
@@ -347,6 +348,15 @@ export type ProviderApiAuthKind =
       workspaceProvider: string;
     }
   | {
+      type: "oauth-bearer-or-client-credentials";
+      oauthProvider: string;
+      tokenLabel: string;
+      clientIdKey: string;
+      clientSecretKey: string;
+      tokenPath: string;
+      workspaceProvider: string;
+    }
+  | {
       type: "oauth-bearer-or-api-key-header";
       oauthProvider: string;
       tokenLabel: string;
@@ -532,6 +542,7 @@ interface ResolvedAuth {
 interface ResolvedProviderEndpoint {
   url: string;
   owner?: CredentialEndpointOwner;
+  credentialMode?: "oauth";
 }
 
 interface ProviderApiHttpResponse {
@@ -571,6 +582,14 @@ interface OAuthTokens {
   expires_in?: number;
   token_type?: string;
   scope?: string;
+  sigma_api_base_url?: string;
+  sigma_token_url?: string;
+  sigma_client_id?: string;
+  sigma_client_secret?: string;
+  sigma_token_endpoint_auth_method?:
+    | "none"
+    | "client_secret_basic"
+    | "client_secret_post";
 }
 
 const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
@@ -659,7 +678,9 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     requiresConnectionId: true,
     requireHttps: true,
     auth: {
-      type: "oauth-client-credentials",
+      type: "oauth-bearer-or-client-credentials",
+      oauthProvider: "sigma",
+      tokenLabel: "Sigma OAuth token",
       clientIdKey: "SIGMA_CLIENT_ID",
       clientSecretKey: "SIGMA_CLIENT_SECRET",
       tokenPath: "/v2/auth/token",
@@ -696,7 +717,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "Uses OAuth client-credentials exchange through a Sigma workspace connection. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
+      "Uses a personal Sigma OAuth connection when selected, or the existing OAuth client-credentials exchange for directly configured connections. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
     ],
   },
   apollo: {
@@ -2268,14 +2289,21 @@ export async function resolveProviderApiOAuthAccessToken(
               tokenLabel: auth.tokenLabel,
               workspaceProvider: auth.workspaceProvider,
             }
-          : auth.type === "google-service-account" && auth.oauthProvider
+          : auth.type === "oauth-bearer-or-client-credentials"
             ? {
                 type: "oauth-bearer" as const,
                 oauthProvider: auth.oauthProvider,
-                tokenLabel: "Google OAuth token",
+                tokenLabel: auth.tokenLabel,
                 workspaceProvider: auth.workspaceProvider,
               }
-            : null;
+            : auth.type === "google-service-account" && auth.oauthProvider
+              ? {
+                  type: "oauth-bearer" as const,
+                  oauthProvider: auth.oauthProvider,
+                  tokenLabel: "Google OAuth token",
+                  workspaceProvider: auth.workspaceProvider,
+                }
+              : null;
   if (!oauthAuth) {
     throw new Error(
       `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
@@ -3540,6 +3568,9 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "oauth-client-credentials") {
     return `oauth-client-credentials:${auth.workspaceProvider}`;
   }
+  if (auth.type === "oauth-bearer-or-client-credentials") {
+    return `oauth-bearer:${auth.oauthProvider}-or-oauth-client-credentials:${auth.workspaceProvider}`;
+  }
   if (auth.type === "oauth-bearer-or-api-key-header") {
     return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
   }
@@ -3642,7 +3673,11 @@ async function resolveBaseUrl(
     workspaceProvider,
   });
   const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
+  if (config.id === "sigma" && !normalizeSigmaApiBaseUrl(url)) {
+    throw new Error(`${config.label} API region is not supported.`);
+  }
   if (
+    config.id !== "sigma" &&
     config.baseUrlMustMatchAllowedHost &&
     !isAllowedProviderHost(new URL(url).hostname, config)
   ) {
@@ -3675,10 +3710,15 @@ async function resolveWorkspaceOAuthBaseUrl(
     auth.type === "oauth-bearer" ||
     auth.type === "oauth-bearer-or-api-key-header" ||
     auth.type === "oauth-bearer-or-bearer-key" ||
-    auth.type === "oauth-bearer-or-basic"
+    auth.type === "oauth-bearer-or-basic" ||
+    auth.type === "oauth-bearer-or-client-credentials"
       ? auth.workspaceProvider
       : undefined;
-  if (workspaceProvider !== "jira" && workspaceProvider !== "salesforce") {
+  if (
+    workspaceProvider !== "jira" &&
+    workspaceProvider !== "salesforce" &&
+    workspaceProvider !== "sigma"
+  ) {
     return null;
   }
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
@@ -3697,6 +3737,32 @@ async function resolveWorkspaceOAuthBaseUrl(
       return null;
     }
     throw error;
+  }
+  if (
+    workspaceProvider === "sigma" &&
+    resolved.connection?.config.credentialMode === "oauth"
+  ) {
+    if (!resolved.available) {
+      return throwWorkspaceConnectionRequired({
+        runtime,
+        provider: workspaceProvider,
+        connectionId: args.connectionId,
+        message: resolved.reason,
+      });
+    }
+    const baseUrl = normalizeSigmaApiBaseUrl(
+      String(resolved.connection.config.sigmaBaseUrl ?? ""),
+    );
+    if (!baseUrl) {
+      throw new Error(
+        "Sigma OAuth connection has an invalid API region. Reconnect it to continue.",
+      );
+    }
+    return {
+      url: baseUrl,
+      owner: workspaceConnectionEndpointOwner(resolved.connection),
+      credentialMode: "oauth",
+    };
   }
   if (!resolved.available || !resolved.connection) return null;
   const connectionConfig = resolved.connection.config;
@@ -3997,7 +4063,32 @@ async function resolveAuth(
       secretValues: [credential.value],
     };
   }
-  if (auth.type === "oauth-client-credentials") {
+  if (
+    auth.type === "oauth-client-credentials" ||
+    auth.type === "oauth-bearer-or-client-credentials"
+  ) {
+    if (
+      auth.type === "oauth-bearer-or-client-credentials" &&
+      endpoint.credentialMode === "oauth"
+    ) {
+      const oauthCredential = await resolveConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+          workspaceProvider: auth.workspaceProvider,
+        },
+        runtime,
+        ctx,
+        workspaceProvider: auth.workspaceProvider,
+        connectionId: args.connectionId,
+      });
+      return {
+        headers: { Authorization: `Bearer ${oauthCredential.value}` },
+        credentialSources: [omitCredentialValue(oauthCredential)],
+        secretValues: [oauthCredential.value],
+      };
+    }
     const clientId = await resolveRequiredCredential({
       provider: config.id,
       workspaceProvider: auth.workspaceProvider,
@@ -5005,9 +5096,106 @@ async function getValidOAuthAccessToken(options: {
   if (options.oauthProvider === "sentry") {
     return refreshSentryOAuthToken(options, refreshToken);
   }
+  if (options.oauthProvider === "sigma") {
+    return refreshSigmaOAuthToken(options, refreshToken);
+  }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
+}
+
+async function refreshSigmaOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const apiBaseUrl = normalizeSigmaApiBaseUrl(
+    options.tokens.sigma_api_base_url ?? "",
+  );
+  const clientId = options.tokens.sigma_client_id?.trim();
+  const tokenUrl = options.tokens.sigma_token_url;
+  const authMethod = options.tokens.sigma_token_endpoint_auth_method;
+  if (!apiBaseUrl || !clientId || !tokenUrl) {
+    throw new Error(
+      "Sigma OAuth connection is missing its refresh configuration.",
+    );
+  }
+  let parsedTokenUrl: URL;
+  try {
+    parsedTokenUrl = new URL(tokenUrl);
+  } catch {
+    throw new Error("Sigma OAuth token endpoint is invalid.");
+  }
+  if (
+    parsedTokenUrl.protocol !== "https:" ||
+    parsedTokenUrl.origin !== apiBaseUrl
+  ) {
+    throw new Error("Sigma OAuth token endpoint is outside its API region.");
+  }
+  if (
+    authMethod !== "none" &&
+    authMethod !== "client_secret_basic" &&
+    authMethod !== "client_secret_post"
+  ) {
+    throw new Error("Sigma OAuth token endpoint authentication is invalid.");
+  }
+  const fields = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: clientId,
+    refresh_token: refreshToken,
+  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  const clientSecret = options.tokens.sigma_client_secret;
+  if (authMethod === "client_secret_basic") {
+    if (!clientSecret) {
+      throw new Error(
+        "Sigma OAuth client secret is missing for token refresh.",
+      );
+    }
+    headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+  } else if (authMethod === "client_secret_post") {
+    if (!clientSecret) {
+      throw new Error(
+        "Sigma OAuth client secret is missing for token refresh.",
+      );
+    }
+    fields.set("client_secret", clientSecret);
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    parsedTokenUrl.href,
+    { method: "POST", headers, body: fields, redirect: "error" },
+    "Sigma",
+  );
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Sigma OAuth refresh failed (${response.status}).`);
+  }
+  const updated: OAuthTokens = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
 }
 
 async function refreshFigmaOAuthToken(

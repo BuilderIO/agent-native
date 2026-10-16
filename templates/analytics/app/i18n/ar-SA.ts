@@ -69,6 +69,12 @@ export default {
     sigmaChooseConnectionPlaceholder: "اختر اتصالًا",
     sigmaChooseConnectionDescription: "اختر مساحة عمل Sigma لتصفح مصنفاتها.",
     sigmaNoConnection: "Sigma غير متصل",
+    sigmaApiRegion: "منطقة Sigma API",
+    sigmaOAuthConnect: "ربط حساب Sigma الشخصي",
+    sigmaOAuthAddAnother: "ربط حساب Sigma آخر",
+    sigmaOAuthCancel: "إلغاء",
+    sigmaOAuthDescription:
+      "سجّل الدخول إلى Sigma بحسابك لتصفح المصنفات التي يمكنك الوصول إليها.",
     sigmaClientId: "معرّف العميل",
     sigmaClientSecret: "سر العميل",
     sigmaBaseUrl: "عنوان URL الأساسي لواجهة API (اختياري)",
@@ -81,7 +87,7 @@ export default {
       "تعذر تخزين بيانات اعتماد Sigma المؤقتة. تحقق من إمكانية الوصول إلى Vault ثم حاول مرة أخرى.",
     sigmaCredentialsRequired: "احفظ معرّف عميل Sigma وسر العميل أولًا.",
     sigmaBaseUrlInvalid:
-      "استخدم عنوان HTTPS لواجهة Sigma API ضمن نطاق sigmacomputing.com.",
+      "اختر عنوان URL رسميًا لمنطقة Sigma API مدعومة.",
     sigmaPersistenceUnavailable:
       "لا يمكن لـ Analytics حفظ اتصال Sigma بأمان حاليًا. حاول مرة أخرى.",
     sigmaPolicyInvalid:
@@ -96,7 +102,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. يمكن لمسؤول المؤسسة إعادة الاتصال عبر Dispatch أو إدخال بيانات الاعتماد مجددًا في Analytics.",
     sigmaNoConnectionDescription:
-      "أدخل بيانات الاعتماد هنا لإنشاء اتصال مخصص لـ Analytics. تظهر هنا تلقائيًا اتصالات Sigma الممنوحة لـ Analytics في Dispatch؛ ولا يمكن حفظ بيانات الاعتماد مباشرةً إلا لمسؤولي المؤسسة.",
+      "اربط حساب Sigma الشخصي أو استخدم بيانات اعتماد حفظها مسؤول المؤسسة. تظهر هنا أيضًا اتصالات Dispatch الممنوحة لـ Analytics.",
     sigmaOpenDispatch: "الاتصال عبر Dispatch",
     sigmaOpenVault: "فتح Vault",
     sigmaWorkbooksLoadFailed: "تعذر تحميل مصنفات Sigma",

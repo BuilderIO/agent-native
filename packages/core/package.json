@@ -417,6 +417,7 @@
     "./usage/actions/get-builder-credit-status": "./dist/usage/actions/get-builder-credit-status.js",
     "./usage/actions/get-builder-referral-info": "./dist/usage/actions/get-builder-referral-info.js",
     "./connections": "./dist/connections/index.js",
+    "./connections/sigma-api": "./dist/connections/sigma-api.js",
     "./connections/runtime": "./dist/connections/runtime.js",
     "./provider-api": "./dist/provider-api/index.js",
     "./provider-api/runtime": "./dist/provider-api/runtime.js",

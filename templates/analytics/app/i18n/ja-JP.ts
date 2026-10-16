@@ -69,6 +69,12 @@ export default {
     sigmaChooseConnectionDescription:
       "ワークブックを表示する Sigma ワークスペースを選択してください。",
     sigmaNoConnection: "Sigma が接続されていません",
+    sigmaApiRegion: "Sigma API リージョン",
+    sigmaOAuthConnect: "個人の Sigma アカウントを接続",
+    sigmaOAuthAddAnother: "別の Sigma アカウントを接続",
+    sigmaOAuthCancel: "キャンセル",
+    sigmaOAuthDescription:
+      "アカウントで Sigma にサインインして、アクセスできるワークブックを表示します。",
     sigmaClientId: "クライアント ID",
     sigmaClientSecret: "クライアントシークレット",
     sigmaBaseUrl: "API ベース URL（省略可）",
@@ -82,7 +88,7 @@ export default {
     sigmaCredentialsRequired:
       "先に Sigma のクライアント ID とクライアントシークレットを保存してください。",
     sigmaBaseUrlInvalid:
-      "sigmacomputing.com ドメインの HTTPS Sigma API URL を使用してください。",
+      "Sigma が公式にサポートする API リージョンの URL を選択してください。",
     sigmaPersistenceUnavailable:
       "現在、Analytics は Sigma 接続を安全に保存できません。もう一度お試しください。",
     sigmaPolicyInvalid:
@@ -97,7 +103,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics に保存された Sigma 認証情報を読み取れませんでした。組織の管理者は Dispatch で再接続するか、Analytics で認証情報を再入力できます。",
     sigmaNoConnectionDescription:
-      "ここに認証情報を入力すると Analytics 専用の接続を作成できます。Dispatch で Analytics に許可された Sigma 接続はここに自動で表示されます。認証情報を直接保存できるのは組織管理者のみです。",
+      "個人の Sigma アカウントを接続するか、組織管理者が保存した認証情報を使用してください。Analytics に許可された Dispatch 接続もここに表示されます。",
     sigmaOpenDispatch: "Dispatch で接続",
     sigmaOpenVault: "Vault を開く",
     sigmaWorkbooksLoadFailed: "Sigma のワークブックを読み込めませんでした",

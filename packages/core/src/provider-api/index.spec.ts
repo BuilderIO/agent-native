@@ -290,7 +290,7 @@ describe("provider API runtime", () => {
         "SIGMA_CLIENT_SECRET",
         "SIGMA_BASE_URL",
       ],
-      auth: "oauth-client-credentials:sigma",
+      auth: "oauth-bearer:sigma-or-oauth-client-credentials:sigma",
     });
     expect(resolveCredential).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -323,6 +323,7 @@ describe("provider API runtime", () => {
   it.each([
     ["insecure", "http://aws-api.sigmacomputing.com"],
     ["outside Sigma's host family", "https://sigma-attacker.example"],
+    ["unregistered Sigma origin", "https://tenant.sigmacomputing.com"],
   ])(
     "rejects %s Sigma API origins before sending credentials",
     async (_, value) => {
@@ -352,11 +353,102 @@ describe("provider API runtime", () => {
           path: "/v2/workbooks",
           connectionId: "sigma-connection",
         }),
-      ).rejects.toThrow(/configured provider host/);
+      ).rejects.toThrow(/region is not supported/);
       expect(globalThis.fetch).not.toHaveBeenCalled();
       expect(resolveCredential).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("uses the selected Sigma OAuth connection and refreshes its token", async () => {
+    const connection = {
+      id: "sigma-oauth-connection",
+      provider: "sigma",
+      label: "Sigma: Ada",
+      accountId: "org-1:user-1::ada@example.com",
+      ownerEmail: "ada@example.com",
+      orgId: "org-1",
+      config: {
+        credentialMode: "oauth",
+        sigmaBaseUrl: "https://aws-api.sigmacomputing.com",
+      },
+      scopes: ["api:access"],
+      status: "connected",
+    };
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection,
+      appAccess: { available: true },
+      reason: "",
+    });
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: connection.accountId,
+        displayName: "Ada",
+        tokens: {
+          access_token: "expired-sigma-token",
+          expiry_date: Date.now() - 1_000,
+          refresh_token: "sigma-refresh-token",
+          sigma_api_base_url: "https://aws-api.sigmacomputing.com",
+          sigma_token_url: "https://aws-api.sigmacomputing.com/mcp/token",
+          sigma_client_id: "sigma-oauth-client-id",
+          sigma_token_endpoint_auth_method: "none",
+        },
+      },
+    ]);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/mcp/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "refreshed-sigma-token",
+              refresh_token: "rotated-sigma-refresh-token",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: vi.fn(),
+    });
+
+    const result = await runtime.executeRequest({
+      provider: "sigma",
+      path: "/v2/workbooks",
+      connectionId: connection.id,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://aws-api.sigmacomputing.com/mcp/token",
+    );
+    const refreshBody = new URLSearchParams(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    );
+    expect(refreshBody.get("refresh_token")).toBe("sigma-refresh-token");
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer refreshed-sigma-token",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "sigma",
+      connection.accountId,
+      expect.objectContaining({
+        access_token: "refreshed-sigma-token",
+        refresh_token: "rotated-sigma-refresh-token",
+      }),
+      "ada@example.com",
+    );
+    expect(JSON.stringify(result)).not.toContain("refreshed-sigma-token");
+  });
 
   it("allows the configured provider origin alongside registered host suffixes", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
