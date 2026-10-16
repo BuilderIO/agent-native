@@ -44,7 +44,7 @@ const AUDIT_HTML = `<!doctype html>
   </body>
 </html>`;
 
-// The inspector's Opacity animation is a native style: 1s ease-out, played once.
+// The inspector's Opacity animation is a native style: 500 ms ease-out by default, played once.
 function expectedAlphaOpacityCss(durationMs = 500): string {
   const source = encodeURIComponent(
     JSON.stringify({

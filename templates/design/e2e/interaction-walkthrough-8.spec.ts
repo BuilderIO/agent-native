@@ -89,6 +89,8 @@ async function selectedScreenIds(page: Page): Promise<string[]> {
     appPath("/_agent-native/application-state/design-selection"),
   );
   expect(response.ok()).toBe(true);
+  // 204: the editor has not written a selection yet.
+  if (response.status() === 204) return [];
   return ((await response.json()).selectedScreenIds ?? []) as string[];
 }
 
@@ -193,22 +195,6 @@ async function openWithBoardIdentity(app: App, designId: string) {
       return board?.content?.includes("data-agent-native-node-id") ?? false;
     })
     .toBe(true);
-}
-
-/** The longhands a style parses to, so equal declarations match however they were serialized. */
-async function parsedStyle(page: Page, style: Record<string, string>) {
-  return page.evaluate((declarations) => {
-    const probe = document.createElement("div");
-    for (const [property, value] of Object.entries(declarations)) {
-      probe.style.setProperty(property, value);
-    }
-    return Object.fromEntries(
-      Array.from(probe.style, (property) => [
-        property,
-        probe.style.getPropertyValue(property),
-      ]),
-    );
-  }, style);
 }
 
 function px(value: string | undefined) {
@@ -357,13 +343,11 @@ test("Option-dragging a component instance onto another screen drops a copy at t
   );
   expect(copies).toHaveLength(1);
   expect(homeAfter.get(copies[0].parent!)?.tag).toBe("body");
-  expect(await parsedStyle(app.page, styleOf(copies[0]))).toEqual(
-    await parsedStyle(app.page, {
-      ...styleOf(navBefore.get("nav-root")),
-      left: "100px",
-      top: "180px",
-    }),
-  );
+  expect(styleOf(copies[0])).toEqual({
+    ...styleOf(navBefore.get("nav-root")),
+    left: "100px",
+    top: "180px",
+  });
   expectOnlyChanged(
     homeBefore,
     homeAfter,
@@ -660,6 +644,18 @@ test("dragging Bio above Skills in the Layers panel reorders the saved children 
 });
 
 /** The selected Layers row's name and the Screen row it is listed under. */
+async function selectedSourceId(page: Page) {
+  const response = await page.request.get(
+    appPath("/_agent-native/application-state/design-selection"),
+  );
+  expect(response.ok()).toBe(true);
+  if (response.status() === 204) return null;
+  const state = (await response.json()) as {
+    selectedElement?: { sourceId?: string } | null;
+  };
+  return state.selectedElement?.sourceId ?? null;
+}
+
 function selectedRowPlace(page: Page) {
   return page.evaluate(() => {
     const rows = Array.from(
@@ -695,6 +691,7 @@ test("'Go to main component' on a later instance selects the earliest instance o
   );
   await app.page.mouse.click(point.x, point.y);
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+  await app.settled();
   const before = await app.savedRecord(id);
 
   await app.page.getByRole("button", { name: "Go to main component" }).click();
@@ -702,6 +699,9 @@ test("'Go to main component' on a later instance selects the earliest instance o
   await expect
     .poll(() => selectedRowPlace(app.page), "the main on Home is selected")
     .toEqual({ screen: "Home", layer: "Navigation" });
+  await expect
+    .poll(() => selectedSourceId(app.page), "the selected element is the main")
+    .toBe("nav-root");
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
   await app.settled();
   expect((await app.savedRecord(id)).files).toEqual(before.files);

@@ -544,9 +544,13 @@ test("board regression: overlapping board Frames keep the pointer drop without c
       ).__boardDragTrace ?? [],
   );
 
+  // The frame already sits on the board body, so wait for the drop's save itself.
   await expect
-    .poll(() => persistedBoardPosition(page, id, "drag-frame"))
-    .toMatchObject({ parentTagName: "body" });
+    .poll(async () => {
+      const saved = await persistedBoardPosition(page, id, "drag-frame");
+      return Math.abs(saved.left - expected.left) <= 6;
+    })
+    .toBe(true);
   const persisted = await persistedBoardPosition(page, id, "drag-frame");
   expect(Math.abs(persisted.left - expected.left)).toBeLessThanOrEqual(6);
   expect(Math.abs(persisted.top - expected.top)).toBeLessThanOrEqual(6);

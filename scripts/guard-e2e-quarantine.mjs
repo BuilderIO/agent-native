@@ -9,7 +9,7 @@ const CEILINGS = {
 };
 
 const SKIP_CEILINGS = {
-  "templates/design/e2e": 7,
+  "templates/design/e2e": 8,
 };
 
 const listOnly = process.argv.includes("--list");

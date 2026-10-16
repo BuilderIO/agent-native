@@ -2335,3 +2335,51 @@ test("Design chat sends a queued image to model vision input", async ({
     .join("\n");
   expect(providerText).not.toContain("reference-only-unavailable");
 });
+
+test("Edit with Agent from a layer's context menu focuses the Agent composer and takes typed input", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+  const { designId, fileId } = await createDesign(page);
+  await configureProvider(page, designId, fileId, "observe");
+  await gotoEditor(page, designId);
+  const heading = designFrame(page, fileId).locator("h1.title");
+  await expect(heading).toBeVisible({ timeout: 30_000 });
+  const contentBefore = (await readDesign(page, designId)).files?.find(
+    (file) => file.id === fileId,
+  )?.content;
+
+  const box = (await heading.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+    button: "right",
+  });
+  await page
+    .getByRole("menuitem", { name: "Edit with Agent", exact: true })
+    .click();
+
+  const composer = page.locator("[data-design-agent-panel] .ProseMirror");
+  await expect(composer).toBeFocused();
+  await page.keyboard.type("Make this heading more concise");
+  await expect(composer).toContainText("Make this heading more concise");
+  expect(
+    (await readDesign(page, designId)).files?.find((file) => file.id === fileId)
+      ?.content,
+    "the keystrokes went to the composer, not the canvas",
+  ).toBe(contentBefore);
+});
