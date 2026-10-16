@@ -1,10 +1,27 @@
 # Slack Reaction Replies
 
-For every Slack item this run independently marks with a workflow reaction,
-send one concise reply under the same parent with its disposition. A same-run
-fix gets its final reply after verification; continuing work gets a concrete
+At sweep exit, reconcile every parent in the scoped inventory that has this
+workflow's `👀`, including eyes left by earlier runs. Each needs a current
+disposition and a matching status reply under that same parent. A same-run fix
+gets its final reply after verification; continuing work gets a concrete
 progress reply. An earlier generic “taking a look” does not satisfy this
-update.
+update. If an existing reply already names the current disposition and its
+evidence, read it back and record its timestamp instead of duplicating it.
+
+Keep `👀` as claim history. Add `✅` only when the disposition is **Fixed** and
+the verified scope is clear in the reply. Add `🎫` only for each distinct
+unfinished scope that needs a human to take ownership or act; name the owner
+and action, and link a real ticket when one exists. Work that remains with this
+workflow is active, not a human handoff. A current or inherited eye does not
+automatically need either reaction. Verify the parent reaction owners and the
+thread reply as the invoking identity before recording the thread as
+reconciled.
+
+An unanswered request for a reporter-provided URL, access grant, or evidence is
+**Asked** or **Clarification needed**, not a separate human handoff. Keep `👀`
+and state the exact question; do not add `🎫` solely for that wait. Use `🎫`
+when another person must take a distinct review, ownership, or decision action
+that this workflow cannot complete.
 
 Preserve cluster handling: identify known duplicates before claiming them;
 represent duplicate non-owner threads by permalink and **Clustered** in one

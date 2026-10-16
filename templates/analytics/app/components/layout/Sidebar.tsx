@@ -2472,24 +2472,26 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             brandHref="/home"
             collapsed={true}
           />
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-2 py-3">
-            {collapsedNavItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Tooltip key={item.href}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to={item.href}
-                      onClick={item.onClick}
-                      aria-label={item.label}
-                    >
-                      <Icon className="size-4 text-primary" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
-                </Tooltip>
-              );
-            })}
+          <nav className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 py-3">
+            <div className="my-auto flex flex-col items-center gap-2">
+              {collapsedNavItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Tooltip key={item.href}>
+                    <TooltipTrigger asChild>
+                      <Link
+                        to={item.href}
+                        onClick={item.onClick}
+                        aria-label={item.label}
+                      >
+                        <Icon className="size-4 text-primary" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{item.label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
           </nav>
           <AppSidebarFooter
             collapsed={true}

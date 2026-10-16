@@ -21,9 +21,12 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Reply in-thread for every workflow reaction added this run;
-continuing work gets a concrete progress reply, and resolved work gets a final
-reply after verification. Follow
+Output is fixes. At the end of each sweep, reconcile every workflow-owned `👀`
+in the scoped inventory, including eyes left by earlier runs. Each needs a
+current disposition and a matching status reply; continuing work gets a
+concrete progress reply, and terminal work gets a final reply after verification.
+Add `✅` only for verified **Fixed** scope and `🎫` only for a distinct
+unfinished human handoff; an existing eye alone earns neither. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
@@ -78,7 +81,26 @@ ledger and say that an owner or ticket still needs to be assigned. Do not
 create or promise a ticket without authorization. No `🎫` for fixed scope,
 routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
+Reporter requests for a URL, access, or other evidence stay **Asked** or
+**Clarification needed** with `👀`; do not add `🎫` just because the reporter
+must answer. Reserve `🎫` for a separate review, ownership, or decision handoff
+that this workflow cannot complete.
 Follow the reply reference before marking an item replied.
+
+### End-of-sweep owned-eye reconciliation
+
+Before recapping, revisit every parent in the scoped inventory with this task's
+`👀`, whether this run added it or inherited it. Recheck the parent reaction
+owners and read the full thread. Record one current disposition for every
+owned eye, then ensure the same parent has a status reply from this workflow
+identity that matches that disposition and its evidence. A previous reply
+counts only if it already states the current outcome; record its timestamp. If
+the outcome changed, reply with the corrected status. Keep active and waiting
+eyes; update stale progress only with the concrete next action, owner, or
+reporter fact that gates work. Add `✅` and `🎫` only under the Reaction gate.
+Read back every new reaction and reply as the invoking identity before the
+recap. Do not count a thread as reconciled from an eye, an old generic
+“looking into it,” a reply in another thread, or the disposition ledger alone.
 
 Before recording an evidence limit or asking, try to reproduce the defect from
 the supplied artifact, URL, error, run ID, or logs. Investigate our access,
