@@ -3311,8 +3311,15 @@ LIMIT 500`,
 
 export function getFirstPartyDrilldown(
   panelId: string,
+  panelSource: string,
+  panelSql: string,
 ): FirstPartyDrilldown | null {
-  return Object.prototype.hasOwnProperty.call(DRILLDOWNS, panelId)
-    ? DRILLDOWNS[panelId]
-    : null;
+  if (
+    panelSource !== "first-party" ||
+    !Object.prototype.hasOwnProperty.call(DRILLDOWNS, panelId)
+  ) {
+    return null;
+  }
+
+  return buildPanel(panelId)?.sql === panelSql ? DRILLDOWNS[panelId] : null;
 }

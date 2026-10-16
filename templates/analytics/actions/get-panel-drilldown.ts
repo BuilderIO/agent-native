@@ -10,8 +10,10 @@ export default defineAction({
     "Return the record-level drill-down SQL template for a first-party dashboard panel, or null when the panel only has aggregate rows. The template uses {{drillX}} and {{drillSeries}} for the clicked chart point plus the dashboard filter variables.",
   schema: z.object({
     panelId: z.string().min(1).max(200),
+    panelSource: z.string().min(1).max(100),
+    panelSql: z.string().min(1).max(50_000),
   }),
-  run: async ({ panelId }) => ({
-    drilldown: getFirstPartyDrilldown(panelId),
+  run: async ({ panelId, panelSource, panelSql }) => ({
+    drilldown: getFirstPartyDrilldown(panelId, panelSource, panelSql),
   }),
 });

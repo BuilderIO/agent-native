@@ -84,7 +84,7 @@ export function PanelDrilldownDialog({
 
   const drilldownQuery = useActionQuery(
     "get-panel-drilldown",
-    { panelId: panel.id },
+    { panelId: panel.id, panelSource: panel.source, panelSql: panel.sql },
     { enabled: open, staleTime: 5 * 60 * 1000 },
   );
   const drilldownData = drilldownQuery.data;

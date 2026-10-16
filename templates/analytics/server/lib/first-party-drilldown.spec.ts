@@ -95,7 +95,12 @@ describe("first-party panel drilldowns", () => {
     await insert("onboarding_started", "a", "clips");
 
     const stages = (await run(buildPanel("activation-funnel")!.sql)).rows;
-    const drilldown = getFirstPartyDrilldown("activation-funnel")!;
+    const funnelPanel = buildPanel("activation-funnel")!;
+    const drilldown = getFirstPartyDrilldown(
+      funnelPanel.id,
+      funnelPanel.source,
+      funnelPanel.sql,
+    )!;
     for (const { stage, users } of stages as Array<{
       stage: string;
       users: number;
@@ -118,14 +123,24 @@ describe("first-party panel drilldowns", () => {
 
     const byTemplate = (await run(buildPanel("signups-by-template")!.sql))
       .rows as Array<{ template: string; count: number }>;
-    const templateDrill = getFirstPartyDrilldown("signups-by-template")!;
+    const byTemplatePanel = buildPanel("signups-by-template")!;
+    const templateDrill = getFirstPartyDrilldown(
+      byTemplatePanel.id,
+      byTemplatePanel.source,
+      byTemplatePanel.sql,
+    )!;
     for (const { template, count } of byTemplate) {
       const rows = (await run(templateDrill.sql, { drillX: template })).rows;
       expect(rows, template).toHaveLength(Number(count));
       expect(Number(rows[0]?.total_matching)).toBe(Number(count));
     }
 
-    const dayDrill = getFirstPartyDrilldown("signups-over-time")!;
+    const dayPanel = buildPanel("signups-over-time")!;
+    const dayDrill = getFirstPartyDrilldown(
+      dayPanel.id,
+      dayPanel.source,
+      dayPanel.sql,
+    )!;
     expect((await run(dayDrill.sql, { drillX: day })).rows).toHaveLength(3);
     expect(
       (await run(dayDrill.sql, { drillX: day, drillSeries: "mail" })).rows,
@@ -133,7 +148,23 @@ describe("first-party panel drilldowns", () => {
   }, 20_000);
 
   it("has no drilldown for panels without one", () => {
-    expect(getFirstPartyDrilldown("constructor")).toBeNull();
-    expect(getFirstPartyDrilldown("total-signups")).toBeNull();
+    const totalSignupsPanel = buildPanel("total-signups")!;
+    expect(getFirstPartyDrilldown("constructor", "first-party", "")).toBeNull();
+    expect(
+      getFirstPartyDrilldown(
+        totalSignupsPanel.id,
+        totalSignupsPanel.source,
+        totalSignupsPanel.sql,
+      ),
+    ).toBeNull();
+  });
+
+  it("only enables drilldowns for the supported source and catalog SQL", () => {
+    const panel = buildPanel("signups-over-time")!;
+
+    expect(getFirstPartyDrilldown(panel.id, "bigquery", panel.sql)).toBeNull();
+    expect(
+      getFirstPartyDrilldown(panel.id, panel.source, `${panel.sql} LIMIT 10`),
+    ).toBeNull();
   });
 });
