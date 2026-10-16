@@ -310,6 +310,37 @@ describe("shared context URL dialog", () => {
     expect(primaryCard().textContent).toContain("Replacement result");
   });
 
+  it("retries a failed remote gallery load", async () => {
+    const load = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Decks are unavailable"))
+      .mockResolvedValueOnce({
+        items: [{ id: "deck", title: "Campaign deck" }],
+        hasMore: false,
+      });
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search decks",
+      load,
+      onSelect: vi.fn(),
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config);
+    await tick();
+
+    expect(dialog()!.querySelector('[role="alert"]')?.textContent).toContain(
+      "Decks are unavailable",
+    );
+    await click("agentChat.common.retry");
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(dialog()!.textContent).toContain("Campaign deck");
+  });
+
   it("shows distinct preview cards for duplicate titles and retains selections through search", async () => {
     const onAttach = vi.fn().mockResolvedValue(undefined);
     const items = [

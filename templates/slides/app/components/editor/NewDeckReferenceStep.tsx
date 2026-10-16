@@ -354,6 +354,7 @@ export function NewDeckReferenceStep({
           id: string;
           title: string;
           previewSlide?: Slide;
+          previewTooLarge?: boolean;
           aspectRatio?: AspectRatio;
           updatedAt: string;
         }>;
@@ -390,6 +391,13 @@ export function NewDeckReferenceStep({
                   aspectRatio={deck.aspectRatio}
                 />
               </div>
+            </div>
+          ) : deck.previewTooLarge ? (
+            <div
+              aria-hidden
+              className="slide-reference-preview-fallback flex h-full items-center justify-center bg-muted text-muted-foreground"
+            >
+              <IconPresentation className="size-8" />
             </div>
           ) : null,
           metadata: (

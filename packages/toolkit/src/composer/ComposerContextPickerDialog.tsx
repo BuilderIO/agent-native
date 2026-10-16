@@ -183,6 +183,7 @@ export function ComposerContextPickerDialog({
                     loading={loading || searchPending}
                     error={error}
                     disabled={selecting || loading || searchPending}
+                    onRetry={picker.retry}
                     labels={{
                       loading: t("agentChat.composer.contextPending", {
                         defaultValue: "Loading context…",

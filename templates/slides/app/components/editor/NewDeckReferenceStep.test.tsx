@@ -718,6 +718,31 @@ describe("<NewDeckReferenceStep>", () => {
     );
   });
 
+  it("shows a fallback preview when a deck slide is too large to render", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-large-preview",
+          title: "Large slide deck",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+          previewTooLarge: true,
+        },
+      ],
+    });
+    await renderStep({ decks: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+
+    expect(
+      picker.querySelector(
+        ".agent-template-library-preview .slide-reference-preview-fallback svg",
+      ),
+    ).toBeTruthy();
+  });
+
   it("requires an explicit reference deck choice", async () => {
     callActionMock.mockResolvedValue({ decks: [] });
     const { onSelect } = await renderStep({
