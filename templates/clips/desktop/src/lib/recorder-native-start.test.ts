@@ -534,6 +534,15 @@ describe("native recording startup", () => {
     const handle = await pending;
     const recordingId = createdRecordingId();
 
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "clips:recorder-session",
+      expect.objectContaining({
+        viewUrl: `${params.serverUrl}/r/${recordingId}`,
+        recordingId,
+        localOnly: false,
+        lookbackEnabled: true,
+      }),
+    );
     expect(originAtCaptureStartRequest).toMatchObject({ recordingId });
     expect(originAtCaptureStartRequest?.startedAt).toBe(
       startedAtCaptureStartRequest,
@@ -607,6 +616,15 @@ describe("native recording startup", () => {
     const handle = await pending;
     const recordingId = createdRecordingId();
 
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "clips:recorder-session",
+      expect.objectContaining({
+        viewUrl: `${params.serverUrl}/r/${recordingId}`,
+        recordingId,
+        localOnly: false,
+        lookbackEnabled: false,
+      }),
+    );
     expect(getRewindClipOrigin(recordingId)).toBeNull();
 
     await handle.cancel();
@@ -634,6 +652,14 @@ describe("native recording startup", () => {
     expect(recordingId).toBeNull();
     expect(captureIdentity).toEqual(expect.any(String));
     expect(getRewindClipOrigin(captureIdentity)).toBeNull();
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "clips:recorder-session",
+      expect.objectContaining({
+        viewUrl: null,
+        localOnly: true,
+        lookbackEnabled: false,
+      }),
+    );
 
     await handle.cancel();
   });
