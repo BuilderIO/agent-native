@@ -146,13 +146,15 @@ async function mount(client: QueryClient, renders: string[]) {
   roots.push({ root, container, client });
 
   function SessionShell({ children }: { children: ReactNode }) {
-    const hidden = sessionState.read() === null;
+    const session = sessionState.read();
+    const signedOut = sessionState.readStatus() === "unauthenticated";
+    const hidden = session === null;
     return (
       <div
         data-testid="session-shell"
         style={{ display: hidden ? "none" : "contents" }}
       >
-        {children}
+        {signedOut ? null : children}
       </div>
     );
   }
