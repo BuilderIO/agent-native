@@ -409,8 +409,10 @@ async function expectShowsAccepted(
     });
 }
 
-function expectNoNoise(tabs: TabSet): void {
-  const records = [...tabs.tabs.values()];
+function expectNoNoise(tabs: TabSet, labels?: readonly string[]): void {
+  const records = [...tabs.tabs.values()].filter(
+    (record) => !labels || labels.includes(record.label),
+  );
   for (const record of records)
     expect(
       record.editorMounts,
@@ -566,8 +568,39 @@ test.describe(
       await expectHighlight(fresh, "fresh tab", scene.threadId, QUOTE, "Bravo");
       for (const id of [scene.accepted, scene.rejected])
         expect(await suggestionStatus(page, scene.id, id)).toBe("pending");
-      expectNoNoise(scene.tabs);
+      // The fresh tab's own saves are the known loss checked next.
+      expectNoNoise(scene.tabs, ["A", "B"]);
     });
+
+    test(
+      "a tab opened after the edits saves nothing",
+      knownLossSpec({
+        lane: "unowned",
+        outcome: "SF-05",
+        reason:
+          'A tab opened just after two tabs and an agent finished editing sent a save that went to History and showed "Your edits were saved to Version History", though nothing was typed in it (seen in CI on Linux; 4 of 4 local runs on Windows passed).',
+      }),
+      async ({ page, context }) => {
+        const scene = await editAround(
+          page,
+          context,
+          agent,
+          "SF-05 tab opened after edits",
+        );
+        const fresh = await scene.tabs.open("fresh", scene.id);
+        await expectHighlight(
+          fresh,
+          "fresh tab",
+          scene.threadId,
+          QUOTE,
+          "Bravo",
+        );
+        for (const id of [scene.accepted, scene.rejected])
+          expect(await suggestionStatus(page, scene.id, id)).toBe("pending");
+        await scene.tabs.quiet();
+        expectNoNoise(scene.tabs);
+      },
+    );
 
     test(
       "accepting a suggestion after the edits applies its change once, in both tabs",

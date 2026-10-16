@@ -11,11 +11,13 @@ import {
   AGENT_MARKDOWN_BODY,
   EDITOR,
   EDITOR_BODY,
+  PAGE_PARAGRAPHS,
   createPage,
   expectEditorReady,
   postAction,
 } from "../helpers";
 import { enterGateArm } from "../live-body-gate";
+import { liveCopyContaining } from "./collab-blocks";
 
 // SF-06: every editor visit mounts one editor. Each case counts the
 // record-editor-mount calls the visit sends and follows the `.ProseMirror`
@@ -185,7 +187,10 @@ async function expectOneMount(
   ).toEqual([`${expected.outcome}:${expected.mode}`]);
 }
 
-/** Open a page once so the browser seeds its live copy, then close the tab. */
+/**
+ * Open a page holding EDITOR_BODY once, wait until the browser has seeded its
+ * live copy, then close the tab.
+ */
 async function seedLiveCopy(
   context: BrowserContext,
   documentId: string,
@@ -193,7 +198,7 @@ async function seedLiveCopy(
   const page = await context.newPage();
   await page.goto(`/page/${documentId}`, { waitUntil: "domcontentloaded" });
   await expectEditorReady(page);
-  await page.waitForTimeout(1_000);
+  await liveCopyContaining(page, documentId, PAGE_PARAGRAPHS);
   await page.close();
 }
 

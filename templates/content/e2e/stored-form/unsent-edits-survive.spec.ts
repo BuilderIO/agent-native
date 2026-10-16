@@ -105,7 +105,7 @@ test.describe("SF-12 unsent edits survive", { tag: "@SF-12" }, () => {
       const marker = markers.next("A");
       await context.setOffline(true);
       await typeAtParagraphEnd(tab, "Alpha paragraph", ` ${marker}`);
-      await tab.waitForTimeout(3_000);
+      await tab.waitForTimeout(3_000); // e2e-harness-ignore: a negative check; the page must not claim saved at any point in this window
       await expect(
         tab.getByText(SAVED_CLAIM),
         "the page says saved while offline",
