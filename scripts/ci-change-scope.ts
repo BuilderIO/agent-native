@@ -140,12 +140,14 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/vite.config.ts",
   "templates/content/e2e/auth-files.ts",
   "templates/content/e2e/convergence-summary.ts",
+  "templates/content/e2e/editor-input-lineage.ts",
   "templates/content/e2e/gate-arm.ts",
   "templates/content/e2e/global-setup.ts",
   "templates/content/e2e/global-teardown.ts",
   "templates/content/e2e/helpers.ts",
   "templates/content/e2e/live-body-gate.ts",
   "templates/content/e2e/playwright.config.ts",
+  "templates/content/e2e/save-lineage.ts",
   "templates/content/e2e/two-tab-convergence.spec.ts",
 ]);
 
