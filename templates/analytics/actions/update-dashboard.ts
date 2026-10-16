@@ -479,7 +479,12 @@ function collectDashboardConfigIssues(
         );
       }
     }
-    if (
+    if (isSection && p.height !== undefined) {
+      issue(
+        "height",
+        `height is ${JSON.stringify(p.height)}; section panels do not support height; remove height.`,
+      );
+    } else if (
       p.height !== undefined &&
       (typeof p.height !== "number" ||
         !Number.isFinite(p.height) ||

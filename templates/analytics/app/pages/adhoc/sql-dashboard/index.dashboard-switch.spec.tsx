@@ -10,6 +10,7 @@ import {
   useNavigate,
   type NavigateFunction,
 } from "react-router";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useHeaderActions } from "@/components/layout/HeaderActions";
@@ -356,7 +357,110 @@ describe("SqlDashboardPage dashboard switch", () => {
     container.remove();
     queryClient.clear();
     window.localStorage.clear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("applies each keyboard resize step while earlier saves are pending", async () => {
+    const savedHeights: number[] = [];
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedHeights.push(config.panels[0].height ?? 0);
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+
+    expect(savedHeights).toEqual([2, 3]);
+    expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("announces the measured height for an auto-height panel", async () => {
+    await renderAt("/dashboards/dash-a");
+    const cell = container.querySelector(
+      ".dashboard-grid-cell",
+    ) as HTMLElement | null;
+    expect(cell).not.toBeNull();
+    vi.spyOn(cell as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 540,
+      top: 0,
+      right: 640,
+      bottom: 540,
+      left: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    expect(
+      container
+        .querySelector(
+          '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+        )
+        ?.getAttribute("aria-valuenow"),
+    ).toBe("3");
+  });
+
+  it("reports a failed resize save and keeps the last saved dimensions", async () => {
+    mocks.saveDashboard = async () => {
+      throw new Error("offline");
+    };
+    const errorToast = vi.spyOn(toast, "error").mockReturnValue("error-toast");
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const widthSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+    );
+    expect(widthSlider).not.toBeNull();
+    await act(async () => {
+      widthSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await settle();
+
+    expect(errorToast).toHaveBeenCalledWith(
+      "sqlDashboard.saveFailedWithMessage",
+    );
+    expect(widthSlider?.getAttribute("aria-valuenow")).toBe("1");
   });
 
   it("never shows or saves a panel editor opened on one dashboard on the next", async () => {

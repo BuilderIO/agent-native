@@ -352,6 +352,18 @@ const PanelCell = memo(function PanelCell({
     initial: { width: number; height: number };
     preview: { width: number; height: number };
   } | null>(null);
+  const resizeValuesRef = useRef<{
+    panelId: string;
+    width: number;
+    height?: number;
+  }>({
+    panelId: panel.id,
+    width: clampPanelWidth(panel.width, gridColumns),
+    height: panel.height,
+  });
+  const savedResizeValuesRef = useRef(resizeValuesRef.current);
+  const resizeSaveCountRef = useRef(0);
+  const resizeSaveSequenceRef = useRef(0);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
   const [previewHeight, setPreviewHeight] = useState<number | null>(null);
   const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
@@ -367,6 +379,18 @@ const PanelCell = memo(function PanelCell({
       setTimeRangeOverride(null);
     }
   }, [timeRangeOverride, validTimeRangeOverride]);
+  useEffect(() => {
+    if (resizeSaveCountRef.current > 0) return;
+    const savedValues = {
+      panelId: panel.id,
+      width: clampPanelWidth(panel.width, gridColumns),
+      height: panel.height,
+    };
+    resizeValuesRef.current = savedValues;
+    savedResizeValuesRef.current = savedValues;
+    setPreviewWidth(null);
+    setPreviewHeight(null);
+  }, [panel.id, panel.width, panel.height, gridColumns]);
   const effectiveVars = useMemo(
     () =>
       validTimeRangeOverride
@@ -420,6 +444,52 @@ const PanelCell = memo(function PanelCell({
     [panel, selectPanelForChat],
   );
 
+  const measuredHeight = () =>
+    clampPanelHeight(
+      Math.round(
+        (cellRef.current?.getBoundingClientRect().height ??
+          PANEL_HEIGHT_UNIT_PX) / PANEL_HEIGHT_UNIT_PX,
+      ),
+    );
+
+  const saveResize = (nextPanel: SqlPanel) => {
+    const nextValues = {
+      panelId: nextPanel.id,
+      width: clampPanelWidth(nextPanel.width, gridColumns),
+      height: nextPanel.height,
+    };
+    const sequence = ++resizeSaveSequenceRef.current;
+    resizeValuesRef.current = nextValues;
+    resizeSaveCountRef.current += 1;
+    setPreviewWidth(nextValues.width);
+    setPreviewHeight(nextValues.height ?? null);
+
+    void onSavePanel(nextPanel)
+      .then(() => {
+        savedResizeValuesRef.current = nextValues;
+        resizeSaveCountRef.current -= 1;
+        if (sequence !== resizeSaveSequenceRef.current) return;
+        resizeValuesRef.current = nextValues;
+        setPreviewWidth(null);
+        setPreviewHeight(null);
+      })
+      .catch((err: unknown) => {
+        resizeSaveCountRef.current -= 1;
+        if (sequence !== resizeSaveSequenceRef.current) return;
+        const savedValues = savedResizeValuesRef.current;
+        resizeValuesRef.current = savedValues;
+        setPreviewWidth(savedValues.width);
+        setPreviewHeight(savedValues.height ?? null);
+        toast.error(
+          err instanceof Error
+            ? t("sqlDashboard.saveFailedWithMessage", {
+                message: err.message,
+              })
+            : t("sqlDashboard.saveFailed"),
+        );
+      });
+  };
+
   const handleResizePointerDown = (
     axis: "width" | "height",
     event: React.PointerEvent<HTMLButtonElement>,
@@ -429,16 +499,20 @@ const PanelCell = memo(function PanelCell({
     const cell = cellRef.current;
     if (!cell) return;
     const row = cell.closest<HTMLElement>(".dashboard-grid");
+    const current =
+      resizeValuesRef.current.panelId === panel.id
+        ? resizeValuesRef.current
+        : {
+            panelId: panel.id,
+            width: clampPanelWidth(panel.width, gridColumns),
+            height: panel.height,
+          };
     const initial = {
-      width: clampPanelWidth(panel.width, gridColumns),
+      width: current.width,
       height:
-        panel.height === undefined
-          ? clampPanelHeight(
-              Math.round(
-                cell.getBoundingClientRect().height / PANEL_HEIGHT_UNIT_PX,
-              ),
-            )
-          : clampPanelHeight(panel.height),
+        current.height === undefined
+          ? measuredHeight()
+          : clampPanelHeight(current.height),
     };
     resizeRef.current = {
       axis,
@@ -488,9 +562,20 @@ const PanelCell = memo(function PanelCell({
     setPreviewWidth(null);
     setPreviewHeight(null);
     if (preview[axis] === initial[axis]) return;
-    void onSavePanel({
+    const current =
+      resizeValuesRef.current.panelId === panel.id
+        ? resizeValuesRef.current
+        : {
+            panelId: panel.id,
+            width: clampPanelWidth(panel.width, gridColumns),
+            height: panel.height,
+          };
+    saveResize({
       ...panel,
-      [axis]: preview[axis],
+      width: axis === "width" ? preview.width : current.width,
+      ...(axis === "height"
+        ? { height: preview.height }
+        : { height: current.height }),
     });
   };
 
@@ -506,17 +591,20 @@ const PanelCell = memo(function PanelCell({
     axis: "width" | "height",
     event: React.KeyboardEvent<HTMLButtonElement>,
   ) => {
+    const current =
+      resizeValuesRef.current.panelId === panel.id
+        ? resizeValuesRef.current
+        : {
+            panelId: panel.id,
+            width: clampPanelWidth(panel.width, gridColumns),
+            height: panel.height,
+          };
     const currentValue =
       axis === "width"
-        ? clampPanelWidth(panel.width, gridColumns)
-        : panel.height === undefined
-          ? clampPanelHeight(
-              Math.round(
-                (cellRef.current?.getBoundingClientRect().height ??
-                  PANEL_HEIGHT_UNIT_PX) / PANEL_HEIGHT_UNIT_PX,
-              ),
-            )
-          : clampPanelHeight(panel.height);
+        ? current.width
+        : current.height === undefined
+          ? measuredHeight()
+          : clampPanelHeight(current.height);
     const maxValue = axis === "width" ? gridColumns : MAX_PANEL_HEIGHT;
     const nextValue =
       event.key === "Home"
@@ -535,7 +623,17 @@ const PanelCell = memo(function PanelCell({
     if (nextValue === null || nextValue === currentValue) return;
     event.preventDefault();
     event.stopPropagation();
-    void onSavePanel({ ...panel, [axis]: nextValue });
+    const nextValues = {
+      ...current,
+      [axis]: nextValue,
+    };
+    if (axis === "width") setPreviewWidth(nextValue);
+    else setPreviewHeight(nextValue);
+    saveResize({
+      ...panel,
+      width: nextValues.width,
+      height: nextValues.height,
+    });
   };
 
   const renderedWidth =
@@ -641,7 +739,7 @@ const PanelCell = memo(function PanelCell({
             aria-label={t("sqlDashboard.resizePanelHeight")}
             aria-valuemin={1}
             aria-valuemax={MAX_PANEL_HEIGHT}
-            aria-valuenow={renderedHeight ?? 2}
+            aria-valuenow={renderedHeight ?? measuredHeight()}
             aria-orientation="vertical"
             title={t("sqlDashboard.resizePanelHeight")}
             className="dashboard-panel-resize-handle dashboard-panel-resize-height"

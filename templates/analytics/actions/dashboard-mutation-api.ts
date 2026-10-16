@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { fail, isActionContractError } from "@agent-native/core/action";
 
 import {
   buildDashboardPanelGroups,
@@ -117,7 +117,7 @@ type PanelSelection = {
   duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
-type SectionSelection = PanelSelection & {
+type SectionSelection = Omit<PanelSelection, "setHeight"> & {
   append(panelIds: string[]): void;
 };
 
@@ -1382,9 +1382,23 @@ function targetFromChainCall(call: ParsedCall): MutationTarget {
 }
 
 function operationFromPanelCommand(
+  config: Record<string, unknown>,
   panelIds: string[],
   command: ParsedCall,
 ): DashboardMutationOperation[] {
+  if (
+    command.name === "setHeight" &&
+    panelsFromConfig(config).some(
+      (panel) =>
+        panelIds.includes(panelId(panel)) && panel.chartType === "section",
+    )
+  ) {
+    fail("setHeight is not supported on section panels", {
+      errorCode: "invalid_dashboard_mutation",
+      statusCode: 422,
+    });
+  }
+
   switch (command.name) {
     case "moveToTop":
     case "moveToBottom":
@@ -1577,7 +1591,7 @@ function operationsFromStatement(
         },
       ];
     }
-    return operationFromPanelCommand([sectionId], command);
+    return operationFromPanelCommand(config, [sectionId], command);
   }
 
   let panelIds: string[];
@@ -1607,7 +1621,7 @@ function operationsFromStatement(
   for (let index = 0; index < commands.length; index++) {
     const command = commands[index];
     if (command.name !== "duplicate") {
-      operations.push(...operationFromPanelCommand(panelIds, command));
+      operations.push(...operationFromPanelCommand(config, panelIds, command));
       continue;
     }
     if (panelIds.length !== 1) {
@@ -1653,9 +1667,18 @@ export function parseDashboardMutationScript(
     try {
       return operationsFromStatement(config, statement);
     } catch (err: any) {
-      throw new Error(
-        `statement ${index + 1} (${JSON.stringify(statement)}): ${err.message}`,
-      );
+      const message = `statement ${index + 1} (${JSON.stringify(statement)}): ${err.message}`;
+      if (isActionContractError(err)) {
+        fail(message, {
+          errorCode: err.errorCode,
+          statusCode: err.statusCode,
+          details: err.details,
+        });
+      }
+      fail(message, {
+        errorCode: "invalid_dashboard_mutation",
+        statusCode: 422,
+      });
     }
   });
 }

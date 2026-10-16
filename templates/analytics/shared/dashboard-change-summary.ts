@@ -287,17 +287,15 @@ function describePanels(
   if (rearranged) {
     changes.push({ kind: "layout-changed" });
   }
-  if (!addedOrRemoved) {
-    const resizedPanels = new Set([
-      ...(rearranged ? [] : resized),
-      ...heightResized,
-    ]);
-    for (const id of resizedPanels) {
-      changes.push({
-        kind: "panel-resized",
-        title: nameOf(afterPanels.byId.get(id)!.title),
-      });
-    }
+  const resizedPanels = new Set([
+    ...(addedOrRemoved || rearranged ? [] : resized),
+    ...heightResized,
+  ]);
+  for (const id of resizedPanels) {
+    changes.push({
+      kind: "panel-resized",
+      title: nameOf(afterPanels.byId.get(id)!.title),
+    });
   }
   return { other };
 }

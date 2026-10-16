@@ -36,6 +36,8 @@ vi.mock("../server/lib/bigquery", () => ({
 
 const { assertValidDashboardConfig, isAgentCaller, validateDashboardConfig } =
   await import("./update-dashboard");
+const { applyDashboardMutationOperations, parseDashboardMutationScript } =
+  await import("./dashboard-mutation-api");
 
 function panel(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -110,6 +112,31 @@ describe("validateDashboardConfig ratchet", () => {
     expect(message).toContain('panel[3] ("No id") id is missing');
     expect(message).toContain('panel "fresh" ("fresh title") width is missing');
     expect(message).not.toContain("viral-by-app");
+  });
+
+  it("rejects section height added through a generic set patch", () => {
+    const baseline: Record<string, unknown> = {
+      name: "Activity",
+      panels: [
+        {
+          id: "activity-section",
+          title: "Activity",
+          chartType: "section",
+          width: 2,
+        },
+      ],
+    };
+    const next = clone(baseline);
+    const operations = parseDashboardMutationScript(
+      next,
+      'dashboard.section("activity-section").set({"height":2});',
+    );
+
+    applyDashboardMutationOperations(next, operations);
+
+    expect(validateDashboardConfig(next, { baseline })).toBe(
+      'panel "activity-section" ("Activity") height is 2; section panels do not support height; remove height.',
+    );
   });
 
   it("does not trust a baseline that is the config itself", () => {

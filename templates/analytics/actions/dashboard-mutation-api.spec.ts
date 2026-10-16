@@ -230,6 +230,17 @@ describe("dashboard mutation api", () => {
     ]);
   });
 
+  it("rejects setHeight when the selected panel is a section", () => {
+    for (const statement of [
+      'dashboard.section("section").setHeight(2);',
+      'dashboard.panel("section").setHeight(2);',
+    ]) {
+      expect(() => parseDashboardMutationScript(config(), statement)).toThrow(
+        /setHeight is not supported on section panels/,
+      );
+    }
+  });
+
   it("supports bulk field edits and nested config path edits", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(
@@ -534,6 +545,9 @@ describe("dashboard mutation api", () => {
   });
 
   it("teaches only config keys the renderer honors", () => {
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain(
+      'type SectionSelection = Omit<PanelSelection, "setHeight"> & {',
+    );
     expect(DASHBOARD_MUTATION_API_TYPES).not.toContain("yAxis");
     expect(DASHBOARD_MUTATION_API_TYPES).toContain('e.g. "yFormatter"');
     expect(DASHBOARD_MUTATION_EXAMPLES).toContain(
