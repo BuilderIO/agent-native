@@ -244,20 +244,40 @@ test.describe(
     test(
       "landing on /home, which reopens the last page",
       REMOUNT_LOSS,
-      async ({ page, context }) => {
-        const id = await createPage(page, "SF-06 home landing", EDITOR_BODY);
-        await enterGateArm(page, id);
-        await seedLiveCopy(context, id);
+      async ({ page, browser, baseURL }) => {
+        // /home reopens the account's last page, and parallel workers open
+        // pages as the shared account, so this case signs in as one of its own.
+        const landing = await browser.newContext({
+          baseURL,
+          storageState: { cookies: [], origins: [] },
+        });
+        try {
+          const reader = await signIn(
+            landing,
+            baseURL!,
+            await landingAccountEmail(page),
+            "SF-06 landing",
+          );
+          const id = await createPage(
+            reader,
+            "SF-06 home landing",
+            EDITOR_BODY,
+          );
+          await enterGateArm(reader, id);
+          await seedLiveCopy(landing, id);
 
-        const tab = await openTab(context);
-        await tab.page.goto("/home", { waitUntil: "domcontentloaded" });
-        await expect(tab.page).toHaveURL(new RegExp(`/page/${id}`), {
-          timeout: 30_000,
-        });
-        await expectOneMount(tab.page, tab.mounts, id, {
-          outcome: "initial",
-          mode: "editing",
-        });
+          const tab = await openTab(landing);
+          await tab.page.goto("/home", { waitUntil: "domcontentloaded" });
+          await expect(tab.page).toHaveURL(new RegExp(`/page/${id}`), {
+            timeout: 30_000,
+          });
+          await expectOneMount(tab.page, tab.mounts, id, {
+            outcome: "initial",
+            mode: "editing",
+          });
+        } finally {
+          await landing.close();
+        }
       },
     );
 
@@ -295,7 +315,7 @@ test.describe(
       const viewerEmail = `sf06-viewer+autoz-${Date.now().toString(36)}@content.test`;
       const viewer = await browser.newContext();
       try {
-        await registerViewer(viewer, baseURL!, viewerEmail);
+        await signIn(viewer, baseURL!, viewerEmail, "SF-06 viewer");
         await postAction(page, "share-resource", {
           resourceType: "document",
           resourceId: id,
@@ -367,27 +387,50 @@ test.describe(
   },
 );
 
-async function registerViewer(
+/**
+ * The /home case's own account, named after the run's shared account so each
+ * gate arm gets its own. CI's gate-on steps allowlist it as a flag admin.
+ */
+async function landingAccountEmail(page: Page): Promise<string> {
+  const session = await page.request.get("/_agent-native/auth/session");
+  const { email } = (await session.json()) as { email?: string };
+  expect(email, "the shared account's session has no email").toBeTruthy();
+  return email!.replace("@", "-landing@");
+}
+
+/**
+ * Sign the context in as `email`, registering the account the first time a
+ * run against this database asks for it, and return a page in that session.
+ */
+async function signIn(
   context: BrowserContext,
   baseURL: string,
   email: string,
-): Promise<void> {
+  name: string,
+): Promise<Page> {
   const page = await context.newPage();
   await page.goto(`${baseURL}/sign-in`, { waitUntil: "domcontentloaded" });
-  const password = ["example", "sf06", "viewer", "pw"].join("-");
+  const password = ["example", "sf06", "account", "pw"].join("-");
   const headers = { Origin: baseURL, Referer: `${baseURL}/sign-in` };
-  const register = await page.request.post("/_agent-native/auth/register", {
-    data: { email, password, name: "SF-06 viewer", callbackURL: "/" },
-    headers,
-  });
-  expect(register.ok(), `register ${email}: ${await register.text()}`).toBe(
-    true,
-  );
-  const login = await page.request.post("/_agent-native/auth/login", {
-    data: { email, password },
-    headers,
-  });
+  const logIn = () =>
+    page.request.post("/_agent-native/auth/login", {
+      data: { email, password },
+      headers,
+    });
+  let login = await logIn();
+  if (!login.ok()) {
+    const register = await page.request.post("/_agent-native/auth/register", {
+      data: { email, password, name, callbackURL: "/" },
+      headers,
+    });
+    expect(register.ok(), `register ${email}: ${await register.text()}`).toBe(
+      true,
+    );
+    login = await logIn();
+  }
   expect(login.ok(), `login ${email}: ${await login.text()}`).toBe(true);
+  const session = await page.request.get("/_agent-native/auth/session");
+  expect((await session.json()).email, "signed-in session").toBe(email);
   const firstRun = await page.request.post(
     "/_agent-native/onboarding/first-run/complete",
     { data: {}, headers },
@@ -395,5 +438,5 @@ async function registerViewer(
   expect(firstRun.ok(), `first-run ${email}: ${await firstRun.text()}`).toBe(
     true,
   );
-  await page.close();
+  return page;
 }

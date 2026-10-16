@@ -1326,7 +1326,7 @@ jobs:
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "on"
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
-          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
@@ -1343,7 +1343,7 @@ jobs:
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "on"
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
-          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
