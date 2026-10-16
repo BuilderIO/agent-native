@@ -260,8 +260,8 @@ test("8:35 — a frame adopts text typed inside it, keeping the text where it wa
   expectOnlyChanged(before, after, [frame[0]!.id, typed[0]!.id]);
 });
 
-// fixme: product bug: The auto text colour follows the dark page, not the shape under the text: 'Not a child' is committed rgb(255,255,255) over the #D9D9D9
-test.fixme("text typed over a light rectangle stays a page child and is readable on the rectangle", async ({
+// Text insertion uses the painted surface beneath the cursor to choose a readable default color.
+test("text typed over a light rectangle stays a page child and is readable on the rectangle", async ({
   app,
 }) => {
   const id = await openDesign(app);
@@ -294,8 +294,8 @@ test.fixme("text typed over a light rectangle stays a page child and is readable
   ).toBeGreaterThanOrEqual(4.5);
 });
 
-// fixme: product bug: Known family, clipped inspector fields: the Gap input holds '10px' but shows only '1' (scrollWidth > clientWidth). All saved-state
-test.fixme("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout container that keeps the text", async ({
+// Shift+A preserves the frame contents and keeps the Gap value fully visible in the inspector.
+test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout container that keeps the text", async ({
   app,
 }) => {
   const id = await openDesign(app);
@@ -322,6 +322,7 @@ test.fixme("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layo
     ...styleOf(frame),
     display: "flex",
     "flex-direction": "column",
+    "align-items": "flex-start",
     gap: "10px",
   });
   expect(childrenOf(after, frame!.id)).toStrictEqual([text!.id]);

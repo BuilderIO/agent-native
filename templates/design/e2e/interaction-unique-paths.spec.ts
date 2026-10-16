@@ -261,7 +261,7 @@ test("Cmd+D after moving the first duplicate repeats that move for the next dupl
 });
 
 // fixme: product bug: The eye drag also starts a row drag: Gamma is moved below Beta (saved row order alpha, gamma, beta) and only Gamma gets hidden; Beta
-test.fixme("dragging down the Layers panel's eye column hides every layer the drag crosses, and only those", async ({
+test("dragging down the Layers panel's eye column hides every layer the drag crosses, and only those", async ({
   app,
   page,
 }) => {

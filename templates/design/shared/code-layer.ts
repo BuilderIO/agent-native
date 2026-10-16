@@ -9070,7 +9070,9 @@ function applyBooleanSubtract(
 
 function parsePixelLength(value: string | undefined): number | null {
   if (!value) return null;
-  const match = /^(-?[\d.]+)px$/.exec(value.trim());
+  const trimmed = value.trim();
+  if (/^[+-]?0(?:\.0+)?$/.test(trimmed)) return 0;
+  const match = /^(-?[\d.]+)px$/.exec(trimmed);
   if (!match) return null;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : null;
@@ -9784,6 +9786,9 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
+  const hasAuthoredCrossAxisAlignment = effectiveStyleDeclarations(
+    declarations,
+  ).some((declaration) => cssPropertyKey(declaration.prop) === "align-items");
   if (containerStyles) {
     const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
@@ -9803,6 +9808,10 @@ function applyAutoLayout(
     setOrReplace("flex-direction", direction);
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
+    if (!hasAuthoredCrossAxisAlignment) {
+      setOrReplace("align-items", "flex-start");
+      writtenProperties.push("align-items");
+    }
   }
   let result = replaceOrInsertAttribute(
     html,

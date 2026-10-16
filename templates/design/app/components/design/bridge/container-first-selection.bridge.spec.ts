@@ -301,7 +301,7 @@ describe("container-first click selection", () => {
       );
       expect(selectedIds.slice(0, 3)).toEqual([
         "middle-frame",
-        "grandchild",
+        "middle-frame",
         "outer-frame",
       ]);
     } finally {
