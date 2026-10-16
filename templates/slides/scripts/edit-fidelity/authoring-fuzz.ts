@@ -423,6 +423,34 @@ type SaveReloadRequestAbortRule = {
 };
 
 const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
+const readOnlyStatusProbePaths: readonly string[] = [
+  "/_agent-native/actions/get-lab-states",
+  "/_agent-native/actions/get-deck-access-status",
+];
+
+// A read-only status probe that the client cancels a few milliseconds after it
+// starts (a route or component change) fails with a navigation abort error. The
+// save/reload checks read the saved deck, not this probe, so a young same-origin GET
+// cancelled that way is expected. Mutations and browser-session traffic keep their
+// own rules.
+export function isExpectedReadOnlyStatusProbeAbort(
+  method: string,
+  pathname: string,
+  errorText: string,
+  activePhase: string,
+  requestSameOrigin: boolean,
+  requestAgeMs: number,
+) {
+  return (
+    activePhase === "save/reload" &&
+    method === "GET" &&
+    requestSameOrigin &&
+    readOnlyStatusProbePaths.includes(pathname) &&
+    navigationAbortErrors.includes(errorText) &&
+    requestAgeMs >= 0 &&
+    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs
+  );
+}
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 const reloadNavigationConsoleGraceMs = 1_000;
@@ -2942,9 +2970,24 @@ export async function runAuthoringFuzz(
       ].includes(pathname) ||
       isBrowserSessionPath(pathname)
     ) {
-      pageErrors.push(
-        `watched request failed: ${request.method()} ${url} (${errorText})`,
-      );
+      const probeAgeMs =
+        requestStartedAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Date.now() - requestStartedAt;
+      if (
+        !isExpectedReadOnlyStatusProbeAbort(
+          request.method(),
+          pathname,
+          errorText,
+          activePhase,
+          requestUrl.origin === authoringPageOrigin,
+          probeAgeMs,
+        )
+      ) {
+        pageErrors.push(
+          `watched request failed: ${request.method()} ${url} (${errorText})`,
+        );
+      }
     }
   };
   const onRequest = (request: any) => {

@@ -51,6 +51,7 @@ import {
   isExpectedSaveReloadRetiredBrowserSessionCorsError,
   isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
+  isExpectedReadOnlyStatusProbeAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
@@ -4168,4 +4169,89 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
   expect(excerpt[0]?.step).toBe(480);
   expect(excerpt.at(-1)?.step).toBe(499);
   expect(excerpt.at(-1)?.operation).toEqual(plan.at(-1));
+});
+
+it("treats a young cancelled read-only status probe during save/reload as expected", () => {
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "GET",
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      true,
+      21,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "GET",
+      "/_agent-native/actions/get-lab-states",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      true,
+      5,
+    ),
+  ).toBe(true);
+});
+
+it("keeps status probe aborts that are not expected as page errors", () => {
+  const expected = [
+    "GET",
+    "/_agent-native/actions/get-deck-access-status",
+    "net::ERR_ABORTED",
+    "save/reload",
+    true,
+    21,
+  ] as const;
+  // A mutation, a different phase, another origin, an old request, or a non-navigation error stays an error.
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "POST",
+      expected[1],
+      expected[2],
+      expected[3],
+      expected[4],
+      expected[5],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "GET",
+      expected[1],
+      expected[2],
+      "edit",
+      expected[4],
+      expected[5],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "GET",
+      expected[1],
+      expected[2],
+      expected[3],
+      false,
+      expected[5],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "GET",
+      expected[1],
+      expected[2],
+      expected[3],
+      expected[4],
+      60_000,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "GET",
+      expected[1],
+      "net::ERR_CONNECTION_REFUSED",
+      expected[3],
+      expected[4],
+      expected[5],
+    ),
+  ).toBe(false);
 });
