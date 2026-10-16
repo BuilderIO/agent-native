@@ -281,7 +281,8 @@ work the old binding started commits nothing. Then:
   one document wait their turn ahead of that runner, so the binding's
   `maxWaitingWrites` (default 16), not the runner's queue, bounds them; past
   it a write fails with `build_failed` / `queue_full`, a 503. Readers of a
-  row this instance has not cached share one runner task. Its module
+  row this instance has not cached share one runner task, and its text is
+  cached with it, so `readLiveCopy` of a cached row runs none. Its module
   exports `tasks = defineLiveCopyTasks({ derive, seed, edits })` from
   `@agent-native/core/collab/live-copy-tasks` and is imported as
   `./tasks.ts?bounded-task`, which the app's Vite build, server build and

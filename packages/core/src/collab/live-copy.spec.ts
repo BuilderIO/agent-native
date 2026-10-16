@@ -1402,7 +1402,7 @@ describe("mutateLiveCopy", () => {
     ).toEqual({ body: "base", version: 0 });
   });
 
-  it("loads a cold copy once for a burst of readers", async () => {
+  it("loads a cold copy once for a burst of readers, with its text", async () => {
     let reads = 0;
     const binding = define({
       runner: intercepted(async (task) => {
@@ -1421,6 +1421,23 @@ describe("mutateLiveCopy", () => {
     );
     expect(reads).toBe(1);
     expect(new Set(states.map(base64)).size).toBe(1);
+
+    await pglite
+      .prepare("UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?")
+      .run("live:doc");
+    reads = 0;
+    const copies = await Promise.all(
+      Array.from({ length: 24 }, () =>
+        manager.readLiveCopy(binding, "live:doc"),
+      ),
+    );
+    expect(reads).toBe(1);
+    expect(
+      new Set(copies.map((copy) => copy.kind === "live" && copy.text)),
+    ).toEqual(new Set(["base"]));
+    // Cached with its text, so a later read costs no runner task.
+    await manager.readLiveCopy(binding, "live:doc");
+    expect(reads).toBe(1);
   });
 
   it("keeps a row recreated at the same version while an edit runs", async () => {
@@ -1719,6 +1736,41 @@ describe("other collab paths", () => {
 
     await manager.applyText("plain:doc", "ordinary");
     expect(await row("plain:doc")).toMatchObject({ text_snapshot: "ordinary" });
+  });
+
+  it("refuse an overwrite queued behind the write that made the document a live copy", async () => {
+    let covered = false;
+    define({ appliesTo: (docId) => covered && docId === "live:doc" });
+    let entered!: () => void;
+    const inLock = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const converting = manager.withPreparedYDocMutation(
+      "live:doc",
+      undefined,
+      async () => {
+        entered();
+        await gate;
+        covered = true;
+      },
+    );
+    await inLock;
+    const overwrite = manager.saveYDocState(
+      "live:doc",
+      new Uint8Array(0),
+      "late",
+    );
+    open();
+    await converting;
+    expect(await rejection(overwrite)).toMatchObject({
+      code: "write_refused",
+      reason: "saveYDocState",
+    });
+    expect(await row("live:doc")).toBeUndefined();
   });
 
   it("never decode a live copy on this thread for callers that want a Y.Doc", async () => {
