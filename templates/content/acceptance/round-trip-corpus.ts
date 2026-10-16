@@ -207,6 +207,7 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     markdown: "| a |\n|-|\n| 1 |",
     canonical:
       '<table header-row="true">\n<tr>\n<td>a</td>\n</tr>\n<tr>\n<td>1</td>\n</tr>\n</table>',
+    note: "GFM needs one hyphen in a delimiter cell; main already took one when a colon aligned it.",
   },
   {
     id: "unnecessary-escape-underscore",
@@ -550,6 +551,21 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     canonical:
       "<table>\n<tr>\n<td>a b</td>\n</tr>\n<tr>\n<td>c</td>\n</tr>\n</table>",
     note: "A cell wrapped over lines may close its row on its last line.",
+  },
+  {
+    id: "html-table-rows-one-line",
+    origin: "agent",
+    markdown:
+      '<table>\n<tr><td>a</td></tr><tr color="red"><td>b</td></tr>\n</table>',
+    canonical:
+      '<table>\n<tr>\n<td>a</td>\n</tr>\n<tr color="red">\n<td>b</td>\n</tr>\n</table>',
+  },
+  {
+    id: "html-table-row-break-between-cells",
+    origin: "agent",
+    markdown: "<table>\n<tr>\n<td>a</td></tr><tr><td>b</td>\n</tr>\n</table>",
+    canonical:
+      "<table>\n<tr>\n<td>a</td>\n</tr>\n<tr>\n<td>b</td>\n</tr>\n</table>",
   },
   {
     id: "html-table-cell-edge-spaces",
