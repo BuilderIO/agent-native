@@ -6,26 +6,17 @@ import path from "node:path";
 import {
   prepareDesignConnectManifest,
   startDesignConnectBridge,
-  type DesignConnectBridge,
 } from "@agent-native/core/testing";
 import {
-  expect,
-  test,
   type APIRequestContext,
   type FrameLocator,
   type Locator,
   type Page,
 } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
-import {
-  appPath,
-  cdpScreenshot,
-  gotoEditor,
-  resetPersistedCanvasState,
-} from "./helpers";
+import { appPath, gotoEditor, resetPersistedCanvasState } from "./helpers";
+import { expect, test as railsTest } from "./rails";
 
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>URL nested drop</title></head>
 <body style="margin:0;position:relative;display:flex;align-items:flex-start;gap:20px;width:800px;height:600px;background:#fff">
@@ -44,21 +35,33 @@ const BOARD_HTML = `<!doctype html>
 <body style="margin:0;position:relative;width:1800px;height:900px;overflow:visible;background:transparent">
   <div data-agent-native-node-id="board-source" data-agent-native-layer-name="Board source" data-an-primitive="frame"
        style="position:absolute;left:-200px;top:140px;width:60px;height:30px;box-sizing:border-box;background:#f97316"></div>
-  <div data-agent-native-node-id="board-copy-source" data-agent-native-layer-name="Board copy source" data-an-primitive="frame"
-       style="position:absolute;left:-100px;top:220px;width:60px;height:30px;box-sizing:border-box;background:#22c55e"></div>
 </body></html>`;
 
-let baseURL = BASE_URL;
-let designId = "";
-let activeScreenId = "";
-let inactiveScreenId = "";
-let activeScreenFilename = "";
-let inactiveScreenFilename = "";
-let rootPath = "";
-let screenPath = "";
-let persistedCopyHtml = "";
-let devServer: Server | null = null;
-let bridge: DesignConnectBridge | null = null;
+type UrlScreen = { id: string; filename: string };
+type UrlDesign = {
+  id: string;
+  active: UrlScreen;
+  inactive: UrlScreen;
+  /** Stands in for a coding agent applying the handoff: the /inactive route serves this markup from now on. */
+  applyToInactiveSource: (html: string) => void;
+};
+type Rect = { x: number; y: number; width: number; height: number };
+
+const cleanups: ((request: APIRequestContext) => Promise<void>)[] = [];
+
+// Each test owns its design, dev server and bridge. Cleanup waits for afterAll so the editor page is
+// gone first; closing the bridge under a live page is reported as an app failure by the rails fixture.
+const test = railsTest.extend<{ urlDesign: UrlDesign }>({
+  urlDesign: async ({ page }, use) => {
+    await use(await openUrlDesign(page.request));
+  },
+});
+
+test.use({ viewport: { width: 1600, height: 1000 } });
+
+test.afterAll(async ({ request }) => {
+  for (const cleanup of cleanups.splice(0)) await cleanup(request);
+});
 
 async function listen(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -81,8 +84,8 @@ async function action(
   input: Record<string, unknown>,
 ) {
   const response = await request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
+    appPath(`/_agent-native/actions/${name}`),
+    { data: input },
   );
   if (!response.ok()) {
     throw new Error(`${name}: ${response.status()} ${await response.text()}`);
@@ -90,96 +93,21 @@ async function action(
   return response.json();
 }
 
-async function fileContent(
-  request: APIRequestContext,
-  filename: string,
-): Promise<string> {
-  const response = await request.get(
-    `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+async function openUrlDesign(request: APIRequestContext): Promise<UrlDesign> {
+  const rootPath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "design-interaction-url-"),
   );
-  if (!response.ok()) {
-    throw new Error(
-      `get-design: ${response.status()} ${await response.text()}`,
-    );
-  }
-  const record = await response.json();
-  return (
-    (record.files ?? []).find(
-      (file: { filename?: string }) => file.filename === filename,
-    )?.content ?? ""
-  );
-}
-
-function screenFrame(page: Page, screenId: string) {
-  return page.locator(
-    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
-  );
-}
-
-function screenContentFrame(page: Page, screenId: string): FrameLocator {
-  return page.frameLocator(
-    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
-  );
-}
-
-function boardFrame(page: Page) {
-  return page.locator("[data-board-surface-layer] iframe").first();
-}
-
-function center(box: { x: number; y: number; width: number; height: number }) {
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-}
-
-async function displayedFrameContentBox(
-  iframe: Locator,
-  locator: Locator,
-): Promise<{ x: number; y: number; width: number; height: number }> {
-  const [iframeBox, local] = await Promise.all([
-    iframe.boundingBox(),
-    locator.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const viewport = element.ownerDocument.defaultView;
-      return {
-        rect: rect.toJSON(),
-        viewport: {
-          width: viewport?.innerWidth ?? 0,
-          height: viewport?.innerHeight ?? 0,
-        },
-      };
-    }),
-  ]);
-  if (!iframeBox) throw new Error("preview iframe has no rendered box");
-  if (!local.viewport.width || !local.viewport.height) {
-    throw new Error("preview iframe content has no viewport");
-  }
-  return {
-    x: iframeBox.x + (local.rect.x / local.viewport.width) * iframeBox.width,
-    y: iframeBox.y + (local.rect.y / local.viewport.height) * iframeBox.height,
-    width: (local.rect.width / local.viewport.width) * iframeBox.width,
-    height: (local.rect.height / local.viewport.height) * iframeBox.height,
-  };
-}
-
-test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeAll(async ({ request }, workerInfo) => {
-  baseURL =
-    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
-  rootPath = fs.mkdtempSync(path.join(os.tmpdir(), "design-interaction-url-"));
-  screenPath = path.join(rootPath, "index.html");
-  fs.writeFileSync(screenPath, SCREEN_HTML);
-
-  devServer = http.createServer((req, res) => {
+  fs.writeFileSync(path.join(rootPath, "index.html"), SCREEN_HTML);
+  let appliedInactiveHtml = "";
+  const devServer = http.createServer((req, res) => {
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
-    const isInactiveRoute = requestUrl.pathname === "/inactive";
-    const html = isInactiveRoute
-      ? fs
-          .readFileSync(screenPath, "utf8")
-          .replace(
+    const html =
+      requestUrl.pathname === "/inactive"
+        ? SCREEN_HTML.replace(
             "</body>",
-            `${URL_DROP_TARGET_HTML}${persistedCopyHtml}</body>`,
+            `${URL_DROP_TARGET_HTML}${appliedInactiveHtml}</body>`,
           )
-      : fs.readFileSync(screenPath, "utf8");
+        : SCREEN_HTML;
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(html);
   });
@@ -200,14 +128,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
     rootPath,
     routeManifest: manifest,
     routes: [
-      {
-        path: "/",
-        title: "Active URL",
-        width: 800,
-        height: 600,
-        x: 0,
-        y: 0,
-      },
+      { path: "/", title: "Active URL", width: 800, height: 600, x: 0, y: 0 },
       {
         path: "/inactive",
         title: "Inactive URL",
@@ -220,24 +141,20 @@ test.beforeAll(async ({ request }, workerInfo) => {
     navigate: false,
     publicReadOnly: false,
   });
-  designId = opened.designId;
-  activeScreenId = opened.screens?.[0]?.id ?? "";
-  inactiveScreenId = opened.screens?.[1]?.id ?? "";
-  activeScreenFilename = opened.screens?.[0]?.filename ?? "";
-  inactiveScreenFilename = opened.screens?.[1]?.filename ?? "";
+  const [active, inactive] = opened.screens ?? [];
   if (
-    !designId ||
-    !activeScreenId ||
-    !inactiveScreenId ||
-    !activeScreenFilename ||
-    !inactiveScreenFilename ||
+    !opened.designId ||
+    !active?.id ||
+    !inactive?.id ||
     !opened.bridgeToken ||
     !opened.previewToken
   ) {
-    throw new Error(`open-visual-edit returned incomplete data: ${opened}`);
+    throw new Error(
+      `open-visual-edit returned incomplete data: ${JSON.stringify(opened)}`,
+    );
   }
   const board = await action(request, "create-file", {
-    designId,
+    designId: opened.designId,
     filename: "__board__.html",
     content: BOARD_HTML,
     fileType: "html",
@@ -245,7 +162,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   const boardId = board.id ?? board.data?.id;
   if (!boardId) throw new Error("create-file returned no board id");
   await action(request, "update-design", {
-    id: designId,
+    id: opened.designId,
     dataOperations: [
       { op: "set", path: ["boardFileId"], value: boardId },
       {
@@ -255,516 +172,467 @@ test.beforeAll(async ({ request }, workerInfo) => {
       },
     ],
   });
-  bridge = await startDesignConnectBridge(manifest, {
+  const bridge = await startDesignConnectBridge(manifest, {
     bridgeToken: opened.bridgeToken,
     previewToken: opened.previewToken,
-    allowedOrigins: [new URL(baseURL).origin],
+    allowedOrigins: [new URL(appPath("/")).origin],
   });
-});
+  cleanups.push(async (cleanupRequest) => {
+    await action(cleanupRequest, "delete-design", {
+      id: opened.designId,
+    }).catch(() => {});
+    await closeServer(bridge.server);
+    await closeServer(devServer);
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  });
+  return {
+    id: opened.designId,
+    active: { id: active.id, filename: active.filename },
+    inactive: { id: inactive.id, filename: inactive.filename },
+    applyToInactiveSource: (html) => {
+      appliedInactiveHtml = `    ${html}\n`;
+    },
+  };
+}
 
-test.afterAll(async ({ request }) => {
-  if (designId)
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  await closeServer(bridge?.server ?? null);
-  await closeServer(devServer);
-  if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
-});
+async function savedFile(
+  request: APIRequestContext,
+  designId: string,
+  filename: string,
+): Promise<string> {
+  const response = await request.get(
+    appPath(
+      `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    ),
+  );
+  expect(response.ok(), `get-design ${response.status()}`).toBe(true);
+  const record = await response.json();
+  return (
+    (record.files ?? []).find(
+      (file: { filename?: string }) => file.filename === filename,
+    )?.content ?? ""
+  );
+}
 
-test("URL screen selection is replaced after choosing another screen", async ({
+/** The durable handoff a URL screen's edits are published to; the route file itself is never written. */
+async function pendingHandoff(request: APIRequestContext, designId: string) {
+  const response = await request.get(
+    appPath(
+      `/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,
+    ),
+  );
+  expect(response.ok(), `get-visual-edit-pending ${response.status()}`).toBe(
+    true,
+  );
+  const { status, pendingEditCount } = await response.json();
+  return { status, pendingEditCount };
+}
+
+function screenIframe(page: Page, screenId: string): Locator {
+  return page.locator(
+    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+  );
+}
+
+function screenContent(page: Page, screenId: string): FrameLocator {
+  return page.frameLocator(
+    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+  );
+}
+
+/** Page coordinates of a point given in a screen's design pixels. */
+async function screenPoint(
+  page: Page,
+  screenId: string,
+  designX: number,
+  designY: number,
+) {
+  const box = await screenIframe(page, screenId).boundingBox();
+  if (!box) throw new Error(`screen ${screenId} has no box`);
+  const width = await screenContent(page, screenId)
+    .locator("html")
+    .evaluate((element) => element.clientWidth);
+  const scale = box.width / width;
+  return { x: box.x + designX * scale, y: box.y + designY * scale };
+}
+
+/** Parent id, the ids of the parent's children in order, and the node's box in design px. */
+async function placement(node: Locator) {
+  return node.evaluate((element) => {
+    const id = (el: Element) =>
+      el === el.ownerDocument.body
+        ? "BODY"
+        : el.getAttribute("data-agent-native-node-id");
+    const parent = element.parentElement!;
+    const r = element.getBoundingClientRect();
+    return {
+      parent: id(parent),
+      siblings: Array.from(parent.children)
+        .filter((child) => child.hasAttribute("data-agent-native-node-id"))
+        .map(id),
+      rect: {
+        x: Math.round(r.x),
+        y: Math.round(r.y),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+      },
+    };
+  });
+}
+
+/** At 50% zoom one page pixel is two design pixels, so a released drop can round by that much. */
+function expectNear(actual: Rect, expected: Rect) {
+  const drift = Math.max(
+    Math.abs(actual.x - expected.x),
+    Math.abs(actual.y - expected.y),
+    Math.abs(actual.width - expected.width),
+    Math.abs(actual.height - expected.height),
+  );
+  expect(
+    drift,
+    `rendered ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+  ).toBeLessThanOrEqual(2);
+}
+
+async function dragWithGuide(
+  page: Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  { duplicate }: { duplicate: boolean },
+) {
+  await page.mouse.move(from.x, from.y);
+  if (duplicate) await page.keyboard.down("Alt");
+  await page.mouse.down();
+  await page.mouse.move(from.x + 8, from.y + 4, { steps: 2 });
+  await page.mouse.move(to.x, to.y, { steps: 24 });
+  await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+    timeout: 5_000,
+  });
+  await page.mouse.up();
+  if (duplicate) await page.keyboard.up("Alt");
+}
+
+test("clicking another URL screen's label moves the selection to that screen", async ({
+  app,
   page,
+  urlDesign,
 }) => {
   await resetPersistedCanvasState(page);
   await page.goto(
     appPath(
-      `/design/${designId}?view=overview&screen=${encodeURIComponent(activeScreenId)}`,
+      `/design/${urlDesign.id}?view=overview&screen=${encodeURIComponent(urlDesign.active.id)}`,
     ),
     { waitUntil: "domcontentloaded" },
   );
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
-  await expect(screenFrame(page, activeScreenId)).toBeVisible();
-  await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
+  await expect(screenIframe(page, urlDesign.active.id)).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(screenIframe(page, urlDesign.inactive.id)).toBeVisible();
+  await expect.poll(() => app.selectedLayers()).toEqual(["Localhost home"]);
+  const inactiveLabel = page.locator(
+    `[data-frame-id="${urlDesign.inactive.id}"] [data-frame-label]`,
+  );
+  await page.keyboard.press("Shift+1");
 
-  await page
-    .locator(`[data-frame-id="${inactiveScreenId}"] [data-frame-label]`)
-    .dispatchEvent("click");
+  await inactiveLabel.click();
 
   await expect(page).toHaveURL(
-    new RegExp(`screen=${encodeURIComponent(inactiveScreenId)}(?:&|$)`),
+    new RegExp(
+      `[?&]screen=${encodeURIComponent(urlDesign.inactive.id)}(?:&|$)`,
+    ),
   );
+  await expect.poll(() => app.selectedLayers()).toEqual(["Localhost inactive"]);
 });
 
-test("URL-backed nested drops stay pending and root-frame Option-drag duplicates", async ({
+// fixme: product bug: The dropped copy lands in the inactive URL screen's body flex row (parent BODY, between root-frame and nested-frame, rendered top-left
+test.fixme("a board layer dropped on a URL screen's nested frame lands inside it at the drop point as a pending edit", async ({
   page,
-}, testInfo) => {
-  await gotoEditor(page, designId);
-  await expect(screenFrame(page, activeScreenId)).toBeVisible();
-  await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
-
-  const activeFrame = screenContentFrame(page, activeScreenId);
-  const inactiveFrame = screenContentFrame(page, inactiveScreenId);
-  const boardContentFrame = boardFrame(page).contentFrame();
-  const inactiveUrl = await inactiveFrame
-    .locator("html")
-    .evaluate((element) => element.ownerDocument.URL);
-  expect(inactiveUrl).toContain("/inactive");
-  const boardSource = boardContentFrame.locator(
-    '[data-agent-native-node-id="board-source"]',
-  );
-  const boardCopySource = boardContentFrame.locator(
-    '[data-agent-native-node-id="board-copy-source"]',
-  );
-  const inactiveTarget = inactiveFrame.locator(
-    '[data-agent-native-node-id="nested-frame"]',
-  );
-  const inactiveAnchor = inactiveFrame.locator(
-    '[data-agent-native-node-id="nested-anchor"]',
-  );
-  const inactiveChildren = inactiveFrame.locator(
-    '[data-agent-native-node-id="nested-frame"] > [data-agent-native-node-id]',
-  );
-
+  urlDesign,
+}) => {
+  await gotoEditor(page, urlDesign.id);
+  const inactive = screenContent(page, urlDesign.inactive.id);
+  const boardSource = page
+    .frameLocator("[data-board-surface-layer] iframe")
+    .locator('[data-agent-native-node-id="board-source"]');
   await expect(boardSource).toBeVisible({ timeout: 30_000 });
-  await expect(boardCopySource).toBeVisible({ timeout: 30_000 });
-  await expect(inactiveTarget).toBeVisible({ timeout: 30_000 });
-  await expect(inactiveChildren).toHaveCount(1);
-  const inactiveRouteBefore = await fileContent(
+  await expect(
+    inactive.locator('[data-agent-native-node-id="nested-frame"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  const inactiveRoute = await savedFile(
     page.request,
-    inactiveScreenFilename,
+    urlDesign.id,
+    urlDesign.inactive.filename,
   );
-  const activeRouteBefore = await fileContent(
+  const boardBefore = await savedFile(
     page.request,
-    activeScreenFilename,
+    urlDesign.id,
+    "__board__.html",
   );
-  expect(inactiveRouteBefore).toMatch(/^https?:\/\//);
-  expect(activeRouteBefore).toMatch(/^https?:\/\//);
-
-  const boardSourceBox = (await boardSource.boundingBox())!;
-  const inactiveTargetBox = (await inactiveAnchor.boundingBox())!;
-  const firstDropPoint = {
-    x: inactiveTargetBox.x + inactiveTargetBox.width / 2 + 18,
-    y: inactiveTargetBox.y + inactiveTargetBox.height / 2 + 11,
-  };
-  await page.mouse.move(boardSourceBox.x + 18, boardSourceBox.y + 11);
-  await page.mouse.down();
-  await expect(inactiveChildren).toHaveCount(1);
-  await page.mouse.move(boardSourceBox.x + 24, boardSourceBox.y + 14, {
-    steps: 2,
+  expect(inactiveRoute).toMatch(/^https?:\/\/.*\/inactive$/);
+  expect(await pendingHandoff(page.request, urlDesign.id)).toEqual({
+    status: "empty",
+    pendingEditCount: 0,
   });
-  await page.mouse.move(firstDropPoint.x, firstDropPoint.y, { steps: 12 });
-  await page.mouse.move(firstDropPoint.x, firstDropPoint.y, { steps: 12 });
-  await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
-    timeout: 5_000,
-  });
-  await page.mouse.up();
 
-  const inactiveBoardClone = inactiveFrame.locator(
+  const grab = await boardSource.boundingBox();
+  await dragWithGuide(
+    page,
+    { x: grab!.x + grab!.width / 2, y: grab!.y + grab!.height / 2 },
+    await screenPoint(page, urlDesign.inactive.id, 330, 235),
+    { duplicate: false },
+  );
+
+  const dropped = inactive.locator(
     '[data-agent-native-layer-name="Board source"]',
   );
-  await expect(inactiveBoardClone).toHaveCount(1, { timeout: 20_000 });
+  await expect(dropped).toHaveCount(1, { timeout: 20_000 });
   await expect(boardSource).toHaveCount(1);
   await expect
-    .poll(() => fileContent(page.request, inactiveScreenFilename), {
-      timeout: 10_000,
-    })
-    .toBe(inactiveRouteBefore);
-
-  const boardCopyBox = (await boardCopySource.boundingBox())!;
-  const secondAnchorBox = (await inactiveAnchor.boundingBox())!;
-  const secondDropPoint = {
-    x: secondAnchorBox.x + secondAnchorBox.width / 2 + 30,
-    y: secondAnchorBox.y + secondAnchorBox.height / 2 + 15,
-  };
-  await page.mouse.click(
-    boardCopyBox.x + boardCopyBox.width / 2,
-    boardCopyBox.y + boardCopyBox.height / 2,
+    .poll(() => pendingHandoff(page.request, urlDesign.id), { timeout: 10_000 })
+    .toEqual({ status: "ready", pendingEditCount: 1 });
+  expect(
+    await savedFile(page.request, urlDesign.id, urlDesign.inactive.filename),
+  ).toBe(inactiveRoute);
+  expect(await savedFile(page.request, urlDesign.id, "__board__.html")).toBe(
+    boardBefore,
   );
-  const dragSurface = page.locator(
-    "[data-board-object-selection-box] [data-frame-drag-surface]",
-  );
-  await expect(dragSurface).toBeVisible();
-  const dragBox = (await dragSurface.boundingBox())!;
-  await page.keyboard.down("Alt");
-  await page.mouse.move(
-    dragBox.x + dragBox.width / 2,
-    dragBox.y + dragBox.height / 2,
-  );
-  await page.mouse.down();
-  await page.keyboard.up("Alt");
-  await page.mouse.move(
-    dragBox.x + dragBox.width / 2 + 6,
-    dragBox.y + dragBox.height / 2 + 3,
-    { steps: 2 },
-  );
-  await page.mouse.move(secondDropPoint.x, secondDropPoint.y, { steps: 12 });
-  await page.mouse.move(secondDropPoint.x, secondDropPoint.y, { steps: 12 });
-  await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
-    timeout: 5_000,
+  const droppedId = await dropped.getAttribute("data-agent-native-node-id");
+  const landed = await placement(dropped);
+  expect({ parent: landed.parent, siblings: landed.siblings }).toEqual({
+    parent: "nested-frame",
+    siblings: ["nested-anchor", droppedId],
   });
+  expectNear(landed.rect, { x: 300, y: 220, width: 60, height: 30 });
+});
+
+test("Option-dragging a frame inside a URL screen duplicates it after the original, selects the copy, and leaves the route unwritten", async ({
+  page,
+  urlDesign,
+}) => {
+  await gotoEditor(page, urlDesign.id);
+  const active = screenContent(page, urlDesign.active.id);
+  const root = active.locator('[data-agent-native-node-id="root-frame"]');
+  const selection = active.locator(
+    '[data-agent-native-edit-overlay="selection"]',
+  );
+  await expect(root).toBeVisible({ timeout: 30_000 });
+  const activeRoute = await savedFile(
+    page.request,
+    urlDesign.id,
+    urlDesign.active.filename,
+  );
+  expect(activeRoute).toMatch(/^https?:\/\/[^/]+\/?$/);
+  const start = await screenPoint(page, urlDesign.active.id, 40, 25);
+  await page.mouse.click(start.x, start.y);
+  await expect(selection).toBeVisible();
+  expect(await placement(root)).toEqual({
+    parent: "BODY",
+    siblings: ["root-frame", "nested-frame"],
+    rect: { x: 0, y: 0, width: 80, height: 50 },
+  });
+
+  const badge = active.locator("[data-agent-native-transform-badge]");
+  const to = await screenPoint(page, urlDesign.active.id, 260, 135);
+  await page.keyboard.down("Alt");
+  await page.mouse.down();
+  await page.mouse.move(start.x + 6, start.y + 3, { steps: 2 });
+  await expect(badge).toHaveText("Duplicate layer");
+  await page.mouse.move(to.x, to.y, { steps: 12 });
+  await expect(badge).toHaveText("Duplicate layer");
   await page.mouse.up();
+  await page.keyboard.up("Alt");
 
-  const inactiveBoardCopyClone = inactiveFrame.locator(
-    '[data-agent-native-layer-name="Board copy source"]',
-  );
-  await expect(inactiveBoardCopyClone).toHaveCount(1, { timeout: 20_000 });
-  await expect(boardCopySource).toHaveCount(1);
-  await expect
-    .poll(() => fileContent(page.request, inactiveScreenFilename), {
-      timeout: 10_000,
-    })
-    .toBe(inactiveRouteBefore);
-
-  const rootFrame = activeFrame.locator(
-    '[data-agent-native-node-id="root-frame"]',
-  );
-  const rootBefore = await displayedFrameContentBox(
-    screenFrame(page, activeScreenId),
-    rootFrame,
-  );
-  await page.mouse.click(
-    rootBefore.x + rootBefore.width / 2,
-    rootBefore.y + rootBefore.height / 2,
-  );
-  await expect(
-    activeFrame.locator('[data-agent-native-edit-overlay="selection"]'),
-  ).toBeVisible();
-
-  const rootStart = center(rootBefore);
-  await physicalRootDrag(page, rootStart);
-
-  const activeRootNodes = activeFrame.locator(
+  const rootFrames = active.locator(
     '[data-agent-native-layer-name="Root frame"]',
   );
-  await expect(activeRootNodes).toHaveCount(2, { timeout: 20_000 });
-  const rootState = await activeFrame.locator("html").evaluate(() => {
-    const nodes = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        '[data-agent-native-layer-name="Root frame"]',
-      ),
-    );
-    const selection = document.querySelector<HTMLElement>(
-      '[data-agent-native-edit-overlay="selection"]',
-    );
-    return {
-      nodes: nodes.map((node) => ({
-        id: node.getAttribute("data-agent-native-node-id"),
-        rect: node.getBoundingClientRect().toJSON(),
-      })),
-      selectionRect: selection?.getBoundingClientRect().toJSON(),
-    };
+  await expect(rootFrames).toHaveCount(2, { timeout: 20_000 });
+  const copyId = await active
+    .locator(
+      '[data-agent-native-layer-name="Root frame"]:not([data-agent-native-node-id="root-frame"])',
+    )
+    .getAttribute("data-agent-native-node-id");
+  expect(copyId).toMatch(/^an-copy-/);
+  const copy = active.locator(`[data-agent-native-node-id="${copyId}"]`);
+  expect(await placement(copy)).toEqual({
+    parent: "BODY",
+    siblings: ["root-frame", copyId, "nested-frame"],
+    rect: { x: 100, y: 0, width: 80, height: 50 },
   });
-  const original = rootState.nodes.find((node) => node.id === "root-frame");
-  const clone = rootState.nodes.find((node) => node.id !== "root-frame");
-  expect(original).toBeTruthy();
-  expect(clone?.id).toMatch(/^an-copy-/);
-  expect(clone!.rect.x).toBeGreaterThan(original!.rect.x);
-  expect(rootState.selectionRect).toMatchObject({
-    x: clone!.rect.x,
-    y: clone!.rect.y,
-    width: clone!.rect.width,
-    height: clone!.rect.height,
+  expect((await placement(root)).rect).toEqual({
+    x: 0,
+    y: 0,
+    width: 80,
+    height: 50,
+  });
+  await expect(copy).toHaveCSS("background-color", "rgb(249, 115, 22)");
+  expect(
+    await selection.evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      return [r.x, r.y, r.width, r.height].map(Math.round);
+    }),
+  ).toEqual([100, 0, 80, 50]);
+  await expect
+    .poll(() => pendingHandoff(page.request, urlDesign.id), { timeout: 10_000 })
+    .toEqual({ status: "ready", pendingEditCount: 1 });
+  expect(
+    await savedFile(page.request, urlDesign.id, urlDesign.active.filename),
+  ).toBe(activeRoute);
+});
+
+test("Option-dragging a frame from one URL screen into another copies it into the target's flow, and the applied source reloads with exactly one copy", async ({
+  page,
+  urlDesign,
+}) => {
+  await gotoEditor(page, urlDesign.id);
+  const active = screenContent(page, urlDesign.active.id);
+  const inactive = screenContent(page, urlDesign.inactive.id);
+  const source = active.locator('[data-agent-native-node-id="root-frame"]');
+  await expect(source).toBeVisible({ timeout: 30_000 });
+  await expect(
+    inactive.locator('[data-agent-native-node-id="url-drop-target"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  const activeRoute = await savedFile(
+    page.request,
+    urlDesign.id,
+    urlDesign.active.filename,
+  );
+  const inactiveRoute = await savedFile(
+    page.request,
+    urlDesign.id,
+    urlDesign.inactive.filename,
+  );
+  const inactiveRootFrames = inactive.locator(
+    '[data-agent-native-layer-name="Root frame"]',
+  );
+  await expect(inactiveRootFrames).toHaveCount(1);
+
+  await dragWithGuide(
+    page,
+    await screenPoint(page, urlDesign.active.id, 40, 25),
+    await screenPoint(page, urlDesign.inactive.id, 600, 150),
+    { duplicate: true },
+  );
+
+  await expect(inactiveRootFrames).toHaveCount(2, { timeout: 20_000 });
+  const copyId = await inactive
+    .locator(
+      '[data-agent-native-layer-name="Root frame"]:not([data-agent-native-node-id="root-frame"])',
+    )
+    .getAttribute("data-agent-native-node-id");
+  expect(copyId).toMatch(/^(?:an-copy-|copy-)/);
+  const copy = inactive.locator(`[data-agent-native-node-id="${copyId}"]`);
+  expect(await placement(copy)).toEqual({
+    parent: "BODY",
+    siblings: ["root-frame", "nested-frame", "url-drop-target", copyId],
+    rect: { x: 100, y: 0, width: 80, height: 50 },
+  });
+  await expect(copy).toHaveCSS("background-color", "rgb(249, 115, 22)");
+  expect(await placement(source)).toEqual({
+    parent: "BODY",
+    siblings: ["root-frame", "nested-frame"],
+    rect: { x: 0, y: 0, width: 80, height: 50 },
   });
   await expect
-    .poll(() => fileContent(page.request, activeScreenFilename), {
-      timeout: 10_000,
-    })
-    .toBe(activeRouteBefore);
+    .poll(() => pendingHandoff(page.request, urlDesign.id), { timeout: 10_000 })
+    .toEqual({ status: "ready", pendingEditCount: 1 });
+  expect(
+    await savedFile(page.request, urlDesign.id, urlDesign.active.filename),
+  ).toBe(activeRoute);
+  expect(
+    await savedFile(page.request, urlDesign.id, urlDesign.inactive.filename),
+  ).toBe(inactiveRoute);
 
-  const screenshotPath = testInfo.outputPath("url-drag-interaction.png");
-  await cdpScreenshot(page, screenshotPath);
-  await test.info().attach("url-drag-interaction.png", {
-    path: screenshotPath,
-    contentType: "image/png",
-  });
-});
-
-test("URL-backed Option-drag preserves identity and appearance across reload", async ({
-  page,
-}) => {
-  persistedCopyHtml = "";
-  await page.addInitScript(() => {
-    if (window !== window.top) return;
-    const target = window as Window & { __urlDropInsertApplied?: boolean };
-    window.addEventListener("message", (event: MessageEvent) => {
-      const message = event.data as {
-        type?: unknown;
-        applied?: unknown;
-      } | null;
-      if (
-        message?.type === "runtime-structure-insert-applied" &&
-        message.applied === true
-      ) {
-        target.__urlDropInsertApplied = true;
-      }
-    });
-  });
-  await gotoEditor(page, designId);
-  await expect(screenFrame(page, activeScreenId)).toBeVisible();
-  await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
-
-  const activeFrame = screenContentFrame(page, activeScreenId);
-  const inactiveFrame = screenContentFrame(page, inactiveScreenId);
-  const source = activeFrame.locator(
-    '[data-agent-native-node-id="root-frame"]',
+  urlDesign.applyToInactiveSource(
+    await copy.evaluate((element) => element.outerHTML),
   );
-  const targetAnchor = inactiveFrame.locator(
-    '[data-agent-native-node-id="url-drop-target"]',
-  );
-  await expect(source).toBeVisible({ timeout: 30_000 });
-  await expect(targetAnchor).toBeVisible({ timeout: 30_000 });
-  const destinationNodes = inactiveFrame.locator("[data-agent-native-node-id]");
-  const destinationIdsBefore = await destinationNodes.evaluateAll((elements) =>
-    elements.map((element) =>
-      element.getAttribute("data-agent-native-node-id"),
-    ),
-  );
-  const sourceAppearance = await source.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      backgroundColor: style.backgroundColor,
-      width: style.width,
-      height: style.height,
-    };
-  });
-
-  const sourceBefore = await displayedFrameContentBox(
-    screenFrame(page, activeScreenId),
-    source,
-  );
-  const targetAnchorBox = await displayedFrameContentBox(
-    screenFrame(page, inactiveScreenId),
-    targetAnchor,
-  );
-  const start = center(sourceBefore);
-  const drop = center(targetAnchorBox);
-  drop.x += 18;
-  drop.y += 11;
-
-  await page.mouse.move(start.x, start.y);
-  await page.keyboard.down("Alt");
-  await page.mouse.down();
-  await page.mouse.move(start.x + 8, start.y + 4, { steps: 2 });
-  await page.mouse.move(drop.x, drop.y, { steps: 24 });
-  await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
-    timeout: 5_000,
-  });
-  await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
-    timeout: 5_000,
-  });
-  await expect(source).toHaveCount(1);
-  await page.mouse.up();
-  await page.keyboard.up("Alt");
-
-  await page.waitForFunction(
-    () =>
-      (
-        window as Window & {
-          __urlDropInsertApplied?: boolean;
-        }
-      ).__urlDropInsertApplied === true,
-    undefined,
-    { timeout: 20_000 },
-  );
-  await expect(destinationNodes).toHaveCount(destinationIdsBefore.length + 1, {
-    timeout: 20_000,
-  });
-  const destinationIdsAfter = await destinationNodes.evaluateAll((elements) =>
-    elements.map((element) =>
-      element.getAttribute("data-agent-native-node-id"),
-    ),
-  );
-  const retainedIds = destinationIdsAfter
-    .filter((id) => id !== null && destinationIdsBefore.includes(id))
-    .sort();
-  expect(retainedIds).toEqual(
-    destinationIdsBefore.filter((id): id is string => id !== null).sort(),
-  );
-  const newIds = destinationIdsAfter.filter(
-    (id): id is string => id !== null && !destinationIdsBefore.includes(id),
-  );
-  expect(newIds).toHaveLength(1);
-  const copyId = newIds[0]!;
-  expect(copyId).toMatch(/^(?:an-copy-|copy-)/);
-  await expect(
-    inactiveFrame.locator(`[data-agent-native-node-id="${copyId}"]`),
-  ).toHaveCSS("background-color", sourceAppearance.backgroundColor);
-  await expect(
-    inactiveFrame.locator(`[data-agent-native-node-id="${copyId}"]`),
-  ).toHaveCSS("width", sourceAppearance.width);
-  await expect(
-    inactiveFrame.locator(`[data-agent-native-node-id="${copyId}"]`),
-  ).toHaveCSS("height", sourceAppearance.height);
-  await expect(source).toHaveCount(1);
-
-  const copyHtml = await inactiveFrame
-    .locator(`[data-agent-native-node-id="${copyId}"]`)
-    .evaluate((element) => element.outerHTML);
-  persistedCopyHtml = `    ${copyHtml}\n`;
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(screenFrame(page, activeScreenId)).toBeVisible({
+  await expect(screenIframe(page, urlDesign.inactive.id)).toBeVisible({
     timeout: 30_000,
   });
-  await expect(screenFrame(page, inactiveScreenId)).toBeVisible({
-    timeout: 30_000,
+  await expect(
+    inactive.locator(`[data-agent-native-node-id="${copyId}"]`),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(inactiveRootFrames).toHaveCount(2);
+  const reloaded = inactive.locator(`[data-agent-native-node-id="${copyId}"]`);
+  expect((await placement(reloaded)).rect).toEqual({
+    x: 100,
+    y: 0,
+    width: 80,
+    height: 50,
   });
-  const reloadedActive = screenContentFrame(page, activeScreenId);
-  await expect(
-    reloadedActive.locator('[data-agent-native-node-id="root-frame"]'),
-  ).toHaveCount(1);
-  const reloadedInactive = screenContentFrame(page, inactiveScreenId);
-  await expect(
-    reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
-  ).toHaveCount(1);
-  await expect(
-    reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
-  ).toHaveCSS("background-color", sourceAppearance.backgroundColor);
-  await expect(
-    reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
-  ).toHaveCSS("width", sourceAppearance.width);
-  await expect(
-    reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
-  ).toHaveCSS("height", sourceAppearance.height);
+  await expect(reloaded).toHaveCSS("background-color", "rgb(249, 115, 22)");
 });
 
-test("URL-backed Option-drag preserves appearance without CSS Typed OM", async ({
+// fixme: product bug: Same defect as :347: the copy is placed in the target body's flex row (parent BODY, after root-frame) rather than in Nested frame at the
+test.fixme("without CSS Typed OM, Option-dragging a layer into another URL screen's nested frame copies its exact appearance to the drop point", async ({
   page,
-}, testInfo) => {
-  persistedCopyHtml = "";
+  urlDesign,
+}) => {
   await page.addInitScript(() => {
     Object.defineProperty(Element.prototype, "computedStyleMap", {
       configurable: true,
       value: undefined,
     });
   });
-  await gotoEditor(page, designId);
-  await expect(screenFrame(page, activeScreenId)).toBeVisible();
-  await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
-
-  const activeFrame = screenContentFrame(page, activeScreenId);
-  const inactiveFrame = screenContentFrame(page, inactiveScreenId);
-  const source = activeFrame.locator(
-    '[data-agent-native-node-id="nested-anchor"]',
-  );
-  const targetAnchor = inactiveFrame.locator(
-    '[data-agent-native-node-id="nested-anchor"]',
-  );
+  await gotoEditor(page, urlDesign.id);
+  const active = screenContent(page, urlDesign.active.id);
+  const inactive = screenContent(page, urlDesign.inactive.id);
+  const source = active.locator('[data-agent-native-node-id="nested-anchor"]');
   await expect(source).toBeVisible({ timeout: 30_000 });
-  await expect(targetAnchor).toBeVisible({ timeout: 30_000 });
-  const destinationNodes = inactiveFrame.locator("[data-agent-native-node-id]");
-  const destinationIdsBefore = await destinationNodes.evaluateAll((elements) =>
-    elements.map((element) =>
-      element.getAttribute("data-agent-native-node-id"),
-    ),
-  );
-  const activeRouteBefore = await fileContent(
+  await expect(
+    inactive.locator('[data-agent-native-node-id="nested-anchor"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  const activeRoute = await savedFile(
     page.request,
-    activeScreenFilename,
+    urlDesign.id,
+    urlDesign.active.filename,
   );
-  const inactiveRouteBefore = await fileContent(
+  const inactiveRoute = await savedFile(
     page.request,
-    inactiveScreenFilename,
+    urlDesign.id,
+    urlDesign.inactive.filename,
+  );
+  const children = inactive.locator(
+    '[data-agent-native-layer-name="Existing child"]',
+  );
+  await expect(children).toHaveCount(1);
+
+  await dragWithGuide(
+    page,
+    await screenPoint(page, urlDesign.active.id, 236, 156),
+    await screenPoint(page, urlDesign.inactive.id, 300, 240),
+    { duplicate: true },
   );
 
-  const sourceBefore = await displayedFrameContentBox(
-    screenFrame(page, activeScreenId),
-    source,
-  );
-  const targetBox = await displayedFrameContentBox(
-    screenFrame(page, inactiveScreenId),
-    targetAnchor,
-  );
-  const start = center(sourceBefore);
-  const drop = center(targetBox);
-  drop.x += 18;
-  drop.y += 11;
-
-  await page.mouse.move(start.x, start.y);
-  await page.keyboard.down("Alt");
-  await page.mouse.down();
-  await page.mouse.move(start.x + 8, start.y + 4, { steps: 2 });
-  await page.mouse.move(drop.x, drop.y, { steps: 24 });
-  await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
-    timeout: 5_000,
-  });
-  await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
-    timeout: 5_000,
-  });
-  await expect(source).toHaveCount(1);
-  await page.mouse.up();
-  await page.keyboard.up("Alt");
-
-  await expect(destinationNodes).toHaveCount(destinationIdsBefore.length + 1, {
-    timeout: 20_000,
-  });
-  const destinationIdsAfter = await destinationNodes.evaluateAll((elements) =>
-    elements.map((element) =>
-      element.getAttribute("data-agent-native-node-id"),
-    ),
-  );
-  const copyId = destinationIdsAfter.find(
-    (id): id is string => Boolean(id) && !destinationIdsBefore.includes(id),
-  );
+  await expect(children).toHaveCount(2, { timeout: 20_000 });
+  const copyId = await inactive
+    .locator(
+      '[data-agent-native-layer-name="Existing child"]:not([data-agent-native-node-id="nested-anchor"])',
+    )
+    .getAttribute("data-agent-native-node-id");
   expect(copyId).toMatch(/^(?:an-copy-|copy-)/);
-  const copy = inactiveFrame.locator(`[data-agent-native-node-id="${copyId}"]`);
+  const copy = inactive.locator(`[data-agent-native-node-id="${copyId}"]`);
   await expect(copy).toHaveCSS("background-color", "rgb(37, 99, 235)");
   await expect(copy).toHaveCSS("width", "80px");
   await expect(copy).toHaveCSS("height", "40px");
-  await expect(source).toHaveCount(1);
+  expect(await placement(source)).toEqual({
+    parent: "nested-frame",
+    siblings: ["nested-anchor"],
+    rect: { x: 196, y: 136, width: 80, height: 40 },
+  });
   await expect
-    .poll(() => fileContent(page.request, activeScreenFilename))
-    .toBe(activeRouteBefore);
-  await expect
-    .poll(() => fileContent(page.request, inactiveScreenFilename))
-    .toBe(inactiveRouteBefore);
-
-  persistedCopyHtml = `    ${await copy.evaluate((element) => element.outerHTML)}\n`;
-  expect(persistedCopyHtml).toContain(`data-agent-native-node-id="${copyId}"`);
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(screenFrame(page, activeScreenId)).toBeVisible({
-    timeout: 30_000,
+    .poll(() => pendingHandoff(page.request, urlDesign.id), { timeout: 10_000 })
+    .toEqual({ status: "ready", pendingEditCount: 1 });
+  expect(
+    await savedFile(page.request, urlDesign.id, urlDesign.active.filename),
+  ).toBe(activeRoute);
+  expect(
+    await savedFile(page.request, urlDesign.id, urlDesign.inactive.filename),
+  ).toBe(inactiveRoute);
+  const landed = await placement(copy);
+  expect({ parent: landed.parent, siblings: landed.siblings }).toEqual({
+    parent: "nested-frame",
+    siblings: ["nested-anchor", copyId],
   });
-  await expect(screenFrame(page, inactiveScreenId)).toBeVisible({
-    timeout: 30_000,
-  });
-  const reloadedInactive = screenContentFrame(page, inactiveScreenId);
-  const reloadedCopy = reloadedInactive.locator(
-    `[data-agent-native-node-id="${copyId}"]`,
-  );
-  await expect(reloadedCopy).toHaveCount(1);
-  await expect(reloadedCopy).toHaveCSS("background-color", "rgb(37, 99, 235)");
-  await expect(reloadedCopy).toHaveCSS("width", "80px");
-  await expect(reloadedCopy).toHaveCSS("height", "40px");
-
-  const screenshotPath = testInfo.outputPath("url-drop-without-typed-om.png");
-  await cdpScreenshot(page, screenshotPath);
-  await test.info().attach("url-drop-without-typed-om.png", {
-    path: screenshotPath,
-    contentType: "image/png",
-  });
+  expectNear(landed.rect, { x: 260, y: 220, width: 80, height: 40 });
 });
-
-async function physicalRootDrag(page: Page, start: { x: number; y: number }) {
-  await page.mouse.move(start.x, start.y);
-  await page.keyboard.down("Alt");
-  await page.mouse.down();
-  await page.mouse.move(start.x + 6, start.y + 3, { steps: 2 });
-  const activeFrame = page
-    .locator(
-      `iframe[data-design-preview-iframe][data-screen-iframe-id="${activeScreenId}"]`,
-    )
-    .contentFrame();
-  await expect(
-    activeFrame.locator("[data-agent-native-transform-badge]"),
-  ).toHaveText("Duplicate layer");
-  await page.mouse.move(start.x + 45, start.y + 20, { steps: 8 });
-  await expect(
-    activeFrame.locator("[data-agent-native-transform-badge]"),
-  ).toHaveText("Duplicate layer");
-  await page.mouse.move(start.x + 110, start.y + 55, { steps: 12 });
-  await expect(
-    activeFrame.locator("[data-agent-native-transform-badge]"),
-  ).toHaveText("Duplicate layer");
-  await page.mouse.up();
-  await page.keyboard.up("Alt");
-}

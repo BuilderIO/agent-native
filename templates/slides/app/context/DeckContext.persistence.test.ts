@@ -134,6 +134,7 @@ function setupFetch(options?: {
   staleContentConflicts?: boolean;
   staleContentFailures?: { deckId: string; count: number };
   getDeckFailures?: { deckId: string; count: number };
+  missingDeckStatus?: number;
   putFailures?: { deckId: string; count: number };
   patchStatus?: number;
   patchHeaders?: Record<string, string>;
@@ -449,7 +450,9 @@ function setupFetch(options?: {
       const deckId =
         new URL(href, "http://localhost").searchParams.get("id") ?? "";
       if (accessibleDeck?.id !== deckId) {
-        return Promise.resolve(new Response("", { status: 404 }));
+        return Promise.resolve(
+          new Response(null, { status: options?.missingDeckStatus ?? 404 }),
+        );
       }
       if (getDeckFailuresRemaining > 0) {
         getDeckFailuresRemaining -= 1;
@@ -6316,6 +6319,32 @@ describe("DeckContext deck creation persistence", () => {
       reason: "request-failed",
     });
     expect(deckFetchCalls(fetchMock)).toEqual([]);
+  });
+
+  it("treats an empty successful deck probe as a request failure", async () => {
+    setupFetch({ missingDeckStatus: 204 });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(
+      result.current.ensureDeckPersisted("unconfirmed-deck"),
+    ).resolves.toEqual({
+      persisted: false,
+      reason: "request-failed",
+      error: null,
+    });
+  });
+
+  it("reports a deck missing only after an explicit not-found response", async () => {
+    setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(
+      result.current.ensureDeckPersisted("missing-deck"),
+    ).resolves.toEqual({ persisted: false, reason: "not-found" });
   });
 
   it("can reload the currently open deck after access changes", async () => {

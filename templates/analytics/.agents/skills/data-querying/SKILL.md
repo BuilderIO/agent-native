@@ -149,7 +149,7 @@ pnpm action account-deep-dive --query="The Knot" --days=180 --gongLimit=10 --tra
 # HubSpot contacts or companies
 pnpm action hubspot-records --objectType=companies --query=builder.io --properties=name,domain,lifecyclestage
 
-# Gong call content for a customer deep dive
+# Gong call evidence (quotes, counts); ask run-gong-native-insight first for "what did they say"
 pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true --transcriptLimit=5
 ```
 
@@ -160,10 +160,13 @@ endpoint/filter a shortcut can't express) have **no bespoke action** — reach
 them through the shared provider API escape-hatch pattern:
 `provider-api-catalog` / `provider-api-docs` to learn the endpoint, then
 `provider-api-request` (or `providerFetch` inside `run-code`) against the
-provider's real HTTP API. For broad/corpus-wide questions ("how many", "which",
-"any/none across all …") prefer this raw-API + `run-code` path from the first
-step — fetch the full cohort with `fetchAllPages`/`saveToFile` and
-grep/aggregate locally — rather than stretching a capped shortcut action.
+provider's real HTTP API. Ask the provider to do the work first: use its own
+search or semantic tool, or a server-side filter on a bounded window (for
+Gong, `run-gong-native-insight`). Only for exhaustive coverage, exact counts, or
+an absence claim ("how many", "any/none across all …") stage the raw API
+response with `stageAs`/`saveToFile` and reduce it with `query-staged-dataset`
+or `run-code`, rather than stretching a capped shortcut action or paging by
+hand to filter locally.
 
 ### Writing Ad-Hoc Scripts
 
@@ -194,7 +197,7 @@ For complete answers, combine data from multiple sources:
 - **BigQuery** for analytics events, signups, pageviews
 - **First-party Analytics** (`query-agent-native-analytics`) for events collected through `/track`
 - **HubSpot** for CRM data — `hubspot-records` for contacts/companies/tickets/general lookup; `hubspot-deals` and `hubspot-metrics` for pipeline and revenue analysis
-- **Gong** for sales-call evidence — use `gong-calls` with `includeTranscripts=true` for deep dives, objections, risks, or next steps
+- **Gong** for sales-call evidence — ask `run-gong-native-insight` first for what was said, risks, objections, or next steps; use `gong-calls` with `includeTranscripts=true` for quotes, counts, or when native operations are not connected
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
 - **Agent-Native Analytics Monitoring -> Errors** for first-party captured
@@ -247,11 +250,9 @@ future analyses.
 ## Important Notes
 
 - Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.
-- State confidence explicitly instead of refusing. Cite the dashboard or saved query you used when a query ran; say so when you're answering from an existing dashboard, especially a certified one. When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
+- State confidence explicitly instead of refusing. Answer shape and citing the dashboard are owned by AGENTS.md "Data questions". When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
 - Answer questions directly in chat with tables, inline charts, and findings. Never deflect to "check the dashboard" — actually run the query and present the answer.
-- Before finalizing an analytics answer, make the evidence trail explicit enough
-  to audit: source(s), time window, filters, sample size or row count, join or
-  match method, caveats/gaps, and what action to take next when useful.
+- Evidence fields (source, window, filters, sample size, join method, caveats) go in the optional "How it's computed" note defined in AGENTS.md, not the opening line.
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, and `generate-chart` are not data queries. For dashboard artifacts, run at least one provider query action and preserve the result evidence in the final answer or dashboard config/description.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used.
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns.

@@ -111,7 +111,12 @@ describe("import-figma-frame", () => {
 
     expect(mocks.resolveImportDesignId).not.toHaveBeenCalled();
     expect(mocks.createDesign).toHaveBeenCalledWith(
-      { title: "Hero", projectType: "prototype", designSystemId: null },
+      {
+        title: "Hero",
+        projectType: "prototype",
+        designSystemId: null,
+        creationMethod: "import_figma",
+      },
       undefined,
     );
     expect(

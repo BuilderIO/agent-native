@@ -1,0 +1,37 @@
+/* Shared by every prototype. The build puts the code's tokens first: the toolkit's tokens and @theme
+   (--color-border, --color-muted-foreground, …) and the template's theme (Design's --design-editor-*), in both
+   themes. Prototype CSS uses those names directly, so it follows the code. Only tokens the code doesn't have yet
+   are defined here; when one lands in the code, delete it here and use the code's name. */
+:root {
+  /* Warnings are amber; red is only for destructive actions. */
+  --warning: hsl(38 92% 45%);
+  --warn: hsl(36 92% 50%);
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--color-background); color: var(--color-foreground); font-family: var(--font); font-size: 12px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: 1px; }
+svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.s12 { width: 12px; height: 12px; }
+svg.i.s14 { width: 14px; height: 14px; }
+.muted { color: var(--color-muted-foreground); }
+
+/* Changes drawer: the prototype's change log, newest first. Opened from the review strip's Changes button,
+   which carries a dot when there are entries since this viewer last opened it. */
+.kit-changes-btn { position: relative; }
+.kit-changes-btn[data-new]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--kit-accent); }
+.kit-changes { position: fixed; top: 36px; right: 0; bottom: 0; width: min(400px, 100%); background: var(--color-background); border-left: 1px solid var(--color-border); z-index: 70; display: flex; flex-direction: column; box-shadow: var(--agent-kit-overlay-elevation); }
+.kit-changes-h { height: 48px; flex: none; display: flex; align-items: center; justify-content: space-between; padding-inline: 16px 8px; border-bottom: 1px solid var(--color-border); font-size: 13px; font-weight: 600; }
+.kit-changes-h button { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; color: var(--color-muted-foreground); }
+.kit-changes-h button:hover { background: var(--color-accent); color: var(--color-foreground); }
+.kit-changes-b { overflow: auto; padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 16px; font-size: 12px; line-height: 1.5; }
+.kit-changes-b h4 { margin: 8px 0 4px; font-size: 11px; font-weight: 600; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; }
+.kit-changes-b ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.kit-changes-b li { display: grid; grid-template-columns: 8px 1fr; gap: 8px; }
+.kit-changes-b li::before { content: ""; width: 4px; height: 4px; margin: 7px 0 0 2px; border-radius: 50%; background: var(--color-border); }
+.kit-changes-b li.new::before { background: var(--kit-accent); }

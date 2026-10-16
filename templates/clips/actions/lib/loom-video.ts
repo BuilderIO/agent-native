@@ -3,7 +3,10 @@ import { z } from "zod";
 
 import { probeMediaDurationMs } from "../../server/lib/video-frame.js";
 import { isFfmpegAvailable } from "../../server/lib/video-remux.js";
-import { readResponseBytesWithLimit } from "./video-download-limits.js";
+import {
+  readResponseBytesWithLimit,
+  VideoDownloadTooLargeError,
+} from "./video-download-limits.js";
 
 const LOOM_DOWNLOAD_TIMEOUT_MS = 120_000;
 const LOOM_VIDEO_USER_AGENT =
@@ -149,10 +152,12 @@ export async function downloadLoomVideo({
   loomId,
   shareUrl,
   expectedDurationMs,
+  maxBytes,
 }: {
   loomId: string;
   shareUrl: string;
   expectedDurationMs?: number | null;
+  maxBytes?: number;
 }): Promise<LoomVideoDownload> {
   const sourceUrl = await fetchTranscodedVideoUrl({ loomId, shareUrl });
   const response = await ssrfSafeFetch(
@@ -177,7 +182,15 @@ export async function downloadLoomVideo({
   }
 
   const mimeType = normalizeVideoMimeType(response.headers.get("content-type"));
-  const bytes = await readResponseBytesWithLimit(response);
+  let bytes: Uint8Array;
+  try {
+    bytes = await readResponseBytesWithLimit(response, maxBytes);
+  } catch (error) {
+    if (error instanceof VideoDownloadTooLargeError) {
+      throw new LoomVideoUnavailableError(error.message);
+    }
+    throw error;
+  }
   if (bytes.byteLength <= 0) {
     throw new Error("Loom returned an empty video file.");
   }

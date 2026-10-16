@@ -204,30 +204,41 @@ function internalContinuationReasonForAttempt(
   return undefined;
 }
 
-export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 1;
-export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 20_000;
+export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 3;
+export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 2_000;
 
-function rateLimitCooldownMs(err: unknown): number {
+function rateLimitCooldownMs(err: unknown, retryCount: number): number {
   const retryAfterMs =
     err instanceof EngineError && typeof err.retryAfterMs === "number"
       ? err.retryAfterMs
       : 0;
-  return Math.max(BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS, retryAfterMs);
+  const backoffMs =
+    BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS * 2 ** retryCount;
+  return Math.max(backoffMs, retryAfterMs);
 }
 
 function waitForBackgroundRateLimitCooldown(
-  signal: AbortSignal,
+  turnSignal: AbortSignal,
+  chunkSignal: AbortSignal,
   delayMs: number,
-): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
+): Promise<"elapsed" | "turn_aborted" | "chunk_aborted"> {
+  if (turnSignal.aborted) return Promise.resolve("turn_aborted");
+  if (chunkSignal.aborted) return Promise.resolve("chunk_aborted");
   return new Promise((resolve) => {
-    const finish = () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (result: "elapsed" | "turn_aborted" | "chunk_aborted") => {
       clearTimeout(timer);
-      signal.removeEventListener("abort", finish);
-      resolve();
+      turnSignal.removeEventListener("abort", onTurnAbort);
+      chunkSignal.removeEventListener("abort", onChunkAbort);
+      resolve(result);
     };
-    const timer = setTimeout(finish, delayMs);
-    signal.addEventListener("abort", finish, { once: true });
+    const onTurnAbort = () => finish("turn_aborted");
+    const onChunkAbort = () => finish("chunk_aborted");
+    timer = setTimeout(() => finish("elapsed"), delayMs);
+    turnSignal.addEventListener("abort", onTurnAbort, { once: true });
+    chunkSignal.addEventListener("abort", onChunkAbort, { once: true });
+    if (turnSignal.aborted) onTurnAbort();
+    else if (chunkSignal.aborted) onChunkAbort();
   });
 }
 
@@ -240,11 +251,22 @@ export const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 
+export class AgentLoopAbortedError extends Error {
+  readonly usage: Awaited<ReturnType<typeof runAgentLoop>>;
+
+  constructor(usage: Awaited<ReturnType<typeof runAgentLoop>>) {
+    super("Agent run was aborted.");
+    this.name = "AbortError";
+    this.usage = usage;
+  }
+}
+
 export async function runAgentLoopDirectWithSoftTimeout(
   opts: Parameters<typeof runAgentLoop>[0],
   softTimeoutMs?: number,
   timeoutOptions?: ResolveRunSoftTimeoutOptions,
   control?: RunChunkControl,
+  onUsage?: (usage: Awaited<ReturnType<typeof runAgentLoop>>) => void,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
@@ -346,8 +368,10 @@ export async function runAgentLoopDirectWithSoftTimeout(
     model: opts.model,
   };
 
-  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
     mergeAgentLoopUsage(usage, next);
+    onUsage?.({ ...usage });
+  };
 
   const localTurnEvents: AgentChatEvent[] = [];
   const continueFromChunkBoundary = async (
@@ -509,8 +533,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
         continue;
       }
       const transientRateLimit = isTransientProviderRateLimitError(err);
-      const rateLimitCooldown = rateLimitCooldownMs(err);
+      const rateLimitCooldown = rateLimitCooldownMs(
+        err,
+        backgroundRateLimitContinuations,
+      );
       const rateLimitRetryFitsBudget =
+        attempts < maxRunLoopContinuations &&
         backgroundRateLimitContinuations <
           MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
         timeoutMs - (Date.now() - loopEntryAt) - rateLimitCooldown >=
@@ -539,7 +567,27 @@ export async function runAgentLoopDirectWithSoftTimeout(
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
         );
-        await waitForBackgroundRateLimitCooldown(turnSignal, rateLimitCooldown);
+        const cooldownResult = await waitForBackgroundRateLimitCooldown(
+          turnSignal,
+          roundChunkSignal,
+          rateLimitCooldown,
+        );
+        if (cooldownResult === "turn_aborted" || turnSignal.aborted) {
+          reportFinalOutcome(turnAbortOutcome());
+          throw new AgentLoopAbortedError(usage);
+        }
+        if (cooldownResult === "chunk_aborted") {
+          const chunkBoundaryReason = recoverableChunkBoundary();
+          if (chunkBoundaryReason) {
+            appendAgentLoopContinuation(
+              opts.messages,
+              chunkBoundaryReason,
+              actionPreparationContinuationOptions(localTurnEvents),
+            );
+            chunkSignal = control?.beginChunk() ?? chunkSignal;
+            continue;
+          }
+        }
         continue;
       }
       if (!turnSignal.aborted && transientRateLimit) {

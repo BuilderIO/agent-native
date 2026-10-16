@@ -73,21 +73,27 @@ export function QuestionFlow({
   providerStatus,
   onRetryProviderStatus,
 }: QuestionFlowProps) {
-  const visibleQuestions = useMemo(
-    () =>
-      questions.map((question) =>
-        question.type === "color-options" && designSystem
-          ? {
-              ...question,
-              options: designSystemColorOptions(
-                designSystem,
-                question.options || [],
-              ),
-            }
-          : question,
-      ),
-    [designSystem, questions],
-  );
+  const visibleQuestions = useMemo(() => {
+    const submitSingleChoiceOnSelect =
+      questions.length === 1 &&
+      questions[0]?.type === "text-options" &&
+      questions[0].multiSelect !== true;
+
+    return questions.map((question) => {
+      const resolvedQuestion = submitSingleChoiceOnSelect
+        ? { ...question, submitOnSelect: true }
+        : question;
+      return resolvedQuestion.type === "color-options" && designSystem
+        ? {
+            ...resolvedQuestion,
+            options: designSystemColorOptions(
+              designSystem,
+              resolvedQuestion.options || [],
+            ),
+          }
+        : resolvedQuestion;
+    });
+  }, [designSystem, questions]);
 
   return (
     <div className="slides-question-flow absolute inset-0 z-50 bg-transparent">

@@ -1,8 +1,13 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -46,6 +51,11 @@ import {
 import * as settingsStore from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
+import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "./durable-background.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
@@ -67,6 +77,7 @@ import {
   buildUserContentWithAttachments,
   isAgentModelVisionCapable,
   DurableAttachmentReferenceRequiredError,
+  pinAdditionalActionsToTurn,
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
@@ -132,6 +143,8 @@ import {
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import * as runStore from "./run-store.js";
+import { threadDataToEngineMessages } from "./thread-data-builder.js";
+import * as toolApprovalStore from "./tool-approval-store.js";
 import {
   classifyToolCallJournal,
   findCompletedJournalEntry,
@@ -156,6 +169,7 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -198,13 +212,26 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
   },
 }));
 
-vi.mock("./run-manager.js", async () => ({
-  ...(await vi.importActual<typeof import("./run-manager.js")>(
-    "./run-manager.js",
-  )),
-  tryClaimRunSlot: mockTryClaimRunSlot,
-  getSlotHoldingRunId: mockGetSlotHoldingRunId,
-}));
+vi.mock("./run-manager.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("./run-manager.js")>(
+      "./run-manager.js",
+    );
+  return {
+    ...actual,
+    startRun: (...args: Parameters<typeof actual.startRun>) => {
+      if (!mockPersistRunEventsInMemory.enabled)
+        return actual.startRun(...args);
+      const [runId, threadId, runFn, onComplete, options] = args;
+      return actual.startRun(runId, threadId, runFn, onComplete, {
+        ...options,
+        persistEvent: async () => {},
+      });
+    },
+    tryClaimRunSlot: mockTryClaimRunSlot,
+    getSlotHoldingRunId: mockGetSlotHoldingRunId,
+  };
+});
 
 vi.mock("./run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./run-store.js")>()),
@@ -441,6 +468,25 @@ describe("toolCallCacheKey", () => {
     expect(
       toolCallCacheKey("read-file", { query: "  Slides   generation " }),
     ).not.toBe(toolCallCacheKey("read-file", { query: "slides generation" }));
+  });
+});
+
+describe("approvalKeyForHistory", () => {
+  it("stores raw or malformed prefixed keys as opaque hashes", () => {
+    const rawKey = 'send-email:{"attachment":"data:image/png;base64,INLINE"}';
+    const storedKey = approvalKeyForHistory(rawKey);
+    const forgedKey = approvalKeyForHistory(
+      "agent-tool-approval-key-sha256:INLINE",
+    );
+
+    expect(storedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
+    expect(storedKey).toBe(
+      `agent-tool-approval-key-sha256:${createHash("sha256").update(rawKey).digest("hex")}`,
+    );
+    expect(forgedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
+    expect(storedKey).not.toContain("INLINE");
+    expect(forgedKey).not.toContain("INLINE");
+    expect(approvalKeyForHistory(storedKey)).toBe(storedKey);
   });
 });
 
@@ -2030,7 +2076,7 @@ describe("buildUserContentWithAttachments", () => {
 
   it("hydrates an earlier image reference into a later text-only turn", async () => {
     const url = "https://storage.example.test/uploads/reference.png";
-    const history = [
+    const history: Parameters<typeof findApprovedStructuredToolCall>[0] = [
       {
         role: "user" as const,
         content: [
@@ -2367,7 +2413,7 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  it("finds the latest exact pending approval call from structured history", () => {
+  it("finds the unique exact pending approval call from structured history", () => {
     expect(
       findApprovedStructuredToolCall(
         [
@@ -2388,8 +2434,8 @@ describe("buildUserContentWithAttachments", () => {
               {
                 type: "tool-result",
                 toolCallId: "call-1",
-                content:
-                  "Awaiting human approval to run the action. This action did NOT execute.",
+                content: "The action paused before execution.",
+                approvalPause: true,
               },
             ],
           },
@@ -2397,9 +2443,329 @@ describe("buildUserContentWithAttachments", () => {
         ['create-builder-branch:{"branchName":"feature/test"}'],
       ),
     ).toEqual({
-      callId: "call-1",
-      name: "create-builder-branch",
-      input: { branchName: "feature/test" },
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "create-builder-branch",
+        input: { branchName: "feature/test" },
+      },
+    });
+  });
+
+  it("matches repeated identical pending approvals by exact ask id", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    const history = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input,
+            approvalAskId: "ask-old",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+            approvalAskId: "ask-old",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-2",
+            name: "send-email",
+            input,
+            approvalAskId: "ask-new",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-2",
+            content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+            approvalAskId: "ask-new",
+          },
+        ],
+      },
+    ];
+    expect(
+      findApprovedStructuredToolCall(history, ["stale-key"], ["ask-old"]),
+    ).toEqual({
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "send-email",
+        input,
+        approvalAskId: "ask-old",
+      },
+    });
+    expect(
+      findApprovedStructuredToolCall(history, [approvalKey], ["ask-new"]),
+    ).toMatchObject({ status: "found", toolCall: { callId: "call-2" } });
+  });
+
+  it("rejects repeated identical pending approvals without an ask id", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              { type: "tool-call", id: "call-1", name: "send-email", input },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-1",
+                content: "Awaiting human approval.",
+                approvalPause: true,
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              { type: "tool-call", id: "call-2", name: "send-email", input },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-2",
+                content: "Awaiting human approval.",
+                approvalPause: true,
+              },
+            ],
+          },
+        ],
+        [approvalKey],
+      ),
+    ).toEqual({ status: "ambiguous" });
+  });
+
+  it("uses a persisted opaque approval key to select a legacy pending call", () => {
+    const approvalKey = approvalKeyForHistory(
+      'send-email:{"attachment":"data:image/png;base64,INLINE"}',
+    );
+    const history = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input: { attachment: "[inline image/png data omitted]" },
+            approvalKey,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "The action paused before execution.",
+            approvalPause: true,
+          },
+        ],
+      },
+    ];
+
+    expect(findApprovedStructuredToolCall(history, [approvalKey])).toEqual({
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "send-email",
+        input: { attachment: "[inline image/png data omitted]" },
+      },
+    });
+  });
+
+  it("ignores completed outputs that mention approval when finding the pending call", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-completed",
+                name: "send-email",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-completed",
+                content:
+                  "The report says ‘awaiting human approval’ and ‘did not execute’.",
+                approvalPause: false,
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-pending",
+                name: "send-email",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-pending",
+                content: "The action paused before execution.",
+                approvalPause: true,
+              },
+            ],
+          },
+        ],
+        [approvalKey],
+      ),
+    ).toEqual({
+      status: "found",
+      toolCall: { callId: "call-pending", name: "send-email", input },
+    });
+  });
+
+  it("preserves approval identity and pause markers through structured history and backfill", () => {
+    const approvalAskId = "approval-ask-1";
+    const input = { to: "a@b.com" };
+    const messages = structuredHistoryToEngineMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input,
+            approvalAskId,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Neutral pause text.",
+            approvalAskId,
+            approvalPause: true,
+          },
+        ],
+      },
+    ]);
+
+    expect(messages?.[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call-1",
+      approvalPause: true,
+      approvalAskId,
+    });
+  });
+
+  it("preserves explicit false approval-pause markers through structured history and backfill", () => {
+    const messages = structuredHistoryToEngineMessages([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call-1", name: "send-email", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Neutral completed text.",
+            approvalPause: false,
+          },
+        ],
+      },
+    ]);
+
+    expect(messages?.[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call-1",
+      approvalPause: false,
+    });
+  });
+
+  it("keeps approval identity when rebuilding paused results from thread data", () => {
+    const input = { to: "a@b.com" };
+    const messages = threadDataToEngineMessages(
+      {
+        messages: [
+          {
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  toolCallId: "reused-call-id",
+                  toolName: "send-email",
+                  args: input,
+                  result: "Awaiting human approval.",
+                  approvalPause: true,
+                  approval: {
+                    approvalKey: toolCallCacheKey("send-email", input),
+                    askId: "ask-old",
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      { includeToolCalls: true },
+    );
+
+    expect(messages[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      approvalPause: true,
+      approvalAskId: "ask-old",
     });
   });
 
@@ -3282,6 +3648,793 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it.each([
+    [
+      "redacted after inline-byte scrubbing",
+      { attachment: "[inline image/png data omitted]" },
+    ],
+    ["omitted from structured history", null],
+  ])(
+    "fails closed when an approved call input is %s",
+    async (_reason, historyInput) => {
+      const engine = engineWithUncalledStream();
+      const runAction = vi.fn(async () => "sent");
+      const resolveApproval = vi.spyOn(
+        toolApprovalStore,
+        "resolveAgentToolApprovalTurnId",
+      );
+      const consumeApproval = vi.spyOn(
+        toolApprovalStore,
+        "consumeAgentToolApproval",
+      );
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {
+          "send-email": {
+            ...actionEntry({ readOnly: false }),
+            needsApproval: true,
+            run: runAction,
+          },
+        },
+      });
+      const approvalKey = approvalKeyForHistory(
+        'send-email:{"attachment":"data:image/png;base64,INLINE"}',
+      );
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Approved. Continue.",
+            threadId: "thread-redacted-approval",
+            turnId: "turn-redacted-approval",
+            approvedToolCalls: [approvalKey],
+            approvedToolCallAskIds: ["ask-redacted-approval"],
+            structuredHistory: [
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    id: "call-redacted-approval",
+                    name: "send-email",
+                    ...(historyInput !== null ? { input: historyInput } : {}),
+                    approvalKey,
+                    approvalAskId: "ask-redacted-approval",
+                  },
+                ],
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId: "call-redacted-approval",
+                    content: "Awaiting human approval.",
+                    approvalPause: true,
+                    approvalAskId: "ask-redacted-approval",
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      );
+
+      try {
+        const result = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+
+        expect(event.res.status).toBe(422);
+        expect(result).toEqual({
+          error: "The agent run failed.",
+          code: "approved_tool_call_input_unavailable",
+          retryable: false,
+        });
+        expect(resolveApproval).not.toHaveBeenCalled();
+        expect(consumeApproval).not.toHaveBeenCalled();
+        expect(engine.stream).not.toHaveBeenCalled();
+        expect(runAction).not.toHaveBeenCalled();
+      } finally {
+        resolveApproval.mockRestore();
+        consumeApproval.mockRestore();
+      }
+    },
+  );
+
+  it("fails explicitly when an approved call is missing from structured history", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_history_missing",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "typed attachment payloads",
+      input: {
+        attachment: {
+          type: "image",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      },
+    },
+    {
+      label: "data URLs in ordinary input fields",
+      input: { url: `data:image/png;base64,${PNG_BASE64}` },
+    },
+  ])(
+    "keeps approved replay with $label in the foreground when durable dispatch is enabled",
+    async ({ input }) => {
+      const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      const previousA2ASecret = process.env.A2A_SECRET;
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+      process.env.A2A_SECRET = "fixture-a2a-secret";
+      const approvalId = "ask-inline-approval";
+      const approvalKey = toolCallCacheKey("send-email", input);
+      const resolveApproval = vi
+        .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+        .mockResolvedValue("turn-inline-approval");
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce({
+        claimed: false,
+        activeRunId: "run-existing",
+      });
+      mockFireInternalDispatch.mockClear();
+      const runAction = vi.fn(async () => "sent");
+      const engine: AgentEngine = {
+        ...engineWithUncalledStream(),
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Email sent." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {
+          "send-email": {
+            ...actionEntry({ readOnly: false }),
+            needsApproval: true,
+            run: runAction,
+          },
+        },
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Approved. Continue.",
+            threadId: "thread-inline-approval",
+            approvedToolCalls: [approvalKey],
+            approvedToolCallAskIds: [approvalId],
+            structuredHistory: [
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    id: "call-inline-approval",
+                    name: "send-email",
+                    input,
+                    approvalKey,
+                    approvalAskId: approvalId,
+                  },
+                ],
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId: "call-inline-approval",
+                    toolName: "send-email",
+                    toolInput: JSON.stringify(input),
+                    content: "Awaiting human approval.",
+                    approvalPause: true,
+                    approvalAskId: approvalId,
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      );
+
+      try {
+        const response = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+        expect(event.res.status).toBe(409);
+        expect(response).toEqual({
+          error: "Run already in progress for this thread",
+          code: "run_slot_busy",
+          retryable: true,
+          activeRunId: "run-existing",
+        });
+
+        expect(resolveApproval).toHaveBeenCalledWith(
+          expect.objectContaining({ approvalKeys: [approvalKey] }),
+        );
+        expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+        const slotOptions = (mockTryClaimRunSlot.mock.calls[0] as any)[3];
+        expect(slotOptions).toMatchObject({
+          dispatchMode: "foreground",
+        });
+        expect(slotOptions).not.toHaveProperty("dispatchPayload");
+        expect(runAction).not.toHaveBeenCalled();
+        expect(mockFireInternalDispatch).not.toHaveBeenCalled();
+      } finally {
+        resolveApproval.mockRestore();
+        if (previousDurableFlag === undefined) {
+          delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+        } else {
+          process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+        }
+        if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+        else process.env.A2A_SECRET = previousA2ASecret;
+      }
+    },
+  );
+
+  it("continues the foreground model with the completed approved tool result", async () => {
+    const approvalId = "ask-foreground-approval";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-foreground-approval");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    mockPersistRunEventsInMemory.enabled = true;
+    const runAction = vi.fn(async () => "sent");
+    let completedRun: ActiveRun | undefined;
+    const modelMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelMessages.push(options.messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Email sent." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      runSoftTimeoutMs: 20_000,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete: (run) => {
+        completedRun = run;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Continue.",
+          threadId: "thread-foreground-approval",
+          turnId: "turn-foreground-approval",
+          approvedToolCalls: [approvalKey],
+          approvedToolCallAskIds: [approvalId],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-foreground-approval",
+                  name: "send-email",
+                  input,
+                  approvalKey,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-foreground-approval",
+                  toolName: "send-email",
+                  toolInput: JSON.stringify(input),
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+      await vi.waitFor(() => expect(completedRun).toBeDefined());
+
+      expect(resolveApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestedTurnId: "turn-foreground-approval",
+          approvalId,
+        }),
+      );
+      expect(consumeApproval).toHaveBeenCalledOnce();
+      expect(runAction).toHaveBeenCalledOnce();
+      const continuedMessages = modelMessages.find((messages) =>
+        messages.some(
+          (message) =>
+            message.role === "user" &&
+            message.content.some(
+              (part) =>
+                part.type === "tool-result" &&
+                part.toolCallId === "call-foreground-approval" &&
+                part.content === "sent" &&
+                part.approvalPause === undefined &&
+                part.approvalAskId === undefined,
+            ),
+        ),
+      );
+      expect(continuedMessages).toBeDefined();
+      expect(completedRun?.status).toBe("completed");
+      expect(completedRun?.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "text",
+              text: "Email sent.",
+            }),
+          }),
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "tool_done",
+              result: "sent",
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      mockPersistRunEventsInMemory.enabled = false;
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      isTurnAborted.mockRestore();
+    }
+  });
+
+  it("executes an approved call in a durable background worker without continuing the outer model", async () => {
+    const approvalId = "ask-background-approval";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-background-approval");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
+    mockPersistRunEventsInMemory.enabled = true;
+    const runAction = vi.fn(async () => "sent");
+    let completedRun: ActiveRun | undefined;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Email sent." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      runSoftTimeoutMs: 20_000,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete: (run) => {
+        completedRun = run;
+      },
+    });
+    const body = {
+      message: "Approved. Continue.",
+      threadId: "thread-background-approval",
+      turnId: "turn-background-approval",
+      approvedToolCalls: [approvalKey],
+      approvedToolCallAskIds: [approvalId],
+      structuredHistory: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call-background-approval",
+              name: "send-email",
+              input,
+              approvalKey,
+              approvalAskId: approvalId,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-background-approval",
+              toolName: "send-email",
+              toolInput: JSON.stringify(input),
+              content: "Awaiting human approval.",
+              approvalPause: true,
+              approvalAskId: approvalId,
+            },
+          ],
+        },
+      ],
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+        runId: "run-background-approval",
+        turnId: "turn-background-approval",
+      },
+    };
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    event.context.__agentChatBackgroundBody = body;
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(result).toEqual({ ok: true, runId: "run-background-approval" });
+      expect(resolveApproval).toHaveBeenCalledWith({
+        ownerEmail: "alice@example.com",
+        orgId: "acme",
+        threadId: "thread-background-approval",
+        requestedTurnId: "turn-background-approval",
+        approvalKeys: [approvalKey],
+        approvalId,
+      });
+      expect(completedRun?.status).toBe("completed");
+      expect(outerStream).not.toHaveBeenCalled();
+      expect(completedRun?.events).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "text",
+              text: "Tool execution complete.",
+            }),
+          }),
+        ]),
+      );
+      expect(completedRun?.events).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({ type: "loop_limit" }),
+          }),
+        ]),
+      );
+      expect(runAction).toHaveBeenCalledOnce();
+      expect(consumeApproval).toHaveBeenCalledOnce();
+    } finally {
+      mockPersistRunEventsInMemory.enabled = false;
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      claimBackgroundRun.mockRestore();
+      isTurnAborted.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      updateRunHeartbeat.mockRestore();
+    }
+  });
+
+  it("does not continue the outer model after an approved action terminally stops", async () => {
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The action succeeded." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const runAction = vi.fn(async () => {
+      throw new AgentActionStopError("This action cannot proceed", {
+        errorCode: "permanent_precondition",
+      });
+    });
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    mockPersistRunEventsInMemory.enabled = true;
+    const onRunComplete = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        publish: {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete,
+    });
+    const input = {};
+    const approvalKey = toolCallCacheKey("publish", input);
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Approved. Continue.",
+                  approvedToolCalls: [approvalKey],
+                  structuredHistory: [
+                    {
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          id: "call-publish",
+                          name: "publish",
+                          input,
+                        },
+                      ],
+                    },
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "tool-result",
+                          toolCallId: "call-publish",
+                          toolName: "publish",
+                          toolInput: "{}",
+                          content: "Awaiting human approval.",
+                          approvalPause: true,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+      await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledOnce());
+
+      expect(consumeApproval).toHaveBeenCalledOnce();
+      expect(runAction).toHaveBeenCalledOnce();
+      expect(onRunComplete.mock.calls[0]?.[0]).toMatchObject({
+        status: "errored",
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "error",
+              errorCode: "permanent_precondition",
+              recoverable: false,
+            }),
+          }),
+        ]),
+      });
+      expect(outerStream).not.toHaveBeenCalled();
+    } finally {
+      consumeApproval.mockRestore();
+      mockPersistRunEventsInMemory.enabled = false;
+    }
+  });
+
+  it("rejects malformed approval ids instead of falling back to a key-only approval", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+          approvedToolCallAskIds: [42],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_ask_id_invalid",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed approval keys instead of filtering them before the one-call guard", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}', 42],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_invalid",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("rejects multiple approvals instead of replaying only one", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: [
+            'send-email:{"to":"a@b.com"}',
+            'delete-records:{"id":"42"}',
+          ],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-1",
+                  name: "send-email",
+                  input: { to: "a@b.com" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-1",
+                  toolName: "send-email",
+                  toolInput: '{"to":"a@b.com"}',
+                  content: "Awaiting human approval to run send-email.",
+                  approvalPause: true,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_count_unsupported",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
   it("runs the required AI setup gate before a user turn even with a local engine selection", async () => {
     const setupRequired = Object.assign(new Error("AI setup is required"), {
       statusMessage: "Use Builder.io before chatting.",
@@ -3705,6 +4858,80 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("keeps the server-normalized expiry when promoting a queued message", async () => {
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-queued-expiry",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-expiry",
+              text: "Retry the saved prompt",
+              metadata: {
+                custom: {
+                  [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+                },
+              },
+              options: {
+                metadata: {
+                  custom: {
+                    [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+                    [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 60_000,
+                  },
+                },
+              },
+              promotionClaim: { id: "claim-expiry", expiresAt: 20_000 },
+            },
+          ],
+        }),
+      } as never);
+    const onRunPrepared = vi.fn();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      onRunPrepared,
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Retry the saved prompt",
+          threadId: "thread-queued-expiry",
+          queuedMessageId: "queued-expiry",
+          queuedMessageClaimId: "claim-expiry",
+        }),
+      }),
+    );
+
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({ submissionExpiresAt: 11_200 }),
+      );
+    } finally {
+      now.mockRestore();
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
   it("uses the persisted engine when promoting a queued message", async () => {
     const { registerAgentEngine, unregisterAgentEngine } =
       await import("./engine/registry.js");
@@ -3790,8 +5017,95 @@ describe("createProductionAgentHandler", () => {
       expect(onEngineResolved).toHaveBeenCalledWith(
         selectedEngine,
         "queued-model",
+        undefined,
       );
       expect(selectedEngine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      unregisterAgentEngine(selectedEngineName);
+    }
+  });
+
+  it("reports the run's resolved thinking effort with its engine", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const selectedEngineName = "effort-report-test-engine";
+    const selectedEngine = {
+      ...engineWithUncalledStream(),
+      name: selectedEngineName,
+      label: "Effort report test",
+      defaultModel: "claude-sonnet-4-6",
+      supportedModels: ["claude-sonnet-4-6"],
+    };
+    registerAgentEngine({
+      name: selectedEngineName,
+      label: selectedEngine.label,
+      description: "Effort report test engine",
+      capabilities: selectedEngine.capabilities,
+      defaultModel: selectedEngine.defaultModel,
+      supportedModels: selectedEngine.supportedModels,
+      requiredEnvVars: [],
+      create: () => selectedEngine,
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-effort-report",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-effort-message",
+              text: "Think it through",
+              metadata: { engine: selectedEngineName },
+              options: {
+                model: "claude-sonnet-4-6",
+                reasoningEffort: "medium",
+                metadata: { engine: selectedEngineName },
+              },
+              promotionClaim: {
+                id: "queue-effort-claim",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const stopAfterEngineResolution = new Error("stop after engine resolution");
+    const onEngineResolved = vi.fn(() => {
+      throw stopAfterEngineResolution;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+      onEngineResolved,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Think it through",
+          threadId: "thread-effort-report",
+          queuedMessageId: "queued-effort-message",
+          queuedMessageClaimId: "queue-effort-claim",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(stopAfterEngineResolution);
+
+      expect(onEngineResolved).toHaveBeenCalledWith(
+        selectedEngine,
+        "claude-sonnet-4-6",
+        "medium",
+      );
     } finally {
       resolveThreadAccess.mockRestore();
       unregisterAgentEngine(selectedEngineName);
@@ -3948,6 +5262,9 @@ describe("createProductionAgentHandler", () => {
         {
           userEmail: "alice@example.com",
           browserSessionId: "origin-session",
+          requestOrigin: "http://127.0.0.1:8080",
+          isLoopbackRequest: true,
+          isDirectLoopbackRequest: true,
           run: {},
         },
         () => handler(event),
@@ -3968,6 +5285,13 @@ describe("createProductionAgentHandler", () => {
       expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
         "origin-session",
       );
+      expect(
+        JSON.parse(dispatchPayload)[AGENT_CHAT_REQUEST_CONTEXT_FIELD],
+      ).toEqual({
+        requestOrigin: "http://127.0.0.1:8080",
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+      });
     } finally {
       preUpload.mockRestore();
       if (previousDurableFlag === undefined) {
@@ -4318,6 +5642,8 @@ describe("createProductionAgentHandler", () => {
     expect(resolveAdditionalActions.mock.calls[0]?.[0]).toMatchObject({
       ownerEmail: "alice@example.com",
       orgId: "acme",
+      threadId: "authenticated-mcp",
+      internalContinuation: false,
     });
     expect(seenActionNames[0]).toContain(mcpToolName);
 
@@ -4395,7 +5721,10 @@ describe("createProductionAgentHandler", () => {
                         source: "workspace",
                       },
                     ],
-                    custom: { ignored: "not kept" },
+                    custom: {
+                      ignored: "not kept",
+                      agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+                    },
                   },
                 }),
               }),
@@ -4409,6 +5738,7 @@ describe("createProductionAgentHandler", () => {
         threadId: "thread-unconnected",
         message: "Create a pitch deck",
         attachments: [],
+        submissionExpiresAt: expect.any(Number),
         retryContext: {
           references: [
             {
@@ -5776,6 +7106,100 @@ describe("createProductionAgentHandler", () => {
     );
   });
 
+  describe("request-scoped additional actions across a turn", () => {
+    async function runWithAdditionalActions(request: {
+      body: Record<string, unknown>;
+      additional: Record<string, ActionEntry>;
+    }) {
+      const seenAvailable: string[][] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const resolveAdditionalActions = vi.fn(async () => request.additional);
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: { builtin: actionEntry({}) },
+        resolveAdditionalActions,
+        resolveActionSurface: async (details) => {
+          seenAvailable.push([...details.availableActionNames].sort());
+          return { allowedActionNames: details.availableActionNames };
+        },
+      });
+      const body = { message: "Run", ...request.body };
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      return { seenAvailable, resolveAdditionalActions };
+    }
+
+    it("resolves the caller's actions once and ignores client-forged turn names", async () => {
+      const { seenAvailable, resolveAdditionalActions } =
+        await runWithAdditionalActions({
+          body: { __resolvedAdditionalActionNames: ["forged-tool"] },
+          additional: { "app-tool": actionEntry({}) },
+        });
+
+      expect(resolveAdditionalActions).toHaveBeenCalledTimes(1);
+      expect(seenAvailable).toEqual([
+        expect.arrayContaining(["app-tool", "builtin"]),
+      ]);
+      expect(seenAvailable[0]).not.toContain("forged-tool");
+    });
+
+    it("turns a vanished name into an entry that fails loudly", async () => {
+      const kept = actionEntry({});
+      const pinned = pinAdditionalActionsToTurn(
+        { "kept-tool": kept, "new-tool": actionEntry({}) },
+        ["kept-tool", "gone-tool"],
+        {},
+      );
+
+      expect(Object.keys(pinned)).toEqual(["kept-tool", "gone-tool"]);
+      expect(pinned["kept-tool"]).toBe(kept);
+      expect(() => pinned["gone-tool"]!.run({})).toThrow(
+        /gone-tool is no longer available/,
+      );
+    });
+
+    it("leaves a vanished name that is now a registered action to that action", () => {
+      const pinned = pinAdditionalActionsToTurn({}, ["now-registered"], {
+        "now-registered": actionEntry({}),
+      });
+
+      expect(pinned).toEqual({});
+    });
+  });
+
   it("passes queued message identity to onRunPrepared", async () => {
     const onRunPrepared = vi.fn();
     const engine: AgentEngine = {
@@ -5811,6 +7235,11 @@ describe("createProductionAgentHandler", () => {
           message: "Run the queued prompt",
           agentKitMessageId: " message-agentkit-1 ",
           queuedMessageId: " queued-1 ",
+          metadata: {
+            custom: {
+              agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+            },
+          },
         }),
       }),
     );
@@ -5825,9 +7254,69 @@ describe("createProductionAgentHandler", () => {
         message: "Run the queued prompt",
         agentKitMessageId: "message-agentkit-1",
         queuedMessageId: "queued-1",
+        submissionExpiresAt: expect.any(Number),
         turnId: expect.any(String),
       }),
     );
+  });
+
+  it("anchors retry deadlines to the server request time", async () => {
+    const onRunPrepared = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Retry the prompt",
+            metadata: {
+              custom: {
+                agentNativeSubmissionExpiresAt: 99_999_999,
+                [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+              },
+            },
+          }),
+        }),
+      );
+
+      await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({ submissionExpiresAt: 11_200 }),
+      );
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("preserves request tracking identity through delayed run completion", async () => {
@@ -7425,7 +8914,11 @@ describe("runAgentLoop", () => {
 
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
-      { type: "model_stream", status: "end" },
+      {
+        type: "model_stream",
+        status: "end",
+        errorCode: "provider_network_error",
+      },
     ]);
   });
 
@@ -12676,7 +14169,7 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
-        error: expect.stringContaining("interrupted 2 time(s)"),
+        error: expect.stringContaining("2 earlier attempts"),
       }),
     );
   });
@@ -15885,6 +17378,215 @@ describe("runAgentLoop", () => {
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
+  it("reports the effort each call runs at through onEngineResolved, so a write after an empty-response retry records the lower effort", async () => {
+    let call = 0;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      async *stream(): AsyncIterable<EngineEvent> {
+        call += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            call === 1
+              ? [{ type: "thinking" as const, text: "..." }]
+              : call === 2
+                ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+                : [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: call === 2 ? "tool_use" : "end_turn" };
+      },
+    };
+    const seen: unknown[] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            seen.push(getRequestRunContext()?.reasoningEffort);
+            return "ok";
+          },
+        },
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, _model, reasoningEffort) => {
+        getRequestRunContext()!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "go", threadId: "thread-effort" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => expect(seen).toEqual(["medium"]));
+  });
+
+  it("runs each custom agent profile in its own run context, so a write there records that profile's model and effort, starts with nothing read, and leaves the run's alone", async () => {
+    const agents = await import("../resources/agents.js");
+    const findProfile = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockImplementation(async (_owner, identifier) => ({
+        id: identifier,
+        path: `agents/${identifier}.md`,
+        name: identifier,
+        instructions: "Help out.",
+        model: `${identifier}-model`,
+      }));
+    // Neither profile writes until both have settled their model, so a
+    // shared run context would hand one profile's model to the other.
+    let profilesWaiting = 0;
+    let releaseProfiles!: () => void;
+    const bothProfilesReady = new Promise<void>((resolve) => {
+      releaseProfiles = resolve;
+    });
+    const calls = new Map<string, number>();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5", "reviewer-model", "editor-model"],
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        const call = (calls.get(opts.model) ?? 0) + 1;
+        calls.set(opts.model, call);
+        // The reviewer's first answer is empty, so it retries at lower effort.
+        const toolCall = opts.model === "reviewer-model" ? 2 : 1;
+        if (call < toolCall) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "thinking", text: "..." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (call === toolCall && opts.model !== "claude-sonnet-5") {
+          if (++profilesWaiting === 2) releaseProfiles();
+          await bothProfilesReady;
+        }
+        yield {
+          type: "assistant-content",
+          parts:
+            call === toolCall
+              ? [
+                  {
+                    type: "tool-call",
+                    id: `record-${opts.model}`,
+                    name: "record",
+                    input: { loop: opts.model },
+                  },
+                ]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: call === toolCall ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    let run: ReturnType<typeof getRequestRunContext>;
+    const seen = new Map<unknown, unknown>();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async (args) => {
+            seen.set(args.loop, {
+              model: getRequestRunContext()?.model,
+              effort: getRequestRunContext()?.reasoningEffort,
+              run: { model: run?.model, effort: run?.reasoningEffort },
+              reads: Object.keys(getRequestRunContext()?.toolSearchReads ?? {}),
+            });
+            return "ok";
+          },
+        },
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, model, reasoningEffort) => {
+        run ??= getRequestRunContext();
+        run!.model = model;
+        run!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-profile-models",
+          references: [
+            { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
+            { type: "custom-agent", name: "Editor", refId: "editor" },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          // Only the run's model saw this search, so a profile must not
+          // be told it already ran.
+          run: {
+            toolSearchReads: {
+              "earlier search": { totalTools: 1, resultNames: ["record"] },
+            },
+          },
+        },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+
+      const runAt = { model: "claude-sonnet-5", effort: "high" };
+      await vi.waitFor(() =>
+        expect(Object.fromEntries(seen)).toEqual({
+          "reviewer-model": {
+            model: "reviewer-model",
+            effort: "medium",
+            run: runAt,
+            reads: [],
+          },
+          "editor-model": {
+            model: "editor-model",
+            effort: "high",
+            run: runAt,
+            reads: [],
+          },
+          "claude-sonnet-5": {
+            ...runAt,
+            run: runAt,
+            reads: ["earlier search"],
+          },
+        }),
+      );
+      expect(run).toMatchObject({
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      });
+    } finally {
+      findProfile.mockRestore();
+    }
+  });
+
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
       name: "test",
@@ -16696,6 +18398,9 @@ describe("runAgentLoop", () => {
     )?.approvalKey as string;
     expect(approvalKey).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
+    expect(events1).toContainEqual(
+      expect.objectContaining({ type: "tool_done", approvalPause: true }),
+    );
 
     const phase2 = approvalEngine();
     const events2: any[] = [];
@@ -16746,6 +18451,7 @@ describe("runAgentLoop", () => {
     const approvalKey = events1.find(
       (event) => event.type === "approval_required",
     )?.approvalKey as string;
+    const approvalId = "agent-tool-approval-ask-1";
     let continuationStreamCalls = 0;
     const continuationEngine: AgentEngine = {
       ...approvalEngine().engine,
@@ -16774,8 +18480,13 @@ describe("runAgentLoop", () => {
       },
     };
     const consumeApproval = vi.fn(
-      async (binding: { callId: string; approvalKey: string }) => {
+      async (binding: {
+        callId: string;
+        approvalKey: string;
+        approvalId?: string;
+      }) => {
         expect(binding.callId).toBe("replayed-call-id");
+        expect(binding.approvalId).toBe(approvalId);
         return binding.approvalKey === approvalKey;
       },
     );
@@ -16789,6 +18500,7 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions,
       approvedToolCalls: [approvalKey],
+      approvedToolCallAskId: approvalId,
       consumeApproval,
       onApprovalRequired: vi.fn(async () => undefined),
       send: (event) => events2.push(event),
@@ -17024,7 +18736,7 @@ describe("runAgentLoop model fallback", () => {
     expect(modelsUsed).toEqual([BUILDER_MODEL_CONFIG.defaultModel]);
   });
 
-  it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
+  it("uses the rate-limit retry budget before switching to the fallback model", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -17045,7 +18757,7 @@ describe("runAgentLoop model fallback", () => {
         modelsUsed.push(opts.model);
         if (opts.model === "claude-haiku-4-5") {
           throw new EngineError("429 status code (no body)", {
-            errorCode: "http_429",
+            errorCode: "builder_gateway_error",
             statusCode: 429,
           });
         }
@@ -17081,21 +18793,22 @@ describe("runAgentLoop model fallback", () => {
         "claude-sonnet-5",
       ]);
       expect(usage.model).toBe("claude-sonnet-5");
-      expect(
-        events.some(
-          (event) =>
-            event.type === "activity" &&
-            event.label.includes("claude-haiku-4-5") &&
-            event.label.includes("claude-sonnet-5"),
-        ),
-      ).toBe(true);
+      const switchLabels = events.flatMap((event) =>
+        event.type === "activity" && event.label.includes("switching to")
+          ? [event.label]
+          : [],
+      );
+      expect(switchLabels).toEqual([
+        "Model is rate limited — switching to a backup model",
+      ]);
+      expect(JSON.stringify(events)).not.toContain("claude-");
       expect(JSON.stringify(events)).toContain("recovered");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("falls through to the terminal error when the fallback model is ALSO rate limited", async () => {
+  it("gives the fallback model exactly one attempt and then surfaces the error when it is ALSO rate limited", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -17136,8 +18849,84 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
+      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(1);
       expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
+      expect(modelsUsed.at(-1)).toBe("claude-sonnet-5");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a rate-limit fallback model before the call that uses it, so a write records the model that answered", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let fallbackCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        if (opts.model === "claude-haiku-4-5") {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        fallbackCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            fallbackCalls === 1
+              ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: fallbackCalls === 1 ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    const seen: unknown[] = [];
+
+    try {
+      const run = runWithRequestContext(
+        { userEmail: "owner@example.com", run: { model: "claude-haiku-4-5" } },
+        () =>
+          runAgentLoop({
+            engine,
+            model: "claude-haiku-4-5",
+            systemPrompt: "system",
+            tools: [],
+            messages: [
+              { role: "user", content: [{ type: "text", text: "go" }] },
+            ],
+            actions: {
+              record: {
+                ...actionEntry({}),
+                run: async () => {
+                  seen.push(getRequestRunContext()?.model);
+                  return "ok";
+                },
+              },
+            },
+            onModelSettings: (model) => {
+              getRequestRunContext()!.model = model;
+            },
+            send: () => {},
+            signal: new AbortController().signal,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      await run;
+
+      expect(seen).toEqual(["claude-sonnet-5"]);
     } finally {
       vi.useRealTimers();
     }
@@ -17324,11 +19113,14 @@ describe("runAgentLoop endsTurn", () => {
     expect(streamCalls()).toBe(1);
     expect(events.some((event) => event.type === "done")).toBe(false);
     expect(events.some((event) => event.text === "kept working")).toBe(false);
+    expect(events.filter((event) => event.type === "text")).toEqual([
+      { type: "text", text: "Waiting for your answer before continuing." },
+    ]);
     expect(outcomes).toEqual([
       {
         state: "input_required",
         code: "awaiting_user_input",
-        message: "Waiting for your answer before continuing.",
+        message: "Waiting for your answer before continuing: Which range?",
       },
     ]);
   });

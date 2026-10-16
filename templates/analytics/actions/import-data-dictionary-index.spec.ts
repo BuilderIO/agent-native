@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(() => "org_test"),
   getRequestUserEmail: vi.fn(() => "admin@example.test"),
   requireAnalyticsAdminContext: vi.fn(async () => ({ orgId: "org_test" })),
-  putOrgSetting: vi.fn(),
+  mutateOrgSetting: vi.fn(async (_orgId, _key, updater) => updater(null)),
   invalidateSourceIndexCache: vi.fn(),
 }));
 
@@ -18,7 +18,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  putOrgSetting: mocks.putOrgSetting,
+  mutateOrgSetting: mocks.mutateOrgSetting,
 }));
 
 vi.mock("../server/lib/db-admin-connections.js", () => ({

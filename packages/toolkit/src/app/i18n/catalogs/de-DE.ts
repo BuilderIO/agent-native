@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Dieser Block ist vorübergehend nicht verfügbar.",
+  "block.loading": "Block wird geladen.",
   "composer.contextUrlLabel": "URL-Adresse",
   "composer.contextInvalidUrl": "Gib eine gültige HTTP- oder HTTPS-URL ein.",
   "composer.contextAttach": "Anhängen",
@@ -163,9 +165,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Es wird geprüft, ob die Erstellung eines neuen Kontos verfügbar ist.",
   "onboarding.builderActivationUnavailable":
-    "Die Erstellung neuer Konten ist für diese App nicht aktiviert. Du kannst ein bestehendes Konto verbinden.",
+    "Erstelle ein Konto oder melde dich an, um Builder.io zu verbinden.",
   "onboarding.builderActivationUnavailableInMode":
-    "Die Aktivierung eines neuen Kontos ist in diesem Modus nicht verfügbar. Du kannst weiterhin ein bestehendes Konto verbinden.",
+    "Erstelle ein Konto oder melde dich an, um Builder.io zu verbinden.",
   "onboarding.builderActivationCheckFailed":
     "Es konnte nicht geprüft werden, ob diese App neue Konten erstellen kann.",
 
@@ -180,6 +182,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
   "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.builderConnect": "Builder.io verbinden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
@@ -841,6 +844,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "errorMessages.invalidAttachmentNamed":
     "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
+  "recovery.resendVerificationEmail": "Bestätigungs-E-Mail erneut senden",
+  "recovery.sendingVerificationEmail": "Wird gesendet...",
+  "recovery.verificationEmailRequested":
+    "Bestätigungs-E-Mail angefordert. Prüfe Posteingang und Spam-Ordner.",
+  "recovery.verificationEmailFailed":
+    "Bestätigungs-E-Mail konnte nicht angefordert werden. Bitte versuche es erneut.",
   "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
@@ -888,6 +897,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "und {{count}} weitere unter Neu, oder füge einen beliebigen benutzerdefinierten Schlüssel hinzu",
   "secrets.emptyTitle": "Noch keine Schlüssel.",
+  "secrets.figmaTokenMustBeToken":
+    "Fügen Sie ein Figma-Zugriffstoken ein, keine Figma-Datei-URL.",
   "secrets.fromEnvironment":
     "Wird von der Bereitstellungsumgebung bereitgestellt.",
   "secrets.managedInVault":
@@ -1335,6 +1346,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
   "errorMessages.requestTooLarge":
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
+  "errorMessages.capabilityUnavailable":
+    "Deine Nachricht konnte gerade nicht gesendet werden. Bitte versuche es gleich noch einmal.",
+  "errorMessages.capabilityUnsupported":
+    "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
   "errorMessages.runUnverified":
@@ -3246,6 +3261,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Schließen",
   "observability.insights.rawTrace":
     "Rohdaten-Trace (alle Spans mit Ein- und Ausgaben)",
+  "reportProblem.menuItem": "Problem melden",
+  "reportProblem.title_one":
+    "Anhängen, was die App in der letzten {{count}} Sekunde getan hat?",
+  "reportProblem.title_other":
+    "Anhängen, was die App in den letzten {{count}} Sekunden getan hat?",
+  "reportProblem.noEvents": "Noch nichts aufgezeichnet.",
+  "reportProblem.send": "An Agent senden",
+  "reportProblem.copy": "Problembericht kopieren",
+  "reportProblem.attaching": "Wird angehängt…",
+  "reportProblem.notAttached": "Der Bericht wurde nicht angehängt.",
+  "reportProblem.agentMessage":
+    "In der App ist etwas schiefgelaufen. Erkläre anhand des angehängten Problemberichts, was passiert ist.",
 };
 
 export default messages;

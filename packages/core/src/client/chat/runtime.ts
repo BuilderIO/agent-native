@@ -11,6 +11,7 @@ import type {
   AgentChatStructuredMessage,
 } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import {
   agentEngineStatusUrlForChatApi,
@@ -21,6 +22,7 @@ import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
   appendMissingFinalResponseWarning,
+  findApprovalToolCallIndex,
   type ContentPart,
   type SSEEvent,
 } from "../sse-event-processor.js";
@@ -88,6 +90,12 @@ export interface AgentChatRuntimeToolCallPart extends AgentChatRuntimeContentPar
   readonly toolName: string;
   readonly input?: unknown;
   readonly inputText?: string;
+  readonly approval?: {
+    readonly approvalKey: string;
+    readonly askId?: string;
+  };
+  /** Keeps the exact approved invocation available within the continuation budget. */
+  readonly approvedReplay?: true;
 }
 
 export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentPartBase<"tool-result"> {
@@ -96,6 +104,8 @@ export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentP
   readonly result?: unknown;
   readonly resultText?: string;
   readonly isError?: boolean;
+  readonly approvalPause?: boolean;
+  readonly approvalAskId?: string;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -131,6 +141,7 @@ export interface AgentChatRuntimeMessage<
   readonly role: AgentChatRuntimeRole;
   readonly content: readonly TContentPart[];
   readonly createdAt?: string;
+  readonly status?: "streaming" | "complete" | "error";
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
@@ -422,6 +433,8 @@ export interface AgentChatRuntimeToolDoneEvent extends AgentChatRuntimeEventBase
   readonly resultText?: string;
   readonly error?: string;
   readonly completedSideEffect?: boolean;
+  readonly approvalPause?: boolean;
+  readonly approvalAskId?: string;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -433,6 +446,8 @@ export interface AgentChatRuntimeApprovalRequestEvent extends AgentChatRuntimeEv
   readonly message: string;
   readonly input?: unknown;
   readonly allowPersistentApproval?: false;
+  /** The server's approval row, when the agent-native store created one. */
+  readonly askId?: string;
 }
 
 export interface AgentChatRuntimeApprovalResolvedEvent extends AgentChatRuntimeEventBase<"approval-resolved"> {
@@ -1819,6 +1834,40 @@ function isSyntheticToolHistoryOmissionMessage(
   );
 }
 
+function isUnstartedNativeHistoryMessage(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  if (message.role === "user" && message.status === "error") return true;
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+}
+
+function nativeHistorySourceMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+): AgentChatRuntimeMessage[] {
+  const source = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
+    }
+    break;
+  }
+  return source.filter(
+    (message, index) =>
+      index === currentPromptMessageIndex ||
+      !isUnstartedNativeHistoryMessage(message),
+  );
+}
+
 function equivalentRuntimeContent(left: unknown, right: unknown): boolean {
   let remaining = 4096;
   const leftAncestors = new WeakSet<object>();
@@ -1871,7 +1920,7 @@ function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const source = messages ?? [];
+  const source = nativeHistorySourceMessages(messages, currentPrompt);
   let currentPromptMessageIndex: number | undefined;
   for (let index = source.length - 1; index >= 0; index--) {
     const message = source[index]!;
@@ -2087,6 +2136,73 @@ function structuredToolHistoryCandidateByteCost(
       0,
     )
   );
+}
+
+function approvedToolHistoryParts(
+  history: AgentChatStructuredMessage[],
+  askId: string,
+): {
+  call?: Extract<AgentChatStructuredContentPart, { type: "tool-call" }>;
+  result?: Extract<AgentChatStructuredContentPart, { type: "tool-result" }>;
+} {
+  let call:
+    | Extract<AgentChatStructuredContentPart, { type: "tool-call" }>
+    | undefined;
+  let result:
+    | Extract<AgentChatStructuredContentPart, { type: "tool-result" }>
+    | undefined;
+  for (const message of history) {
+    for (const part of message.content) {
+      if (
+        message.role === "assistant" &&
+        part.type === "tool-call" &&
+        part.approvalAskId === askId
+      ) {
+        call = part;
+      } else if (
+        message.role === "user" &&
+        part.type === "tool-result" &&
+        part.approvalPause === true &&
+        part.approvalAskId === askId
+      ) {
+        result = part;
+      }
+    }
+  }
+  return { call, result };
+}
+
+function approvedToolHistoryError(
+  code:
+    | "approved_tool_call_history_ambiguous"
+    | "approved_tool_call_history_missing"
+    | "approved_tool_call_input_unavailable"
+    | "http_413",
+  status: 413 | 422,
+): Error {
+  return Object.assign(
+    new Error(
+      status === 413 ? CHAT_REQUEST_TOO_LARGE_MESSAGE : "The agent run failed.",
+    ),
+    { code, status, retryable: false },
+  );
+}
+
+function assertApprovedToolHistory(
+  history: AgentChatStructuredMessage[],
+  askIds: readonly string[],
+  status: 413 | 422,
+): void {
+  for (const askId of askIds) {
+    const { call, result } = approvedToolHistoryParts(history, askId);
+    if (!call || !result) {
+      if (status === 413) throw approvedToolHistoryError("http_413", 413);
+      throw approvedToolHistoryError("approved_tool_call_history_missing", 422);
+    }
+    if (!Object.prototype.hasOwnProperty.call(call, "input")) {
+      throw approvedToolHistoryError("http_413", 413);
+    }
+  }
 }
 
 function structuredTextHistoryCandidateByteCost(
@@ -2379,11 +2495,9 @@ function boundedJsonStringify(
 
 function toolInputForStructuredHistory(
   input: unknown,
+  maxBytes = MAX_TOOL_HISTORY_VALUE_BYTES,
 ): { input: unknown } | { omissionText: string } {
-  const serialization = boundedJsonStringify(
-    input,
-    MAX_TOOL_HISTORY_VALUE_BYTES,
-  );
+  const serialization = boundedJsonStringify(input, maxBytes);
   if (serialization.status === "too-large") {
     return { omissionText: TOOL_INPUT_SIZE_OMISSION_TEXT };
   }
@@ -3148,6 +3262,59 @@ function boundaryToolResultPartsToOmit(
   return partsToOmit;
 }
 
+function assertUnambiguousKeyOnlyApprovedHistory(
+  sources: readonly StructuredHistorySourceMessage[],
+  approvedToolCalls: readonly string[],
+  approvedToolCallAskIds: readonly string[],
+): void {
+  if (!approvedToolCalls.length || approvedToolCallAskIds.length > 0) return;
+  const approvedKeys = new Set(approvedToolCalls);
+  const callCountsByKey = new Map<
+    string,
+    { history: Map<string, number>; supplemental: Set<string> }
+  >();
+  for (const { message, parts, priority } of sources) {
+    if (message.role !== "assistant") continue;
+    for (const part of parts) {
+      if (
+        part.type !== "tool-call" ||
+        !part.approval ||
+        !approvedKeys.has(part.approval.approvalKey)
+      ) {
+        continue;
+      }
+      let calls = callCountsByKey.get(part.approval.approvalKey);
+      if (!calls) {
+        calls = { history: new Map(), supplemental: new Set() };
+        callCountsByKey.set(part.approval.approvalKey, calls);
+      }
+      if (priority) {
+        calls.supplemental.add(part.toolCallId);
+      } else {
+        calls.history.set(
+          part.toolCallId,
+          (calls.history.get(part.toolCallId) ?? 0) + 1,
+        );
+      }
+    }
+  }
+  for (const calls of callCountsByKey.values()) {
+    const historyCallCount = [...calls.history.values()].reduce(
+      (count, occurrences) => count + occurrences,
+      0,
+    );
+    const supplementalCallCount = [...calls.supplemental].filter(
+      (toolCallId) => !calls.history.has(toolCallId),
+    ).length;
+    if (historyCallCount + supplementalCallCount > 1) {
+      throw approvedToolHistoryError(
+        "approved_tool_call_history_ambiguous",
+        422,
+      );
+    }
+  }
+}
+
 function nativeStructuredHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
@@ -3155,23 +3322,34 @@ function nativeStructuredHistoryFromMessages(
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
+  approvedToolCalls: readonly string[] = [],
+  approvedToolCallAskIds: readonly string[] = [],
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const historyMessages = nativeHistorySourceMessages(messages, currentPrompt);
+  const approvedToolCallSet = new Set(approvedToolCalls);
+  const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
   const resultReferences: StructuredToolHistoryResultReference[] = [];
+  const approvalAskIdByToolCallId = new Map<string, string>();
   const toolHistoryParts = new Set<StructuredToolHistoryPart>();
   const textHistoryParts = new Set<StructuredToolHistoryPart>();
   const textCandidates: StructuredTextHistoryCandidate[] = [];
   let toolHistoryPosition = 0;
   let hasToolHistory = false;
   const sources = boundedStructuredHistorySources(
-    messages,
+    historyMessages,
     currentPrompt,
     supplementalMessages,
     currentAttachmentUrls,
   );
+  assertUnambiguousKeyOnlyApprovedHistory(
+    sources.messages,
+    approvedToolCalls,
+    approvedToolCallAskIds,
+  );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
-    messages,
+    historyMessages,
     supplementalMessages,
     sources,
     supplementalToolHistoryOmitted,
@@ -3250,10 +3428,28 @@ function nativeStructuredHistoryFromMessages(
               addToolInputText(part.inputText);
             }
           }
+          const approvedReplay =
+            part.approvedReplay === true ||
+            (part.approval !== undefined &&
+              approvedToolCallSet.has(part.approval.approvalKey) &&
+              (approvedToolCallAskIdSet.size === 0 ||
+                (part.approval.askId !== undefined &&
+                  approvedToolCallAskIdSet.has(part.approval.askId))));
+          if (approvedReplay && part.input === undefined) {
+            throw approvedToolHistoryError(
+              "approved_tool_call_input_unavailable",
+              422,
+            );
+          }
           const input =
             part.input === undefined
               ? undefined
-              : toolInputForStructuredHistory(part.input);
+              : toolInputForStructuredHistory(
+                  part.input,
+                  approvedReplay
+                    ? MAX_ADDED_TOOL_HISTORY_BYTES
+                    : MAX_TOOL_HISTORY_VALUE_BYTES,
+                );
           if (input && "omissionText" in input) {
             addToolInputText(input.omissionText);
           }
@@ -3262,7 +3458,19 @@ function nativeStructuredHistoryFromMessages(
             id: part.toolCallId,
             name: part.toolName,
             ...(input && "input" in input ? { input: input.input } : {}),
+            ...(part.approval?.askId
+              ? { approvalAskId: part.approval.askId }
+              : {}),
+            // The ask ID selects this call server-side; its key repeats large inputs.
+            ...(part.approval?.approvalKey && !part.approval.askId
+              ? { approvalKey: part.approval.approvalKey }
+              : {}),
           };
+          if (part.approval?.askId) {
+            approvalAskIdByToolCallId.set(part.toolCallId, part.approval.askId);
+          } else {
+            approvalAskIdByToolCallId.delete(part.toolCallId);
+          }
           content.push(callPart);
           candidateAssistantParts.push(callPart);
           toolHistoryParts.add(callPart);
@@ -3299,6 +3507,15 @@ function nativeStructuredHistoryFromMessages(
                 part.resultText,
               ),
               ...(part.isError ? { isError: true } : {}),
+              ...(part.approvalPause === true ? { approvalPause: true } : {}),
+              ...((part.approvalAskId ??
+              approvalAskIdByToolCallId.get(part.toolCallId))
+                ? {
+                    approvalAskId:
+                      part.approvalAskId ??
+                      approvalAskIdByToolCallId.get(part.toolCallId),
+                  }
+                : {}),
             };
         results.push(resultPart);
         toolHistoryParts.add(resultPart);
@@ -3323,9 +3540,11 @@ function nativeStructuredHistoryFromMessages(
     !supplementalHistoryOmitted &&
     !supplementalToolHistoryOmitted
   ) {
+    assertApprovedToolHistory([], approvedToolCallAskIds, 422);
     return undefined;
   }
-  return boundStructuredToolHistory(
+  assertApprovedToolHistory(structuredHistory, approvedToolCallAskIds, 422);
+  const boundedHistory = boundStructuredToolHistory(
     structuredHistory,
     callCandidates,
     resultReferences,
@@ -3336,6 +3555,8 @@ function nativeStructuredHistoryFromMessages(
       supplementalHistoryOmitted ||
       supplementalToolHistoryOmitted,
   );
+  assertApprovedToolHistory(boundedHistory, approvedToolCallAskIds, 413);
+  return boundedHistory;
 }
 
 type AgentNativeMessageContentState =
@@ -3352,6 +3573,7 @@ interface AgentNativeMessageProjectionState {
     content: AgentNativeMessageContentState[];
     started: boolean;
     approvalPending: boolean;
+    pendingApprovalToolCallId?: string;
     connectionPending: boolean;
   };
 }
@@ -3362,11 +3584,46 @@ interface BoundedPendingApprovalRuntimeMessages {
   toolHistoryOmitted: boolean;
 }
 
+function isPendingApprovedToolCall(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+  approvedToolCallSet: ReadonlySet<string>,
+  approvedToolCallAskIdSet: ReadonlySet<string>,
+): boolean {
+  return (
+    part.approval !== undefined &&
+    approvedToolCallSet.has(part.approval.approvalKey) &&
+    (approvedToolCallAskIdSet.size === 0 ||
+      (part.approval.askId !== undefined &&
+        approvedToolCallAskIdSet.has(part.approval.askId))) &&
+    (part.result === undefined || part.approvalPause === true)
+  );
+}
+
 function pendingApprovalRuntimeMessages(
   state: AgentNativeMessageProjectionState,
+  approvedToolCalls: readonly string[],
+  approvedToolCallAskIds: readonly string[],
 ): BoundedPendingApprovalRuntimeMessages {
   const messagesReversed: Omit<AgentChatRuntimeMessage, "id">[] = [];
+  const approvedToolCallSet = new Set(approvedToolCalls);
+  const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
+  const approvedCallCount = state.message.content.filter(
+    (part) =>
+      part.type === "tool-call" &&
+      isPendingApprovedToolCall(
+        part,
+        approvedToolCallSet,
+        approvedToolCallAskIdSet,
+      ),
+  ).length;
+  const reservedApprovalCallCount = Math.min(
+    approvedCallCount,
+    MAX_TOOL_HISTORY_CALLS,
+  );
+  const unapprovedToolPartLimit =
+    MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS - reservedApprovalCallCount * 2;
   let selectedToolPartCount = 0;
+  let selectedApprovalCallCount = 0;
   let selectedTextPartCount = 0;
   let scannedPartCount = 0;
   let omitted = false;
@@ -3391,21 +3648,51 @@ function pendingApprovalRuntimeMessages(
       });
       continue;
     }
-    if (part.type !== "tool-call" || part.result === undefined) continue;
-    if (selectedToolPartCount + 2 > MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
-      omitted = true;
-      toolHistoryOmitted = true;
+    if (part.type !== "tool-call") continue;
+    const awaitingApproval =
+      part.toolCallId === state.message.pendingApprovalToolCallId;
+    const isApprovedPendingCall = isPendingApprovedToolCall(
+      part,
+      approvedToolCallSet,
+      approvedToolCallAskIdSet,
+    );
+    if (
+      part.result === undefined &&
+      !isApprovedPendingCall &&
+      !awaitingApproval
+    ) {
       continue;
     }
-    selectedToolPartCount += 2;
+    if (isApprovedPendingCall) {
+      if (selectedApprovalCallCount >= MAX_TOOL_HISTORY_CALLS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        continue;
+      }
+      selectedApprovalCallCount++;
+    } else {
+      if (selectedToolPartCount + 2 > unapprovedToolPartLimit) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        continue;
+      }
+      selectedToolPartCount += 2;
+    }
     messagesReversed.push({
       role: "user",
       content: [
         {
           type: "tool-result",
           toolCallId: part.toolCallId,
-          result: part.result,
+          ...(part.approval?.askId
+            ? { approvalAskId: part.approval.askId }
+            : {}),
+          result:
+            awaitingApproval || (isApprovedPendingCall && !part.result?.trim())
+              ? "Awaiting human approval. This action did NOT execute."
+              : part.result,
           ...(part.isError ? { isError: true } : {}),
+          ...(isApprovedPendingCall ? { approvalPause: true } : {}),
         },
       ],
     });
@@ -3417,6 +3704,8 @@ function pendingApprovalRuntimeMessages(
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           input: part.args,
+          approval: part.approval,
+          ...(isApprovedPendingCall ? { approvedReplay: true } : {}),
         },
       ],
     });
@@ -3585,6 +3874,7 @@ function mapAgentNativeEvent(
       content: AgentNativeMessageContentState[];
       started: boolean;
       approvalPending: boolean;
+      pendingApprovalToolCallId?: string;
       connectionPending: boolean;
     };
   },
@@ -3723,9 +4013,15 @@ function mapAgentNativeEvent(
           : part.result === undefined && part.toolName === toolName),
     );
     if (toolCall?.type === "tool-call") {
+      if (toolCall.result !== undefined && toolCall.approvalPause === true) {
+        toolCall.approvalResumeCandidate = true;
+      } else {
+        delete toolCall.approvalResumeCandidate;
+      }
       toolCall.args = ev.input ?? {};
       toolCall.argsText = JSON.stringify(toolCall.args);
       if (structuredMeta) toolCall.structuredMeta = structuredMeta;
+      delete toolCall.approvalPauseCandidate;
     } else {
       input.message.content.push({
         type: "tool-call",
@@ -3773,12 +4069,34 @@ function mapAgentNativeEvent(
       (storedToolCall?.type === "tool-call" ? storedToolCall.toolCallId : "");
     const structuredMeta = agentNativeStructuredMeta(ev);
     if (storedToolCall?.type === "tool-call") {
-      storedToolCall.result = agentNativeToolResultText(ev.result);
+      const resultText = agentNativeToolResultText(ev.result);
+      storedToolCall.result = resultText;
+      const legacyApprovalPause =
+        ev.approvalPause === undefined &&
+        storedToolCall.approvalPauseCandidate === true;
+      if (ev.approvalPause === true || legacyApprovalPause) {
+        storedToolCall.approvalPause = true;
+      } else {
+        delete storedToolCall.approvalPause;
+        delete storedToolCall.approval;
+      }
+      delete storedToolCall.approvalPauseCandidate;
+      delete storedToolCall.approvalResumeCandidate;
       storedToolCall.isError = ev.isError === true || Boolean(ev.error);
       storedToolCall.completedSideEffect = ev.completedSideEffect === true;
       if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
       if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
       if (structuredMeta) storedToolCall.structuredMeta = structuredMeta;
+    }
+    // The approval gate emits a placeholder tool_done before execution.
+    if (
+      input.message.pendingApprovalToolCallId === toolCallId &&
+      !input.message.approvalPending &&
+      storedToolCall?.type === "tool-call" &&
+      storedToolCall.result !== undefined &&
+      storedToolCall.approvalPause !== true
+    ) {
+      input.message.pendingApprovalToolCallId = undefined;
     }
     const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     const events: AgentChatRuntimeKnownEvent[] = [
@@ -3793,6 +4111,8 @@ function mapAgentNativeEvent(
         resultText: ev.result,
         error: ev.error,
         completedSideEffect: ev.completedSideEffect === true,
+        approvalPause: storedToolCall?.approvalPause === true,
+        approvalAskId: storedToolCall?.approval?.askId,
         mcpApp: ev.mcpApp,
         chatUI: ev.chatUI,
       },
@@ -3851,21 +4171,46 @@ function mapAgentNativeEvent(
   }
   if (ev.type === "approval_required") {
     input.message.approvalPending = true;
+    const approvalKey = ev.approvalKey;
+    let approvalToolCallId = ev.toolCallId ?? ev.id;
+    if (typeof approvalKey === "string" && approvalKey.length > 0) {
+      const approvalToolCallIndex = findApprovalToolCallIndex(
+        input.message.content,
+        ev.tool ?? "unknown",
+        approvalToolCallId,
+        ev.input,
+      );
+      const part = input.message.content[approvalToolCallIndex];
+      if (part?.type === "tool-call") {
+        approvalToolCallId ??= part.toolCallId;
+        part.approval = {
+          approvalKey,
+          ...(ev.askId ? { askId: ev.askId } : {}),
+          ...(ev.allowPersistentApproval === false
+            ? { allowPersistentApproval: false }
+            : {}),
+        };
+        part.approvalPauseCandidate = true;
+        delete part.approvalResumeCandidate;
+      }
+    }
+    input.message.pendingApprovalToolCallId = approvalToolCallId;
     return [
       {
         type: "approval-request",
         ...base,
-        approvalId: ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
+        approvalId:
+          ev.askId ?? ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
         // `approval_required` carries the model-side call id as `toolCallId`,
-        // not `id`. Without this the request falls back to matching by tool
-        // name, which picks the wrong call when two are pending at once.
-        toolCallId: ev.toolCallId ?? ev.id,
+        // not `id`. When older frames omit both ids, use the unique input match.
+        toolCallId: approvalToolCallId,
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
         input: ev.input,
         ...(ev.allowPersistentApproval === false
           ? { allowPersistentApproval: false }
           : {}),
+        ...(ev.askId ? { askId: ev.askId } : {}),
       },
     ];
   }
@@ -4319,6 +4664,8 @@ function mapAgentNativeEvent(
 
 const AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY =
   "agentNativeApprovedToolCalls";
+const AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY =
+  "agentNativeApprovedToolCallAskIds";
 const AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY =
   "agentNativeContinuationTurnId";
 const AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY =
@@ -4540,6 +4887,10 @@ export function createAgentNativeChatRuntime(
         turn.metadata,
         AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY,
       );
+      const approvedToolCallAskIds = metadataStringList(
+        turn.metadata,
+        AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY,
+      );
       const continuationTurnId = metadataString(
         turn.metadata,
         AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
@@ -4574,7 +4925,11 @@ export function createAgentNativeChatRuntime(
       const loadedSkillSlugs = loadedSkillSlugsFromMessages(turn.messages);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
-          ? pendingApprovalRuntimeMessages(continuationMessageState)
+          ? pendingApprovalRuntimeMessages(
+              continuationMessageState,
+              approvedToolCalls,
+              approvedToolCallAskIds ?? [],
+            )
           : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(
         messagesForHistory,
@@ -4583,6 +4938,8 @@ export function createAgentNativeChatRuntime(
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,
+        approvedToolCalls,
+        approvedToolCallAskIds,
       );
       return {
         message: prompt,
@@ -4611,6 +4968,7 @@ export function createAgentNativeChatRuntime(
           ? { skipPendingSelectionContext: true }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
+        ...(approvedToolCallAskIds ? { approvedToolCallAskIds } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
         ...((turn.model ?? options.model)
           ? { model: turn.model ?? options.model }
@@ -4641,6 +4999,7 @@ export function createAgentNativeChatRuntime(
             content: [],
             started: false,
             approvalPending: false,
+            pendingApprovalToolCallId: undefined,
             connectionPending: false,
           },
         };
@@ -4667,8 +5026,18 @@ export function createAgentNativeChatRuntime(
       const {
         [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: _autoContinueOf,
         [CONTINUE_OF_RUN_METADATA_KEY]: _continueOf,
+        [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: _approvedToolCalls,
+        [AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY]:
+          _approvedToolCallAskIds,
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
+      const continuationMetadata = { ...continuation.metadata };
+      delete continuationMetadata[
+        AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY
+      ];
+      delete continuationMetadata[
+        AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY
+      ];
       const turnToContinue = continuation.attachments?.length
         ? { ...previousTurn, attachments: continuation.attachments }
         : previousTurn;
@@ -4693,7 +5062,7 @@ export function createAgentNativeChatRuntime(
             `The ${connection.id} connection is now available. Continue the requested work.`,
           metadata: {
             ...previousMetadata,
-            ...continuation.metadata,
+            ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
@@ -4714,7 +5083,7 @@ export function createAgentNativeChatRuntime(
           prompt: continuation.prompt,
           metadata: {
             ...previousMetadata,
-            ...continuation.metadata,
+            ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
@@ -4731,6 +5100,38 @@ export function createAgentNativeChatRuntime(
         });
       }
       const messageState = messageStates.get(messageStateKey);
+      const approvalParts = [
+        ...(turnToContinue?.messages ?? []).flatMap(
+          (message) => message.content,
+        ),
+        ...(messageState?.message.content ?? []),
+      ].filter(
+        (part) =>
+          part.type === "tool-call" &&
+          (part.approval?.askId === approval.id ||
+            part.approval?.approvalKey === approval.id),
+      );
+      if (approvalParts.length > 1) {
+        throw approvedToolHistoryError(
+          "approved_tool_call_history_ambiguous",
+          422,
+        );
+      }
+      const approvalPart = approvalParts[0];
+      const approvalKey =
+        approvalPart?.type === "tool-call"
+          ? approvalPart.approval?.approvalKey
+          : undefined;
+      const approvalAskId =
+        approvalPart?.type === "tool-call"
+          ? approvalPart.approval?.askId
+          : undefined;
+      if (!approvalKey) {
+        throw approvedToolHistoryError(
+          "approved_tool_call_history_missing",
+          422,
+        );
+      }
       if (messageState) messageState.message.approvalPending = false;
       return startTurn({
         ...turnToContinue,
@@ -4739,8 +5140,15 @@ export function createAgentNativeChatRuntime(
           "Approved. Go ahead and run the requested action.",
         metadata: {
           ...previousMetadata,
-          ...continuation.metadata,
-          [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approval.id],
+          ...continuationMetadata,
+          [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approvalKey],
+          ...(approvalAskId
+            ? {
+                [AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY]: [
+                  approvalAskId,
+                ],
+              }
+            : {}),
           [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,
           [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
         },

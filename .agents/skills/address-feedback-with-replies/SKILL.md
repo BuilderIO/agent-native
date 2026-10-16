@@ -36,9 +36,9 @@ surprised by a change in their area. Naming them is a courtesy, not a gate.
 Either workflow may complete an upvoted improvement and record the terminal
 **Shipped** disposition. Everything in this file about voice, evidence, and
 verification applies to an upvoted item unchanged.
-Even when invoked alone, this workflow asks at most three new clarification
-questions per run across all threads, ranked by which answer would unblock a
-safe fix.
+For each distinct defect, ask one direct question when reporter input changes
+reproduction or unblocks a safe fix. There is no per-run question cap; keep one
+pending question per thread.
 
 If this workflow eyed an out-of-scope item, keep the eye and post one concise
 **Skipped** reply if needed. Apply `review-latest-feedback`'s Reaction gate
@@ -178,14 +178,12 @@ for one specific, non-repeating detail that still blocks a clear-bug fix; never
 ask for a subjective product choice or evidence already present. For an
 inaccessible artifact, request access or a replacement link.
 
-### The standalone question budget
+### One pending question per thread
 
-This workflow inherits the hard cap from `review-latest-feedback`: at most
-three new clarification questions per invocation across all threads. When run
-alone, rank candidates by whether the answer would unblock a safe fix, handle
-existing clarification requests first, and leave candidates below the cut
-open without asking. Never turn the per-item question rule into an unbounded
-batch.
+There is no per-run question cap. After inspecting supplied evidence and
+attempting reproduction, ask for each specific reporter detail or action that
+would change the next step. Do not leave a useful question unasked because
+other threads also need questions.
 
 There may be only one unanswered clarification request per thread. Before
 posting, re-read the complete thread for an earlier question from this
@@ -312,21 +310,20 @@ identity:
   merged Slack fixes, follow `review-latest-feedback`; a merge is not live
   proof.
 - If it is not fixed, continue the work or post a concrete **In progress**
-  status when it continues beyond this run. Ask one concrete question only when
-  reporter or product information is
-  genuinely missing, or a needed linked artifact is inaccessible, after
-  exhausting the Slack thread, linked files/transcript/video, app state, run
-  ID, sessions, and history. Internal
-  verification blockers do not justify a reporter question. When an artifact
-  is linked but inaccessible, ask for access or a fresh/replacement artifact,
-  not for its contents as though the evidence were absent. Never ask for a
-  prompt, run ID, session, or file already present or available through an
-  accessible source, and never write “not fixed yet” without a real question
-  that unblocks the fix. If a linked source is inaccessible, ask for access or
-  a fresh/replacement link instead of requesting its contents again. If no
-  reporter detail would unblock work, keep `👀`, and record/post **Open - no
-  question**; post once if absent. Apply `review-latest-feedback`'s Reaction
-  gate before `🎫`.
+  status when it continues beyond this run. Ask one concrete reporter question
+  only when a missing reporter-only fact changes the next action; name the fact
+  and why it gates progress. Ask only after exhausting the Slack thread, linked
+  files/transcript/video, app state, run ID, sessions, and history. Internal
+  verification blockers do not justify a reporter question. When a needed
+  artifact is inaccessible, ask for access or a fresh/replacement link, not its
+  contents as though the evidence were absent. Never ask for a prompt, run ID,
+  session, or file already present or available through an accessible source.
+  Never send `Open` or `pending`, a symptom recap, or an evidence/source gap in
+  place of the needed question. If no reporter detail gates progress, keep
+  `👀` and continue internal work; when a progress reply is due, name the
+  concrete next action and owner. **Open - no question** is a ledger-only
+  disposition and must never be sent as a Slack reply. Apply
+  `review-latest-feedback`'s Reaction gate before `🎫`.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a

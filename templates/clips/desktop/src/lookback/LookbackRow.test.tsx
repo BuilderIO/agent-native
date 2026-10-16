@@ -57,6 +57,7 @@ function render(props: Partial<LookbackRowProps> = {}) {
   const handlers = {
     onSecondsChange: vi.fn(),
     onTurnOnRewind: vi.fn(),
+    onTurnOffRewind: vi.fn(),
   };
   act(() => {
     root.render(
@@ -119,6 +120,7 @@ describe("LookbackRow with Rewind off", () => {
 
     expect(trigger().disabled).toBe(false);
     expect(trigger().textContent).toContain("Off");
+    expect(trigger().textContent).not.toContain("None");
     expect(trigger().textContent).not.toContain("30 s");
     expect(buttonWithText("Turn on Rewind")).toBeUndefined();
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();
@@ -127,17 +129,41 @@ describe("LookbackRow with Rewind off", () => {
   it("opens the explanation popover instead of the dropdown", () => {
     const handlers = render({ seconds: 30, rewindOn: false });
 
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
+
     act(() => trigger().click());
 
     expect(menuItemTexts()).toEqual([]);
     expect(document.body.textContent).toContain("Turn on Rewind");
     expect(document.body.textContent).toContain(
-      "Rewind keeps a local history of your screen",
+      "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
+    );
+    expect(
+      document
+        .querySelector(".rewind-off-popover-reveal")
+        ?.getAttribute("data-state"),
+    ).toBe("open");
+    expect(buttonWithText("What is this?")?.className).toContain("w-full");
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "justify-center",
+    );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-offset-0",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-offset-0",
     );
 
     const turnOn = buttonWithText("Turn on Rewind");
     expect(turnOn).toBeDefined();
     act(() => turnOn?.click());
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
     expect(handlers.onTurnOnRewind).toHaveBeenCalledTimes(1);
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();
   });
@@ -166,14 +192,32 @@ describe("LookbackRow with Rewind on", () => {
 
     openMenu();
     expect(menuItemTexts()).toEqual([
-      "Off",
+      "None",
       "30 s",
       "5 min",
       "45 s",
       "2 min",
       "Custom…",
+      "Turn off",
       "What is this?",
     ]);
+  });
+
+  it("reads None when Include last is unset and shows no status note", () => {
+    render({ seconds: 0, rewindOn: true });
+
+    expect(trigger().textContent).toContain("None");
+    expect(host.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("turns Rewind off from the menu without changing the length", () => {
+    const handlers = render({ seconds: 300, rewindOn: true });
+
+    openMenu();
+    act(() => menuItemWithText("Turn off")?.click());
+
+    expect(handlers.onTurnOffRewind).toHaveBeenCalledTimes(1);
+    expect(handlers.onSecondsChange).not.toHaveBeenCalled();
   });
 
   it("refuses a custom length over five minutes and accepts a valid one", async () => {

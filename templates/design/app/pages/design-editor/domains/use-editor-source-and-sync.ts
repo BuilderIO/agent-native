@@ -15,6 +15,7 @@ import {
   useRef,
   useMemo,
   useId,
+  type ChangeEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import { useBlocker } from "react-router";
@@ -35,6 +36,10 @@ import {
   isShowKeyboardShortcutsHotkey,
   useDesignHotkeys,
 } from "@/hooks/useDesignHotkeys";
+import {
+  DESIGN_IMPORT_FORMATS,
+  requestImportFile,
+} from "@/lib/design-import-file-picker";
 
 import {
   collectCodeLayerAncestors,
@@ -59,6 +64,7 @@ import {
   reconcileLayerStateIds,
   sourceLayerStateIds,
 } from "../layer-state-scope";
+import type { LocalhostWriteConsentRequestOutcome } from "../localhost-consent-request";
 import {
   clearPendingEditSessionMarker,
   writePendingEditSessionMarker,
@@ -178,6 +184,8 @@ export function useEditorSourceAndSync({
     pendingLiveNonStyleEditsRef,
     clearPendingLiveEditState,
     minimalUi,
+    setMinimalUi,
+    setActiveLeftPanel,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
     activeLeftPanel,
@@ -196,7 +204,6 @@ export function useEditorSourceAndSync({
     setHiddenLayerIds,
     layerStateOverridesRef,
     motionDockOpen,
-    focusDesignInspectorForSelection,
     undoManagerRef,
     contentUndoStackRef,
     selectedLayerIdsStateRef,
@@ -206,6 +213,7 @@ export function useEditorSourceAndSync({
     hasLocalPendingVisualEdits,
   } = editorHistory;
   const {
+    annotateLab,
     setDrawMode,
     setPinMode,
     generationIssue,
@@ -275,6 +283,7 @@ export function useEditorSourceAndSync({
     handleToggleMinimalUi,
     handleShowAssetsPanel,
     uiHidden,
+    setUiHidden,
   } = editorContentAndComponents;
   const {
     activeCodeFile,
@@ -479,13 +488,13 @@ export function useEditorSourceAndSync({
   }, [activeFile, canEditDesign]);
 
   const handleDrawTool = useCallback(() => {
-    if (!activeFile || !canEditDesign) return;
+    if (!activeFile || !canEditDesign || annotateLab !== "on") return;
     setActiveTool("draw");
     setMode("annotate");
     setSelectedElement(null);
     setDrawMode(true);
     setPinMode(false);
-  }, [activeFile, canEditDesign]);
+  }, [activeFile, annotateLab, canEditDesign]);
 
   const handleBooleanSubtractSelection = useCallback(
     () =>
@@ -614,6 +623,7 @@ export function useEditorSourceAndSync({
     ...annotationHotkeyHandlers({
       canEditDesign,
       canCommentDesign,
+      annotateLab,
       onComment: handlePinToolToggle,
       onDraw: handleDrawTool,
     }),
@@ -808,6 +818,39 @@ export function useEditorSourceAndSync({
     importPanelRef.current?.importFile(pendingImportFile);
     setPendingImportFile(null);
   }, [pendingImportFile, importPanelMounted]);
+  // The file input must render outside any dropdown: menus unmount on close,
+  // before the file picker reports its change event.
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const startImportFile = useCallback(
+    (file: File) => {
+      setMinimalUi(false);
+      setUiHidden(false);
+      setActiveLeftPanel("import");
+      setPendingImportFile(file);
+    },
+    [setActiveLeftPanel, setMinimalUi, setUiHidden],
+  );
+  const openImportFilePicker = useCallback(() => {
+    requestImportFile({
+      formats: DESIGN_IMPORT_FORMATS,
+      allSupportedLabel: t("designEditor.import.allSupportedFiles"),
+      openFallbackInput: () => importFileInputRef.current?.click(),
+      onFile: startImportFile,
+      onError: (error) =>
+        toast.error(t("designEditor.import.errors.uploadFailed"), {
+          description:
+            error instanceof Error ? error.message : t("common.genericError"),
+        }),
+    });
+  }, [startImportFile, t]);
+  const handleImportFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (file) startImportFile(file);
+    },
+    [startImportFile],
+  );
   const pendingVisualStyleNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -1351,16 +1394,12 @@ export function useEditorSourceAndSync({
     setHoveredElementScreenId(null);
     setActiveTool("move");
     setMode("edit");
-    if (!selectionBlocked) {
-      focusDesignInspectorForSelection();
-    }
     initialUrlSelectionHydratedForIdRef.current = id;
   }, [
     activeFileId,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
-    focusDesignInspectorForSelection,
     id,
     initialRouteSelectionId,
     selectedElementLayerId,
@@ -1708,29 +1747,36 @@ export function useEditorSourceAndSync({
 
   const requestLocalhostWrite = useCallback(
     (opts: {
+      connectionId?: string;
       files: string[];
       onGranted: LocalhostWriteConsentPayload["onGranted"];
       onCancel?: () => void;
-    }) => {
-      if (!id || !canEditDesign) return;
-      if (!activeLocalhostConnectionId) {
+      onError?: LocalhostWriteConsentPayload["onError"];
+    }): LocalhostWriteConsentRequestOutcome => {
+      if (!id || !canEditDesign) return "not-editable";
+      const connectionId = opts.connectionId ?? activeLocalhostConnectionId;
+      if (!connectionId) {
         toast.error(NO_LOCALHOST_CONNECTION_MESSAGE);
-        return;
+        return "missing-connection";
       }
 
       const rootPath =
-        activeLocalhostConnectionRootPath ??
-        activeScreenRouteSourceFile ??
-        activeLocalhostConnectionId;
+        localhostConnectionRootPathByIdRef.current.get(connectionId) ??
+        (connectionId === activeLocalhostConnectionId
+          ? (activeLocalhostConnectionRootPath ?? activeScreenRouteSourceFile)
+          : undefined) ??
+        connectionId;
 
-      setLocalhostConsentConnectionId(activeLocalhostConnectionId);
+      setLocalhostConsentConnectionId(connectionId);
       setLocalhostWriteConsentPayload({
         rootPath,
         files: opts.files,
         onGranted: opts.onGranted,
         onCancel: opts.onCancel ?? (() => {}),
+        onError: opts.onError,
       });
       setLocalhostWriteConsentOpen(true);
+      return "opened";
     },
     [
       activeLocalhostConnectionId,
@@ -1738,6 +1784,7 @@ export function useEditorSourceAndSync({
       activeScreenRouteSourceFile,
       canEditDesign,
       id,
+      localhostConnectionRootPathByIdRef,
     ],
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
@@ -1810,7 +1857,9 @@ export function useEditorSourceAndSync({
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
     importPanelRef,
-    setPendingImportFile,
+    importFileInputRef,
+    openImportFilePicker,
+    handleImportFileChange,
     skipPendingEditNavigationBlockRef,
     handleStayOnPendingVisualStyleNavigation,
     handleDiscardPendingVisualStylesAndNavigate,

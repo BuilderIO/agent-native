@@ -49,6 +49,7 @@ import {
   putRecordingBackupMeta,
   updateRecordingBackupMeta,
   verifyServerCopy,
+  type LocalRecorderPlatform,
   type RecordingBackupMeta,
 } from "@/lib/recording-backup";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
@@ -162,6 +163,7 @@ export interface RecorderEngineOptions {
   abortUrl?: string;
   resetUrl?: string;
   uploadMode?: UploadMode;
+  maxUploadBytes?: number;
   onState?: (state: RecorderState, detail?: Record<string, unknown>) => void;
   onChunk?: (info: {
     index: number;
@@ -512,6 +514,7 @@ export class RecorderEngine {
   private backupDetails: {
     ownerEmail: string | null;
     title: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
     createdAt: string;
   } | null = null;
   private localOnly = false;
@@ -562,6 +565,7 @@ export class RecorderEngine {
           ? options.uploadUrl.replace(/\/chunk(?:\?.*)?$/, "/reset-chunks")
           : `${appBasePath()}/api/uploads/${options.recordingId}/reset-chunks`),
       ...options,
+      maxUploadBytes: options.maxUploadBytes ?? MAX_UPLOAD_BYTES,
     };
   }
 
@@ -807,6 +811,7 @@ export class RecorderEngine {
     hasAudio: boolean;
     hasCamera: boolean;
     ownerEmail: string | null;
+    recordingPlatform: LocalRecorderPlatform | null;
     whole: boolean;
   } | null {
     const meta = this.lastFinalizeMeta;
@@ -821,6 +826,7 @@ export class RecorderEngine {
       hasAudio: meta.hasAudio,
       hasCamera: meta.hasCamera,
       ownerEmail: this.backupDetails?.ownerEmail ?? null,
+      recordingPlatform: this.backupDetails?.recordingPlatform ?? null,
       whole: this.captureComplete,
     };
   }
@@ -1072,6 +1078,7 @@ export class RecorderEngine {
     abortUrl: string;
     resetUrl?: string;
     uploadMode?: UploadMode;
+    maxUploadBytes?: number;
   }): void {
     this.opts.recordingId = target.recordingId;
     this.opts.uploadUrl = target.uploadUrl;
@@ -1082,6 +1089,7 @@ export class RecorderEngine {
         ? target.uploadUrl.slice(0, -"/chunk".length) + "/reset-chunks"
         : `${appBasePath()}/api/uploads/${target.recordingId}/reset-chunks`);
     this.opts.uploadMode = target.uploadMode ?? "buffered";
+    this.opts.maxUploadBytes = target.maxUploadBytes ?? MAX_UPLOAD_BYTES;
     this.uploadAttemptId = null;
     this.uploadGenerationId = null;
     this.localOnly = false;
@@ -1109,6 +1117,7 @@ export class RecorderEngine {
   setBackupDetails(details: {
     ownerEmail: string | null;
     title: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
   }): void {
     this.backupDetails = { ...details, createdAt: new Date().toISOString() };
   }
@@ -1751,13 +1760,14 @@ export class RecorderEngine {
         );
       }
 
-      if (compressedBytes > MAX_UPLOAD_BYTES) {
+      const maxUploadBytes = this.opts.maxUploadBytes ?? MAX_UPLOAD_BYTES;
+      if (compressedBytes > maxUploadBytes) {
         const detail = compression.compressed
           ? `${formatMb(compressedBytes)} after compression`
           : `${formatMb(compressedBytes)}`;
         throw new Error(
           `Recording is too large to upload (${detail}, limit is ${formatMb(
-            MAX_UPLOAD_BYTES,
+            maxUploadBytes,
           )}) after automatic compression. Try a shorter recording.`,
         );
       }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
+const mockResolveOrgScope = vi.fn();
 const mockResolveAuthority = vi.fn();
 const mockClear = vi.fn();
 const mockRecordRefusal = vi.fn();
@@ -16,6 +17,10 @@ vi.mock("./auth.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("./agent-run-context.js", () => ({
+  resolveAgentRunOrgScope: (...args: unknown[]) => mockResolveOrgScope(...args),
 }));
 
 vi.mock("../agent/default-agent-engine.js", () => ({
@@ -88,6 +93,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetSession.mockResolvedValue({ email: "admin@a.test" });
   mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "admin" });
+  mockResolveOrgScope.mockResolvedValue({ orgId: "org-a" });
 });
 
 describe("POST /agent-engine/disconnect", () => {
@@ -141,7 +147,7 @@ describe("POST /agent-engine/disconnect", () => {
 
   it("fails loudly instead of clearing a personal default when the org can't be read", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    mockGetOrgContext.mockRejectedValue(new Error("db down"));
+    mockResolveOrgScope.mockRejectedValue(new Error("db down"));
     const event = postEvent("/_agent-native/agent-engine/disconnect");
 
     await expect(createAgentEngineDisconnectHandler()(event)).resolves.toEqual({
@@ -250,7 +256,7 @@ describe("provider key save picks the default model", () => {
 
   it("does not let an org member's personal key change the org default", async () => {
     mockGetSession.mockResolvedValue({ email: "member@a.test" });
-    mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "member" });
+    mockResolveOrgScope.mockResolvedValue({ orgId: "org-a" });
 
     await expect(
       selectDefaultModelForSavedKey(postEvent("/x"), {
@@ -264,7 +270,7 @@ describe("provider key save picks the default model", () => {
 
   it("selects a no-org user's own default for their personal key", async () => {
     mockGetSession.mockResolvedValue({ email: "solo@example.test" });
-    mockGetOrgContext.mockResolvedValue({ orgId: null, role: null });
+    mockResolveOrgScope.mockResolvedValue({ orgScope: "personal" });
     mockSelectDefault.mockResolvedValue({
       status: "selected",
       engine: "anthropic",
@@ -285,7 +291,22 @@ describe("provider key save picks the default model", () => {
     expect(mockSelectDefault.mock.calls[0]![2]).toEqual({
       userEmail: "solo@example.test",
       orgId: null,
+      orgScope: "personal",
     });
+  });
+
+  it("does not select a personal default for an unresolved scope", async () => {
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    mockResolveOrgScope.mockResolvedValue({});
+
+    await expect(
+      selectDefaultModelForSavedKey(postEvent("/x"), {
+        keyScope: "user",
+        keyScopeId: "alice@example.test",
+        request: { engine: "anthropic" },
+      }),
+    ).resolves.toEqual({ status: "skipped", reason: "not-allowed" });
+    expect(mockSelectDefault).not.toHaveBeenCalled();
   });
 
   it("reports a refused or invalid selection without hiding it", async () => {

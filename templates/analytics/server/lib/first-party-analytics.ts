@@ -129,6 +129,7 @@ function isFirstPartyAnalyticsTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const code = (error as Error & { code?: unknown }).code;
   return (
+    error instanceof FirstPartyAnalyticsQueryTimeoutError ||
     error.name === "DbTimeoutError" ||
     code === "CONNECT_TIMEOUT" ||
     /^First-party analytics query timed out after \d+ms$/.test(error.message)
@@ -1592,7 +1593,10 @@ export async function queryFirstPartyAnalytics(
   const startedAt = Date.now();
   const deadlineAt = Date.now() + timeoutMs;
   const timeoutController = new AbortController();
-  const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const timeout = setTimeout(
+    () => timeoutController.abort(new FirstPartyAnalyticsQueryTimeoutError()),
+    timeoutMs,
+  );
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeoutController.signal])
     : timeoutController.signal;
@@ -1684,19 +1688,45 @@ export async function queryFirstPartyAnalytics(
     const statement = readAgentPostgresStatement(wrappedSql);
     const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
     const compute = async (
-      queryTimeoutMs = timeoutMs,
+      queryTimeoutMs = remainingTime(),
+      computeSignal: AbortSignal = signal,
     ): Promise<AnalyticsQueryResult> => {
       const queryStartedAt = Date.now();
+      const queryDeadlineAt = queryStartedAt + queryTimeoutMs;
+      const remainingQueryTime = () => {
+        const remainingMs = queryDeadlineAt - Date.now();
+        if (remainingMs <= 0) {
+          throw new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        return remainingMs;
+      };
+      const normalizeComputeFailure = (error: unknown) => {
+        if (computeSignal === signal) return normalizeFailure(error);
+        if (
+          isFirstPartyAnalyticsTimeoutError(error) ||
+          isFirstPartyAnalyticsTimeoutError(computeSignal.reason)
+        ) {
+          return new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        if (computeSignal.aborted) {
+          return error instanceof Error
+            ? error
+            : new DOMException("The operation was aborted", "AbortError");
+        }
+        return error;
+      };
       try {
         const result = await withVerifiedPostgresQuery(
           statement,
-          Math.min(queryTimeoutMs, remainingTime()),
+          Math.min(queryTimeoutMs, remainingQueryTime()),
           (transaction) =>
             transaction.execute({ sql: wrappedSql, args: scoped.args }),
-          signal,
+          computeSignal,
         );
-        if (timeoutController.signal.aborted) {
-          throw new FirstPartyAnalyticsQueryTimeoutError();
+        if (computeSignal.aborted) {
+          throw computeSignal.reason instanceof Error
+            ? computeSignal.reason
+            : new DOMException("The operation was aborted", "AbortError");
         }
         void recordFirstPartyAnalyticsQueryPressure(scope, {
           durationMs: Date.now() - queryStartedAt,
@@ -1719,8 +1749,12 @@ export async function queryFirstPartyAnalytics(
           ...(truncated ? { truncated: true } : {}),
         };
       } catch (error) {
-        const failure = normalizeFailure(error);
-        if (!options.signal?.aborted) {
+        const failure = normalizeComputeFailure(error);
+        const abandoned =
+          computeSignal.aborted &&
+          !isFirstPartyAnalyticsTimeoutError(computeSignal.reason) &&
+          (computeSignal !== signal || !timeoutController.signal.aborted);
+        if (!abandoned) {
           void recordFirstPartyAnalyticsQueryPressure(scope, {
             durationMs: Date.now() - queryStartedAt,
             outcome: queryOutcomeFromError(failure),
@@ -1752,6 +1786,7 @@ export async function queryFirstPartyAnalytics(
       withFirstPartyCache(cacheKey, wrappedSql, compute, {
         timeoutMs,
         deadlineAt,
+        signal,
       }),
       signal,
     );

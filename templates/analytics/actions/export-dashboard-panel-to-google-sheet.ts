@@ -44,7 +44,7 @@ function panelFailureMessage(result: unknown): string | null {
 
 export default defineAction({
   description:
-    "Export one accessible Analytics SQL dashboard table panel's underlying query results to a newly created Google Sheet using the connected Google Drive account. Returns the Sheet URL, spreadsheet id, row count, and export metadata. Only chartType=table panels are supported.",
+    "Export one accessible Analytics SQL dashboard table panel's underlying query results to a newly created Google Sheet using the connected Google Sheets account. Returns the Sheet URL, spreadsheet id, row count, and export metadata. Only chartType=table panels are supported.",
   schema: z.object({
     dashboardId: z.string().trim().min(1).describe("The SQL dashboard ID"),
     panelId: z.string().trim().min(1).describe("The table panel ID"),

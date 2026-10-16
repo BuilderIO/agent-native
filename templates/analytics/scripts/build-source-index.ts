@@ -59,8 +59,11 @@ const SENSITIVE_TEXT =
 
 export interface SourceIndexSource {
   id: string;
+  sourceKind?: "dbt" | "code" | "sigma";
+  repositoryRef?: string;
   revision?: string;
   contentFingerprint: string;
+  generatedAt?: string;
 }
 
 export type SemanticScope =
@@ -90,6 +93,9 @@ export interface SourceIndexEntry {
   semanticModel?: string;
   table?: string;
   columnsUsed?: string;
+  sqlProjectedColumns?: string;
+  inferredMembershipKeys?: string[];
+  inferredMembershipKeyRoles?: { user: string; organization: string };
   dependencies?: string;
   joinPattern?: string;
   commonQuestions?: string;
@@ -171,8 +177,14 @@ interface ModelDoc {
   explicitGrain?: string;
   inferredGrain?: string;
   inferredGrainKeyCandidates?: string[][];
+  inferredMembershipKeyRoles?: { user: string; organization: string };
+  sqlProjectedColumns?: string[];
   passThroughModel?: string;
   passThroughColumns?: string[] | "*";
+  passThroughProjections?: Array<{
+    inputColumn: string;
+    outputColumn: string;
+  }>;
   semanticModelEnabled?: boolean;
   semanticModelName?: string;
   group?: string;
@@ -337,9 +349,15 @@ function capString(value: string, max = MAX_STRING_LENGTH): string {
   return value.length <= max ? value : value.slice(0, max);
 }
 
-function boundedList(values: string[], max: number, separator: string): string {
+function boundedList(
+  values: string[],
+  max: number,
+  separator: string,
+  scanSummary: SourceIndexScanSummary,
+): string {
   const full = values.join(separator);
   if (full.length <= max) return full;
+  scanSummary.truncatedFields += 1;
   let included: string[] = [];
   let used = 0;
   for (const value of values) {
@@ -356,8 +374,13 @@ function boundedList(values: string[], max: number, separator: string): string {
   return [...included, marker].join(separator);
 }
 
-function boundedExcerpt(value: string, max: number): string {
+function boundedExcerpt(
+  value: string,
+  max: number,
+  scanSummary: SourceIndexScanSummary,
+): string {
   if (value.length <= max) return value;
+  scanSummary.truncatedFields += 1;
   const marker = " … [definition excerpt truncated; inspect source]";
   return `${value.slice(0, max - marker.length).trimEnd()}${marker}`;
 }
@@ -483,8 +506,7 @@ function safeDescription(
     return undefined;
   }
   if (normalized.length > MAX_DESCRIPTION_LENGTH) {
-    scanSummary.truncatedFields += 1;
-    return boundedExcerpt(normalized, MAX_DESCRIPTION_LENGTH);
+    return boundedExcerpt(normalized, MAX_DESCRIPTION_LENGTH, scanSummary);
   }
   return normalized;
 }
@@ -1641,8 +1663,7 @@ function safeOwnerName(
     return undefined;
   }
   if (normalized.length > 160) {
-    scanSummary.truncatedFields += 1;
-    return boundedExcerpt(normalized, 160);
+    return boundedExcerpt(normalized, 160, scanSummary);
   }
   return normalized;
 }
@@ -1729,6 +1750,7 @@ function semanticModelEntries(
         ...(timeDimension ? [`Time dimension: ${timeDimension}`] : []),
       ].join(". "),
       5_000,
+      scanSummary,
     );
     const entry: SourceIndexEntry = {
       id: entryId(root.id, "semantic-model", name),
@@ -1815,6 +1837,7 @@ function semanticModelEntries(
             : []),
         ].join(". "),
         5_000,
+        scanSummary,
       );
       const entry: SourceIndexEntry = {
         id: entryId(root.id, "semantic-model", name),
@@ -1897,6 +1920,7 @@ function semanticModelEntries(
           ...(semanticModel ? [`Semantic model: ${semanticModel.name}`] : []),
         ].join(". "),
         5_000,
+        scanSummary,
       );
       return [
         {
@@ -1963,6 +1987,7 @@ function semanticModelEntries(
           `Semantic model: ${semanticModel.name}`,
         ].join(". "),
         5_000,
+        scanSummary,
       );
       return [
         {
@@ -2003,6 +2028,7 @@ function mergeModel(target: ModelDoc, source: ModelDoc): void {
   target.description ??= source.description;
   target.explicitGrain ??= source.explicitGrain;
   target.inferredGrain ??= source.inferredGrain;
+  target.sqlProjectedColumns ??= source.sqlProjectedColumns;
   target.passThroughModel ??= source.passThroughModel;
   target.semanticModelEnabled ??= source.semanticModelEnabled;
   target.semanticModelName ??= source.semanticModelName;
@@ -2037,7 +2063,10 @@ function mergeModel(target: ModelDoc, source: ModelDoc): void {
   }
 }
 
-function sqlWithoutComments(sql: string): string {
+function sqlWithoutComments(
+  sql: string,
+  preserveBacktickIdentifiers = false,
+): string {
   let result = "";
   let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
@@ -2068,6 +2097,25 @@ function sqlWithoutComments(sql: string): string {
       if (end >= 0) {
         result += sql.slice(index, end + 2);
         index = end + 1;
+        continue;
+      }
+    }
+    if (preserveBacktickIdentifiers && char === "`") {
+      let end = index + 1;
+      while (end < sql.length) {
+        if (sql[end] !== "`") {
+          end += 1;
+          continue;
+        }
+        if (sql[end + 1] === "`") {
+          end += 2;
+          continue;
+        }
+        break;
+      }
+      if (end < sql.length) {
+        result += sql.slice(index, end + 1);
+        index = end;
         continue;
       }
     }
@@ -2208,19 +2256,21 @@ function directProjection(projection: string):
 
   let expression = value;
   let outputColumn: string | undefined;
+  const outputIdentifier = String.raw`(?:${SQL_IDENTIFIER}|\x60[A-Za-z_][A-Za-z0-9_$-]*\x60)`;
   const explicitAlias = value.match(
-    new RegExp(String.raw`^(.+?)\s+as\s+(${SQL_IDENTIFIER})$`, "i"),
+    new RegExp(String.raw`^(.+?)\s+as\s+(${outputIdentifier})$`, "i"),
   );
   const implicitAlias = explicitAlias
     ? undefined
-    : value.match(new RegExp(String.raw`^(.+?)\s+(${SQL_IDENTIFIER})$`, "i"));
+    : value.match(new RegExp(String.raw`^(.+?)\s+(${outputIdentifier})$`, "i"));
   const alias = explicitAlias ?? implicitAlias;
   if (alias) {
     expression = alias[1]!.trim();
-    outputColumn = alias[2]!.toLowerCase();
+    outputColumn = alias[2]!.replace(/`/g, "").toLowerCase();
   }
-  if (!SQL_COLUMN_REFERENCE.test(expression)) return undefined;
-  const inputColumn = expression
+  const normalizedExpression = expression.replace(/`([^`]+)`/g, "$1");
+  if (!SQL_COLUMN_REFERENCE.test(normalizedExpression)) return undefined;
+  const inputColumn = normalizedExpression
     .split(".")
     .pop()!
     .trim()
@@ -2230,6 +2280,35 @@ function directProjection(projection: string):
     inputColumn,
     outputColumn: outputColumn ?? inputColumn,
   };
+}
+
+function projectedOutputColumn(projection: string): string | undefined {
+  const direct = directProjection(projection);
+  if (direct)
+    return direct.outputColumn === "*" ? undefined : direct.outputColumn;
+
+  const outputIdentifier = String.raw`(?:${SQL_IDENTIFIER}|\x60[A-Za-z_][A-Za-z0-9_$-]*\x60)`;
+  const alias = projection
+    .trim()
+    .match(new RegExp(String.raw`^(.+?)\s+as\s+(${outputIdentifier})$`, "i"));
+  if (!alias) return undefined;
+
+  const outputColumn = safeIdentifier(alias[2]!.replace(/`/g, ""));
+  if (!outputColumn) return undefined;
+  return outputColumn.toLowerCase();
+}
+
+function projectedColumnsFromSql(sql: string): string[] {
+  const selectList = finalSelectList(sqlWithoutComments(sql, true));
+  if (!selectList) return [];
+  const projectionList = selectList.replace(/^\s*(?:distinct|all)\b\s*/i, "");
+  return [
+    ...new Set(
+      splitTopLevelSqlList(projectionList)
+        .map(projectedOutputColumn)
+        .filter((column): column is string => Boolean(column)),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
 }
 
 function hasRowReducingSql(source: string): boolean {
@@ -2314,14 +2393,19 @@ function hasOnlyMembershipJoins(
 function inferUnnestedMembershipGrain(
   sql: string,
   modelName: string,
-): string | undefined {
+):
+  | {
+      grain: string;
+      membershipKeyRoles: { user: string; organization: string };
+    }
+  | undefined {
   if (
     !/(?:user|member)/i.test(modelName) ||
     !/(?:org|organization)/i.test(modelName)
   ) {
     return undefined;
   }
-  const source = sqlWithoutComments(sql);
+  const source = sqlWithoutComments(sql, true);
   if (hasRowReducingSql(source) || hasCommaSeparatedFromSource(source)) {
     return undefined;
   }
@@ -2342,28 +2426,48 @@ function inferUnnestedMembershipGrain(
   }
   const selectList = finalSelectList(source);
   if (!selectList) return undefined;
-  const projections = splitTopLevelSqlList(selectList)
-    .map(directProjection)
-    .filter((projection): projection is NonNullable<typeof projection> =>
-      Boolean(projection),
+  const selectProjections = splitTopLevelSqlList(selectList);
+  if (selectProjections.includes("*")) return undefined;
+  const projections = selectProjections.map(directProjection);
+
+  const outputColumnCounts = new Map<string, number>();
+  for (const projection of selectProjections) {
+    const outputColumn = projectedOutputColumn(projection);
+    if (!outputColumn) return undefined;
+    outputColumnCounts.set(
+      outputColumn,
+      (outputColumnCounts.get(outputColumn) ?? 0) + 1,
     );
-  const hasUserId = projections.some(
-    (projection) =>
-      projection.outputColumn === "user_id" &&
-      projection.inputColumn === "user_id",
-  );
-  const hasOrganizationId = projections.some(
-    (projection) =>
-      projection.outputColumn === "organization_id" &&
-      projection.inputColumn === unnestedAlias.toLowerCase(),
-  );
-  if (!hasUserId || !hasOrganizationId) return undefined;
-  return `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`;
+  }
+
+  const uniqueOutputForInput = (inputColumn: string): string | undefined => {
+    const matches = projections
+      .filter(
+        (projection) =>
+          projection?.inputColumn.toLowerCase() === inputColumn.toLowerCase(),
+      )
+      .flatMap((projection) =>
+        projection ? [projection.outputColumn.toLowerCase()] : [],
+      );
+    if (matches.length !== 1) return undefined;
+    const outputColumn = matches[0]!;
+    return outputColumnCounts.get(outputColumn) === 1
+      ? outputColumn
+      : undefined;
+  };
+  const user = uniqueOutputForInput("user_id");
+  const organization = uniqueOutputForInput(unnestedAlias.toLowerCase());
+  if (!user || !organization || user === organization) return undefined;
+  return {
+    grain: `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`,
+    membershipKeyRoles: { user, organization },
+  };
 }
 
 interface PassThroughModel {
   modelName: string;
   columns: string[] | "*";
+  projections: Array<{ inputColumn: string; outputColumn: string }>;
 }
 
 function extractPassThroughModel(
@@ -2373,7 +2477,7 @@ function extractPassThroughModel(
   if (dependencies.length !== 1 || !dependencies[0]?.startsWith("ref:")) {
     return undefined;
   }
-  const source = sqlWithoutComments(sql);
+  const source = sqlWithoutComments(sql, true);
   if (
     (source.match(/\bselect\b/gi) ?? []).length !== 1 ||
     hasRowReducingSql(source) ||
@@ -2390,9 +2494,19 @@ function extractPassThroughModel(
   const columns = projections.map((projection) => projection!.inputColumn);
   const modelName = safeIdentifier(dependencies[0].slice("ref:".length));
   if (!modelName) return undefined;
-  if (columns.includes("*"))
-    return columns.length === 1 ? { modelName, columns: "*" } : undefined;
-  return { modelName, columns };
+  if (columns.includes("*")) {
+    return columns.length === 1
+      ? { modelName, columns: "*", projections: [] }
+      : undefined;
+  }
+  return {
+    modelName,
+    columns,
+    projections: projections.map((projection) => ({
+      inputColumn: projection!.inputColumn,
+      outputColumn: projection!.outputColumn,
+    })),
+  };
 }
 
 function isTestSql(relativePath: string): boolean {
@@ -2912,12 +3026,75 @@ function preservesUpstreamGrain(
   );
 }
 
+function projectedGrainKeyCandidates(
+  upstream: ModelDoc,
+  model: ModelDoc,
+): string[][] {
+  const candidates = grainKeyCandidates(upstream);
+  if (model.passThroughColumns === "*") return candidates;
+  if (!model.passThroughProjections?.length) return [];
+
+  return candidates.flatMap((candidate) => {
+    const translated = candidate.map((key) => {
+      const outputColumns = model
+        .passThroughProjections!.filter(
+          (projection) =>
+            projection.inputColumn.toLowerCase() === key.toLowerCase(),
+        )
+        .map((projection) => projection.outputColumn.toLowerCase());
+      return outputColumns.length === 1 ? outputColumns[0] : undefined;
+    });
+    if (
+      translated.some((column) => !column) ||
+      new Set(translated).size !== translated.length
+    ) {
+      return [];
+    }
+    return [translated as string[]];
+  });
+}
+
+function projectedMembershipKeyRoles(
+  upstream: ModelDoc,
+  model: ModelDoc,
+): { user: string; organization: string } | undefined {
+  const upstreamRoles = upstream.inferredMembershipKeyRoles;
+  if (!upstreamRoles) return undefined;
+  if (model.passThroughColumns === "*") return upstreamRoles;
+  if (!model.passThroughProjections?.length) return undefined;
+
+  const project = (inputColumn: string): string | undefined => {
+    const outputColumns = model
+      .passThroughProjections!.filter(
+        (projection) =>
+          projection.inputColumn.toLowerCase() === inputColumn.toLowerCase(),
+      )
+      .map((projection) => projection.outputColumn.toLowerCase());
+    return outputColumns.length === 1 ? outputColumns[0] : undefined;
+  };
+  const user = project(upstreamRoles.user);
+  const organization = project(upstreamRoles.organization);
+  if (!user || !organization || user === organization) return undefined;
+  return { user, organization };
+}
+
 function inheritPassThroughGrains(models: ModelDoc[]): void {
   const byName = new Map(models.map((model) => [model.name, model]));
   let changed = true;
   while (changed) {
     changed = false;
     for (const model of models) {
+      const upstream = model.passThroughModel
+        ? byName.get(model.passThroughModel)
+        : undefined;
+      if (!upstream) continue;
+      if (!model.inferredMembershipKeyRoles) {
+        const membershipKeyRoles = projectedMembershipKeyRoles(upstream, model);
+        if (membershipKeyRoles) {
+          model.inferredMembershipKeyRoles = membershipKeyRoles;
+          changed = true;
+        }
+      }
       if (
         model.inferredGrain ||
         model.explicitGrain ||
@@ -2929,9 +3106,6 @@ function inheritPassThroughGrains(models: ModelDoc[]): void {
       ) {
         continue;
       }
-      const upstream = model.passThroughModel
-        ? byName.get(model.passThroughModel)
-        : undefined;
       const upstreamGrain = modelDeclaredGrain(upstream);
       if (
         !upstream ||
@@ -2942,13 +3116,20 @@ function inheritPassThroughGrains(models: ModelDoc[]): void {
         continue;
       }
       model.inferredGrain = `Same row grain as ${upstream.name}: ${upstreamGrain}`;
-      model.inferredGrainKeyCandidates = grainKeyCandidates(upstream);
+      model.inferredGrainKeyCandidates = projectedGrainKeyCandidates(
+        upstream,
+        model,
+      );
       changed = true;
     }
   }
 }
 
-function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
+function modelEntries(
+  root: RootContext,
+  model: ModelDoc,
+  scanSummary: SourceIndexScanSummary,
+): SourceIndexEntry[] {
   const columns = [...model.columns.values()].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
@@ -2961,6 +3142,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         grain.map((hint) => `Unique grain: ${hint.join(", ")}`),
         4_000,
         "; ",
+        scanSummary,
       )
     : undefined;
   const declaredGrain = modelDeclaredGrain(model);
@@ -2975,16 +3157,48 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
       ? [`Columns: ${columnDefinitions.join("; ")}`]
       : []),
   ];
-  const definition = boundedExcerpt(definitionParts.join(" "), 5_000);
+  const fullDefinition = definitionParts.join(" ");
+  const definition = boundedExcerpt(fullDefinition, 5_000, scanSummary);
   const columnNames = columns.map((column) => column.name);
-  const columnsUsed = boundedList(columnNames, 10_000, ", ");
+  const columnsUsed = boundedList(columnNames, 10_000, ", ", scanSummary);
+  const sqlProjectedColumns = boundedList(
+    model.sqlProjectedColumns ?? [],
+    10_000,
+    ", ",
+    scanSummary,
+  );
+  const projectedColumnNames = new Set(
+    (sqlProjectedColumns ?? "")
+      .split(", ")
+      .filter((column) => !column.startsWith("… ["))
+      .map((column) => column.toLowerCase()),
+  );
+  const inferredMembershipKeyRoles = model.inferredMembershipKeyRoles;
+  const hasProjectedMembershipKeyRoles =
+    inferredMembershipKeyRoles !== undefined &&
+    projectedColumnNames.has(inferredMembershipKeyRoles.user.toLowerCase()) &&
+    projectedColumnNames.has(
+      inferredMembershipKeyRoles.organization.toLowerCase(),
+    );
+  const inferredMembershipKeys =
+    inferredMembershipKeyRoles &&
+    hasProjectedMembershipKeyRoles &&
+    model.inferredGrainKeyCandidates?.some((candidate) => {
+      const columns = new Set(candidate.map((column) => column.toLowerCase()));
+      return (
+        candidate.length === 2 &&
+        columns.size === 2 &&
+        columns.has(inferredMembershipKeyRoles.user.toLowerCase()) &&
+        columns.has(inferredMembershipKeyRoles.organization.toLowerCase())
+      );
+    });
   const modelGotchas = [
     ...[...model.tests].sort().map((test) => `model: ${test}`),
     ...columns.flatMap((column) =>
       [...column.tests].sort().map((test) => `${column.name}: ${test}`),
     ),
   ];
-  const knownGotchas = boundedList(modelGotchas, 4_000, "; ");
+  const knownGotchas = boundedList(modelGotchas, 4_000, "; ", scanSummary);
   return [
     {
       id: entryId(root.id, "model", model.name),
@@ -2999,8 +3213,20 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
       table: model.name,
       ...(declaredGrain ? { grain: declaredGrain } : {}),
       ...(columnsUsed ? { columnsUsed } : {}),
+      ...(sqlProjectedColumns ? { sqlProjectedColumns } : {}),
+      ...(inferredMembershipKeyRoles && inferredMembershipKeys
+        ? {
+            inferredMembershipKeys: [
+              inferredMembershipKeyRoles.user,
+              inferredMembershipKeyRoles.organization,
+            ],
+            inferredMembershipKeyRoles,
+          }
+        : {}),
       ...(dependencies.length
-        ? { dependencies: boundedList(dependencies, 4_000, "; ") }
+        ? {
+            dependencies: boundedList(dependencies, 4_000, "; ", scanSummary),
+          }
         : {}),
       ...(joinPattern ? { joinPattern } : {}),
       ...(knownGotchas ? { knownGotchas } : {}),
@@ -3104,15 +3330,21 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
           metric: `test:${name}`,
           definition: boundedExcerpt(
             dependencies.length
-              ? `dbt singular test referencing ${boundedList(dependencies, 4_000, ", ")}`
+              ? `dbt singular test referencing ${boundedList(dependencies, 4_000, ", ", scanSummary)}`
               : "dbt singular test.",
             5_000,
+            scanSummary,
           ),
           source: root.id,
           semanticScope: inferSemanticScope(name),
           ...(dependencies.length
             ? {
-                dependencies: boundedList(dependencies, 4_000, "; "),
+                dependencies: boundedList(
+                  dependencies,
+                  4_000,
+                  "; ",
+                  scanSummary,
+                ),
               }
             : {}),
           ...(relativePath ? { sourcePath: relativePath } : {}),
@@ -3131,8 +3363,9 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       scanSummary.unsafeEntriesOmitted += 1;
       continue;
     }
-    const inferredGrain = inferUnnestedMembershipGrain(sql, modelName);
+    const inferredMembership = inferUnnestedMembershipGrain(sql, modelName);
     const passThrough = extractPassThroughModel(sql, dependencies);
+    const sqlProjectedColumns = projectedColumnsFromSql(sql);
     const model: ModelDoc = {
       name: modelName,
       ...(relativePath ? { sourcePath: relativePath } : {}),
@@ -3140,14 +3373,30 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       tests: new Set(),
       dependencies: new Set(dependencies),
       grainHints: [],
-      ...(inferredGrain ? { inferredGrain } : {}),
-      ...(inferredGrain
-        ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }
+      ...(sqlProjectedColumns.length ? { sqlProjectedColumns } : {}),
+      ...(inferredMembership
+        ? { inferredGrain: inferredMembership.grain }
+        : {}),
+      ...(inferredMembership
+        ? {
+            inferredGrainKeyCandidates: [
+              [
+                inferredMembership.membershipKeyRoles.user,
+                inferredMembership.membershipKeyRoles.organization,
+              ],
+            ],
+          }
+        : {}),
+      ...(inferredMembership
+        ? {
+            inferredMembershipKeyRoles: inferredMembership.membershipKeyRoles,
+          }
         : {}),
       ...(passThrough
         ? {
             passThroughModel: passThrough.modelName,
             passThroughColumns: passThrough.columns,
+            passThroughProjections: passThrough.projections,
           }
         : {}),
     };
@@ -3157,7 +3406,9 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   inheritPassThroughGrains(mergedModels);
   return {
     entries: [
-      ...mergedModels.flatMap((model) => modelEntries(root, model)),
+      ...mergedModels.flatMap((model) =>
+        modelEntries(root, model, scanSummary),
+      ),
       ...semanticModelEntries(
         root,
         semanticYamlItems,
@@ -3213,9 +3464,10 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
           metric: `event:${event.name}`,
           definition: boundedExcerpt(
             properties.length
-              ? `Tracked event with properties: ${boundedList(properties, 4_000, ", ")}`
+              ? `Tracked event with properties: ${boundedList(properties, 4_000, ", ", scanSummary)}`
               : "Tracked application event.",
             5_000,
+            scanSummary,
           ),
           source: root.id,
           sourceKind: "code",
@@ -3223,7 +3475,7 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
           semanticScope: inferSemanticScope(event.name),
           ...(properties.length
             ? {
-                columnsUsed: boundedList(properties, 10_000, ", "),
+                columnsUsed: boundedList(properties, 10_000, ", ", scanSummary),
               }
             : {}),
           ...(sourcePaths[0] ? { sourcePath: sourcePaths[0] } : {}),
@@ -3386,6 +3638,8 @@ export async function compileSourceIndex(
       "The source index supports at most 10 roots.",
     );
   }
+  const generatedAt =
+    options.generatedAt ?? generatedAtFromDbtCommits(dbtRoots);
   const seenIds = new Set<string>();
   for (const { context } of roots) {
     if (seenIds.has(context.id)) {
@@ -3404,13 +3658,21 @@ export async function compileSourceIndex(
       kind === "dbt" ? await readDbtRoot(context) : await readCodeRoot(context);
     sources.push({
       id: context.id,
+      sourceKind: kind,
       ...(context.revision ? { revision: context.revision } : {}),
       contentFingerprint: scan.contentFingerprint,
+      ...(context.committedAt ? { generatedAt: context.committedAt } : {}),
     });
     entries.push(
       ...scan.entries.map((entry) => ({ ...entry, sourceKind: kind })),
     );
     addScanSummary(scanSummary, scan.scanSummary);
+  }
+  if (!generatedAt) {
+    codedError(
+      "dbt_commit_metadata_required",
+      "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
+    );
   }
   if (options.sigmaReviewedManifest) {
     if (seenIds.has("sigma")) {
@@ -3426,7 +3688,10 @@ export async function compileSourceIndex(
       manifestPath: options.sigmaReviewedManifest,
       ...credentials,
     });
-    sources.push(sigma.source);
+    // Sigma uses the oldest reviewed workbook update as its freshness marker.
+    // The bundle timestamp stays pinned to dbt; Git-backed roots keep their
+    // individual commit timestamps above.
+    sources.push({ ...sigma.source, sourceKind: "sigma" });
     entries.push(
       ...sigma.entries.map((entry) => ({
         ...entry,
@@ -3436,14 +3701,6 @@ export async function compileSourceIndex(
     scanSummary.unsafeFieldsOmitted += sigma.scanSummary.unsafeFieldsOmitted;
     scanSummary.truncatedFields += sigma.scanSummary.truncatedFields;
     scanSummary.unsafeEntriesOmitted += sigma.scanSummary.unsafeEntriesOmitted;
-  }
-  const generatedAt =
-    options.generatedAt ?? generatedAtFromDbtCommits(dbtRoots);
-  if (!generatedAt) {
-    codedError(
-      "dbt_commit_metadata_required",
-      "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
-    );
   }
   const indexedEntries = entries
     .map((entry) => ({ ...entry, status: entry.status ?? "active" }))

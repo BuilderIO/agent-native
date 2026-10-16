@@ -18,6 +18,11 @@ vi.mock("./emitter.js", () => ({
 }));
 
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
+
+import {
   applySubmittedUserMessage,
   buildUserMessage,
 } from "../agent/thread-data-builder.js";
@@ -2277,6 +2282,99 @@ describe("chat thread store", () => {
     });
     expect(released?.released).toBe(true);
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
+  });
+
+  it("drops an expired retry before it can be appended or promoted", async () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const metadata = {
+      custom: {
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: submissionExpiresAt,
+      },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+
+    const appended = await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: {
+        id: "queued-expired-retry",
+        text: "Retry the original prompt",
+        metadata,
+      },
+    });
+    expect(appended?.submissionExpired).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata,
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: "queued-expired-retry",
+      claimId: "tab-new",
+    });
+    expect(claim?.submissionExpired).toBe(true);
+    expect(claim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
+  it("anchors a queued retry lifetime to server time before persisting it", async () => {
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const appended = await mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-retry-with-ttl",
+          text: "Retry the prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+              [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+            },
+          },
+        },
+      });
+
+      expect(appended?.message?.metadata?.custom).toEqual({
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+      });
+      expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("allows cleanup of an expired queue item with a live promotion claim", async () => {
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: Date.now() - 1,
+            },
+          },
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+
+    const removed = await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: "queued-expired-retry",
+    });
+
+    expect(removed?.promotionBusy).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
   });
 
   it("keeps a promotion claim taken while a full-thread save was in flight", async () => {

@@ -158,6 +158,11 @@ export class MseVideoLoader {
     this.flushPendingDuration();
   }
 
+  updateUrl(url: string): void {
+    if (this.destroyed) return;
+    this.opts.url = url;
+  }
+
   private flushPendingDuration(): void {
     if (this.destroyed || this.pendingDurationSec === null) return;
     if (this.mediaSource.readyState !== "open") return;

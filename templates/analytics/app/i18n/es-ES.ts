@@ -25,6 +25,17 @@ export default {
     templateCatalog: "Catálogo",
     semanticLayer: "Capa semántica",
   },
+  dashboardMode: {
+    label: "Modo del panel",
+    view: "Ver",
+    edit: "Editar",
+    viewHint:
+      "La edición está desactivada. Los anchos de columna que arrastre son solo para usted.",
+    editHint: "Los cambios se guardan para todos",
+    columnResizePersonal:
+      "Arrastre para cambiar el tamaño solo para usted. Doble clic para restablecer.",
+    columnResizeShared: "Arrastre para cambiar el tamaño para todos",
+  },
   dashboardHeader: {
     updated: "Actualizado el {{date}}",
     created: "Creado el {{date}}",
@@ -51,6 +62,111 @@ export default {
     moveDashboard: "Mover panel",
     folderCreateFailed: "No se ha podido crear la carpeta",
     moveFailed: "No se ha podido mover el panel",
+    importFromSigma: "Importar desde Sigma",
+    sigmaConnection: "Conexión de Sigma",
+    sigmaConnectedTo: "Conectado a {{name}}",
+    sigmaChooseConnection: "Conexión de Sigma",
+    sigmaChooseConnectionPlaceholder: "Elige una conexión",
+    sigmaChooseConnectionDescription:
+      "Elige el espacio de trabajo de Sigma para ver sus libros de trabajo.",
+    sigmaNoConnection: "Sigma no está conectado",
+    sigmaClientId: "ID de cliente",
+    sigmaClientSecret: "Secreto de cliente",
+    sigmaBaseUrl: "URL base de la API (opcional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Conectar Sigma",
+    sigmaConnecting: "Conectando a Sigma…",
+    sigmaConnectFailed:
+      "No se ha podido verificar esta conexión de Sigma. Comprueba las credenciales y la región de la API y vuelve a intentarlo.",
+    sigmaCredentialStageFailed:
+      "No se pudieron guardar las credenciales temporales de Sigma. Comprueba el acceso a Vault y vuelve a intentarlo.",
+    sigmaCredentialsRequired:
+      "Guarda primero el ID de cliente y el secreto de cliente de Sigma.",
+    sigmaBaseUrlInvalid:
+      "Usa una URL HTTPS de la API de Sigma en un dominio sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "Analytics no puede guardar la conexión de Sigma de forma segura ahora mismo. Inténtalo de nuevo.",
+    sigmaPolicyInvalid:
+      "La conexión existente de Sigma para Analytics tiene una política de acceso inesperada. Vuelve a conectarla en Dispatch antes de intentarlo de nuevo.",
+    sigmaSaveFailed:
+      "Las credenciales de Sigma se verificaron, pero Analytics no pudo guardarlas. La conexión anterior no ha cambiado. Inténtalo de nuevo.",
+    sigmaCleanupPending:
+      "Las credenciales temporales de configuración de Sigma permanecerán hasta que la limpieza se complete correctamente.",
+    sigmaCleanupFailed:
+      "No se pudieron borrar las credenciales temporales de Sigma. Vuelve a intentar la limpieza.",
+    sigmaRetryCleanup: "Reintentar limpieza",
+    sigmaDirectCredentialsUnavailable:
+      "No se pudieron leer las credenciales de Sigma guardadas en Analytics. Un administrador de la organización puede volver a conectarlo en Dispatch o introducirlas de nuevo en Analytics.",
+    sigmaNoConnectionDescription:
+      "Introduce aquí las credenciales para crear una conexión exclusiva de Analytics. Las conexiones de Sigma autorizadas para Analytics en Dispatch aparecen aquí automáticamente; solo los administradores de la organización pueden guardar credenciales directamente.",
+    sigmaOpenDispatch: "Conectar en Dispatch",
+    sigmaOpenVault: "Abrir Vault",
+    sigmaWorkbooksLoadFailed:
+      "No se han podido cargar los libros de trabajo de Sigma",
+    sigmaRetryConnection: "Comprueba la conexión e inténtalo de nuevo.",
+    sigmaRetry: "Reintentar",
+    sigmaNoWorkbooks: "No hay libros de trabajo de Sigma disponibles.",
+    sigmaWorkbook: "Libro de trabajo",
+    sigmaChooseWorkbook: "Elige un libro de trabajo",
+    sigmaStatusNotImported: "No importado",
+    sigmaStatusImporting: "Importando",
+    sigmaStatusImported: "Importado",
+    sigmaStatusFailed: "Error al importar",
+    sigmaArchived: "Archivado",
+    sigmaPreviewTitle: "Contenido del libro de trabajo",
+    sigmaPreviewFailed: "No se ha podido previsualizar este libro de trabajo",
+    sigmaRetryPreview: "Vuelve a intentar cargar la vista previa.",
+    sigmaImportableCount: "{{count}} importables",
+    sigmaUnsupportedCount: "{{count}} no compatibles",
+    sigmaImportable: "Importable",
+    sigmaUnsupported: "No compatible",
+    sigmaNoElements: "No se han encontrado elementos en este libro de trabajo.",
+    sigmaPreviewOnly:
+      "Solo vista previa por ahora: Sigma no proporciona una asignación de proyecto de BigQuery que Analytics pueda verificar. La importación seguirá desactivada hasta que esa asignación esté disponible.",
+    sigmaPreviewTruncated: "Se muestran {{shown}} de {{total}} elementos.",
+    sigmaImportWorkbook: "Importar libro de trabajo",
+    sigmaImporting: "Importando libro de trabajo…",
+    sigmaImportInProgress:
+      "Ya hay una importación de este libro de trabajo en curso.",
+    sigmaMigrationFailed:
+      "No se ha podido importar este libro de trabajo. Inténtalo de nuevo.",
+    sigmaMigrationResultInvalid:
+      "La respuesta de importación estaba incompleta. Vuelve a cargar la lista de libros para comprobar su estado.",
+    sigmaImportComplete: "Panel creado",
+    sigmaImportSummary:
+      "Se han importado {{imported}} elementos; los {{unsupported}} no compatibles se conservan como avisos de revisión.",
+    sigmaAlreadyImported: "Este libro de trabajo ya se ha importado.",
+    sigmaImportedNoDashboard:
+      "El panel se importó, pero no se puede abrir desde esta cuenta.",
+    sigmaReviewRequiredCount: "{{count}} requieren revisión",
+    sigmaBetaRepresentationWarning:
+      "Esta importación beta puede representar algunas visualizaciones de forma distinta a Sigma.",
+    sigmaReasonUnsupportedElement:
+      "Este tipo de elemento no se admite para la importación.",
+    sigmaReasonUnsupportedSource:
+      "Este elemento usa una fuente que no se admite para la importación.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma no proporciona una asignación de proyecto de BigQuery que Analytics pueda verificar, así que todavía no se puede importar este SQL.",
+    sigmaReasonSourceUnavailable:
+      "Sigma no permitió acceder a esta conexión de origen. Revisa sus permisos.",
+    sigmaReasonQueryUnavailable:
+      "Sigma no devolvió una consulta importable para este elemento.",
+    sigmaReasonUnsafeSql:
+      "Este patrón de consulta no se puede importar de forma segura.",
+    sigmaReasonVisualizationReview:
+      "Se pueden importar los datos, pero revisa la visualización después.",
+    sigmaRetryOwnerOnly:
+      "Solo quien inició esta importación puede volver a intentarla.",
+    sigmaImportedByTeammate: "Importado por un compañero",
+    sigmaFlaggedCount: "{{count}} marcados para revisión",
+    sigmaMoreWorkbooksFailed: "No se pudieron cargar más libros de trabajo",
+    sigmaLoadingMore: "Cargando libros de trabajo…",
+    sigmaLoadMore: "Cargar más libros de trabajo",
+    sigmaOpenDashboard: "Abrir panel",
+    sigmaReviewWithAgent: "Revisar con el agente",
+    sigmaReviewContext: "Panel importado desde Sigma",
+    sigmaReviewPrompt:
+      "Revisa el panel importado desde Sigma {{name}}. Comprueba los paneles importados y los elementos no compatibles, y sugiere las correcciones necesarias.",
   },
   sidebar: {
     collapseSidebar: "Contraer barra lateral",
@@ -525,6 +641,7 @@ export default {
   },
   dataStatus: {
     connected: "Conectado",
+    configuredUnverified: "Configurado · sin verificar",
     notConnected: "No conectado",
     needsReauth: "Requiere reautenticación",
     error: "Error",
@@ -995,6 +1112,14 @@ export default {
     operationalPain: "Dolor operacional",
     untitledTheme: "Tema sin título",
   },
+  dashboardSaveStatus: {
+    saved: "Guardado",
+    savedShared: "Guardado para todos",
+    saving: "Guardando…",
+    savingShared: "Guardando para todos…",
+    oneOtherViewer: "1 persona más lo tiene abierto",
+    otherViewers: "{{count}} personas más lo tienen abierto",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Historial del panel",
@@ -1153,6 +1278,7 @@ export default {
     selectAll: "Seleccionar todo",
     selectOnly: "Solo",
     selectOnlyValue: "Solo {{value}}",
+    presets: "Ajustes predefinidos",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",
@@ -1195,6 +1321,7 @@ export default {
     saveViewFailed: "No se pudo guardar la vista",
     saveViewFailedWithMessage: "No se pudo guardar la vista: {{message}}",
     clearAll: "Borrar todo",
+    resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
     filterSeries: "Filter",
@@ -1228,6 +1355,20 @@ export default {
     copyTable: "Copiar tabla",
     multiColumnSortHelp:
       "Haz clic para ordenar. Mantén pulsada la tecla Mayús y haz clic para añadir otro orden.",
+    chartPointLimitNewest:
+      "Se muestran los {{shown}} puntos más recientes de {{total}}",
+    chartPointLimitFirst:
+      "Se muestran los primeros {{shown}} de {{total}} puntos",
+    chartPointLimitLast:
+      "Se muestran los últimos {{shown}} de {{total}} puntos",
+    funnelCompleted: "Completado",
+    funnelSkipped: "Omitido",
+    funnelMovedOn: "Siguió sin ninguno de los dos",
+    funnelLeft: "Salió de la app",
+    funnelLeftHere: "Salió de la app aquí",
+    funnelOptional: "Opcional",
+    funnelShown: "{{count}} lo vieron",
+    funnelShownLabel: "Lo vieron",
     exportToGoogleSheets: "Exportar a Google Sheets",
     exportingToGoogleSheets: "Exportando a Google Sheets...",
     googleSheetsExported: "Exportado a Google Sheets",
@@ -1236,6 +1377,18 @@ export default {
       "No se pudo exportar a Google Sheets: {{message}}",
     viewSql: "Ver SQL",
     dragToReorder: "Arrastra para reordenar",
+    columnFormat: "Formato",
+    columnFormatText: "Texto sin formato",
+    columnFormatNumber: "Número",
+    columnFormatCurrency: "Moneda",
+    columnFormatPercent: "Porcentaje",
+    columnFormatDate: "Fecha",
+    columnRename: "Renombrar columna",
+    columnHide: "Ocultar columna",
+    columnShow: 'Mostrar "{{name}}"',
+    columnShowHidden: "Mostrar columnas ocultas",
+    columnName: "Nombre de la columna",
+    columnResize: "Cambiar tamaño de la columna",
     deleteSectionTitle: "¿Eliminar sección?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "¿Eliminar panel?",
@@ -1280,6 +1433,13 @@ export default {
     reportRecipients: "Destinatarios",
     reportRecipientsPlaceholder: "analytics@example.com, ops@example.com",
     reportRecipientsRequired: "Añade al menos un destinatario.",
+    reportDestination: "Enviar a",
+    reportDestinationEmail: "Correo",
+    reportDestinationSlack: "Slack",
+    reportDestinationEmailAndSlack: "Correo y Slack",
+    reportSlackWebhookUrl: "URL del webhook de Slack",
+    reportSlackWebhookUrlPlaceholder: "https://hooks.slack.com/services/...",
+    reportSlackWebhookRequired: "Añade una URL de webhook de Slack.",
     reportSendTime: "Hora de envío",
     reportTimezone: "Zona horaria",
     reportEnabled: "Activado",
@@ -1926,8 +2086,13 @@ export default {
     presetWeekdays: "Entre semana a las 06:00",
     presetWeekly: "Semanal los lunes a las 06:00",
     status: "Estado",
+    unsafeEntriesOmitted: "Entradas omitidas por controles de seguridad",
+    unsafeFieldsOmitted: "Campos omitidos por controles de seguridad",
+    truncatedFields: "Campos truncados",
     unresolvedTrackingCallSites: "Llamadas de seguimiento sin resolver",
     unresolvedTrackingCallSitesUnavailable: "No disponible",
+    sourceIndexCoverageCaveat:
+      "Los controles de seguridad pueden omitir entradas o campos; los campos truncados y las llamadas de seguimiento sin resolver también pueden limitar la cobertura.",
     dynamicTrackingCoverageCaveat:
       "Se excluyen las llamadas cuyos nombres de evento se calculan en tiempo de ejecución; es posible que no se detecten alias u otras API de seguimiento.",
     overviewFailed: "No se pudo cargar el estado de la compilación.",

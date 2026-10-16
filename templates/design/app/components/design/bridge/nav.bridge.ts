@@ -1,7 +1,8 @@
 /**
- * Navigation bridge — injected into every canvas iframe.
+ * Navigation bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Interact uses interact-links.bridge.ts instead, which takes far less.
  *
- * ALWAYS injected. A prototype lives in a `srcdoc` iframe, so a plain
+ * A prototype lives in a `srcdoc` iframe, so a plain
  * `<a href="/pricing">` resolves the relative URL against the PARENT app
  * document and navigates the iframe to the Design app itself ("Design not
  * found"), nuking the prototype. We intercept link clicks + relative form

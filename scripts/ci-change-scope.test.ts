@@ -97,6 +97,17 @@ test("recognizes documentation surfaces and package metadata", () => {
   );
 });
 
+test("treats prototypes as docs-only", () => {
+  assert.equal(isDocsPath("prototypes/chat/source.html"), true);
+  assert.equal(isDocsPath("prototypes/kit/build.ts"), true);
+  const scope = classifyChangedPaths([
+    "prototypes/slides/source.html",
+    "prototypes/kit/ui.css",
+  ]);
+  assert.equal(scope.docsOnly, true);
+  assert.equal(scope.full, false);
+});
+
 test("does not treat implementation and instruction paths as docs-only", () => {
   assert.equal(isDocsPath("packages/core/src/index.ts"), false);
   assert.equal(isDocsPath("templates/chat/AGENTS.md"), false);
@@ -798,8 +809,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     changedSpecRegressions,
-    /^        timeout-minutes: 7$/m,
-    "the changed-spec diagnostic step must fit inside its 9-minute job after setup",
+    /^        timeout-minutes: 15$/m,
+    "the changed-spec diagnostic step must fit inside its 19-minute job after setup",
   );
   assert.match(
     changedSpecRegressions,
@@ -808,7 +819,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      "--grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$|vertical center and trailing insertion keep held guides and exact reload geometry$'",
+      "--grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'",
     ),
     "the long music-app and vertical auto-layout tests must run only in dedicated lanes",
   );
@@ -820,7 +831,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.match(
     musicAppWorkflow,
     /^        timeout-minutes: 23$/m,
-    "the complete desktop/mobile music workflow needs a bounded dedicated step",
+    "the long music-app tests need a bounded dedicated step",
   );
   assert.ok(
     musicAppWorkflow.includes(
@@ -840,7 +851,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     musicAppWorkflow.includes(
-      "pnpm exec playwright test \"$music_app_spec\" \\\n            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \\\n            --workers=1 --retries=0 --trace on",
+      "pnpm exec playwright test \"$music_app_spec\" \\\n            --grep '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$' \\\n            --workers=1 --retries=0 --trace on",
     ),
     "the dedicated shard must run only the long test once and retain a failure trace",
   );
@@ -1043,6 +1054,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "a newer sidebar Screen selection survives failed Screen deletion settlement",
     "Select All Screens survives failed Screen deletion settlement",
     "marquee selection persists and deletes Screens after a prior layer selection",
+    "deleting two selected Screens is one undo step that restores both with their content, position and order",
     "deep-select marquee over a Screen deletes only the child",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
@@ -1171,8 +1183,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
   assert.ok(
-    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 9,
-    `changed-spec diagnostics must have the exact nine-minute cap (got ${diagnosticJobTimeout})`,
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 19,
+    `changed-spec diagnostics must have the exact nineteen-minute cap (got ${diagnosticJobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
@@ -1188,9 +1200,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 7 &&
-      diagnosticJobTimeout >= changedSpecStepTimeout + 2,
-    `changed-spec diagnostics need the exact seven-minute cap and two minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
+      changedSpecStepTimeout === 15 &&
+      diagnosticJobTimeout >= changedSpecStepTimeout + 4,
+    `changed-spec diagnostics need the exact fifteen-minute cap and four minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const coreShardEntries = [
     ...coreJob.matchAll(
@@ -1240,7 +1252,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
       resolveDesignE2ERegressionPinsForShard(shard),
     ).length,
-    47,
+    84,
     "the title manifest must retain every fixed regression pin",
   );
 });
@@ -2009,9 +2021,9 @@ test("routes the serial landing-page workflow from its exact changed spec path",
   const landingPagePath =
     "templates/design/e2e/interaction-landing-page-build.spec.ts";
   const landingPageTitles = [
-    "step 1: Screen tool draws the root Landing Page frame at 1440x1024 with the default top-level frame fill and clip",
-    "the secondary button is built and both hero buttons are grouped in HeroCTAGroup",
-    "final structure: mobile screen layer tree (names + order + nesting) matches the adapted design",
+    "Shift+A wraps four selected nav links into a horizontal auto-layout frame inside Navbar without moving them",
+    "Cmd+G groups two layers selected in the Layers panel and one Cmd+Z restores the ungrouped document",
+    "Cmd+D on a screen creates an independent sibling screen: deleting a layer in the copy leaves the original untouched",
   ];
   const landingPageSource = landingPageTitles
     .map((title) => "test(" + JSON.stringify(title) + ", async () => {});")
@@ -2104,7 +2116,7 @@ test("routes the serial landing-page workflow from its exact changed spec path",
         readFile: () => incompleteSource,
         includeLandingPageWorkflowSpec: true,
       }),
-    /long landing-page workflow tests are missing from e2e\/interaction-landing-page-build\.spec\.ts: final structure: mobile screen layer tree \(names \+ order \+ nesting\) matches the adapted design/,
+    /long landing-page workflow tests are missing from e2e\/interaction-landing-page-build\.spec\.ts: Cmd\+D on a screen creates an independent sibling screen: deleting a layer in the copy leaves the original untouched/,
   );
 });
 
@@ -2121,8 +2133,8 @@ test("routes the long music-app workflow from its exact changed spec path", () =
       isFile: (specPath) =>
         specPath === "e2e/interaction-responsive-music-app.spec.ts",
       readFile: () =>
-        'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
-        'test("create a responsive music-app tablet Screen from the desktop shell", async () => {});\n' +
+        'test("a drawn empty Frame refreshes its inspector after auto layout", async () => {});\n' +
+        'test("sizing mode actions survive the selected layer route update", async () => {});\n' +
         'test("keeps the short music-app regression", async () => {});',
     },
   );
@@ -2164,8 +2176,8 @@ test("fails closed if the long music-app title moves away from its routed spec",
   const renamedPath =
     "templates/design/e2e/interaction-responsive-music-app-renamed.spec.ts";
   const sourceWithLongAndShortCases =
-    'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
-    'test("create a responsive music-app tablet Screen from the desktop shell", async () => {});\n' +
+    'test("a drawn empty Frame refreshes its inspector after auto layout", async () => {});\n' +
+    'test("sizing mode actions survive the selected layer route update", async () => {});\n' +
     'test("keeps the short music-app regression", async () => {});';
 
   assert.deepEqual(
@@ -2198,7 +2210,7 @@ test("fails closed if the long music-app title moves away from its routed spec",
         readFile: () =>
           'test("keeps the short music-app regression", async () => {});',
       }),
-    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: create a responsive music-app desktop shell under a Screen root, create a responsive music-app tablet Screen from the desktop shell/,
+    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: a drawn empty Frame refreshes its inspector after auto layout, sizing mode actions survive the selected layer route update/,
     "the dedicated old-path route must fail when both long tests were removed from that file",
   );
 
@@ -2207,14 +2219,14 @@ test("fails closed if the long music-app title moves away from its routed spec",
       resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
         isFile: () => true,
         readFile: () =>
-          'test("create a responsive music-app desktop shell under a Screen root", async () => {});',
+          'test("a drawn empty Frame refreshes its inspector after auto layout", async () => {});',
       }),
-    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: create a responsive music-app tablet Screen from the desktop shell/,
-    "the canonical route must fail if the tablet test is missing",
+    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: sizing mode actions survive the selected layer route update/,
+    "the canonical route must fail if the sizing-mode test is missing",
   );
 });
 
-test("fails closed if the tablet music-app test moves away from its routed spec", () => {
+test("fails closed if the sizing-mode music-app test moves away from its routed spec", () => {
   const renamedPath =
     "templates/design/e2e/interaction-responsive-music-app-renamed.spec.ts";
 
@@ -2223,10 +2235,10 @@ test("fails closed if the tablet music-app test moves away from its routed spec"
       resolveDesignE2ESpecs(JSON.stringify([renamedPath]), {
         isFile: () => true,
         readFile: () =>
-          'test("create a responsive music-app tablet Screen from the desktop shell", async () => {});',
+          'test("sizing mode actions survive the selected layer route update", async () => {});',
       }),
     /long music-app workflow test must remain in e2e\/interaction-responsive-music-app\.spec\.ts/,
-    "a renamed file containing the tablet test must fail instead of silently skipping it",
+    "a renamed file containing the sizing-mode test must fail instead of silently skipping it",
   );
 });
 
@@ -2395,6 +2407,75 @@ test("fails closed to AgentKit acceptance for unknown and empty scopes", () => {
   assert.equal(classifyChangedPaths([]).checks.agentkit_acceptance, true);
   assert.equal(
     classifyChangedPaths(["unknown-root-config.ts"]).checks.agentkit_acceptance,
+    true,
+  );
+});
+
+test("selects the deploy-path check for what a standalone Chat app installs", () => {
+  for (const path of [
+    "packages/core/src/server/auth.ts",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/agentkit/src/index.ts",
+    "packages/shared-app-config/templates.ts",
+    "packages/otel/src/index.ts",
+    "packages/recap-cli/src/index.ts",
+    "templates/chat/app/routes/_index.tsx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      true,
+      `${path} must select the deploy-path check`,
+    );
+  }
+
+  for (const path of [
+    "templates/calendar/app/routes/index.tsx",
+    "packages/dispatch/src/index.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      false,
+      `${path} cannot change a standalone Chat deploy`,
+    );
+  }
+});
+
+test("runs the deploy-path check for an edit to a guide it runs, even docs-only", () => {
+  for (const path of [
+    "packages/core/docs/content/node-js.mdx",
+    "packages/core/docs/content/docker.mdx",
+    "packages/core/docs/content/netlify.mdx",
+    "packages/core/docs/content/vercel.mdx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.docsOnly, true);
+    assert.equal(
+      scope.checks.deploy_paths,
+      true,
+      `${path} must select the deploy-path check`,
+    );
+  }
+
+  for (const path of [
+    "packages/core/docs/content/getting-started.mdx",
+    "packages/core/docs/content/locales/de-DE/docker.mdx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      false,
+      `${path} is not a guide the check runs`,
+    );
+  }
+});
+
+test("fails closed to the deploy-path check for unknown and empty scopes", () => {
+  assert.equal(classifyChangedPaths([]).checks.deploy_paths, true);
+  assert.equal(
+    classifyChangedPaths(["unknown-root-config.ts"]).checks.deploy_paths,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths(["scripts/qa-deploy-paths.ts"]).checks.deploy_paths,
     true,
   );
 });

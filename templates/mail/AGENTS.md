@@ -31,7 +31,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for mail reads/writes; do not edit the mail store directly. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use real Gmail when connected, otherwise synthetic `local-emails`; never claim fallback data changed the real inbox.
-- Interactive sends require approval; draft/queue by default. Automation sends remain gated unless the owner enables Mail's setting. Use `queue-email-draft` for teammate/Slack send requests.
+- Interactive sends require approval; draft/queue by default. Automation sends remain gated unless the owner enables Mail's setting, which covers sends and drafts only; other raw Gmail writes still need approval. Use `queue-email-draft` for teammate/Slack send requests.
 - Resolve recipients with `find-contact`; never guess addresses. Read `get-mail-settings` before drafting and use its signature exactly; never invent one.
 - Edit active drafts through `manage-draft` or `compose-{id}`, not SQL. After backend mutations, call `refresh-list` unless the action writes `refresh-signal`.
 - Preserve per-account coverage: partial, empty, exhausted, and error are distinct. Provider actions are shortcuts; use `provider-api-catalog` / `-docs` / `-request` for exact API needs.

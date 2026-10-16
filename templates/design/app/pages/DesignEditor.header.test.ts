@@ -17,12 +17,11 @@ describe("Design editor header", () => {
     expect(editorSource).not.toContain("status={reviewStatus}");
   });
 
-  it("routes board review threads and uses unread roots for the comments badge", () => {
+  it("routes board review threads", () => {
     expect(editorSource).toContain("const boardTarget = targetId === null");
     expect(editorSource).toContain(
       "setActiveFileId(boardTarget ? (boardFileId ?? null) : targetId)",
     );
-    expect(editorSource).toContain("reviewCommentsCount: reviewUnreadCount");
   });
 
   it("keeps the shared chat header and tabs on the scoped agent surface", () => {
@@ -61,7 +60,9 @@ describe("Design editor header", () => {
     // full action row (visual-edit route, embedded chrome, minimal UI).
     expect(rail).toMatch(/\{!topBarVisible \? \(\s*rightSidebarActions/);
     expect(rail).toContain("{localPreviewRow}");
-    expect(editorSource).toContain("showModeTabs={!topBarVisible}");
+    expect(editorSource).toContain(
+      "showModeTabs={!topBarVisible && !responsiveInteractActive}",
+    );
     const minimalBarStart = editorSource.indexOf(
       'data-design-minimal-bar="right"',
     );

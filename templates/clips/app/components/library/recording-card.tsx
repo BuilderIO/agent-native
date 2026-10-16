@@ -167,6 +167,12 @@ export function RecordingCard({
   const staleUpload = isStaleRecordingUpload(recording);
   const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
+  const hostedFailureReason =
+    recording.failureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : recording.failureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   // A screenshot has nothing to play and no length to show, so the card drops
   // the play overlay and the duration badge rather than claiming "0:00".
   const isImage = isImageRecording(recording);
@@ -174,7 +180,9 @@ export function RecordingCard({
   const failureReason = staleUpload
     ? (recording.failureReason ??
       t("recordingPage.processingStuck", { status: recording.status }))
-    : (recording.failureReason ?? t("clipsFinalRaw.removeFailedClip"));
+    : (hostedFailureReason ??
+      recording.failureReason ??
+      t("clipsFinalRaw.removeFailedClip"));
   const nativeUploadPaused =
     recording.status === "failed" &&
     /native recording|native fullscreen|screencapture|avconvert/i.test(
@@ -392,7 +400,7 @@ export function RecordingCard({
                 checked={selected}
                 onClick={handleCheckbox}
                 className={cn(
-                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45",
+                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-ring bg-background text-foreground opacity-100 shadow-sm ring-1 ring-ring transition-[background-color,border-color,opacity] hover:bg-foreground/45",
                   selectionMode || selected
                     ? "opacity-100 sm:opacity-100"
                     : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",

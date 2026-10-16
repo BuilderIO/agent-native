@@ -118,6 +118,47 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
+  it("publishes unavailable when a configured readiness refresh fails", async () => {
+    let statusChecks = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (!String(input).includes("/_agent-native/agent-engine/status")) {
+        throw new Error(`Unexpected status route: ${String(input)}`);
+      }
+      statusChecks += 1;
+      if (statusChecks === 2)
+        return new Response("Unavailable", { status: 503 });
+      return jsonResponse({ configured: true, chatEligible: true });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await vi.waitFor(() => expect(statusChecks).toBe(2));
+    });
+
+    expect(getAgentEngineReadiness()).toBe("unavailable");
+    expect(container.textContent).toBe("unavailable");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await vi.waitFor(() => expect(statusChecks).toBe(3));
+    });
+
+    expect(getAgentEngineReadiness()).toBe("configured");
+    expect(container.textContent).toBe("configured");
+    expect(statusChecks).toBe(3);
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
+  });
+
   it("does not let a stale missing-key event override current Builder status", async () => {
     vi.stubGlobal(
       "fetch",

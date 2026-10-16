@@ -13,6 +13,10 @@ import {
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
 import type { A11yFinding } from "@shared/design-review";
+import {
+  DEFAULT_INTERACT_THEME_MODE,
+  type InteractThemeMode,
+} from "@shared/preview-color-scheme";
 import { breakpointUpperBoundPx } from "@shared/responsive-classes";
 import {
   getResponsiveBreakpointHeightPx,
@@ -63,10 +67,10 @@ import {
   optimisticRemoveBreakpointData,
 } from "../commands/optimistic-breakpoint-mutation";
 import { runPersistFrameGeometrySave } from "../commands/persist-frame-geometry-save";
+import { runQueueFrameGeometrySave } from "../commands/queue-frame-geometry-save";
 import { runWriteFrameGeometrySnapshot } from "../commands/write-frame-geometry-snapshot";
 import {
   applyDesignDataOperations,
-  buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
   pendingDesignDataOperations,
@@ -76,17 +80,11 @@ import {
 } from "../data-operations";
 import { deriveDesignBreakpoints } from "../derive/design-breakpoints";
 import {
-  cloneCanvasFrameGeometry,
   frameHeightChangedIds,
-  getCanvasFrameGeometry,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
-import {
-  quantizeCanvasFrameGeometryForPersist,
-  sanitizeCanvasFrameGeometryForPersist,
-} from "../geometry-persistence";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -121,7 +119,6 @@ import {
 import {
   DEFAULT_INTERACT_DEVICE_PRESET,
   findInteractDevicePreset,
-  INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
 import { classifyDesignSaveFailure } from "../save-failure";
 import {
@@ -299,7 +296,6 @@ export function useEditorActiveScreenAndGeometry({
   } = editorCore;
   const {
     handleLiveScreenRuntimeReload,
-    setActiveInspectorTab,
     setActiveLeftPanel,
     setSelectedLayerIdsState,
     invalidateRenderedElementInfo,
@@ -322,6 +318,7 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
+    annotateLab,
     setDrawMode,
     setPinMode,
     setHasPendingGeneration,
@@ -401,6 +398,9 @@ export function useEditorActiveScreenAndGeometry({
     width: DEFAULT_INTERACT_DEVICE_PRESET.width,
     height: DEFAULT_INTERACT_DEVICE_PRESET.height,
   });
+  const [interactTheme, setInteractTheme] = useState<InteractThemeMode>(
+    DEFAULT_INTERACT_THEME_MODE,
+  );
   const [
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
@@ -929,57 +929,29 @@ export function useEditorActiveScreenAndGeometry({
   );
 
   const queueFrameGeometrySave = useCallback(
-    (geometryById: CanvasFrameGeometryById) => {
-      if (!id || !canEditDesignRef.current) return;
-      const previousGeometry = cloneCanvasFrameGeometry(
-        getCanvasFrameGeometry(designDataJsonRef.current),
-      );
-      pendingFrameGeometrySaveRef.current = {
-        geometryById: quantizeCanvasFrameGeometryForPersist(
-          cloneCanvasFrameGeometry(geometryById),
-          previousGeometry,
-        ),
-        previousGeometry,
-      };
-      const pending = pendingFrameGeometrySaveRef.current;
-      const { geometryById: safeGeometryById } =
-        sanitizeCanvasFrameGeometryForPersist(
-          pending.geometryById,
-          pending.previousGeometry,
-          boardFileId ? [boardFileId] : [],
-        );
-      const dataOperations = buildFrameGeometryDataOperations({
-        previousGeometry: pending.previousGeometry,
-        nextGeometry: safeGeometryById,
-        designData: designDataJsonRef.current,
-      });
-      const combinedOperations = compactDesignDataOperations([
-        ...pendingDesignDataOperations(
-          pendingFrameGeometryOperationsForUnloadRef.current,
-        ),
-        ...dataOperations,
-      ]);
-      if (combinedOperations.length > 0) {
-        const revision = frameGeometryOperationRevisionRef.current + 1;
-        frameGeometryOperationRevisionRef.current = revision;
-        const entry = createFrameGeometryOutboxEntry(
-          combinedOperations,
-          revision,
-        );
-        if (entry) void journalOutboxEntry(entry);
-      }
-      if (frameGeometrySaveTimerRef.current !== null) {
-        window.clearTimeout(frameGeometrySaveTimerRef.current);
-      }
-      frameGeometrySaveTimerRef.current = window.setTimeout(
-        flushPendingFrameGeometrySave,
-        500,
-      );
-    },
+    (geometryById: CanvasFrameGeometryById) =>
+      runQueueFrameGeometrySave(
+        {
+          boardFileId,
+          canEditDesignRef,
+          createFrameGeometryOutboxEntry,
+          designDataJsonRef,
+          flushPendingFrameGeometrySave,
+          frameGeometryOperationRevisionRef,
+          frameGeometryOperationsInFlightRef,
+          frameGeometrySaveTimerRef,
+          id,
+          journalOutboxEntry,
+          pendingFrameGeometryOperationsForUnloadRef,
+          pendingFrameGeometrySaveRef,
+        },
+        geometryById,
+      ),
     [
       boardFileId,
       createFrameGeometryOutboxEntry,
       flushPendingFrameGeometrySave,
+      frameGeometryOperationsInFlightRef,
       id,
       journalOutboxEntry,
     ],
@@ -1595,8 +1567,8 @@ export function useEditorActiveScreenAndGeometry({
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
   const motionTimelineQueryParams =
     id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id }
-      : { designId: "", sourceRef: "" };
+      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
+      : { designId: "", sourceRef: "", passiveRead: true };
   const { data: motionTimelineResult } =
     useActionQuery<MotionTimelineQueryResult>(
       "get-motion-timeline",
@@ -1829,18 +1801,19 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
+          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
           id,
           overviewScreens,
           setActiveFileId,
-          setActiveInspectorTab,
           setActiveLeftPanel,
           setActiveTool,
           setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
+          setInteractTheme,
           setMode,
           setOverviewSelectedScreenIds,
           setOverviewInteractScreenId,
@@ -1893,6 +1866,7 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
+      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
       deviceFrame,
@@ -1956,14 +1930,6 @@ export function useEditorActiveScreenAndGeometry({
     if (preset) {
       setInteractDeviceSize({ width: preset.width, height: preset.height });
     }
-  }, []);
-  const handleInteractWidthChange = useCallback((width: number) => {
-    setInteractDeviceSize((size) => ({ ...size, width }));
-    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
-  }, []);
-  const handleInteractHeightChange = useCallback((height: number) => {
-    setInteractDeviceSize((size) => ({ ...size, height }));
-    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
   }, []);
 
   const handleCycleFile = useCallback(
@@ -2069,6 +2035,8 @@ export function useEditorActiveScreenAndGeometry({
     setInteractDeviceName,
     interactDeviceSize,
     setInteractDeviceSize,
+    interactTheme,
+    setInteractTheme,
     effectivePreviewTokensByScreenId,
     effectiveLiveEditCapabilitiesByScreenId,
     effectiveLiveEditRegistrationCapabilitiesByScreenId,
@@ -2133,8 +2101,6 @@ export function useEditorActiveScreenAndGeometry({
     handleZoomIn,
     handleZoomOut,
     handleInteractDeviceChange,
-    handleInteractWidthChange,
-    handleInteractHeightChange,
     handleCycleFile,
     handleBreakpointBarRemove,
     handleOverviewRemoveBreakpoint,

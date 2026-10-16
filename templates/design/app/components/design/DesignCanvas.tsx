@@ -26,6 +26,7 @@ import {
 } from "@shared/canvas-math";
 import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
+import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
   appendPenNode,
   clonePenPath,
@@ -44,6 +45,10 @@ import {
   type PenPoint,
 } from "@shared/pen-path";
 import {
+  previewColorSchemeFrameName,
+  type PreviewColorScheme,
+} from "@shared/preview-color-scheme";
+import {
   createSourceDocumentProvenance,
   type SourceDocumentProvenance,
 } from "@shared/preview-source-provenance";
@@ -60,7 +65,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -161,9 +168,17 @@ import {
   forwardEmbeddedCanvasPanMessage,
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
+import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
-import type { MotionTrackWire } from "./design-canvas/motion-types";
+import {
+  applyMotionPathEdit,
+  parseMotionPathEditMessage,
+} from "./design-canvas/motion-path-edit";
+import type {
+  MotionPathTracksChangeResult,
+  MotionTrackWire,
+} from "./design-canvas/motion-types";
 import {
   acknowledgePendingTextInsert,
   beginPendingTextDelivery,
@@ -187,6 +202,11 @@ import {
   routePendingTextEditKey,
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
+import {
+  PREVIEW_THEME_BRIDGE_SCRIPT,
+  usePreviewThemeChannel,
+  type PreviewThemeStatus,
+} from "./design-canvas/preview-theme";
 import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
@@ -520,6 +540,21 @@ ${editorChromeBridgeScript}
 </script>
 `;
 
+/**
+ * A markup document replaced by the Interact or Edit one. It stays under its
+ * successor, loaded as it was, until the successor has loaded.
+ */
+interface ReplacedPreviewFrame {
+  key: string;
+  srcDoc: string;
+  sandbox: string;
+  name: string | undefined;
+  interactMode: boolean;
+}
+
+/** The longest a replaced document stays if its successor never reports loading. */
+const REPLACED_PREVIEW_FRAME_MAX_MS = 2000;
+
 const LIVE_REFLOW_ENABLED = true;
 
 const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
@@ -626,6 +661,17 @@ interface DesignCanvasProps {
     capability: string,
   ) => void;
   onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
+  /**
+   * Scheme the preview document should emulate for `prefers-color-scheme`;
+   * null leaves the browser's own. Interact mode's Light / Dark / System.
+   */
+  previewColorScheme?: PreviewColorScheme | null;
+  /** Bump to remount the preview iframe and reload its document. */
+  previewReloadNonce?: number;
+  onPreviewThemeStatus?: (
+    screenId: string | undefined,
+    status: PreviewThemeStatus,
+  ) => void;
   onBootStart?: () => void;
   onBootReady?: () => void;
   onRuntimeReload?: () => void;
@@ -888,8 +934,17 @@ interface DesignCanvasProps {
   nodeRewriteCanvasTarget?: boolean;
   onPrototypeNavigate?: (screen: string, href: string) => void;
   motionTracks?: MotionTrackWire[];
+  motionEasingVariables?: MotionEasingVariable[];
   motionDefaultEase?: string;
   motionDurationMs?: number;
+  motionPathEditingEnabled?: boolean;
+  motionPathTargetNodeId?: string | null;
+  motionOriginEditingEnabled?: boolean;
+  motionOriginTargetNodeId?: string | null;
+  onMotionPathTracksChange?: (
+    tracks: MotionTrackWire[],
+    targetNodeId: string,
+  ) => MotionPathTracksChangeResult | void;
   previewWidthPx?: number;
   previewHeightPx?: number;
   shaderFillPreview?: {
@@ -1502,9 +1557,18 @@ export function DesignCanvas({
   onRepromptDraftConsumed,
   nodeRewriteCanvasTarget = false,
   onPrototypeNavigate,
+  previewColorScheme = null,
+  previewReloadNonce = 0,
+  onPreviewThemeStatus,
   motionTracks,
+  motionEasingVariables,
   motionDefaultEase,
   motionDurationMs,
+  motionPathEditingEnabled = false,
+  motionPathTargetNodeId = null,
+  motionOriginEditingEnabled = false,
+  motionOriginTargetNodeId = null,
+  onMotionPathTracksChange,
   previewWidthPx,
   previewHeightPx,
   onComponentSourceJump,
@@ -2288,21 +2352,21 @@ export function DesignCanvas({
         "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace("__EDITING_SAFETY_ENABLED__", "true"),
+        .replace("__EDITING_SAFETY_ENABLED__", "true")
+        .replace("__INTERACTION_MODE__", "false"),
     [],
   );
-  const initialInteractModeRef = useRef(interactMode);
+  // Only Edit's document carries this bridge; Interact's carries no editor
+  // bridge at all (see buildInteractPreviewDocument).
   const embeddedGestureBridgeForSrcdoc = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
         "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
-        isEmbeddedFrame && !initialInteractModeRef.current ? "true" : "false",
+        isEmbeddedFrame ? "true" : "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace(
-          "__EDITING_SAFETY_ENABLED__",
-          initialInteractModeRef.current ? "false" : "true",
-        ),
+        .replace("__EDITING_SAFETY_ENABLED__", "true")
+        .replace("__INTERACTION_MODE__", "false"),
     [isEmbeddedFrame],
   );
   const includeLiveEditEditorChrome = !readOnly;
@@ -2334,9 +2398,21 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
   );
+  // Interact hands a page to itself: the editor injects nothing into it, so a
+  // running app loads from its own address instead of through the editor bridge.
   const usesLiveEditInjectedBridge =
+    !interactMode &&
     sourceType === "localhost" &&
     Boolean(bridgeUrl && effectivePreviewToken && rawExternalPreviewUrl);
+  // Only markup the editor owns runs the theme bridge. A URL or running app is
+  // another page's document, so its screen has no theme override.
+  usePreviewThemeChannel({
+    iframeRef,
+    scheme: previewColorScheme,
+    screenId,
+    bridgeReachable: !urlBackedFrame,
+    onStatus: onPreviewThemeStatus,
+  });
   useEffect(() => {
     if (!usesLiveEditInjectedBridge) {
       setLocalNetworkAccessPermissionState(null);
@@ -2371,14 +2447,16 @@ export function DesignCanvas({
     previewUrl: rawExternalPreviewUrl,
     hasSnapshotConsumer: Boolean(onExternalContentSnapshot),
   });
-  const liveEditExternalPreviewUrl = resolveLiveEditPreviewUrl({
-    sourceType,
-    bridgeUrl,
-    previewToken: effectivePreviewToken,
-    previewUrl: rawExternalPreviewUrl,
-    bridgeKey: liveEditBridgeKey,
-    registeredBridgeKey: effectiveRegisteredLiveEditBridgeKey,
-  });
+  const liveEditExternalPreviewUrl = interactMode
+    ? null
+    : resolveLiveEditPreviewUrl({
+        sourceType,
+        bridgeUrl,
+        previewToken: effectivePreviewToken,
+        previewUrl: rawExternalPreviewUrl,
+        bridgeKey: liveEditBridgeKey,
+        registeredBridgeKey: effectiveRegisteredLiveEditBridgeKey,
+      });
   const useCurrentIframeContent =
     interactMode ||
     (sourceType !== "localhost" &&
@@ -2445,7 +2523,7 @@ export function DesignCanvas({
     !liveEditExternalPreviewUrl &&
     bridgeRegistrationFailedForCurrentKey;
   const isLiveEditBridgeConnectionLost =
-    bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey;
+    !interactMode && bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey;
   const resolvedExternalPreviewUrl = isLiveEditBridgeConnectionLost
     ? null
     : (liveEditExternalPreviewUrl ??
@@ -2517,8 +2595,10 @@ export function DesignCanvas({
     authoredSourceContent ?? runtimeReplacementContent;
   runtimeReplacementKeyRef.current = runtimeReplacementKey;
 
+  // A page served from another origin is handed the editor bridge to install.
+  // Interact never does: the page is left as it is.
   const containerPreview = useMemo(() => {
-    if (usesLiveEditInjectedBridge) return false;
+    if (interactMode || usesLiveEditInjectedBridge) return false;
     if (!externalPreviewUrl || typeof window === "undefined") return false;
     try {
       return (
@@ -2529,7 +2609,7 @@ export function DesignCanvas({
     } catch {
       return false;
     }
-  }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
+  }, [externalPreviewUrl, interactMode, usesLiveEditInjectedBridge]);
   const installedBridgeKeyRef = useRef<string | null>(null);
   const sendBridgeToContainer = useCallback(() => {
     if (!containerPreview || !includeLiveEditEditorChrome) return;
@@ -3432,6 +3512,19 @@ export function DesignCanvas({
 
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
+    // Interact runs the design as authored. Its document carries the theme and
+    // links bridges and none of the editor's, so entering or leaving Interact
+    // loads a new document rather than asking one to stand down.
+    if (interactMode) {
+      return buildInteractPreviewDocument({
+        content: iframeRenderContent,
+        embeddedFrameBackground,
+        transparentBackground,
+        contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+        contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+        fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+      });
+    }
     const localizedContent = withLocalRuntimes(iframeRenderContent);
     const frameContent = getEmbeddedFrameDocumentContent({
       content: localizedContent,
@@ -3493,6 +3586,7 @@ export function DesignCanvas({
       TWEAK_BRIDGE_SCRIPT +
       ZOOM_BRIDGE_SCRIPT +
       NAV_BRIDGE_SCRIPT +
+      PREVIEW_THEME_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
       embeddedGestureBridgeForSrcdoc +
       editorChromeBridge +
@@ -3533,6 +3627,7 @@ export function DesignCanvas({
     embeddedGestureBridgeForSrcdoc,
     iframeRenderContent,
     iframeSourceProvenance,
+    interactMode,
     transparentBackground,
   ]);
 
@@ -3565,11 +3660,21 @@ export function DesignCanvas({
     [bridgeUrl, externalPreviewUrl, sourceType],
   );
 
-  const iframeDocumentIdentity = externalPreviewUrl
-    ? `src:${externalPreviewUrl}`
-    : waitingForLiveEditBridge
-      ? `live-edit-pending:${liveEditBridgeKey}`
-      : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  // A reload request remounts the iframe through the same identity change a
+  // content swap makes, so every readiness flag restarts with the new document.
+  const reloadSuffix = previewReloadNonce
+    ? `#reload:${previewReloadNonce}`
+    : "";
+  // A page served from a URL keeps its address across modes, so Interact marks
+  // its identity: entering or leaving it loads the page afresh, and an editor
+  // bridge Edit installed does not outlive Edit.
+  const interactIdentitySuffix = interactMode ? "#interact" : "";
+  const iframeDocumentIdentity =
+    (externalPreviewUrl
+      ? `src:${externalPreviewUrl}${interactIdentitySuffix}`
+      : waitingForLiveEditBridge
+        ? `live-edit-pending:${liveEditBridgeKey}`
+        : `srcdoc:${contentKey ?? ""}:${srcdocHash}`) + reloadSuffix;
   const iframeDocumentIdentityRef = useRef(iframeDocumentIdentity);
   iframeDocumentIdentityRef.current = iframeDocumentIdentity;
   const externalPreviewUrlRef = useRef(resolvedExternalPreviewUrl);
@@ -3577,7 +3682,7 @@ export function DesignCanvas({
   const iframeElementIdentity = externalPreviewUrl
     ? `external:${previewFrameId ?? screenId ?? contentKey ?? "screen"}:${
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
-      }`
+      }${interactIdentitySuffix}${reloadSuffix}`
     : iframeDocumentIdentity;
   useLayoutEffect(() => {
     pendingCanvasFocusProbeRef.current = null;
@@ -3628,6 +3733,30 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const [motionOriginMarkerPosition, setMotionOriginMarkerPosition] = useState<{
+    targetNodeId: string;
+    x: number;
+    y: number;
+    viewportWidth: number;
+    viewportHeight: number;
+  } | null>(null);
+  const motionOriginPointerIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!motionOriginEditingEnabled) {
+      setMotionOriginMarkerPosition(null);
+      return;
+    }
+    const refreshPortalPosition = () =>
+      setMotionOriginMarkerPosition((current) =>
+        current ? { ...current } : current,
+      );
+    window.addEventListener("scroll", refreshPortalPosition, true);
+    window.addEventListener("resize", refreshPortalPosition);
+    return () => {
+      window.removeEventListener("scroll", refreshPortalPosition, true);
+      window.removeEventListener("resize", refreshPortalPosition);
+    };
+  }, [motionOriginEditingEnabled]);
   const [loadedPreviewDocumentIdentity, setLoadedPreviewDocumentIdentity] =
     useState<string | null>(null);
   const loadedPreviewDocumentIdentityRef = useRef(
@@ -3794,6 +3923,113 @@ export function DesignCanvas({
         });
       const trusted = trustedCurrentFrame || trustedLateLiveEditReady;
       if (!trusted) {
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "motion-origin-marker-position"
+      ) {
+        if (e.data.visible !== true) {
+          setMotionOriginMarkerPosition(null);
+          return;
+        }
+        const targetNodeId = e.data.targetNodeId;
+        const x = Number(e.data.x);
+        const y = Number(e.data.y);
+        const viewportWidth = Number(e.data.viewportWidth);
+        const viewportHeight = Number(e.data.viewportHeight);
+        if (
+          !motionOriginEditingEnabled ||
+          typeof targetNodeId !== "string" ||
+          targetNodeId !== motionOriginTargetNodeId ||
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          !(viewportWidth > 0) ||
+          !(viewportHeight > 0)
+        ) {
+          return;
+        }
+        setMotionOriginMarkerPosition((current) => {
+          if (
+            current?.targetNodeId === targetNodeId &&
+            current.x === x &&
+            current.y === y &&
+            current.viewportWidth === viewportWidth &&
+            current.viewportHeight === viewportHeight
+          ) {
+            return current;
+          }
+          return { targetNodeId, x, y, viewportWidth, viewportHeight };
+        });
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "motion-path-edit" &&
+        motionPathEditingEnabled &&
+        !readOnly &&
+        editMode &&
+        !interactMode &&
+        onMotionPathTracksChange
+      ) {
+        const edit = parseMotionPathEditMessage(e.data, motionPathTargetNodeId);
+        if (!edit) return;
+        const trackIndex = motionTracks?.findIndex(
+          (track) =>
+            track.targetNodeId === edit.targetNodeId &&
+            track.property === "translate",
+        );
+        if (trackIndex === undefined || trackIndex < 0 || !motionTracks) return;
+        const updated = applyMotionPathEdit(motionTracks[trackIndex], edit);
+        if (!updated) return;
+        const nextTracks = [...motionTracks];
+        nextTracks[trackIndex] = updated;
+        const changeResult = onMotionPathTracksChange(
+          nextTracks,
+          edit.targetNodeId,
+        );
+        if (changeResult?.status === "unsupported") {
+          const iframeWindow = iframeRef.current?.contentWindow;
+          iframeWindow?.postMessage(
+            {
+              type: "motion-load-tracks",
+              tracks: motionTracks.map(
+                ({ nativeStyleIndex: _index, ...track }) => track,
+              ),
+              easingVariables: motionEasingVariables,
+              defaultEase: motionDefaultEase,
+              durationMs: motionDurationMs,
+            },
+            "*",
+          );
+          iframeWindow?.postMessage(
+            {
+              type: "motion-path-editing",
+              enabled:
+                motionPathEditingEnabled &&
+                !readOnly &&
+                editMode &&
+                !interactMode &&
+                typeof motionPathTargetNodeId === "string",
+              targetNodeId: motionPathTargetNodeId ?? null,
+            },
+            "*",
+          );
+          iframeWindow?.postMessage(
+            {
+              type: "motion-origin-editing",
+              enabled:
+                motionOriginEditingEnabled &&
+                !readOnly &&
+                editMode &&
+                !interactMode &&
+                typeof motionOriginTargetNodeId === "string",
+              targetNodeId: motionOriginTargetNodeId ?? null,
+            },
+            "*",
+          );
+          toast.error(t("designEditor.motion.pathEditAmbiguous"));
+        }
         return;
       }
       if (
@@ -5383,6 +5619,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "embedded-canvas-pan") {
+        if (interactMode) return;
         const iframe = iframeRef.current;
         if (!iframe) return;
         const result = forwardEmbeddedCanvasPanMessage({
@@ -5395,7 +5632,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "embedded-canvas-wheel") {
-        if (!isEmbeddedFrame) return;
+        if (!isEmbeddedFrame || interactMode) return;
         const iframe = iframeRef.current;
         if (!iframe) return;
         const rect = iframe.getBoundingClientRect();
@@ -5530,6 +5767,15 @@ export function DesignCanvas({
     deviceFrame,
     onPrototypeNavigate,
     onComponentSourceJump,
+    motionPathEditingEnabled,
+    motionPathTargetNodeId,
+    motionOriginEditingEnabled,
+    motionOriginTargetNodeId,
+    motionTracks,
+    motionEasingVariables,
+    motionDefaultEase,
+    motionDurationMs,
+    onMotionPathTracksChange,
     isEmbeddedFrame,
     sourceType,
     bridgeUrl,
@@ -5544,6 +5790,7 @@ export function DesignCanvas({
     flushPendingOneShotMessages,
     postOneShotBridgeMessage,
     iframeDocumentIdentity,
+    t,
   ]);
 
   // Mirror the selection down only when it changes, so stale re-posts can't
@@ -5561,6 +5808,50 @@ export function DesignCanvas({
   selectedSelectorRef.current = selectedSelector;
   const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
   selectedSelectorCandidatesRef.current = selectedSelectorCandidates;
+
+  const sendMotionPathEditingState = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "motion-path-editing",
+        enabled:
+          motionPathEditingEnabled &&
+          !readOnly &&
+          editMode &&
+          !interactMode &&
+          typeof motionPathTargetNodeId === "string",
+        targetNodeId: motionPathTargetNodeId ?? null,
+      },
+      "*",
+    );
+  }, [
+    editMode,
+    interactMode,
+    motionPathEditingEnabled,
+    motionPathTargetNodeId,
+    readOnly,
+  ]);
+
+  const sendMotionOriginEditingState = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "motion-origin-editing",
+        enabled:
+          motionOriginEditingEnabled &&
+          !readOnly &&
+          editMode &&
+          !interactMode &&
+          typeof motionOriginTargetNodeId === "string",
+        targetNodeId: motionOriginTargetNodeId ?? null,
+      },
+      "*",
+    );
+  }, [
+    editMode,
+    interactMode,
+    motionOriginEditingEnabled,
+    motionOriginTargetNodeId,
+    readOnly,
+  ]);
 
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
@@ -5677,7 +5968,10 @@ export function DesignCanvas({
       iframe.contentWindow?.postMessage(
         {
           type: "motion-load-tracks",
-          tracks: motionTracks,
+          tracks: motionTracks.map(
+            ({ nativeStyleIndex: _index, ...track }) => track,
+          ),
+          easingVariables: motionEasingVariables,
           defaultEase: motionDefaultEase,
           durationMs: motionDurationMs,
         },
@@ -5686,6 +5980,8 @@ export function DesignCanvas({
     } else {
       iframe.contentWindow?.postMessage({ type: "motion-preview-clear" }, "*");
     }
+    sendMotionPathEditingState();
+    sendMotionOriginEditingState();
     if (shaderFillPreview) {
       iframe.contentWindow?.postMessage(
         {
@@ -5723,8 +6019,11 @@ export function DesignCanvas({
     isEmbeddedFrame,
     lockedSelectors,
     motionTracks,
+    motionEasingVariables,
     motionDefaultEase,
     motionDurationMs,
+    sendMotionPathEditingState,
+    sendMotionOriginEditingState,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
@@ -5829,14 +6128,26 @@ export function DesignCanvas({
       win.postMessage(
         {
           type: "motion-load-tracks",
-          tracks: motionTracks,
+          tracks: motionTracks.map(
+            ({ nativeStyleIndex: _index, ...track }) => track,
+          ),
+          easingVariables: motionEasingVariables,
           defaultEase: motionDefaultEase,
           durationMs: motionDurationMs,
         },
         "*",
       );
     }
-  }, [motionTracks, motionDefaultEase, motionDurationMs]);
+    sendMotionPathEditingState();
+    sendMotionOriginEditingState();
+  }, [
+    motionTracks,
+    motionEasingVariables,
+    motionDefaultEase,
+    motionDurationMs,
+    sendMotionPathEditingState,
+    sendMotionOriginEditingState,
+  ]);
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
@@ -7542,7 +7853,7 @@ export function DesignCanvas({
 
   const handleScrollSurfaceMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (isCanvasOverlayInteractionTarget(e.target)) return;
+      if (interactMode || isCanvasOverlayInteractionTarget(e.target)) return;
       const isMiddleButton = e.button === 1;
       const isLeftPanGesture =
         e.button === 0 && (handToolActive || spacePanActive);
@@ -7572,7 +7883,7 @@ export function DesignCanvas({
       window.addEventListener("mouseup", handlePanEnd);
       window.addEventListener("blur", handlePanEnd);
     },
-    [handToolActive, spacePanActive],
+    [handToolActive, interactMode, spacePanActive],
   );
 
   const handleScrollSurfaceBackgroundClick = useCallback(
@@ -7667,6 +7978,211 @@ export function DesignCanvas({
     [content],
   );
 
+  const dispatchMotionOriginPointer = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    phase: "down" | "move" | "up" | "cancel",
+  ) => {
+    const frame = iframeRef.current;
+    const frameWindow = frame?.contentWindow;
+    const frameRect = frame?.getBoundingClientRect();
+    if (
+      !frameWindow ||
+      !frameRect ||
+      frameRect.width <= 0 ||
+      frameRect.height <= 0
+    ) {
+      return;
+    }
+    frameWindow.postMessage(
+      {
+        type: "motion-origin-pointer",
+        phase,
+        pointerId: event.pointerId,
+        x:
+          ((event.clientX - frameRect.left) / frameRect.width) *
+          frameWindow.innerWidth,
+        y:
+          ((event.clientY - frameRect.top) / frameRect.height) *
+          frameWindow.innerHeight,
+      },
+      "*",
+    );
+  };
+
+  const handleMotionOriginPointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0 || !motionOriginEditingEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    motionOriginPointerIdRef.current = event.pointerId;
+    dispatchMotionOriginPointer(event, "down");
+  };
+
+  const handleMotionOriginPointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (motionOriginPointerIdRef.current !== event.pointerId) return;
+    dispatchMotionOriginPointer(event, "move");
+  };
+
+  const finishMotionOriginPointer = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    phase: "up" | "cancel",
+  ) => {
+    if (motionOriginPointerIdRef.current !== event.pointerId) return;
+    dispatchMotionOriginPointer(event, phase);
+    motionOriginPointerIdRef.current = null;
+  };
+
+  const motionOriginFrameRect = iframeRef.current?.getBoundingClientRect();
+  const motionOriginProxy =
+    motionOriginEditingEnabled &&
+    !readOnly &&
+    editMode &&
+    !interactMode &&
+    typeof document !== "undefined" &&
+    document.body &&
+    motionOriginFrameRect &&
+    motionOriginFrameRect.width > 0 &&
+    motionOriginFrameRect.height > 0 &&
+    motionOriginMarkerPosition?.targetNodeId === motionOriginTargetNodeId
+      ? createPortal(
+          <button
+            type="button"
+            data-motion-origin-proxy
+            aria-hidden="true"
+            tabIndex={-1}
+            onPointerDown={handleMotionOriginPointerDown}
+            onPointerMove={handleMotionOriginPointerMove}
+            onPointerUp={(event) => finishMotionOriginPointer(event, "up")}
+            onPointerCancel={(event) =>
+              finishMotionOriginPointer(event, "cancel")
+            }
+            onLostPointerCapture={(event) => {
+              if (motionOriginPointerIdRef.current === event.pointerId) {
+                finishMotionOriginPointer(event, "cancel");
+              }
+            }}
+            className="fixed z-[2147483647] grid size-4 -translate-x-1/2 -translate-y-1/2 cursor-move place-items-center rounded-full border-2 border-[var(--design-editor-accent-color,Highlight)] bg-[Canvas] p-0 touch-none"
+            style={{
+              left:
+                motionOriginFrameRect.left +
+                (motionOriginMarkerPosition.x /
+                  motionOriginMarkerPosition.viewportWidth) *
+                  motionOriginFrameRect.width,
+              top:
+                motionOriginFrameRect.top +
+                (motionOriginMarkerPosition.y /
+                  motionOriginMarkerPosition.viewportHeight) *
+                  motionOriginFrameRect.height,
+            }}
+          >
+            <svg
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 size-full overflow-visible"
+              viewBox="0 0 16 16"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="2"
+                fill="var(--design-editor-accent-color,Highlight)"
+              />
+              <path
+                d="M4 8h8M8 4v8"
+                fill="none"
+                stroke="var(--design-editor-accent-color,Highlight)"
+                strokeWidth="1"
+              />
+            </svg>
+          </button>,
+          document.body,
+        )
+      : null;
+
+  const previewIframeSandbox = getDesignCanvasIframeSandbox({
+    externalPreview: Boolean(externalPreviewUrl),
+    readOnly: readOnly || snapshotOnly,
+    snapshotOnly,
+    previewUrl: externalPreviewUrl,
+    parentOrigin: browserOrigin ?? undefined,
+    liveApp: interactMode,
+  });
+  const previewIframeName = externalPreviewUrl
+    ? undefined
+    : previewColorSchemeFrameName(previewColorScheme);
+  const previewIframeStyle: CSSProperties = {
+    background: iframeBackgroundColor,
+    backgroundColor: iframeBackgroundColor,
+    colorScheme:
+      boardSurface || externalPreviewUrl
+        ? undefined
+        : (previewColorScheme ?? "light"),
+    ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+    ...getIframePaintRetentionStyle({
+      viewportWidth:
+        embeddedFrame?.viewportWidth ??
+        previewWidthPx ??
+        Number.parseFloat(iframeWidth),
+      viewportHeight:
+        embeddedFrame?.viewportHeight ??
+        previewHeightPx ??
+        Number.parseFloat(iframeHeight ?? "900px"),
+      effectiveScale: embeddedFrame
+        ? embeddedPaintScale
+        : (zoom / 100) * editorChromeScaleX,
+      effectiveScaleY: embeddedFrame
+        ? embeddedPaintScale
+        : (zoom / 100) * editorChromeScaleY,
+    }),
+  };
+
+  // Entering or leaving Interact loads a new document into the screen. A page
+  // with render-blocking scripts paints nothing until they arrive, and the
+  // screen's host is white, so the document being replaced stays underneath,
+  // untouched, until the new one has loaded.
+  const markupFrameMounted =
+    !externalPreviewUrl &&
+    !(snapshotOnly && !iframeRenderContent.trim()) &&
+    !(rawExternalPreviewUrl && !externalPreviewUrl) &&
+    !externalPreviewPendingOrigin;
+  const [replacedFrame, setReplacedFrame] =
+    useState<ReplacedPreviewFrame | null>(null);
+  const mountedMarkupFrameRef = useRef<ReplacedPreviewFrame | null>(null);
+  const markupFrame: ReplacedPreviewFrame | null = markupFrameMounted
+    ? {
+        key: iframeElementIdentity,
+        srcDoc: privateScreenshotPreview.html,
+        sandbox: previewIframeSandbox,
+        name: previewIframeName,
+        interactMode,
+      }
+    : null;
+  if (mountedMarkupFrameRef.current?.key !== markupFrame?.key) {
+    const previous = mountedMarkupFrameRef.current;
+    mountedMarkupFrameRef.current = markupFrame;
+    if (previous && markupFrame && previous.interactMode !== interactMode) {
+      setReplacedFrame(previous);
+    } else if (replacedFrame) {
+      setReplacedFrame(null);
+    }
+  }
+  const releaseReplacedFrame = useCallback(() => {
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() => setReplacedFrame(null)),
+    );
+  }, []);
+  useEffect(() => {
+    if (!replacedFrame) return;
+    const timer = window.setTimeout(
+      () => setReplacedFrame(null),
+      REPLACED_PREVIEW_FRAME_MAX_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [replacedFrame]);
+
   const iframeElement = (
     <div
       data-review-canvas-id={reviewCanvasId}
@@ -7751,103 +8267,106 @@ export function DesignCanvas({
         </div>
       ) : rawExternalPreviewUrl &&
         !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
-        <iframe
-          key={iframeElementIdentity}
-          ref={iframeRef}
-          src={externalPreviewUrl ?? undefined}
-          srcDoc={
-            externalPreviewUrl ? undefined : privateScreenshotPreview.html
-          }
-          sandbox={getDesignCanvasIframeSandbox({
-            externalPreview: Boolean(externalPreviewUrl),
-            readOnly: readOnly || snapshotOnly,
-            snapshotOnly,
-            previewUrl: externalPreviewUrl,
-            parentOrigin: browserOrigin ?? undefined,
-          })}
-          allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
-          data-design-preview-iframe
-          onFocus={(event) => {
-            if (
-              sourceType !== "localhost" ||
-              readOnly ||
-              !editMode ||
-              interactMode
-            ) {
-              return;
+        <>
+          {replacedFrame ? (
+            <iframe
+              key={replacedFrame.key}
+              srcDoc={replacedFrame.srcDoc}
+              name={replacedFrame.name}
+              sandbox={replacedFrame.sandbox}
+              data-design-preview-replaced
+              aria-hidden="true"
+              tabIndex={-1}
+              className="pointer-events-none absolute inset-0 block h-full w-full border-0 bg-transparent"
+              style={{
+                ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+                ...previewIframeStyle,
+              }}
+              title=""
+            />
+          ) : null}
+          <iframe
+            key={iframeElementIdentity}
+            ref={iframeRef}
+            src={externalPreviewUrl ?? undefined}
+            srcDoc={
+              externalPreviewUrl ? undefined : privateScreenshotPreview.html
             }
-            requestCanvasFocusProbe(event.currentTarget);
-          }}
-          onLoad={(event) => {
-            pendingCanvasFocusProbeRef.current = null;
-            if (!externalPreviewUrl && designId) {
-              connectPrivateReplayScreenshotPreview(
-                event.currentTarget,
-                privateScreenshotPreview.screenshotPaths,
-                privateScreenshotPreview.nonce,
-                designId,
-              );
-            }
-            tabFocusedLiveFrames.delete(event.currentTarget);
-            markExternalPreviewDocumentLoaded();
-            if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
-            sendBridgeToContainer();
-            focusScrollSurface(true);
-            event.currentTarget.contentWindow?.postMessage(
-              { type: "agent-native:editor-chrome-ready-probe" },
-              "*",
-            );
-            if (!import.meta.env?.DEV) return;
-            try {
-              const win = event.currentTarget.contentWindow as
-                | (Window & { __DND_DEBUG?: boolean })
-                | null;
-              if (win) win.__DND_DEBUG = true;
-              // coercion-ok: a cross-origin preview exposes no contentWindow
-            } catch {}
-          }}
-          {...{
-            [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
-              ? ""
-              : undefined,
-          }}
-          data-screen-iframe-id={
-            boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
-          }
-          data-design-source-type={
-            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
-          }
-          className="relative block h-full w-full border-0 bg-transparent"
-          style={{
-            background: iframeBackgroundColor,
-            backgroundColor: iframeBackgroundColor,
-            colorScheme:
-              boardSurface || externalPreviewUrl ? undefined : "light",
-            pointerEvents:
-              liveEditInteractionBlocked || blockPreviewInteraction
-                ? "none"
+            // The starting scheme of a markup preview; see
+            // previewColorSchemeFrameName. A URL page keeps its own name.
+            name={previewIframeName}
+            sandbox={previewIframeSandbox}
+            allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
+            data-design-preview-iframe
+            onFocus={(event) => {
+              if (
+                sourceType !== "localhost" ||
+                readOnly ||
+                !editMode ||
+                interactMode
+              ) {
+                return;
+              }
+              requestCanvasFocusProbe(event.currentTarget);
+            }}
+            onLoad={(event) => {
+              pendingCanvasFocusProbeRef.current = null;
+              if (!externalPreviewUrl && designId) {
+                connectPrivateReplayScreenshotPreview(
+                  event.currentTarget,
+                  privateScreenshotPreview.screenshotPaths,
+                  privateScreenshotPreview.nonce,
+                  designId,
+                );
+              }
+              tabFocusedLiveFrames.delete(event.currentTarget);
+              markExternalPreviewDocumentLoaded();
+              if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
+              sendBridgeToContainer();
+              focusScrollSurface(true);
+              releaseReplacedFrame();
+              if (!interactMode) {
+                event.currentTarget.contentWindow?.postMessage(
+                  { type: "agent-native:editor-chrome-ready-probe" },
+                  "*",
+                );
+              }
+              if (!import.meta.env?.DEV) return;
+              try {
+                const win = event.currentTarget.contentWindow as
+                  | (Window & { __DND_DEBUG?: boolean })
+                  | null;
+                if (win) win.__DND_DEBUG = true;
+                // coercion-ok: a cross-origin preview exposes no contentWindow
+              } catch {}
+            }}
+            {...{
+              [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
+                ? ""
                 : undefined,
-            ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
-            ...getIframePaintRetentionStyle({
-              viewportWidth:
-                embeddedFrame?.viewportWidth ??
-                previewWidthPx ??
-                Number.parseFloat(iframeWidth),
-              viewportHeight:
-                embeddedFrame?.viewportHeight ??
-                previewHeightPx ??
-                Number.parseFloat(iframeHeight ?? "900px"),
-              effectiveScale: embeddedFrame
-                ? embeddedPaintScale
-                : (zoom / 100) * editorChromeScaleX,
-              effectiveScaleY: embeddedFrame
-                ? embeddedPaintScale
-                : (zoom / 100) * editorChromeScaleY,
-            }),
-          }}
-          title={t("designEditor.designPreview")}
-        />
+            }}
+            data-screen-iframe-id={
+              boardSurface
+                ? undefined
+                : (previewFrameId ?? screenId ?? undefined)
+            }
+            data-design-source-type={
+              sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
+            }
+            className="relative block h-full w-full border-0 bg-transparent"
+            style={{
+              ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+              ...previewIframeStyle,
+              pointerEvents:
+                liveEditInteractionBlocked || blockPreviewInteraction
+                  ? "none"
+                  : undefined,
+            }}
+            title={t("designEditor.designPreview")}
+          />
+        </>
       )}
+      {motionOriginProxy}
       {externalPreviewUrl &&
       !previewFrameLoaded &&
       !liveEditConnectionFailed ? (

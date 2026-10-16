@@ -11,7 +11,6 @@ const zoomSourceConfigSchema = z
   .object({
     userIds: z.array(z.string().trim().min(1)).max(50).optional(),
     lookbackDays: z.number().int().min(1).max(30).optional(),
-    includeSummaries: z.boolean().optional(),
     meetingIds: z
       .array(
         z
@@ -63,7 +62,7 @@ function assertValidZoomConfig(
       .map((issue) => `${issue.field} ${issue.message}`)
       .join(
         "; ",
-      )}. Use {"zoom":{"meetingIds":["123 4567 8901"],"userIds":["user@example.com"],"lookbackDays":7,"includeSummaries":true}} with 1-100 approved recurring meeting IDs, up to 50 user IDs, 1-30 lookback days, and includeSummaries true or false.`,
+      )}. Use {"zoom":{"meetingIds":["123 4567 8901"],"userIds":["user@example.com"],"lookbackDays":7}} with 1-100 approved recurring meeting IDs, up to 50 user IDs, and 1-30 lookback days.`,
     {
       errorCode: "invalid_source_config",
       details: { issues },

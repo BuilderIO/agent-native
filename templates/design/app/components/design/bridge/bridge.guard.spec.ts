@@ -596,9 +596,13 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
     "@agent-native/toolkit/canvas-interactions",
     "@jridgewell/trace-mapping",
+    "../../../../shared/spacing-handle-rule",
     "../../../../shared/text-layer-rule",
   ],
   "hit-test.bridge.ts": ["../../../../shared/text-layer-rule"],
+  // A pure, dependency-free module shared with the editor, so the media-query
+  // rewrite and the dark-style scan have one definition and one unit test.
+  "preview-theme.bridge.ts": ["../../../../shared/preview-color-scheme"],
 };
 
 function getBridgeFiles(): string[] {
@@ -753,7 +757,8 @@ function hydratedEmbeddedCanvasGestureBridgeScript(options?: {
     .replace(
       "__EDITING_SAFETY_ENABLED__",
       options?.editingSafety ? "true" : "false",
-    );
+    )
+    .replace("__INTERACTION_MODE__", "false");
 }
 
 describe("bridge source files", () => {
@@ -973,7 +978,7 @@ describe("editor chrome shared gesture controller", () => {
           };
         });
         expect(afterShieldDrag).toEqual({
-          left: 522,
+          left: 532,
           top: 242,
           styleChanges: 1,
         });
@@ -1246,10 +1251,10 @@ it(
       );
       expect(firstSnapshotId).toEqual(expect.any(String));
 
-      await page.mouse.click(160, 140);
-      await page.mouse.move(160, 140);
+      await page.mouse.click(200, 180);
+      await page.mouse.move(200, 180);
       await page.mouse.down();
-      await page.mouse.move(200, 180, { steps: 4 });
+      await page.mouse.move(240, 220, { steps: 4 });
       await page.waitForFunction(
         () =>
           (
@@ -2697,7 +2702,7 @@ it(
         const target = document.querySelector<HTMLElement>("#target")!;
         return { left: target.style.left, top: target.style.top };
       });
-      expect(draggedPosition).toEqual({ left: "230px", top: "230px" });
+      expect(draggedPosition).toEqual({ left: "240px", top: "240px" });
 
       const badgeDisplay = await page.evaluate(() => {
         const badge = document.querySelector<HTMLElement>(
@@ -2714,7 +2719,7 @@ it(
         return { left: target.style.left, top: target.style.top };
       });
       expect(lockedPosition.left).toBe("200px");
-      expect(lockedPosition.top).toBe("360px");
+      expect(lockedPosition.top).toBe("370px");
       await page.keyboard.up("Shift");
 
       await page.mouse.up();
@@ -7186,7 +7191,7 @@ describe("editor chrome bridge — text editing session", () => {
           const other = document.querySelector<HTMLElement>("#other")!;
           return { left: other.style.left, top: other.style.top };
         });
-        expect(draggedPosition).toEqual({ left: "530px", top: "430px" });
+        expect(draggedPosition).toEqual({ left: "540px", top: "440px" });
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -10247,10 +10252,10 @@ it(
         };
       });
 
-      expect(result.aLeft).toBe("160px");
-      expect(result.aTop).toBe("110px");
-      expect(result.bLeft).toBe("360px");
-      expect(result.bTop).toBe("110px");
+      expect(result.aLeft).toBe("164px");
+      expect(result.aTop).toBe("114px");
+      expect(result.bLeft).toBe("364px");
+      expect(result.bTop).toBe("114px");
       expect(result.multiSelectionStillVisible).toBe(true);
 
       const messages = await readBridgeMessages(page);
@@ -15956,7 +15961,15 @@ it(
       await page.mouse.down();
       await page.mouse.move(170, 150);
 
-      const moveMessageCount = await page.evaluate(async () => {
+      const moveCounts = await page.evaluate(async () => {
+        const moveCount = () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).filter(
+            (m) =>
+              m.type === "agent-native:cross-screen-drag" && m.phase === "move",
+          ).length;
+        const before = moveCount();
         for (let i = 0; i < 20; i++) {
           document.dispatchEvent(
             new PointerEvent("pointermove", {
@@ -15969,15 +15982,9 @@ it(
         }
         await new Promise((r) => requestAnimationFrame(() => r(null)));
         await new Promise((r) => requestAnimationFrame(() => r(null)));
-        const messages = (window as any).__bridgeMessages as Array<
-          Record<string, unknown>
-        >;
-        return messages.filter(
-          (m) =>
-            m.type === "agent-native:cross-screen-drag" && m.phase === "move",
-        ).length;
+        return { before, after: moveCount() };
       });
-      expect(moveMessageCount).toBe(1);
+      expect(moveCounts.after - moveCounts.before).toBe(1);
 
       const lastMoveMessage = await page.evaluate(() => {
         const messages = (window as any).__bridgeMessages as Array<
@@ -16031,7 +16038,7 @@ it(
           lastPhase: crossScreen[crossScreen.length - 1]?.phase,
         };
       });
-      expect(postReleaseCounts.move).toBe(1);
+      expect(postReleaseCounts.move).toBe(moveCounts.after);
 
       const overlayAlignment = await page.evaluate(() => {
         const target = document.querySelector<HTMLElement>("#target");

@@ -43,6 +43,7 @@ import {
   resolveOverviewScreenSourceType,
   shouldUseRuntimeLayerProjection,
 } from "../pending-edits";
+import { findInteractLinkTarget } from "../screen-command-utils";
 import {
   getContentSignature,
   getOverviewScreenContentKey,
@@ -155,6 +156,7 @@ export function useEditorScreenRendering({
     liveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    handlePreviewThemeStatus,
     runtimeStructureVerificationRequest,
     pendingVisualStyleBaselineResetRequest,
     handleTextEditingStateChangeForScreen,
@@ -173,6 +175,7 @@ export function useEditorScreenRendering({
     clearPendingOverviewLayerSelectionTimer,
     lockedLayerIds,
     hiddenLayerIds,
+    motionDockOpen,
     shaderFillPreview,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
@@ -252,17 +255,21 @@ export function useEditorScreenRendering({
     contentRenderRevision,
     motionDurationMs,
     motionDefaultEase,
+    motionEasingVariables,
     zoom,
     selectedCanvasSelectorCandidates,
     selectedCanvasSelector,
     canEditLiveScreen,
     designFusionUrl,
     motionTracksWire,
+    motionSelectedTarget,
+    motionOriginEditing,
   } = editorLiveEditsAndPresence;
   const {
     hoveredCanvasSelectorCandidates,
     hoveredCanvasSelector,
     applyFileContentUpdate,
+    handleMotionCanvasPathTracksChange,
   } = editorContentAndComponents;
   const {
     reviewFocusRequest,
@@ -295,7 +302,7 @@ export function useEditorScreenRendering({
     runtimeStructureDeleteRequest,
     runtimeStructureRollbackRequest,
     reflowOverviewScreensForBreakpoints,
-    commentsHidden,
+    commentPinsHidden,
     handleRuntimeStructureInsertRejected,
     handleRuntimeStructureInsertApplied,
     handleRuntimeStructureDeleteApplied,
@@ -307,8 +314,13 @@ export function useEditorScreenRendering({
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
   } = editorEditCommands;
-  const { suppressOverviewPopForExplicitZoomRef, handleExitReviewCommentMode } =
-    editorModes;
+  const {
+    suppressOverviewPopForExplicitZoomRef,
+    handleExitReviewCommentMode,
+    previewColorScheme,
+    screenReloadNonces,
+    handleModeChange,
+  } = editorModes;
   const { exportPreviewScreenId } = editorExportAndHandoff;
   const {
     getLayerSelectorsForFile,
@@ -434,6 +446,24 @@ export function useEditorScreenRendering({
     });
     window.dispatchEvent(event);
   }, []);
+
+  // A link to another screen in the Interact preview switches the previewed
+  // screen, keeping Interact and its device, the same hop the screen picker makes.
+  const handleInteractLinkNavigate = useCallback(
+    (screen: string) => {
+      const target = findInteractLinkTarget(
+        files,
+        screen,
+        activeFileIdRef.current,
+      );
+      if (!target) return;
+      handleModeChange("interact", {
+        targetFileId: target.id,
+        keepInteractDevice: true,
+      });
+    },
+    [files, handleModeChange],
+  );
 
   const handleKScaleStyleBatchChange = useCallback(
     (screenId: string, changes: KScaleStyleChange[]) => {
@@ -869,6 +899,14 @@ export function useEditorScreenRendering({
           onRoutePathChange={
             screenSnapshotOnly ? undefined : handleLiveRoutePathChange
           }
+          previewColorScheme={screenIsActive ? previewColorScheme : null}
+          previewReloadNonce={screenReloadNonces[screen.id] ?? 0}
+          onPreviewThemeStatus={handlePreviewThemeStatus}
+          onPrototypeNavigate={
+            mode === "interact" && screenIsActive
+              ? handleInteractLinkNavigate
+              : undefined
+          }
           publicVisualEdit={!screenSnapshotOnly && publicVisualEdit}
           externalSnapshotHtml={screenSnapshotOnly ? undefined : screenSnapshot}
           snapshotOnly={screenSnapshotOnly}
@@ -918,8 +956,27 @@ export function useEditorScreenRendering({
           fusionUrl={designFusionUrl}
           onComponentSourceJump={handleComponentSourceJump}
           motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
+          motionEasingVariables={motionEasingVariables}
           motionDefaultEase={motionDefaultEase}
           motionDurationMs={motionDurationMs}
+          motionPathEditingEnabled={
+            screenIsActive &&
+            motionDockOpen &&
+            (canEditDesign || canEditLiveScreen(screen.id))
+          }
+          motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          motionOriginEditingEnabled={
+            screenIsActive &&
+            motionOriginEditing &&
+            motionDockOpen &&
+            (canEditDesign || canEditLiveScreen(screen.id))
+          }
+          motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          onMotionPathTracksChange={
+            screenIsActive && (canEditDesign || canEditLiveScreen(screen.id))
+              ? handleMotionCanvasPathTracksChange
+              : undefined
+          }
           shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
@@ -1073,7 +1130,7 @@ export function useEditorScreenRendering({
           tweakValues={cssVarValues}
           drawMode={false}
           pinMode={screenIsActive && pinMode}
-          commentPinsHidden={commentsHidden || !screenIsActive}
+          commentPinsHidden={commentPinsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
           reviewCanPost={canCommentDesign}
@@ -1119,6 +1176,10 @@ export function useEditorScreenRendering({
       handleRuntimeStructureDeleteRejected,
       handleRuntimeStructureRollbackResult,
       handleLiveRoutePathChange,
+      handlePreviewThemeStatus,
+      handleInteractLinkNavigate,
+      previewColorScheme,
+      screenReloadNonces,
       liveRoutePathsByScreenId,
       handleRuntimeStructureDeleteApplied,
       runtimeStructureVerificationRequest,
@@ -1131,7 +1192,12 @@ export function useEditorScreenRendering({
       designFusionUrl,
       handleComponentSourceJump,
       motionTracksWire,
+      motionSelectedTarget,
+      motionOriginEditing,
+      motionDockOpen,
+      handleMotionCanvasPathTracksChange,
       motionDefaultEase,
+      motionEasingVariables,
       motionDurationMs,
       shaderFillPreview,
       inScreenGradientEditTarget,
@@ -1160,7 +1226,7 @@ export function useEditorScreenRendering({
       canCommentDesign,
       activeTool,
       pinMode,
-      commentsHidden,
+      commentPinsHidden,
       spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,

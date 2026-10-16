@@ -11,7 +11,6 @@ import {
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -30,6 +29,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -78,6 +78,7 @@ import {
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
+import { withGenerationAttempt } from "./_generation-tracking.js";
 
 function designDeepLink(
   designId: string,
@@ -735,8 +736,8 @@ const generateDesignAction = defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
-  run: async (
-    {
+  run: withGenerationAttempt(async (input, context, attempt) => {
+    const {
       designId,
       prompt,
       files,
@@ -749,37 +750,48 @@ const generateDesignAction = defineAction({
       contextPackId,
       contextModeOverride,
       reuseLabels,
-    },
-    context,
-  ) => {
+    } = input;
     const canvasIntent = resolveCanvasIntent(prompt);
     assertSingleCanvasOutput(canvasIntent);
     const promptCanvasDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await assertAccess("design", designId, "editor");
-    const generationAttemptId = nanoid();
-    track(
-      "generation_started",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: designId,
-        generation_attempt_id: generationAttemptId,
-        output_type: "design",
-        prompt_type: "ui",
-        has_reference_design_system: Boolean(designSystemId),
-      },
-      context,
+    const rawGenerationSession = (await readAppState(
+      designGenerationSessionKey(designId),
+      // coercion-ok: an unreadable session means generating without plan context.
+    ).catch(() => null)) as DesignGenerationSession | null;
+    const generationSession =
+      rawGenerationSession?.designId === designId ? rawGenerationSession : null;
+    // A call filling a still-pending frame of a generate-screens plan is that
+    // plan's attempt; the plan itself saves no files and records no attempt.
+    const fillsPlannedScreen = Boolean(
+      generationSession &&
+      generationSession.status !== "done" &&
+      generationSession.status !== "cancelled" &&
+      generationSession.frames.some(
+        (frame) =>
+          frame.status !== "done" &&
+          files.some((file) => file.filename === frame.filename),
+      ),
     );
+    const generationAttemptId = attempt.id;
+    attempt.start({
+      designId,
+      generationPath: fillsPlannedScreen ? "screens" : "generate_design",
+      prompt,
+      hasReferenceDesignSystem: Boolean(designSystemId),
+      properties: {
+        prompt_type: "ui",
+        source: "generate_design_action",
+        ...(fillsPlannedScreen && generationSession
+          ? { generation_session_id: generationSession.id }
+          : {}),
+      },
+    });
     await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
-    const rawGenerationSession = (await readAppState(
-      designGenerationSessionKey(designId),
-    ).catch(() => null)) as DesignGenerationSession | null;
-    const generationSession =
-      rawGenerationSession?.designId === designId ? rawGenerationSession : null;
     const creativeContextProvenance = await resolveDesignCreativeContext({
       prompt,
       generationSession,
@@ -808,6 +820,7 @@ const generateDesignAction = defineAction({
       filename: string;
       fileType: string;
     }> = [];
+    attempt.savedFileCount = () => savedFiles.length;
 
     const existingFiles = await db
       .select()
@@ -1629,11 +1642,9 @@ const generateDesignAction = defineAction({
       creativeContextProvenance,
     );
 
-    track(
+    trackDesign(
       "design_edited",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: designId,
         generation_attempt_id: generationAttemptId,
         output_type: "design",
@@ -1649,22 +1660,7 @@ const generateDesignAction = defineAction({
       );
       return source ? isRenderableDesignFile(source) : false;
     });
-    if (savedFiles.length > 0) {
-      track(
-        "generation_completed",
-        {
-          app_name: "design",
-          template_name: "design",
-          output_id: designId,
-          generation_attempt_id: generationAttemptId,
-          output_type: "design",
-          file_count: savedFiles.length,
-          outcome: fileErrors.length > 0 ? "partial" : "completed",
-          source: "generate_design_action",
-        },
-        context,
-      );
-    }
+    if (fileErrors.length > 0) attempt.markPartial();
 
     return {
       designId,
@@ -1682,7 +1678,7 @@ const generateDesignAction = defineAction({
       ...(fileErrors.length > 0 ? { fileErrors } : {}),
       ...creativeContextProvenance,
     };
-  },
+  }),
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const designId = (result as { designId?: string }).designId;

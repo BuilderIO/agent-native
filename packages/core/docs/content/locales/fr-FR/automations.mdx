@@ -229,13 +229,25 @@ Les espaces réservés sont résolus **côté serveur** après que l'agent a ém
 
 ### Paramètres {#web-request-params}
 
-| Paramètre    | Tapez  | Par défaut | Description                                               |
-| ------------ | ------ | ---------- | --------------------------------------------------------- |
-| `url`        | chaîne | —          | URL complet. Peut contenir des références `${keys.NAME}`. |
-| `method`     | chaîne | `GET`      | Méthode HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).       |
-| `headers`    | chaîne | `{}`       | Objet JSON des en-têtes. Peut contenir `${keys.NAME}`.    |
-| `body`       | chaîne | —          | Corps de la requête. Peut contenir `${keys.NAME}`.        |
-| `timeout_ms` | numéro | 15000      | Délai d'expiration en millisecondes (max 30 000).         |
+| Paramètre      | Tapez   | Par défaut    | Description                                                                                                                                                                                                                                                                                      |
+| -------------- | ------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `url`          | chaîne  | —             | URL complet. Peut contenir des références `${keys.NAME}`.                                                                                                                                                                                                                                        |
+| `method`       | chaîne  | `GET`         | Méthode HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).                                                                                                                                                                                                                                              |
+| `headers`      | chaîne  | `{}`          | Objet JSON des en-têtes. Peut contenir `${keys.NAME}`.                                                                                                                                                                                                                                           |
+| `body`         | chaîne  | —             | Corps de la requête. Peut contenir `${keys.NAME}`.                                                                                                                                                                                                                                               |
+| `timeout_ms`   | numéro  | 15000         | Délai d'expiration en millisecondes (max 30 000).                                                                                                                                                                                                                                                |
+| `maxChars`     | nombre  | 32000         | Nombre maximal de caractères du corps de réponse renvoyés dans le contexte de l’agent (maximum 200000). La limite porte sur le corps, pas sur la réponse complète formatée de l’outil. Les métadonnées et liens facultatifs peuvent ajouter des caractères. Ne limite pas le fichier enregistré. |
+| `responseMode` | chaîne  | `auto`        | Format de la réponse : `auto` (HTML devient du Markdown, JSON et texte restent bruts), `raw`, `text`, `markdown`, `links`, `metadata` ou `matches` avec `search`.                                                                                                                                |
+| `extract`      | chaîne  | `readability` | Stratégie d’extraction HTML : `readability`, `all-visible` (tout le texte visible du corps) ou `none` (document complet).                                                                                                                                                                        |
+| `includeLinks` | booléen | variable      | Indique si les réponses HTML extraites incluent une liste compacte de liens. La valeur par défaut est `true` pour les réponses intégrées et `false` lorsque `saveToFile` est utilisé.                                                                                                            |
+| `search`       | objet   | —             | Recherche facultative après la récupération, dans le contenu extrait : `{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`.                                                                                                                          |
+| `saveToFile`   | chaîne  | —             | Chemin de fichier de l’espace de travail où enregistrer la réponse complète, jusqu’à 20 MiB. Avec `search`, renvoie tous les résultats jusqu’à `maxChars`. Sinon, renvoie un aperçu de 2 000 caractères.                                                                                         |
+
+Par défaut, `maxChars` limite uniquement les caractères du corps de réponse renvoyés dans le contexte de l’agent. Il ne limite pas la réponse complète formatée de l’outil, les métadonnées et liens facultatifs peuvent donc ajouter des caractères. Les réponses intégrées sont limitées à 1 MiB, sauf les réponses HTML ou XHTML extraites, qui peuvent atteindre 20 MiB. Le HTML brut et les autres réponses intégrées restent limités à 1 MiB.
+
+`saveToFile` accepte les réponses jusqu’à 20 MiB. Le HTML ou XHTML enregistré avec un `responseMode` autre que `raw` est enregistré en Markdown ou en texte extrait. Le mode brut et les réponses non HTML sont enregistrés sous forme de texte décodé du corps de réponse, sans extraction HTML. Avec `saveToFile` et `search`, l’outil renvoie tous les résultats de recherche, dans la limite de `maxChars`. Sans `search`, il renvoie un aperçu de 2 000 caractères. `searchResultsTruncated` signifie que `maxChars` a tronqué le résultat formaté. `searchSourceTruncated` signifie que seuls les 500 000 premiers caractères de la source de recherche sélectionnée ont été analysés.
+
+Une erreur de dépassement indique la taille observée, la limite applicable et la marche à suivre. Utilisez `saveToFile` pour les réponses jusqu’à 20 MiB ou demandez une réponse plus petite si elle dépasse cette limite.
 
 ## Clés {#keys}
 

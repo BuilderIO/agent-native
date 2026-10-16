@@ -46,8 +46,12 @@ function tabOrientation(data: Pick<TabsData, "orientation">): TabsOrientation {
 function tabsUseWideLayout(data: TabsData): boolean {
   return (
     tabOrientation(data) === "vertical" ||
-    data.tabs.some((tab) => nestedBlocksContainDiffLike(tab.blocks))
+    tabsOf(data).some((tab) => nestedBlocksContainDiffLike(tab.blocks))
   );
+}
+
+function tabsOf(data: TabsData): TabsTab[] {
+  return data.tabs === undefined ? [] : data.tabs;
 }
 
 function nestedBlocksContainDiffLike(blocks: NestedBlock[]): boolean {
@@ -154,8 +158,9 @@ export function TabsBlockReader({
   title,
   ctx,
 }: BlockReadProps<TabsData>) {
-  const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
-  const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
+  const tabs = tabsOf(data);
+  const [activeId, setActiveId] = useState(tabs[0]?.id ?? "");
+  const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
   const compact = isCompact(title);
   const orientation = tabOrientation(data);
   const vertical = orientation === "vertical";
@@ -177,7 +182,7 @@ export function TabsBlockReader({
           )}
         >
           <TabRail
-            tabs={data.tabs}
+            tabs={tabs}
             activeId={active?.id}
             onSelect={setActiveId}
             orientation={orientation}
@@ -224,8 +229,9 @@ export function TabsBlockEditor({
   title,
   ctx,
 }: BlockEditProps<TabsData>) {
-  const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
-  const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
+  const tabs = tabsOf(data);
+  const [activeId, setActiveId] = useState(tabs[0]?.id ?? "");
+  const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
   const compact = isCompact(title);
   const orientation = tabOrientation(data);
   const vertical = orientation === "vertical";
@@ -240,28 +246,25 @@ export function TabsBlockEditor({
     });
 
   const renameTab = (id: string, label: string) =>
-    commit(data.tabs.map((tab) => (tab.id === id ? { ...tab, label } : tab)));
+    commit(tabs.map((tab) => (tab.id === id ? { ...tab, label } : tab)));
 
   const removeTab = (id: string) => {
-    const next = data.tabs.filter((tab) => tab.id !== id);
+    const next = tabs.filter((tab) => tab.id !== id);
     if (next.length === 0) return;
     commit(next);
     if (activeId === id) setActiveId(next[0]?.id ?? "");
   };
 
   const addTab = () => {
-    if (data.tabs.length >= 12) return;
+    if (tabs.length >= 12) return;
     const id = newTabId();
-    commit([
-      ...data.tabs,
-      { id, label: `Tab ${data.tabs.length + 1}`, blocks: [] },
-    ]);
+    commit([...tabs, { id, label: `Tab ${tabs.length + 1}`, blocks: [] }]);
     setActiveId(id);
   };
 
   const updateChild = (tabId: string, child: NestedBlock) =>
     commit(
-      data.tabs.map((tab) =>
+      tabs.map((tab) =>
         tab.id === tabId
           ? {
               ...tab,
@@ -303,7 +306,7 @@ export function TabsBlockEditor({
             aria-orientation={orientation}
             data-plan-interactive
           >
-            {data.tabs.map((tab) => {
+            {tabs.map((tab) => {
               const selected = tab.id === active?.id;
               const tabLabel = (
                 <span className={tabLabelClass(orientation)}>{tab.label}</span>
@@ -346,7 +349,7 @@ export function TabsBlockEditor({
                     <TabsSettingsPopover
                       active={active}
                       orientation={orientation}
-                      tabs={data.tabs}
+                      tabs={tabs}
                       triggerClassName="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover/tab:pointer-events-auto group-hover/tab:opacity-100 group-focus-within/tab:pointer-events-auto group-focus-within/tab:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
                       onRename={renameTab}
                       onOrientationChange={setOrientation}
@@ -358,11 +361,22 @@ export function TabsBlockEditor({
               );
             })}
           </div>
+          {editable && vertical && tabs.length === 0 && (
+            <TabsSettingsPopover
+              active={active}
+              orientation={orientation}
+              tabs={tabs}
+              onRename={renameTab}
+              onOrientationChange={setOrientation}
+              onAdd={addTab}
+              onRemove={removeTab}
+            />
+          )}
           {editable && !vertical && (
             <TabsSettingsPopover
               active={active}
               orientation={orientation}
-              tabs={data.tabs}
+              tabs={tabs}
               onRename={renameTab}
               onOrientationChange={setOrientation}
               onAdd={addTab}
@@ -379,7 +393,7 @@ export function TabsBlockEditor({
                     onChange(
                       {
                         ...data,
-                        tabs: data.tabs.map((tab) =>
+                        tabs: tabs.map((tab) =>
                           tab.id === active.id
                             ? { ...tab, blocks: nextBlocks }
                             : tab,
@@ -549,7 +563,7 @@ function TabsSettingsPopover({
 }
 
 function tabRegions(data: TabsData): BlockContainerRegion[] {
-  return data.tabs.map((tab) => ({
+  return tabsOf(data).map((tab) => ({
     id: tab.id,
     label: tab.label,
     blocks: tab.blocks,
@@ -557,27 +571,29 @@ function tabRegions(data: TabsData): BlockContainerRegion[] {
 }
 
 function addTabRegion(data: TabsData, afterRegionId?: string): TabsData {
-  if (data.tabs.length >= 12) return data;
+  const tabs = tabsOf(data);
+  if (tabs.length >= 12) return data;
   const nextTab: TabsTab = {
     id: newTabId(),
-    label: `Tab ${data.tabs.length + 1}`,
+    label: `Tab ${tabs.length + 1}`,
     blocks: [],
   };
-  if (!afterRegionId) return tabsWith(data, [...data.tabs, nextTab]);
-  const afterIndex = data.tabs.findIndex((tab) => tab.id === afterRegionId);
-  if (afterIndex < 0) return tabsWith(data, [...data.tabs, nextTab]);
+  if (!afterRegionId) return tabsWith(data, [...tabs, nextTab]);
+  const afterIndex = tabs.findIndex((tab) => tab.id === afterRegionId);
+  if (afterIndex < 0) return tabsWith(data, [...tabs, nextTab]);
   return tabsWith(data, [
-    ...data.tabs.slice(0, afterIndex + 1),
+    ...tabs.slice(0, afterIndex + 1),
     nextTab,
-    ...data.tabs.slice(afterIndex + 1),
+    ...tabs.slice(afterIndex + 1),
   ]);
 }
 
 function removeTabRegion(data: TabsData, regionId: string): TabsData {
-  if (data.tabs.length <= 1) return data;
+  const tabs = tabsOf(data);
+  if (tabs.length <= 1) return data;
   return tabsWith(
     data,
-    data.tabs.filter((tab) => tab.id !== regionId),
+    tabs.filter((tab) => tab.id !== regionId),
   );
 }
 
@@ -586,10 +602,11 @@ function reorderTabRegion(
   fromRegionId: string,
   toRegionId: string,
 ): TabsData {
-  const fromIndex = data.tabs.findIndex((tab) => tab.id === fromRegionId);
-  const toIndex = data.tabs.findIndex((tab) => tab.id === toRegionId);
+  const tabs = tabsOf(data);
+  const fromIndex = tabs.findIndex((tab) => tab.id === fromRegionId);
+  const toIndex = tabs.findIndex((tab) => tab.id === toRegionId);
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return data;
-  const next = [...data.tabs];
+  const next = [...tabs];
   const [moved] = next.splice(fromIndex, 1);
   if (!moved) return data;
   next.splice(toIndex, 0, moved);
@@ -609,7 +626,7 @@ export const tabsBlock = defineBlock<TabsData>({
     updateRegion: (data, regionId, blocks) =>
       tabsWith(
         data,
-        data.tabs.map((tab) =>
+        tabsOf(data).map((tab) =>
           tab.id === regionId ? { ...tab, blocks } : tab,
         ),
       ),

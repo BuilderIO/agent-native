@@ -11,6 +11,8 @@ Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置配備直�
 
 本指南中，您將建立一個具備聊天 UI 的代理，並從代理和 UI 呼叫其內含的 `hello` action。
 
+想讓 AI 代理替您完成設定？請參閱[用 AI 代理建立應用程式](/docs/create-with-an-agent)。
+
 ## 先決條件
 
 - [Node.js](https://nodejs.org) 22.22 或更新版本
@@ -54,7 +56,7 @@ pnpm dev
 
 ## 連線 LLM（選用） {#connect-an-llm}
 
-使用 **Use Builder.io** 連結 Builder.io 帳戶，透過 **Custom keys** 儲存個人或組織金鑰，或在本機開發時將提供者金鑰設於 `.env`，並在自架應用程式的部署環境中設定應用程式層級金鑰。請參閱 [LLM 提供者設定](/docs/environment-variables#llm-provider-keys)。
+選用：使用 **Use Builder.io** 連線，透過 **Custom keys** 新增金鑰，或在 `.env` 中設定提供者金鑰以供本機開發使用。對於自架部署，伺服器端金鑰可作為整個應用程式的備援金鑰。請參閱[LLM 提供者金鑰](/docs/environment-variables#llm-provider-keys)。
 
 ## 從代理執行 action
 

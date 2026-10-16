@@ -822,7 +822,14 @@ const messages = {
     generationFailed:
       "Les diapositives n’ont pas été créées. Consultez les détails dans le chat, puis réessayez.",
     generationOutcomeUnresolved:
-      "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation ou le chat, puis réessayez.",
+      "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation avant de réessayer.",
+    generationOutcomeUnresolvedWithSlides:
+      "Nous n’avons pas pu confirmer que la création des diapositives est terminée. Vérifiez les diapositives affichées ici avant de continuer.",
+    partialGenerationFailed:
+      "Nous n’avons pas pu terminer la création des diapositives. Vérifiez celles déjà présentes et votre demande initiale avant de continuer.",
+    originalPrompt: "Votre demande",
+    backToHome: "Retour à l’accueil",
+    checkedDeckTryAgain: "J’ai vérifié la présentation. Réessayer",
     deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -859,7 +866,7 @@ const messages = {
     sourceMixed: "Sources multiples",
     sourceBuilder: "Intelligence des systèmes de design Builder",
     sourceIndexingDescription:
-      "Builder traite encore cette source. Les résultats apparaîtront ici dès qu'ils seront prêts.",
+      "Le style de votre marque est encore en préparation. Attendez qu’il soit prêt, puis réessayez.",
     sourceIndexedDescription: "{{docs}} documents · {{tokens}} jetons indexés",
     sourceIndexedDocsOnly: "{{docs}} documents indexés",
     sourceIndexedTokensOnly: "{{tokens}} jetons indexés",
@@ -1070,6 +1077,8 @@ const messages = {
     generationStartFailed: "Impossible de lancer la génération du deck",
     generationStartFailedDescription:
       "Le nouveau deck n’a pas fini d’être enregistré, donc l’agent n’a pas été lancé sur un deck manquant. Votre prompt a été enregistré pour réessayer.",
+    generationContextUnavailableDescription:
+      "Impossible de charger le style de votre marque ou la présentation de référence choisie. Vérifiez que vous pouvez l’ouvrir et que votre connexion Internet fonctionne, puis réessayez.",
     showAllDecks: "Afficher tous les decks",
     all: "Tous",
     showMineDecks: "Afficher les decks créés par moi",

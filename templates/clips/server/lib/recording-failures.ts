@@ -3,6 +3,7 @@ import { track } from "@agent-native/core/tracking";
 
 export type RecordingFailureCode =
   | "storage_setup_required"
+  | "hosted_storage_unavailable"
   | "recording_too_large"
   | "chunk_assembly_failed"
   | "media_verification_failed"
@@ -20,6 +21,7 @@ export type RecordingFailureCode =
 
 const recordingFailureCodes = new Set<RecordingFailureCode>([
   "storage_setup_required",
+  "hosted_storage_unavailable",
   "recording_too_large",
   "chunk_assembly_failed",
   "media_verification_failed",
@@ -43,6 +45,58 @@ export function normalizeRecordingFailureCode(
     recordingFailureCodes.has(value as RecordingFailureCode)
     ? (value as RecordingFailureCode)
     : "unknown";
+}
+
+export function hostedStorageAuthFailure(
+  error: unknown,
+): { status?: number } | null {
+  const pending = [error];
+  const seen = new Set<object>();
+
+  for (let depth = 0; depth < 5 && pending.length > 0; depth += 1) {
+    const candidate = pending.shift();
+    if (!candidate || typeof candidate !== "object" || seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    const details = candidate as Record<string, unknown>;
+    const response =
+      details.response && typeof details.response === "object"
+        ? (details.response as Record<string, unknown>)
+        : null;
+    const metadata =
+      details.$metadata && typeof details.$metadata === "object"
+        ? (details.$metadata as Record<string, unknown>)
+        : null;
+    const statusValue =
+      details.status ??
+      details.statusCode ??
+      details.httpStatus ??
+      response?.status ??
+      metadata?.httpStatusCode;
+    const status =
+      Number.isInteger(statusValue) && Number(statusValue) >= 100
+        ? Number(statusValue)
+        : undefined;
+    const typedAuthFailure = [
+      details.name,
+      details.code,
+      details.errorCode,
+      details.providerCode,
+      details.Code,
+    ].some(
+      (value) =>
+        typeof value === "string" &&
+        /^(?:accessdenied(?:exception)?|expiredtoken(?:exception)?|invalidaccesskeyid|invalidtoken|invalidsignature|signaturedoesnotmatch|unauthorized|forbidden|authenticationfailed|authorizationfailed|authfailure|unrecognizedclientexception)$/i.test(
+          value.replace(/[^a-z]/gi, ""),
+        ),
+    );
+    if (status === 401 || status === 403 || typedAuthFailure) {
+      return { ...(status ? { status } : {}) };
+    }
+    if (details.cause) pending.push(details.cause);
+  }
+  return null;
 }
 
 export type RecordingPlatform =

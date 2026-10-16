@@ -47,9 +47,6 @@ describe("Design editor mobile layout", () => {
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
     );
     expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
-    expect(editorSource).toContain(
-      'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
-    );
     expect(editorSource).toContain("resolveLeftSidebarWidth(");
     const resizeSource = readFileSync(
       "app/pages/design-editor/commands/start-sidebar-resize.ts",
@@ -73,6 +70,20 @@ describe("Design editor mobile layout", () => {
       "const showAppNav = !standaloneEditor && !isSettingsRoute;",
     );
     expect(layoutSource).toContain("{showAppNav && (\n");
+  });
+
+  it("hands the right inspector rule both minimal-UI inputs", () => {
+    // The phone, hidden-UI and minimal-UI rules live in isRightInspectorVisible
+    // (minimal-inspector.test.ts); the editor must hand it both minimal inputs.
+    const inspectorVisibilityCall = editorSource.slice(
+      editorSource.indexOf("isRightInspectorVisible({"),
+      editorSource.indexOf(
+        "});",
+        editorSource.indexOf("isRightInspectorVisible({"),
+      ),
+    );
+    expect(inspectorVisibilityCall).toContain("minimalUi,");
+    expect(inspectorVisibilityCall).toContain("minimalInspectorHasSelection,");
   });
 
   it("keeps a widget's opened screen fit on its own camera, not the selection", () => {

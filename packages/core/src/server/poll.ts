@@ -19,6 +19,7 @@ import {
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { appMigratesAtRelease } from "../db/migration-policy.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -164,6 +165,60 @@ function syncEventsDisabled(): boolean {
     process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE === "1" ||
     (process.env.VITEST === "true" &&
       process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS !== "1")
+  );
+}
+
+async function ensureSyncEventsSchema(
+  client: DbExec,
+  dbAssignedVersions: boolean,
+): Promise<void> {
+  const createSql = `
+        CREATE TABLE IF NOT EXISTS sync_events (
+          id TEXT PRIMARY KEY,
+          version BIGINT NOT NULL,
+          event_json TEXT NOT NULL,
+          source TEXT NOT NULL,
+          type TEXT NOT NULL,
+          event_key TEXT,
+          owner TEXT,
+          org_id TEXT,
+          resource_type TEXT,
+          resource_id TEXT,
+          created_at BIGINT NOT NULL
+        )
+      `;
+
+  const guardOptions = { injectedClient: client };
+  await ensureTableExists("sync_events", createSql, guardOptions);
+  // `version` is the only index the read and the prune can use: the read
+  // ORs owner/org/resource_type, so (owner, version) and (org_id, version)
+  // were never scanned and only multiplied the write cost of every event.
+  await ensureIndexExists(
+    "sync_events_version_idx",
+    "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+    guardOptions,
+  );
+  if (dbAssignedVersions) {
+    await ensureTableExists(
+      "sync_version",
+      "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
+      guardOptions,
+    );
+  }
+}
+
+async function seedSyncVersion(
+  client: DbExec,
+  dbAssignedVersions: boolean,
+): Promise<void> {
+  if (dbAssignedVersions) await client.execute(SEED_SYNC_VERSION_SQL);
+}
+
+async function ensureSyncEventsPruneState(client: DbExec): Promise<void> {
+  await ensureTableExists(
+    SYNC_EVENTS_PRUNE_STATE_TABLE,
+    SYNC_EVENTS_PRUNE_STATE_CREATE_SQL,
+    { injectedClient: client },
   );
 }
 
@@ -535,71 +590,39 @@ export class AppSyncState {
   async ensureSyncEventsTable(): Promise<boolean> {
     if (syncEventsDisabled()) return false;
     if (!this.syncEventsInitPromise) {
-      this.syncEventsInitPromise = retainRequestDbPoolScope(
-        (async () => {
-          const client = this.getDb();
-          const createSql = `
-        CREATE TABLE IF NOT EXISTS sync_events (
-          id TEXT PRIMARY KEY,
-          version BIGINT NOT NULL,
-          event_json TEXT NOT NULL,
-          source TEXT NOT NULL,
-          type TEXT NOT NULL,
-          event_key TEXT,
-          owner TEXT,
-          org_id TEXT,
-          resource_type TEXT,
-          resource_id TEXT,
-          created_at BIGINT NOT NULL
-        )
-      `;
-
-          const guardOptions = { injectedClient: client };
-          await ensureTableExists("sync_events", createSql, guardOptions);
-          // Retention bookkeeping must never stop event writes: without this
-          // table the prune fails on its own, loudly, and events keep flowing.
-          try {
-            await ensureTableExists(
-              SYNC_EVENTS_PRUNE_STATE_TABLE,
-              SYNC_EVENTS_PRUNE_STATE_CREATE_SQL,
-              guardOptions,
-            );
-          } catch (error) {
-            console.error(
-              `[agent-native] sync_events_prune_state_unavailable: could not ensure ${SYNC_EVENTS_PRUNE_STATE_TABLE}; sync events still persist, retention prune will fail until it exists:`,
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-          // `version` is the only index the read and the prune can use: the read
-          // ORs owner/org/resource_type, so (owner, version) and (org_id, version)
-          // were never scanned and only multiplied the write cost of every event.
-          await ensureIndexExists(
-            "sync_events_version_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-            guardOptions,
+      this.syncEventsInitPromise = (async () => {
+        const isDefault = this === _defaultState;
+        const client = isDefault ? undefined : this.getDb();
+        if (client) {
+          await ensureSyncEventsSchema(client, this.dbAssignedVersions);
+          await seedSyncVersion(client, this.dbAssignedVersions);
+        } else {
+          await syncEventsStore.ready();
+        }
+        // Retention bookkeeping must never stop event writes: without this
+        // table the prune fails on its own, loudly, and events keep flowing.
+        try {
+          if (client) await ensureSyncEventsPruneState(client);
+          else await syncEventsPruneStateStore.ready();
+        } catch (error) {
+          console.error(
+            `[agent-native] sync_events_prune_state_unavailable: could not ensure ${SYNC_EVENTS_PRUNE_STATE_TABLE}; sync events still persist, retention prune will fail until it exists:`,
+            error instanceof Error ? error.message : String(error),
           );
-          if (this.dbAssignedVersions) {
-            await ensureTableExists(
-              "sync_version",
-              "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
-              guardOptions,
-            );
-            await client.execute(SEED_SYNC_VERSION_SQL);
-          }
-          this.syncEventsInitFailures = 0;
-          return true;
-        })().catch((error: unknown) => {
-          this.syncEventsInitPromise = undefined;
-          this.syncEventsInitFailures++;
-          if (this.syncEventsInitFailures === 1) {
-            console.error(
-              "[agent-native] sync_events_unavailable: could not ensure sync_events; durable real-time events are not written until it recovers:",
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-          return false;
-        }),
-      );
+        }
+        this.syncEventsInitFailures = 0;
+        return true;
+      })().catch((error: unknown) => {
+        this.syncEventsInitPromise = undefined;
+        this.syncEventsInitFailures++;
+        if (this.syncEventsInitFailures === 1) {
+          console.error(
+            "[agent-native] sync_events_unavailable: could not ensure sync_events; durable real-time events are not written until it recovers:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        return false;
+      });
     }
     return this.syncEventsInitPromise;
   }
@@ -1927,6 +1950,33 @@ export function getDefaultAppSyncState(): AppSyncState {
   }
   return _defaultState;
 }
+
+export const syncEventsStore = defineStore({
+  id: "sync_events",
+  migrations: [
+    {
+      name: "baseline",
+      // sync_version is created regardless of the transport flag: the release
+      // step's environment may not match the functions'.
+      run: (exec) => ensureSyncEventsSchema(exec, true),
+    },
+    {
+      name: "seed-sync-version",
+      kind: "data",
+      run: (exec) => seedSyncVersion(exec, true),
+    },
+  ],
+});
+
+export const syncEventsPruneStateStore = defineStore({
+  id: "sync_events_prune_state",
+  migrations: [
+    {
+      name: "baseline",
+      run: (exec) => ensureSyncEventsPruneState(exec),
+    },
+  ],
+});
 
 export function getVersion(): number {
   return getDefaultAppSyncState().getVersion();

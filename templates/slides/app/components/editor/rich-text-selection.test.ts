@@ -256,6 +256,10 @@ describe("rich text selection", () => {
     expect(unbolded.style.fontWeight).toBe("400");
     expect(block.querySelector(".heavy")!.getAttribute("class")).toBe("heavy");
 
+    rangeFor(unbolded.firstChild as Text, 0, unbolded.firstChild as Text, 5);
+    toggleInlineTextFormat(block, "bold");
+    expect(unbolded.style.fontWeight).toBe("700");
+
     const plain = block.lastChild as Text;
     rangeFor(plain, 1, plain, 6);
     toggleInlineTextFormat(block, "bold");
@@ -263,6 +267,23 @@ describe("rich text selection", () => {
     expect(bolded.textContent).toBe("plain");
     expect(bolded.style.fontWeight).toBe("700");
     style.remove();
+  });
+
+  it("keeps already-bold runs when applying bold to a mixed selection", () => {
+    const block = editable(
+      '<span style="font-weight: 700">Bold</span> <span style="font-weight: 400">plain</span>',
+    );
+    const first = block.firstChild as HTMLElement;
+    const last = block.lastElementChild as HTMLElement;
+    rangeFor(first.firstChild as Text, 0, last.firstChild as Text, 5);
+
+    toggleInlineTextFormat(block, "bold");
+
+    expect(first.style.fontWeight).toBe("700");
+    expect(
+      last.querySelector<HTMLSpanElement>("span[data-slide-inline-style]")
+        ?.style.fontWeight,
+    ).toBe("700");
   });
 
   it("toggles italic and removes a line drawn by a fully selected ancestor", () => {

@@ -1,6 +1,4 @@
 import {
-  expect,
-  test,
   type Page,
   type Request,
   type Response,
@@ -8,6 +6,7 @@ import {
 } from "@playwright/test";
 
 import { appPath, expandAllLayers, gotoEditor } from "./helpers";
+import { expect, test } from "./rails";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const CREATE_ACTION = "**/_agent-native/actions/create-file";
@@ -142,11 +141,8 @@ async function assertUndoReady(page: Page) {
   await page.keyboard.press("Escape");
 }
 
-async function cleanupDesign(page: Page, designId: string) {
-  await action(page, "delete-design", { id: designId });
-}
-
 test("partial Screen recreation retry restores each recreated file and membership", async ({
+  app,
   page,
 }) => {
   test.setTimeout(120_000);
@@ -157,6 +153,15 @@ test("partial Screen recreation retry restores each recreated file and membershi
       designSystemId: null,
     }),
     "create-design",
+  );
+  app.adopt(designId);
+  app.allowFailure(
+    /^http 500 POST \/_agent-native\/actions\/(create-file|delete-file)$/,
+    "the scenario injects one failed recreate and one failed cleanup",
+  );
+  app.allowFailure(
+    /^console\.error Failed to load resource: the server responded with a status of 500/,
+    "the browser logs each injected 500",
   );
 
   const alphaMetadata = {
@@ -697,6 +702,5 @@ test("partial Screen recreation retry restores each recreated file and membershi
       await page.unroute(DELETE_ACTION, failFirstCleanup).catch(() => {});
     }
     if (requestObserverInstalled) page.off("request", requestObserver);
-    await cleanupDesign(page, designId);
   }
 });

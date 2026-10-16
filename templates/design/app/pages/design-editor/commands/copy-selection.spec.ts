@@ -611,4 +611,116 @@ describe("copying one instance of a repeated list", () => {
       snapshotFor("rgb(220, 38, 38)"),
     );
   });
+
+  it("records which screen each copied screen came from so paste can find it again", async () => {
+    const file: DesignFile = {
+      id: "screen-a",
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body><div>Home</div></body></html>",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const frame = { x: 100, y: 50, width: 390, height: 844 };
+    const copiedScreenEntriesRef = ref<
+      DesignClipboardScreenEntry[] | undefined
+    >(undefined);
+
+    await runCopySelection({
+      canvasFrameGeometryById: { "screen-a": frame },
+      copiedLayerEntriesRef: ref<CanvasLayerClipboardEntry[]>([]),
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef,
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => [],
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: ["screen-a"],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("overview"),
+    });
+
+    expect(copiedScreenEntriesRef.current).toEqual([
+      expect.objectContaining({
+        sourceScreenId: "screen-a",
+        canvasFrame: frame,
+      }),
+    ]);
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.lastCall?.[0].html,
+        "local-clipboard-token",
+      )?.screens?.[0]?.sourceScreenId,
+    ).toBe("screen-a");
+  });
+});
+
+it("keeps text-derived clipboard names dynamic and authored names fixed", async () => {
+  for (const authoredName of [null, "Headline"]) {
+    const html = `<h1 data-agent-native-node-id="title"${authoredName ? ` data-agent-native-layer-name="${authoredName}"` : ""}>First title</h1>`;
+    const file: DesignFile = {
+      id: "text-screen",
+      filename: "index.html",
+      fileType: "html",
+      content: html,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const node = buildCodeLayerProjection(html).nodes.find(
+      (node) => node.tag === "h1",
+    )!;
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+    await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef: ref(null),
+      copiedScreenEntriesRef: ref(undefined),
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => html,
+      getSelectedLayerSnapshots: () => [
+        {
+          html,
+          sourceFileId: file.id,
+          rootNodeId: "title",
+          node,
+          sourceIndex: 0,
+          tree: [],
+        },
+      ],
+      lastWrittenClipboardMarkerRef: ref(null),
+      lastWrittenClipboardPlainTextRef: ref(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref("single"),
+    });
+    const doc = new DOMParser().parseFromString(
+      copiedLayerEntriesRef.current[0]!.html,
+      "text/html",
+    );
+    const heading = doc.querySelector("h1")!;
+    heading.textContent = "Second title";
+    expect(heading.getAttribute("data-agent-native-layer-name")).toBe(
+      authoredName,
+    );
+    expect(
+      buildCodeLayerProjection(heading.outerHTML).nodes.find(
+        (node) => node.tag === "h1",
+      )?.layerName,
+    ).toBe(authoredName ?? "Second title");
+  }
 });
