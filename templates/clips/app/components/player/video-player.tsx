@@ -6,6 +6,7 @@ import {
   LOOM_START_MS_QUERY_PARAM,
   loomEmbedUrlWithTimestamp,
 } from "@shared/loom";
+import { nextTranscriptBoundaryMs } from "@shared/transcript-segments";
 import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -52,6 +53,7 @@ import {
   lastKeptMs,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+import { stepVideoFrame, VideoFrameClock } from "@/lib/video-frame-stepping";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
@@ -180,6 +182,8 @@ export interface VideoPlayerHandle {
   pause: () => void;
   seek: (ms: number) => void;
   getCurrentOriginalMs: () => number;
+  /** Steps one frame while paused; the first press during playback pauses. */
+  stepFrame: (direction: 1 | -1, repeat?: boolean) => void;
   setSpeed: (rate: number) => void;
   toggleMute: () => void;
   toggleCaptions: () => void;
@@ -1065,6 +1069,77 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [currentMs, edits, seekToVisibleMs],
     );
 
+    const frameClockRef = useRef<VideoFrameClock | null>(null);
+    useEffect(() => {
+      if (!playbackVideoEl) return;
+      const clock = VideoFrameClock.attach(playbackVideoEl);
+      frameClockRef.current = clock;
+      return () => {
+        clock?.dispose();
+        if (frameClockRef.current === clock) frameClockRef.current = null;
+      };
+    }, [playbackVideoEl]);
+
+    const seekToVisibleMsRef = useRef(seekToVisibleMs);
+    seekToVisibleMsRef.current = seekToVisibleMs;
+    const excludedRangesRef = useRef(excludedRanges);
+    excludedRangesRef.current = excludedRanges;
+    const frameStepRef = useRef({
+      running: false,
+      pending: [] as Array<1 | -1>,
+      pausedByPress: false,
+    });
+    // Embedded players expose no frames to step through.
+    const hasFrameAccess = !embedProvider && !isLoomEmbed;
+
+    const stepFrame = useCallback(
+      (direction: 1 | -1, repeat = false) => {
+        const v = videoRef.current;
+        if (!v || !hasFrameAccess) return;
+        const queue = frameStepRef.current;
+        if (!v.paused) {
+          pauseVideo();
+          // The press that paused only pauses, even while its key is held.
+          queue.pausedByPress = true;
+          return;
+        }
+        if (repeat && queue.pausedByPress) return;
+        queue.pausedByPress = false;
+        if (queue.running) {
+          // A held key repeats faster than seeks settle, so only separate
+          // presses queue up. They run in order rather than netting out: at
+          // either end of the clip a step can't move to undo the next one.
+          if (!repeat) queue.pending.push(direction);
+          return;
+        }
+        queue.running = true;
+        void (async () => {
+          try {
+            let next: 1 | -1 | undefined = direction;
+            while (next !== undefined && videoRef.current === v && v.paused) {
+              const kept = await stepVideoFrame(
+                {
+                  video: v,
+                  clock: frameClockRef.current,
+                  seekMs: (ms) => seekToVisibleMsRef.current(ms),
+                  excludedRanges: excludedRangesRef.current,
+                },
+                next,
+              );
+              // A step that couldn't run from the frame on screen drops the
+              // steps queued behind it.
+              if (!kept) break;
+              next = queue.pending.shift();
+            }
+          } finally {
+            queue.running = false;
+            queue.pending = [];
+          }
+        })();
+      },
+      [hasFrameAccess, pauseVideo],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -1078,6 +1153,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pause: pauseVideo,
         seek: seekToVisibleMs,
         getCurrentOriginalMs: () => {
+          const presented = frameClockRef.current?.presentedFrameTimeMs(
+            excludedRangesRef.current,
+          );
+          if (presented != null) return presented;
           const v = videoRef.current;
           const liveOriginalMs =
             v &&
@@ -1088,6 +1167,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               : currentMsRef.current;
           return liveOriginalMs;
         },
+        stepFrame,
         setSpeed: applySpeed,
         toggleMute: () => {
           if (videoRef.current) {
@@ -1100,7 +1180,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         toggleFullscreen: () => void toggleFullscreenInternal(),
         togglePip: () => togglePipInternal(),
       }),
-      [applySpeed, pauseVideo, requestPlay, seekToVisibleMs],
+      [applySpeed, pauseVideo, requestPlay, seekToVisibleMs, stepFrame],
     );
 
     useEffect(() => {
@@ -1532,6 +1612,95 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       (s) => currentMs >= s.startMs && currentMs <= s.endMs,
     );
 
+    function syncPlaybackTime(v: HTMLVideoElement) {
+      const raw = v.currentTime;
+      const ct = Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
+      const ms = Math.floor(ct * 1000);
+      if (
+        initialVisibleFrameSeekedRef.current &&
+        !hasPlaybackStarted &&
+        !playAttemptPendingRef.current &&
+        v.paused &&
+        (!startMs || startMs <= 0)
+      ) {
+        setCurrentMs(0);
+        onTimeUpdate?.(0, resolvedDurationMs);
+        return;
+      }
+      if (
+        lastKept > 0 && // i18n-ignore — a comparison, not copy
+        lastKept < resolvedDurationMs &&
+        ms >= lastKept
+      ) {
+        try {
+          v.pause();
+          v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+        } catch (err) {
+          console.warn("[player] could not stop at the last kept frame", {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+        setCurrentMs(lastKept);
+        setIsPlaying(false);
+        setIsBuffering(false);
+        onTimeUpdate?.(lastKept, resolvedDurationMs);
+        onEnded?.();
+        return;
+      }
+      const visibleMs = clampSeek(
+        skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
+        v,
+        resolvedDurationMs,
+      );
+      if (visibleMs > ms) {
+        v.currentTime = visibleMs / 1000;
+        setCurrentMs(visibleMs);
+        if (visibleMs > 0) {
+          setCanPlay(true);
+          setHasPlaybackStarted(true);
+          setIsPreparing(false);
+          setIsBuffering(false);
+        }
+        onTimeUpdate?.(visibleMs, resolvedDurationMs);
+        return;
+      }
+      setCurrentMs(ms);
+      if (ms > 0) {
+        setCanPlay(true);
+        setHasPlaybackStarted(true);
+        setIsPreparing(false);
+        setIsBuffering(false);
+      }
+      onTimeUpdate?.(ms, resolvedDurationMs);
+    }
+    const syncPlaybackTimeRef = useRef(syncPlaybackTime);
+    syncPlaybackTimeRef.current = syncPlaybackTime;
+    const nextCaptionBoundaryRef = useRef(Number.POSITIVE_INFINITY);
+    nextCaptionBoundaryRef.current = transcriptSegments?.length
+      ? nextTranscriptBoundaryMs(transcriptSegments, currentMs)
+      : Number.POSITIVE_INFINITY;
+    // Past the last cue there is nothing left to land on time; a seek back
+    // makes a boundary finite again and restarts the loop.
+    const hasCaptionBoundaryAhead = Number.isFinite(
+      nextCaptionBoundaryRef.current,
+    );
+
+    // `timeupdate` fires only about four times a second, which leaves
+    // captions and the transcript highlight up to a quarter second behind
+    // each cue. While playing, check every frame but sync only when playback
+    // crosses a caption boundary, so the player doesn't re-render per frame.
+    useEffect(() => {
+      const v = playbackVideoEl;
+      if (!v || !isPlaying || !hasCaptionBoundaryAhead) return;
+      let frame = requestAnimationFrame(function tick() {
+        if (v.currentTime * 1000 >= nextCaptionBoundaryRef.current) {
+          syncPlaybackTimeRef.current(v);
+        }
+        frame = requestAnimationFrame(tick);
+      });
+      return () => cancelAnimationFrame(frame);
+    }, [playbackVideoEl, isPlaying, hasCaptionBoundaryAhead]);
+
     const showEndCta =
       cta &&
       cta.placement === "end" &&
@@ -1709,72 +1878,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setIsBuffering(false);
               captureThumbnail();
             }}
-            onTimeUpdate={(e) => {
-              const v = e.currentTarget;
-              const raw = v.currentTime;
-              const ct =
-                Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
-              const ms = Math.floor(ct * 1000);
-              if (
-                initialVisibleFrameSeekedRef.current &&
-                !hasPlaybackStarted &&
-                !playAttemptPendingRef.current &&
-                v.paused &&
-                (!startMs || startMs <= 0)
-              ) {
-                setCurrentMs(0);
-                onTimeUpdate?.(0, resolvedDurationMs);
-                return;
-              }
-              if (
-                lastKept > 0 && // i18n-ignore — a comparison, not copy
-                lastKept < resolvedDurationMs &&
-                ms >= lastKept
-              ) {
-                try {
-                  v.pause();
-                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
-                } catch (err) {
-                  console.warn(
-                    "[player] could not stop at the last kept frame",
-                    {
-                      err: err instanceof Error ? err.message : String(err),
-                    },
-                  );
-                }
-                setCurrentMs(lastKept);
-                setIsPlaying(false);
-                setIsBuffering(false);
-                onTimeUpdate?.(lastKept, resolvedDurationMs);
-                onEnded?.();
-                return;
-              }
-              const visibleMs = clampSeek(
-                skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
-                v,
-                resolvedDurationMs,
-              );
-              if (visibleMs > ms) {
-                v.currentTime = visibleMs / 1000;
-                setCurrentMs(visibleMs);
-                if (visibleMs > 0) {
-                  setCanPlay(true);
-                  setHasPlaybackStarted(true);
-                  setIsPreparing(false);
-                  setIsBuffering(false);
-                }
-                onTimeUpdate?.(visibleMs, resolvedDurationMs);
-                return;
-              }
-              setCurrentMs(ms);
-              if (ms > 0) {
-                setCanPlay(true);
-                setHasPlaybackStarted(true);
-                setIsPreparing(false);
-                setIsBuffering(false);
-              }
-              onTimeUpdate?.(ms, resolvedDurationMs);
-            }}
+            onTimeUpdate={(e) => syncPlaybackTime(e.currentTarget)}
             onEnded={() => {
               clearPlayAttemptWatchdog();
               playAttemptPendingRef.current = false;

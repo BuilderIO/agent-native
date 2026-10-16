@@ -2825,6 +2825,15 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "连接 {{name}}",
   "settingsSubAgents.close": "关闭",
   "observability.insights.rawTrace": "原始追踪（所有 span 及其输入和输出）",
+  "reportProblem.menuItem": "报告问题",
+  "reportProblem.title_other": "要附上应用在过去 {{count}} 秒内的操作记录吗？",
+  "reportProblem.noEvents": "暂时还没有记录。",
+  "reportProblem.send": "发送给智能体",
+  "reportProblem.copy": "复制问题报告",
+  "reportProblem.attaching": "正在附加…",
+  "reportProblem.notAttached": "报告未能附加。",
+  "reportProblem.agentMessage":
+    "应用出了问题。请根据附带的问题报告解释发生了什么。",
 };
 
 export default messages;

@@ -1482,7 +1482,9 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBeTruthy();
   });
 
-  it("does not mark an unresolved run as empty when output arrives during refresh", async () => {
+  it("shows the saved prompt when a refresh fails after output arrives", async () => {
+    const originalPrompt = "Create a deck about customer onboarding.";
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
     let rejectRefresh!: (error: Error) => void;
     const refreshPromise = new Promise<null>((_resolve, reject) => {
       rejectRefresh = reject;
@@ -1532,15 +1534,26 @@ describe("DeckEditor generation signal wiring", () => {
         reason: "deck_refresh_failed",
       }),
     );
-    expect(mocks.deck.generationContext).not.toHaveProperty(
-      "generationFailureCode",
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        originalPrompt,
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: "attempt-1",
+      }),
     );
+    expect(
+      screen.getByText("deckEditor.generationOutcomeUnresolvedWithSlides"),
+    ).toBeTruthy();
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
     expect(
       window.localStorage.getItem(
         "slides:empty-generation-retry-recovery:deck-1",
       ),
     ).toBeNull();
-    expect(mocks.flushDeckSave).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
+    ).toBeNull();
   });
 
   it("restores a pending guided question and opens its owning chat on a plain deck route", async () => {

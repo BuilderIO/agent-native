@@ -1,0 +1,124 @@
+name: Deploy canary
+
+# Runs the documented deploy paths against what is actually on npm, every day:
+# `latest` is what the guides' `npx ... create` installs today, and `nightly` is
+# what the next stable release is built from. A failure means a reader
+# following a guide right now would hit it.
+#
+# The pre-publish check is the `Deploy paths` job in ci.yml, which installs
+# this checkout's packages. This one cannot stop a bad release; it proves the
+# published packages work, including what a local pack cannot show (a missing
+# file in a published package, a leaked workspace: range).
+#
+# `paths` covers the Node.js and Docker guides and needs no credentials.
+# `hosts` deploys to real Netlify and Vercel projects and needs the secrets
+# deploy-hosts.yml lists; without them it fails, rather than reporting a path
+# as checked.
+#
+# A failure in either is posted to #qa-agent-native by the `report` job. A
+# failed Slack post fails the run, so an alert that did not send is visible.
+
+on:
+  schedule:
+    - cron: "43 7 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  paths:
+    name: Paths npm@${{ matrix.npm_tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npm_tag: [latest, nightly]
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-paths.yml
+    with:
+      source: npm
+      npm_tag: ${{ matrix.npm_tag }}
+
+  hosts:
+    name: Hosts npm@${{ matrix.npm_tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npm_tag: [latest, nightly]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-hosts.yml
+    with:
+      source: npm
+      npm_tag: ${{ matrix.npm_tag }}
+    secrets: inherit
+
+  report:
+    name: Report to #qa-agent-native
+    needs: [paths, hosts]
+    # `always()` because a failed need would otherwise skip this job, and a
+    # failure is the only thing it reports.
+    if: ${{ always() && (needs.paths.result == 'failure' || needs.hosts.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SLACK_CHANNEL: C0C4U4XRT6X
+    steps:
+      # Each leg uploads its step timings and result as an artifact of this run.
+      # They are best-effort evidence, so a failed download does not stop the
+      # alert, but the report records that it failed. Every leg keeps its own
+      # directory: the legs' result files share names across npm tags, and
+      # merging them would let `nightly` overwrite `latest`.
+      - name: Collect the legs' results
+        id: legs
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: deploy-*
+          path: report/legs
+
+      - name: Write the report
+        env:
+          needs_json: ${{ toJSON(needs) }}
+          paths_result: ${{ needs.paths.result }}
+          hosts_result: ${{ needs.hosts.result }}
+          legs_outcome: ${{ steps.legs.outcome }}
+          run_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p report
+          printf '%s\n' "$needs_json" > report/needs.json
+          {
+            echo "# Deploy canary report"
+            echo
+            echo "Run: $run_url"
+            echo "Node.js and Docker paths: $paths_result"
+            echo "Netlify: $hosts_result"
+            echo "Collected the legs' result files: $legs_outcome"
+          } > report/summary.md
+
+      - name: Retain the complete report
+        id: report-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-canary-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: report/
+          retention-days: 90
+
+      # Not gated on the report steps: this job runs only because a leg failed,
+      # and a failed report write or upload must not be what hides that.
+      - name: Post the failure
+        if: ${{ !cancelled() }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ env.SLACK_CHANNEL }}
+            text: ":rotating_light: Deploy canary failed. A reader following a deploy guide against npm would hit this. Node.js and Docker paths: ${{ needs.paths.result }}. Netlify: ${{ needs.hosts.result }}. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url || 'not available, the report could not be saved' }}"

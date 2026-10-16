@@ -10,6 +10,7 @@ import { desktopRecoveryCopy } from "../i18n/en-US";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
+import { setTakeClipLimitMs } from "./clip-duration-limit";
 import { finalizeAfterDurableBackup } from "./finalization-guard";
 import {
   createLocalRecordingFolderName,
@@ -1927,9 +1928,14 @@ async function createServerRecording(
         );
       }
       const data = (await res.json()) as {
-        result?: { id: string; uploadMode?: string };
+        result?: {
+          id: string;
+          uploadMode?: string;
+          maxClipDurationMs?: number | null;
+        };
         id?: string;
         uploadMode?: string;
+        maxClipDurationMs?: number | null;
       };
       const result = data.result ?? data;
       if (!result.id) {
@@ -1937,6 +1943,7 @@ async function createServerRecording(
       }
       const uploadMode: UploadMode =
         result.uploadMode === "streaming" ? "streaming" : "buffered";
+      setTakeClipLimitMs(result.maxClipDurationMs);
       return { id: result.id, uploadMode };
     } catch (err) {
       await abortCreatedRecording(

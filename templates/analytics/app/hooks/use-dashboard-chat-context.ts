@@ -26,6 +26,7 @@ export interface DashboardChatContextArgs {
   title?: string | null;
   panelCount?: number;
   canEdit?: boolean;
+  editing?: boolean;
 }
 
 export interface DashboardPanelChatContextArgs {
@@ -56,6 +57,7 @@ function dashboardContext(
     title: string;
     panelCount?: number;
     canEdit?: boolean;
+    editing?: boolean;
   },
 ): string {
   const lines = [
@@ -68,6 +70,13 @@ function dashboardContext(
   }
   if (typeof args.canEdit === "boolean") {
     lines.push(`User can edit: ${args.canEdit ? "yes" : "no"}`);
+  }
+  if (args.canEdit && typeof args.editing === "boolean") {
+    lines.push(
+      args.editing
+        ? "Dashboard mode: edit (the user's own drags and renames save for everyone)"
+        : "Dashboard mode: view (moving or editing panels, renaming, and undo on the page wait for edit mode, and the user's column drags stay in their browser; saving a view, restoring history, archiving, deleting, and adding a first panel still work and apply to everyone)",
+    );
   }
   if (typeof window !== "undefined") {
     lines.push(
@@ -115,7 +124,7 @@ function isAgentSidebarOpenInDocument(): boolean {
 export function useDashboardChatContext(
   args: DashboardChatContextArgs,
 ): DashboardChatContextResult {
-  const { id, kind, title, panelCount, canEdit } = args;
+  const { id, kind, title, panelCount, canEdit, editing } = args;
   const [isAgentSidebarOpen, setIsAgentSidebarOpen] = useState(
     isAgentSidebarOpenInDocument,
   );
@@ -249,13 +258,14 @@ export function useDashboardChatContext(
           title: displayTitle,
           panelCount,
           canEdit,
+          editing,
         }),
         openSidebar: false,
         focus: false,
       });
     }, CONTEXT_PUBLISH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [canEdit, id, kind, panelCount, title]);
+  }, [canEdit, editing, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
@@ -268,6 +278,9 @@ export function useDashboardChatContext(
       title: displayTitle,
       panelCount,
       canEdit,
+      ...(canEdit && typeof editing === "boolean"
+        ? { mode: editing ? "edit" : "view" }
+        : {}),
       [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
     };
     const timer = setTimeout(() => {
@@ -279,7 +292,7 @@ export function useDashboardChatContext(
       publishedSelectionRef.current = selection;
     }, CONTEXT_PUBLISH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [canEdit, hasSelectedPanel, id, kind, panelCount, title]);
+  }, [canEdit, editing, hasSelectedPanel, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id) return;

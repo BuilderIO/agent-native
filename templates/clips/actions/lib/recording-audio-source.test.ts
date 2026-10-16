@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadAppState = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
@@ -12,6 +13,10 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: vi.fn(() => {
     throw new Error("tests must inject fetchers");
   }),
+}));
+
+vi.mock("../../server/lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
 import {
@@ -108,6 +113,37 @@ describe("resolveRecordingMediaTarget", () => {
 describe("prepareRecordingTranscriptionAudio", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("fetches private hosted media through the recording-bound S3 provider", async () => {
+    const seen: SeenInput[] = [];
+    const app = unusedFetcher();
+    const safe = unusedFetcher();
+    mockFetchS3ObjectByUrl.mockResolvedValueOnce(
+      new Response("hosted-private-bytes"),
+    );
+
+    await prepareRecordingTranscriptionAudio({
+      recordingId: "rec-hosted-private",
+      videoUrl: "https://private-storage.example.test/clips/rec-hosted-private",
+      storageMode: "hosted",
+      timeouts,
+      extractor: recordingExtractor(seen),
+      fetchers: { app, safe },
+    });
+
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      "https://private-storage.example.test/clips/rec-hosted-private",
+      {
+        storageMode: "hosted",
+        recordingId: "rec-hosted-private",
+        timeoutMs: timeouts.downloadMs,
+      },
+    );
+    expect(seen[0].source.kind).toBe("file");
+    expect(seen[0].fileBytes).toBe("hosted-private-bytes");
+    expect(app).not.toHaveBeenCalled();
+    expect(safe).not.toHaveBeenCalled();
   });
 
   it("hands Builder CDN URLs to ffmpeg without downloading them", async () => {

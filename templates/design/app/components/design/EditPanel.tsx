@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { recorder } from "@agent-native/core/client/recorder";
+import { readVisualScrubInputs } from "@agent-native/toolkit/design-tweaks";
 import {
   alphaToOpacity,
   normalizeCssColor,
@@ -2293,6 +2295,14 @@ export const EditPanel = memo(function EditPanel({
   );
   const [interactionState, setInteractionState] =
     useState<ActiveInteractionState>(null);
+  useEffect(
+    () =>
+      recorder.watch("inspector", () => ({
+        state: interactionState ?? "default",
+        fields: readVisualScrubInputs(),
+      })),
+    [interactionState],
+  );
   const [interactionStateMenuOpen, setInteractionStateMenuOpen] =
     useState(false);
   const [animationStyleBrowserOpen, setAnimationStyleBrowserOpen] =

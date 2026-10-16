@@ -649,6 +649,34 @@ const messages = {
     waiting: "待っている…",
     nativeSpeechPrimary: "ネイティブ音声が引き続き主な文字起こしソースです。",
   },
+  transcriptImport: {
+    addFile: "トランスクリプトファイルを追加",
+    imported: "インポート済み",
+    replaceTitle: "トランスクリプトを置き換えますか？",
+    replaceDescription:
+      "{{fileName}} で現在のトランスクリプトが置き換えられます。",
+    replace: "置き換える",
+    regenerateOverImportTitle:
+      "インポートしたトランスクリプトを置き換えますか？",
+    regenerateOverImportDescription:
+      "録画の音声から作成した新しいトランスクリプトで、ファイルからインポートしたものが置き換えられます。",
+    added: "トランスクリプトを追加しました",
+    replaced: "トランスクリプトを置き換えました",
+    failed: "トランスクリプトを追加できませんでした",
+    invalidFile: "{{fileName}} を読み取れませんでした",
+    errorEmpty: "ファイルにトランスクリプトのテキストがありません。",
+    errorTooLarge: "ファイルが大きすぎるためインポートできません。",
+    errorNotUtf8:
+      "ファイルが UTF-8 のテキストではありません。UTF-8 で保存してから、もう一度お試しください。",
+    errorMissingTiming:
+      "{{line}} 行目: 00:00:01.000 --> 00:00:04.000 のような字幕のタイミング行が必要です。",
+    errorBadTiming: "{{line}} 行目: 字幕のタイミングを読み取れませんでした。",
+    errorBadRange: "{{line}} 行目: 字幕が開始前に終了しています。",
+    errorMissingTimestamp:
+      "{{line}} 行目: 0:21 や [0:21] のような開始時刻が必要です。",
+    errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
+    errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
+  },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
     failedGif: "GIF の生成に失敗しました - より短い範囲を試してください",
@@ -1588,6 +1616,8 @@ const messages = {
     builderGrantAskAdmin:
       "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
     statusUnavailable: "動画ストレージの状態を確認できませんでした。",
+    hostedStorageUnavailable:
+      "Clips のホストストレージは一時的に利用できません。無料クリップの残り枠は変わりません。時間をおいて再度アップロードしてください。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
@@ -1886,6 +1916,16 @@ const messages = {
     validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
+    freeClipsLeft_one: "無料クリップの残り {{count}} 本",
+    freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
+    hostedClipsExhaustedDescription:
+      "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
+    clipExceedsSizeLimit:
+      "このクリップは現在のアップロード容量制限を超えています。",
+    clipExceedsMaxDuration: "このクリップは現在の録画時間制限を超えています。",
+    maxClipDurationReached:
+      "クリップの最大時間に達しました。録画を保存しています。",
     pageTitle: "New recording — Clips (ローカライズ済み)",
     uploadFailed: "Upload failed (ローカライズ済み)",
     uploadFailedAtChunk:
@@ -2129,6 +2169,10 @@ const messages = {
     vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips のホストストレージがいっぱいです。クリップを保存し続けるには Builder.io ストレージを接続してください。",
+    hostedRecordingTakenDown:
+      "この録画は Clips のホストストレージから削除されました。",
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
     selectAll: "すべて選択",
@@ -2310,9 +2354,15 @@ const messages = {
     issues: "問題",
     consoleSource: "コンソール",
     networkSource: "ネットワーク",
+    appSource: "アプリのアクティビティ",
+    appEvent: "イベント",
+    appData: "データ",
+    appFailureSummary: "アプリの失敗 {{count}} 件",
+    appUnavailable: "アプリのアクティビティを読み込めませんでした。",
     consoleCount: "コンソール {{count}}",
     networkCount: "ネットワーク {{count}}",
     afterRecording: "録画終了後",
+    beforeRecording: "録画開始前",
     seekToTime: "{{time}} に移動",
     occurrences: "発生時刻",
     message: "メッセージ",
@@ -2324,6 +2374,7 @@ const messages = {
     noIssuesTitle: "ブラウザの問題は検出されませんでした",
     noConsoleTitle: "コンソールイベントはありません",
     noNetworkTitle: "ネットワークリクエストはありません",
+    noAppTitle: "アプリのアクティビティはありません",
     capturedDescription: "この録画の診断情報を取得しました。",
   },
   timeline: { clipStartedHere: "クリップはここから開始" },

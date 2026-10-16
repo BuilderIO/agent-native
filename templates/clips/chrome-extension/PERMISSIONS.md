@@ -12,7 +12,7 @@ its all-site content scripts, and the debugger scope. Sources:
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------- |
 | `activeTab`                                                                 | Start a recording from the tab the user clicks                            | Toolbar click                |
 | `debugger`                                                                  | Console, exception, and fetch/XHR metadata for up to five tabs            | Recording, developer logs on |
-| `scripting`                                                                 | Resource-timing lookback reads on attached tabs; content-script injection | Recording                    |
+| `scripting`                                                                 | Resource-timing and app-activity lookback reads; content-script injection | Recording                    |
 | `offscreen`                                                                 | Screen, window, camera, and microphone capture                            | Recording                    |
 | `clipboardWrite`                                                            | Copy the Clips link when a recording finishes                             | Recording completion         |
 | `downloads`                                                                 | Local copy of a recording if finishing its upload fails                   | Failure path only            |
@@ -111,6 +111,23 @@ When developer logs are off, the debugger does not attach.
   has no headers or bodies.
 - The page's own history limits how far back lookback reaches. The extension
   cannot see entries the page has already discarded.
+
+## App activity
+
+Agent-Native apps keep a short, redacted, in-memory record of their own actions,
+state changes, navigation, and errors, exposed in the page as
+`window.__agentNativeRecorder`. When developer logs are on:
+
+- `scripting.executeScript` runs a function in the page's main world in the
+  recording's own tab, once when the recording starts (the last 30 seconds) and
+  once when it stops (since the start). Other tabs are not read.
+- On pages without `window.__agentNativeRecorder`, the read finds nothing and
+  records nothing.
+- The result is treated as untrusted: its shape is validated, values are
+  redacted with the same rules as console messages, and it is capped at 1 MB.
+  The Clips app validates and redacts it again and stores it as a private blob.
+- Event times use the diagnostics clock: negative before the recording started,
+  with paused time left out (`src/app-activity.ts`).
 
 ## Other permissions
 

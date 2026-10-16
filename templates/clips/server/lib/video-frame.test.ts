@@ -281,6 +281,80 @@ describe("extractJpegFrameFromFile", () => {
   );
 
   it.skipIf(!availableFfmpegPath)(
+    "returns the frame that starts within the millisecond before atMs",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "clips-frame-start-test-"));
+      const videoPath = join(root, "video.mp4");
+      const framePath = join(root, "frame.jpg");
+      const previousFfmpegPath = process.env.FFMPEG_PATH;
+      process.env.FFMPEG_PATH = availableFfmpegPath!;
+
+      // Frame n is one of three grays (n mod 3), so a neighbouring frame
+      // reads differently. At 30 fps most frames start between milliseconds.
+      const shadeAt = async (atMs: number) => {
+        await writeFile(
+          framePath,
+          await extractJpegFrameFromFile({ mediaPath: videoPath, atMs }),
+        );
+        const { stdout } = await execFileAsync(
+          availableFfmpegPath!,
+          [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            framePath,
+            "-vf",
+            "scale=1:1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-",
+          ],
+          { encoding: "buffer" },
+        );
+        const level = stdout[0];
+        return level < 75 ? 0 : level < 168 ? 1 : 2;
+      };
+
+      try {
+        await execFileAsync(availableFfmpegPath!, [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=c=black:s=32x32:r=30:d=1.2,geq=lum='40+mod(N,3)*80':cb=128:cr=128",
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          videoPath,
+        ]);
+
+        // Frame starts rounded up to whole milliseconds, as comments store them.
+        for (const frame of [1, 2, 30, 31]) {
+          const atMs = Math.ceil((frame * 1000) / 30);
+          expect({ atMs, shade: await shadeAt(atMs) }).toEqual({
+            atMs,
+            shade: frame % 3,
+          });
+        }
+      } finally {
+        if (previousFfmpegPath === undefined) {
+          delete process.env.FFMPEG_PATH;
+        } else {
+          process.env.FFMPEG_PATH = previousFfmpegPath;
+        }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!availableFfmpegPath)(
     "classifies a missing timestamp separately from recordings without video",
     async () => {
       const root = await mkdtemp(join(tmpdir(), "clips-timestamp-frame-test-"));

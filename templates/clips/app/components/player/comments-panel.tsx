@@ -222,6 +222,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
     isSharePresentation || isInlinePresentation;
   const formatters = useFormatters();
   const [draft, setDraft] = useState("");
+  // A comment belongs to the frame on screen when typing starts, not when it
+  // is sent.
+  const [draftAtMs, setDraftAtMs] = useState<number | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
   const [visibleComments, setVisibleComments] = useState(comments);
@@ -655,7 +658,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       : {
           recordingId,
           content: text,
-          videoTimestampMs: getCurrentMs?.() ?? currentMs,
+          videoTimestampMs: draftAtMs ?? getCurrentMs?.() ?? currentMs,
           ...mentionArgs(value, draftMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         };
@@ -665,6 +668,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       setReplyTo(null);
     } else {
       setDraft("");
+      setDraftAtMs(null);
       setDraftMentions([]);
     }
     addComment.mutate(vars);
@@ -715,10 +719,16 @@ export function CommentsPanel(props: CommentsPanelProps) {
     });
   }
 
+  function changeDraft(value: string) {
+    if (!value.trim()) setDraftAtMs(null);
+    else if (draftAtMs === null) setDraftAtMs(getCurrentMs?.() ?? currentMs);
+    setDraft(value);
+  }
+
   const composer = (
     <CommentComposer
       draft={draft}
-      currentMs={currentMs}
+      currentMs={draftAtMs ?? currentMs}
       currentUserEmail={currentUserEmail}
       currentUserName={currentUserName}
       isSignedIn={isSignedIn}
@@ -726,7 +736,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       isInlinePresentation={isInlinePresentation}
       enableComments={enableComments}
       canComment={canComment}
-      onDraftChange={setDraft}
+      onDraftChange={changeDraft}
       onMentionAdd={(mention) =>
         setDraftMentions((current) => upsertMention(current, mention))
       }
