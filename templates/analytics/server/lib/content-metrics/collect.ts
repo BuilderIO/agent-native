@@ -7,6 +7,8 @@ import {
 } from "./config.js";
 import { contentRunFailureFromError, type ContentStep } from "./step.js";
 import { builderBlogStep } from "./steps/builder-blog.js";
+import { ga4Step } from "./steps/ga4.js";
+import { searchConsoleStep } from "./steps/search-console.js";
 import {
   closeStaleContentRuns,
   completeContentRun,
@@ -21,6 +23,8 @@ import {
 
 const STEPS: Record<ContentCollectionStepId, ContentStep> = {
   builder_blog: builderBlogStep,
+  ga4: ga4Step,
+  search_console: searchConsoleStep,
 };
 
 export type ContentStepRunSummary = {
@@ -95,7 +99,12 @@ export async function collectContentForCollection(
       continue;
     }
 
-    const runId = await startContentRun(collection, stepId, options.trigger);
+    const runId = await startContentRun(
+      collection,
+      stepId,
+      options.trigger,
+      now,
+    );
     try {
       const result = await runWithRequestContext(
         {
@@ -109,7 +118,13 @@ export async function collectContentForCollection(
             ...(options.signal ? { signal: options.signal } : {}),
           }),
       );
-      await completeContentRun(collection, runId, result, result.outcome);
+      await completeContentRun(
+        collection,
+        runId,
+        stepId,
+        result,
+        result.outcome,
+      );
       summaries.push({
         tenantKey: collection.tenantKey,
         step: stepId,

@@ -10,6 +10,8 @@ const { PGlite } = createRequire(
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   listBuilderBlogArticles: vi.fn(),
+  runFullReport: vi.fn(),
+  querySearchAnalytics: vi.fn(),
   contexts: [] as unknown[],
 }));
 
@@ -32,18 +34,44 @@ vi.mock("../../../actions/builder-blog-articles.js", () => ({
   listBuilderBlogArticles: mocks.listBuilderBlogArticles,
 }));
 
+vi.mock("../google-analytics.js", () => ({
+  runFullReport: mocks.runFullReport,
+}));
+
+vi.mock("../search-console.js", () => ({
+  querySearchAnalytics: mocks.querySearchAnalytics,
+}));
+
 import * as dbModule from "../../db/index.js";
 import {
   collectContentForAllTenants,
   collectContentForCollection,
 } from "./collect.js";
-import { defaultContentCollectionConfig } from "./config.js";
 import { CONTENT_METRICS_MIGRATION_SQL } from "./migration.js";
 import { readContentCollection, writeContentCollection } from "./store.js";
 
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
 const ORG_A = { ownerEmail: "alice@example.test", orgId: "org_a" };
+
+/** Summaries for the steps that are switched on. */
+function ran<T extends { reason?: string }>(summaries: T[]): T[] {
+  return summaries.filter((summary) => summary.reason !== "step_disabled");
+}
+
+function onlySteps(
+  steps: Partial<Record<"builderBlog" | "ga4" | "searchConsole", boolean>>,
+  sites: Array<{ siteUrl: string; pathPrefix?: string }> = [],
+) {
+  return writeContentCollection(ORG_A, {
+    enabled: true,
+    config: {
+      builderBlog: { enabled: steps.builderBlog ?? false },
+      ga4: { enabled: steps.ga4 ?? false },
+      searchConsole: { enabled: steps.searchConsole ?? false, sites },
+    },
+  });
+}
 
 function article(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -81,6 +109,8 @@ describe("content collection", () => {
     mocks.getDb.mockReset();
     mocks.getDb.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     mocks.listBuilderBlogArticles.mockReset();
+    mocks.runFullReport.mockReset();
+    mocks.querySearchAnalytics.mockReset();
     mocks.contexts.length = 0;
     for (const statement of CONTENT_METRICS_MIGRATION_SQL) {
       await client.exec(statement);
@@ -92,7 +122,7 @@ describe("content collection", () => {
   });
 
   it("writes the article list with authors under the stored owner and marks the run succeeded", async () => {
-    await writeContentCollection(ORG_A, { enabled: true });
+    await onlySteps({ builderBlog: true });
     mocks.listBuilderBlogArticles.mockResolvedValueOnce({
       articles: [
         article("a1"),
@@ -110,7 +140,7 @@ describe("content collection", () => {
       now: new Date("2026-10-15T07:00:00Z"),
     });
 
-    expect(result).toEqual([
+    expect(ran(result)).toEqual([
       expect.objectContaining({ step: "builder_blog", status: "succeeded" }),
     ]);
     expect(mocks.listBuilderBlogArticles).toHaveBeenCalledWith(
@@ -161,7 +191,7 @@ describe("content collection", () => {
   });
 
   it("records a missing connection as not configured and writes no items", async () => {
-    await writeContentCollection(ORG_A, { enabled: true });
+    await onlySteps({ builderBlog: true });
     mocks.listBuilderBlogArticles.mockRejectedValueOnce(connectionMissing());
 
     const [summary] = await collectContentForAllTenants();
@@ -189,7 +219,7 @@ describe("content collection", () => {
   });
 
   it("records a provider failure as failed, not as an empty article list", async () => {
-    await writeContentCollection(ORG_A, { enabled: true });
+    await onlySteps({ builderBlog: true });
     mocks.listBuilderBlogArticles.mockRejectedValueOnce(
       Object.assign(new Error("Builder Content API returned HTTP 503."), {
         errorCode: "provider_error",
@@ -210,7 +240,7 @@ describe("content collection", () => {
   });
 
   it("fails rather than saving a partial list when the feed never ends", async () => {
-    await writeContentCollection(ORG_A, { enabled: true });
+    await onlySteps({ builderBlog: true });
     mocks.listBuilderBlogArticles.mockImplementation(
       async ({ offset }: { offset: number }) => ({
         articles: [article(`a${offset}`)],
@@ -227,7 +257,7 @@ describe("content collection", () => {
   });
 
   it("runs each step once per UTC day on schedule, while a manual run always runs", async () => {
-    await writeContentCollection(ORG_A, { enabled: true });
+    await onlySteps({ builderBlog: true });
     mocks.listBuilderBlogArticles.mockResolvedValue({
       articles: [article("a1")],
       total: 1,
@@ -238,7 +268,7 @@ describe("content collection", () => {
 
     await collectContentForAllTenants({ now: morning });
     const second = await collectContentForAllTenants({ now: morning });
-    expect(second).toEqual([
+    expect(ran(second)).toEqual([
       expect.objectContaining({
         status: "skipped",
         reason: "already_ran_today",
@@ -250,12 +280,14 @@ describe("content collection", () => {
       trigger: "manual",
       now: morning,
     });
-    expect(manual).toEqual([expect.objectContaining({ status: "succeeded" })]);
+    expect(ran(manual)).toEqual([
+      expect.objectContaining({ status: "succeeded" }),
+    ]);
     expect(mocks.listBuilderBlogArticles).toHaveBeenCalledTimes(2);
   });
 
   it("retries a failed step on the next scheduled pass the same day", async () => {
-    await writeContentCollection(ORG_A, { enabled: true });
+    await onlySteps({ builderBlog: true });
     mocks.listBuilderBlogArticles
       .mockRejectedValueOnce(new Error("socket hang up"))
       .mockResolvedValueOnce({
@@ -272,7 +304,7 @@ describe("content collection", () => {
   });
 
   it("closes a run abandoned mid-flight as failed before the next pass", async () => {
-    await writeContentCollection(ORG_A, { enabled: true });
+    await onlySteps({ builderBlog: true });
     await client.exec(`INSERT INTO analytics_content_collection_runs
       (id, tenant_key, owner_email, org_id, step, trigger, status, started_at)
       VALUES ('stuck', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'scheduled', 'running', '2026-10-14T07:00:00.000Z')`);
@@ -298,16 +330,249 @@ describe("content collection", () => {
     await writeContentCollection(ORG_A, { enabled: false });
     expect(await collectContentForAllTenants()).toEqual([]);
 
-    await writeContentCollection(ORG_A, {
-      enabled: true,
-      config: {
-        ...defaultContentCollectionConfig(),
-        builderBlog: { enabled: false },
-      },
-    });
-    expect(await collectContentForAllTenants()).toEqual([
-      expect.objectContaining({ status: "skipped", reason: "step_disabled" }),
-    ]);
+    await onlySteps({});
+    expect(await collectContentForAllTenants()).toEqual(
+      ["builder_blog", "ga4", "search_console"].map((step) =>
+        expect.objectContaining({
+          step,
+          status: "skipped",
+          reason: "step_disabled",
+        }),
+      ),
+    );
     expect(mocks.listBuilderBlogArticles).not.toHaveBeenCalled();
+  });
+
+  function feed(...articles: ReturnType<typeof article>[]) {
+    mocks.listBuilderBlogArticles.mockResolvedValue({
+      articles,
+      total: articles.length,
+      truncated: false,
+      nextOffset: null,
+    });
+  }
+
+  function ga4Row(date: string, path: string, views: number) {
+    return {
+      dimensionValues: [{ value: date }, { value: path }],
+      metricValues: [{ value: String(views) }],
+    };
+  }
+
+  async function snapshots(metric: string) {
+    return rows(
+      `SELECT i.external_id, s.metric_date, s.value, s.source
+         FROM analytics_content_metric_snapshots s
+         JOIN analytics_content_items i ON i.id = s.item_id
+        WHERE s.metric = '${metric}'
+        ORDER BY i.external_id, s.metric_date`,
+    );
+  }
+
+  it("writes GA4 pageviews per article, zero only for days GA4 has reported", async () => {
+    await onlySteps({ builderBlog: true, ga4: true });
+    feed(
+      article("a1"),
+      article("a2", { publishDate: "2026-10-14T00:00:00.000Z" }),
+    );
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20261012", "/blog/post-a1", 1),
+      ga4Row("20261013", "/blog/post-a1", 5),
+      ga4Row("20261013", "/blog/post-a1/", 2),
+      ga4Row("20261013", "/blog/retired-post", 9),
+    ]);
+
+    const summaries = await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+
+    expect(ran(summaries).map((summary) => summary.status)).toEqual([
+      "succeeded",
+      "succeeded",
+    ]);
+    expect(mocks.runFullReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dateRange: { startDate: "2026-07-17", endDate: "2026-10-14" },
+      }),
+    );
+    const written = await snapshots("ga4_pageviews");
+    // a1 from its publish date through the last day GA4 returned; a2 was
+    // published after that, and 2026-10-14 is not reported yet.
+    expect(written).toHaveLength(13);
+    expect(written[0]).toEqual({
+      external_id: "a1",
+      metric_date: "2026-10-01",
+      value: 0,
+      source: "ga4",
+    });
+    expect(written.slice(-2)).toEqual([
+      { external_id: "a1", metric_date: "2026-10-12", value: 1, source: "ga4" },
+      { external_id: "a1", metric_date: "2026-10-13", value: 7, source: "ga4" },
+    ]);
+    expect(
+      await rows(
+        "SELECT window_start, window_end, row_count FROM analytics_content_collection_runs WHERE step = 'ga4'",
+      ),
+    ).toEqual([
+      { window_start: "2026-07-17", window_end: "2026-10-13", row_count: 13 },
+    ]);
+
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20261015", "/blog/post-a1", 4),
+    ]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-16T07:00:00Z"),
+    });
+    expect(mocks.runFullReport).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        dateRange: { startDate: "2026-10-13", endDate: "2026-10-15" },
+      }),
+    );
+  });
+
+  it("fails a GA4 run whose property reports no blog pages instead of writing zeros", async () => {
+    await onlySteps({ builderBlog: true, ga4: true });
+    feed(article("a1"));
+    mocks.runFullReport.mockResolvedValueOnce([]);
+
+    const [, ga4] = await collectContentForAllTenants();
+
+    expect(ga4).toEqual(
+      expect.objectContaining({ step: "ga4", status: "failed" }),
+    );
+    expect(await snapshots("ga4_pageviews")).toEqual([]);
+  });
+
+  it("records GA4 without a property as not configured", async () => {
+    await onlySteps({ builderBlog: true, ga4: true });
+    feed(article("a1"));
+    mocks.runFullReport.mockRejectedValueOnce(
+      Object.assign(new Error("GA4_PROPERTY_ID not configured"), {
+        errorCode: "ga4_not_configured",
+        statusCode: 424,
+      }),
+    );
+
+    const [, ga4] = await collectContentForAllTenants();
+
+    expect(ga4).toEqual(
+      expect.objectContaining({
+        status: "not_configured",
+        reason: "ga4_not_configured",
+      }),
+    );
+  });
+
+  it("attaches Search Console pages to articles and stores other pages as their own items", async () => {
+    await onlySteps({ builderBlog: true, searchConsole: true }, [
+      { siteUrl: "sc-domain:builder.io", pathPrefix: "/blog/" },
+      { siteUrl: "sc-domain:agent-native.com" },
+    ]);
+    feed(article("a1", { publishDate: "2026-10-09T00:00:00.000Z" }));
+    mocks.querySearchAnalytics.mockImplementation(
+      async ({ siteUrl }: { siteUrl: string }) =>
+        siteUrl === "sc-domain:builder.io"
+          ? [
+              {
+                keys: ["2026-10-10", "https://www.builder.io/blog/post-a1#faq"],
+                clicks: 3,
+                impressions: 40,
+              },
+              {
+                keys: ["2026-10-10", "https://www.builder.io/blog/post-a1"],
+                clicks: 1,
+                impressions: 10,
+              },
+            ]
+          : [
+              {
+                keys: ["2026-10-11", "https://agent-native.com/docs/"],
+                clicks: 2,
+                impressions: 20,
+              },
+            ],
+    );
+
+    const summaries = await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+
+    expect(ran(summaries).map((summary) => summary.status)).toEqual([
+      "succeeded",
+      "succeeded",
+    ]);
+    expect(mocks.querySearchAnalytics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteUrl: "sc-domain:builder.io",
+        pageRegex: "^https?://[^/]+/blog/",
+      }),
+    );
+    const clicks = await snapshots("search_console_clicks");
+    expect(clicks.filter((row) => row.external_id === "a1")).toEqual([
+      {
+        external_id: "a1",
+        metric_date: "2026-10-09",
+        value: 0,
+        source: "search_console",
+      },
+      {
+        external_id: "a1",
+        metric_date: "2026-10-10",
+        value: 4,
+        source: "search_console",
+      },
+    ]);
+    expect(
+      clicks.find(
+        (row) =>
+          row.external_id === "agent-native.com/docs" &&
+          row.metric_date === "2026-10-11",
+      ),
+    ).toEqual(expect.objectContaining({ value: 2 }));
+    expect(
+      await rows(
+        "SELECT source, external_id, url FROM analytics_content_items WHERE source = 'search_console'",
+      ),
+    ).toEqual([
+      {
+        source: "search_console",
+        external_id: "agent-native.com/docs",
+        url: "https://agent-native.com/docs/",
+      },
+    ]);
+  });
+
+  it("records Search Console without access, or without properties, as not configured", async () => {
+    await onlySteps({ builderBlog: true, searchConsole: true }, [
+      { siteUrl: "sc-domain:builder.io" },
+    ]);
+    feed(article("a1"));
+    mocks.querySearchAnalytics.mockRejectedValueOnce(
+      Object.assign(new Error("Search Console denied access"), {
+        errorCode: "search_console_no_access",
+        statusCode: 424,
+      }),
+    );
+    const denied = (await collectContentForAllTenants()).find(
+      (summary) => summary.step === "search_console",
+    );
+    expect(denied).toEqual(
+      expect.objectContaining({
+        status: "not_configured",
+        reason: "search_console_no_access",
+      }),
+    );
+
+    await onlySteps({ searchConsole: true });
+    const empty = (await collectContentForAllTenants()).find(
+      (summary) => summary.step === "search_console",
+    );
+    expect(empty).toEqual(
+      expect.objectContaining({
+        status: "not_configured",
+        reason: "no_search_console_sites",
+      }),
+    );
+    expect(await snapshots("search_console_clicks")).toEqual([]);
   });
 });

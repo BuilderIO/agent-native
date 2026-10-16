@@ -7,7 +7,7 @@ import {
 import type { ContentStep } from "../step.js";
 import type { ContentItemInput } from "../store.js";
 
-const BUILDER_BLOG_ORIGIN = "https://www.builder.io/blog/";
+export const BUILDER_BLOG_ORIGIN = "https://www.builder.io/blog/";
 /** The feed pages 20,000 articles per call; this bounds the continuation loop. */
 const MAX_FEED_CALLS = 10;
 

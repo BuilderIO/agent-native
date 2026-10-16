@@ -5,7 +5,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { contentCollectionConfigSchema } from "../server/lib/content-metrics/config.js";
+import {
+  contentCollectionConfigSchema,
+  searchConsoleSiteSchema,
+} from "../server/lib/content-metrics/config.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
 import {
   readContentCollection,
@@ -22,19 +25,43 @@ export default defineAction({
     builderBlog: cliBoolean
       .optional()
       .describe("Collect the Builder blog article list with authors."),
+    ga4: cliBoolean
+      .optional()
+      .describe("Collect daily GA4 pageviews for each blog article."),
+    searchConsole: cliBoolean
+      .optional()
+      .describe(
+        "Collect daily Search Console clicks and impressions. Turn on only after a property owner has given the service account access.",
+      ),
+    searchConsoleSites: z
+      .array(searchConsoleSiteSchema)
+      .max(20)
+      .optional()
+      .describe(
+        'Search Console properties to collect, replacing the saved list, e.g. [{"siteUrl":"sc-domain:example.com","pathPrefix":"/blog/"}].',
+      ),
   }),
-  run: async ({ enabled, builderBlog }, ctx) => {
+  run: async (
+    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites },
+    ctx,
+  ) => {
     const admin = await requireAnalyticsAdminContext({
       userEmail: getRequestUserEmail() || ctx?.userEmail,
       orgId: getRequestOrgId() || ctx?.orgId || null,
     });
     const scope = { ownerEmail: admin.userEmail, orgId: admin.orgId };
     const current = await readContentCollection(scope);
+    const saved = current?.config ?? contentCollectionConfigSchema.parse({});
     const config = contentCollectionConfigSchema.parse({
-      ...current?.config,
+      ...saved,
       ...(builderBlog === undefined
         ? {}
         : { builderBlog: { enabled: builderBlog } }),
+      ...(ga4 === undefined ? {} : { ga4: { enabled: ga4 } }),
+      searchConsole: {
+        enabled: searchConsole ?? saved.searchConsole.enabled,
+        sites: searchConsoleSites ?? saved.searchConsole.sites,
+      },
     });
     await writeContentCollection(scope, { enabled, config });
     return readContentCollectionStatus(admin.orgId, admin.userEmail);

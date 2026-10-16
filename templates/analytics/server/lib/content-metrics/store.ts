@@ -48,7 +48,7 @@ export type ContentItemInput = {
 };
 
 export type ContentSnapshotInput = {
-  /** Matches a ContentItemInput.externalId written in the same step, or an existing item. */
+  /** The item's source and id; the snapshot's own `source` is the step that collected it. */
   itemSource: ContentCollectionStepId;
   itemExternalId: string;
   metricDate: string;
@@ -208,10 +208,75 @@ export async function latestContentRun(
   return row ?? null;
 }
 
+/** The last run of a step that wrote its data, for choosing a backfill window. */
+export async function lastSucceededContentRun(
+  collection: ContentCollection,
+  step: ContentCollectionStepId,
+): Promise<typeof schema.analyticsContentCollectionRuns.$inferSelect | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.analyticsContentCollectionRuns)
+    .where(
+      and(
+        eq(
+          schema.analyticsContentCollectionRuns.tenantKey,
+          collection.tenantKey,
+        ),
+        eq(schema.analyticsContentCollectionRuns.step, step),
+        eq(schema.analyticsContentCollectionRuns.status, "succeeded"),
+      ),
+    )
+    .orderBy(desc(schema.analyticsContentCollectionRuns.startedAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export type StoredContentItem = {
+  source: ContentCollectionStepId;
+  externalId: string;
+  url: string | null;
+  publishedAt: string | null;
+};
+
+/** More items than this from one source is a runaway collection, not a site. */
+export const CONTENT_ITEMS_PER_SOURCE_LIMIT = 50_000;
+
+export async function listContentItems(
+  collection: ContentCollection,
+  source: ContentCollectionStepId,
+): Promise<StoredContentItem[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      externalId: schema.analyticsContentItems.externalId,
+      url: schema.analyticsContentItems.url,
+      publishedAt: schema.analyticsContentItems.publishedAt,
+    })
+    .from(schema.analyticsContentItems)
+    .where(
+      and(
+        eq(schema.analyticsContentItems.tenantKey, collection.tenantKey),
+        eq(schema.analyticsContentItems.source, source),
+      ),
+    )
+    .limit(CONTENT_ITEMS_PER_SOURCE_LIMIT + 1);
+  if (rows.length > CONTENT_ITEMS_PER_SOURCE_LIMIT) {
+    throw new Error(
+      `More than ${CONTENT_ITEMS_PER_SOURCE_LIMIT} ${source} content items; refusing a partial read.`,
+    );
+  }
+  return rows.map((row: Omit<StoredContentItem, "source">) => ({
+    ...row,
+    source,
+  }));
+}
+
 export async function startContentRun(
   collection: ContentCollection,
   step: ContentCollectionStepId,
   trigger: ContentRunTrigger,
+  now: Date = new Date(),
 ): Promise<string> {
   const db = getDb();
   const id = `ccr_${randomUUID()}`;
@@ -223,7 +288,7 @@ export async function startContentRun(
     step,
     trigger,
     status: "running",
-    startedAt: nowIso(),
+    startedAt: now.toISOString(),
   });
   return id;
 }
@@ -261,6 +326,7 @@ function itemId(tenantKey: string, source: string, externalId: string) {
 export async function completeContentRun(
   collection: ContentCollection,
   runId: string,
+  step: ContentCollectionStepId,
   data: {
     items?: ContentItemInput[];
     snapshots?: ContentSnapshotInput[];
@@ -331,7 +397,7 @@ export async function completeContentRun(
             metricDate: snapshot.metricDate,
             metric: snapshot.metric,
             value: snapshot.value,
-            source: snapshot.itemSource,
+            source: step,
             runId,
             collectedAt: timestamp,
           };
