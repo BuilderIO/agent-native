@@ -22,8 +22,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     const messages: Record<string, string> = {
       "presentation.nextSlide": "Next slide",
       "presentation.previousSlide": "Previous slide",
-      "presentation.voiceNavigationStart": "Start voice navigation",
-      "presentation.voiceNavigationStop": "Stop voice navigation",
+      "presentation.voiceNavigation": "Voice navigation",
       "presentation.voiceNavigationNextCommand": "Next slide",
       "presentation.voiceNavigationPreviousCommand": "Previous slide",
       "presentation.voiceNavigationHint":
@@ -33,23 +32,28 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "presentation.voiceNavigationUnavailable":
         "Voice navigation is unavailable in this browser.",
       "presentation.voiceNavigationError":
-        "Voice navigation stopped. Check microphone access and try again.",
+        "Voice navigation stopped. Try starting it again.",
     };
+    if (transcriptionMock.locale === "zh-CN") {
+      messages["presentation.voiceNavigationNextCommand"] = "下一张幻灯片";
+      messages["presentation.voiceNavigationPreviousCommand"] = "上一张幻灯片";
+    }
     return Object.entries(values ?? {}).reduce(
       (message, [name, value]) => message.replaceAll(`{{${name}}}`, value),
       messages[key] ?? key,
     );
   },
-  useLocale: () => ({ locale: "en-US" }),
+  useLocale: () => ({ locale: transcriptionMock.locale }),
 }));
 
 const transcriptionMock = vi.hoisted(() => ({
   start: vi.fn(),
   stop: vi.fn(),
-  getIncompleteReason: vi.fn(() => null),
+  getIncompleteReason: vi.fn((): string | null => null),
   setTranscript: undefined as ((value: string) => void) | undefined,
   setIsActive: undefined as ((value: boolean) => void) | undefined,
   requestedLanguage: "",
+  locale: "en-US",
 }));
 
 vi.mock(
@@ -181,6 +185,7 @@ beforeEach(() => {
   transcriptionMock.start.mockClear();
   transcriptionMock.stop.mockClear();
   transcriptionMock.getIncompleteReason.mockReturnValue(null);
+  transcriptionMock.locale = "en-US";
 });
 
 afterEach(() => cleanup());
@@ -389,7 +394,7 @@ describe("PresenterView without an audience", () => {
 
     fireEvent.click(
       within(presenter.container).getByRole("button", {
-        name: "Start voice navigation",
+        name: "Voice navigation",
       }),
     );
     expect(transcriptionMock.start).toHaveBeenCalledTimes(1);
@@ -404,10 +409,36 @@ describe("PresenterView without an audience", () => {
     ]);
   });
 
-  it("leaves Space available to activate the focused voice button", () => {
+  it("does not complete a partial command after five seconds of silence", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    try {
+      const presenter = render(
+        <PresenterView slides={slides} deckId="deck-1" />,
+      );
+      const [presenterChannel] = bus.peers;
+
+      fireEvent.click(
+        within(presenter.container).getByRole("button", {
+          name: "Voice navigation",
+        }),
+      );
+      act(() => transcriptionMock.setTranscript?.("Next"));
+
+      now.mockReturnValue(15_001);
+      act(() => transcriptionMock.setTranscript?.("Nextslide."));
+
+      expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+      expect(commandsPosted(presenterChannel!)).toEqual([]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("does not intercept Space while the voice button is focused", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const [presenterChannel] = bus.peers;
     const button = within(presenter.container).getByRole("button", {
-      name: "Start voice navigation",
+      name: "Voice navigation",
     });
     button.focus();
 
@@ -420,13 +451,63 @@ describe("PresenterView without an audience", () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+
+    const arrowEvent = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true,
+    });
+    button.dispatchEvent(arrowEvent);
+    expect(arrowEvent.defaultPrevented).toBe(true);
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+    ]);
+  });
+
+  it("matches split Chinese commands without inserting word spaces", () => {
+    transcriptionMock.locale = "zh-CN";
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const [presenterChannel] = bus.peers;
+
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+    expect(transcriptionMock.requestedLanguage).toBe("zh-CN");
+
+    act(() => transcriptionMock.setTranscript?.("下一张"));
+    act(() => transcriptionMock.setTranscript?.("下一张幻灯片"));
+
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+    ]);
+  });
+
+  it("uses generic retry guidance when recognition stops after an error", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+
+    transcriptionMock.getIncompleteReason.mockReturnValue("network");
+    act(() => transcriptionMock.setIsActive?.(false));
+
+    expect(
+      within(presenter.container).getByText(
+        "Voice navigation stopped. Try starting it again.",
+      ),
+    ).toBeTruthy();
   });
 
   it("ignores narration that only mentions the next slide", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
     fireEvent.click(
       within(presenter.container).getByRole("button", {
-        name: "Start voice navigation",
+        name: "Voice navigation",
       }),
     );
 

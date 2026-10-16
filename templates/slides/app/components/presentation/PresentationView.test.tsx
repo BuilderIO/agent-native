@@ -182,6 +182,28 @@ describe("PresentationView keyboard shortcuts", () => {
       }
     }
   });
+
+  it("keeps Escape-to-exit available while a presentation button is focused", () => {
+    render(
+      <MemoryRouter initialEntries={["/presentation"]}>
+        <PresentationView slides={slides} deckId="deck-1" />
+        <CurrentLocation />
+      </MemoryRouter>,
+    );
+
+    screen.getByRole("button", { name: "presentation.nextSlide" }).focus();
+    const exitKey = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, exitKey);
+
+    expect(exitKey.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("current-location").textContent).toBe(
+      "/deck/deck-1?slide=1",
+    );
+  });
 });
 
 describe("PresentationView paragraph animations", () => {

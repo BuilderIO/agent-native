@@ -27,7 +27,10 @@ import {
   type SlideNavigationLayout,
   type SlideNavigationState,
 } from "./slide-navigation";
-import { matchVoiceNavigationPhrase } from "./voice-navigation";
+import {
+  hasVoiceNavigationPartialExpired,
+  matchVoiceNavigationPhrase,
+} from "./voice-navigation";
 
 interface PresenterViewProps {
   slides: Slide[];
@@ -204,18 +207,21 @@ export default function PresenterView({
     "sr-only min-w-0 max-w-48 truncate text-xs text-white/60 md:not-sr-only";
   const lastTranscriptRef = useRef("");
   const pendingVoicePhraseRef = useRef("");
+  const pendingVoicePhraseAtRef = useRef<number | null>(null);
 
   const toggleVoiceNavigation = useCallback(() => {
     if (voiceActive) {
       stopVoiceTranscription();
       lastTranscriptRef.current = voiceTranscript;
       pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
       setVoiceError(false);
       return;
     }
 
     lastTranscriptRef.current = "";
     pendingVoicePhraseRef.current = "";
+    pendingVoicePhraseAtRef.current = null;
     setVoiceError(false);
     startVoiceTranscription();
     if (getIncompleteReason()) setVoiceError(true);
@@ -235,6 +241,7 @@ export default function PresenterView({
     if (!voiceActive) {
       lastTranscriptRef.current = voiceTranscript;
       pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
       return;
     }
 
@@ -245,21 +252,30 @@ export default function PresenterView({
     lastTranscriptRef.current = voiceTranscript;
     if (!addition.trim()) return;
 
-    const candidate = [pendingVoicePhraseRef.current, addition]
-      .filter(Boolean)
-      .join(" ");
+    const now = Date.now();
+    if (
+      pendingVoicePhraseAtRef.current !== null &&
+      hasVoiceNavigationPartialExpired(pendingVoicePhraseAtRef.current, now)
+    ) {
+      pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
+    }
+    const candidate = pendingVoicePhraseRef.current + addition;
     const match = matchVoiceNavigationPhrase(candidate, {
       next: nextVoiceCommand,
       previous: previousVoiceCommand,
     });
     if (match.type === "command") {
       pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
       if (match.command === "next") goNext();
       else goPrev();
     } else if (match.type === "partial") {
       pendingVoicePhraseRef.current = candidate;
+      pendingVoicePhraseAtRef.current = now;
     } else {
       pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
     }
   }, [
     goNext,
@@ -378,11 +394,7 @@ export default function PresenterView({
                   : voiceCommandHint
             }
             className={`cursor-pointer rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-30 ${voiceActive ? voiceActiveButtonClassName : voiceIdleButtonClassName}`}
-            aria-label={
-              voiceActive
-                ? t("presentation.voiceNavigationStop")
-                : t("presentation.voiceNavigationStart")
-            }
+            aria-label={t("presentation.voiceNavigation")}
             aria-description={
               !voiceSupported
                 ? t("presentation.voiceNavigationUnavailable")

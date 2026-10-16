@@ -710,8 +710,7 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
-    voiceNavigationStart: "音声ナビゲーションを開始",
-    voiceNavigationStop: "音声ナビゲーションを停止",
+    voiceNavigation: "音声ナビゲーション",
     voiceNavigationNextCommand: "次のスライド",
     voiceNavigationPreviousCommand: "前のスライド",
     voiceNavigationHint:
@@ -721,7 +720,7 @@ const messages = {
     voiceNavigationUnavailable:
       "このブラウザーでは音声ナビゲーションを利用できません。",
     voiceNavigationError:
-      "音声ナビゲーションが停止しました。マイクへのアクセスを確認して、もう一度お試しください。",
+      "音声ナビゲーションが停止しました。もう一度開始してください。",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",

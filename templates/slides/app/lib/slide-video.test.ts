@@ -227,8 +227,111 @@ describe("slide video helpers", () => {
         new KeyboardEvent("keydown", { key: " ", bubbles: true }),
       ),
     ).toBe(true);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    ).toBe(false);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    ).toBe(false);
+
+    const input = document.createElement("input");
+    document.body.append(input);
+    input.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    ).toBe(true);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+      ),
+    ).toBe(true);
 
     button.blur();
+    input.remove();
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    document.body.append(fileInput);
+    fileInput.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+      ),
+    ).toBe(false);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    ).toBe(false);
+    fileInput.remove();
+
+    const numberInput = document.createElement("input");
+    numberInput.type = "number";
+    document.body.append(numberInput);
+    numberInput.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      ),
+    ).toBe(true);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+      ),
+    ).toBe(false);
+    numberInput.remove();
+
+    const listbox = document.createElement("div");
+    listbox.setAttribute("role", "listbox");
+    listbox.tabIndex = 0;
+    document.body.append(listbox);
+    listbox.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true }),
+      ),
+    ).toBe(true);
+    listbox.remove();
+
+    const radioForm = document.createElement("form");
+    const firstRadio = document.createElement("input");
+    firstRadio.type = "radio";
+    firstRadio.name = "slide-choice";
+    const secondRadio = document.createElement("input");
+    secondRadio.type = "radio";
+    secondRadio.name = "slide-choice";
+    radioForm.append(firstRadio, secondRadio);
+    document.body.append(radioForm);
+    firstRadio.focus();
+    const radioArrow = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+    });
+    firstRadio.dispatchEvent(radioArrow);
+    expect(isInteractiveKeyboardEvent(radioArrow)).toBe(true);
+    radioForm.remove();
+
+    const ariaRadioGroup = document.createElement("div");
+    ariaRadioGroup.setAttribute("role", "radiogroup");
+    const ariaRadio = document.createElement("div");
+    ariaRadio.setAttribute("role", "radio");
+    ariaRadio.tabIndex = 0;
+    ariaRadioGroup.append(ariaRadio);
+    document.body.append(ariaRadioGroup);
+    ariaRadio.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+      ),
+    ).toBe(true);
+    ariaRadioGroup.remove();
+
     expect(
       isInteractiveKeyboardEvent(
         new KeyboardEvent("keydown", { key: "ArrowRight" }),

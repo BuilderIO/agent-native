@@ -722,8 +722,7 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
-    voiceNavigationStart: "Sprachsteuerung starten",
-    voiceNavigationStop: "Sprachsteuerung beenden",
+    voiceNavigation: "Sprachnavigation",
     voiceNavigationNextCommand: "Nächste Folie",
     voiceNavigationPreviousCommand: "Vorherige Folie",
     voiceNavigationHint:
@@ -732,7 +731,7 @@ const messages = {
     voiceNavigationUnavailable:
       "Sprachsteuerung ist in diesem Browser nicht verfügbar.",
     voiceNavigationError:
-      "Sprachsteuerung wurde beendet. Prüfen Sie den Mikrofonzugriff und versuchen Sie es erneut.",
+      "Die Sprachsteuerung wurde beendet. Starten Sie sie erneut, um es noch einmal zu versuchen.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",

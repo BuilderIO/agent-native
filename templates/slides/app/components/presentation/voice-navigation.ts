@@ -1,9 +1,18 @@
 export type VoiceNavigationCommand = "next" | "prev";
 
+export const VOICE_NAVIGATION_PARTIAL_TIMEOUT_MS = 5_000;
+
 export type VoiceNavigationMatch =
   | { type: "command"; command: VoiceNavigationCommand }
   | { type: "partial" }
   | { type: "ignore" };
+
+export function hasVoiceNavigationPartialExpired(
+  lastFragmentAt: number,
+  now: number,
+): boolean {
+  return now - lastFragmentAt > VOICE_NAVIGATION_PARTIAL_TIMEOUT_MS;
+}
 
 function normalizeVoicePhrase(value: string): string {
   return value
@@ -26,14 +35,25 @@ export function matchVoiceNavigationPhrase(
     ["next", phrases.next],
     ["prev", phrases.previous],
   ];
+  const compactNormalized = normalized.replace(/\s/g, "");
   for (const [command, phrase] of commands) {
     const normalizedPhrase = normalizeVoicePhrase(phrase);
-    if (normalized === normalizedPhrase) return { type: "command", command };
+    const compactPhrase = normalizedPhrase.replace(/\s/g, "");
+    if (
+      normalized === normalizedPhrase ||
+      compactNormalized === compactPhrase
+    ) {
+      return { type: "command", command };
+    }
   }
   if (
-    commands.some(([, phrase]) =>
-      normalizeVoicePhrase(phrase).startsWith(normalized),
-    )
+    commands.some(([, phrase]) => {
+      const normalizedPhrase = normalizeVoicePhrase(phrase);
+      return (
+        normalizedPhrase.startsWith(normalized) ||
+        normalizedPhrase.replace(/\s/g, "").startsWith(compactNormalized)
+      );
+    })
   ) {
     return { type: "partial" };
   }

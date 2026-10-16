@@ -731,8 +731,7 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
-    voiceNavigationStart: "Démarrer la navigation vocale",
-    voiceNavigationStop: "Arrêter la navigation vocale",
+    voiceNavigation: "Navigation vocale",
     voiceNavigationNextCommand: "Diapositive suivante",
     voiceNavigationPreviousCommand: "Diapositive précédente",
     voiceNavigationHint:
@@ -741,7 +740,7 @@ const messages = {
     voiceNavigationUnavailable:
       "La navigation vocale n’est pas disponible dans ce navigateur.",
     voiceNavigationError:
-      "La navigation vocale s’est arrêtée. Vérifiez l’accès au microphone, puis réessayez.",
+      "La navigation vocale s’est arrêtée. Relancez-la pour réessayer.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",

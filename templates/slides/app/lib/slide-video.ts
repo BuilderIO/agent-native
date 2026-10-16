@@ -180,21 +180,67 @@ export function isMediaKeyboardEvent(event: KeyboardEvent): boolean {
   return targetsMedia(document.activeElement);
 }
 
-export function isInteractiveKeyboardEvent(event: KeyboardEvent): boolean {
-  const targetsInteractive = (target: EventTarget | null): boolean =>
-    target instanceof Element &&
-    Boolean(
-      target.closest(
-        'button, input, select, textarea, a[href], summary, [role="button"], [role="link"], [contenteditable]:not([contenteditable="false"])',
-      ),
+function targetsNativeRadioGroup(targets: (EventTarget | null)[]): boolean {
+  return targets.some((target) => {
+    if (
+      !(target instanceof HTMLInputElement) ||
+      target.type !== "radio" ||
+      !target.name
+    ) {
+      return false;
+    }
+    const root = target.getRootNode() as Document | ShadowRoot;
+    const candidates = target.form
+      ? Array.from(target.form.elements)
+      : Array.from(
+          root.querySelectorAll<HTMLInputElement>('input[type="radio"]'),
+        );
+    return (
+      candidates.filter(
+        (radio) =>
+          radio instanceof HTMLInputElement &&
+          radio.type === "radio" &&
+          radio.name === target.name &&
+          radio.form === target.form,
+      ).length > 1
     );
-  if (targetsInteractive(event.target)) return true;
+  });
+}
+
+export function isInteractiveKeyboardEvent(event: KeyboardEvent): boolean {
+  const targets = [
+    event.target,
+    ...(typeof event.composedPath === "function" ? event.composedPath() : []),
+    document.activeElement,
+  ];
+  const matches = (selector: string) =>
+    targets.some(
+      (target) =>
+        target instanceof Element && Boolean(target.closest(selector)),
+    );
+
   if (
-    typeof event.composedPath === "function" &&
-    event.composedPath().some(targetsInteractive)
-  )
+    matches(
+      'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"], [contenteditable]:not([contenteditable="false"]), [role="textbox"]',
+    )
+  ) {
     return true;
-  return targetsInteractive(document.activeElement);
+  }
+  if (event.key === " ") {
+    return matches(
+      'button, input[type="button"], input[type="submit"], input[type="reset"], input[type="checkbox"], input[type="radio"], input[type="file"], input[type="color"], input[type="date"], input[type="datetime-local"], input[type="month"], input[type="time"], input[type="week"], select, summary, [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [role="listbox"], [role="option"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
+    );
+  }
+  const isRadioGroup =
+    targetsNativeRadioGroup(targets) ||
+    matches('[role="radiogroup"], [role="radio"]');
+  return (
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) &&
+    (isRadioGroup ||
+      matches(
+        'select, input[type="range"], input[type="number"], input[type="date"], input[type="datetime-local"], input[type="month"], input[type="time"], input[type="week"], [role="combobox"], [role="listbox"], [role="slider"], [role="spinbutton"], [role="tablist"], [role="tree"], [role="treeitem"], [role="menu"], [role="menubar"], [role="grid"], [role="tab"]',
+      ))
+  );
 }
 
 export function applyVideoPlaybackSettings(

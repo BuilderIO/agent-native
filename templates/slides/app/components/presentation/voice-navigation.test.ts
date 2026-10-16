@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { matchVoiceNavigationPhrase } from "./voice-navigation";
+import {
+  hasVoiceNavigationPartialExpired,
+  matchVoiceNavigationPhrase,
+  VOICE_NAVIGATION_PARTIAL_TIMEOUT_MS,
+} from "./voice-navigation";
 
 describe("matchVoiceNavigationPhrase", () => {
   const phrases = { next: "Nächste Folie", previous: "Vorherige Folie" };
@@ -32,5 +36,20 @@ describe("matchVoiceNavigationPhrase", () => {
         phrases,
       ),
     ).toEqual({ type: "ignore" });
+  });
+
+  it("expires a partial command after a quiet gap", () => {
+    expect(
+      hasVoiceNavigationPartialExpired(
+        1_000,
+        1_000 + VOICE_NAVIGATION_PARTIAL_TIMEOUT_MS,
+      ),
+    ).toBe(false);
+    expect(
+      hasVoiceNavigationPartialExpired(
+        1_000,
+        1_001 + VOICE_NAVIGATION_PARTIAL_TIMEOUT_MS,
+      ),
+    ).toBe(true);
   });
 });
