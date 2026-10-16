@@ -21,6 +21,7 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { SqlQuerySnapshotSessionBridge } from "@/components/auth/SqlQuerySnapshotSessionBridge";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
 import "@/lib/register-analysis-result-renderer";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -161,6 +162,7 @@ export default function Root() {
 
   return (
     <AppToolkitProvider>
+      <SqlQuerySnapshotSessionBridge />
       <AppProviders
         queryClient={queryClient}
         skeletonLayout="assistant"
