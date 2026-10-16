@@ -13,6 +13,7 @@ import { canonicalizeNfm, nfmToDoc, type PMNode } from "../shared/nfm.js";
 export type BodyClassification =
   | { status: "canonical"; losses: string[] }
   | { status: "failed" }
+  | { status: "unclassified" }
   | {
       status: "non-canonical";
       canonical: string;
@@ -28,10 +29,12 @@ const PIPE_ROW = /^\s*\|.*\|\s*$/;
 // Order matters only for which kinds a hunk is first tried with; every hunk
 // is pruned to the smallest set of these that still explains it. Line-shape
 // rules run before inline ones so `___` reads as a divider, not emphasis.
+// A run of blanks is matched only from its first blank (`(?<![ \t])`):
+// starting inside the run too would rescan it from each position.
 const NORMALIZERS: Normalizer[] = [
   {
     kind: "trailing-whitespace",
-    apply: (text) => text.replace(/[ \t]+$/gm, ""),
+    apply: (text) => text.replace(/(?<![ \t])[ \t]+$/gm, ""),
   },
   {
     kind: "blank-lines",
@@ -73,7 +76,9 @@ const NORMALIZERS: Normalizer[] = [
       text
         .split("\n")
         .map((line) =>
-          PIPE_ROW.test(line) ? line.replace(/[ \t]*\|[ \t]*/g, "|") : line,
+          PIPE_ROW.test(line)
+            ? line.replace(/(?<![ \t])[ \t]+(?=\|)|(?<=\|)[ \t]+/g, "")
+            : line,
         )
         .join("\n"),
   },
@@ -280,15 +285,17 @@ type MdNode = {
 };
 
 /**
- * What one reader sees in a body. Marks count each letter and digit they
- * cover. Code counts fenced blocks and blocks indented with spaces: Content
- * writes indented children with tabs, which a GFM reader would otherwise count
- * as indented code.
+ * What one reader sees in a body. `letters` holds every letter and digit of
+ * its text in reading order, and each mark the positions in it that it covers.
+ * Code counts fenced blocks and blocks indented with spaces: Content writes
+ * indented children with tabs, which a GFM reader would otherwise count as
+ * indented code.
  */
 type ReadProfile = {
   tokens: Map<string, number>;
   backslashes: number;
-  marks: Record<(typeof MARKS)[number], Map<string, number>>;
+  letters: string[];
+  marks: Record<(typeof MARKS)[number], number[]>;
   listItems: number;
   nestedListItems: number;
   headings: number;
@@ -309,13 +316,15 @@ const NFM_MARK: Record<string, (typeof MARKS)[number]> = {
 };
 
 const TOKEN = /[\p{L}\p{N}]+/gu;
+const URL_ATTRIBUTES = new Set(["href", "src", "url"]);
 
 function emptyProfile(): ReadProfile {
   return {
     tokens: new Map(),
     backslashes: 0,
+    letters: [],
     marks: Object.fromEntries(
-      MARKS.map((mark) => [mark, new Map()]),
+      MARKS.map((mark): [Mark, number[]] => [mark, []]),
     ) as ReadProfile["marks"],
     listItems: 0,
     nestedListItems: 0,
@@ -360,8 +369,11 @@ const NFM_BLOCK_ATTRIBUTES =
 // A fence may open inside blockquotes and list items: `> ```js`, `- ```js`.
 // It closes only at its own quote depth and never after a list marker, which
 // inside the fence is code; a quote that ends takes its fence with it.
+// Markers leave the blanks after them to the next `[ \t]*`: if two parts
+// could each take them, a line of markers such as `-   -   -` is retried for
+// every split of every run, which grows exponentially with the markers.
 const FENCE =
-  /^((?:[ \t]*(?:>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+))*)[ \t]*(`{3,}|~{3,})(.*)$/;
+  /^((?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t])))*)[ \t]*(`{3,}|~{3,})(.*)$/;
 const CLOSING_FENCE = /^(?:[ \t]*>)*[ \t]*(`{3,}|~{3,})[ \t]*$/;
 const QUOTE_MARKERS = /^(?:[ \t]*>)*/;
 const BACKTICK_RUN = /`+/g;
@@ -426,23 +438,55 @@ type Mark = (typeof MARKS)[number];
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
 
 /**
- * Count each letter and digit `text` puts under each of `marks`. Coverage does
- * not depend on how a reader splits text: GFM nests `` `a`**`b`** `` in two
- * code nodes Content keeps as one, and `**kept**__lost__` is one run of bold
- * to GFM although Content keeps only half of it. Counting letters, not their
- * total, catches a mark that moves: in `*a * _b_` GFM italicizes b and Content
- * italicizes a.
+ * Append the letters and digits of `text`, under `marks`. Coverage does not
+ * depend on how a reader splits text: GFM nests `` `a`**`b`** `` in two code
+ * nodes Content keeps as one, and `**kept**__lost__` is one run of bold to GFM
+ * although Content keeps only half of it.
  */
 function addMarkedText(
   profile: ReadProfile,
   marks: Iterable<Mark>,
   text: string,
 ) {
-  const covered = text.toLowerCase().match(LETTER_OR_DIGIT) ?? [];
+  const start = profile.letters.length;
+  for (const letter of text.toLowerCase().match(LETTER_OR_DIGIT) ?? [])
+    profile.letters.push(letter);
   for (const mark of marks) {
-    const counts = profile.marks[mark];
-    for (const char of covered) counts.set(char, (counts.get(char) ?? 0) + 1);
+    for (let index = start; index < profile.letters.length; index += 1)
+      profile.marks[mark].push(index);
   }
+}
+
+/**
+ * Marks GFM puts on text that Content's reading leaves unmarked. When both
+ * readers see the same letters in the same order, marks are compared by
+ * position, so one cannot move to other text unnoticed: in `*a * _a_` GFM
+ * italicizes the second a and Content the first. Otherwise (text was dropped,
+ * or Content holds it in an attribute) they are compared by how often each
+ * letter is marked.
+ */
+function droppedMarks(meant: ReadProfile, kept: ReadProfile): Mark[] {
+  const aligned =
+    meant.letters.length === kept.letters.length &&
+    meant.letters.every((letter, index) => letter === kept.letters[index]);
+  const markedLetters = (profile: ReadProfile, mark: Mark) => {
+    const counts = new Map<string, number>();
+    for (const index of profile.marks[mark]) {
+      const letter = profile.letters[index];
+      counts.set(letter, (counts.get(letter) ?? 0) + 1);
+    }
+    return counts;
+  };
+  return MARKS.filter((mark) => {
+    if (aligned) {
+      const keptAt = new Set(kept.marks[mark]);
+      return meant.marks[mark].some((index) => !keptAt.has(index));
+    }
+    const keptCounts = markedLetters(kept, mark);
+    return [...markedLetters(meant, mark)].some(
+      ([letter, count]) => (keptCounts.get(letter) ?? 0) < count,
+    );
+  });
 }
 
 /** What a GitHub-flavored Markdown reader sees, which is how agents write. */
@@ -480,6 +524,7 @@ function gfmProfile(body: string): ReadProfile {
       }
       case "code": {
         addText(profile, node.value ?? "");
+        addMarkedText(profile, [], node.value ?? "");
         // Indented code starts at its own indent, after any container marker.
         const offset = node.position?.start.offset ?? 0;
         if (
@@ -529,13 +574,16 @@ function gfmProfile(body: string): ReadProfile {
 
 /**
  * What Content's own reader keeps of a body. Words held in attributes, such
- * as a toggle's summary or an equation's LaTeX, count as kept.
+ * as a toggle's summary or an equation's LaTeX, count as kept; a link's or
+ * image's address does not, since nobody reads it and its words could stand
+ * in for dropped ones.
  */
 function nfmProfile(document: PMNode): ReadProfile {
   const profile = emptyProfile();
   const addAttributeWords = (attrs: Record<string, unknown> | undefined) => {
-    for (const value of Object.values(attrs ?? {}))
-      if (typeof value === "string") addTokens(profile, value);
+    for (const [name, value] of Object.entries(attrs ?? {}))
+      if (typeof value === "string" && !URL_ATTRIBUTES.has(name))
+        addTokens(profile, value);
   };
   const walk = (node: PMNode, listDepth: number) => {
     if (typeof node.text === "string") {
@@ -631,14 +679,8 @@ export function canonicalizationLosses(
   }
   if (kept.backslashes > meant.backslashes)
     losses.push("gfm-escape-shown-literally");
-  for (const mark of MARKS) {
-    for (const [char, count] of meant.marks[mark]) {
-      if ((kept.marks[mark].get(char) ?? 0) < count) {
-        losses.push(`gfm-${mark}-dropped`);
-        break;
-      }
-    }
-  }
+  for (const mark of droppedMarks(meant, kept))
+    losses.push(`gfm-${mark}-dropped`);
   if (kept.nestedListItems < meant.nestedListItems)
     losses.push("gfm-list-nesting-lost");
   if (kept.listItems < meant.listItems) losses.push("gfm-list-items-lost");
@@ -657,7 +699,16 @@ export function classifyBody(body: string): BodyClassification {
   } catch {
     return { status: "failed" };
   }
-  const losses = canonicalizationLosses(body, canonical);
+  // The census's own readers can fail where Content's did not, such as on
+  // nesting deep enough to exhaust the stack.
+  let losses: string[];
+  let kinds: string[];
+  try {
+    losses = canonicalizationLosses(body, canonical);
+    kinds = canonical === body ? [] : differenceKinds(body, canonical);
+  } catch {
+    return { status: "unclassified" };
+  }
   if (canonical === body) return { status: "canonical", losses };
   let idempotence: "idempotent" | "changes" | "throws";
   try {
@@ -669,7 +720,7 @@ export function classifyBody(body: string): BodyClassification {
   return {
     status: "non-canonical",
     canonical,
-    kinds: differenceKinds(body, canonical),
+    kinds,
     losses,
     idempotence,
   };

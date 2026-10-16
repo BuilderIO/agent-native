@@ -121,11 +121,14 @@ describe("body classification", () => {
       status: "canonical",
       losses: ["gfm-strong-dropped"],
     });
-    // The same amount of italic, on different text: b to GFM, "a " to Content.
-    expect(classifyBody("*a * _b_")).toEqual({
-      status: "canonical",
-      losses: ["gfm-emphasis-dropped"],
-    });
+    // The same amount of italic, on different text: b to GFM, "a " to Content,
+    // and with repeated letters, the second a to GFM and the first to Content.
+    for (const moved of ["*a * _b_", "*a * _a_"]) {
+      expect(classifyBody(moved), moved).toEqual({
+        status: "canonical",
+        losses: ["gfm-emphasis-dropped"],
+      });
+    }
     // A toggle's summary is plain text, so its asterisks show.
     expect(classifyBody(L('## **Toggle** {toggle="true"}', "\tChild"))).toEqual(
       { status: "canonical", losses: ["gfm-strong-dropped"] },
@@ -164,6 +167,23 @@ describe("body classification", () => {
     expect(canonicalizationLosses("Keep every word", "Keep word")).toContain(
       "gfm-text-dropped",
     );
+    // A link's address is not text anyone reads, so it cannot stand in for a
+    // dropped word.
+    expect(
+      canonicalizationLosses(
+        "alpha beta",
+        "alpha [x](https://example.com/beta)",
+      ),
+    ).toContain("gfm-text-dropped");
+  });
+
+  it("classifies a line of list or quote markers in linear time", () => {
+    // A pattern that let two parts share the blanks after a marker retried
+    // every split of every run: twenty markers took over a minute.
+    for (const marker of ["-   ", "1.   ", ">  ", "> -  "]) {
+      const line = `${marker.repeat(60)}x`;
+      expect(classifyBody(line).status, marker).not.toBe("failed");
+    }
   });
 
   it("does not flag Content's own syntax as lost agent text", () => {

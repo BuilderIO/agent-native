@@ -337,7 +337,8 @@ describe("stored-form census guards (SF-09)", () => {
       `see postgres://***@${BRANCH_HOST}/neondb now`,
     );
 
-    // A URL with no password can still carry a secret as its user name.
+    // A URL with no password can still carry a secret as its user name, and
+    // Postgres quotes the user name alone when authentication fails.
     const passwordless = cli(
       BRANCH_ARGS,
       {
@@ -345,11 +346,15 @@ describe("stored-form census guards (SF-09)", () => {
         [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
       },
       async (target) => {
-        throw new Error(`could not reach ${target}`);
+        throw new Error(
+          `could not reach ${target}; password authentication failed for user "${new URL(target).username}"`,
+        );
       },
     );
     expect(await passwordless.run).toBe(1);
-    expect(passwordless.events.join("\n")).toContain("could not reach");
+    expect(passwordless.events.join("\n")).toContain(
+      "password authentication failed for user",
+    );
     expect(passwordless.events.join("\n")).not.toContain(PASSWORD);
 
     // The password may also sit where the target lines and refusals print.
@@ -832,12 +837,13 @@ describe("stored-form census against a local database", () => {
       sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
       args: ["page-huge", "word ".repeat(120_000)],
     });
-    // Content's parser is quadratic in line length, so a long line in a body
-    // or a live copy is counted without being parsed.
+    // Content's parser is quadratic in line length and the GFM reader in
+    // nesting, so a long or deeply nested line in a body or a live copy is
+    // counted without being parsed.
     const longLine = "word ".repeat(7_000).trim();
     await db.execute({
-      sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
-      args: ["page-long-line", longLine],
+      sql: "INSERT INTO documents (id, content) VALUES (?, ?), (?, ?)",
+      args: ["page-long-line", longLine, "page-deep", `${"> ".repeat(101)}x`],
     });
     await db.execute({
       sql: "UPDATE _collab_docs SET yjs_state = ? WHERE doc_id = ?",
@@ -850,6 +856,10 @@ describe("stored-form census against a local database", () => {
     await db.execute(
       "UPDATE agent_review_suggestion_operations SET anchor_json = '{not json' WHERE suggestion_id = 'suggestion-1'",
     );
+    await db.execute({
+      sql: "INSERT INTO document_comments (id, document_id, thread_id, content, quoted_text, author_email) VALUES ('comment-huge', 'page-agent', 't-huge', 'Too long', ?, 'reader@example.com')",
+      args: ["quote ".repeat(50_000)],
+    });
     const { run, stdout } = cli(
       ["--database-url-env=CENSUS_URL"],
       { CENSUS_URL: "pglite:memory" },
@@ -859,11 +869,14 @@ describe("stored-form census against a local database", () => {
     const report = JSON.parse(stdout.join(""));
     expect(report.complete).toBe(false);
     expect(report.bodies.tooLarge.pageIds).toEqual(["page-huge"]);
-    expect(report.bodies.tooLongToParse.pageIds).toEqual(["page-long-line"]);
+    expect(report.bodies.pastParserLimits.pageIds).toEqual([
+      "page-deep",
+      "page-long-line",
+    ]);
     expect(report.liveCopies.byOutcome.unreadable.pageIds).toEqual([
       "page-editor",
     ]);
-    expect(report.liveCopies.byOutcome.tooLongToParse.pageIds).toEqual([
+    expect(report.liveCopies.byOutcome.pastParserLimits.pageIds).toEqual([
       "page-agent",
     ]);
     expect(report.agentFormPages.pendingSuggestions.unreadable).toMatchObject({
@@ -872,10 +885,11 @@ describe("stored-form census against a local database", () => {
     });
     expect(report.incompleteReasons).toEqual([
       "bodies over 262144 bytes, not classified: 1",
-      "bodies with a line over 32768 characters, not classified: 1",
+      "bodies with a line over 32768 characters or nested over 100 levels, not classified: 2",
       "unreadable live copies: 1",
-      "live copies over 262144 characters or with a line over 32768, not compared: 1",
+      "live copies over 262144 characters, or with a line over 32768 characters or nested over 100 levels, not compared: 1",
       "pages with suggestions that could not be read or resolved: 1",
+      "pages with comment quotes over 262144 bytes, not checked: 1",
     ]);
   });
 

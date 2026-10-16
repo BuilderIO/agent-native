@@ -332,16 +332,16 @@ export type CensusCliDependencies = {
 // its user name.
 const URL_CREDENTIALS = /\/\/[^\s@/]*@/g;
 
-/** `text` with URL credentials and the target's password replaced. */
-export function redactCredentials(text: string, password = ""): string {
+/** `text` with URL credentials and each of `secrets` replaced. */
+export function redactCredentials(
+  text: string,
+  ...secrets: readonly string[]
+): string {
   const redacted = text.replace(URL_CREDENTIALS, "//***@");
-  const secrets = [password, safeDecode(password)].filter(
-    (secret) => secret.length > 0,
-  );
-  return secrets.reduce(
-    (value, secret) => value.split(secret).join("***"),
-    redacted,
-  );
+  return secrets
+    .flatMap((secret) => [secret, safeDecode(secret)])
+    .filter((secret) => secret.length > 0)
+    .reduce((value, secret) => value.split(secret).join("***"), redacted);
 }
 
 function safeDecode(value: string): string {
@@ -352,8 +352,13 @@ function safeDecode(value: string): string {
   }
 }
 
-function passwordIn(url: string | undefined): string {
-  return url && URL.canParse(url) ? new URL(url).password : "";
+function credentialsIn(url: string | undefined): {
+  user: string;
+  password: string;
+} {
+  if (!url || !URL.canParse(url)) return { user: "", password: "" };
+  const { username, password } = new URL(url);
+  return { user: username, password };
 }
 
 function messageOf(error: unknown): string {
@@ -365,14 +370,20 @@ export async function runStoredFormCensusCli(
   deps: CensusCliDependencies,
 ): Promise<number> {
   let db: DbExec | undefined;
-  let password = "";
+  let credentials = { user: "", password: "" };
   // Driver errors and odd URLs can quote the password anywhere.
-  const shown = (text: string) => redactCredentials(text, password);
+  const shown = (text: string) => redactCredentials(text, credentials.password);
   const log = (line: string) => deps.log(shown(line));
+  // A driver error can also quote the user name alone ("password
+  // authentication failed for user …"), which may be a pasted secret. Only
+  // failures hide it: no other line prints it, and a common name such as
+  // `census` would garble the target lines.
+  const logFailure = (line: string) =>
+    deps.log(redactCredentials(line, credentials.password, credentials.user));
   let exitCode: number;
   try {
     const options = parseCensusArgs(deps.argv);
-    password = passwordIn(deps.env[options.databaseUrlEnv]?.trim());
+    credentials = credentialsIn(deps.env[options.databaseUrlEnv]?.trim());
     const target = resolveCensusTarget(options, deps.env);
     for (const line of describeCensusTarget(target)) log(line);
     const refusal = productionRefusal(target, deps.env);
@@ -402,17 +413,15 @@ export async function runStoredFormCensusCli(
     );
     exitCode = report.complete ? 0 : 2;
   } catch (error) {
-    log(
-      error instanceof CensusRefusal
-        ? error.message
-        : `Census failed; no report was produced: ${messageOf(error)}`,
-    );
+    if (error instanceof CensusRefusal) log(error.message);
+    else
+      logFailure(`Census failed; no report was produced: ${messageOf(error)}`);
     exitCode = 1;
   }
   try {
     await db?.close?.();
   } catch (error) {
-    log(`Closing the database connection failed: ${messageOf(error)}`);
+    logFailure(`Closing the database connection failed: ${messageOf(error)}`);
     exitCode = 1;
   }
   return exitCode;

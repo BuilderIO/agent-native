@@ -22,12 +22,16 @@ const SUGGESTION_BATCH = 25;
 const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
 const ORPHAN_BATCH = 1000;
 // Larger bodies and live copies are counted without being parsed. Parsing has
-// no deadline, and Content's parser is quadratic in the length of a line that
+// no deadline: Content's parser is quadratic in the length of a line that
 // holds a long run of spaces or `[` (about 1.5 seconds per parse at 40 KiB),
-// so both caps are what keep one page inside the snapshot's 10-minute idle
-// limit: the slowest page found under them takes about a minute to classify.
+// and the GFM reader in how deeply one line nests (`- - - …`, `> > > …`),
+// overflowing the stack past a few thousand levels. These caps are what keep
+// one page inside the snapshot's 10-minute idle limit: the slowest page found
+// under them takes about a minute to classify.
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_LINE_CHARS = 32 * 1024;
+const MAX_NESTING = 100;
+const CONTAINER_MARKER = /[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))/y;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
 const KEEPALIVE_AFTER_MS = 10_000;
 const SUGGESTION_ADAPTER = "content.document-markdown";
@@ -60,7 +64,7 @@ export const CENSUS_STATEMENTS = {
   suggestionOperations:
     "SELECT o.suggestion_id, o.operation_kind, o.target_id, o.schema_version, p.payload_bytes, CASE WHEN p.payload_bytes <= ? THEN o.before_json END AS before_json, CASE WHEN p.payload_bytes <= ? THEN o.after_json END AS after_json, CASE WHEN p.payload_bytes <= ? THEN o.anchor_json END AS anchor_json FROM agent_review_suggestion_operations o CROSS JOIN LATERAL (SELECT COALESCE(octet_length(o.before_json), 0) + COALESCE(octet_length(o.after_json), 0) + COALESCE(octet_length(o.anchor_json), 0) AS payload_bytes) p WHERE o.suggestion_id = ANY(?) ORDER BY o.suggestion_id, o.ordinal",
   comments:
-    "SELECT id, document_id, quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id, id) >= (?, ?) ORDER BY document_id, id LIMIT ?",
+    "SELECT id, document_id, CASE WHEN octet_length(quoted_text) <= ? THEN quoted_text END AS quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id, id) >= (?, ?) ORDER BY document_id, id LIMIT ?",
   drafts:
     "SELECT document_id, COUNT(*) AS drafts FROM document_preview_drafts WHERE document_id = ANY(?) GROUP BY document_id ORDER BY document_id",
   collabRows: "SELECT COUNT(*) AS rows FROM _collab_docs",
@@ -229,17 +233,21 @@ type LiveCopyOutcome =
   | "lossy"
   | "unreadable"
   | "tooLarge"
-  | "tooLongToParse"
+  | "pastParserLimits"
   | "missing"
   | "bodyNotRead";
 
-/** Whether Content's parser can read `text` within the caps above. */
-function withinParserLimits(text: string): boolean {
+/** Whether the census's parsers can read `text` within the caps above. */
+export function withinParserLimits(text: string): boolean {
   if (text.length > MAX_BODY_BYTES) return false;
   for (let start = 0; start <= text.length; ) {
     const end = text.indexOf("\n", start);
     const stop = end === -1 ? text.length : end;
     if (stop - start > MAX_LINE_CHARS) return false;
+    CONTAINER_MARKER.lastIndex = start;
+    let depth = 0;
+    while (CONTAINER_MARKER.lastIndex < stop && CONTAINER_MARKER.test(text))
+      if (++depth > MAX_NESTING) return false;
     start = stop + 1;
   }
   return true;
@@ -252,7 +260,7 @@ function liveCopyOutcome(state: string, body: string): LiveCopyOutcome {
     const live = materializeLiveBody(ydoc);
     // A stored state under its byte cap can still hold text past the parser's.
     if (live.kind === "body" && !withinParserLimits(live.markdown))
-      return "tooLongToParse";
+      return "pastParserLimits";
     const parity = compareLiveBody(live, body);
     if (parity === "mismatch") return "stale";
     if (
@@ -428,9 +436,10 @@ export async function runStoredFormCensusScan(
     canonical: new PageBucket(0),
     nonCanonical: pageBucket(),
     canonicalizeFailed: pageBucket(),
+    unclassified: pageBucket(),
     unreadable: pageBucket(),
     tooLarge: pageBucket(),
-    tooLongToParse: pageBucket(),
+    pastParserLimits: pageBucket(),
     notIdempotent: pageBucket(),
     idempotenceThrows: pageBucket(),
     lossy: pageBucket(),
@@ -480,7 +489,7 @@ export async function runStoredFormCensusScan(
         continue;
       }
       if (!withinParserLimits(row.content)) {
-        bodies.tooLongToParse.add(page);
+        bodies.pastParserLimits.add(page);
         continue;
       }
       batchBodies.set(page.id, row.content);
@@ -488,6 +497,10 @@ export async function runStoredFormCensusScan(
       await keepAlive();
       if (result.status === "failed") {
         bodies.canonicalizeFailed.add(page);
+        continue;
+      }
+      if (result.status === "unclassified") {
+        bodies.unclassified.add(page);
         continue;
       }
       if (result.losses.length > 0) bodies.lossy.add(page);
@@ -598,7 +611,13 @@ export async function runStoredFormCensusScan(
       };
       for await (const comments of keysetPages(
         ([document, id], limit) =>
-          read(CENSUS_STATEMENTS.comments, [agentFormIds, document, id, limit]),
+          read(CENSUS_STATEMENTS.comments, [
+            MAX_BODY_BYTES,
+            agentFormIds,
+            document,
+            id,
+            limit,
+          ]),
         (row) => [String(row.document_id), String(row.id)],
         2,
         ITEM_BATCH,
@@ -606,12 +625,16 @@ export async function runStoredFormCensusScan(
         for (const row of comments) {
           const page = pages.get(String(row.document_id))!;
           const anchors = anchorsFor(page);
+          // The query keeps only non-empty quotes, so a null one was over the
+          // cap: longer than any body the census reads, and not loaded.
           const quote = row.quoted_text;
           agentForm.comments
             .get(
-              anchors === "unreadable" || typeof quote !== "string"
-                ? "unreadable"
-                : commentOutcome(anchors.now, anchors.after, quote),
+              quote == null
+                ? "tooLarge"
+                : anchors === "unreadable" || typeof quote !== "string"
+                  ? "unreadable"
+                  : commentOutcome(anchors.now, anchors.after, quote),
             )
             .add(page);
           await keepAlive();
@@ -656,18 +679,19 @@ export async function runStoredFormCensusScan(
       bodies.tooLarge.pages,
     ],
     [
-      `bodies with a line over ${MAX_LINE_CHARS} characters, not classified`,
-      bodies.tooLongToParse.pages,
+      `bodies with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels, not classified`,
+      bodies.pastParserLimits.pages,
     ],
     ["bodies canonicalizeNfm threw on", bodies.canonicalizeFailed.pages],
+    ["bodies the census could not classify", bodies.unclassified.pages],
     ["unreadable live copies", liveCopies.byOutcome.pagesIn("unreadable")],
     [
       `live copies over ${MAX_LIVE_COPY_BASE64_BYTES} bytes, not compared`,
       liveCopies.byOutcome.pagesIn("tooLarge"),
     ],
     [
-      `live copies over ${MAX_BODY_BYTES} characters or with a line over ${MAX_LINE_CHARS}, not compared`,
-      liveCopies.byOutcome.pagesIn("tooLongToParse"),
+      `live copies over ${MAX_BODY_BYTES} characters, or with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels, not compared`,
+      liveCopies.byOutcome.pagesIn("pastParserLimits"),
     ],
     [
       "pages with suggestions that could not be read or resolved",
@@ -680,6 +704,10 @@ export async function runStoredFormCensusScan(
     [
       "pages with comments whose anchors could not be checked",
       agentForm.comments.pagesIn("unreadable"),
+    ],
+    [
+      `pages with comment quotes over ${MAX_BODY_BYTES} bytes, not checked`,
+      agentForm.comments.pagesIn("tooLarge"),
     ],
     [
       "pages with comments whose repeated quote may land elsewhere",
@@ -708,11 +736,12 @@ export async function runStoredFormCensusScan(
       lossByKind: bodies.lossByKind,
       canonicalButMisread: bodies.canonicalButMisread,
       canonicalizeFailed: bodies.canonicalizeFailed,
+      unclassified: bodies.unclassified,
       notIdempotent: bodies.notIdempotent,
       idempotenceThrows: bodies.idempotenceThrows,
       unreadable: bodies.unreadable,
       tooLarge: bodies.tooLarge,
-      tooLongToParse: bodies.tooLongToParse,
+      pastParserLimits: bodies.pastParserLimits,
     },
     liveCopies: hasCollab
       ? {
