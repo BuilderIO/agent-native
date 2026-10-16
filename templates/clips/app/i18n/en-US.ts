@@ -2154,6 +2154,7 @@ const messages = {
     viewsCount: "{{count}} views",
     recordingMenu: "Recording menu",
     moveToFolder: "Move to folder",
+    moveHere: "Move here",
     unarchive: "Unarchive",
     shareNamedMeeting: 'Share "{{title}}"',
     shareMeeting: "Share meeting",
