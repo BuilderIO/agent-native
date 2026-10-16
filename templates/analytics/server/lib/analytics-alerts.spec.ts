@@ -315,6 +315,7 @@ describe("analytics alert evaluation", () => {
     expect(firstPartyMocks.query).toHaveBeenCalledWith(
       expect.stringContaining("JSON_VALUE(properties, '$.status') = 'errored'"),
       { userEmail: "owner@example.test", orgId: "org-1" },
+      { eventsSource: "raw" },
     );
   });
 

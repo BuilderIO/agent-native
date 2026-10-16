@@ -42,6 +42,7 @@ import {
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   insertFirstPartyAnalyticsRowsWithResults,
+  planFirstPartyEventsSource,
   queryFirstPartyAnalyticsInBigQuery,
 } from "./first-party-analytics-backend.js";
 import {
@@ -116,6 +117,11 @@ export interface AnalyticsQueryOptions {
   >;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
+  /**
+   * Read the raw event table even when an events model is configured, for
+   * callers that need events newer than the model's last build.
+   */
+  eventsSource?: "raw";
 }
 
 export class FirstPartyAnalyticsQueryTimeoutError extends Error {
@@ -1652,15 +1658,21 @@ export async function queryFirstPartyAnalytics(
           signal,
         );
         const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
+        const renderOptions = {
+          eventDateRange: options.eventDateRange,
+          scopedEventsSingleScan: options.scopedEventsSingleScan === true,
+          scopedEventsProjection: options.scopedEventsProjection,
+          scopedEventsSourceProjections: options.scopedEventsSourceProjections,
+        };
         const result = await raceWithAbort(
           queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
+            ...renderOptions,
+            eventsSource: planFirstPartyEventsSource(sql, backend.modelTable, {
+              ...renderOptions,
+              eventsSource: options.eventsSource,
+            }),
             maxBytesBilled: options.maxBytesBilled,
             timeoutMs: remainingTime(),
-            eventDateRange: options.eventDateRange,
-            scopedEventsSingleScan: options.scopedEventsSingleScan === true,
-            scopedEventsProjection: options.scopedEventsProjection,
-            scopedEventsSourceProjections:
-              options.scopedEventsSourceProjections,
             signal,
           }),
           signal,
