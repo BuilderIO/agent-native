@@ -514,7 +514,7 @@ export function useShareDialogController({
       label: currentVisibility.label,
       description: currentVisibility.description,
       options: visibilityOptions,
-      disabled: !canManage,
+      disabled: !canManage || visibilityTransition.submitting,
       pending: visibilityMutation.isPending,
       set: setVisibility,
       transition: visibilityTransition,

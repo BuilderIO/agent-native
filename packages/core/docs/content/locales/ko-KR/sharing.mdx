@@ -158,6 +158,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 
 서버는 페이지 매김 전에 `ownership`을 적용하므로 `limit`, `offset`, `hasMore`는 필터링된 목록을 설명합니다. 검색도 같은 필터를 받습니다. 알 수 없는 값은 `all`로 대체되지 않고 400으로 거부됩니다. 액세스 규칙은 바뀌지 않으며 목록을 불러올 때 대화 내용은 로드되지 않습니다.
 
+마이그레이션: 기록 목록과 검색을 직접 호출할 때는 `limit`에 양의 정수, `offset`에 음이 아닌 정수를 보내거나 기본값을 사용하도록 생략해야 합니다. 잘못된 형식의 값은 이제 자동 변환되지 않고 HTTP 400을 반환합니다. 200을 초과하는 유효한 제한값은 200으로 제한됩니다.
+
 클라이언트 코드에서 `@agent-native/core/client`의 `useChatThreadList()`는 한 번에 하나의 목록을 페이지 단위로 가져옵니다.
 
 ```tsx

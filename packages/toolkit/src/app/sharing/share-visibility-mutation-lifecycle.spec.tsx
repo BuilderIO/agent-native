@@ -132,6 +132,7 @@ interface Surface {
   confirm: () => Promise<void>;
   cancel: () => void;
   value: () => ShareVisibility;
+  busy: () => boolean;
   /** The error the UI shows for the share surface; null when clean. */
   error: () => unknown;
 }
@@ -205,6 +206,7 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     await tick();
     expect(transport.writes.map((w) => w.visibility)).toEqual(["public"]);
     expect(first.status).toBe("pending");
+    expect(surface.busy()).toBe(true);
     expect(second.status).toBe("rejected");
     expect(second.reason).toMatchObject({
       name: "ShareVisibilityNotSavedError",
@@ -215,6 +217,7 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
 
     await drive(() => transport.writes[0].resolve());
     await tick();
+    expect(surface.busy()).toBe(false);
     const retry = await start(() => surface.request("private"));
     await until(() => transport.writes.length === 2, "the retry write");
     expect(retry.status).toBe("pending");
@@ -629,6 +632,7 @@ function buttonSurface(env: Env): Surface {
     cancel: () => live().visibilityTransition.cancel(),
     value: () => live().visibility,
     error: () => live().shareError,
+    busy: () => live().visibilityTransition.submitting,
   };
 }
 
@@ -667,5 +671,6 @@ function dialogSurface(env: Env): Surface {
     cancel: () => live().visibility.transition.cancel(),
     value: () => live().visibility.value,
     error: () => live().error,
+    busy: () => live().visibility.disabled,
   };
 }

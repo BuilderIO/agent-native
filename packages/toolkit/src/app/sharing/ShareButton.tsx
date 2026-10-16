@@ -1583,7 +1583,9 @@ export function ShareGeneralAccessRow({
         <VisibilitySelect
           value={controller.visibility}
           onChange={controller.handleVisibility}
-          disabled={!controller.canManage}
+          disabled={
+            !controller.canManage || controller.visibilityTransition.submitting
+          }
           sentenceTrigger={sentenceTrigger}
           visibilityCopy={visibilityCopy}
           allowPublic={controller.policy.allowPublic}

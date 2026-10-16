@@ -133,7 +133,13 @@ describe("useShareButtonController", () => {
     root = createRoot(container);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await act(async () => {
+      for (const [variables, callbacks] of mocks.setVisibility.mutate.mock
+        .calls) {
+        callbacks?.onSuccess?.({ visibility: variables.visibility });
+      }
+    });
     act(() => root.unmount());
     queryClient.clear();
     container.remove();

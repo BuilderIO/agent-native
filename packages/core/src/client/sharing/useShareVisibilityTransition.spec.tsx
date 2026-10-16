@@ -168,6 +168,53 @@ describe("useShareVisibilityTransition resource locks", () => {
     });
   });
 
+  it.each(["success", "failure"] as const)(
+    "retains the direct save lock and busy state across remount until %s",
+    async (outcome) => {
+      const write = deferred();
+      const retry = deferred();
+      const apply = vi.fn(() => write.promise);
+      render({ current: "org", apply });
+      let saved!: Promise<void>;
+      act(() => {
+        saved = transition.request("private");
+      });
+      expect(transition.submitting).toBe(true);
+      act(() => root.unmount());
+      root = createRoot(container);
+      const remountedApply = vi.fn(() => retry.promise);
+      render({ apply: remountedApply });
+      expect(transition.submitting).toBe(true);
+      expect(transition.request("private")).toBe(saved);
+      await expect(transition.request("public")).rejects.toMatchObject({
+        reason: "ignored",
+      });
+      expect(remountedApply).not.toHaveBeenCalled();
+      const failure = new Error("unmounted write failed");
+      await act(async () => {
+        if (outcome === "success") {
+          write.resolve();
+          await saved;
+        } else {
+          write.reject(failure);
+          await expect(saved).rejects.toBe(failure);
+        }
+      });
+      expect(transition.submitting).toBe(false);
+      let retried!: Promise<void>;
+      act(() => {
+        retried = transition.request("public");
+      });
+      expect(transition.submitting).toBe(true);
+      expect(remountedApply).toHaveBeenCalledOnce();
+      await act(async () => {
+        retry.resolve();
+        await retried;
+      });
+      expect(transition.submitting).toBe(false);
+    },
+  );
+
   it("keeps an active confirmation failure retryable and resolves its caller after persistence", async () => {
     const first = deferred();
     const retry = deferred();

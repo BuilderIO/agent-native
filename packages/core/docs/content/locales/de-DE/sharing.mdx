@@ -158,6 +158,8 @@ Verlaufslisten und die Suche akzeptieren einen `ownership`-Filter:
 
 Der Server wendet `ownership` vor der Paginierung an, daher beschreiben `limit`, `offset` und `hasMore` die gefilterte Liste. Die Suche akzeptiert denselben Filter. Ein unbekannter Wert wird mit einem 400 abgelehnt, statt auf `all` zurückzufallen. Die Zugriffsregeln ändern sich nicht, und beim Auflisten werden keine Transkripte geladen.
 
+Migration: Eigene Aufrufe der Verlaufsliste und Suche müssen eine positive Ganzzahl für `limit` und eine nicht negative Ganzzahl für `offset` senden oder beide für die Standardwerte weglassen. Ungültige Werte liefern jetzt HTTP 400, statt automatisch umgewandelt zu werden. Gültige Limits über 200 werden auf 200 begrenzt.
+
 Im Client-Code paginiert `useChatThreadList()` aus `@agent-native/core/client` jeweils eine Liste:
 
 ```tsx

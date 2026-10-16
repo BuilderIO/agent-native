@@ -159,7 +159,9 @@ export function ChatHistoryList({
     0,
   );
   const hasSearchValue = Boolean(searchValue?.trim());
-  const hasSectionState = resolvedSections.some(sectionHasState);
+  const hasSectionState = resolvedSections.some((section) =>
+    sectionHasState(section, hasSearchValue),
+  );
 
   return (
     <div
@@ -198,7 +200,8 @@ export function ChatHistoryList({
         ) : (
           resolvedSections.map(
             (section) =>
-              (section.items.length > 0 || sectionHasState(section)) && (
+              (section.items.length > 0 ||
+                sectionHasState(section, hasSearchValue)) && (
                 <div
                   key={section.id}
                   className="an-chat-history__section"
@@ -231,7 +234,9 @@ export function ChatHistoryList({
                         />
                       ))}
                     </div>
-                  ) : section.items.length === 0 && section.emptyLabel ? (
+                  ) : section.items.length === 0 &&
+                    !hasSearchValue &&
+                    section.emptyLabel ? (
                     <div className="an-chat-history__state">
                       {section.emptyLabel}
                     </div>
@@ -263,9 +268,15 @@ export function ChatHistoryList({
   );
 }
 
-function sectionHasState(section: ChatHistorySection): boolean {
+function sectionHasState(
+  section: ChatHistorySection,
+  searching: boolean,
+): boolean {
   return Boolean(
-    section.loading || section.error || section.emptyLabel || section.footer,
+    section.loading ||
+    section.error ||
+    (!searching && section.emptyLabel) ||
+    section.footer,
   );
 }
 

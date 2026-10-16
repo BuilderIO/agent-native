@@ -21,7 +21,9 @@ describe("organization confirmation from the keyboard", () => {
   let root: Root;
   let queryClient: QueryClient;
   let transition: ShareVisibilityTransition;
-  let saved: ReturnType<typeof vi.fn<(next: Visibility) => void>>;
+  let saved: ReturnType<
+    typeof vi.fn<(next: Visibility) => void | Promise<void>>
+  >;
 
   function Harness() {
     const [visibility, setVisibility] = useState<Visibility>("private");
@@ -33,7 +35,7 @@ describe("organization confirmation from the keyboard", () => {
       canManage: true,
       active: true,
       apply: async (next) => {
-        saved(next);
+        await saved(next);
         setVisibility(next);
       },
       onDirectError: () => undefined,
@@ -151,6 +153,28 @@ describe("organization confirmation from the keyboard", () => {
       await Promise.resolve();
     });
   }
+
+  it("disables the existing picker for a physical direct save and enables it after settlement", async () => {
+    let finish!: () => void;
+    saved.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    let applying!: Promise<void>;
+    act(() => {
+      applying = transition.request("public");
+    });
+    expect(trigger().disabled).toBe(true);
+    expect(transition.submitting).toBe(true);
+    await act(async () => {
+      finish();
+      await applying;
+    });
+    expect(trigger().disabled).toBe(false);
+    expect(transition.submitting).toBe(false);
+  });
 
   it("keeps Enter on the picker: Enter on Organization holds the change and opens the confirmation with Cancel focused", async () => {
     await chooseOrganizationWith("Enter");

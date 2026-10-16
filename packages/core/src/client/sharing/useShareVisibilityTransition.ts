@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { useOrg } from "../org/hooks.js";
 import { extractShareErrorMessage } from "./share-controller-helpers.js";
@@ -104,13 +110,38 @@ interface PendingState extends ShareVisibilityTransitionRequest {
   settle: { resolve: () => void; reject: (reason: unknown) => void };
 }
 
+// A surface can unmount while its server write keeps running. Keep the lock
+// for that write's lifetime across all sharing surfaces in this browser session.
+const inflightSaves = new Map<
+  string,
+  { target: ShareVisibility; promise: Promise<void> }
+>();
+const saveListeners = new Set<() => void>();
+
+function subscribeToSaves(listener: () => void) {
+  saveListeners.add(listener);
+  return () => {
+    saveListeners.delete(listener);
+  };
+}
+
+function notifySaves() {
+  for (const listener of saveListeners) listener();
+}
+
 export function useShareVisibilityTransition(
   options: ShareVisibilityTransitionOptions,
 ): ShareVisibilityTransition {
   const { resourceType, resourceId, current, canManage, active } = options;
   const resourceKey = `${resourceType}:${resourceId}`;
   const [pending, setPendingState] = useState<PendingState | null>(null);
-  const [submitting, setSubmittingState] = useState(false);
+  const [confirming, setSubmittingState] = useState(false);
+  const inflight = useSyncExternalStore(
+    subscribeToSaves,
+    () => inflightSaves.get(resourceKey),
+    () => undefined,
+  );
+  const submitting = confirming || inflight !== undefined;
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef<PendingState | null>(null);
   // Closing the surface drops its UI state, but cannot cancel a server write.
@@ -118,15 +149,12 @@ export function useShareVisibilityTransition(
   // Bumped whenever the pending request is dropped, so a save that finishes
   // afterwards cannot touch the next request's state.
   const generationRef = useRef(0);
-  // A server write cannot be cancelled: join its target or refuse a different
-  // target until it settles so writes on one resource cannot commit out of order.
-  const inflightRef = useRef(
-    new Map<string, { target: ShareVisibility; promise: Promise<void> }>(),
-  );
   const latestRef = useRef({ ...options, resourceKey });
   latestRef.current = { ...options, resourceKey };
 
-  const org = useOrg({ enabled: active && canManage });
+  const org = useOrg({
+    enabled: active && canManage && pending !== null && options.orgId !== null,
+  });
   const organizationName = readOrganizationName(org.data, options.orgId);
 
   const reset = useCallback(() => {
@@ -159,10 +187,13 @@ export function useShareVisibilityTransition(
   const track = useCallback(
     (key: string, target: ShareVisibility, promise: Promise<void>) => {
       const entry = { target, promise };
-      inflightRef.current.set(key, entry);
+      inflightSaves.set(key, entry);
+      notifySaves();
       const clear = () => {
-        if (inflightRef.current.get(key) === entry)
-          inflightRef.current.delete(key);
+        if (inflightSaves.get(key) === entry) {
+          inflightSaves.delete(key);
+          notifySaves();
+        }
       };
       promise.then(clear, clear);
     },
@@ -172,7 +203,7 @@ export function useShareVisibilityTransition(
   const request = useCallback(
     (next: ShareVisibility): Promise<void> => {
       const latest = latestRef.current;
-      const inflight = inflightRef.current.get(latest.resourceKey);
+      const inflight = inflightSaves.get(latest.resourceKey);
       if (inflight?.target === next) return inflight.promise;
       if (inflight) return notSaved("ignored");
       if (next === latest.current) {
@@ -222,7 +253,12 @@ export function useShareVisibilityTransition(
 
   const confirm = useCallback(async () => {
     const state = pendingRef.current;
-    if (!state || confirmingRef.current.has(state.resourceKey)) return;
+    if (
+      !state ||
+      confirmingRef.current.has(state.resourceKey) ||
+      inflightSaves.has(state.resourceKey)
+    )
+      return;
     const latest = latestRef.current;
     // The effects that drop a stale request run after render; a click can
     // land before them, so the request is checked against the live values.
