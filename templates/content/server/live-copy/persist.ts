@@ -234,7 +234,7 @@ async function assertMembershipsLocked(
 /**
  * Refuses a server write whose page left its live copy after the write
  * chose it. A commit persist leaves alone would put the edit in Yjs and not
- * in SQL; the writer takes the legacy path instead.
+ * in SQL; the writer can take its legacy path instead.
  */
 function writePathChanged(documentId: string, reason: string): never {
   throw new ActionContractError(
@@ -626,7 +626,6 @@ export async function persistContentLiveCopy(
   const locked = await lockPageForBodyWrite(db, commit.docId);
   const gate = await liveBodyWriterGateForRow(locked?.page, {
     transaction: tx,
-    collabVersion: commit.previousVersion,
   });
   if (!locked || gate.writePath === "legacy") {
     const reason = gate.writePath === "legacy" ? gate.reason : "no_page";
@@ -659,13 +658,11 @@ export async function persistUnchangedContentBodyEdit(
   tx: DbExec,
   documentId: string,
   cause: ContentBodyWriteCause,
-  collabVersion: number,
 ): Promise<void> {
   const db = drizzleOverExec(tx);
   const locked = await lockPageForBodyWrite(db, documentId);
   const gate = await liveBodyWriterGateForRow(locked?.page, {
     transaction: tx,
-    collabVersion,
   });
   if (!locked || gate.writePath === "legacy") {
     writePathChanged(
