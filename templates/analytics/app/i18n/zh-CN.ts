@@ -1247,6 +1247,7 @@ export default {
     certificationFailed: "无法认证仪表板：{{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "{{age}}更新",
     public: "Public",
     sharedWithOrg: "与组织共享",
     private: "Private",

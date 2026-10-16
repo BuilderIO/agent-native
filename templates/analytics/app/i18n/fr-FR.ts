@@ -1347,6 +1347,7 @@ export default {
     certificationFailed: "Impossible de certifier le tableau : {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "Mis à jour {{age}}",
     public: "Public",
     sharedWithOrg: "Partagé avec l'organisation",
     private: "Private",

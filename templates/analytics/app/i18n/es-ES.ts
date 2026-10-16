@@ -1340,6 +1340,7 @@ export default {
     certificationFailed: "No se pudo certificar el panel: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "Actualizado {{age}}",
     public: "Public",
     sharedWithOrg: "Compartido con la organización",
     private: "Private",

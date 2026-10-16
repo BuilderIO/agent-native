@@ -114,7 +114,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip as HoverTooltip,
   TooltipContent as HoverTooltipContent,
@@ -127,7 +126,6 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
-import type { SqlQueryFreshness } from "@/lib/sql-query-freshness";
 import {
   resolveDualAxis,
   type ChartAxisSide,
@@ -148,11 +146,6 @@ import {
 } from "./dashboard-annotations-context";
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
 import {
-  describeFreshnessText,
-  useIsStaleResult,
-  useRefreshConfirmation,
-} from "./panel-freshness";
-import {
   DataNoteLines,
   renderDataNoteBands,
   useDataNoteChartMargin,
@@ -163,6 +156,12 @@ import {
   useEventMarkerAxisPadding,
   useEventMarkerGroups,
 } from "./event-markers";
+import {
+  useIsStaleResult,
+  useRefreshConfirmation,
+  type PanelFreshness,
+} from "./panel-freshness";
+import { PanelFreshnessClock } from "./PanelFreshnessClock";
 
 export { limitChartRows };
 
@@ -1231,16 +1230,6 @@ function ConfigWarning({ keys }: { keys: string[] }) {
   );
 }
 
-function SqlChartStaleText({ freshness }: { freshness: SqlQueryFreshness }) {
-  const t = useT();
-  const formatters = useFormatters();
-  return (
-    <time dateTime={freshness.fetchedAt} className="truncate">
-      {describeFreshnessText(t, formatters, freshness, "compact")}
-    </time>
-  );
-}
-
 function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
   const t = useT();
   const formatters = useFormatters();
@@ -1286,7 +1275,7 @@ interface SqlChartProps {
    * The freshness of the result on screen, for a host that shows it outside
    * the chart; null when no result is shown, and again when the chart unmounts.
    */
-  onFreshnessChange?: (freshness: SqlQueryFreshness | null) => void;
+  onFreshnessChange?: (freshness: PanelFreshness | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   /** Passing this makes a table's columns editable; omit it for read-only tables. */
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
@@ -1457,15 +1446,30 @@ export function SqlChart({
       ? shownFreshness?.cache
       : undefined;
   const reportedFetchedAt = shownFreshness?.fetchedAt;
+  const reportedStatus: PanelFreshness["status"] = isUpdating
+    ? isShowingPreviousFilters
+      ? "previous-filters-updating"
+      : "updating"
+    : isPausedOnPreviousFilters
+      ? "previous-filters"
+      : refreshConfirmed
+        ? "refreshed"
+        : isStale
+          ? "stale"
+          : undefined;
   useEffect(() => {
     if (!onFreshnessChange) return;
     onFreshnessChange(
       reportedCache
-        ? { fetchedAt: reportedFetchedAt, cache: reportedCache }
+        ? {
+            fetchedAt: reportedFetchedAt,
+            cache: reportedCache,
+            ...(reportedStatus ? { status: reportedStatus } : {}),
+          }
         : null,
     );
     return () => onFreshnessChange(null);
-  }, [onFreshnessChange, reportedCache, reportedFetchedAt]);
+  }, [onFreshnessChange, reportedCache, reportedFetchedAt, reportedStatus]);
 
   if (isSection) {
     return (
@@ -1549,47 +1553,6 @@ export function SqlChart({
   }
 
   const missingConfigKeys = plan.missingKeys;
-  // The label is one line in a slot whose height never changes, so a label
-  // appearing, changing, or disappearing moves nothing, and a long label
-  // truncates instead of growing into the chart.
-  const noticeText =
-    "inline-flex min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground";
-  const statusNotice = isUpdating ? (
-    <span
-      role="status"
-      data-dashboard-report-updating={
-        isShowingPreviousFilters ? "previous-filters" : "refresh"
-      }
-      className={noticeText}
-    >
-      <Spinner aria-hidden="true" className="size-3 shrink-0" />
-      <span className="truncate">
-        {t(
-          isShowingPreviousFilters
-            ? "sqlDashboard.updatingPreviousFilters"
-            : "sqlDashboard.updating",
-        )}
-      </span>
-    </span>
-  ) : isPausedOnPreviousFilters ? (
-    <span
-      data-dashboard-report-paused="previous-filters"
-      className={noticeText}
-    >
-      <span className="truncate">{t("sqlDashboard.previousFilters")}</span>
-    </span>
-  ) : refreshConfirmed ? (
-    <span role="status" data-dashboard-report-refreshed className={noticeText}>
-      <span className="truncate">{t("sqlDashboard.refreshed")}</span>
-    </span>
-  ) : isStale && shownFreshness ? (
-    <span
-      data-dashboard-report-stale={shownFreshness.cache}
-      className={noticeText}
-    >
-      <SqlChartStaleText freshness={shownFreshness} />
-    </span>
-  ) : null;
   const withConfigBanners = (node: ReactNode) => {
     if (refreshError) {
       return (
@@ -1635,14 +1598,30 @@ export function SqlChart({
   };
 
   const withNotice = (node: ReactNode) => (
-    <div className="flex h-full min-h-0 flex-col">
-      <div
-        data-dashboard-report-status-slot
-        className="pointer-events-none flex h-5 min-h-5 shrink-0 items-center justify-end overflow-hidden"
-      >
-        {statusNotice}
+    <div
+      className={
+        onFreshnessChange
+          ? "flex h-full min-h-0 flex-col"
+          : "grid h-full min-h-0 grid-cols-[minmax(0,1fr)_1.5rem] items-start gap-x-1"
+      }
+    >
+      <div data-dashboard-report-chart-body className="h-full min-h-0 min-w-0">
+        {node}
       </div>
-      <div className="min-h-0 flex-1">{node}</div>
+      {!onFreshnessChange && (shownFreshness || reportedStatus) ? (
+        <div data-dashboard-report-standalone-status className="min-w-0">
+          <HoverTooltipProvider>
+            <PanelFreshnessClock
+              freshness={{
+                cache: "unknown",
+                ...shownFreshness,
+                status: reportedStatus,
+              }}
+              className="h-6 w-6 p-1"
+            />
+          </HoverTooltipProvider>
+        </div>
+      ) : null}
     </div>
   );
   const withConfigWarning = (node: ReactNode) =>

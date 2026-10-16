@@ -1295,6 +1295,7 @@ export default {
     certificationFailed: "تعذر اعتماد لوحة المعلومات: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "تم التحديث {{age}}",
     public: "Public",
     sharedWithOrg: "تمت المشاركة مع منظمة",
     private: "Private",

@@ -610,6 +610,63 @@
   opacity: 1;
 }
 
+.dashboard-chart-card {
+  container-type: inline-size;
+}
+
+/* Status and hover controls keep their tracks when their contents change. */
+.dashboard-panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.5rem 5rem;
+  align-items: center;
+  column-gap: 0.5rem;
+}
+
+.dashboard-panel-header > * {
+  margin-block: 0;
+}
+
+.dashboard-panel-freshness {
+  height: 1.5rem;
+}
+
+.dashboard-panel-freshness .panel-freshness-routine {
+  opacity: 0;
+}
+
+.dashboard-chart-card:hover .panel-freshness-routine,
+.dashboard-chart-card:focus-within .panel-freshness-routine {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .dashboard-panel-freshness .panel-freshness-routine {
+    opacity: 1;
+  }
+}
+
+.panel-freshness-text {
+  display: none;
+}
+
+.dashboard-panel-actions {
+  height: 1.5rem;
+}
+
+@container (min-width: 30rem) {
+  .dashboard-panel-header {
+    grid-template-columns: minmax(0, 1fr) 9rem 5rem;
+  }
+
+  .dashboard-panel-freshness .panel-freshness-text {
+    display: block;
+  }
+
+  .dashboard-panel-freshness .panel-freshness-routine {
+    opacity: 1;
+  }
+}
+
 .dashboard-chart-card[data-dragging="true"],
 .dashboard-section-card[data-dragging="true"] {
   opacity: 0.55;

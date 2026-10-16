@@ -134,8 +134,12 @@ describe("SqlChart manual refresh confirmation", () => {
     expect(confirmation()).toBeNull();
 
     await settle(1, { completed: 1, updatedAt: 2_000 });
-    expect(confirmation()?.textContent).toBe("sqlDashboard.refreshed");
-    expect(confirmation()?.getAttribute("role")).toBe("status");
+    expect(
+      confirmation()?.querySelector(".panel-freshness-text")?.textContent,
+    ).toBe("sqlDashboard.refreshed");
+    expect(confirmation()?.querySelector("[role=status]")?.textContent).toBe(
+      "sqlDashboard.refreshed",
+    );
     expect(container.textContent).toContain("42");
 
     await advance(REFRESH_CONFIRMATION_MS - 1);

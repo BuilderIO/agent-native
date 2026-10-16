@@ -1319,6 +1319,7 @@ export default {
     certificationFailed: "ダッシュボードを認定できませんでした: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "{{age}}に更新",
     public: "Public",
     sharedWithOrg: "組織と共有",
     private: "Private",

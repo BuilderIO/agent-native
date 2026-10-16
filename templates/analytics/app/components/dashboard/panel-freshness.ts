@@ -16,6 +16,35 @@ const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 type Translate = ReturnType<typeof useT>;
 type Formatters = Pick<ReturnType<typeof useFormatters>, "formatDate">;
 
+export type PanelFreshness = SqlQueryFreshness & {
+  status?:
+    | "updating"
+    | "previous-filters-updating"
+    | "previous-filters"
+    | "refreshed"
+    | "stale";
+};
+
+export function relativeFetchAge(
+  formatters: Pick<ReturnType<typeof useFormatters>, "formatRelativeTime">,
+  fetchedAt: string,
+  now: number,
+): string | undefined {
+  const age = now - Date.parse(fetchedAt);
+  if (!Number.isFinite(age) || age < 0) return undefined;
+  const minutes = Math.floor(age / 60_000);
+  const [value, unit] =
+    minutes < 60
+      ? [minutes, "minute" as const]
+      : minutes < 1440
+        ? [Math.floor(minutes / 60), "hour" as const]
+        : [Math.floor(minutes / 1440), "day" as const];
+  return formatters.formatRelativeTime(-value, unit, {
+    style: "narrow",
+    numeric: "always",
+  });
+}
+
 /** The time alone for today's fetch, with the date once it is older. */
 function fetchedTimeFormat(fetchedAt: string): Intl.DateTimeFormatOptions {
   const fetched = new Date(fetchedAt);

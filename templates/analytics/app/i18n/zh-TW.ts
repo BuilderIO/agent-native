@@ -1330,6 +1330,7 @@ export default {
     certificationFailed: "無法核准儀表板：{{message}}",
     details: "Details",
     updated: "已於 {{date}} 更新",
+    updatedAgo: "{{age}}更新",
     public: "Public",
     sharedWithOrg: "與組織共用",
     private: "Private",

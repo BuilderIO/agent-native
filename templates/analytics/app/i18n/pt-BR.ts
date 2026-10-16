@@ -1336,6 +1336,7 @@ export default {
     certificationFailed: "Não foi possível certificar o dashboard: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "Atualizado {{age}}",
     public: "Public",
     sharedWithOrg: "Compartilhado com a organização",
     private: "Private",

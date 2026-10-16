@@ -1352,6 +1352,7 @@ export default {
       "Dashboard konnte nicht zertifiziert werden: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "Aktualisiert {{age}}",
     public: "Public",
     sharedWithOrg: "Mit Org geteilt",
     private: "Private",

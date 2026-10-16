@@ -4,17 +4,26 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SqlQueryFreshness } from "@/lib/sql-query-freshness";
+import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
 
 const mocks = vi.hoisted(() => ({
+  session: { userId: "test-user", orgId: "test-org" } as {
+    userId: string;
+    orgId: string;
+  } | null,
+  sessionStatus: "authenticated" as
+    | "authenticated"
+    | "loading"
+    | "unauthenticated",
   chartProps: [] as Array<{
     panelId: string;
-    onFreshnessChange?: (freshness: SqlQueryFreshness | null) => void;
+    onFreshnessChange?: (freshness: PanelFreshness | null) => void;
   }>,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSession: () => ({ session: mocks.session, status: mocks.sessionStatus }),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -23,10 +32,19 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) =>
-    values?.time ? `${key}(${values.time})` : key,
+    values?.time
+      ? `${key}(${values.time})`
+      : values?.age
+        ? `Updated ${values.age}`
+        : key,
   useFormatters: () => ({
     formatDate: (value: string, options?: { dateStyle?: string }) =>
       options?.dateStyle ? `full:${value}` : `formatted:${value}`,
+    formatRelativeTime: (
+      value: number,
+      unit: Intl.RelativeTimeFormatUnit,
+      options?: Intl.RelativeTimeFormatOptions,
+    ) => new Intl.RelativeTimeFormat("en", options).format(value, unit),
   }),
 }));
 
@@ -45,7 +63,7 @@ vi.mock("@/components/dashboard/SqlChart", () => ({
   ),
   SqlChart: (props: {
     panel: { id: string };
-    onFreshnessChange?: (freshness: SqlQueryFreshness | null) => void;
+    onFreshnessChange?: (freshness: PanelFreshness | null) => void;
   }) => {
     mocks.chartProps.push({
       panelId: props.panel.id,
@@ -101,7 +119,11 @@ describe("SqlChartCard freshness clock", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(Date.parse(FETCHED_AT) + 5 * 60_000);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mocks.session = { userId: "test-user", orgId: "test-org" };
+    mocks.sessionStatus = "authenticated";
     mocks.chartProps = [];
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -112,6 +134,7 @@ describe("SqlChartCard freshness clock", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   const render = (props: Partial<Parameters<typeof SqlChartCard>[0]> = {}) =>
@@ -128,7 +151,7 @@ describe("SqlChartCard freshness clock", () => {
         </TooltipProvider>,
       );
     });
-  const report = (freshness: SqlQueryFreshness | null) =>
+  const report = (freshness: PanelFreshness | null) =>
     act(async () => {
       mocks.chartProps[mocks.chartProps.length - 1]!.onFreshnessChange?.(
         freshness,
@@ -142,7 +165,36 @@ describe("SqlChartCard freshness clock", () => {
     expect(clock()).toBeNull();
   });
 
-  it("puts the time and cache state behind a clock in the panel's hover actions, not the chart body", async () => {
+  it.each(["focus", "tap"] as const)(
+    "discloses the full truncated title on %s",
+    async (interaction) => {
+      const title =
+        "Revenue from international organizations with a long localized name";
+      await render({ panel: { ...panel, title } });
+      const heading = container.querySelector<HTMLElement>(
+        ".dashboard-panel-title h3",
+      )!;
+      expect(heading.textContent).toBe(title);
+      expect(heading.tabIndex).toBe(0);
+      expect(
+        document.body.querySelector("[data-agent-native-tooltip]"),
+      ).toBeNull();
+
+      await act(async () => {
+        if (interaction === "focus") heading.focus();
+        else heading.click();
+      });
+
+      expect(
+        document.body.querySelector("[data-agent-native-tooltip]")?.textContent,
+      ).toContain(title);
+      expect(container.querySelector(".dashboard-panel-title h3")).toBe(
+        heading,
+      );
+    },
+  );
+
+  it("puts freshness in its own title-row track between the title and actions", async () => {
     await render();
     await report({ fetchedAt: FETCHED_AT, cache: "app-cache" });
 
@@ -152,11 +204,16 @@ describe("SqlChartCard freshness clock", () => {
     const options = container.querySelector(
       `[aria-label="sqlDashboard.panelOptions"]`,
     );
-    expect(clock()!.parentElement).toBe(options!.parentElement);
+    const header = container.querySelector(".dashboard-panel-header")!;
+    expect(header.children).toHaveLength(3);
+    expect(header.children[0]!.textContent).toBe(panel.title);
+    expect(header.children[1]!.contains(clock())).toBe(true);
+    expect(header.children[2]!.contains(options)).toBe(true);
     expect(
       container.querySelector('[data-testid="chart-body"]')!.contains(clock()),
     ).toBe(false);
     expect(container.textContent).not.toContain("sqlDashboard.fetchedAt");
+    expect(clock()?.textContent).toBe("Updated 5m ago");
   });
 
   it("offers a clock for an unknown fetch time and cache state rather than inventing either", async () => {
@@ -215,4 +272,71 @@ describe("SqlChartCard freshness clock", () => {
 
     expect(clock()).toBeNull();
   });
+
+  it.each(["metric", "line", "bar", "table"] as const)(
+    "retains the %s chart and the same three header tracks through each freshness transition",
+    async (chartType) => {
+      await render({ panel: { ...panel, chartType } });
+      const chart = container.querySelector('[data-testid="chart-body"]');
+      const header = container.querySelector(".dashboard-panel-header")!;
+      const tracks = Array.from(header.children);
+      const options = container.querySelector(
+        '[aria-label="sqlDashboard.panelOptions"]',
+      );
+
+      for (const status of [
+        undefined,
+        "updating",
+        "previous-filters-updating",
+        "previous-filters",
+        "refreshed",
+        "stale",
+      ] as const) {
+        await report({ fetchedAt: FETCHED_AT, cache: "app-cache", status });
+
+        expect(container.querySelector('[data-testid="chart-body"]')).toBe(
+          chart,
+        );
+        expect(Array.from(header.children)).toEqual(tracks);
+        expect(tracks[1]!.contains(clock())).toBe(true);
+        expect(
+          container.querySelector('[aria-label="sqlDashboard.panelOptions"]'),
+        ).toBe(options);
+      }
+
+      await report(null);
+      expect(clock()).toBeNull();
+      expect(Array.from(header.children)).toEqual(tracks);
+      expect(container.querySelector('[data-testid="chart-body"]')).toBe(chart);
+    },
+  );
+
+  it.each(["account", "org", "sign-out", "session-loading"] as const)(
+    "removes prior freshness on %s changes and ignores an old account's late report",
+    async (change) => {
+      await render();
+      await report({ fetchedAt: FETCHED_AT, cache: "app-cache" });
+      const staleReport =
+        mocks.chartProps[mocks.chartProps.length - 1]!.onFreshnessChange!;
+      expect(clock()).not.toBeNull();
+
+      if (change === "account")
+        mocks.session = { userId: "other-user", orgId: "test-org" };
+      if (change === "org")
+        mocks.session = { userId: "test-user", orgId: "other-org" };
+      if (change === "sign-out") {
+        mocks.session = null;
+        mocks.sessionStatus = "unauthenticated";
+      }
+      if (change === "session-loading") mocks.sessionStatus = "loading";
+      await render();
+      expect(clock()).toBeNull();
+
+      await act(async () =>
+        staleReport({ fetchedAt: FETCHED_AT, cache: "app-cache" }),
+      );
+
+      expect(clock()).toBeNull();
+    },
+  );
 });

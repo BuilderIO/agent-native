@@ -943,6 +943,7 @@ export default {
     certificationFailed: "Couldn't certify dashboard: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "Updated {{age}}",
     public: "Public",
     sharedWithOrg: "Shared with org",
     private: "Private",

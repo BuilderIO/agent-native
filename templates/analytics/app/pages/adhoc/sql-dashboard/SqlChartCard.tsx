@@ -24,7 +24,6 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
 import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
 import {
   useDataNoteActions,
@@ -35,6 +34,8 @@ import {
   DataNoteLines,
   UnplacedDataNotesListener,
 } from "@/components/dashboard/data-note-bands";
+import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
+import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
@@ -74,7 +75,6 @@ import {
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
-import type { SqlQueryFreshness } from "@/lib/sql-query-freshness";
 import { usePersonalColumnWidths } from "@/lib/personal-column-widths";
 import {
   DASHBOARD_SESSION_LOADING_SCOPE,
@@ -88,6 +88,24 @@ import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
 const INHERIT_TIME_RANGE = "__inherit__";
+
+function PanelTitle({ title }: { title: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>
+        <CardTitle
+          tabIndex={0}
+          onClick={() => setOpen(true)}
+          className="min-w-0 truncate rounded text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {title}
+        </CardTitle>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function dashboardTileElementId(panelId: string): string {
   return `dashboard-tile-${panelId}`;
@@ -279,13 +297,17 @@ export function SqlChartCard({
 
   // Keyed by the panel it was reported for, so a card reused for another
   // panel or dashboard never shows the previous one's clock.
-  const panelScope = JSON.stringify([dashboardId ?? null, panel.id]);
+  const panelScope = JSON.stringify([
+    accountScope,
+    dashboardId ?? null,
+    panel.id,
+  ]);
   const [reportedFreshness, setReportedFreshness] = useState<{
     scope: string;
-    freshness: SqlQueryFreshness | null;
+    freshness: PanelFreshness | null;
   } | null>(null);
   const handleFreshnessChange = useCallback(
-    (freshness: SqlQueryFreshness | null) => {
+    (freshness: PanelFreshness | null) => {
       setReportedFreshness({ scope: panelScope, freshness });
     },
     [panelScope],
@@ -736,32 +758,33 @@ export function SqlChartCard({
           highlighted && "ring-2 ring-primary",
         )}
       >
-        <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <CardTitle className="text-sm font-medium truncate">
-              {panel.title}
-            </CardTitle>
+        <CardHeader className="dashboard-panel-header grid space-y-0 shrink-0 pb-2">
+          <div className="dashboard-panel-title flex min-w-0 items-center gap-1">
+            <PanelTitle title={panel.title} />
             <DataNoteFlag notes={flaggedDataNotes} panelId={panel.id} />
+            {timeRangeOverrideLabel ? (
+              <Badge
+                variant="secondary"
+                className="max-w-20 min-w-0 shrink truncate px-1.5 py-0 text-[10px] font-normal"
+                title={timeRangeOverrideLabel}
+              >
+                <span className="sr-only">
+                  {t("sqlDashboard.chartTimeRangeOverride")}{" "}
+                </span>
+                {timeRangeOverrideLabel}
+              </Badge>
+            ) : null}
           </div>
-          {timeRangeOverrideLabel ? (
-            <Badge
-              variant="secondary"
-              className="max-w-32 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal"
-              title={timeRangeOverrideLabel}
-            >
-              <span className="sr-only">
-                {t("sqlDashboard.chartTimeRangeOverride")}{" "}
-              </span>
-              {timeRangeOverrideLabel}
-            </Badge>
-          ) : null}
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+          <div className="dashboard-panel-freshness min-w-0 overflow-hidden">
             {panelFreshness ? (
               <PanelFreshnessClock
                 freshness={panelFreshness}
-                className="p-1 rounded text-muted-foreground hover:text-foreground"
+                showAge
+                className="h-6 w-full px-1"
               />
             ) : null}
+          </div>
+          <div className="dashboard-panel-actions flex items-center justify-end gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
             {!editable || onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}

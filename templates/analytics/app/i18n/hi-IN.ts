@@ -1283,6 +1283,7 @@ export default {
     certificationFailed: "डैशबोर्ड प्रमाणित नहीं हो सका: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "{{age}} अपडेट किया गया",
     public: "Public",
     sharedWithOrg: "संगठन के साथ साझा किया गया",
     private: "Private",

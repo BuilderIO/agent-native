@@ -1298,6 +1298,7 @@ export default {
     certificationFailed: "대시보드를 인증할 수 없음: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "{{age}} 업데이트",
     public: "Public",
     sharedWithOrg: "조직과 공유됨",
     private: "Private",

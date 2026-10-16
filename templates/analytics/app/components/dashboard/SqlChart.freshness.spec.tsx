@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     isPlaceholderData: false,
     error: null as Error | null,
     refetch: vi.fn(),
+    completedManualRefreshToken: undefined as number | undefined,
     freshness: undefined as Freshness | undefined,
   },
   snapshots: undefined as boolean | undefined,
@@ -85,6 +86,7 @@ describe("SqlChart freshness", () => {
     mocks.query.isPlaceholderData = false;
     mocks.query.error = null;
     mocks.query.freshness = undefined;
+    mocks.query.completedManualRefreshToken = undefined;
     mocks.snapshots = undefined;
   });
 
@@ -126,47 +128,46 @@ describe("SqlChart freshness", () => {
       }
     });
 
-    it("holds one status slot, with the chart in the same place, whether or not a label shows", async () => {
-      const slot = () =>
-        container.querySelector("[data-dashboard-report-status-slot]");
-      const chartHost = () => slot()?.nextElementSibling;
+    it("keeps standalone status beside the chart without an empty row or replacing the chart host", async () => {
+      const chartHost = () =>
+        container.querySelector("[data-dashboard-report-chart-body]");
+      const status = () =>
+        container.querySelector("[data-dashboard-report-standalone-status]");
       mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
-
       await render();
-      const initialSlot = slot();
       const initialChartHost = chartHost();
-      expect(
-        container.querySelectorAll("[data-dashboard-report-status-slot]"),
-      ).toHaveLength(1);
-      expect(initialSlot?.textContent).toBe("");
       expect(initialChartHost?.textContent).toBe("42");
-
+      expect(
+        status()?.querySelector("[data-dashboard-report-updating]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("[data-dashboard-report-status-slot]"),
+      ).toBeNull();
       mocks.query.isFetching = true;
       await render();
       expect(
-        slot()?.querySelector("[data-dashboard-report-updating]"),
+        status()?.querySelector("[data-dashboard-report-updating]"),
       ).not.toBeNull();
-
       mocks.query.isFetching = false;
       setAge(STALE_RESULT_AGE_MS + 1_000);
       await render();
       expect(
-        slot()?.querySelector("[data-dashboard-report-stale]"),
+        status()?.querySelector("[data-dashboard-report-stale]"),
       ).not.toBeNull();
-
       setAge(60_000);
       await render();
-      expect(slot()?.textContent).toBe("");
-      expect(slot()).toBe(initialSlot);
+      expect(
+        status()?.querySelector("[data-dashboard-report-updating]"),
+      ).toBeNull();
       expect(chartHost()).toBe(initialChartHost);
     });
 
-    it("keeps the slot for a result with no rows, which shows no config warning", async () => {
+    it("shows no reserved row for an empty result", async () => {
       mocks.query.data = { rows: [] };
       await render();
       expect(
         container.querySelector("[data-dashboard-report-status-slot]"),
-      ).not.toBeNull();
+      ).toBeNull();
       expect(container.textContent).toContain("common.noData");
     });
 
@@ -284,7 +285,9 @@ describe("SqlChart freshness", () => {
       await render({ loadData: false, retainWhileOffscreen: true });
       expect(staleText()).toBeNull();
       expect(
-        container.querySelector("[data-dashboard-report-paused]")?.textContent,
+        container.querySelector(
+          "[data-dashboard-report-paused] .panel-freshness-text",
+        )?.textContent,
       ).toBe("sqlDashboard.previousFilters");
     });
   });
@@ -341,7 +344,60 @@ describe("SqlChart freshness", () => {
       mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
       mocks.query.isFetching = true;
       await render({ onFreshnessChange });
-      expect(last()).toEqual({ fetchedAt: FETCHED_AT, cache: "live" });
+      expect(last()).toEqual({
+        fetchedAt: FETCHED_AT,
+        cache: "live",
+        status: "updating",
+      });
+      expect(
+        container.querySelector("[data-dashboard-report-updating]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("[data-dashboard-report-status-slot]"),
+      ).toBeNull();
+    });
+
+    it("reports statuses through the same bridge without chart-body status or renderer replacement", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "app-cache" };
+      await render({ onFreshnessChange, refreshToken: 0 });
+      const body = container.querySelector(
+        "[data-dashboard-report-chart-body]",
+      );
+      await render({ onFreshnessChange, refreshToken: 1 });
+      mocks.query.isFetching = true;
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last().status).toBe("updating");
+      mocks.query.isPlaceholderData = true;
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last().status).toBe("previous-filters-updating");
+      mocks.query.isFetching = false;
+      await render({
+        onFreshnessChange,
+        refreshToken: 1,
+        loadData: false,
+        retainWhileOffscreen: true,
+      });
+      expect(last().status).toBe("previous-filters");
+      mocks.query.isPlaceholderData = false;
+      mocks.query.completedManualRefreshToken = 1;
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last().status).toBe("refreshed");
+      await advance(2_999);
+      expect(last().status).toBe("refreshed");
+      await advance(1);
+      expect(last().status).toBeUndefined();
+      setAge(STALE_RESULT_AGE_MS + 1);
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last().status).toBe("stale");
+      expect(
+        container.querySelector("[data-dashboard-report-chart-body]"),
+      ).toBe(body);
+      expect(
+        container.querySelector("[data-dashboard-report-standalone-status]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("[data-dashboard-report-status-slot]"),
+      ).toBeNull();
     });
 
     it("does not report a result the caller supplied", async () => {
