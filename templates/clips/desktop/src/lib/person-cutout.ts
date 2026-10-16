@@ -44,6 +44,11 @@ export interface PersonCutoutOptions {
   canvas?: HTMLCanvasElement;
   /** Upper bound for segmentation runs per second. */
   maxSegmentationFps?: number;
+  /**
+   * Aborts a creation that is no longer wanted before it touches `canvas`,
+   * so it cannot disturb a newer cut-out drawing into the same canvas.
+   */
+  signal?: AbortSignal;
 }
 
 const SEG_SIZE = 256;
@@ -370,10 +375,14 @@ function createWebglCompositor(canvas: HTMLCanvasElement): Compositor | null {
       if (canvas.width !== size) canvas.width = size;
       if (canvas.height !== size) canvas.height = size;
       gl.viewport(0, 0, size, size);
+      // The context is shared by every compositor made on this canvas, and
+      // closing a superseded one unbinds its state, so rebind ours.
+      gl.useProgram(program);
+      gl.bindVertexArray(vao);
 
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, frameTexture);
       if (newFrame || !haveFrame) {
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, frameTexture);
         gl.texImage2D(
           gl.TEXTURE_2D,
           0,
@@ -384,9 +393,9 @@ function createWebglCompositor(canvas: HTMLCanvasElement): Compositor | null {
         );
         haveFrame = true;
       }
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, maskTexture);
       if (maskChanged) {
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, maskTexture);
         gl.texImage2D(
           gl.TEXTURE_2D,
           0,
@@ -398,8 +407,10 @@ function createWebglCompositor(canvas: HTMLCanvasElement): Compositor | null {
           gl.UNSIGNED_BYTE,
           maskFrame.mask,
         );
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, guideTexture);
+      }
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, guideTexture);
+      if (maskChanged) {
         gl.texImage2D(
           gl.TEXTURE_2D,
           0,
@@ -539,7 +550,12 @@ function loseWebglContext(canvas: HTMLCanvasElement) {
 export async function createPersonCutout(
   opts: PersonCutoutOptions = {},
 ): Promise<PersonCutout> {
+  opts.signal?.throwIfAborted();
   const segmenter = await createSegmenter();
+  if (opts.signal?.aborted) {
+    segmenter.close();
+    opts.signal.throwIfAborted();
+  }
   const maxFps = opts.maxSegmentationFps ?? DEFAULT_MAX_SEGMENTATION_FPS;
   const canvas = opts.canvas ?? document.createElement("canvas");
 

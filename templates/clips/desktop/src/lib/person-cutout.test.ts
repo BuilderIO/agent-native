@@ -1,11 +1,17 @@
+import { ImageSegmenter } from "@mediapipe/tasks-vision";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   centreSquare,
   createCompositor,
+  createPersonCutout,
   segmentationInterval,
   smoothMask,
 } from "./person-cutout";
+
+vi.mock("@mediapipe/tasks-vision", () => ({
+  ImageSegmenter: { createFromOptions: vi.fn() },
+}));
 
 describe("centreSquare", () => {
   it("crops the middle of a landscape frame", () => {
@@ -143,5 +149,71 @@ describe("createCompositor", () => {
     expect(() =>
       createCompositor(target as unknown as HTMLCanvasElement),
     ).toThrow("Canvas 2D is unavailable for the camera cut-out.");
+  });
+
+  it("rebinds its program, vertex array and textures on every draw", () => {
+    vi.stubGlobal("document", {
+      createElement: () => ({ getContext: () => workingWebgl() }),
+    });
+    const calls: string[] = [];
+    const recordingWebgl = (): unknown => {
+      const gl: unknown = new Proxy(() => {}, {
+        get: (_target, prop) => () => {
+          calls.push(String(prop));
+          return gl;
+        },
+      });
+      return gl;
+    };
+    const target = { width: 0, height: 0, getContext: recordingWebgl };
+    const compositor = createCompositor(target as unknown as HTMLCanvasElement);
+    calls.length = 0;
+
+    const maskFrame = {
+      mask: new Uint8Array(1),
+      guide: {} as HTMLCanvasElement,
+    };
+    const crop = { x: 0, y: 0, size: 8 };
+    const source = {} as CanvasImageSource;
+    compositor.draw(source, 8, 8, crop, 8, maskFrame, true, true);
+    calls.length = 0;
+    // A redraw without new data must not rely on bindings from creation.
+    compositor.draw(source, 8, 8, crop, 8, maskFrame, false, false);
+
+    const drawAt = calls.indexOf("drawArrays");
+    expect(calls.indexOf("useProgram")).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf("useProgram")).toBeLessThan(drawAt);
+    expect(calls.indexOf("bindVertexArray")).toBeLessThan(drawAt);
+    expect(calls.filter((call) => call === "bindTexture")).toHaveLength(3);
+    expect(calls).not.toContain("texImage2D");
+  });
+});
+
+describe("createPersonCutout", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("leaves the canvas untouched when aborted while loading", async () => {
+    vi.stubGlobal("document", {
+      createElement: () => ({ getContext: () => ({}) }),
+    });
+    const controller = new AbortController();
+    const close = vi.fn();
+    vi.mocked(ImageSegmenter.createFromOptions).mockImplementation(async () => {
+      controller.abort();
+      return { close } as unknown as ImageSegmenter;
+    });
+    const target = { getContext: vi.fn() };
+
+    await expect(
+      createPersonCutout({
+        canvas: target as unknown as HTMLCanvasElement,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(close).toHaveBeenCalledOnce();
+    expect(target.getContext).not.toHaveBeenCalled();
   });
 });

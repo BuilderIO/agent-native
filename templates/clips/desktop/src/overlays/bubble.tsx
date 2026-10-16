@@ -194,8 +194,9 @@ export function Bubble() {
     let stopped = false;
     let raf: number | null = null;
     let close: (() => void) | null = null;
+    const abort = new AbortController();
 
-    createPersonCutout({ canvas: target })
+    createPersonCutout({ canvas: target, signal: abort.signal })
       .then((personCutout) => {
         if (stopped) {
           personCutout.close();
@@ -246,11 +247,13 @@ export function Bubble() {
         raf = requestAnimationFrame(tick);
       })
       .catch((err) => {
+        if (abort.signal.aborted) return;
         console.warn("[bubble] person cut-out unavailable", err);
       });
 
     return () => {
       stopped = true;
+      abort.abort();
       if (raf !== null) cancelAnimationFrame(raf);
       close?.();
     };
