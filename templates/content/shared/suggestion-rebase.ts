@@ -148,7 +148,7 @@ function resolveCanonicalizedRange(
 }
 
 // `canonical` must be the canonical form of `before`.
-function placeInCanonicalForm(
+export function placeInCanonicalForm(
   before: string,
   canonical: string,
   anchor: Range,

@@ -1,3 +1,5 @@
+import DiffMatchPatch from "diff-match-patch";
+
 import { nfmToDoc, type PMNode } from "./nfm";
 
 const CONTEXT_LEN = 32;
@@ -118,4 +120,63 @@ export function reanchoredCommentQuote(
     suffix: after.slice(end, end + CONTEXT_LEN),
     startOffset: start,
   };
+}
+
+/** The text comment anchors in a page with this Markdown are resolved against. */
+export function commentAnchorText(markdown: string) {
+  return editorText(markdown);
+}
+
+export type CommentQuoteRebaseline =
+  /** The quote resolves on the new text as it did. */
+  | { kind: "unchanged" }
+  | { kind: "rebased"; quote: CommentQuoteAnchor }
+  /** The quote didn't resolve to one place before either; left as is. */
+  | { kind: "orphaned" }
+  /**
+   * The quote's text would change into different words, so the new text
+   * can't be claimed as the same target. Convert the page only once this is
+   * resolved.
+   */
+  | { kind: "blocked" };
+
+const words = (text: string) => text.replace(/[^\p{L}\p{N}]+/gu, "");
+
+/**
+ * Moves a comment's quote from the text a page showed to the text the same
+ * page shows after its body was rewritten into an equivalent form, where only
+ * formatting syntax may differ. The quote follows the diff between the two
+ * texts, and must keep every letter and digit it had.
+ */
+export function rebaselinedCommentQuote(
+  quote: CommentQuoteAnchor,
+  previousText: string,
+  nextText: string,
+): CommentQuoteRebaseline {
+  if (!quote.quotedText) return { kind: "unchanged" };
+  if (previousText === nextText) return { kind: "unchanged" };
+  const at = ownOccurrence(quote, previousText);
+  if (at == null)
+    return nextText.includes(quote.quotedText)
+      ? { kind: "unchanged" }
+      : { kind: "orphaned" };
+  const diffs = new DiffMatchPatch().diff_main(previousText, nextText);
+  const dmp = new DiffMatchPatch();
+  const from = dmp.diff_xIndex(diffs, at);
+  const to = dmp.diff_xIndex(diffs, at + quote.quotedText.length);
+  const quotedText = nextText.slice(from, to);
+  if (!quotedText.trim() || words(quotedText) !== words(quote.quotedText))
+    return { kind: "blocked" };
+  const next = {
+    quotedText,
+    prefix: nextText.slice(Math.max(0, from - CONTEXT_LEN), from),
+    suffix: nextText.slice(to, to + CONTEXT_LEN),
+    startOffset: from,
+  };
+  return next.quotedText === quote.quotedText &&
+    next.prefix === quote.prefix &&
+    next.suffix === quote.suffix &&
+    next.startOffset === quote.startOffset
+    ? { kind: "unchanged" }
+    : { kind: "rebased", quote: next };
 }

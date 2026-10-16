@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { reanchoredCommentQuote } from "./comment-reanchor";
+import {
+  commentAnchorText,
+  rebaselinedCommentQuote,
+  reanchoredCommentQuote,
+} from "./comment-reanchor";
 
 const before =
   "Our editor is fast.\n\nThe team ships every Friday afternoon, so feedback lands before the weekend.\n";
@@ -156,5 +160,78 @@ describe("reanchoredCommentQuote", () => {
         before.replace("Friday afternoon", "**Thursday** at noon"),
       ),
     ).toEqual({ ...quote, quotedText: "ships every Thursday at noon" });
+  });
+});
+
+describe("rebaselinedCommentQuote", () => {
+  const anchorOn = (text: string, quotedText: string) => {
+    const at = text.indexOf(quotedText);
+    return {
+      quotedText,
+      prefix: text.slice(Math.max(0, at - 32), at),
+      suffix: text.slice(at + quotedText.length, at + quotedText.length + 32),
+      startOffset: at,
+    };
+  };
+
+  it("leaves a quote alone when the page shows the same text", () => {
+    const text = commentAnchorText("Keep this.\n\n\nThen the rest.");
+    expect(
+      rebaselinedCommentQuote(
+        anchorOn(text, "the rest"),
+        text,
+        commentAnchorText("Keep this.\nThen the rest."),
+      ),
+    ).toEqual({ kind: "unchanged" });
+  });
+
+  it("follows formatting syntax that becomes formatting", () => {
+    const previous = "Keep __bold words__ here. Then the rest.";
+    const next = "Keep bold words here. Then the rest.";
+    expect(
+      rebaselinedCommentQuote(
+        anchorOn(previous, "__bold words__ here"),
+        previous,
+        next,
+      ),
+    ).toEqual({
+      kind: "rebased",
+      quote: anchorOn(next, "bold words here"),
+    });
+  });
+
+  it("moves a quote's offset and context past a change before it", () => {
+    const previous = "A __b__ c. The quoted words sit here.";
+    const next = "A b c. The quoted words sit here.";
+    expect(
+      rebaselinedCommentQuote(
+        anchorOn(previous, "quoted words"),
+        previous,
+        next,
+      ),
+    ).toEqual({ kind: "rebased", quote: anchorOn(next, "quoted words") });
+  });
+
+  it("refuses to claim different words as the same quote", () => {
+    const previous = "The cat sat on the mat.";
+    const next = "The dog sat on the mat.";
+    expect(
+      rebaselinedCommentQuote(anchorOn(previous, "cat sat"), previous, next),
+    ).toEqual({ kind: "blocked" });
+  });
+
+  it("reports a quote that was already gone as orphaned", () => {
+    expect(
+      rebaselinedCommentQuote(
+        {
+          quotedText: "long gone",
+          prefix: "",
+          suffix: "",
+          startOffset: 0,
+        },
+        "Some __text__ here.",
+        "Some text here.",
+      ),
+    ).toEqual({ kind: "orphaned" });
   });
 });
