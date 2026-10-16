@@ -127,7 +127,7 @@ describe("query-agent-native-analytics", () => {
     const thrown = await action.run({ sql }).catch((caught: Error) => caught);
 
     expect(thrown.message).toContain(
-      "For a ratio, use numerator / NULLIF(denominator, 0)",
+      "For a ratio, use CAST(numerator AS NUMERIC) / NULLIF(denominator, 0)",
     );
     expect(thrown.message).toContain("clarify the requested rounding");
     expect(thrown.message).toContain("same source, filters, and grain");
@@ -406,7 +406,9 @@ describe("query-agent-native-analytics", () => {
     expect(action.description).toMatch(/bounded recent drill-downs/i);
     expect(action.description).toMatch(/all-time|lifetime/i);
     expect(action.description).toMatch(/do not call DIV\(\)/i);
-    expect(action.description).toContain("/ NULLIF(denominator, 0)");
+    expect(action.description).toContain(
+      "CAST(numerator AS NUMERIC) / NULLIF(denominator, 0)",
+    );
     expect(action.description).toContain("properties::jsonb ->> 'key'");
     expect(action.description).toContain("LATERAL/unnest/generate_series");
     expect(action.description).toContain("Use `||` explicitly between strings");

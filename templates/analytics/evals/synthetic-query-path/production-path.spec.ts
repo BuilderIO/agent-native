@@ -824,7 +824,7 @@ const cases: readonly Case[] = [
       {
         name: "query-agent-native-analytics",
         input: {
-          sql: "SELECT SUM(event_count) / NULLIF(COUNT(DISTINCT event_date), 0) AS avg_events_per_day FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+          sql: "SELECT CAST(SUM(event_count) AS NUMERIC) / NULLIF(COUNT(DISTINCT event_date), 0) AS avg_events_per_day FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
         },
       },
     ],
@@ -844,14 +844,18 @@ const cases: readonly Case[] = [
       return (
         calls.length === 2 &&
         firstSql.includes("DIV(SUM(event_count)") &&
-        correctedSql.includes("/ NULLIF(COUNT(DISTINCT event_date), 0)") &&
+        correctedSql.includes(
+          "CAST(SUM(event_count) AS NUMERIC) / NULLIF(COUNT(DISTINCT event_date), 0)",
+        ) &&
         correctedSql.includes("analytics_event_daily_rollups") &&
         correctedSql.includes("event_date >= '2026-09-01'") &&
         correctedSql.includes("event_date < '2026-10-01'") &&
         failed?.error?.includes(
           "The first-party Analytics SQL policy rejects DIV()",
         ) === true &&
-        failed.error.includes("numerator / NULLIF(denominator, 0)") &&
+        failed.error.includes(
+          "CAST(numerator AS NUMERIC) / NULLIF(denominator, 0)",
+        ) &&
         failed.error.includes("same source, filters, and grain") &&
         !failed.error.includes("provider detail") &&
         succeeded?.rows?.[0]?.avg_events_per_day === 4.2 &&
