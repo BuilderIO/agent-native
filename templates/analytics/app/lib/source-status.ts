@@ -22,6 +22,7 @@ export type SourceHealthId = (typeof SOURCE_HEALTH_SOURCES)[number]["id"];
 export type SourceHealthState =
   | "connected"
   | "configured"
+  | "checking"
   | "not_connected"
   | "needs_reauth"
   | "error"
@@ -51,6 +52,7 @@ export function sourceHealthState(
   // The aggregate status list includes connections granted to other apps.
   // Use the per-connection list filtered for Analytics when assessing health.
   if (grantState === "connected") return "connected";
+  if (provider?.connectionHealth === "checking") return "checking";
   if (grantState === "needs_grant") {
     const missingRequiredKeys = provider?.missingRequiredKeys;
     const requiredCredentialsConfigured =
@@ -65,6 +67,7 @@ export function sourceHealthState(
   if (grantState === "granted") {
     if (statuses.has("needs_reauth")) return "needs_reauth";
     if (statuses.has("error")) return "error";
+    if (statuses.has("checking")) return "checking";
   }
   if (provider?.configured === true || grantState === "granted") {
     return "configured";

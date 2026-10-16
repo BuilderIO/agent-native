@@ -31,10 +31,19 @@ import {
   hasCatalogSearchAttempt,
   hasFailedDbtSemanticMetricQuery,
   hasDashboardConstructionAttempt,
+  hasPartialBigQueryResult,
+  hasBigQueryPartialDisclosure,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
   hasIncompleteDataEvidence,
+  hasEmptyFindDataResult,
+  hasCompleteBigQuerySchemaSearch,
+  hasCompleteBigQuerySchemaSearchMatches,
+  hasCompleteEmptyBigQuerySchemaSearch,
+  hasScopedRosterSourceAbsenceClaim,
+  hasUnscopedRosterSourceAbsenceClaim,
+  looksLikeRosterSourceDiscoveryRequest,
   isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   hasOverstatedCoverageConfidenceClaim,
@@ -1131,10 +1140,16 @@ function boundedPeriodRequest(userText: string): boolean {
     /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2}\b/i.test(
       userText,
     ) ||
-    /\b(?:today|yesterday|recently|recent|this|last|past|previous|prior|rolling|within(?: the last)?|over the last|over the past)\s+(?:\d+\s+)?(?:second|minute|hour|day|week|month|quarter|year)s?\b/i.test(
+    /\b(?:today|yesterday|this|last|past|previous|prior|rolling|within(?: the last)?|over the last|over the past)\s+(?:\d+\s+)?(?:second|minute|hour|day|week|month|quarter|year)s?\b/i.test(
       userText,
     ) ||
-    /\b(?:since|between|from)\s+(?:\d{4}-\d{2}-\d{2}|\w+)/i.test(userText) ||
+    /\brecent(?:ly)?\b/i.test(userText) ||
+    /\b(?:since|after)\s+(?:\d{4}-\d{2}-\d{2}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2})\b/i.test(
+      userText,
+    ) ||
+    /\b(?:between|from|compare|compared\s+to)\s+\d{4}-\d{2}-\d{2}\s+(?:to|through|until|and|against)\s+\d{4}-\d{2}-\d{2}\b/i.test(
+      userText,
+    ) ||
     /\b(?:year|quarter|month|week|day)\s+to\s+date\b|\b(?:ytd|qtd|mtd)\b|\b(?:in|during)\s+(?:19|20)\d{2}\b/i.test(
       userText,
     )
@@ -1145,7 +1160,7 @@ function requestedExplicitDateRange(
   userText: string,
 ): DbtMetricTimeRange | null {
   const match = userText.match(
-    /\b(?:from|between)\s+(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and)\s+(\d{4}-\d{2}-\d{2})\b/i,
+    /\b(?:from|between|compare|compared\s+to)\s+(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/i,
   );
   return match?.[1] && match[2]
     ? { startDate: match[1], endDate: match[2] }
@@ -1169,6 +1184,26 @@ function addUtcDays(date: Date, count: number): Date {
   );
 }
 
+function addUtcMonths(date: Date, count: number): Date {
+  const firstOfTargetMonth = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + count, 1),
+  );
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(
+      firstOfTargetMonth.getUTCFullYear(),
+      firstOfTargetMonth.getUTCMonth() + 1,
+      0,
+    ),
+  ).getUTCDate();
+  return new Date(
+    Date.UTC(
+      firstOfTargetMonth.getUTCFullYear(),
+      firstOfTargetMonth.getUTCMonth(),
+      Math.min(date.getUTCDate(), lastDayOfTargetMonth),
+    ),
+  );
+}
+
 function requestedCalendarRange(
   userText: string,
   now = new Date(),
@@ -1180,6 +1215,31 @@ function requestedCalendarRange(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
   const todayString = today.toISOString().slice(0, 10);
+  const rollingWindow = userText.match(
+    /\b(?:(?:most\s+)?recent(?:ly)?|last|past|previous|prior|rolling|over the (?:last|past)|within(?: the)? (?:last|past))\s+(\d+)\s+(days?|weeks?|months?|quarters?|years?)\b/i,
+  );
+  if (rollingWindow?.[1] && rollingWindow[2]) {
+    const count = Number(rollingWindow[1]);
+    if (!Number.isSafeInteger(count) || count < 1) return null;
+    const unit = rollingWindow[2].toLowerCase();
+    if (unit.startsWith("day") || unit.startsWith("week")) {
+      const days = count * (unit.startsWith("week") ? 7 : 1);
+      return dateRange(addUtcDays(today, 1 - days), today);
+    }
+    const months =
+      count *
+      (unit.startsWith("quarter") ? 3 : unit.startsWith("year") ? 12 : 1);
+    return dateRange(addUtcMonths(today, -months), today);
+  }
+  const unnumberedRollingWindow = userText.match(
+    /\b(?:past|over the past|within(?: the)? past)\s+(week|month|quarter|year)\b/i,
+  );
+  if (unnumberedRollingWindow?.[1]) {
+    const unit = unnumberedRollingWindow[1].toLowerCase();
+    if (unit === "week") return dateRange(addUtcDays(today, -6), today);
+    const months = unit === "quarter" ? 3 : unit === "year" ? 12 : 1;
+    return dateRange(addUtcMonths(today, -months), today);
+  }
   const includesLargerCalendarPeriod =
     /\b(?:week|month|quarter|year|ytd|qtd|mtd|wtd)\b/i.test(userText);
   if (/\byesterday\b/i.test(userText) && !includesLargerCalendarPeriod) {
@@ -1278,38 +1338,77 @@ function requestedCalendarRange(
   if (sinceDate?.[1] && sinceDate[1] <= todayString) {
     return { startDate: sinceDate[1], endDate: todayString };
   }
+  const sinceNamedDate = userText.match(
+    /\b(?:since|from|after)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,?\s+((?:19|20)\d{2}))?\b/i,
+  );
+  if (sinceNamedDate?.[1] && sinceNamedDate[2]) {
+    const monthNames = [
+      "jan",
+      "feb",
+      "mar",
+      "apr",
+      "may",
+      "jun",
+      "jul",
+      "aug",
+      "sep",
+      "oct",
+      "nov",
+      "dec",
+    ];
+    const month = monthNames.indexOf(
+      sinceNamedDate[1].slice(0, 3).toLowerCase(),
+    );
+    const day = Number(sinceNamedDate[2]);
+    let year = Number(sinceNamedDate[3] ?? today.getUTCFullYear());
+    const start = new Date(Date.UTC(year, month, day));
+    if (
+      month < 0 ||
+      start.getUTCMonth() !== month ||
+      start.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    if (!sinceNamedDate[3] && start > today) {
+      year -= 1;
+    }
+    const resolvedStart = new Date(Date.UTC(year, month, day));
+    if (resolvedStart <= today) {
+      return {
+        startDate: resolvedStart.toISOString().slice(0, 10),
+        endDate: todayString,
+      };
+    }
+  }
+  const singleDate = userText.match(/\b((?:19|20)\d{2}-\d{2}-\d{2})\b/);
+  if (singleDate?.[1]) {
+    return { startDate: singleDate[1], endDate: singleDate[1] };
+  }
   return null;
 }
 
-function requestedDayWindow(userText: string): number | null {
-  const numberedWindow = userText.match(
-    /\b(?:last|past|previous|prior|rolling|recently?|over the last|over the past|within the last|within the past)\s+(\d+)\s+(days?|weeks?)\b/i,
-  );
-  if (numberedWindow?.[1] && numberedWindow[2]) {
-    const count = Number(numberedWindow[1]);
-    if (!Number.isSafeInteger(count) || count < 1) return null;
-    return count * (numberedWindow[2].toLowerCase().startsWith("week") ? 7 : 1);
-  }
-  return /\b(?:last|past|previous|prior)\s+week\b/i.test(userText) ? 7 : null;
-}
-
-function inclusiveDayCount(range: DbtMetricTimeRange): number | null {
-  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-  if (!datePattern.test(range.startDate) || !datePattern.test(range.endDate)) {
+function requestedComparisonCalendarRanges(
+  userText: string,
+  now: Date,
+): DbtMetricTimeRange[] | null {
+  if (!/\b(?:compare|compared|versus|vs\.?|against)\b/i.test(userText)) {
     return null;
   }
-  const start = Date.parse(`${range.startDate}T00:00:00.000Z`);
-  const end = Date.parse(`${range.endDate}T00:00:00.000Z`);
-  if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
-    new Date(start).toISOString().slice(0, 10) !== range.startDate ||
-    new Date(end).toISOString().slice(0, 10) !== range.endDate ||
-    end < start
-  ) {
-    return null;
-  }
-  return Math.floor((end - start) / 86_400_000) + 1;
+  const periodPhrases = [
+    ...userText.matchAll(
+      /\b(?:this|current|last|previous|prior)\s+(?:week|month|quarter|year)\b/gi,
+    ),
+  ].map(([phrase]) => phrase);
+  const ranges = periodPhrases.flatMap((phrase) => {
+    const range = requestedCalendarRange(phrase, now);
+    return range ? [range] : [];
+  });
+  const uniqueRanges = [
+    ...new Map(
+      ranges.map((range) => [`${range.startDate}/${range.endDate}`, range]),
+    ).values(),
+  ];
+  return uniqueRanges.length > 1 ? uniqueRanges : null;
 }
 
 function dbtMetricTimeScopeMismatch(
@@ -1318,81 +1417,344 @@ function dbtMetricTimeScopeMismatch(
 ): boolean {
   if (!boundedPeriodRequest(userText)) return false;
 
-  const expectedRange = requestedCalendarRange(userText);
-  const expectedDayCount = requestedDayWindow(userText);
-  const queryCalls = (context.toolCalls ?? [])
-    .filter(
-      ({ name }) => analyticsActionName(name) === "query-dbt-semantic-metric",
-    )
-    .map(({ input }) => {
-      const parsed = actionSummaryRecord(input);
-      return parsed.kind === "record" ? parsed.record : null;
-    });
-  const queryResults = (context.toolResults ?? []).filter(
-    ({ name, isError }) =>
-      !isError && analyticsActionName(name) === "query-dbt-semantic-metric",
+  const expectedRange = requestedCalendarRange(
+    userText,
+    new Date(context.runStartedAt ?? Date.now()),
   );
-  if (queryResults.length === 0) return false;
-  if (!expectedRange && expectedDayCount === null) return true;
-
-  for (const result of queryResults) {
-    const parsedOutput = actionSummaryRecord(result.content);
-    if (parsedOutput.kind !== "record") return true;
-    const output = parsedOutput.record;
-    if (output.status !== "success" && output.status !== "pending") continue;
-    const parsedQuerySpec = actionSummaryRecord(output.querySpec);
-    if (parsedQuerySpec.kind !== "record") return true;
-    const querySpec = parsedQuerySpec.record;
-    const resultRange = metricTimeRange(querySpec.timeRange);
-    if (querySpec.allTime === true || !resultRange) return true;
-
-    if (
-      expectedRange &&
-      (resultRange.startDate !== expectedRange.startDate ||
-        resultRange.endDate !== expectedRange.endDate)
-    ) {
-      return true;
+  const expectedComparisonRanges = requestedComparisonCalendarRanges(
+    userText,
+    new Date(context.runStartedAt ?? Date.now()),
+  );
+  const toolCalls = context.toolCalls ?? [];
+  const toolResults = context.toolResults ?? [];
+  const queryResultIndexes = toolResults.flatMap((result, index) =>
+    !result.isError &&
+    analyticsActionName(result.name) === "query-dbt-semantic-metric"
+      ? [index]
+      : [],
+  );
+  if (queryResultIndexes.length === 0) return false;
+  const successfulResultIndexes = queryResultIndexes.filter((index) => {
+    const parsed = actionSummaryRecord(toolResults[index]?.content);
+    return (
+      parsed.kind === "record" &&
+      (parsed.record.status === "success" || parsed.record.status === "pending")
+    );
+  });
+  if (successfulResultIndexes.length === 0) return false;
+  const normalizedGroupBy = (value: unknown) => {
+    if (!Array.isArray(value)) return null;
+    return value
+      .map((item) => {
+        const group = actionSummaryRecord(item);
+        if (group.kind !== "record" || typeof group.record.name !== "string") {
+          return null;
+        }
+        return `${group.record.name.toLowerCase()}:${String(group.record.grain ?? "").toUpperCase()}`;
+      })
+      .filter((item): item is string => item !== null)
+      .sort();
+  };
+  const comparisonResultIndexes: number[] = [];
+  if (expectedComparisonRanges) {
+    const expectedRangeKeys = new Set(
+      expectedComparisonRanges.map(
+        (range) => `${range.startDate}/${range.endDate}`,
+      ),
+    );
+    const latestResultByExpectedRange = new Map<string, number>();
+    for (const index of successfulResultIndexes) {
+      const parsed = actionSummaryRecord(toolResults[index]?.content);
+      if (parsed.kind !== "record") continue;
+      const querySpec = actionSummaryRecord(parsed.record.querySpec);
+      if (querySpec.kind !== "record" || querySpec.record.allTime === true)
+        continue;
+      const range = metricTimeRange(querySpec.record.timeRange);
+      if (!range) continue;
+      const key = `${range.startDate}/${range.endDate}`;
+      if (expectedRangeKeys.has(key))
+        latestResultByExpectedRange.set(key, index);
     }
-    if (
-      expectedDayCount !== null &&
-      inclusiveDayCount(resultRange) !== expectedDayCount
-    ) {
+    if (latestResultByExpectedRange.size !== expectedRangeKeys.size)
       return true;
-    }
 
-    const parsedOutputMetric = actionSummaryRecord(output.metric);
-    if (parsedOutputMetric.kind === "invalid") return true;
-    const outputMetric =
-      parsedOutputMetric.kind === "record" ? parsedOutputMetric.record : null;
-    const normalizeMetricName = (value: unknown) =>
-      String(value ?? "")
+    let comparisonMetricName: string | undefined;
+    let comparisonGroupBy: string | undefined;
+    for (const index of latestResultByExpectedRange.values()) {
+      const result = toolResults[index];
+      const parsed = actionSummaryRecord(result?.content);
+      if (parsed.kind !== "record") return true;
+      const output = parsed.record;
+      const querySpec = actionSummaryRecord(output.querySpec);
+      if (querySpec.kind !== "record" || querySpec.record.allTime === true) {
+        return true;
+      }
+      const resultRange = metricTimeRange(querySpec.record.timeRange);
+      if (!resultRange) return true;
+
+      const metric = actionSummaryRecord(output.metric);
+      if (metric.kind === "invalid") return true;
+      const metricRecord = metric.kind === "record" ? metric.record : null;
+      const metricName = String(output.metricName ?? metricRecord?.name ?? "")
         .trim()
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "");
-    const outputMetricName = normalizeMetricName(
-      output.metricName ?? outputMetric?.name,
-    );
-    const matchingInput = queryCalls.some((input) => {
-      if (!input) return false;
-      const inputMetricName = normalizeMetricName(input.metricName);
-      if (
-        outputMetricName &&
-        inputMetricName &&
-        outputMetricName !== inputMetricName
-      ) {
-        return false;
-      }
-      const inputRange = metricTimeRange(input.timeRange);
-      return (
-        input.allTime !== true &&
-        inputRange?.startDate === resultRange.startDate &&
-        inputRange.endDate === resultRange.endDate
+      const resultToolCallId = result?.toolCallId;
+      const matchingCalls = toolCalls.filter(
+        (call) =>
+          analyticsActionName(call.name) === "query-dbt-semantic-metric" &&
+          (resultToolCallId ? call.toolCallId === resultToolCallId : false),
       );
-    });
-    if (!matchingInput) return true;
+      const namedCalls = toolCalls.filter(
+        (call) =>
+          analyticsActionName(call.name) === "query-dbt-semantic-metric",
+      );
+      const namedResults = toolResults.filter(
+        (candidate) =>
+          analyticsActionName(candidate.name) === "query-dbt-semantic-metric",
+      );
+      const pairedCall = resultToolCallId
+        ? matchingCalls.length === 1
+          ? matchingCalls[0]
+          : undefined
+        : namedCalls.length === 1 && namedResults.length === 1
+          ? namedCalls[0]
+          : undefined;
+      const parsedInput = pairedCall
+        ? actionSummaryRecord(pairedCall.input)
+        : { kind: "absent" as const };
+      if (parsedInput.kind !== "record" || !metricName) return true;
+      const inputMetricName = String(parsedInput.record.metricName ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+      const inputRange = metricTimeRange(parsedInput.record.timeRange);
+      const inputGroupBy = normalizedGroupBy(parsedInput.record.groupBy ?? []);
+      const outputGroupBy = normalizedGroupBy(querySpec.record.groupBy);
+      if (
+        parsedInput.record.allTime === true ||
+        inputMetricName !== metricName ||
+        inputRange?.startDate !== resultRange.startDate ||
+        inputRange?.endDate !== resultRange.endDate ||
+        inputGroupBy === null ||
+        outputGroupBy === null ||
+        JSON.stringify(inputGroupBy) !== JSON.stringify(outputGroupBy)
+      ) {
+        return true;
+      }
+      const groupByKey = JSON.stringify(outputGroupBy);
+      if (
+        (comparisonMetricName && comparisonMetricName !== metricName) ||
+        (comparisonGroupBy && comparisonGroupBy !== groupByKey)
+      ) {
+        return true;
+      }
+      comparisonMetricName = metricName;
+      comparisonGroupBy = groupByKey;
+      comparisonResultIndexes.push(index);
+    }
+  }
+  if (
+    successfulResultIndexes.length > 0 &&
+    !expectedRange &&
+    !expectedComparisonRanges
+  ) {
+    return true;
+  }
+  const resultIndex = expectedComparisonRanges
+    ? comparisonResultIndexes.length > 0
+      ? Math.max(...comparisonResultIndexes)
+      : -1
+    : (successfulResultIndexes[successfulResultIndexes.length - 1] ?? -1);
+  if (resultIndex === -1) return false;
+  const result = toolResults[resultIndex];
+  if (!result) return true;
+
+  const parsedOutput = actionSummaryRecord(result.content);
+  if (parsedOutput.kind !== "record") return true;
+  const output = parsedOutput.record;
+  const parsedQuerySpec = actionSummaryRecord(output.querySpec);
+  if (parsedQuerySpec.kind !== "record") return true;
+  const querySpec = parsedQuerySpec.record;
+  const resultRange = metricTimeRange(querySpec.timeRange);
+  if (querySpec.allTime === true || !resultRange) return true;
+
+  if (
+    expectedRange &&
+    !expectedComparisonRanges &&
+    (resultRange.startDate !== expectedRange.startDate ||
+      resultRange.endDate !== expectedRange.endDate)
+  ) {
+    return true;
+  }
+  if (!expectedRange) {
+    const openEndedRequest =
+      /\b(?:since|from|after)\s+(?:\d{4}-\d{2}-\d{2}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2})\b/i.test(
+        userText,
+      );
+    if (openEndedRequest) return true;
   }
 
-  return false;
+  const parsedOutputMetric = actionSummaryRecord(output.metric);
+  if (parsedOutputMetric.kind === "invalid") return true;
+  const outputMetric =
+    parsedOutputMetric.kind === "record" ? parsedOutputMetric.record : null;
+  const normalizeMetricName = (value: unknown) =>
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  const outputMetricName = normalizeMetricName(
+    output.metricName ?? outputMetric?.name,
+  );
+  const resultToolCallId = toolResults[resultIndex]?.toolCallId;
+  const matchingCalls = toolCalls.filter(
+    (call) =>
+      analyticsActionName(call.name) === "query-dbt-semantic-metric" &&
+      (resultToolCallId ? call.toolCallId === resultToolCallId : false),
+  );
+  const namedCalls = toolCalls.filter(
+    (call) => analyticsActionName(call.name) === "query-dbt-semantic-metric",
+  );
+  const namedResults = toolResults.filter(
+    (candidate) =>
+      analyticsActionName(candidate.name) === "query-dbt-semantic-metric",
+  );
+  const pairedCall = resultToolCallId
+    ? matchingCalls.length === 1
+      ? matchingCalls[0]
+      : undefined
+    : namedCalls.length === 1 && namedResults.length === 1
+      ? namedCalls[0]
+      : undefined;
+  const pairedInput =
+    pairedCall &&
+    analyticsActionName(pairedCall.name) === "query-dbt-semantic-metric"
+      ? actionSummaryRecord(pairedCall.input)
+      : { kind: "absent" as const };
+  const matchingInput =
+    pairedInput.kind === "record" &&
+    (!outputMetricName ||
+      normalizeMetricName(pairedInput.record.metricName) === outputMetricName)
+      ? pairedInput.record
+      : null;
+  if (!matchingInput || matchingInput.allTime === true) return true;
+
+  const inputRange = metricTimeRange(matchingInput.timeRange);
+  if (
+    inputRange?.startDate !== resultRange.startDate ||
+    inputRange.endDate !== resultRange.endDate
+  ) {
+    return true;
+  }
+
+  const inputGroupBy = normalizedGroupBy(matchingInput.groupBy ?? []);
+  const outputGroupBy = normalizedGroupBy(querySpec.groupBy);
+  if (
+    inputGroupBy === null ||
+    outputGroupBy === null ||
+    JSON.stringify(inputGroupBy) !== JSON.stringify(outputGroupBy)
+  ) {
+    return true;
+  }
+
+  const breakdownClause = userText.match(
+    /\b(?:grouped\s+by|breakdown\s+by|split\s+by|per|by)\s+([^?.!,;\n]{1,100})/i,
+  )?.[1];
+  if (!breakdownClause) return false;
+  const dimensions = Array.isArray(outputMetric?.dimensions)
+    ? outputMetric.dimensions.map((dimension) => {
+        const parsed = actionSummaryRecord(dimension);
+        return parsed.kind === "record" ? parsed.record : {};
+      })
+    : [];
+  const requestedDimensionMatches = new Set<string>();
+  const dimensionAliases = [
+    {
+      canonical: "organization",
+      pattern: /\b(?:organization|org|company|companies|account|accounts)\b/i,
+    },
+    {
+      canonical: "workspace",
+      pattern: /\b(?:workspace|workspaces|project|projects)\b/i,
+    },
+    {
+      canonical: "person",
+      pattern: /\b(?:user|users|member|members|person|people|seat|seats)\b/i,
+    },
+    { canonical: "team", pattern: /\bteams?\b/i },
+    { canonical: "plan", pattern: /\b(?:plan|tier|subscription)s?\b/i },
+    {
+      canonical: "region",
+      pattern: /\b(?:country|countries|region|regions)\b/i,
+    },
+    { canonical: "source", pattern: /\b(?:source|channel)s?\b/i },
+    { canonical: "platform", pattern: /\bplatforms?\b/i },
+    { canonical: "device", pattern: /\bdevices?\b/i },
+    { canonical: "browser", pattern: /\bbrowsers?\b/i },
+    { canonical: "event", pattern: /\bevents?\b/i },
+    {
+      canonical: "metric_time",
+      pattern:
+        /\b(?:day|days|week|weeks|month|months|quarter|quarters|year|years|date|time)\b/i,
+    },
+  ];
+  for (const { canonical, pattern } of dimensionAliases) {
+    if (!pattern.test(breakdownClause)) continue;
+    const matches = dimensions.filter((dimension) => {
+      const evidence =
+        `${String(dimension.name ?? "")} ${String(dimension.description ?? "")}`.replace(
+          /[_-]/g,
+          " ",
+        );
+      if (canonical === "metric_time") {
+        return dimension.name === "metric_time";
+      }
+      return pattern.test(evidence);
+    });
+    if (matches.length !== 1) return true;
+    requestedDimensionMatches.add(String(matches[0]?.name ?? ""));
+  }
+  if (requestedDimensionMatches.size === 0) {
+    const normalizedRequest = breakdownClause
+      .toLowerCase()
+      .replace(/[_-]/g, " ")
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const exactMatches = dimensions.filter(
+      (dimension) =>
+        String(dimension.name ?? "")
+          .toLowerCase()
+          .replace(/[_-]/g, " ")
+          .replace(/[^a-z0-9 ]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim() === normalizedRequest,
+    );
+    if (exactMatches.length !== 1) return true;
+    requestedDimensionMatches.add(String(exactMatches[0]?.name ?? ""));
+  }
+  const selectedDimensions = new Set(
+    (querySpec.groupBy as Array<Record<string, unknown>>).map(({ name }) =>
+      String(name),
+    ),
+  );
+  if (
+    [...requestedDimensionMatches].some(
+      (dimension) => !selectedDimensions.has(dimension),
+    )
+  ) {
+    return true;
+  }
+  const requestedTimeGrain = breakdownClause
+    .match(/\b(day|week|month|quarter|year)\b/i)?.[1]
+    ?.toUpperCase();
+  return (
+    requestedTimeGrain !== undefined &&
+    !normalizedGroupBy(querySpec.groupBy)?.includes(
+      `metric_time:${requestedTimeGrain}`,
+    )
+  );
 }
 
 export function realDataFinalGuard(
@@ -1424,6 +1786,7 @@ export function realDataFinalGuard(
     return null;
   }
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
+  const partialBigQueryResult = hasPartialBigQueryResult(context.toolResults);
   const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
   const sourceStatusDetails = sourceStatusDescription(sourceStatus);
@@ -1517,6 +1880,18 @@ export function realDataFinalGuard(
     };
   }
   if (
+    partialBigQueryResult &&
+    !hasBigQueryPartialDisclosure(context.text, context.toolResults)
+  ) {
+    return {
+      retryMessage:
+        "BigQuery returned rows alongside one or more warnings, so the result may be partial even though the query completed. Retry only if you can resolve the warning; otherwise report the returned figures as partial and include the warning instead of presenting them as complete.",
+      fallbackMessage:
+        "BigQuery returned a partial result with a warning, so I can't present the result as complete. The available figures need to be labeled partial and accompanied by the warning.",
+      maxRetries: 2,
+    };
+  }
+  if (
     incompleteEvidence &&
     (looksLikeStrongCoverageClaim(context.text) ||
       looksLikeCoverageSensitiveAnalyticsRequest(userText)) &&
@@ -1551,7 +1926,7 @@ export function realDataFinalGuard(
   if (dbtMetricTimeScopeMismatch(userText, context)) {
     return {
       retryMessage:
-        "The user asked for a period-scoped result, but the dbt Semantic Layer evidence does not show the same bounded date range in both the query input and result. Retry `query-dbt-semantic-metric` with the requested window, do not use `allTime:true`, and match any explicit dates exactly. Do not report figures from an unbounded or mismatched query.",
+        "The dbt Semantic Layer evidence does not show the same bounded date range and requested grouping in every query input and result used for the answer. Retry `query-dbt-semantic-metric` with exact inclusive dates anchored to this run, do not use `allTime:true`, verify every requested breakdown against the metric dimensions and result grouping, and match explicit dates exactly. If the user's wording is vague or asks for a sub-day window the metric cannot represent, ask for a concrete date range or use a timestamp-capable source; do not guess. Do not report figures from an unbounded or mismatched query.",
       fallbackMessage:
         "I can't report this period's dbt metric because the query evidence does not match the requested date range. Please retry the query for that exact period.",
       maxRetries: 2,
@@ -1620,6 +1995,64 @@ export function realDataFinalGuard(
           ),
       ),
     )
+  ) {
+    return null;
+  }
+  const rosterSourceDiscoveryRequest =
+    looksLikeRosterSourceDiscoveryRequest(userText);
+  const emptyRosterCatalogSearch =
+    rosterSourceDiscoveryRequest && hasEmptyFindDataResult(context.toolResults);
+  const completeRosterSchemaSearch = hasCompleteBigQuerySchemaSearch(
+    context.toolResults,
+  );
+  const hasRosterSchemaMatches = hasCompleteBigQuerySchemaSearchMatches(
+    context.toolResults,
+  );
+  if (
+    emptyRosterCatalogSearch &&
+    !completeRosterSchemaSearch &&
+    !failedQueryMessage
+  ) {
+    return {
+      retryMessage:
+        "`find-data` returned no roster candidate, but it searches bounded reference metadata and cannot prove that the source is absent. Continue any dashboard-reference page with `search-dashboard-references` using the exact `dashboardPanelReferenceNextPage` value (it is separate from `find-data.nextPage`), then check the current warehouse with `search-bigquery-schema` for organization, workspace, user, member, membership, role, and roster terms. Continue every BigQuery `nextPage` until the result says `truncated: false` and `nextPage: null`. Use a discovered row-grain source and verify it with a live query; exclude activity logs, snapshots, and aggregates as roster membership. If the source cannot be queried, report that access or schema gap without saying no source exists.",
+      fallbackMessage:
+        "I couldn't verify an organization-user roster from the current reference search: it returned no candidates, and no complete live BigQuery schema search confirmed a source. That does not show that the source is absent. I need a reachable warehouse schema or a verified membership source to answer this.",
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
+  if (
+    emptyRosterCatalogSearch &&
+    hasRosterSchemaMatches &&
+    !failedQueryMessage
+  ) {
+    return {
+      retryMessage:
+        "The live BigQuery schema search found candidate tables for this roster question. Inspect those exact columns, identify the current row-grain membership source, and run a bounded live query before answering. Do not stop at the metadata search or substitute activity events, snapshots, or aggregate tables for membership.",
+      fallbackMessage:
+        "I found possible membership tables in the configured BigQuery schema but did not verify their row grain or run a live query, so I can't report roster data yet.",
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
+  if (
+    rosterSourceDiscoveryRequest &&
+    hasUnscopedRosterSourceAbsenceClaim(context.text) &&
+    hasCompleteEmptyBigQuerySchemaSearch(context.toolResults)
+  ) {
+    return {
+      retryMessage:
+        "The completed BigQuery schema search returned no matching table names, but any absence statement must stay within the configured project/schema that was searched. Say what schema/search was checked and that the result does not establish whether a source exists elsewhere; do not claim there is no roster source generally.",
+      fallbackMessage:
+        "The completed schema search found no matching roster table in the configured BigQuery project. That scoped search does not establish that a membership source is absent from other schemas or systems.",
+      maxRetries: 2,
+    };
+  }
+  if (
+    rosterSourceDiscoveryRequest &&
+    hasCompleteEmptyBigQuerySchemaSearch(context.toolResults) &&
+    hasScopedRosterSourceAbsenceClaim(context.text)
   ) {
     return null;
   }

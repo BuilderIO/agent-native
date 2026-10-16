@@ -6,13 +6,20 @@ import {
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasCatalogSearchAttempt,
+  hasCompleteBigQuerySchemaSearch,
+  hasCompleteBigQuerySchemaSearchMatches,
+  hasCompleteEmptyBigQuerySchemaSearch,
   hasDashboardConstructionAttempt,
+  hasEmptyFindDataResult,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
   hasFailedCorpusWorkflowEvidence,
   hasIncompleteDataEvidence,
+  hasPartialBigQueryResult,
+  hasScopedRosterSourceAbsenceClaim,
   hasRequestedSourceRecordEvidence,
+  hasUnscopedRosterSourceAbsenceClaim,
   hasOverstatedCoverageConfidenceClaim,
   isGenericNoDataFallback,
   isNonDataTurn,
@@ -105,6 +112,80 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "data-source-status" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "save-analysis" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "generate-chart" }])).toBe(false);
+  });
+
+  it("requires an explicitly complete live schema result before treating a roster search as checked", () => {
+    const findData = {
+      name: "find-data",
+      content: JSON.stringify({ results: [], truncated: true, nextPage: null }),
+    };
+    const partialSchema = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        truncated: true,
+        nextPage: "synthetic-next-page",
+      }),
+    };
+    const completeEmptySchema = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        truncated: false,
+        nextPage: null,
+      }),
+    };
+
+    expect(hasEmptyFindDataResult([findData])).toBe(true);
+    expect(hasCompleteBigQuerySchemaSearch([partialSchema])).toBe(false);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([partialSchema])).toBe(false);
+    expect(hasCompleteBigQuerySchemaSearch([completeEmptySchema])).toBe(true);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([completeEmptySchema])).toBe(
+      true,
+    );
+    expect(hasCompleteBigQuerySchemaSearchMatches([completeEmptySchema])).toBe(
+      false,
+    );
+  });
+
+  it("recognizes candidate tables only from a complete matching schema search", () => {
+    const result = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 42,
+        of: 2,
+        tables: [
+          { datasetId: "synthetic_dataset", tableId: "synthetic_members" },
+        ],
+        truncated: false,
+        nextPage: null,
+      }),
+    };
+
+    expect(hasCompleteBigQuerySchemaSearch([result])).toBe(true);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([result])).toBe(false);
+    expect(hasCompleteBigQuerySchemaSearchMatches([result])).toBe(true);
+  });
+
+  it("distinguishes scoped schema absence from an unverified roster absence", () => {
+    const scoped =
+      "No organization membership table was found in the configured BigQuery project schema search.";
+    const unscoped = "No organization membership table or source exists.";
+
+    expect(hasScopedRosterSourceAbsenceClaim(scoped)).toBe(true);
+    expect(hasUnscopedRosterSourceAbsenceClaim(scoped)).toBe(false);
+    expect(hasScopedRosterSourceAbsenceClaim(unscoped)).toBe(false);
+    expect(hasUnscopedRosterSourceAbsenceClaim(unscoped)).toBe(true);
   });
 
   it("does not count failed source reads as evidence", () => {
@@ -1516,6 +1597,38 @@ describe("incomplete evidence detection", () => {
               },
             },
           }),
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("treats BigQuery warning rows as partial evidence", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        content: JSON.stringify({
+          rows: [{ count: 42 }],
+          partial: true,
+          warnings: [{ reason: "other", message: "One shard was unavailable" }],
+        }),
+      },
+    ];
+
+    expect(hasPartialBigQueryResult(toolResults)).toBe(true);
+    expect(hasIncompleteDataEvidence(toolResults)).toBe(true);
+    expect(
+      hasPartialBigQueryResult([
+        {
+          name: "bigquery",
+          content: JSON.stringify({ rows: [{ count: 42 }], partial: false }),
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasPartialBigQueryResult([
+        {
+          name: "bigquery",
+          content: JSON.stringify({ rows: [{ count: 42 }], truncated: true }),
         },
       ]),
     ).toBe(true);

@@ -170,7 +170,10 @@ export default defineAction({
       ...paginationAndCoverage,
       resultType: "reference-metadata",
       guidance: [
-        "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. For rosters, exclude aggregates and snapshots as member sources. If none remain, report no row-grain source and check index coverage or schema. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
+        "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. For rosters, exclude aggregates and snapshots as member sources. An empty result does not establish that a row-grain source is absent: check index coverage and live schema first, then scope any absence claim to the source and schema you actually checked. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
+        result.dashboardPanelReferenceNextPage
+          ? "Dashboard panel references have a separate continuation cursor. Pass dashboardPanelReferenceNextPage to search-dashboard-references; it is not the find-data nextPage cursor."
+          : "",
         dashboardQueryPreviewsTruncated
           ? "Some dashboard SQL previews were shortened to keep the result readable. Call `get-sql-dashboard` with `id` set to the matching dashboardId and `panelIds` containing the panelId before relying on the full query."
           : "",

@@ -207,6 +207,8 @@ function sourceStateLabel(status: BrainSourceStatus, t: Translate): string {
       return t("dataStatus.connected");
     case "configured":
       return t("dataStatus.configuredUnverified");
+    case "checking":
+      return t("indexPanel.dbtChecking");
     case "not-connected":
       return t("dataStatus.notConnected");
     case "needs-reauth":

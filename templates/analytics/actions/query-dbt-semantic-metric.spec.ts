@@ -1807,15 +1807,159 @@ describe("query-dbt-semantic-metric", () => {
       },
     );
 
-    await expect(
-      runAction({ metricName: "missing_metric", limit: 20 }),
-    ).resolves.toMatchObject({
+    const result = await runAction({
+      metricName: "missing_metric",
+      limit: 20,
+    });
+    expect(result).toMatchObject({
       status: "metadata_truncated",
       searched: 1_000,
       of: 1_500,
       truncated: true,
-      nextPage: "metric-metadata:11",
+    });
+    expect(result.nextPage).toMatch(/^metric-metadata-v2\./);
+    const cursor = String(result.nextPage).slice("metric-metadata-v2.".length);
+    const separator = cursor.lastIndexOf(".");
+    const payload = JSON.parse(
+      Buffer.from(cursor.slice(0, separator), "base64url").toString("utf8"),
+    );
+    expect(payload).toEqual({
+      metricName: "missing_metric",
+      connectionId: "dbt-workspace-connection",
+      environmentId: "123456",
+      pageNum: 11,
+      searched: 1_000,
+      of: 1_500,
+      querySpec: { groupBy: [], allTime: true },
     });
     expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(10);
+  });
+
+  it("continues metadata search with its signed cursor and cumulative inspected count", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ body }: any) => {
+        if (body.query.includes("metricsPaginated")) {
+          const pageNum = body.variables.pageNum;
+          return providerResult({
+            data: {
+              metricsPaginated: {
+                items:
+                  pageNum === 11
+                    ? [
+                        {
+                          name: "missing_metric",
+                          dimensions: [],
+                          queryableGranularities: ["DAY"],
+                        },
+                      ]
+                    : Array.from({ length: 100 }, (_, index) => ({
+                        name: `other_metric_${pageNum}_${index}`,
+                      })),
+                totalItems: 1_500,
+                totalPages: 15,
+                pageNum,
+              },
+            },
+          });
+        }
+        if (body.query.includes("createQuery")) {
+          return providerResult({
+            data: { createQuery: { queryId: "fake_query_1" } },
+          });
+        }
+        return providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: [[42]] }),
+            },
+          },
+        });
+      },
+    );
+
+    const first = (await runAction({
+      metricName: "missing_metric",
+      limit: 20,
+    })) as any;
+    expect(first).toMatchObject({
+      status: "metadata_truncated",
+      searched: 1_000,
+    });
+
+    const second = await action.run({
+      metricName: "missing_metric",
+      nextPage: first.nextPage,
+      limit: 20,
+    });
+
+    expect(second).toMatchObject({ status: "success", rows: [[42]] });
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[10]?.[0].body.variables
+        .pageNum,
+    ).toBe(11);
+  });
+
+  it("rejects a metadata cursor reused for another metric or altered page", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(async ({ body }: any) =>
+      providerResult({
+        data: {
+          metricsPaginated: {
+            items: Array.from({ length: 100 }, (_, index) => ({
+              name: `other_metric_${body.variables.pageNum}_${index}`,
+            })),
+            totalItems: 1_500,
+            totalPages: 15,
+            pageNum: body.variables.pageNum,
+          },
+        },
+      }),
+    );
+    const first = (await runAction({
+      metricName: "missing_metric",
+      limit: 20,
+    })) as any;
+    const cursor = String(first.nextPage);
+    const signedPayload = cursor.slice("metric-metadata-v2.".length);
+    const signatureSeparator = signedPayload.lastIndexOf(".");
+    const encodedPayload = signedPayload.slice(0, signatureSeparator);
+    const signature = signedPayload.slice(signatureSeparator + 1);
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    );
+    const callsBeforeInvalidCursors =
+      mocks.executeProviderApiRequest.mock.calls.length;
+
+    await expect(
+      runAction({
+        metricName: "different_metric",
+        nextPage: cursor,
+        limit: 20,
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_metric_metadata_cursor" });
+
+    await expect(
+      runAction({
+        metricName: "missing_metric",
+        nextPage: cursor,
+        timeRange: { startDate: "2026-07-01", endDate: "2026-07-07" },
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_metric_metadata_cursor" });
+
+    const alteredPayload = Buffer.from(
+      JSON.stringify({ ...payload, pageNum: payload.pageNum + 1 }),
+    ).toString("base64url");
+    await expect(
+      runAction({
+        metricName: "missing_metric",
+        nextPage: `metric-metadata-v2.${alteredPayload}.${signature}`,
+        limit: 20,
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_metric_metadata_cursor" });
+
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(
+      callsBeforeInvalidCursors,
+    );
   });
 });

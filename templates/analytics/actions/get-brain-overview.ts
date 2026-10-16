@@ -33,6 +33,7 @@ const DICTIONARY_KEY_PREFIX = "data-dict-";
 const SOURCE_STATUS: Record<SourceHealthState, BrainSourceStatus> = {
   connected: "connected",
   configured: "configured",
+  checking: "checking",
   not_connected: "not-connected",
   needs_reauth: "needs-reauth",
   error: "error",

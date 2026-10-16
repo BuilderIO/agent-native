@@ -584,6 +584,8 @@ describe("runQuery cancellation", () => {
     await expect(runQuery("SELECT 'kept' AS value")).resolves.toMatchObject({
       rows: [{ value: "kept" }],
       totalRows: 1,
+      partial: true,
+      warnings: [{ reason: "other", message: "A nonfatal query warning" }],
     });
   });
 

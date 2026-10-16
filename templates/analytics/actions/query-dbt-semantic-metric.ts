@@ -286,6 +286,9 @@ type DbtFailureState =
 const METRIC_RESULT_CURSOR_PREFIX = "metric-results-v5.";
 const METRIC_RESULT_CURSOR_SIGNING_CONTEXT =
   "agent-native:analytics:dbt-semantic-layer:metric-results:v5:";
+const METRIC_METADATA_CURSOR_PREFIX = "metric-metadata-v2.";
+const METRIC_METADATA_CURSOR_SIGNING_CONTEXT =
+  "agent-native:analytics:dbt-semantic-layer:metric-metadata:v2:";
 
 type MetricResultCursor = {
   metricName: string;
@@ -299,6 +302,21 @@ type MetricResultCursor = {
 };
 
 type DecodedMetricResultCursor = MetricResultCursor & {
+  encodedPayload: string;
+  signature: string;
+};
+
+type MetricMetadataCursor = {
+  metricName: string;
+  connectionId: string;
+  environmentId: string;
+  pageNum: number;
+  searched: number;
+  of: number;
+  querySpec: MetricQuerySpec;
+};
+
+type DecodedMetricMetadataCursor = MetricMetadataCursor & {
   encodedPayload: string;
   signature: string;
 };
@@ -383,6 +401,105 @@ function verifyMetricResultCursor(
   const actual = Buffer.from(cursor.signature, "base64url");
   const expected = metricResultCursorSignature(cursor.encodedPayload, token);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function metricMetadataCursorSignature(payload: string, token: string): Buffer {
+  return createHmac("sha256", token)
+    .update(`${METRIC_METADATA_CURSOR_SIGNING_CONTEXT}${payload}`)
+    .digest();
+}
+
+function encodeMetricMetadataCursor(
+  cursor: MetricMetadataCursor,
+  token: string,
+): string {
+  const payload = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+  const signature = metricMetadataCursorSignature(payload, token).toString(
+    "base64url",
+  );
+  return `${METRIC_METADATA_CURSOR_PREFIX}${payload}.${signature}`;
+}
+
+function decodeMetricMetadataCursor(
+  value: string,
+): DecodedMetricMetadataCursor | null {
+  if (!value.startsWith(METRIC_METADATA_CURSOR_PREFIX)) return null;
+  try {
+    const signedPayload = value.slice(METRIC_METADATA_CURSOR_PREFIX.length);
+    const signatureSeparator = signedPayload.lastIndexOf(".");
+    if (signatureSeparator < 1) return null;
+    const payload = signedPayload.slice(0, signatureSeparator);
+    const signature = signedPayload.slice(signatureSeparator + 1);
+    if (
+      !/^[A-Za-z0-9_-]{1,1880}$/.test(payload) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(signature)
+    ) {
+      return null;
+    }
+    const parsed = record(
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+    );
+    if (
+      typeof parsed.metricName !== "string" ||
+      !parsed.metricName.trim() ||
+      parsed.metricName.length > 128 ||
+      typeof parsed.connectionId !== "string" ||
+      !parsed.connectionId.trim() ||
+      parsed.connectionId.length > 200 ||
+      typeof parsed.environmentId !== "string" ||
+      !/^\d+$/.test(parsed.environmentId) ||
+      !Number.isSafeInteger(parsed.pageNum) ||
+      (parsed.pageNum as number) < 2 ||
+      (parsed.pageNum as number) > 100_000 ||
+      !Number.isSafeInteger(parsed.searched) ||
+      (parsed.searched as number) < 0 ||
+      !Number.isSafeInteger(parsed.of) ||
+      (parsed.of as number) < 0 ||
+      (parsed.searched as number) > (parsed.of as number)
+    ) {
+      return null;
+    }
+    const querySpec = metricQuerySpecSchema.safeParse(parsed.querySpec);
+    if (!querySpec.success) return null;
+    return {
+      ...(parsed as Omit<MetricMetadataCursor, "querySpec">),
+      querySpec: querySpec.data,
+      encodedPayload: payload,
+      signature,
+    };
+  } catch {
+    // coercion-ok: invalid cursor payloads are returned as absent and rejected by the action.
+    return null;
+  }
+}
+
+function verifyMetricMetadataCursor(
+  cursor: DecodedMetricMetadataCursor,
+  token: string,
+): boolean {
+  const actual = Buffer.from(cursor.signature, "base64url");
+  const expected = metricMetadataCursorSignature(cursor.encodedPayload, token);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function normalizedMetricQuerySpec(
+  groupBy: MetricQuerySpec["groupBy"] | undefined,
+  timeRange: MetricQuerySpec["timeRange"],
+  allTime: MetricQuerySpec["allTime"],
+): MetricQuerySpec {
+  const querySpec = metricQuerySpecSchema.parse({
+    groupBy: groupBy ?? [],
+    ...(timeRange ? { timeRange } : {}),
+    ...(allTime ? { allTime } : {}),
+  });
+  return {
+    ...querySpec,
+    groupBy: [...querySpec.groupBy].sort((left, right) =>
+      `${left.name}:${left.grain ?? ""}`.localeCompare(
+        `${right.name}:${right.grain ?? ""}`,
+      ),
+    ),
+  };
 }
 
 class DbtSemanticLayerError extends Error {
@@ -754,11 +871,11 @@ export default defineAction({
         .string()
         .max(2_048)
         .regex(
-          /^(?:metric-metadata:[1-9]\d{0,3}|metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43})$/,
+          /^(?:metric-metadata-v2\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}|metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43})$/,
         )
         .optional()
         .describe(
-          "Continue an exact-name metadata search or metric result page; signed result cursors preserve the selected connection, grouping, and explicit time scope",
+          "Continue an exact-name metadata search or metric result page; signed cursors preserve the search or query, connection, environment, grouping, and time scope",
         ),
       limit: z.coerce
         .number()
@@ -792,7 +909,12 @@ export default defineAction({
     .strict()
     .superRefine(
       ({ queryId, nextPage, groupBy, timeRange, allTime }, context) => {
-        if (!queryId) {
+        const metadataCursorContinuation = nextPage?.startsWith(
+          METRIC_METADATA_CURSOR_PREFIX,
+        );
+        const hasQueryScope =
+          (groupBy?.length ?? 0) > 0 || Boolean(timeRange) || Boolean(allTime);
+        if (!queryId && !(metadataCursorContinuation && !hasQueryScope)) {
           const hasInvalidTimeScope =
             (Boolean(timeRange) && Boolean(allTime)) ||
             (groupBy?.length
@@ -862,6 +984,11 @@ export default defineAction({
     timeRange,
     allTime,
   }) => {
+    const hasRequestedMetricQueryScope =
+      (groupBy?.length ?? 0) > 0 || Boolean(timeRange) || Boolean(allTime);
+    const requestedMetadataQuerySpec = hasRequestedMetricQueryScope
+      ? normalizedMetricQuerySpec(groupBy, timeRange, allTime)
+      : null;
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
       fail("An authenticated user is required to query dbt metrics.", {
@@ -887,7 +1014,22 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const selectedConnectionId = connectionId ?? resultCursor?.connectionId;
+    const isMetricMetadataCursor = nextPage?.startsWith(
+      METRIC_METADATA_CURSOR_PREFIX,
+    );
+    const metadataCursor = isMetricMetadataCursor
+      ? decodeMetricMetadataCursor(nextPage!)
+      : null;
+    if (isMetricMetadataCursor && !metadataCursor) {
+      fail("The metric metadata cursor is invalid.", {
+        errorCode: "invalid_metric_metadata_cursor",
+        statusCode: 400,
+      });
+    }
+    const selectedConnectionId =
+      connectionId ??
+      resultCursor?.connectionId ??
+      metadataCursor?.connectionId;
     const selected = selectedConnectionId
       ? connections.find((connection) => connection.id === selectedConnectionId)
       : connections.length === 1
@@ -981,11 +1123,13 @@ export default defineAction({
 
     const requestedQuerySpec = resultCursor
       ? resultCursor.querySpec
-      : metricQuerySpecSchema.parse({
+      : (metadataCursor?.querySpec ??
+        requestedMetadataQuerySpec ??
+        metricQuerySpecSchema.parse({
           groupBy: groupBy ?? [],
           ...(timeRange ? { timeRange } : {}),
           ...(allTime ? { allTime } : {}),
-        });
+        }));
     let activeQuerySpec = resultCursor?.querySpec ?? requestedQuerySpec;
 
     const token = await resolveWorkspaceConnectionCredentialForApp({
@@ -1018,6 +1162,25 @@ export default defineAction({
         statusCode: 400,
       });
     }
+    if (
+      metadataCursor &&
+      (!verifyMetricMetadataCursor(metadataCursor, token.value) ||
+        metadataCursor.metricName !== metricName.trim().toLowerCase() ||
+        metadataCursor.connectionId !== selected.id ||
+        metadataCursor.environmentId !== environmentId ||
+        JSON.stringify(metadataCursor.querySpec) !==
+          JSON.stringify(
+            requestedMetadataQuerySpec ?? metadataCursor.querySpec,
+          ))
+    ) {
+      fail(
+        "The metric metadata cursor is invalid or belongs to another metric, connection, or environment.",
+        {
+          errorCode: "invalid_metric_metadata_cursor",
+          statusCode: 400,
+        },
+      );
+    }
 
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), 12_000);
@@ -1027,11 +1190,10 @@ export default defineAction({
       let metric: Record<string, unknown> = { name: metricName };
       if (!activeQueryId) {
         const exactMatches: Record<string, unknown>[] = [];
-        const startPage = nextPage?.startsWith("metric-metadata:")
-          ? Number(nextPage.slice("metric-metadata:".length))
-          : 1;
+        const startPage = metadataCursor?.pageNum ?? 1;
         let pageCount = startPage - 1;
-        let totalItems = 0;
+        let totalItems = metadataCursor?.of ?? 0;
+        let totalPages = 0;
         let itemsSeen = 0;
         const finalPage = startPage + MAX_METADATA_PAGES - 1;
         while (pageCount < finalPage) {
@@ -1052,7 +1214,12 @@ export default defineAction({
           if (
             !Array.isArray(page.items) ||
             typeof page.totalItems !== "number" ||
-            typeof page.totalPages !== "number"
+            !Number.isSafeInteger(page.totalItems) ||
+            page.totalItems < 0 ||
+            typeof page.totalPages !== "number" ||
+            !Number.isSafeInteger(page.totalPages) ||
+            page.totalPages < 0 ||
+            page.totalPages > 100_000
           ) {
             fail(
               "dbt Semantic Layer returned incomplete metric metadata pagination.",
@@ -1062,24 +1229,48 @@ export default defineAction({
               },
             );
           }
+          if (metadataCursor && page.totalItems !== metadataCursor.of) {
+            fail(
+              "The dbt metric catalog changed during pagination. Restart the exact-name search.",
+              {
+                errorCode: "dbt_metadata_cursor_stale",
+                statusCode: 409,
+              },
+            );
+          }
           const items = page.items;
           pageCount += 1;
           itemsSeen += items.length;
           totalItems = page.totalItems;
+          totalPages = page.totalPages;
           exactMatches.push(
             ...items.map(record).filter((item) => item.name === metricName),
           );
-          const totalPages = page.totalPages;
           if (exactMatches.length || pageCount >= totalPages) break;
         }
-        if (!exactMatches.length && pageCount < Math.ceil(totalItems / 100)) {
+        const searched = Math.min(
+          totalItems,
+          (metadataCursor?.searched ?? 0) + itemsSeen,
+        );
+        if (!exactMatches.length && pageCount < totalPages) {
           return {
             status: "metadata_truncated",
             metricName,
-            searched: Math.min(totalItems, (startPage - 1) * 100 + itemsSeen),
+            searched,
             of: totalItems,
             truncated: true,
-            nextPage: `metric-metadata:${pageCount + 1}`,
+            nextPage: encodeMetricMetadataCursor(
+              {
+                metricName: metricName.trim().toLowerCase(),
+                connectionId: selected.id,
+                environmentId,
+                pageNum: pageCount + 1,
+                searched,
+                of: totalItems,
+                querySpec: requestedQuerySpec,
+              },
+              token.value,
+            ),
             message:
               "The dbt metric search reached its page limit. Refine the exact metric name or continue from the next metadata page.",
           };
@@ -1121,7 +1312,7 @@ export default defineAction({
           return {
             status: exactMatches.length > 1 ? "ambiguous_metric" : "not_found",
             metricName,
-            searched: Math.min(totalItems, (startPage - 1) * 100 + itemsSeen),
+            searched,
             of: totalItems,
           };
         }

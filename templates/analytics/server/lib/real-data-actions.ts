@@ -400,6 +400,121 @@ export function hasCatalogSearchAttempt(
   });
 }
 
+export function hasEmptyFindDataResult(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError || !isToolName(String(result.name ?? ""), "find-data")) {
+      return false;
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      Array.isArray((payload as Record<string, unknown>).results) &&
+      (payload as { results: unknown[] }).results.length === 0
+    );
+  });
+}
+
+function completeBigQuerySchemaSearchPayloads(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): Array<{ matches: number; search: string }> {
+  return (toolResults ?? []).flatMap((result) => {
+    if (
+      result.isError ||
+      !isToolName(String(result.name ?? ""), "search-bigquery-schema")
+    ) {
+      return [];
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return [];
+    }
+    const record = payload as Record<string, unknown>;
+    if (
+      record.mode !== "table-search" ||
+      typeof record.search !== "string" ||
+      !record.search.trim() ||
+      !Array.isArray(record.tables) ||
+      !Number.isSafeInteger(record.searched) ||
+      !Number.isSafeInteger(record.of) ||
+      record.truncated !== false ||
+      record.nextPage !== null
+    ) {
+      return [];
+    }
+    return [{ matches: record.of as number, search: record.search }];
+  });
+}
+
+export function hasCompleteBigQuerySchemaSearch(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).length > 0;
+}
+
+export function hasCompleteEmptyBigQuerySchemaSearch(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).some(
+    ({ matches }) => matches === 0,
+  );
+}
+
+export function hasCompleteBigQuerySchemaSearchMatches(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).some(
+    ({ matches }) => matches > 0,
+  );
+}
+
+export function looksLikeRosterSourceDiscoveryRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const asksForRosterData =
+    /\b(?:find|list|show|count|pull|export|query|get|who|how many|current|historical|trend|compare)\b[^!?\n]{0,120}\b(?:user|users|member|members|membership|roster|people)\b|\b(?:users?|members?)\s+(?:by|per)\s+(?:org(?:anization)?|workspace)\b/i.test(
+      requestText,
+    );
+  const identifiesOrganizationMembership =
+    /\b(?:user|users|member|members|membership|roster|people)\b[^.!?\n]{0,100}\b(?:org(?:anization)?|workspace|role|membership|roster|by|per|count|list)\b|\b(?:org(?:anization)?|workspace)\b[^.!?\n]{0,80}\b(?:users?|members?|roster|membership)\b|\b(?:membership roles?|user roles?|user roster|(?:builder\.io|builder) users?)\b/i.test(
+      requestText,
+    );
+  return asksForRosterData && identifiesOrganizationMembership;
+}
+
+function claimsRosterSourceAbsence(text: string): boolean {
+  return /\b(?:there (?:is|are) no|no|none of|zero|not found|couldn't find|could not find|didn't find|did not find|doesn't exist|does not exist|isn't present|is not present)\b[^.!?\n]{0,120}\b(?:row[- ]grain|membership|roster|users?|members?|people|tables?|sources?|relations?|datasets?)\b/i.test(
+    text,
+  );
+}
+
+export function hasScopedRosterSourceAbsenceClaim(text: string): boolean {
+  return (
+    claimsRosterSourceAbsence(text) &&
+    /\b(?:in|within|across)\s+(?:the\s+)?(?:configured|connected|searched|inspected)\s+(?:bigquery\s+)?(?:project|schema|warehouse)\b/i.test(
+      text,
+    )
+  );
+}
+
+export function hasUnscopedRosterSourceAbsenceClaim(text: string): boolean {
+  return (
+    claimsRosterSourceAbsence(text) && !hasScopedRosterSourceAbsenceClaim(text)
+  );
+}
+
 function isCorpusSourceActionName(name: string): boolean {
   return CORPUS_SOURCE_ACTIONS.has(normalizeActionToolName(name));
 }
@@ -1153,6 +1268,7 @@ function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
       if (
         [
           "truncated",
+          "partial",
           "coveragetruncated",
           "hasmore",
           "has_more",
@@ -1239,6 +1355,107 @@ export function hasIncompleteDataEvidence(
   });
 }
 
+export function hasPartialBigQueryResult(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
+      return false;
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return false;
+    }
+    const record = payload as Record<string, unknown>;
+    return (
+      record.truncated === true ||
+      record.partial === true ||
+      (Array.isArray(record.warnings) && record.warnings.length > 0)
+    );
+  });
+}
+
+export function hasBigQueryPartialDisclosure(
+  text: string,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const relevantResults = (toolResults ?? []).flatMap((result) => {
+    if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
+      return [];
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return [];
+    }
+    const record = payload as Record<string, unknown>;
+    if (
+      record.truncated !== true &&
+      record.partial !== true &&
+      !(Array.isArray(record.warnings) && record.warnings.length > 0)
+    ) {
+      return [];
+    }
+    const warnings = Array.isArray(record.warnings)
+      ? record.warnings.flatMap((warning) => {
+          if (
+            !warning ||
+            typeof warning !== "object" ||
+            Array.isArray(warning)
+          ) {
+            return [];
+          }
+          const message = (warning as Record<string, unknown>).message;
+          return typeof message === "string" && message.trim() ? [message] : [];
+        })
+      : [];
+    return [{ warnings }];
+  });
+  if (relevantResults.length === 0) return true;
+
+  const mentionsPartialBigQueryResult =
+    /\bbigquery\b[^.!?\n]{0,120}\b(?:partial|truncated|incomplete)\b|\b(?:partial|truncated|incomplete)\b[^.!?\n]{0,120}\bbigquery\b/i.test(
+      text,
+    );
+  if (!mentionsPartialBigQueryResult) return false;
+
+  return relevantResults.every(({ warnings }) => {
+    if (warnings.length === 0) {
+      return /\b(?:may|might|could)\s+omit\b|\bonly\s+(?:the\s+)?returned\s+rows\b|\bnot\s+(?:a\s+)?complete\b|\b(?:row|result)\s+cap\b|\bremaining\s+rows\s+(?:were|are)\s+not\s+included\b/i.test(
+        text,
+      );
+    }
+    if (!/\bwarn(?:ing|ed|s)?\b/i.test(text)) return false;
+    const normalizedText = text.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+    const warningStopWords = new Set([
+      "bigquery",
+      "returned",
+      "warning",
+      "warnings",
+      "query",
+      "result",
+      "results",
+      "data",
+      "this",
+      "that",
+      "with",
+      "from",
+    ]);
+    const warningTokens = warnings.flatMap((warning) =>
+      (warning.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []).filter(
+        (token) => !warningStopWords.has(token),
+      ),
+    );
+    return (
+      warningTokens.length === 0 ||
+      warningTokens.some((token) => normalizedText.includes(token))
+    );
+  });
+}
+
 const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
   /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
@@ -1248,7 +1465,7 @@ const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
 const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
+  /\b(?:partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
