@@ -15,6 +15,7 @@ import { encodeStateAsUpdate } from "yjs";
 import {
   documentComments,
   documentPreviewDrafts,
+  documentSyncLinks,
   documents,
 } from "../server/db/schema";
 import { createContentEditorStructuralSchema } from "../shared/content-editor-structural-schema";
@@ -497,6 +498,9 @@ describe("stored-form census guards (SF-09)", () => {
       ]),
     );
     expect(columns(documentPreviewDrafts)).toContain("document_id");
+    expect(columns(documentSyncLinks)).toEqual(
+      expect.arrayContaining(["document_id", "state"]),
+    );
   });
 
   it("refuses a client whose transaction is not read-only or that has none", async () => {
@@ -548,6 +552,7 @@ const FIXTURE_TABLES = [
   "agent_review_suggestion_operations",
   "document_comments",
   "document_preview_drafts",
+  "document_sync_links",
 ];
 
 async function createFixture(db: DbExec) {
@@ -561,6 +566,7 @@ async function createFixture(db: DbExec) {
     "CREATE TABLE agent_review_suggestion_operations (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, ordinal INTEGER NOT NULL, operation_kind TEXT NOT NULL, target_id TEXT, before_json TEXT, after_json TEXT, anchor_json TEXT, dependencies_json TEXT, schema_version INTEGER NOT NULL)",
     "CREATE TABLE document_comments (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', document_id TEXT NOT NULL, thread_id TEXT NOT NULL, parent_id TEXT, content TEXT NOT NULL, quoted_text TEXT, author_email TEXT NOT NULL, resolved INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE document_preview_drafts (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, org_id TEXT NOT NULL DEFAULT '', document_id TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL)",
+    "CREATE TABLE document_sync_links (document_id TEXT PRIMARY KEY, remote_page_id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'linked')",
   ]) {
     await db.execute(ddl);
   }
@@ -928,6 +934,35 @@ describe("stored-form census against a local database", () => {
     await db.execute(
       `INSERT INTO agent_review_suggestion_operations (id, suggestion_id, ordinal, operation_kind, target_id, before_json, after_json, schema_version) SELECT 'suggestion-many-' || i, 'suggestion-many', i, 'replace_text', 'body', '{"markdown":"a"}', '{"markdown":"b"}', 1 FROM generate_series(0, 2) AS i`,
     );
+    // Each would apply now, but Content refuses any suggestion on a trashed,
+    // source-owned or externally linked page.
+    await db.execute({
+      sql: "INSERT INTO documents (id, content) VALUES (?, ?), (?, ?)",
+      args: ["page-linked", body, "page-unlinked", body],
+    });
+    await db.execute(
+      "INSERT INTO document_sync_links (document_id, remote_page_id, state) VALUES ('page-linked', 'remote-1', 'linked'), ('page-unlinked', 'remote-2', 'unlinked')",
+    );
+    for (const [page, pageBody] of [
+      ["page-trashed", "Trashed \\_body"],
+      ["page-misread", MISREAD_BODY],
+      ["page-linked", body],
+      ["page-unlinked", body],
+    ]) {
+      await db.execute({
+        sql: "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, actor_kind, base_revision, summary, created_at, updated_at) VALUES (?, 'document', ?, 'content.document-markdown', 1, 't3', 'agent', 'r0', 'Edit', 'now', 'now')",
+        args: [`${page}-suggestion`, page],
+      });
+      await db.execute({
+        sql: "INSERT INTO agent_review_suggestion_operations (id, suggestion_id, ordinal, operation_kind, target_id, before_json, after_json, schema_version) VALUES (?, ?, 0, 'replace_text', 'body', ?, ?, 1)",
+        args: [
+          `${page}-operation`,
+          `${page}-suggestion`,
+          JSON.stringify({ markdown: pageBody }),
+          JSON.stringify({ markdown: "note" }),
+        ],
+      });
+    }
     // Would apply now, but Content refuses another adapter version.
     await db.execute(
       "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, actor_kind, base_revision, summary, created_at, updated_at) VALUES ('suggestion-v2', 'document', 'page-repeat', 'content.document-markdown', 2, 't2', 'agent', 'r0', 'Edit', 'now', 'now')",
@@ -969,6 +1004,13 @@ describe("stored-form census against a local database", () => {
       items: 1,
       pageIds: ["page-repeat"],
     });
+    expect(suggestions.pageRefuses).toMatchObject({
+      items: 3,
+      pageIds: ["page-linked", "page-misread", "page-trashed"],
+    });
+    expect(suggestions.strandedByCanonicalize.pageIds).toContain(
+      "page-unlinked",
+    );
     // Two on page-agent, plus the three-operation and other-version ones.
     expect(suggestions.notAcceptable).toMatchObject({
       items: 4,

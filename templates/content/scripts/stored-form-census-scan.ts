@@ -63,14 +63,18 @@ export const CENSUS_STATEMENTS = {
   tables:
     "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY(?)",
   keepalive: "SELECT 1 AS alive",
+  // Trashed and source-owned as Content's suggestion paths test them, where
+  // an empty value is unset.
   documents:
-    "SELECT id, CASE WHEN octet_length(content) <= ? THEN content END AS content, octet_length(content) AS content_bytes, body_revision, collab_body_revision, trashed_at IS NOT NULL AS trashed, (source_mode IS NOT NULL OR source_kind IS NOT NULL OR source_path IS NOT NULL) AS source_owned FROM documents WHERE id >= ? ORDER BY id LIMIT ?",
+    "SELECT id, CASE WHEN octet_length(content) <= ? THEN content END AS content, octet_length(content) AS content_bytes, body_revision, collab_body_revision, COALESCE(trashed_at, '') <> '' AS trashed, (COALESCE(source_mode, '') <> '' OR COALESCE(source_kind, '') <> '' OR COALESCE(source_path, '') <> '') AS source_owned FROM documents WHERE id >= ? ORDER BY id LIMIT ?",
   liveCopies:
     "SELECT doc_id, CASE WHEN octet_length(yjs_state) <= ? THEN yjs_state END AS yjs_state FROM _collab_docs WHERE doc_id = ANY(?)",
   suggestions:
     "SELECT id, resource_id, adapter_version FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id, id) >= (?, ?) ORDER BY resource_id, id LIMIT ?",
   suggestionOperations:
     "SELECT o.suggestion_id, o.operation_kind, o.target_id, o.schema_version, p.payload_bytes, CASE WHEN p.payload_bytes <= ? THEN o.before_json END AS before_json, CASE WHEN p.payload_bytes <= ? THEN o.after_json END AS after_json, CASE WHEN p.payload_bytes <= ? THEN o.anchor_json END AS anchor_json FROM agent_review_suggestion_operations o CROSS JOIN LATERAL (SELECT COALESCE(octet_length(o.before_json), 0) + COALESCE(octet_length(o.after_json), 0) + COALESCE(octet_length(o.anchor_json), 0) AS payload_bytes) p WHERE o.suggestion_id = ANY(?) AND NOT EXISTS (SELECT 1 FROM agent_review_suggestion_operations x WHERE x.suggestion_id = o.suggestion_id AND x.id <> o.id) ORDER BY o.suggestion_id",
+  syncLinks:
+    "SELECT document_id FROM document_sync_links WHERE document_id = ANY(?) AND state <> 'unlinked' ORDER BY document_id",
   comments:
     "SELECT id, document_id, CASE WHEN octet_length(quoted_text) <= ? THEN quoted_text END AS quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id, id) >= (?, ?) ORDER BY document_id, id LIMIT ?",
   drafts:
@@ -118,6 +122,7 @@ const TABLES = [
   "agent_review_suggestion_operations",
   "document_comments",
   "document_preview_drafts",
+  "document_sync_links",
 ] as const;
 
 type Page = {
@@ -333,9 +338,11 @@ function appliesTo(markdown: string, operation: SuggestionOperation) {
 function suggestionOutcome(
   operations: Record<string, unknown>[],
   page: AgentFormPage,
+  linked: boolean,
 ):
   | AnchorOutcome
   | "notAcceptable"
+  | "pageRefuses"
   | "unreadable"
   | "tooLarge"
   | "pastParserLimits" {
@@ -364,6 +371,9 @@ function suggestionOutcome(
   ) {
     return "notAcceptable";
   }
+  // Then, as Content's accept path does, the page itself: a trashed,
+  // source-owned or externally linked page takes no suggestion at all.
+  if (page.trashed || page.sourceOwned || linked) return "pageRefuses";
   // Placing the anchor parses the text the suggestion was made against.
   if (!withinParserLimits(before.value.markdown)) return "pastParserLimits";
   const operation = {
@@ -448,7 +458,8 @@ export async function runStoredFormCensusScan(
   const hasCollab = present.has("_collab_docs");
   const hasSuggestions =
     present.has("agent_review_suggestions") &&
-    present.has("agent_review_suggestion_operations");
+    present.has("agent_review_suggestion_operations") &&
+    present.has("document_sync_links");
   const hasComments = present.has("document_comments");
   const hasDrafts = present.has("document_preview_drafts");
 
@@ -582,6 +593,11 @@ export async function runStoredFormCensusScan(
     if (agentFormIds.length === 0) continue;
 
     if (hasSuggestions) {
+      const linked = new Set(
+        (await read(CENSUS_STATEMENTS.syncLinks, [agentFormIds])).map((row) =>
+          String(row.document_id),
+        ),
+      );
       for await (const suggestions of keysetPages(
         ([resource, id], limit) =>
           read(CENSUS_STATEMENTS.suggestions, [
@@ -613,7 +629,11 @@ export async function runStoredFormCensusScan(
           agentForm.suggestions
             .get(
               Number(row.adapter_version) === SUGGESTION_ADAPTER_VERSION
-                ? suggestionOutcome(operations.get(String(row.id))!, page)
+                ? suggestionOutcome(
+                    operations.get(String(row.id))!,
+                    page,
+                    linked.has(page.id),
+                  )
                 : "notAcceptable",
             )
             .add(page);
@@ -789,7 +809,7 @@ export async function runStoredFormCensusScan(
       pages: agentForm.pages,
       pendingSuggestions: hasSuggestions
         ? agentForm.suggestions
-        : { skipped: "suggestion tables do not exist" },
+        : { skipped: "a table the suggestion check reads does not exist" },
       commentAnchors: hasComments
         ? agentForm.comments
         : { skipped: "table document_comments does not exist" },
