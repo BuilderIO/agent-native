@@ -2134,7 +2134,10 @@ export function App({
         );
         if (storedRemovals.status === "unreadable") return;
         const pendingRemovalIds = new Set(
-          [...lookbackContextRef.current.values()]
+          pendingFailedLookbackContexts(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          })
             .map((context) => context.removalItemId)
             .filter((id): id is string => Boolean(id)),
         );
