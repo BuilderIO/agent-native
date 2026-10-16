@@ -563,13 +563,13 @@ pub fn run() {
                 if teardown_state == clips::QUIT_TEARDOWN_PENDING {
                     api.prevent_exit();
                 } else if meeting_active && teardown_state == 0 {
-                    if clips::begin_quit_teardown() {
+                    if let Some(quit_attempt) = clips::begin_quit_teardown() {
                         api.prevent_exit();
                         let _ = _app_handle.emit("meetings:quit-requested", ());
                         let app_handle = _app_handle.clone();
                         tauri::async_runtime::spawn(async move {
                             tokio::time::sleep(Duration::from_secs(15)).await;
-                            if clips::show_quit_teardown_recovery() {
+                            if clips::show_quit_teardown_recovery(quit_attempt) {
                                 clips::force_show_popover(&app_handle);
                                 let _ = app_handle.emit("meetings:quit-recovery-required", ());
                             }

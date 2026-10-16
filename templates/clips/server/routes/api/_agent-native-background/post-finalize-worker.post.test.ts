@@ -406,7 +406,9 @@ describe("post-finalize worker", () => {
         retryScheduled: true,
         retryAttempt: retryAttempt + 1,
       });
-      const retry = mockDispatchPostFinalizeJob.mock.calls.at(-1)?.[0] as {
+      const retry = mockDispatchPostFinalizeJob.mock.calls[
+        mockDispatchPostFinalizeJob.mock.calls.length - 1
+      ]?.[0] as {
         delayMs: number;
       };
       delays.push(retry.delayMs);
@@ -440,10 +442,7 @@ describe("post-finalize worker", () => {
       });
       mockRecordingWithStatus("ready");
       mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
-        new AggregateError(
-          [new Error("already in progress")],
-          "Meeting finalization was skipped: already-in-progress",
-        ),
+        new Error("Meeting finalization was skipped: already-in-progress"),
       );
 
       await expect(handler({} as any)).resolves.toMatchObject({
@@ -452,7 +451,9 @@ describe("post-finalize worker", () => {
         retryScheduled: true,
         retryAttempt: retryAttempt + 1,
       });
-      const retry = mockDispatchPostFinalizeJob.mock.calls.at(-1)?.[0] as {
+      const retry = mockDispatchPostFinalizeJob.mock.calls[
+        mockDispatchPostFinalizeJob.mock.calls.length - 1
+      ]?.[0] as {
         delayMs: number;
       };
       delays.push(retry.delayMs);
@@ -548,10 +549,7 @@ describe("post-finalize worker", () => {
     });
     mockRecordingWithStatus("failed");
     mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
-      new AggregateError(
-        [new Error("no transcript")],
-        "Meeting finalization was skipped: no-transcript",
-      ),
+      new Error("Meeting finalization was skipped: no-transcript"),
     );
 
     await expect(handler({} as any)).resolves.toMatchObject({

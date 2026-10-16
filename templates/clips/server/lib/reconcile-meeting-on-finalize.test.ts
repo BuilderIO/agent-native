@@ -8,7 +8,9 @@ const state = vi.hoisted(() => ({
   } | null,
   updateSets: [] as Array<Record<string, unknown>>,
 }));
-const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn(async () => {}));
+const mockDispatchPostFinalizeJob = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => {}),
+);
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),

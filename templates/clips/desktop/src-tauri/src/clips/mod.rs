@@ -3133,6 +3133,7 @@ pub const QUIT_TEARDOWN_PENDING: u8 = 1;
 pub const QUIT_TEARDOWN_RECOVERY: u8 = 3;
 // 0 is idle, 2 allows exit, and 1/3 guard an active meeting quit attempt.
 pub static QUIT_TEARDOWN_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static QUIT_TEARDOWN_RECOVERY_ATTEMPT: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
 
 fn transition_quit_teardown_state(
     state: &std::sync::atomic::AtomicU8,
@@ -3151,15 +3152,43 @@ fn transition_quit_teardown_state(
     }
 }
 
-pub fn begin_quit_teardown() -> bool {
-    transition_quit_teardown_state(&QUIT_TEARDOWN_STATE, &[0], QUIT_TEARDOWN_PENDING)
+fn begin_quit_teardown_for(
+    state: &std::sync::atomic::AtomicU8,
+    recovery_attempt: &std::sync::Mutex<u64>,
+) -> Option<u64> {
+    let mut recovery_attempt = recovery_attempt
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !transition_quit_teardown_state(state, &[0], QUIT_TEARDOWN_PENDING) {
+        return None;
+    }
+    *recovery_attempt = recovery_attempt.wrapping_add(1);
+    Some(*recovery_attempt)
 }
 
-pub fn show_quit_teardown_recovery() -> bool {
-    transition_quit_teardown_state(
+pub fn begin_quit_teardown() -> Option<u64> {
+    begin_quit_teardown_for(&QUIT_TEARDOWN_STATE, &QUIT_TEARDOWN_RECOVERY_ATTEMPT)
+}
+
+fn show_quit_teardown_recovery_for(
+    state: &std::sync::atomic::AtomicU8,
+    recovery_attempt: &std::sync::Mutex<u64>,
+    expected_attempt: u64,
+) -> bool {
+    let recovery_attempt = recovery_attempt
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *recovery_attempt != expected_attempt {
+        return false;
+    }
+    transition_quit_teardown_state(state, &[QUIT_TEARDOWN_PENDING], QUIT_TEARDOWN_RECOVERY)
+}
+
+pub fn show_quit_teardown_recovery(expected_attempt: u64) -> bool {
+    show_quit_teardown_recovery_for(
         &QUIT_TEARDOWN_STATE,
-        &[QUIT_TEARDOWN_PENDING],
-        QUIT_TEARDOWN_RECOVERY,
+        &QUIT_TEARDOWN_RECOVERY_ATTEMPT,
+        expected_attempt,
     )
 }
 
@@ -3214,8 +3243,11 @@ pub async fn quit_teardown_force(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod quit_teardown_tests {
-    use super::{transition_quit_teardown_state, QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY};
-    use std::sync::atomic::AtomicU8;
+    use super::{
+        begin_quit_teardown_for, show_quit_teardown_recovery_for, transition_quit_teardown_state,
+        QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY,
+    };
+    use std::sync::{atomic::AtomicU8, Mutex};
 
     #[test]
     fn pending_quit_can_show_recovery_then_resume_recording() {
@@ -3273,6 +3305,39 @@ mod quit_teardown_tests {
             &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
             0,
         ));
+    }
+
+    #[test]
+    fn canceled_quit_timer_cannot_open_recovery_for_a_later_attempt() {
+        let state = AtomicU8::new(0);
+        let recovery_attempt = Mutex::new(0);
+
+        let stale_attempt = begin_quit_teardown_for(&state, &recovery_attempt).unwrap();
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            0,
+        ));
+        let current_attempt = begin_quit_teardown_for(&state, &recovery_attempt).unwrap();
+
+        assert!(!show_quit_teardown_recovery_for(
+            &state,
+            &recovery_attempt,
+            stale_attempt,
+        ));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_PENDING
+        );
+        assert!(show_quit_teardown_recovery_for(
+            &state,
+            &recovery_attempt,
+            current_attempt,
+        ));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_RECOVERY
+        );
     }
 }
 

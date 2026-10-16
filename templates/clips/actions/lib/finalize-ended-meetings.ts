@@ -4,7 +4,10 @@ import { getDb, schema } from "../../server/db/index.js";
 import finalizeMeeting from "../finalize-meeting.js";
 
 class RetryableMeetingFinalizationError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly failures: unknown[] = [],
+  ) {
     super(message);
     this.name = "RetryableMeetingFinalizationError";
   }
@@ -70,9 +73,9 @@ export async function finalizeEndedMeetingsForRecording(
   );
 
   if (options.throwOnFailure && failures.length > 0) {
-    throw new AggregateError(
-      failures,
+    throw new RetryableMeetingFinalizationError(
       `Failed to finalize ${failures.length} ended meeting(s) for recording ${recordingId}`,
+      failures,
     );
   }
 }

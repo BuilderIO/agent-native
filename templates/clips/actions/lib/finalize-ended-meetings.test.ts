@@ -77,7 +77,7 @@ describe("finalize ended meetings for recording", () => {
         throwOnFailure: true,
       }),
     ).rejects.toMatchObject({
-      name: "AggregateError",
+      name: "RetryableMeetingFinalizationError",
       message: "Failed to finalize 1 ended meeting(s) for recording rec-1",
     });
 
@@ -103,7 +103,7 @@ describe("finalize ended meetings for recording", () => {
       finalizeEndedMeetingsForRecording(mockDb as never, "rec-1", {
         throwOnFailure: true,
       }),
-    ).rejects.toMatchObject({ name: "AggregateError" });
+    ).rejects.toMatchObject({ name: "RetryableMeetingFinalizationError" });
 
     expect(mockFinalizeMeeting).toHaveBeenCalledTimes(2);
   });
@@ -118,7 +118,7 @@ describe("finalize ended meetings for recording", () => {
       finalizeEndedMeetingsForRecording(mockDb as never, "rec-1", {
         throwOnFailure: true,
       }),
-    ).rejects.toMatchObject({ name: "AggregateError" });
+    ).rejects.toMatchObject({ name: "RetryableMeetingFinalizationError" });
 
     expect(mockFinalizeMeeting).toHaveBeenCalledTimes(2);
   });
