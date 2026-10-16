@@ -34,6 +34,29 @@ describe("list-agent-engines", () => {
         async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
       ),
     }));
+    vi.doMock("../../settings/user-settings.js", async (importOriginal) => ({
+      ...(await importOriginal<
+        typeof import("../../settings/user-settings.js")
+      >()),
+      getUserSetting: vi.fn(
+        async (_email: string, key: string) => userSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/org-settings.js", async (importOriginal) => ({
+      ...(await importOriginal<
+        typeof import("../../settings/org-settings.js")
+      >()),
+      getOrgSetting: vi.fn(
+        async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
+      getSetting: vi.fn().mockResolvedValue(null),
+      getSettings: vi.fn(
+        async (keys: string[]) => new Map(keys.map((key) => [key, null])),
+      ),
+    }));
     vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../oauth-tokens/store.js")>()),
       getOAuthTokens: vi.fn().mockResolvedValue(null),
