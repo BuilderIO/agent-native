@@ -144,7 +144,11 @@ function peerCommitsAfterBuild(id: string, content: string) {
       committed = true;
       const peer = (await run(
         task,
-        { ...(input as object), input: { content } },
+        {
+          ...(input as object),
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content },
+        },
         ...rest,
       )) as { state?: Uint8Array; text?: string };
       await inTransaction(async (tx) => {
@@ -1251,6 +1255,24 @@ describe("edit-document on a switched page", () => {
     expect(result.receipt.outcome).toBe("applied");
     expect((await page("added-beside")).content).toBe(
       typed.replace("First", "First A"),
+    );
+  });
+
+  it("keeps a peer server's text when the peer's commit overtakes the edit", async () => {
+    await switchedPage("peer-overtakes", "First\n\nSecond");
+    const loaded = await page("peer-overtakes");
+    const spy = peerCommitsAfterBuild("peer-overtakes", "First\nSecond peer");
+    try {
+      const result = await agentEdit("peer-overtakes", loaded, [
+        { find: "First", replace: "First agent" },
+      ]);
+      expect(result.receipt.outcome).toBe("applied");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("peer-overtakes")).content).toBe(
+      "First agent\nSecond peer",
     );
   });
 
