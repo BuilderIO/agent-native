@@ -152,28 +152,23 @@ async function parentIsDescendant(
     parentId: string;
   },
 ) {
-  const queue = [input.id];
+  // Walks up from the parent, one query per level: the reparent runs this
+  // while it holds the owner's page-tree lock.
   const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    if (visited.has(currentId)) continue;
+  let currentId: string | null = input.parentId;
+  while (currentId && !visited.has(currentId)) {
+    if (currentId === input.id) return true;
     visited.add(currentId);
-
-    const children = await db
-      .select({ id: schema.documents.id })
+    const [current] = await db
+      .select({ parentId: schema.documents.parentId })
       .from(schema.documents)
       .where(
         and(
+          eq(schema.documents.id, currentId),
           eq(schema.documents.ownerEmail, input.ownerEmail),
-          eq(schema.documents.parentId, currentId),
         ),
       );
-
-    for (const child of children) {
-      if (child.id === input.parentId) return true;
-      queue.push(child.id);
-    }
+    currentId = current?.parentId ?? null;
   }
   return false;
 }

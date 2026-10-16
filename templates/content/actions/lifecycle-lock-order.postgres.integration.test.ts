@@ -2023,6 +2023,30 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
+    it("refuses a reorder whose sibling moves to another parent while it waits", async () => {
+      const seed = await seedPageTree();
+      const { action: move } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.later, seed.ids.otherParent]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: seed.ids.otherParent })
+            .where(eq(schema.documents.id, seed.ids.later));
+        },
+        () =>
+          asOwner(() => moveDocument.run({ id: seed.ids.moved, position: 2 })),
+      );
+      await expect(move).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.later)).toMatchObject({
+        parentId: seed.ids.otherParent,
+        position: 1,
+      });
+    });
+
     it("refuses a move to another space that would close a cycle with a concurrent move back", async () => {
       const seed = await seedSpaceMove();
       // The concurrent move takes the new parent into the first space, under
