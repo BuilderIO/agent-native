@@ -447,7 +447,9 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   const { records, storage } = memoryStorage();
   setActionQueryCacheStorage(storage);
   const bobFetch = deferred<Response>();
+  const bobHeldFetch = deferred<Response>();
   let privateRequestCount = 0;
+  let bobHeldRequestCount = 0;
   const batchedActions: string[][] = [];
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -461,7 +463,10 @@ it("characterizes Gate scope changes separately from direct binding", async () =
         const results = await Promise.all(
           requestBody.requests.map(async ({ action: requestedAction }) => {
             let response: Response;
-            if (requestedAction === "get-private-data") {
+            if (requestedAction === "list-designs") {
+              bobHeldRequestCount += 1;
+              response = await bobHeldFetch.promise;
+            } else if (requestedAction === "get-private-data") {
               privateRequestCount += 1;
               response =
                 privateRequestCount === 1
@@ -486,6 +491,10 @@ it("characterizes Gate scope changes separately from direct binding", async () =
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      }
+      if (action === "list-designs") {
+        bobHeldRequestCount += 1;
+        return bobHeldFetch.promise;
       }
       const denied = action === "get-private-data";
       if (denied) {
@@ -523,6 +532,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   await expect
     .poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId))
     .toBe(true);
+  await expect.poll(() => bobHeldRequestCount).toBe(1);
   const bobSnapshots = snapshots
     .slice(bobStart)
     .filter((snapshot) => snapshot.userId === USER_B.userId);
@@ -533,6 +543,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
         "Action get-private-data failed: Alice private data denied",
     ),
   ).toBe(false);
+  expect(client.getQueryData(HELD_KEY)).toBeUndefined();
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
     "pending",
   );
@@ -542,6 +553,17 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
+  await act(async () =>
+    bobHeldFetch.resolve(
+      new Response(JSON.stringify({ designs: [{ title: "fresh for Bob" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  );
+  await expect
+    .poll(() => container?.querySelector('[data-testid="held"]')?.textContent)
+    .toBe("fresh for Bob");
   // The denial cleared the query's data, so Bob's read is a first fetch and
   // goes alone instead of joining a batch.
   expect(batchedActions.flat()).not.toContain("get-private-data");
