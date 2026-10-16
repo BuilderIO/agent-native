@@ -43,6 +43,23 @@ cursor, then checks that the requested date range and grouping survive the
 query and final-response guard. First-page cursor creation and signature
 validation remain covered by the focused dbt action tests.
 
+## Latest-wave comparison
+
+The paired CSV records seven cases twice against the same harness bytes on
+2026-10-16. `origin/main` at `d094432e55a24775ec08732527b26b943c464f4c`
+passed 8/14 runs; the candidate code at
+`39f8fcff1bd63e892e5e1145093caa8dab536574` passed 14/14. The three dbt cases
+that failed both baseline repetitions passed both candidate repetitions:
+connection-state abstention, paginated metric lookup with bounded grouping,
+and a rolling three-month campaign metric by product category. The four other
+cases passed in both phases. Every case/replicate pair and the harness SHA are
+identical across phases.
+
+This measures the production action, prompt, guard, and usage plumbing with a
+deterministic scripted engine and synthetic provider results. It does not
+measure model reasoning, live Builder data accuracy, or provider performance;
+latency and token counters describe these local fixture runs only.
+
 ## dbt live validation
 
 Live dbt validation is blocked because the current Analytics workspace has no
