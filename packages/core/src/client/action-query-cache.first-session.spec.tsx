@@ -208,13 +208,55 @@ it("keeps a trusted first-read preload visible without refetching or adopting it
   expect(isBrowserPersistableActionQuery(preloaded!)).toBe(true);
   expect(fetchMock).toHaveBeenCalledTimes(1);
 
-  const trustedRenderStart = renders.length;
   await act(async () => sessionState.set(USER_A, true));
   await expect.poll(() => reads.includes(SCOPE_A)).toBe(true);
   await expect.poll(() => ownerText(container)).toBe("first-read-user-a");
-  expect(renders.slice(trustedRenderStart)).toContain("first-read-user-a");
   expect(fetchMock).toHaveBeenCalledTimes(1);
 
+  client.setQueryData(["action", "cache-write-trigger"], { ready: true });
+  await expect.poll(() => records.has(SCOPE_A), { timeout: 2_000 }).toBe(true);
+  expect(queryIn(records.get(SCOPE_A))).toBeUndefined();
+});
+
+it("keeps a trusted prebind fetch subscribed while the scoped cache binds", async () => {
+  sessionState.set(null, false);
+  const { records, reads, storage } = memoryStorage();
+  const keysStarted = deferred<void>();
+  const finishKeys = deferred<void>();
+  setActionQueryCacheStorage({
+    ...storage,
+    keys: async () => {
+      keysStarted.resolve();
+      await finishKeys.promise;
+      return [];
+    },
+  });
+  const firstResponse = deferred<Response>();
+  const firstFetchStarted = deferred<AbortSignal>();
+  const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+    firstFetchStarted.resolve(init?.signal ?? new AbortController().signal);
+    return firstResponse.promise;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const renders: string[] = [];
+  const container = await mount(client, renders);
+  const signal = await firstFetchStarted.promise;
+
+  await act(async () => sessionState.set(USER_A, true));
+  await keysStarted.promise;
+
+  expect(signal.aborted).toBe(false);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  firstResponse.resolve(response("first-read-user-a"));
+  await expect.poll(() => ownerText(container)).toBe("first-read-user-a");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  finishKeys.resolve();
+  await expect.poll(() => reads.includes(SCOPE_A)).toBe(true);
   client.setQueryData(["action", "cache-write-trigger"], { ready: true });
   await expect.poll(() => records.has(SCOPE_A), { timeout: 2_000 }).toBe(true);
   expect(queryIn(records.get(SCOPE_A))).toBeUndefined();

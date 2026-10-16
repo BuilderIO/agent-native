@@ -1025,7 +1025,10 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     };
   }, [bindAttempt, queryClient, scope, terminalUnauthenticated]);
 
-  const restoring = scope !== null && settledAttempt !== bindAttempt;
+  const restoring =
+    scope !== null &&
+    settledAttempt !== bindAttempt &&
+    !bindAttempt.trustPrebindResults;
   const holdUntrustedChildren =
     scope !== null && !bindAttempt.trustPrebindResults && restoring;
   return (
