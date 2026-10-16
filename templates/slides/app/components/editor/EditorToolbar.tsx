@@ -43,7 +43,7 @@ import {
   IconSquare,
   IconTextSize,
   IconBolt,
-  IconLayersSubtract,
+  IconStack2,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -599,7 +599,7 @@ export default function EditorToolbar({
           group: "slideTools",
           label: t("editorToolbar.layers"),
           keywords: ["layers", "hierarchy", "stack"],
-          icon: IconLayersSubtract,
+          icon: IconStack2,
           active: layersOpen,
           run: onToggleLayers,
         });
@@ -976,7 +976,7 @@ export default function EditorToolbar({
                 aria-pressed={layersOpen}
                 onClick={onToggleLayers}
               >
-                <IconLayersSubtract className="size-4" />
+                <IconStack2 className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t("editorToolbar.layers")}</TooltipContent>

@@ -10551,7 +10551,7 @@ export default function SlideEditor({
   return (
     <div
       className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
-        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+        animationsOpen ? "rounded-r-lg" : ""
       }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
