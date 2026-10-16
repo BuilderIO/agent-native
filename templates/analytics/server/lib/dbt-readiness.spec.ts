@@ -59,6 +59,16 @@ describe("dbtProviderReadiness", () => {
     );
   });
 
+  it("reports a rejected secret lookup as an error, not as a missing token", async () => {
+    mocks.hasAppSecret.mockRejectedValueOnce(
+      new Error("secrets table unavailable"),
+    );
+
+    await expect(dbtProviderReadiness([row()], "org_test")).resolves.toBe(
+      "error",
+    );
+  });
+
   it("reports an unknown token as an error when there is no org to check", async () => {
     await expect(dbtProviderReadiness([row()], null)).resolves.toBe("error");
     expect(mocks.hasAppSecret).not.toHaveBeenCalled();

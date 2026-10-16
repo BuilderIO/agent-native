@@ -556,7 +556,10 @@ function dbtUnverifiedNote(
   ) {
     return `The dbt Semantic Layer is not ready: ${dbtConnectionReadinessReason(readiness)} Set it up on the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}), then ask again.`;
   }
-  return dbtResults.some(dbtQueryDidNotComplete)
+  // Only the latest dbt call matters: an earlier failure followed by a successful
+  // retry is not a failed turn.
+  const latest = dbtResults[dbtResults.length - 1];
+  return latest !== undefined && dbtQueryDidNotComplete(latest)
     ? `The dbt Semantic Layer query did not complete this turn. Check the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}) for the connection status, then ask again.`
     : null;
 }
@@ -1113,8 +1116,9 @@ function dataSourceStatusSummary(
       // readiness is "ready". An absent readiness is unknown, not healthy, so the
       // grant alone must not restore health.
       const dbtNotReady = isDbt && !isDbtUsable(dbtReadiness);
+      // Absent and error readiness both mean the state is unknown, not disconnected.
       const configured = dbtNotReady
-        ? dbtReadiness === undefined
+        ? dbtReadiness === undefined || dbtReadiness === "error"
           ? null
           : false
         : record.configured === true ||

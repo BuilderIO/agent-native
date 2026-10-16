@@ -31,6 +31,26 @@ function rowReadiness(
   return readiness;
 }
 
+// A failed secret lookup is an unknown token, never a missing one, and it must
+// not reject out of the shared status action.
+async function tokenConfiguredFor(
+  orgId: string | null,
+): Promise<boolean | null> {
+  if (!orgId) return null;
+  try {
+    return await hasAppSecret({
+      key: DBT_SEMANTIC_LAYER_TOKEN_KEY,
+      scope: "org",
+      scopeId: orgId,
+    });
+  } catch (error) {
+    console.warn("[analytics] dbt token lookup failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return null;
+  }
+}
+
 // Provider readiness across its granted rows: any ready row makes dbt ready,
 // otherwise the first row's reason is reported. A null orgId means the org
 // token cannot be checked, which is an error, not a missing token.
@@ -39,13 +59,7 @@ export async function dbtProviderReadiness(
   orgId: string | null,
 ): Promise<DbtConnectionReadiness> {
   if (grantedConnections.length === 0) return "not_connected";
-  const tokenConfigured = orgId
-    ? await hasAppSecret({
-        key: DBT_SEMANTIC_LAYER_TOKEN_KEY,
-        scope: "org",
-        scopeId: orgId,
-      })
-    : null;
+  const tokenConfigured = await tokenConfiguredFor(orgId);
   const readiness = grantedConnections.map((connection) =>
     rowReadiness(connection, tokenConfigured),
   );
