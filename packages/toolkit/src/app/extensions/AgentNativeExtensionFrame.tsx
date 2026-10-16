@@ -12,6 +12,7 @@ import {
   type AgentNativeHostContextGetter,
   type AgentNativeHostSession,
 } from "@agent-native/core/client/host";
+import { connectExtensionExternalLinkBridge } from "@agent-native/core/extensions/html-shell";
 import React, {
   forwardRef,
   useCallback,
@@ -345,6 +346,7 @@ export const AgentNativeExtensionFrame = forwardRef<
   forwardedRef,
 ) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
   const bridgeRef = useRef<AgentNativeHostBridge | null>(null);
   const [height, setHeight] = useState(initialHeight);
   const localStorageAdapter = useMemo(
@@ -400,6 +402,14 @@ export const AgentNativeExtensionFrame = forwardRef<
   const scopedCommands = useMemo(
     () => scopeExtensionCommands(commands, commandAllowlist),
     [commands, commandAllowlist],
+  );
+
+  useEffect(
+    () => () => {
+      externalLinkBridgeCleanupRef.current?.();
+      externalLinkBridgeCleanupRef.current = null;
+    },
+    [],
   );
 
   const getMergedContext = useCallback(async () => {
@@ -614,6 +624,9 @@ export const AgentNativeExtensionFrame = forwardRef<
         ...style,
       }}
       onLoad={(event) => {
+        externalLinkBridgeCleanupRef.current?.();
+        externalLinkBridgeCleanupRef.current =
+          connectExtensionExternalLinkBridge(event.currentTarget, window);
         bridgeRef.current?.setTargetWindow(
           event.currentTarget.contentWindow ?? null,
         );

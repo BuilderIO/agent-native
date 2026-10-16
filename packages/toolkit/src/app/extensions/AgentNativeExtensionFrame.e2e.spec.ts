@@ -120,12 +120,13 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
       );
     }
 
+    expect(page.url()).toBe(serverUrl(server));
     const frames = await page.locator("iframe").all();
     expect(frames).toHaveLength(1);
     const sandbox = await frames[0].getAttribute("sandbox");
     expect(sandbox).toContain("allow-scripts");
     expect(sandbox).not.toContain("allow-same-origin");
-    expect(sandbox).toContain("allow-top-navigation-by-user-activation");
+    expect(sandbox).not.toContain("allow-top-navigation-by-user-activation");
 
     const result = await page.evaluate(
       () => window.__extensionE2EResult as ExtensionE2EResult,

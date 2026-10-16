@@ -9,6 +9,11 @@ const extensionContent = `
 <div id="status">pending</div>
 <pre id="results"></pre>
 <script>
+  window.parent.postMessage({
+    type: 'agentNative.extension.openExternalLink',
+    href: 'https://external.example.test/forged',
+    target: '_self'
+  }, '*');
   (async function() {
     const result = {};
     async function capture(name, fn) {

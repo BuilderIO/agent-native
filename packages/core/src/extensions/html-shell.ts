@@ -158,29 +158,125 @@ export interface ExtensionRenderBinding {
   };
 }
 
+export const EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE =
+  "agentNative.extension.openExternalLink";
+const EXTENSION_EXTERNAL_LINK_BRIDGE_INIT_TYPE =
+  "agentNative.extension.initExternalLinkBridge";
+
+export interface ExtensionExternalLinkRequest {
+  href: string;
+  target: "_self";
+}
+
+export function parseExtensionExternalLinkRequest(
+  message: unknown,
+  currentOrigin: string,
+): ExtensionExternalLinkRequest | null {
+  if (!message || typeof message !== "object") return null;
+  const value = message as Record<string, unknown>;
+  if (
+    value.type !== EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE ||
+    typeof value.href !== "string" ||
+    value.target !== "_self"
+  ) {
+    return null;
+  }
+
+  try {
+    const destination = new URL(value.href);
+    if (
+      (destination.protocol !== "http:" && destination.protocol !== "https:") ||
+      destination.origin === currentOrigin
+    ) {
+      return null;
+    }
+    return { href: destination.href, target: "_self" };
+  } catch (error) {
+    if (error instanceof TypeError) return null;
+    throw error;
+  }
+}
+
+export function navigateExtensionExternalLink(
+  message: unknown,
+  hostWindow: Window,
+): "ignored" | "navigated" {
+  const request = parseExtensionExternalLinkRequest(
+    message,
+    hostWindow.location.origin,
+  );
+  if (!request) return "ignored";
+  hostWindow.location.assign(request.href);
+  return "navigated";
+}
+
+export function connectExtensionExternalLinkBridge(
+  iframe: HTMLIFrameElement,
+  hostWindow: Window,
+): (() => void) | null {
+  const frameWindow = iframe.contentWindow;
+  if (!frameWindow || typeof MessageChannel === "undefined") return null;
+
+  const channel = new MessageChannel();
+  channel.port1.addEventListener("message", (event) => {
+    navigateExtensionExternalLink(event.data, hostWindow);
+  });
+  channel.port1.start();
+  frameWindow.postMessage(
+    { type: EXTENSION_EXTERNAL_LINK_BRIDGE_INIT_TYPE },
+    "*",
+    [channel.port2],
+  );
+
+  return () => {
+    channel.port1.close();
+  };
+}
+
 export function buildExtensionExternalLinkBootstrap(): string {
   return `<script>
-    document.addEventListener('click', function(event) {
-      var target = event.target;
-      if (!target || typeof target.closest !== 'function') return;
-      var link = target.closest('a[href]');
-      if (!link || link.hasAttribute('download')) return;
-      var linkTarget = (link.getAttribute('target') || '').trim().toLowerCase();
-      if (linkTarget && linkTarget !== '_self') return;
+    (function() {
+      var externalLinkPort = null;
+      // Extension code shares this window, so consume the transferred port before it can observe it.
+      window.addEventListener('message', function(event) {
+        if (
+          event.source !== window.parent ||
+          !event.data ||
+          event.data.type !== '${EXTENSION_EXTERNAL_LINK_BRIDGE_INIT_TYPE}' ||
+          !event.ports ||
+          event.ports.length !== 1 ||
+          externalLinkPort
+        ) return;
+        externalLinkPort = event.ports[0];
+        externalLinkPort.start();
+        event.stopImmediatePropagation();
+      }, true);
 
-      var href = link.getAttribute('href');
-      if (!href || href.charAt(0) === '#') return;
-      var base = document.createElement('a');
-      base.href = document.baseURI;
-      var destination = document.createElement('a');
-      destination.href = href;
-      if (
-        (destination.protocol === 'http:' || destination.protocol === 'https:') &&
-        destination.origin !== base.origin
-      ) {
-        link.setAttribute('target', '_top');
-      }
-    }, true);
+      document.addEventListener('click', function(event) {
+        if (!event.isTrusted || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (window.parent === window) return;
+        var target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        var link = target.closest('a[href]');
+        if (!link || link.hasAttribute('download')) return;
+        var linkTarget = (link.getAttribute('target') || '').trim().toLowerCase();
+        if (linkTarget && linkTarget !== '_self') return;
+
+        var destination = new URL(link.href, document.baseURI);
+        if (
+          (destination.protocol === 'http:' || destination.protocol === 'https:') &&
+          destination.origin !== window.location.origin
+        ) {
+          if (!externalLinkPort) return;
+          event.preventDefault();
+          externalLinkPort.postMessage({
+            type: '${EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE}',
+            href: destination.href,
+            target: '_self'
+          });
+        }
+      }, true);
+    })();
   </script>`;
 }
 

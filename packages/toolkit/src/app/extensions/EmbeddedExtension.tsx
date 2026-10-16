@@ -4,6 +4,7 @@ import { useAppearance } from "@agent-native/core/client/appearance";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { connectExtensionExternalLinkBridge } from "@agent-native/core/extensions/html-shell";
 import { extensionPath } from "@agent-native/core/extensions/path";
 import { THEME_VAR_NAMES } from "@agent-native/core/extensions/theme";
 import {
@@ -116,6 +117,7 @@ export function EmbeddedExtension({
   onUnavailable,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const readyFiredRef = useRef(false);
@@ -136,6 +138,14 @@ export function EmbeddedExtension({
   });
   const bindingLatchedRef = useRef(false);
   const extensionRef = useRef(null as null | Extension);
+
+  useEffect(
+    () => () => {
+      externalLinkBridgeCleanupRef.current?.();
+      externalLinkBridgeCleanupRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -455,6 +465,11 @@ export function EmbeddedExtension({
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
+          if (iframeRef.current) {
+            externalLinkBridgeCleanupRef.current?.();
+            externalLinkBridgeCleanupRef.current =
+              connectExtensionExternalLinkBridge(iframeRef.current, window);
+          }
           iframeRef.current?.contentWindow?.postMessage(
             {
               type: "agent-native-slot-context",

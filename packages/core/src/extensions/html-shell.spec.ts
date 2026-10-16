@@ -12,11 +12,13 @@ import {
 } from "../app-config/index.js";
 import {
   buildExtensionHtml,
+  EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
   EXTENSION_FRAME_ANCESTORS,
   EXTENSION_IFRAME_CSP,
   EXTENSION_IFRAME_META_CSP,
   extensionIframeCspBase,
   extensionIframeMetaCspFromDisplaySources,
+  parseExtensionExternalLinkRequest,
 } from "./html-shell.js";
 import {
   buildExtensionIframeCsp,
@@ -65,7 +67,7 @@ describe("buildExtensionHtml", () => {
     );
   });
 
-  it("routes clicked external extension links through the top-level page", () => {
+  it("routes clicked external extension links through the host page", () => {
     const html = buildExtensionHtml(
       '<a href="https://docs.example.com/metric">Metric docs</a>',
       ":root{}",
@@ -73,8 +75,55 @@ describe("buildExtensionHtml", () => {
       "extension-1",
     );
 
-    expect(html).toContain("link.setAttribute('target', '_top')");
+    expect(html).toContain("if (!event.isTrusted");
+    expect(html).toContain("event.preventDefault()");
+    expect(html).toContain("externalLinkPort.postMessage({");
+    expect(html).toContain("event.stopImmediatePropagation()");
+    expect(html).toContain(`type: '${EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE}'`);
+    expect(html).not.toContain("link.setAttribute('target', '_top')");
     expect(html).toContain("document.addEventListener('click'");
+  });
+
+  it("accepts only external HTTP(S) link handoffs", () => {
+    expect(
+      parseExtensionExternalLinkRequest(
+        {
+          type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
+          href: "https://docs.example.com/metric",
+          target: "_self",
+        },
+        "https://app.example.com",
+      ),
+    ).toEqual({ href: "https://docs.example.com/metric", target: "_self" });
+
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/html,unsafe",
+      "https://app.example.com/inside",
+      "not a url",
+    ]) {
+      expect(
+        parseExtensionExternalLinkRequest(
+          {
+            type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
+            href,
+            target: "_self",
+          },
+          "https://app.example.com",
+        ),
+      ).toBeNull();
+    }
+
+    expect(
+      parseExtensionExternalLinkRequest(
+        {
+          type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
+          href: "https://docs.example.com/metric",
+          target: "_top",
+        },
+        "https://app.example.com",
+      ),
+    ).toBeNull();
   });
 
   it("keeps frame-ancestors in the HTTP header CSP only", () => {

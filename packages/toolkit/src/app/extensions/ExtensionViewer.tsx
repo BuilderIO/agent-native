@@ -4,7 +4,10 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildExtensionHtml } from "@agent-native/core/extensions/html-shell";
+import {
+  buildExtensionHtml,
+  connectExtensionExternalLinkBridge,
+} from "@agent-native/core/extensions/html-shell";
 import {
   extensionPath,
   isExtensionPathname,
@@ -721,6 +724,7 @@ export function ExtensionViewer({
   const [isDark, setIsDark] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
   const toolRef = useRef<Extension | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -737,6 +741,14 @@ export function ExtensionViewer({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      externalLinkBridgeCleanupRef.current?.();
+      externalLinkBridgeCleanupRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -1301,6 +1313,11 @@ export function ExtensionViewer({
               // document yet, so this is the about:blank load. Keep the
               // spinner up until the real document loads.
               if (usesSrcDoc && !iframeSrcDoc) return;
+              if (iframeRef.current) {
+                externalLinkBridgeCleanupRef.current?.();
+                externalLinkBridgeCleanupRef.current =
+                  connectExtensionExternalLinkBridge(iframeRef.current, window);
+              }
               sendThemeToIframe();
               setTimeout(() => setIframeReady(true), 150);
             }}

@@ -154,7 +154,7 @@ describe("ExtensionViewer MCP embeds", () => {
     );
     expect(iframe.getAttribute("srcdoc")).toBeNull();
     expect(iframe.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-forms allow-popups allow-downloads allow-top-navigation-by-user-activation",
+      "allow-scripts allow-forms allow-popups allow-downloads",
     );
   });
 
@@ -170,7 +170,7 @@ describe("ExtensionViewer MCP embeds", () => {
       "agent-native-extension-binding",
     );
     expect(iframe.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-forms allow-popups allow-downloads allow-top-navigation-by-user-activation",
+      "allow-scripts allow-forms allow-popups allow-downloads",
     );
   });
 

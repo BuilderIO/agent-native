@@ -2,7 +2,10 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
-import { buildExtensionHtml } from "@agent-native/core/extensions/html-shell";
+import {
+  buildExtensionHtml,
+  connectExtensionExternalLinkBridge,
+} from "@agent-native/core/extensions/html-shell";
 import { getThemeVars } from "@agent-native/core/extensions/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -328,6 +331,7 @@ export function InlineExtensionFrame({
 }: InlineExtensionFrameProps) {
   const providedId = providedExtension?.id ?? extensionId ?? "";
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(() =>
     typeof document === "undefined"
@@ -344,6 +348,14 @@ export function InlineExtensionFrame({
   const [isLoading, setIsLoading] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const hasSubmittedRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      externalLinkBridgeCleanupRef.current?.();
+      externalLinkBridgeCleanupRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -688,6 +700,11 @@ export function InlineExtensionFrame({
           pointerEvents: isTransient && hasSubmitted ? "none" : undefined,
         }}
         onLoad={() => {
+          if (iframeRef.current) {
+            externalLinkBridgeCleanupRef.current?.();
+            externalLinkBridgeCleanupRef.current =
+              connectExtensionExternalLinkBridge(iframeRef.current, window);
+          }
           sendThemeToIframe();
           sendContextToIframe();
         }}

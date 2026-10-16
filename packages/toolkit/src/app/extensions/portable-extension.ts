@@ -440,10 +440,7 @@ export function normalizeAgentNativeExtensionSandbox(
   sandbox: string | undefined,
 ): string {
   const tokens = new Set(
-    (
-      sandbox ??
-      "allow-scripts allow-forms allow-popups allow-downloads allow-top-navigation-by-user-activation"
-    )
+    (sandbox ?? "allow-scripts allow-forms allow-popups allow-downloads")
       .split(/\s+/)
       .filter(Boolean),
   );

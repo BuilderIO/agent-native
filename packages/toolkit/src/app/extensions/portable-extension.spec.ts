@@ -30,7 +30,8 @@ describe("portable extension runtime", () => {
     expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
     expect(html).toContain("recordCrossOriginIframes: true");
     expect(html).toContain("agentNative.host.ready");
-    expect(html).toContain("link.setAttribute('target', '_top')");
+    expect(html).toContain("agentNative.extension.openExternalLink");
+    expect(html).toContain("externalLinkPort.postMessage({");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
     expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
@@ -105,8 +106,15 @@ describe("portable extension runtime", () => {
     expect(normalizeAgentNativeExtensionSandbox(undefined)).toContain(
       "allow-scripts",
     );
-    expect(normalizeAgentNativeExtensionSandbox(undefined)).toContain(
-      "allow-top-navigation-by-user-activation",
+    expect(normalizeAgentNativeExtensionSandbox(undefined)).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "allow-scripts allow-top-navigation-by-user-activation",
+      ),
+    ).toBe(
+      "allow-scripts allow-top-navigation-by-user-activation allow-downloads",
     );
     expect(normalizeAgentNativeExtensionSandbox("allow-forms")).toContain(
       "allow-downloads",
