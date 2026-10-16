@@ -194,7 +194,7 @@ function backslashReader() {
     });
     const after = new Map(probes.map((probe) => [probe, [] as string[]]));
     shownAfter(
-      nfmToDoc(`${probed}${text.slice(positions.at(-1) ?? 0)}`),
+      nfmToDoc(`${probed}${text.slice(positions[positions.length - 1] ?? 0)}`),
       after,
     );
     return positions.map((at, index) => {
