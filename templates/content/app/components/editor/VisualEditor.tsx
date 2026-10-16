@@ -4748,7 +4748,7 @@ export function VisualEditor({
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>
-      {collabState.initialSeedFailed ? (
+      {collabState.initialSeedFailed || collabState.joinEvidenceFailed ? (
         <div
           role="alert"
           className="flex items-center gap-2 px-4 py-2 text-sm text-destructive"
@@ -4758,7 +4758,11 @@ export function VisualEditor({
             type="button"
             variant="outline"
             size="sm"
-            onClick={collabState.retryInitialSeed}
+            onClick={
+              collabState.initialSeedFailed
+                ? collabState.retryInitialSeed
+                : collabState.retryJoinEvidence
+            }
           >
             {t("comments.retry")}
           </Button>

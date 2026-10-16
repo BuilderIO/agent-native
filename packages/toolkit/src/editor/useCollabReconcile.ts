@@ -60,6 +60,7 @@ const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
 const CATCH_UP_ATTEMPTS = 3;
 const CATCH_UP_RETRY_MS = 2000;
 const JOIN_EVIDENCE_TIMEOUT_MS = 20_000;
+const JOIN_EVIDENCE_RETRY_MS = 500;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -73,7 +74,7 @@ function pushEmittedRing(ring: string[], value: string): void {
 const HELD_REVISION_FIELD = "reconciledRevision";
 
 function peerHoldsRevision(
-  awareness: Awareness,
+  peers: Map<number, unknown>,
   localClientId: number,
   revision: string,
   compareContentRevisions:
@@ -81,7 +82,7 @@ function peerHoldsRevision(
     | undefined,
 ): boolean {
   let held = false;
-  awareness.getStates().forEach((state, clientId) => {
+  peers.forEach((state, clientId) => {
     if (held || clientId === localClientId || clientId === AGENT_CLIENT_ID)
       return;
     const peer = state as {
@@ -128,7 +129,9 @@ export interface UseCollabReconcileOptions {
    * instead of replacing it with the stored body: the doc can be ahead of a
    * save still on its way, and the replace deletes that text for every
    * collaborator. Without such a report, or without these options, it replaces
-   * the doc as before.
+   * the doc as before. When it cannot learn who else is open, it leaves the doc
+   * as it is and reports `joinEvidenceFailed` until `retryJoinEvidence`
+   * succeeds or the stored body catches up.
    */
   discoverCollabPeers?: () => Promise<{
     status: "ready" | "failed" | "unavailable";
@@ -198,6 +201,14 @@ export interface UseCollabReconcileResult {
    */
   initialSeedPending: boolean;
   retryInitialSeed: () => void;
+  /**
+   * True when a client joining a live doc that differs from the stored body
+   * could not learn whether a collaborator holds that body. The doc stays as
+   * it is, neither replaced nor adopted, until `retryJoinEvidence` succeeds or
+   * the stored body catches up with it.
+   */
+  joinEvidenceFailed: boolean;
+  retryJoinEvidence: () => void;
   isSettingContentRef: MutableRefObject<boolean>;
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
   reportRemoteUpdate: (transaction: Transaction) => void;
@@ -347,55 +358,86 @@ export function useCollabReconcile({
   const requestCollabSyncRef = useRef(requestCollabSync);
   requestCollabSyncRef.current = requestCollabSync;
   // Evidence for a client joining a live doc that differs from the stored
-  // body: who else holds the doc, and the doc as the server has it now, which
-  // holds every update behind the reports it just learned.
-  const [joinEvidence, setJoinEvidence] = useState<{
+  // body: the revisions collaborators reported when it learned who else is
+  // open, and the doc as the server has it after that, which holds every
+  // update behind those reports. A report that arrives during the catch-up is
+  // not covered by it, so it is not evidence.
+  const [joinEvidence, setJoinEvidence] = useState<
+    | { ydoc: YDoc; status: "pending" }
+    | { ydoc: YDoc; status: "ready"; peers: Map<number, unknown> }
+    | { ydoc: YDoc; status: "failed"; error: unknown }
+    | null
+  >(null);
+  const joinEvidenceRequestRef = useRef<{
     ydoc: YDoc;
-    status: "pending" | "ready" | "none";
+    cancel: () => void;
   } | null>(null);
-  const joinEvidenceRequestRef = useRef<YDoc | null>(null);
   const requestJoinEvidence = (doc: YDoc) => {
     const discover = discoverCollabPeersRef.current;
     const catchUp = requestCollabSyncRef.current;
-    if (joinEvidenceRequestRef.current === doc || !discover || !catchUp) return;
-    joinEvidenceRequestRef.current = doc;
-    setJoinEvidence({ ydoc: doc, status: "pending" });
+    const target = heldRevisionAwarenessRef.current;
+    if (
+      joinEvidenceRequestRef.current?.ydoc === doc ||
+      !discover ||
+      !catchUp ||
+      !target
+    )
+      return;
+    joinEvidenceRequestRef.current?.cancel();
     let settled = false;
-    const settle = (status: "ready" | "none", error?: unknown) => {
-      if (settled) return;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
       settled = true;
       clearTimeout(watchdog);
-      if (error !== undefined)
+      clearTimeout(retry);
+    };
+    joinEvidenceRequestRef.current = { ydoc: doc, cancel: stop };
+    setJoinEvidence({ ydoc: doc, status: "pending" });
+    const settle = (
+      evidence:
+        | { ydoc: YDoc; status: "ready"; peers: Map<number, unknown> }
+        | { ydoc: YDoc; status: "failed"; error: unknown },
+    ) => {
+      if (settled) return;
+      stop();
+      if (evidence.status === "failed")
         console.warn(
-          "Could not learn who else holds this document; opening it applies the stored body",
-          error,
+          "Could not learn who else holds this document; leaving it as it is until a retry",
+          evidence.error,
         );
       setJoinEvidence((current) =>
-        current?.ydoc === doc ? { ydoc: doc, status } : current,
+        current?.ydoc === doc ? evidence : current,
       );
     };
+    const fail = (error: unknown) =>
+      settle({ ydoc: doc, status: "failed", error });
     const watchdog = setTimeout(
-      () => settle("none", new Error("Timed out")),
+      () => fail(new Error("Timed out")),
       JOIN_EVIDENCE_TIMEOUT_MS,
     );
-    discover()
-      .then(async (discovered) => {
-        if (discovered.status === "unavailable") return settle("none");
-        if (discovered.status !== "ready")
-          return settle(
-            "none",
-            discovered.error ?? new Error("Peer discovery failed"),
-          );
+    const attempt = async () => {
+      const discovered = await discover();
+      if (settled) return;
+      if (discovered.status === "failed")
+        return fail(discovered.error ?? new Error("Peer discovery failed"));
+      if (discovered.status === "ready") {
+        const peers = new Map(target.getStates());
         const synced = await catchUp();
-        if (synced.status !== "synced")
-          return settle(
-            "none",
-            new Error(`Catching up with the server ${synced.status}`),
-          );
-        settle("ready");
-      })
-      .catch((error: unknown) => settle("none", error));
+        if (settled) return;
+        if (synced.status === "synced")
+          return settle({ ydoc: doc, status: "ready", peers });
+        if (synced.status === "failed")
+          return fail(new Error("Catching up with the server failed"));
+      }
+      // Not connected yet: ask again until the watchdog gives up.
+      retry = setTimeout(
+        () => void attempt().catch(fail),
+        JOIN_EVIDENCE_RETRY_MS,
+      );
+    };
+    void attempt().catch(fail);
   };
+  useEffect(() => () => joinEvidenceRequestRef.current?.cancel(), []);
   const reportedConflictRevisionRef = useRef<string | null>(null);
   const reconcileCallbacksRef = useRef({
     getMarkdown,
@@ -965,6 +1007,8 @@ export function useCollabReconcile({
         if (currentMarkdown === normalizedValue) {
           lastAppliedValueRef.current = value;
           lastAppliedSerializedRef.current = currentMarkdown;
+          // The stored body caught up with the doc a failed join left alone.
+          if (joinEvidence?.status === "failed") setJoinEvidence(null);
         }
         if (contentRevision) {
           holdAuthoritativeBase(
@@ -1020,11 +1064,13 @@ export function useCollabReconcile({
           requestJoinEvidence(ydoc!);
           return;
         }
-        if (evidence.status === "pending") return;
+        // Without evidence this client cannot tell typing ahead of a save from
+        // a stored change no collaborator holds yet, and either guess can lose
+        // text, so a failure leaves the doc as it is and is reported.
+        if (evidence.status !== "ready") return;
         if (
-          evidence.status === "ready" &&
           peerHoldsRevision(
-            awareness!,
+            evidence.peers,
             ydoc!.clientID,
             contentRevision,
             compareContentRevisions,
@@ -1362,6 +1408,13 @@ export function useCollabReconcile({
     retryInitialSeed: () => {
       setInitialSeedFailed(false);
       setInitialSeedRetry((retry) => retry + 1);
+    },
+    joinEvidenceFailed:
+      joinEvidence?.ydoc === ydoc && joinEvidence?.status === "failed",
+    retryJoinEvidence: () => {
+      joinEvidenceRequestRef.current?.cancel();
+      joinEvidenceRequestRef.current = null;
+      setJoinEvidence(null);
     },
     isSettingContentRef,
     shouldIgnoreUpdate,

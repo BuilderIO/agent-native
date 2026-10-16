@@ -144,9 +144,19 @@ function makeTabs({
     C: () => Promise.resolve(true),
   };
   let catchUpStatus: "synced" | "failed" = "synced";
+  let holdNextCatchUp = false;
+  let releaseCatchUp: (() => void) | null = null;
   const catchUp = {
     B: vi.fn(async () => ({ status: "synced" as const })),
-    C: vi.fn(async () => ({ status: catchUpStatus })),
+    C: vi.fn(async () => {
+      if (holdNextCatchUp) {
+        holdNextCatchUp = false;
+        await new Promise<void>((resolve) => {
+          releaseCatchUp = resolve;
+        });
+      }
+      return { status: catchUpStatus };
+    }),
   };
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
   const discover = {
@@ -160,6 +170,10 @@ function makeTabs({
   };
 
   const editors: { B: Editor | null; C: Editor | null } = { B: null, C: null };
+  const results: {
+    B: ReturnType<typeof useCollabReconcile> | null;
+    C: ReturnType<typeof useCollabReconcile> | null;
+  } = { B: null, C: null };
   function Tab({ name, snapshot }: { name: "B" | "C"; snapshot: Snapshot }) {
     const editor = useEditor({
       extensions: createRichMarkdownExtensions({
@@ -168,7 +182,7 @@ function makeTabs({
       }),
     });
     editors[name] = editor;
-    useCollabReconcile({
+    results[name] = useCollabReconcile({
       editor,
       ydoc: docs[name],
       awareness: awareness[name],
@@ -224,6 +238,21 @@ function makeTabs({
     failCatchUp: () => {
       catchUpStatus = "failed";
     },
+    /** C's next catch-up waits for `releaseCatchUp`. */
+    holdCatchUp: () => {
+      holdNextCatchUp = true;
+    },
+    releaseCatchUp: () => releaseCatchUp?.(),
+    /** A presence state C receives outside discovery, as its poll delivers it. */
+    reportToC: (clientId: number, state: PeerState) => {
+      awareness.C.getStates().set(clientId, state);
+      awareness.C.emit("change", [
+        { added: [], updated: [clientId], removed: [] },
+        "remote",
+      ]);
+    },
+    joinFailed: (name: "B" | "C") => results[name]?.joinEvidenceFailed,
+    retryJoin: (name: "B" | "C") => results[name]?.retryJoinEvidence(),
     /** C's first sync: it fetches the live doc, then joins the relay. */
     syncC: () => {
       Y.applyUpdate(docs.C, Y.encodeStateAsUpdate(docs.A), "relay");
@@ -421,25 +450,35 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
-  it("applies the stored body when it cannot learn who else is open", async () => {
+  it("leaves the doc as it is, and reports it, when it cannot learn who else is open", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const tabs = makeTabs();
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
     vi.useFakeTimers();
     try {
       await openCWhileASaves(tabs);
       await act(async () => tabs.discoverPeers("failed"));
-      await act(async () => vi.advanceTimersByTimeAsync(3_000));
-      expect(tabs.counts()).toEqual({ A: 0, B: 0, C: 0 });
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.joinFailed("C")).toBe(true);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Could not learn who else holds this document"),
         expect.any(Error),
       );
+
+      act(() => tabs.retryJoin("C"));
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      expect(tabs.discover.C).toHaveBeenCalledTimes(2);
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(heldRevision(tabs.awareness.C)).toBe(STORED.revision);
     } finally {
       tabs.dispose();
     }
   });
 
-  it("applies the stored body when it cannot catch up with the server", async () => {
+  it("leaves the doc as it is, and reports it, when it cannot catch up with the server", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
     tabs.failCatchUp();
@@ -448,7 +487,8 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       await openCWhileASaves(tabs);
       await act(async () => tabs.discoverPeers());
       await act(async () => vi.advanceTimersByTimeAsync(10_000));
-      expect(tabs.counts()).toEqual({ A: 0, B: 0, C: 0 });
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.joinFailed("C")).toBe(true);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Could not learn who else holds this document"),
         expect.objectContaining({
@@ -460,21 +500,107 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
-  it("stops waiting for collaborators that never answer", async () => {
+  it("stops waiting for collaborators that never answer, and reports it", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const tabs = makeTabs();
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
     vi.useFakeTimers();
     try {
       await openCWhileASaves(tabs);
       await act(async () => vi.advanceTimersByTimeAsync(19_000));
-      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.joinFailed("C")).toBe(false);
       await act(async () => vi.advanceTimersByTimeAsync(4_000));
-      await act(async () => vi.advanceTimersByTimeAsync(3_000));
-      expect(tabs.counts()).toEqual({ A: 0, B: 0, C: 0 });
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.joinFailed("C")).toBe(true);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Could not learn who else holds this document"),
         expect.objectContaining({ message: "Timed out" }),
       );
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("clears a failed join once the stored body catches up with the doc", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      await act(async () => tabs.discoverPeers("failed"));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(true);
+
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: ACKNOWLEDGED,
+            withC: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(heldRevision(tabs.awareness.C)).toBe(ACKNOWLEDGED.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("asks again while its collab doc is not connected yet", async () => {
+    const tabs = makeTabs();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      await act(async () => tabs.discoverPeers("unavailable"));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.discover.C).toHaveBeenCalledTimes(2);
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(heldRevision(tabs.awareness.C)).toBe(STORED.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("does not trust a report that arrives while it catches up with the server", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+    tabs.holdCatchUp();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+      await act(async () => tabs.discoverPeers());
+      // The server answered C's catch-up before B applied the agent edit, and
+      // B's report of it reaches C before that answer does.
+      act(() => tabs.reportToC(6, peer("B", AGENT_EDIT.revision)));
+      await act(async () => tabs.releaseCatchUp());
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(
+        occurrences(tabs.markdown("C"), CHARLIE),
+        "C trusted a report its catch-up did not cover",
+      ).toBe(1);
+      expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("stops asking once it unmounts", async () => {
+    const tabs = makeTabs();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+        ),
+      );
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(25_000));
+      expect(tabs.catchUp.C).not.toHaveBeenCalled();
     } finally {
       tabs.dispose();
     }

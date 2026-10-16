@@ -1217,6 +1217,7 @@ class CollabDocConnection {
 
       try {
         await this.exchangeAwareness();
+        // coercion-ok: the next poll retries; discoverPeers reports its own failure.
       } catch {
         // Awareness sync failure is non-fatal
       }
