@@ -91,13 +91,20 @@ export type StrictYDocRecord =
   | { kind: "absent" }
   | { kind: "present"; state: Uint8Array; version: number };
 
-const STRICT_BASE64 =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-
-/** Decodes canonical base64, or returns null; `Buffer` silently skips junk. */
+/**
+ * Decodes canonical base64, or returns null; `Buffer` silently skips junk.
+ * A round trip instead of a pattern: a repeated-group regex overflows the
+ * stack on a few megabytes.
+ */
 export function strictBase64ToUint8Array(value: string): Uint8Array | null {
-  if (!STRICT_BASE64.test(value)) return null;
-  return base64ToUint8Array(value);
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToUint8Array(value);
+    // coercion-ok: null is this reader's typed "not base64"; callers raise malformed_state
+  } catch {
+    return null;
+  }
+  return uint8ArrayToBase64(bytes) === value ? bytes : null;
 }
 
 export async function loadYDocRecordStrict(

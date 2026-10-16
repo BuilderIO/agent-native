@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { createBoundedTaskRunner } from "../collab/bounded-tasks.js";
+import { LIVE_COPY_TASK } from "../collab/live-copy-tasks.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
 
 const fixture = fileURLToPath(
@@ -50,9 +51,14 @@ describe("boundedTaskSourcePlugin", () => {
 
     const runner = createBoundedTaskRunner({ source });
     try {
-      await expect(runner.run("unchanged", {})).resolves.toEqual({
-        kind: "unchanged",
-      });
+      await expect(
+        runner.run(LIVE_COPY_TASK.read, {
+          state: new Uint8Array(0),
+          derive: false,
+          field: "default",
+          maxStateBytes: 1024,
+        }),
+      ).resolves.toEqual({ kind: "unseeded" });
     } finally {
       await runner.close();
     }

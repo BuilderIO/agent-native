@@ -274,14 +274,24 @@ the server derives its text on every commit. Declare one with `defineLiveCopy`
 from `@agent-native/core/collab` and pass it to `createCollabPlugin({ liveCopy,
 autoSeed: false })`. Then:
 
-- Edit on the server with `mutateLiveCopy` and seed with `seedLiveCopy`. The
-  text, JSON, search-replace, prepared-mutation and seed helpers throw
-  `write_refused` for covered documents; do not work around that.
+- A live copy's Yjs work (merge, derive, seed, edits) runs only in the
+  binding's `createBoundedTaskRunner`, never on the request thread. Its module
+  exports `tasks = defineLiveCopyTasks({ derive, seed, edits })` from
+  `@agent-native/core/collab/live-copy-tasks` and is imported as
+  `./tasks.ts?bounded-task`; declare that module pattern's default export as a
+  `BoundedTaskSource` in the app's `*.d.ts`. A handler returns
+  `{ kind: "refused", reason }` for content it cannot represent; never drop it.
+- Edit on the server with `mutateLiveCopy(binding, docId, { edit, input })`,
+  where `edit` names one of the module's edits, and seed with `seedLiveCopy`.
+  Other write helpers throw `write_refused` for covered documents, and
+  `getDoc`, `getText` and `getJson` throw `read_refused`; read with
+  `readLiveCopy`. Do not work around either. Call these writers outside any
+  transaction; they refuse a caller's.
 - Write the app's own rows in the binding's `persist` hook, which runs in the
   commit transaction before `_collab_docs`. Do not save derived text elsewhere.
-- Derive, seed and heavy edit work runs as tasks in a `createBoundedTaskRunner`
-  imported from `./tasks.ts?bounded-task`. A task returns text or an update, or
-  `{ kind: "refused", reason }` for content it cannot represent; never drop it.
+  Return `{ derived: false, reason }` when it leaves them alone: the Yjs state
+  still commits, and the update ack says `liveCopy: "not_derived"`, so the
+  client can resume its own saves. An ack without `liveCopy` means unknown.
 - Handle `LiveCopyError` by `code`. Absent, unseeded and `malformed_state` are
   different states; never treat malformed state as empty.
 

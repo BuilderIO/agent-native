@@ -1,6 +1,5 @@
 export {
   loadYDocState,
-  saveYDocState,
   hasCollabState,
   deleteCollabState,
   uint8ArrayToBase64,
@@ -37,11 +36,14 @@ export {
   type LiveCopyCommit,
   type LiveCopyErrorCode,
   type LiveCopyOptions,
+  type LiveCopyOutcome,
+  type LiveCopyPersistOutcome,
 } from "./live-copy.js";
 
 export {
   CollabBaseVersionConflictError,
   getDoc,
+  saveYDocState,
   withPreparedYDocMutation,
   applyUpdate,
   seedXmlFragmentIfEmpty,
@@ -61,7 +63,6 @@ export {
   seedLiveCopy,
   type PreparedYDocMutationLease,
   type LiveCopyRead,
-  type LiveCopyEdit,
   type MutateLiveCopyOptions,
   type LiveCopyMutationResult,
   type SeedLiveCopyOptions,

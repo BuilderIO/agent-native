@@ -64,7 +64,11 @@ export interface BoundedTaskRunnerOptions {
   maxWorkers?: number;
   /** Tasks allowed to wait for a worker. Beyond this, `queue_full`. Default 8. */
   maxQueue?: number;
-  /** Longest a task may wait for a worker. Default `deadlineMs`. */
+  /**
+   * Longest a task may wait for a busy worker. A task waiting only for a
+   * worker to start is bounded by `startupTimeoutMs` instead. Default
+   * `deadlineMs`.
+   */
   queueTimeoutMs?: number;
   /** Strings count two bytes per UTF-16 unit. Default 8 MiB. */
   maxInputBytes?: number;
@@ -121,7 +125,15 @@ export function measureBoundedPayload(value: unknown, limit: number): number {
       if (seen.has(current)) return -1;
       seen.add(current);
       if (ArrayBuffer.isView(current)) {
-        total += current.byteLength;
+        // Structured clone copies a view's whole buffer, and a shared buffer
+        // is not copied at all, so the task would see later writes.
+        if (
+          typeof SharedArrayBuffer !== "undefined" &&
+          current.buffer instanceof SharedArrayBuffer
+        ) {
+          return -1;
+        }
+        total += current.buffer.byteLength;
       } else if (Array.isArray(current)) {
         total += 8;
         for (let index = 0; index < current.length; index += 1) {
@@ -272,6 +284,9 @@ export function createBoundedTaskRunner(
   const script = hostScript(source);
 
   const slots: Slot[] = [];
+  // A terminated worker can keep running for a while; it holds its place
+  // under maxWorkers until it has exited.
+  const terminating = new Set<Promise<void>>();
   const queue: PendingTask[] = [];
   let nextId = 1;
   let closed = false;
@@ -291,7 +306,17 @@ export function createBoundedTaskRunner(
     if (slot.idleTimer) clearTimeout(slot.idleTimer);
     const index = slots.indexOf(slot);
     if (index >= 0) slots.splice(index, 1);
-    void slot.worker.terminate().catch(() => undefined);
+    const exited: Promise<void> = slot.worker
+      .terminate()
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .then(() => {
+        terminating.delete(exited);
+        if (!closed) drain();
+      });
+    terminating.add(exited);
   }
 
   function killSlot(
@@ -354,6 +379,8 @@ export function createBoundedTaskRunner(
         if (slot.startupTimer) clearTimeout(slot.startupTimer);
         slot.startupTimer = undefined;
         drain();
+        armQueueTimers();
+        if (!slot.current) markIdle(slot);
         return;
       }
       const current = slot.current;
@@ -425,6 +452,24 @@ export function createBoundedTaskRunner(
     }
   }
 
+  function armQueueTimers(): void {
+    for (const pending of queue) {
+      if (pending.queueTimer) continue;
+      pending.queueTimer = setTimeout(() => {
+        const index = queue.indexOf(pending);
+        if (index < 0) return;
+        queue.splice(index, 1);
+        fail(
+          pending,
+          "queue_timeout",
+          pending.task,
+          `Bounded task ${source.name}.${pending.task} waited more than ${queueTimeoutMs} ms for a worker`,
+        );
+      }, queueTimeoutMs);
+      pending.queueTimer.unref?.();
+    }
+  }
+
   function markIdle(slot: Slot): void {
     if (slot.idleTimer) clearTimeout(slot.idleTimer);
     slot.idleTimer = setTimeout(() => {
@@ -462,14 +507,42 @@ export function createBoundedTaskRunner(
     }
   }
 
+  function admit(pending: PendingTask): boolean {
+    const size = measureBoundedPayload(pending.input, maxInputBytes);
+    if (size < 0) {
+      fail(
+        pending,
+        "invalid_input",
+        pending.task,
+        `Bounded task ${source.name}.${pending.task} input is not plain data`,
+      );
+      return false;
+    }
+    if (size > maxInputBytes) {
+      fail(
+        pending,
+        "input_too_large",
+        pending.task,
+        `Bounded task ${source.name}.${pending.task} input exceeds ${maxInputBytes} bytes`,
+      );
+      return false;
+    }
+    return true;
+  }
+
   function drain(): void {
     while (queue.length > 0) {
       const idle = slots.find((slot) => slot.ready && !slot.current);
       if (!idle) break;
-      dispatch(idle, queue.shift()!);
+      const next = queue.shift()!;
+      if (next.queueTimer) clearTimeout(next.queueTimer);
+      // The caller still holds the input and can grow it while it waits;
+      // postMessage copies it in this same turn, so this check holds.
+      if (!admit(next)) continue;
+      dispatch(idle, next);
     }
     let needed = queue.length - slots.filter((slot) => !slot.ready).length;
-    while (needed > 0 && slots.length < maxWorkers) {
+    while (needed > 0 && slots.length + terminating.size < maxWorkers) {
       if (!spawn()) return;
       needed -= 1;
     }
@@ -494,25 +567,7 @@ export function createBoundedTaskRunner(
           );
           return;
         }
-        const size = measureBoundedPayload(input, maxInputBytes);
-        if (size < 0) {
-          fail(
-            pending,
-            "invalid_input",
-            task,
-            `Bounded task ${source.name}.${task} input is not plain data`,
-          );
-          return;
-        }
-        if (size > maxInputBytes) {
-          fail(
-            pending,
-            "input_too_large",
-            task,
-            `Bounded task ${source.name}.${task} input exceeds ${maxInputBytes} bytes`,
-          );
-          return;
-        }
+        if (!admit(pending)) return;
         const running = slots.filter((slot) => slot.current).length;
         if (running + queue.length >= maxWorkers + maxQueue) {
           fail(
@@ -523,25 +578,14 @@ export function createBoundedTaskRunner(
           );
           return;
         }
-        pending.queueTimer = setTimeout(() => {
-          const index = queue.indexOf(pending);
-          if (index < 0) return;
-          queue.splice(index, 1);
-          fail(
-            pending,
-            "queue_timeout",
-            task,
-            `Bounded task ${source.name}.${task} waited more than ${queueTimeoutMs} ms for a worker`,
-          );
-        }, queueTimeoutMs);
-        pending.queueTimer.unref?.();
         queue.push(pending);
         drain();
+        if (slots.some((slot) => slot.ready)) armQueueTimers();
       });
     },
     stats() {
       return {
-        workers: slots.length,
+        workers: slots.length + terminating.size,
         running: slots.filter((slot) => slot.current).length,
         queued: queue.length,
       };
@@ -557,13 +601,10 @@ export function createBoundedTaskRunner(
           `Bounded task runner ${source.name} closed`,
         );
       }
-      const live = slots.slice();
-      for (const slot of live) {
+      for (const slot of slots.slice()) {
         killSlot(slot, "closed", `Bounded task runner ${source.name} closed`);
       }
-      await Promise.all(
-        live.map((slot) => slot.worker.terminate().catch(() => undefined)),
-      );
+      await Promise.all(terminating);
     },
   };
 }
