@@ -143,11 +143,12 @@ describe("McpAgentKitConnectionRequestCard", () => {
     act(() => root.unmount());
   });
 
-  it("hides an explicitly requested integration when the host excludes it", () => {
+  it("declines an explicitly requested integration hidden by host exclusion", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
+    const onDeclined = vi.fn();
 
-    act(() => {
+    await act(async () => {
       root.render(
         <McpAgentKitConnectionRequestCard
           provider="slack"
@@ -158,7 +159,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
             requestId: "request-1",
           }}
           onConnected={() => undefined}
-          onDeclined={() => undefined}
+          onDeclined={onDeclined}
           fallback={<div data-excluded-provider="">Handled by host</div>}
         />,
       );
@@ -166,7 +167,37 @@ describe("McpAgentKitConnectionRequestCard", () => {
 
     expect(container.querySelector("[data-excluded-provider]")).not.toBeNull();
     expect(container.textContent).toContain("Handled by host");
-    act(() => root.unmount());
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
+
+  it("shows an error when a host-excluded request cannot be declined", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["SLACK"]}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={() => {
+            throw new Error("Request could not be declined.");
+          }}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Connection failed",
+    );
+    await act(async () => root.unmount());
   });
 
   it("keeps the request alive in a popup and resumes it on OAuth completion", async () => {

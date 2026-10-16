@@ -66,9 +66,32 @@ export function McpAgentKitConnectionRequestCard({
   excludedIntegrationIds,
   fallback = null,
 }: McpAgentKitConnectionRequestCardProps) {
+  const t = useT();
   const settledRef = useRef(false);
+  const onDeclinedRef = useRef(onDeclined);
+  const [excludedRequestResolutionFailed, setExcludedRequestResolutionFailed] =
+    useState(false);
+  onDeclinedRef.current = onDeclined;
   const [workspaceSetupOpened, setWorkspaceSetupOpened] = useState(false);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
+  const excludedIds = new Set(
+    excludedIntegrationIds?.map((id) => id.trim().toLowerCase()) ?? [],
+  );
+  const normalizedProvider = provider.trim().toLowerCase();
+  const catalogIntegration = integrations.find(
+    (candidate) =>
+      candidate.id.toLowerCase() === normalizedProvider ||
+      candidate.provider.toLowerCase() === normalizedProvider,
+  );
+  const integrationExcluded =
+    excludedIds.has(normalizedProvider) ||
+    (source?.kind === "workspace_connection" &&
+      excludedIds.has(source.id.trim().toLowerCase())) ||
+    Boolean(
+      catalogIntegration &&
+      (excludedIds.has(catalogIntegration.id.toLowerCase()) ||
+        excludedIds.has(catalogIntegration.provider.toLowerCase())),
+    );
   const integration = findMcpConnectionSuggestionIntegration({
     text: detail ?? "",
     requestedByAgent: true,
@@ -88,6 +111,22 @@ export function McpAgentKitConnectionRequestCard({
   useEffect(() => {
     if (status === "failed") setWorkspaceSetupOpened(false);
   }, [status]);
+  useEffect(() => {
+    if (!integrationExcluded || status !== "requested" || settledRef.current) {
+      return;
+    }
+    let active = true;
+    settledRef.current = true;
+    void Promise.resolve()
+      .then(() => onDeclinedRef.current())
+      .catch(() => {
+        settledRef.current = false;
+        if (active) setExcludedRequestResolutionFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [integrationExcluded, status]);
   const settle = async (callback: () => void | Promise<void>) => {
     if (settledRef.current) return;
     settledRef.current = true;
@@ -98,6 +137,16 @@ export function McpAgentKitConnectionRequestCard({
       throw error;
     }
   };
+  if (integrationExcluded) {
+    return excludedRequestResolutionFailed ? (
+      <div className="agentkit-command-error" role="alert">
+        <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
+        <span>{t("agentChat.connection.failed")}</span>
+      </div>
+    ) : (
+      fallback
+    );
+  }
   if (source?.kind === "workspace_connection") {
     if (!workspaceProvider || !appId) return fallback;
     const request: AgentConnectionRequest = {
