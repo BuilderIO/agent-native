@@ -309,7 +309,7 @@ export async function runEvalSuite(
       throw new Error("Production-path evals cannot contain skipped cases.");
     }
     runner = await createAgentRunner({
-      productionContext: guardProductionEvalOutput(productionContext),
+      productionContext,
     });
   } else {
     const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
@@ -317,7 +317,7 @@ export async function runEvalSuite(
       if (opts.productionContext) {
         requireProductionChatPath(opts.productionContext);
         runner = await createAgentRunner({
-          productionContext: guardProductionEvalOutput(opts.productionContext),
+          productionContext: opts.productionContext,
         });
       } else {
         runner = await createAgentRunner({
@@ -334,28 +334,6 @@ export async function runEvalSuite(
     persist: opts.persist ?? true,
   });
   return { report, files };
-}
-
-function guardProductionEvalOutput(
-  context: EvalProductionContext,
-): EvalProductionContext {
-  const productionChatPath = context.productionChatPath;
-  if (!productionChatPath) return context;
-  return {
-    ...context,
-    productionChatPath: {
-      ...productionChatPath,
-      async run(args) {
-        const result = await productionChatPath.run(args);
-        if (!result?.output) {
-          throw new Error(
-            "Production chat eval adapter returned no run output.",
-          );
-        }
-        return result;
-      },
-    },
-  };
 }
 
 const productionEvalTypeScriptLoaders = new Map<string, Promise<void>>();

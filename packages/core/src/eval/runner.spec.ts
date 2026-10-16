@@ -1017,7 +1017,7 @@ describe("runEvalSuite runner creation", () => {
     },
   );
 
-  it("reports an aborted production adapter run as a failed eval", async () => {
+  it("does not expose thrown production adapter errors in eval reports", async () => {
     const evalCase = defineEval({
       name: "aborted-production-adapter",
       input: { prompt: "find active users" },
@@ -1025,7 +1025,9 @@ describe("runEvalSuite runner creation", () => {
     });
     const productionChatPath = testProductionChatPath();
     productionChatPath.run = async () => {
-      throw new Error("request aborted");
+      throw new Error(
+        "token=sk-test-example; customer=example.customer@example.com",
+      );
     };
 
     const suite = await runEvalSuite({
@@ -1046,10 +1048,14 @@ describe("runEvalSuite runner creation", () => {
         {
           status: "failed",
           passed: false,
-          error: "request aborted",
+          error: "Production chat eval failed.",
         },
       ],
     });
+    expect(JSON.stringify(suite.report)).not.toContain("sk-test-example");
+    expect(JSON.stringify(suite.report)).not.toContain(
+      "example.customer@example.com",
+    );
   });
 
   it("persists eval results by default", async () => {
