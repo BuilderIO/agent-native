@@ -232,7 +232,7 @@ Quand les journaux développeur sont activés, l'extension Clips le lit dans l'o
 
 ## Confidentialité {#privacy}
 
-- **Tout reste dans le navigateur.** Un rapport ne sort que lorsqu'une destination l'envoie : un enregistrement Clips lancé par l'utilisateur, Sentry, ou un écouteur enregistré par le développeur.
+- **Tout reste dans le navigateur.** Un rapport ne sort que lorsqu'une destination l'envoie : un enregistrement Clips lancé par l'utilisateur, Sentry, ou un écouteur enregistré par le développeur. Un `ReportProblemDialog` monté directement envoie également un rapport, mais uniquement après que l’utilisateur l’a envoyé.
 - **Les secrets sont retirés.** Un champ dont le nom ressemble à un secret (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) s'affiche comme `"[redacted]"`. Le texte qui ressemble à un jeton dans n'importe quelle valeur, comme les JWT, les jetons bearer et les clés d'API de fournisseurs, est lui aussi remplacé par `[redacted]`. Ce sont les mêmes fonctions de masquage que core utilise pour les rapports d'erreurs.
 - **Les valeurs sont bornées.** Les chaînes sont coupées à 200 caractères et chaque événement à environ 2 Ko. Chaque coupure indique ce qui a été retiré. Les corps des requêtes et des réponses ne sont jamais enregistrés.
 - **Il oublie.** Il ne conserve que la fenêtre, dans la limite de ses plafonds. Il est vidé au rechargement et à la déconnexion.

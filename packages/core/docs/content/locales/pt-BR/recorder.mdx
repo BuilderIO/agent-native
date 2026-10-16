@@ -232,7 +232,7 @@ Quando os logs de desenvolvedor estão ativados, a extensão do Clips lê isso n
 
 ## Privacidade {#privacy}
 
-- **Fica no navegador.** Um relatório só sai quando um destino o envia: uma gravação do Clips que o usuário iniciou, o Sentry ou um listener que o desenvolvedor registrou.
+- **Fica no navegador.** Um relatório só sai quando um destino o envia: uma gravação do Clips que o usuário iniciou, o Sentry ou um listener que o desenvolvedor registrou. Um `ReportProblemDialog` montado diretamente também envia um relatório, mas somente quando o usuário o envia.
 - **Segredos são removidos.** Um campo cujo nome parece secreto (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) aparece como `"[redacted]"`. Texto com cara de token dentro de qualquer valor, como JWTs, tokens bearer e chaves de API de provedores, também é substituído por `[redacted]`. São os mesmos filtros de ocultação que o core usa nos relatórios de erro.
 - **Os valores são limitados.** Strings são cortadas em 200 caracteres e cada evento em cerca de 2 KB. Cada corte informa o que foi descartado. Corpos de requisição e de resposta nunca são registrados.
 - **Ele esquece.** Mantém só a janela, até seus limites. É limpo ao recarregar a página e ao sair da conta.

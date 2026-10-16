@@ -232,7 +232,7 @@ Cuando los registros de desarrollador están activados, la extensión de Clips l
 
 ## Privacidad {#privacy}
 
-- **Se queda en el navegador.** Un informe solo sale cuando un destino lo envía: una grabación de Clips que inició el usuario, Sentry o un listener que registró el desarrollador.
+- **Se queda en el navegador.** Un informe solo sale cuando un destino lo envía: una grabación de Clips que inició el usuario, Sentry o un listener que registró el desarrollador. Un `ReportProblemDialog` montado directamente también envía un informe, pero solo cuando lo envía el usuario.
 - **Se eliminan los secretos.** Un campo cuyo nombre parece secreto (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) aparece como `"[redacted]"`. El texto con aspecto de token dentro de cualquier valor, como JWT, tokens bearer y claves de API de proveedores, también se reemplaza por `[redacted]`. Son los mismos filtros de ocultación que core usa para los informes de errores.
 - **Los valores están acotados.** Las cadenas se recortan a 200 caracteres y cada evento a unos 2 KB. Cada recorte indica qué se eliminó. Los cuerpos de las peticiones y las respuestas nunca se registran.
 - **Olvida.** Solo conserva la ventana, hasta sus límites. Se vacía al recargar y al cerrar sesión.

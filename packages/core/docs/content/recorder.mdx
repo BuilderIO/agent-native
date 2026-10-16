@@ -232,7 +232,7 @@ When developer logs are on, the Clips extension reads it in the recorded tab whe
 
 ## Privacy {#privacy}
 
-- **It stays in the browser.** A report leaves only when a destination sends it: a Clips recording the user started, Sentry, or a listener the developer registered.
+- **It stays in the browser.** A report leaves only when a destination sends it: a Clips recording the user started, Sentry, or a listener the developer registered. A directly mounted `ReportProblemDialog` also sends a report only after the user submits it.
 - **Secrets are removed.** A field whose name looks secret (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) reads `"[redacted]"`. Token-looking text inside any value, such as JWTs, bearer tokens, and provider API keys, is replaced with `[redacted]` too. These are the same redactors core uses for error reports.
 - **Values are bounded.** Strings are cut at 200 characters and each event at about 2 KB. A cut says what it dropped. Request and response bodies are never recorded.
 - **It forgets.** It keeps only the window, up to its caps. It is cleared on reload and on sign-out.

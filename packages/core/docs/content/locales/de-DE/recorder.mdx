@@ -232,7 +232,7 @@ Sind die Entwicklerprotokolle aktiviert, liest die Clips-Erweiterung es im aufge
 
 ## Datenschutz {#privacy}
 
-- **Alles bleibt im Browser.** Ein Bericht verlässt den Browser nur, wenn ein Ziel ihn sendet: eine vom Benutzer gestartete Clips-Aufnahme, Sentry oder ein vom Entwickler registrierter Listener.
+- **Alles bleibt im Browser.** Ein Bericht verlässt den Browser nur, wenn ein Ziel ihn sendet: eine vom Benutzer gestartete Clips-Aufnahme, Sentry oder ein vom Entwickler registrierter Listener. Ein direkt eingebundenes `ReportProblemDialog` sendet ebenfalls einen Bericht, aber erst, wenn der Benutzer ihn absendet.
 - **Geheimnisse werden entfernt.** Ein Feld, dessen Name nach einem Geheimnis aussieht (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`), erscheint als `"[redacted]"`. Text, der wie ein Token aussieht, wird in jedem Wert ebenfalls durch `[redacted]` ersetzt, etwa JWTs, Bearer-Tokens und API-Schlüssel von Anbietern. Das sind dieselben Schwärzungsfunktionen, die Core für Fehlerberichte nutzt.
 - **Werte sind begrenzt.** Strings werden bei 200 Zeichen gekürzt und jedes Ereignis bei etwa 2 KB. Eine Kürzung gibt an, was entfernt wurde. Request- und Response-Bodys werden nie aufgezeichnet.
 - **Er vergisst.** Er behält nur das Zeitfenster, bis zu seinen Obergrenzen. Beim Neuladen und beim Abmelden wird er geleert.
