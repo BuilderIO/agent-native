@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { inArray, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
@@ -20,8 +21,9 @@ export async function lockDatabaseMemberships(db: any, itemIds: string[]) {
     for (const row of lockedRows) lockedIds.add(row.id);
   }
   if (lockedIds.size !== uniqueItemIds.length) {
-    throw new Error(
+    throw new ActionContractError(
       "Database memberships changed before the operation completed.",
+      { errorCode: "DATABASE_MEMBERSHIPS_CHANGED", statusCode: 409 },
     );
   }
 }

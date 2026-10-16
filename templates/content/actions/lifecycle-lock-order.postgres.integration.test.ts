@@ -1504,6 +1504,24 @@ describe.skipIf(!POSTGRES_URL)(
       },
     );
 
+    it("refuses with a typed conflict when a membership is deleted while it waits to lock it", async () => {
+      const seed = await seedCollection();
+      const { action: lock } = await raceAgainst(
+        (tx) =>
+          tx
+            .delete(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.id, seed.ids.rowItem)),
+        () =>
+          getDb().transaction((tx) =>
+            lockDatabaseMemberships(tx, [seed.ids.rowItem, seed.ids.laterItem]),
+          ),
+      );
+      await expect(lock).rejects.toMatchObject({
+        errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
+        statusCode: 409,
+      });
+    });
+
     it("refuses a move that would close a cycle with a concurrent move of other pages", async () => {
       const seed = await seedPageTree();
       // The concurrent move puts parent under otherChild, locking neither page
@@ -1525,9 +1543,11 @@ describe.skipIf(!POSTGRES_URL)(
             }),
           ),
       );
-      await expect(move).rejects.toThrow(
-        "A document cannot be moved under one of its children",
-      );
+      await expect(move).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT",
+        statusCode: 400,
+        message: "A document cannot be moved under one of its children",
+      });
       expect(await readPage(seed.ids.otherParent)).toMatchObject({
         parentId: null,
       });
@@ -1624,6 +1644,8 @@ describe.skipIf(!POSTGRES_URL)(
           parentId: ids.moved,
         }),
         refusal: {
+          errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT",
+          statusCode: 400,
           message: "A document cannot be moved under one of its children",
         },
       },
