@@ -80,7 +80,7 @@ export async function enterGateArm(
   await switchPage(page, documentId);
 }
 
-const SWITCH_ACTION = "switch-live-body-page";
+const SWITCH_ACTION = "set-live-body-switch";
 
 /**
  * Switch the page through L3's action, then require both the switch and
