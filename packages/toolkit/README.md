@@ -170,6 +170,38 @@ The kit never fetches data, calls actions, resolves credentials, or persists
 edits. Eject it with `agent-native eject toolkit/data-grid --app <app>` when a
 product needs a deeper local visual or interaction change.
 
+## Sandboxed extension links
+
+`buildAgentNativeExtensionHtml` remains usable without link routing. To route
+external links from a sandboxed extension through a private host channel, pass
+the nonce returned by `useExternalExtensionLinks`:
+
+```tsx
+import {
+  buildAgentNativeExtensionHtml,
+  useExternalExtensionLinks,
+} from "@agent-native/toolkit/app/extensions";
+import { useRef } from "react";
+
+const iframeRef = useRef<HTMLIFrameElement>(null);
+const linkNonce = useExternalExtensionLinks(iframeRef, extension.id);
+const srcDoc = linkNonce
+  ? buildAgentNativeExtensionHtml({
+      extensionId: extension.id,
+      content: extension.content,
+      linkNonce,
+    })
+  : undefined;
+
+return (
+  <iframe
+    ref={iframeRef}
+    srcDoc={srcDoc}
+    sandbox="allow-scripts allow-forms allow-downloads"
+  />
+);
+```
+
 ## Customize Or Take Ownership
 
 Use public props, slots, callbacks, stable classes, and local adapters first.

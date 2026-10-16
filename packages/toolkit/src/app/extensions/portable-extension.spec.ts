@@ -101,12 +101,15 @@ describe("portable extension runtime", () => {
     expect(html).not.toContain("</script><script>alert");
   });
 
-  it("requires a nonce for the private host bridge", () => {
-    expect(() =>
-      Reflect.apply(buildAgentNativeExtensionHtml, null, [
-        { extensionId: "ext-1", content: "<div></div>" },
-      ]),
-    ).toThrow("linkNonce is required to build extension HTML");
+  it("preserves callers that build extension HTML without link routing", () => {
+    const html = buildAgentNativeExtensionHtml({
+      extensionId: "ext-1",
+      content: "<div></div>",
+    });
+
+    expect(html).toContain("<div></div>");
+    expect(html).not.toContain("data-link-nonce=");
+    expect(html).toContain("agent-native-extension.open-external-link");
   });
 
   it("removes allow-same-origin from extension sandbox values", () => {

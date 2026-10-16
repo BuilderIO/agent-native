@@ -1,3 +1,5 @@
+import { openMcpAppHostLink } from "@agent-native/core/client/agent-chat";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import {
   EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
@@ -214,6 +216,11 @@ function openExternalExtensionLink(value: unknown): boolean {
     !navigator.userActivation.isActive
   ) {
     return false;
+  }
+
+  if (isEmbedMcpChatBridgeActive()) {
+    void openMcpAppHostLink(destination.href);
+    return true;
   }
 
   window.open(destination.href, "_blank", "noopener,noreferrer");

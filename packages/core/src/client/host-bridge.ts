@@ -736,7 +736,7 @@ export function createAgentNativeHostBridge(
     port: MessagePort,
     message: Record<string, unknown>,
   ): boolean {
-    if (!started || targetPort !== port) return false;
+    if (targetPort !== port) return false;
     try {
       port.postMessage(message);
       return true;

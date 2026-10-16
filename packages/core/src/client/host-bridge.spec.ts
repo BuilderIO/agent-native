@@ -548,6 +548,53 @@ describe("createAgentNativeHostBridge", () => {
     nextChannel.port1.close();
     nextChannel.port2.close();
   });
+
+  it("sends an in-flight port response after the bridge stops when the port is still current", async () => {
+    const channel = new MessageChannel();
+    let resolveContext!: (value: { resource: { id: string } }) => void;
+    let markContextStarted!: () => void;
+    const contextStarted = new Promise<void>((resolve) => {
+      markContextStarted = resolve;
+    });
+    const contextResult = new Promise<{ resource: { id: string } }>(
+      (resolve) => {
+        resolveContext = resolve;
+      },
+    );
+    const response = new Promise<unknown>((resolve) => {
+      channel.port2.addEventListener(
+        "message",
+        (event) => resolve(event.data),
+        { once: true },
+      );
+      channel.port2.start();
+    });
+    const bridge = createAgentNativeHostBridge({
+      allowWindowMessages: false,
+      targetPort: channel.port1,
+      getContext: () => {
+        markContextStarted();
+        return contextResult;
+      },
+    }).start();
+
+    channel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "in-flight-across-stop",
+    });
+    await contextStarted;
+    bridge.stop();
+    resolveContext({ resource: { id: "current-frame" } });
+
+    await expect(response).resolves.toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
+      requestId: "in-flight-across-stop",
+      context: { resource: { id: "current-frame" } },
+    });
+
+    channel.port1.close();
+    channel.port2.close();
+  });
 });
 
 describe("iframe-side host helpers", () => {

@@ -1044,11 +1044,10 @@ export function ExtensionViewer({
 
   toolRef.current = extension ?? null;
   const iframeKey = `${extension?.updatedAt ?? ""}-${refreshKey}`;
-  const externalLinksEnabled = !isEmbedMcpChatBridgeActive();
   const linkNonce = useExternalExtensionLinks(
     iframeRef,
     `${iframeKey}:${Boolean(extension)}`,
-    { enabled: externalLinksEnabled },
+    { enabled: true },
   );
 
   useEffect(() => {
@@ -1084,29 +1083,17 @@ export function ExtensionViewer({
   // fetched from the server; wait for it rather than loading the frame twice.
   const iframeMetaCsp = useExtensionIframeMetaCsp(usesSrcDoc);
   const iframeSrcDoc = useMemo(() => {
-    if (
-      !extension ||
-      !usesSrcDoc ||
-      !iframeMetaCsp ||
-      (externalLinksEnabled && !linkNonce)
-    ) {
+    if (!extension || !usesSrcDoc || !iframeMetaCsp || !linkNonce) {
       return undefined;
     }
     return buildExtensionViewerSrcDoc(
       extension,
       isDark,
       iframeMetaCsp,
-      linkNonce ?? undefined,
-      externalLinksEnabled,
+      linkNonce,
+      true,
     );
-  }, [
-    extension,
-    externalLinksEnabled,
-    iframeMetaCsp,
-    isDark,
-    linkNonce,
-    usesSrcDoc,
-  ]);
+  }, [extension, iframeMetaCsp, isDark, linkNonce, usesSrcDoc]);
   const frameKey = useExtensionFrameKey(
     `${extensionId}|${extension?.updatedAt}|${refreshKey}|${usesSrcDoc ? "" : iframeSrc}|${iframeSrcDoc ?? ""}`,
   );
@@ -1339,12 +1326,8 @@ export function ExtensionViewer({
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
             src={
-              extension && !usesSrcDoc
-                ? externalLinksEnabled
-                  ? linkNonce
-                    ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
-                    : undefined
-                  : iframeSrc
+              extension && !usesSrcDoc && linkNonce
+                ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
                 : undefined
             }
             srcDoc={usesSrcDoc ? iframeSrcDoc : undefined}
