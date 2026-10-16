@@ -8986,13 +8986,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         if (state?.type === "resize" && state.hasMoved) {
           const after = cloneFrameGeometryById(frameGeometryRef.current);
-          // A content-fit screen resizes from its rendered height; a side
-          // drag must not save that height in place of the authored one.
+          // A content-fit screen resizes from its rendered height; a side drag
+          // that left the height alone must not save it over the authored one.
           if (state.handle === "e" || state.handle === "w") {
             state.targetIds.forEach((screenId) => {
               const saved = state.savedFrames[screenId];
               const resized = after[screenId];
-              if (!saved || !resized) return;
+              if (
+                !saved ||
+                !resized ||
+                resized.height !== state.originFrames[screenId]?.height
+              ) {
+                return;
+              }
               after[screenId] = {
                 ...resized,
                 y: saved.y,

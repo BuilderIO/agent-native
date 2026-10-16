@@ -3213,6 +3213,94 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
   });
 
+  it("keeps the height a Shift-locked side resize scales a content-fit screen to", async () => {
+    const onGeometryChange = vi.fn();
+    const onGeometryCommit = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          activeId="screen-a"
+          selection={{ selectedScreenIds: ["screen-a"] }}
+          metadataById={{ "screen-a": { width: 1440, height: 900 } }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 200 },
+            },
+            onGeometryChange,
+            onGeometryCommit,
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const primaryIframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    const selectionBox = container.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    const resizeHandle = selectionBox?.querySelector<HTMLElement>(
+      '[data-resize-handle="e"]',
+    );
+    const screenCard = frame?.querySelector<HTMLElement>("[data-screen-card]");
+    const breakpointFrame = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame]",
+    );
+    expect(primaryIframe).not.toBeNull();
+    expect(resizeHandle).not.toBeNull();
+    expect(screenCard).not.toBeNull();
+    expect(breakpointFrame).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:content-size",
+            width: 1440,
+            height: 1200,
+            viewportHeight: 900,
+          },
+          source: primaryIframe!.contentWindow,
+        }),
+      );
+    });
+
+    expect(screenCard!.style.height).toBe("1200px");
+    expect(selectionBox!.style.height).toBe("1200px");
+
+    await act(async () => {
+      dispatchMouse(resizeHandle!, "mousedown", 400, 400);
+      dispatchMouse(window, "mousemove", 450, 400, { shiftKey: true });
+      await nextAnimationFrame();
+    });
+
+    expect(onGeometryChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 450, 400, { shiftKey: true });
+    });
+
+    expect(onGeometryChange).toHaveBeenCalledTimes(1);
+    expect(onGeometryCommit).toHaveBeenCalledTimes(1);
+    const committed = onGeometryCommit.mock.calls[0]?.[1]?.["screen-a"];
+    expect(committed.width).toBe(370);
+    expect(committed.height).toBeCloseTo((370 / 320) * 1200, 0);
+  });
+
   it("saves a Hug screen's content height on a side resize", async () => {
     const onGeometryChange = vi.fn();
     const onGeometryCommit = vi.fn();
