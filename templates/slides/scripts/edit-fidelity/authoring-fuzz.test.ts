@@ -44,6 +44,7 @@ import {
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
+  isPotentialCleanupRecoveryPageBrowserSessionError,
   isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
@@ -1694,6 +1695,20 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
 });
 
 it("filters only a correlated failed browser-session claim on a cleanup recovery page", () => {
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+    ),
+  ).toBe(true);
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/delete-deck due to access control checks.",
+    ),
+  ).toBe(false);
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError("TypeError: Load failed"),
+  ).toBe(false);
+
   const candidate = {
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",

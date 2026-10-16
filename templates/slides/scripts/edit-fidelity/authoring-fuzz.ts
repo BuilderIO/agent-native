@@ -360,7 +360,7 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 const reloadNavigationConsoleGraceMs = 1_000;
-const retiredBrowserSessionPollConsoleGraceMs = 250;
+export const retiredBrowserSessionPollConsoleGraceMs = 250;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
 const outgoingBrowserSessionAbortWindowMs = 1_000;
 
@@ -1222,6 +1222,31 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
       browserSessionClaimRequestRule,
     ])
   );
+}
+
+export function isPotentialCleanupRecoveryPageBrowserSessionError(
+  message: string,
+) {
+  if (
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+  ) {
+    return true;
+  }
+
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  if (corsUrl === null) return false;
+
+  try {
+    return /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+      new URL(corsUrl).pathname,
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isExpectedCleanupRecoveryPageBrowserSessionError(

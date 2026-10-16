@@ -32,10 +32,12 @@ import {
   formatAuthoringFuzzUnavailable,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
+  isPotentialCleanupRecoveryPageBrowserSessionError,
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
   recordCleanupRequestOutcome,
+  retiredBrowserSessionPollConsoleGraceMs,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -5852,7 +5854,7 @@ async function runAuthoringFuzzQa(
       }
     } finally {
       const cleanupErrors: string[] = [];
-      const pendingCleanupConsoleInspections = new Set<Promise<void>>();
+      const pendingCleanupErrorInspections = new Set<Promise<void>>();
       const monitoredPages = new Set<Page>();
       const cleanupPageListeners = new Map<
         Page,
@@ -5994,11 +5996,29 @@ async function runAuthoringFuzzQa(
             .catch((error: unknown) => {
               cleanupErrors.push(`console: ${text} (${String(error)})`);
             })
-            .finally(() => pendingCleanupConsoleInspections.delete(inspection));
-          pendingCleanupConsoleInspections.add(inspection);
+            .finally(() => pendingCleanupErrorInspections.delete(inspection));
+          pendingCleanupErrorInspections.add(inspection);
         };
         const onPageError = (error: Error) => {
           if (isExpectedCleanupNavigationError(target, error.message)) return;
+          if (
+            isPotentialCleanupRecoveryPageBrowserSessionError(error.message)
+          ) {
+            let inspection: Promise<void>;
+            inspection = new Promise<void>((resolve) =>
+              setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
+            )
+              .then(() => {
+                if (!isExpectedCleanupNavigationError(target, error.message)) {
+                  cleanupErrors.push(
+                    `pageerror: ${error.stack ?? String(error)}`,
+                  );
+                }
+              })
+              .finally(() => pendingCleanupErrorInspections.delete(inspection));
+            pendingCleanupErrorInspections.add(inspection);
+            return;
+          }
           cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
         };
         const onResponse = (response: { status(): number; url(): string }) => {
@@ -6214,8 +6234,8 @@ async function runAuthoringFuzzQa(
           recordCleanupFailure(label, error, target);
         }
       };
-      while (pendingCleanupConsoleInspections.size) {
-        await Promise.all([...pendingCleanupConsoleInspections]);
+      while (pendingCleanupErrorInspections.size) {
+        await Promise.all([...pendingCleanupErrorInspections]);
       }
       cleanupNavigationCandidates = [];
       if (page) await closePage(page, "could not close authoring page");
