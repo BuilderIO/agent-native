@@ -3,7 +3,10 @@ import crypto from "node:crypto";
 import * as jose from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CHATGPT_SUBSCRIPTION_RESOURCE } from "../agent/chatgpt-subscription-contract.js";
+import {
+  CHATGPT_SUBSCRIPTION_RESOURCE,
+  CHATGPT_SUBSCRIPTION_SCOPES,
+} from "../agent/chatgpt-subscription-contract.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
@@ -155,9 +158,14 @@ describe("ChatGPT subscription OAuth contract", () => {
         subject,
         email: "alice@example.com",
         displayName: "Alice",
-        extAgentHostId: "host-alice",
-        grantedScopes: ["chatgpt.tokens.use.direct"],
-        tokens: { refresh_token: "refresh-alice" },
+        extAgentHostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+        idToken: "id-token-alice",
+        tokenExpiresAt: Date.now() + 60 * 60 * 1000,
+        grantedScopes: [...CHATGPT_SUBSCRIPTION_SCOPES],
+        tokens: {
+          access_token: "access-alice",
+          refresh_token: "refresh-alice",
+        },
       },
     });
 
