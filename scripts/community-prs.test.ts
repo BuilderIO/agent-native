@@ -414,6 +414,20 @@ describe("auditFlags", () => {
     ]);
   });
 
+  it("doesn't count a reply after the close as the first reply", () => {
+    const { flags, firstReplyBusinessDays } = auditFlags({
+      ...base,
+      state: "CLOSED",
+      closedAt: "2026-10-08T09:00:00.000Z",
+      mergedAt: null,
+      activity: [
+        act("builder", "2026-10-09T09:00:00.000Z", { body: "thanks Sam!" }),
+      ],
+    });
+    assert.equal(firstReplyBusinessDays, undefined);
+    assert.deepEqual(flags, ["no Builder reply"]);
+  });
+
   it("times the first reply from when it left draft", () => {
     const { flags, firstReplyBusinessDays } = auditFlags({
       ...base,
@@ -655,6 +669,35 @@ describe("runCommunityPrsCli", () => {
     const [row] = sweepRows(gh);
     assert.match(row!, /Our turn/);
     assert.match(row!, /\| 2026-10-13 \|/);
+  });
+
+  it("counts a commit from an unlinked email as the author's push", () => {
+    const { gh } = fakeGh({
+      ...membership,
+      graphql: openPage([
+        pr(23, "veteran", "2026-10-01T09:00:00Z", {
+          timelineItems: {
+            nodes: [
+              {
+                __typename: "IssueComment",
+                createdAt: "2026-10-05T09:00:00Z",
+                author: { __typename: "User", login: "dev" },
+              },
+              {
+                __typename: "PullRequestCommit",
+                commit: {
+                  committedDate: "2026-10-12T09:00:00Z",
+                  authors: { nodes: [{ user: null }] },
+                },
+              },
+            ],
+          },
+        }),
+      ]),
+      "repos/BuilderIO/agent-native/actions/runs": "",
+    });
+    const [row] = sweepRows(gh);
+    assert.match(row!, /Our turn/);
   });
 
   it("reports one PR's checks and what it couldn't read", () => {

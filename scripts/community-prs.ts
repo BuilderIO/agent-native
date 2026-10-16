@@ -766,9 +766,12 @@ function activityOf(pr: GqlPr, members: Membership): Activity[] {
       const logins = item.commit.authors.nodes
         .map((node) => node.user?.login)
         .filter((login): login is string => Boolean(login));
+      // A commit whose email links to no account is still a push to the
+      // author's fork; treating it as nobody's would read their update as
+      // silence.
       const login = logins.includes(authorLogin)
         ? authorLogin
-        : (logins[0] ?? "");
+        : (logins[0] ?? authorLogin);
       // A commit made before our reply can be pushed after it. The head of
       // a push usually gets check suites as it arrives, so the earliest one
       // estimates the push; the API no longer exposes the push time itself.
@@ -1262,8 +1265,10 @@ export function auditFlags(input: {
       ? input.readyAt
       : input.createdAt;
   const replies = input.activity.filter(isReply);
+  const end = Date.parse(input.closedAt ?? input.now.toISOString());
   const first = replies.find(
-    (reply) => Date.parse(reply.at) >= Date.parse(start),
+    (reply) =>
+      Date.parse(reply.at) >= Date.parse(start) && Date.parse(reply.at) <= end,
   );
   const firstReplyBusinessDays = first
     ? businessDaysBetween(new Date(start), new Date(first.at))
