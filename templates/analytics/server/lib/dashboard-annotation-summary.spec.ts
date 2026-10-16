@@ -40,6 +40,24 @@ const panels = [
   },
 ];
 
+const setupFunnel = {
+  id: "setup-funnel",
+  title: "Setup funnel",
+  chartType: "funnel",
+  sql: "SELECT step, count(*) FROM events WHERE event_name = 'builder_connect_failed' AND ('{{timeRange}}' = '30d' AND day >= CURRENT_DATE - 30 OR '{{timeRange}}' = '90d' AND day >= CURRENT_DATE - 90) GROUP BY step",
+};
+
+const timeRangeFilter = (defaultRange: string) => ({
+  id: "timeRange",
+  label: "Time range",
+  type: "select",
+  default: defaultRange,
+  options: [
+    { value: "30d", label: "Last 30 days" },
+    { value: "90d", label: "Last 90 days" },
+  ],
+});
+
 const stackedPanels = [
   { ...panels[1], id: "stacked-clicks", chartType: "stacked-bar" },
   { ...panels[2], id: "stacked-old-clicks", chartType: "stacked-area" },
@@ -276,7 +294,7 @@ describe("summarizeDashboardAnnotations", () => {
       { panels },
       [],
       [pinned],
-      OCT_15,
+      { now: OCT_15 },
     );
     expect(summary.dataNotes.map((note) => note.panelIds)).toEqual([
       ["channels"],
@@ -299,7 +317,7 @@ describe("summarizeDashboardAnnotations", () => {
         { panels: cards },
         [],
         [pinned, SETUP_INCIDENT],
-        OCT_15,
+        { now: OCT_15 },
       ).dataNotes,
     ).toEqual([]);
     const placement = dataNotePlacement(
@@ -312,7 +330,7 @@ describe("summarizeDashboardAnnotations", () => {
     expect(placement.hint).toContain("exact event name");
   });
 
-  it("drops a note from charts without a date axis once it is no longer recent, as they do", () => {
+  it("drops a note from charts without a date axis or time range once it is no longer recent, as they do", () => {
     const pinned = {
       ...SKIPS_UNTRACKED,
       panels: [
@@ -321,7 +339,7 @@ describe("summarizeDashboardAnnotations", () => {
       ],
     };
     const notesOn = (now: number) =>
-      summarizeDashboardAnnotations("dash", { panels }, [], [pinned], now)
+      summarizeDashboardAnnotations("dash", { panels }, [], [pinned], { now })
         .dataNotes;
 
     expect(notesOn(OCT_15)).toMatchObject([
@@ -339,9 +357,25 @@ describe("summarizeDashboardAnnotations", () => {
         },
         [],
         [{ ...pinned, panels: [{ dashboardId: "dash", panelId: "channels" }] }],
-        DEC_1,
+        { now: DEC_1 },
       ).dataNotes,
     ).toEqual([]);
+  });
+
+  it("lists a note on charts without a date axis by the time range on screen, else the dashboard's default", () => {
+    const panelIds = (searchParams?: Record<string, string>) =>
+      summarizeDashboardAnnotations(
+        "dash",
+        { panels: [panels[0], setupFunnel], filters: [timeRangeFilter("30d")] },
+        [],
+        [SETUP_INCIDENT],
+        { now: DEC_1, searchParams },
+      ).dataNotes.map((note) => note.panelIds);
+
+    expect(panelIds()).toEqual([["failures"]]);
+    expect(panelIds({ f_timeRange: "90d" })).toEqual([
+      ["failures", "setup-funnel"],
+    ]);
   });
 });
 
@@ -381,7 +415,7 @@ describe("dataNotePlacement", () => {
     expect(placement.hint).toContain("exact event name");
   });
 
-  it("leaves out charts without a date axis once the note is no longer recent, and says so", () => {
+  it("leaves out charts without a date axis or time range once the note is no longer recent, and says so", () => {
     const pinned = {
       ...SKIPS_UNTRACKED,
       panels: [{ dashboardId: "dash", panelId: "channels" }],
@@ -395,6 +429,24 @@ describe("dataNotePlacement", () => {
     expect(stale.shownOn).toEqual([]);
     expect(stale.hint).toContain("only while it is ongoing or for 30 days");
     expect(stale.hint).not.toContain("exact event name");
+  });
+
+  it("counts charts without a date axis at the dashboard's default time range, and says how to show the note", () => {
+    const placement = (defaultRange: string) =>
+      dataNotePlacement(
+        SETUP_INCIDENT,
+        "dash",
+        { panels: [setupFunnel], filters: [timeRangeFilter(defaultRange)] },
+        DEC_1,
+      );
+
+    expect(placement("90d")).toEqual({
+      dashboardId: "dash",
+      shownOn: [{ panelId: "setup-funnel", title: "Setup funnel" }],
+    });
+    const outside = placement("30d");
+    expect(outside.shownOn).toEqual([]);
+    expect(outside.hint).toContain("overlap their time range");
   });
 
   it("gives both reasons for a note hidden on its time chart and too old for its table", () => {

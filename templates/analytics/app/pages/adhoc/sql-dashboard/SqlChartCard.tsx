@@ -2,7 +2,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
-import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
+import { dataNoteInRange, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
 import {
   IconGripVertical,
@@ -32,6 +32,7 @@ import {
 import {
   DataNoteFlag,
   DataNoteLines,
+  DataNoteRangeProvider,
   UnplacedDataNotesListener,
 } from "@/components/dashboard/data-note-bands";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
@@ -80,6 +81,7 @@ import {
 } from "@/lib/prefetch-keys";
 import { cn } from "@/lib/utils";
 
+import { panelTimeRange } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
@@ -180,12 +182,19 @@ export function SqlChartCard({
   const panelDataNotes = usePanelDataNotes(panel);
   const dataNoteActions = useDataNoteActions();
   const timeChart = isKeyDateChartType(panel.chartType);
-  // Other charts list the recent notes under the card. A time chart shades
-  // notes over its dates and lists, under its plot, the ones it can't place.
+  const dataNoteRange = useMemo(
+    () => panelTimeRange(panel, filters ?? {}),
+    [panel.sql, filters],
+  );
+  // Other charts list the notes in their time range under the card. A time
+  // chart shades notes over its dates and lists, under its plot, the ones it
+  // can't place.
   const listedDataNotes = useMemo(
     () =>
-      timeChart ? [] : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
-    [timeChart, panelDataNotes],
+      timeChart
+        ? []
+        : panelDataNotes.filter((note) => dataNoteInRange(note, dataNoteRange)),
+    [timeChart, panelDataNotes, dataNoteRange],
   );
   const [unplacedDataNotes, setUnplacedDataNotes] = useState<
     readonly DataNote[]
@@ -914,23 +923,25 @@ export function SqlChartCard({
           </div>
         </CardHeader>
         <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
-          <UnplacedDataNotesListener value={setUnplacedDataNotes}>
-            <SqlChart
-              panel={panel}
-              resolvedSql={resolvedSql}
-              loadData={shouldLoadData}
-              retainWhileOffscreen
-              timeRange={timeRange}
-              reportScreenshot={reportScreenshot}
-              refreshToken={refreshToken}
-              onRefreshRequested={handleRefresh}
-              dashboardId={dashboardId}
-              onExportCsvChange={handleExportCsvChange}
-              onCopyTableChange={handleCopyTableChange}
-              {...tableColumnProps}
-              extensionContext={extensionContext}
-            />
-          </UnplacedDataNotesListener>
+          <DataNoteRangeProvider value={dataNoteRange}>
+            <UnplacedDataNotesListener value={setUnplacedDataNotes}>
+              <SqlChart
+                panel={panel}
+                resolvedSql={resolvedSql}
+                loadData={shouldLoadData}
+                retainWhileOffscreen
+                timeRange={timeRange}
+                reportScreenshot={reportScreenshot}
+                refreshToken={refreshToken}
+                onRefreshRequested={handleRefresh}
+                dashboardId={dashboardId}
+                onExportCsvChange={handleExportCsvChange}
+                onCopyTableChange={handleCopyTableChange}
+                {...tableColumnProps}
+                extensionContext={extensionContext}
+              />
+            </UnplacedDataNotesListener>
+          </DataNoteRangeProvider>
           <DataNoteLines notes={listedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
@@ -941,20 +952,22 @@ export function SqlChartCard({
             <DialogTitle className="truncate">{panel.title}</DialogTitle>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-            <ChartFillHeight>
-              <SqlChart
-                panel={panel}
-                resolvedSql={resolvedSql}
-                loadData
-                timeRange={timeRange}
-                reportScreenshot={reportScreenshot}
-                refreshToken={refreshToken}
-                onRefreshRequested={handleRefresh}
-                {...tableColumnProps}
-                dashboardId={dashboardId}
-                extensionContext={extensionContext}
-              />
-            </ChartFillHeight>
+            <DataNoteRangeProvider value={dataNoteRange}>
+              <ChartFillHeight>
+                <SqlChart
+                  panel={panel}
+                  resolvedSql={resolvedSql}
+                  loadData
+                  timeRange={timeRange}
+                  reportScreenshot={reportScreenshot}
+                  refreshToken={refreshToken}
+                  onRefreshRequested={handleRefresh}
+                  {...tableColumnProps}
+                  dashboardId={dashboardId}
+                  extensionContext={extensionContext}
+                />
+              </ChartFillHeight>
+            </DataNoteRangeProvider>
           </div>
         </DialogContent>
       </Dialog>

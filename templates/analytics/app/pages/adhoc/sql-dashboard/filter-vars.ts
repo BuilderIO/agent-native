@@ -219,13 +219,25 @@ function dateRangeStart(range: string): string {
   return days ? daysAgo(Number(days[1])) : daysAgo(30);
 }
 
+/**
+ * The variables a dashboard's SQL gets, as the page resolves them from its URL
+ * (`f_<filter id>` search params), each filter's default where the URL has
+ * none; undefined when the config's filters or variables can't be read.
+ */
 export function resolveDefaultFilterVars(
   config: unknown,
+  searchParams: Record<string, string> = {},
 ): Record<string, string> | undefined {
   const filters = reviewDashboardFilters(config);
   const variables = reviewDashboardVariables(config);
   if (!filters || !variables) return undefined;
-  return { ...variables, ...resolveFilterVars(filters, () => "") };
+  return {
+    ...variables,
+    ...resolveFilterVars(
+      filters,
+      (key) => searchParams[FILTER_PARAM_PREFIX + key] ?? "",
+    ),
+  };
 }
 
 export function resolveFilterVars(

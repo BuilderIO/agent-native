@@ -1,3 +1,7 @@
+import { serializePanelSql } from "./panel-sql";
+import { timeRangeDays } from "./pivot";
+import type { SqlPanel } from "./types";
+
 function escapeSqlValue(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -54,6 +58,59 @@ export function interpolateDashboardPanelSql(
     // First-party panels are PostgreSQL SQL that the BigQuery binder re-quotes.
     googleSqlValues: panel.source === "bigquery",
   });
+}
+
+/**
+ * The dates a panel's query covers under the dashboard's `timeRange` filter.
+ * "days" runs from `start` up to `end`, both midnight UTC; "all" has no bound.
+ * "absent" when the panel's SQL doesn't use `{{timeRange}}` or nothing sets
+ * it; "unreadable" for a value none of the SQL's branches reads, or "custom"
+ * without a valid start and end.
+ */
+export type PanelTimeRange =
+  | { kind: "days"; start: number; end: number }
+  | { kind: "all" }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
+/**
+ * As the dashboard's SQL reads `{{timeRange}}`: "Nd" from N days before
+ * today through today, by the UTC day CURRENT_DATE counts, "custom" from
+ * timeRangeStart through timeRangeEnd, and "all" or "" every date. A panel's
+ * own time range is already in `vars`, as its SQL gets it.
+ */
+export function panelTimeRange(
+  panel: Pick<SqlPanel, "sql">,
+  vars: Record<string, string>,
+  now: number = Date.now(),
+): PanelTimeRange {
+  const value = vars.timeRange;
+  if (
+    value === undefined ||
+    !serializePanelSql(panel.sql).includes("{{timeRange")
+  ) {
+    return { kind: "absent" };
+  }
+  if (value === "" || value === "all") return { kind: "all" };
+  if (value === "custom") {
+    const start = vars.timeRangeStart;
+    const end = vars.timeRangeEnd;
+    return isValidDate(start) && isValidDate(end) && start <= end
+      ? {
+          kind: "days",
+          start: Date.parse(start),
+          end: Date.parse(end) + DAY_MILLISECONDS,
+        }
+      : { kind: "unreadable" };
+  }
+  const days = timeRangeDays(value);
+  if (days === undefined) return { kind: "unreadable" };
+  const tomorrow = (Math.floor(now / DAY_MILLISECONDS) + 1) * DAY_MILLISECONDS;
+  return {
+    kind: "days",
+    start: tomorrow - (days + 1) * DAY_MILLISECONDS,
+    end: tomorrow,
+  };
 }
 
 function isTimeVariable(name: string): boolean {

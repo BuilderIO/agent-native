@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,7 +37,10 @@ vi.mock("@/components/dashboard/SqlChart", () => ({
   ChartFillHeight: ({ children }: { children: unknown }) => children,
 }));
 
-import { CONNECT_UNDERCOUNT } from "@shared/annotation-fixtures";
+import {
+  CONNECT_UNDERCOUNT,
+  SETUP_INCIDENT,
+} from "@shared/annotation-fixtures";
 
 import {
   DashboardAnnotationsProvider,
@@ -90,6 +93,10 @@ describe("SqlChartCard data-note flag", () => {
   const renderCard = async (
     panel: SqlPanel,
     dataNoteActions?: DataNoteActions,
+    range: Pick<
+      ComponentProps<typeof SqlChartCard>,
+      "filters" | "timeRangeFilter" | "timeRangeOverride"
+    > = {},
   ) => {
     await act(async () => {
       root.render(
@@ -99,7 +106,7 @@ describe("SqlChartCard data-note flag", () => {
             annotations={{}}
             dataNoteActions={dataNoteActions}
           >
-            <SqlChartCard panel={panel} onRemove={() => {}} />
+            <SqlChartCard panel={panel} onRemove={() => {}} {...range} />
           </DashboardAnnotationsProvider>
         </TooltipProvider>,
       );
@@ -174,6 +181,78 @@ describe("SqlChartCard data-note flag", () => {
       expect(container.querySelector("[data-data-note-lines]")).toBeNull();
     },
   );
+
+  describe("in a time range", () => {
+    const failuresByStep: SqlPanel = {
+      ...clicksByStep,
+      id: "failures-by-step",
+      title: "Setup failures by step",
+      sql: "SELECT step, count(*) FROM events WHERE event = 'builder_connect_failed' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '30d' AND day >= CURRENT_DATE - 30) OR ('{{timeRange}}' = '90d' AND day >= CURRENT_DATE - 90)) GROUP BY step",
+      chartType: "funnel",
+    };
+    const listed = () =>
+      container.querySelector("[data-data-note-lines]")?.textContent ?? "";
+
+    beforeEach(() => {
+      mocks.dataNotes = [SETUP_INCIDENT];
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-12-01T12:00:00Z"));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("lists an Oct 9–13 note under a 90-day view in December, not a 30-day one", async () => {
+      await renderCard(failuresByStep, undefined, {
+        filters: { timeRange: "90d" },
+      });
+      expect(listed()).toContain(SETUP_INCIDENT.title);
+
+      await renderCard(failuresByStep, undefined, {
+        filters: { timeRange: "30d" },
+      });
+      expect(listed()).not.toContain(SETUP_INCIDENT.title);
+    });
+
+    it("follows the chart's own time range, which it gets in filters, over the dashboard's", async () => {
+      await renderCard(failuresByStep, undefined, {
+        filters: { timeRange: "90d" },
+        timeRangeFilter: {
+          id: "timeRange",
+          label: "Time range",
+          type: "select",
+          default: "30d",
+          options: [
+            { value: "30d", label: "Last 30 days" },
+            { value: "90d", label: "Last 90 days" },
+          ],
+        },
+        timeRangeOverride: "90d",
+      });
+      expect(listed()).toContain(SETUP_INCIDENT.title);
+    });
+
+    it("hands the range to a time chart whose x values aren't dates", async () => {
+      const rows = [{ step: "Connect" }, { step: "Publish" }];
+      mocks.chart = ({ panel }) => {
+        useDataNoteLayout(usePanelDataNotes(panel as SqlPanel), rows, "step");
+        return null;
+      };
+      const failuresChart = { ...failuresByStep, chartType: "bar" as const };
+      const flag = () => container.querySelector("[data-data-note-flag]");
+
+      await renderCard(failuresChart, undefined, {
+        filters: { timeRange: "90d" },
+      });
+      expect(flag()).not.toBeNull();
+
+      await renderCard(failuresChart, undefined, {
+        filters: { timeRange: "30d" },
+      });
+      expect(flag()).toBeNull();
+    });
+  });
 
   describe("on a time chart", () => {
     const clicksOverTime: SqlPanel = { ...clicksByStep, chartType: "line" };

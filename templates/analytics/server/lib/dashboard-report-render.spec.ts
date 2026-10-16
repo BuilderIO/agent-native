@@ -1267,4 +1267,33 @@ describe("renderReportEmail data notes", () => {
     expect(email.html).toContain("Builder.io account setup failures");
     expect(email.html).not.toContain("Onboarding step skips not tracked");
   });
+
+  it.each(["metric", "pie"] as const)(
+    "lists the notes in the report's time range under a %s chart",
+    async (chartType) => {
+      const listsIncident = async (timeRange: string) => {
+        const email = await renderReportEmail({
+          snapshot: {
+            ...snapshotOf([
+              panel({
+                id: "failures",
+                chartType,
+                sql: "SELECT date, count(*) AS failures FROM events WHERE event_name = 'builder_connect_failed' AND ('{{timeRange}}' = '30d' AND date >= CURRENT_DATE - 30 OR '{{timeRange}}' = '90d' AND date >= CURRENT_DATE - 90) GROUP BY date",
+                config: { xKey: "date", yKeys: ["failures"] },
+              }),
+            ]),
+            filters: { f_timeRange: timeRange },
+            generatedAt: "2026-12-01T12:00:00.000Z",
+            dataNotesByPanel: { failures: [SETUP_INCIDENT] },
+          },
+          panelData: new Map([
+            ["failures", { status: "rows" as const, rows, schema: [] }],
+          ]),
+        });
+        return email.html.includes("Builder.io account setup failures");
+      };
+      expect(await listsIncident("90d")).toBe(true);
+      expect(await listsIncident("30d")).toBe(false);
+    },
+  );
 });

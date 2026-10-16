@@ -36,6 +36,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import type { PanelTimeRange } from "@/pages/adhoc/sql-dashboard/interpolate";
 
 import { isPendingAnnotation } from "./annotation-mutations";
 import { useChartHoverCardOpen } from "./chart-hover-card";
@@ -225,6 +226,13 @@ const UnplacedDataNotesContext = createContext<
 /** Hears which notes a time chart writes under its plot, so its card can flag them by the title. */
 export const UnplacedDataNotesListener = UnplacedDataNotesContext.Provider;
 
+const DataNoteRangeContext = createContext<PanelTimeRange>({
+  kind: "absent",
+});
+
+/** The dates a card's query covers, so a chart whose x values aren't dates lists the notes in them. */
+export const DataNoteRangeProvider = DataNoteRangeContext.Provider;
+
 /**
  * Where each note falls on a chart's x values: bands over the dates it
  * covers, or a line under the chart when it can't be placed on them.
@@ -234,12 +242,13 @@ export function useDataNoteLayout(
   rows: readonly Record<string, unknown>[],
   xKey: string,
 ): { shaded: ShadedDataNote[]; unplaced: DataNote[] } {
+  const range = useContext(DataNoteRangeContext);
   const layout = useMemo(() => {
     if (notes.length === 0) return { shaded: [], unplaced: [] };
     const shown = dataNotesOnChart(
       notes,
       rows.map((row) => row[xKey]),
-      { xKey },
+      { xKey, range },
     );
     return {
       shaded: shown.filter(({ bands }) => bands.length > 0),
@@ -247,7 +256,7 @@ export function useDataNoteLayout(
         bands.length > 0 ? [] : [note],
       ),
     };
-  }, [notes, rows, xKey]);
+  }, [notes, rows, xKey, range]);
   const listen = useContext(UnplacedDataNotesContext);
   useEffect(() => {
     if (!listen) return;
