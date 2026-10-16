@@ -1,3 +1,5 @@
+import type { SourceGenerationResult } from "./source-generation.js";
+
 export interface SqlQueryExecutionMetadata {
   bytesProcessed?: number;
   /** The app served existing rows without executing the query again. */
@@ -7,6 +9,12 @@ export interface SqlQueryExecutionMetadata {
   truncated?: boolean;
   /** When these rows were first received, preserved across cache hits. */
   fetchedAt?: string;
+  /**
+   * Generation of the warehouse model these rows were read from, as read
+   * before the original query; preserved across cache hits. Absent when the
+   * rows came from a source without a generation, such as the raw events.
+   */
+  sourceGeneration?: SourceGenerationResult;
 }
 
 export interface SqlQueryRefusal {

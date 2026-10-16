@@ -11,7 +11,7 @@ import {
 } from "./credentials-context";
 import { getBigQueryAccessToken, raceWithAbort } from "./gcloud";
 import { assertReadOnlySql } from "./read-only-sql";
-import type { SourceGenerationResult } from "./source-generation";
+import type { SourceGenerationResult } from "../../shared/source-generation.js";
 
 async function getProjectContext(signal?: AbortSignal): Promise<{
   projectId: string;
