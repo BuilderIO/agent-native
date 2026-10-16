@@ -23,7 +23,10 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 
 Output is fixes. Reply in-thread only when the reporter's situation changes: a
 question they must answer, a verified fix, or a handoff that needs their action.
-Never post a reply that only restates reactions, ledger status, or tickets. Follow
+The one-time dispositions **Skipped**, **Clustered**, **Abandoned - no answer in
+4 days**, and **In progress** still post once, as written in Phase 0, Phase 1,
+and Phase 3. Never post any other reply that only restates reactions, ledger
+status, or tickets. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
@@ -47,8 +50,9 @@ Steve if ownership is unclear; stop if another mark appears. For continuing
 work, post one status reply with task link and remaining scope.
 
 **Person-assigned threads are not ours.** Skip a thread where a person is
-explicitly asked to look into it (an @-mention, or a team or group ping asking
-for help) or says they will or are looking into it. Do not add `👀`, investigate,
+explicitly asked to look into it (a direct @-mention or team/group ping that asks
+them to investigate, fix, or take ownership; an FYI or context-only mention does
+not count) or says they will or are looking into it. Do not add `👀`, investigate,
 or reply, even when the item looks like a clear defect. This holds in every
 phase, including answering questions in that thread.
 
@@ -56,15 +60,19 @@ phase, including answering questions in that thread.
 these kinds change nothing. Find Steve's (user `U0GCV21HC`, `steve@builder.io`)
 with `slack_search: hasmy::mag: in:<#CHANNEL>` and
 `hasmy::yes-party: in:<#CHANNEL>` when Steve is the invoking identity, or check
-`slack_get_reactions` users otherwise.
+`slack_get_reactions` users otherwise. Sort by timestamp and follow
+`next_cursor` until exhausted, since search can truncate. Before claiming any
+item, check its reactions with `slack_get_reactions`; a truncated search is
+never the only opt-out check.
 
 - `:mag:` means do not take it on. Skip it: no `👀`, no investigation, no reply.
   It wins over `:yes-party:`. If it appears on an item we already hold, stop,
   keep our `👀` (reactions are never removed), and post nothing more.
 - `:yes-party:` means pick it up and do it, even when it is the kind of change
   this workflow would normally route to review, such as a subjective UX update.
-  It authorizes the item like an `:upvote:` from the invoking identity and
-  overrides the subjective-UX and out-of-scope rules for that item. It does not
+  It authorizes the item whichever identity runs the sweep; the `hasmy:` search
+  is only a shortcut when Steve is invoking. It overrides the subjective-UX and
+  out-of-scope rules for that item. It does not
   override the person-assigned skip or another task's claim: those stay skipped,
   and the recap names the item for Steve.
 
