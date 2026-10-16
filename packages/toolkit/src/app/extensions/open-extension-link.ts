@@ -18,10 +18,17 @@ export function readOpenUrlToken(message: unknown): string | null {
     : null;
 }
 
-// Tells the shell this host opens links, so it starts routing them here.
-export function announceOpenUrlSupport(source: MessageEventSource | null) {
+// Tells the shell this host opens links, so it starts routing them here. The
+// token is echoed back because the frame's window outlives its documents: a
+// queued binding from the previous document can latch after a reset, and its
+// reply then reaches the new one, which must ignore it rather than route
+// clicks the host would reject.
+export function announceOpenUrlSupport(
+  source: MessageEventSource | null,
+  token: string,
+) {
   (source as Window | null)?.postMessage?.(
-    { type: EXTENSION_OPEN_URL_READY_MESSAGE },
+    { type: EXTENSION_OPEN_URL_READY_MESSAGE, token },
     "*",
   );
 }
@@ -73,7 +80,7 @@ export function useOpenUrlLatch() {
         if (latchedRef.current) return;
         latchedRef.current = true;
         tokenRef.current = enabled ? readOpenUrlToken(message) : null;
-        if (tokenRef.current) announceOpenUrlSupport(source);
+        if (tokenRef.current) announceOpenUrlSupport(source, tokenRef.current);
       },
       open(message: unknown) {
         return openExtensionLink(message, tokenRef.current);

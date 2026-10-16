@@ -188,6 +188,7 @@ describe("ExtensionViewer MCP embeds", () => {
     });
     expect(replies).toContainEqual({
       type: "agent-native-extension-open-url-ready",
+      token,
     });
 
     // A page the iframe navigated to can't re-announce or guess the token.
@@ -243,9 +244,11 @@ describe("ExtensionViewer MCP embeds", () => {
       token,
     });
 
-    expect(replies).not.toContainEqual({
-      type: "agent-native-extension-open-url-ready",
-    });
+    expect(
+      replies.some(
+        (reply: any) => reply?.type === "agent-native-extension-open-url-ready",
+      ),
+    ).toBe(false);
     expect(open).not.toHaveBeenCalled();
   });
 

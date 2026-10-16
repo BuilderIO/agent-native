@@ -33,10 +33,10 @@ function loadShell(content: string, options: { secureRandom?: boolean } = {}) {
   return {
     window,
     binding,
-    ready() {
+    ready(token: string = binding.openUrlToken) {
       window.dispatchEvent(
         new window.MessageEvent("message", {
-          data: { type: READY },
+          data: { type: READY, token },
           source: window,
         }),
       );
@@ -85,6 +85,15 @@ describe("extension shell link routing", () => {
 
   it("leaves links native until the host says it opens them", () => {
     const shell = loadShell(LINKS);
+    const blank = shell.window.document.getElementById("blank");
+
+    expect(shell.click(blank)).toBe(false);
+    expect(shell.opened()).toEqual([]);
+  });
+
+  it("ignores a ready reply that echoes another document's token", () => {
+    const shell = loadShell(LINKS);
+    shell.ready("0".repeat(32));
     const blank = shell.window.document.getElementById("blank");
 
     expect(shell.click(blank)).toBe(false);
