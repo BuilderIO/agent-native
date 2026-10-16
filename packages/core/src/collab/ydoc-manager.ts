@@ -509,6 +509,8 @@ interface LiveCopyCacheEntry {
   catchUp: LiveCopyCatchUp;
   /** The row the bytes came from; null when the copy was absent. */
   stamp: YDocStamp | null;
+  /** derive(state); null when the copy is absent or unseeded. */
+  text: string | null;
   lastAccess: number;
 }
 
@@ -521,6 +523,7 @@ async function cacheLiveCopyState(
   docId: string,
   stored: { state: Uint8Array; version: number } | null,
   catchUp: LiveCopyCatchUp,
+  text: string | null,
 ): Promise<LiveCopyCacheEntry> {
   const entry: LiveCopyCacheEntry = {
     binding,
@@ -530,6 +533,7 @@ async function cacheLiveCopyState(
       version: stored.version,
       digest: await collabStateDigest(stored.state),
     },
+    text,
     lastAccess: Date.now(),
   };
   const stale = _cache.get(docId);
@@ -619,7 +623,7 @@ function stampOf(stored: StoredLiveCopy): YDocStamp | null {
 async function liveCopyStateForRead(
   binding: LiveCopyBinding,
   docId: string,
-): Promise<{ state: Uint8Array; catchUp: LiveCopyCatchUp }> {
+): Promise<LiveCopyCacheEntry> {
   await ensureTable();
   const stamp = await loadYDocStamp(docId);
   const cached = cachedLiveCopy(binding, docId, stamp);
@@ -643,15 +647,16 @@ async function loadLiveCopyForRead(
 ): Promise<LiveCopyCacheEntry> {
   const stored = await readStoredLiveCopy(binding, getDbExec(), docId);
   if (stored.kind === "absent") {
-    return cacheLiveCopyState(binding, docId, null, EMPTY_CATCH_UP);
+    return cacheLiveCopyState(binding, docId, null, EMPTY_CATCH_UP, null);
   }
-  const { catchUp } = await readLiveCopyState(
+  const read = await readLiveCopyState(binding, docId, stored.state, true);
+  return cacheLiveCopyState(
     binding,
     docId,
-    stored.state,
-    false,
+    stored,
+    read.catchUp,
+    read.kind === "live" ? read.text : null,
   );
-  return cacheLiveCopyState(binding, docId, stored, catchUp);
 }
 
 async function commitLiveCopyUpdate(
@@ -692,6 +697,7 @@ async function commitLiveCopyUpdate(
       docId,
       { state: result.state, version },
       result.catchUp,
+      result.text,
     );
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
     return outcome;
@@ -719,19 +725,20 @@ export async function readLiveCopy(
   docId: string,
 ): Promise<LiveCopyRead> {
   await assertLiveCopy(binding, docId);
-  await ensureTable();
-  const stored = await loadLiveCopyState(binding, docId);
-  if (stored.kind === "absent") return { kind: "absent" };
-  const result = await readLiveCopyState(binding, docId, stored.state, true);
-  const state = servedState(stored.state);
-  if (result.kind === "unseeded") {
-    return { kind: "unseeded", version: stored.version, state };
+  const { stamp, state, text } = await liveCopyStateForRead(binding, docId);
+  if (stamp === null) return { kind: "absent" };
+  if (text === null) {
+    return {
+      kind: "unseeded",
+      version: stamp.version,
+      state: servedState(state),
+    };
   }
   return {
     kind: "live",
-    version: stored.version,
-    state,
-    text: result.text as string,
+    version: stamp.version,
+    state: servedState(state),
+    text,
   };
 }
 
@@ -878,6 +885,7 @@ export async function mutateLiveCopy(
         docId,
         { state: result.state, version },
         result.catchUp,
+        result.text,
       );
       emitCollabUpdate(
         docId,
@@ -982,6 +990,7 @@ export async function seedLiveCopy(
         docId,
         { state: result.state, version },
         result.catchUp,
+        result.text,
       );
       emitCollabUpdate(
         docId,
@@ -1434,9 +1443,16 @@ export function saveYDocState(
   state: Uint8Array,
   textSnapshot: string,
 ): Promise<void> {
-  const refusal = refuseLiveCopyWrite(docId, "saveYDocState");
-  if (!refusal) return saveStoredYDocState(docId, state, textSnapshot);
-  return refusal.then(() => saveStoredYDocState(docId, state, textSnapshot));
+  if (!liveCopiesDefined()) {
+    return saveStoredYDocState(docId, state, textSnapshot);
+  }
+  // Refused under the lock: checked outside it, a seed that makes the
+  // document a live copy could land between the check and this overwrite.
+  return withDocWriteLock(
+    docId,
+    () => saveStoredYDocState(docId, state, textSnapshot),
+    "saveYDocState",
+  );
 }
 
 export function releaseDoc(docId: string): void {
