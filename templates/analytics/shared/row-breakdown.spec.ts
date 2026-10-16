@@ -134,6 +134,16 @@ describe("breakdownRowDimensions", () => {
     ).toEqual(["role"]);
   });
 
+  it("tells object-valued dimensions apart", () => {
+    const rows = [
+      { tag: { id: 1 }, app: "Builder", people: 30 },
+      { tag: { id: 2 }, app: "Builder", people: 20 },
+    ];
+    expect(rowsForBreakdown(rows, ["tag"], { tag: { id: 2 } })).toEqual([
+      rows[1],
+    ]);
+  });
+
   it("keeps rows that share one value apart by the others", () => {
     const rows = [
       { role: "Engineer", team: "Core", app: "Builder", people: 30 },

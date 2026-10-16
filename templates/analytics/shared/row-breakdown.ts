@@ -86,9 +86,13 @@ export function planBreakdown(args: {
   };
 }
 
+function cellKey(value: unknown): string {
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
 export function sameCell(a: unknown, b: unknown): boolean {
   if (a == null || b == null) return a == null && b == null;
-  return String(a) === String(b);
+  return cellKey(a) === cellKey(b);
 }
 
 const NUMERIC_FORMATS = new Set(["number", "currency", "percent", "delta"]);
