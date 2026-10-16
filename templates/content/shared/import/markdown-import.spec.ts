@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ROUND_TRIP_CORPUS } from "../../acceptance/round-trip-corpus";
 import { legacyBlocksFieldIdentity } from "../blocks-field-identity";
 import { createContentEditorStructuralSchema } from "../content-editor-structural-schema";
 import { buildDocumentExport, markdownWithTitle } from "../document-export";
@@ -466,6 +467,19 @@ describe("Markdown import", () => {
       expect(page.report.notes).toEqual([]);
     });
 
+    it.each(
+      ROUND_TRIP_CORPUS.flatMap((sample) =>
+        sample.canonical === undefined ? [] : [[sample.id, sample.canonical]],
+      ),
+    )("brings %s back as it was stored", (_, stored) => {
+      const page = importMarkdown(
+        exported(stored, [field("Content", true, stored)]),
+        { sourcePath: "launch-plan.md" },
+      );
+      expect(page.content).toBe(stored);
+      expect(page.report.notes).toEqual([]);
+    });
+
     it("names each other field the import leaves out", () => {
       const page = importMarkdown(
         exported("Intro", [
@@ -499,6 +513,43 @@ describe("Markdown import", () => {
         ["Notes"],
       ]);
     });
+
+    it.each([
+      [
+        "a shorter field shares the body's ending",
+        [
+          { name: "Content", markdown: "Intro\nDone." },
+          { name: "Notes", markdown: "Done." },
+        ],
+        ["Notes"],
+      ],
+      [
+        "a longer field also ends the body",
+        [
+          { name: "Notes", markdown: "Done." },
+          { name: "Content", markdown: "Intro\nDone." },
+        ],
+        ["Notes"],
+      ],
+      [
+        "two fields hold the same text",
+        [
+          { name: "Content", markdown: "Intro\nDone." },
+          { name: "Copy", markdown: "Intro\nDone." },
+        ],
+        ["Copy"],
+      ],
+    ])(
+      "takes one body field from an older export when %s",
+      (_, fields, lost) => {
+        const page = importMarkdown(
+          `# Launch plan\n\nIntro\nDone.\n\n<!-- agent-native-blocks:${JSON.stringify({ version: 1, fields })} -->\n`,
+        );
+        expect(page.content).toBe("Intro\nDone.");
+        expect(page.report.notes.map((note) => note.samples)).toEqual([lost]);
+        expect(page.report.status).toBe("lost");
+      },
+    );
 
     it("reports a manifest it cannot read and still imports the body", () => {
       const page = importMarkdown(

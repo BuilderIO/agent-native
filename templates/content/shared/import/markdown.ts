@@ -22,6 +22,7 @@ import { parse as parseYaml } from "yaml";
 import {
   splitMarkdownExportManifest,
   type ExportManifest,
+  type ExportManifestField,
 } from "../blocks-fields-manifest";
 import {
   nfmToDoc,
@@ -291,7 +292,10 @@ export function parseMarkdownImport(
     frontmatterMatch ? (frontmatterMatch[1] ?? "") : null,
     notes,
   );
-  const dialect: MarkdownDialect = looksLikeNfm(body) ? "nfm" : "markdown";
+  // A Content export is its page's stored Markdown, whatever it looks like.
+  const storedForm = exported.manifest.kind !== "absent";
+  const dialect: MarkdownDialect =
+    storedForm || looksLikeNfm(body) ? "nfm" : "markdown";
   const referencePrefix = newReferencePrefix();
 
   let blocks: PMNode[];
@@ -303,6 +307,7 @@ export function parseMarkdownImport(
       body,
       notes,
       referencePrefix,
+      storedForm,
     );
     blocks = converted.blocks;
     slots = converted.slots;
@@ -521,12 +526,30 @@ function noteExportManifest(
   if (manifest.kind === "unreadable")
     notes.add("export-manifest-unreadable", manifest.reason);
   if (manifest.kind !== "read") return;
+  const bodyField =
+    manifest.fields.find((field) => field.primary === true) ??
+    olderExportBodyField(manifest.fields, body);
   for (const field of manifest.fields) {
-    const markdown = field.markdown.trim();
-    // An older export names no primary field; its body ends the file.
-    const isBody = field.primary ?? body.trimEnd().endsWith(markdown);
-    if (!isBody && markdown) notes.add("blocks-field-not-imported", field.name);
+    if (field !== bodyField && field.markdown.trim())
+      notes.add("blocks-field-not-imported", field.name);
   }
+}
+
+// An older export names no primary field; its body ends the file. Another
+// field can end it too, and only one is the body, so the rest are reported.
+function olderExportBodyField(
+  fields: readonly ExportManifestField[],
+  body: string,
+): ExportManifestField | undefined {
+  const end = body.trimEnd();
+  let found: ExportManifestField | undefined;
+  for (const field of fields) {
+    const markdown = field.markdown.trim();
+    if (field.primary !== null || !markdown || !end.endsWith(markdown))
+      continue;
+    if (!found || markdown.length > found.markdown.trim().length) found = field;
+  }
+  return found;
 }
 
 interface FrontmatterFields {
@@ -1597,11 +1620,16 @@ function convertNfm(
   body: string,
   notes: ImportNoteBag,
   referencePrefix: string,
+  storedForm: boolean,
 ): { blocks: PMNode[]; slots: ImportReferenceSlot[]; dropped: string[] } {
   const dropped: string[] = [];
   const doc = nfmToDoc(
     dropDeepNfmLines(
-      legacyMarkdownToNfm(indentContainerBodies(body, notes)),
+      // The legacy passes reread other tools' indentation, which would change
+      // what a Content export's own Markdown means.
+      storedForm
+        ? body
+        : legacyMarkdownToNfm(indentContainerBodies(body, notes)),
       notes,
       dropped,
     ),
