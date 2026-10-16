@@ -20,6 +20,14 @@ import {
 
 export type MotionTextUnit = "character" | "word" | "line" | "paragraph";
 export type MotionTextDirection = "forward" | "reverse";
+export type MotionTextAnimationDirection = "in" | "out";
+export type MotionTextOrder =
+  | "left-to-right"
+  | "right-to-left"
+  | "center-out"
+  | "random"
+  | "top-to-bottom"
+  | "bottom-to-top";
 export type MotionTextProperty =
   | "opacity"
   | "translate"
@@ -39,6 +47,10 @@ export interface MotionTextAnimation {
   unit: MotionTextUnit;
   direction: MotionTextDirection;
   staggerMs: number;
+  animationDirection?: MotionTextAnimationDirection;
+  order?: MotionTextOrder;
+  overlapPercent?: number;
+  ignoreSpaces?: boolean;
   delayMs?: number;
   property: MotionTextProperty;
   durationMs: number;
@@ -76,6 +88,18 @@ const MOTION_TEXT_UNITS = new Set<MotionTextUnit>([
   "word",
   "line",
   "paragraph",
+]);
+const MOTION_TEXT_ORDERS = new Set<MotionTextOrder>([
+  "left-to-right",
+  "right-to-left",
+  "center-out",
+  "random",
+  "top-to-bottom",
+  "bottom-to-top",
+]);
+const MOTION_TEXT_ANIMATION_DIRECTIONS = new Set<MotionTextAnimationDirection>([
+  "in",
+  "out",
 ]);
 const MOTION_TEXT_PROPERTIES = new Set<MotionTextProperty>([
   "opacity",
@@ -130,6 +154,7 @@ const INLINE_TEXT_TAGS = new Set([
 ]);
 const MAX_TEXT_UNITS = 512;
 const PREVIEW_MESSAGE_TYPES = new Set([
+  "motion-preview-duration-request",
   "motion-preview",
   "motion-preview-clear",
 ]);
@@ -230,11 +255,31 @@ export function AgentNativeMotionText({
         `AgentNativeMotionText supports at most ${MAX_TEXT_UNITS} animated units.`,
       );
     }
-    if ((groupCount - 1) * primaryAnimation.staggerMs > 120_000) {
-      throw new Error(
-        "AgentNativeMotionText stagger exceeds the 120000ms runtime limit.",
-      );
-    }
+    const animationSchedules = animations.map((track) => {
+      const overlap = track.overlapPercent;
+      const durationMs =
+        overlap === undefined
+          ? track.durationMs
+          : track.durationMs /
+            (1 + Math.max(0, groupCount - 1) * (1 - overlap / 100));
+      const staggerMs =
+        overlap === undefined
+          ? track.staggerMs
+          : durationMs * (1 - overlap / 100);
+      const spanMs =
+        (track.delayMs ?? 0) + (groupCount - 1) * staggerMs + durationMs;
+      if (!Number.isFinite(spanMs) || spanMs > 120_000) {
+        throw new Error(
+          "AgentNativeMotionText animation span exceeds the 120000ms runtime limit.",
+        );
+      }
+      return { track, durationMs, staggerMs };
+    });
+    const orderRanks = textOrderRanks(
+      groupCount,
+      motionTextOrder(primaryAnimation),
+      `${primaryAnimation.targetNodeId}|${hostElement.textContent ?? ""}`,
+    );
 
     const previewAnimations: Array<{
       animation: Animation;
@@ -242,33 +287,43 @@ export function AgentNativeMotionText({
       durationMs: number;
     }> = [];
     try {
-      for (const track of animations) {
+      for (const { track, durationMs, staggerMs } of animationSchedules) {
         for (const entry of elements) {
           if (typeof entry.element.animate !== "function") {
             throw new Error(
               "AgentNativeMotionText requires the Web Animations API.",
             );
           }
-          const delayIndex =
-            track.direction === "reverse"
-              ? groupCount - 1 - entry.index
-              : entry.index;
+          const delayIndex = orderRanks[entry.index] ?? entry.index;
           const easingStyle = track.keyframes.some((keyframe) =>
             isMotionEaseVariableReference(keyframe.ease ?? ""),
           )
             ? window.getComputedStyle(entry.element)
             : null;
-          const keyframes = track.keyframes.map((keyframe) => ({
-            offset: keyframe.t,
-            easing: resolveMotionEaseForWebAnimations(
-              keyframe.ease ?? "ease",
-              (name) => easingStyle?.getPropertyValue(name) ?? "",
-            ),
-            [track.property]: keyframe.value,
-          })) as Keyframe[];
-          const delay = (track.delayMs ?? 0) + delayIndex * track.staggerMs;
+          const animationDirection = motionTextAnimationDirection(track);
+          const keyframes = (
+            animationDirection === "out"
+              ? [...track.keyframes].reverse()
+              : track.keyframes
+          ).map((keyframe, keyframeIndex) => {
+            const easingKeyframe =
+              animationDirection === "out" &&
+              keyframeIndex < track.keyframes.length - 1
+                ? track.keyframes[track.keyframes.length - 2 - keyframeIndex]!
+                : keyframe;
+            return {
+              offset:
+                animationDirection === "out" ? 1 - keyframe.t : keyframe.t,
+              easing: resolveMotionEaseForWebAnimations(
+                easingKeyframe.ease ?? "ease",
+                (name) => easingStyle?.getPropertyValue(name) ?? "",
+              ),
+              [track.property]: keyframe.value,
+            };
+          }) as Keyframe[];
+          const delay = (track.delayMs ?? 0) + delayIndex * staggerMs;
           const runningAnimation = entry.element.animate(keyframes, {
-            duration: track.durationMs,
+            duration: durationMs,
             delay,
             iterations: playbackMode === "once" ? 1 : Infinity,
             direction: playbackMode === "ping-pong" ? "alternate" : "normal",
@@ -277,7 +332,7 @@ export function AgentNativeMotionText({
           previewAnimations.push({
             animation: runningAnimation,
             delay,
-            durationMs: track.durationMs,
+            durationMs,
           });
         }
       }
@@ -288,6 +343,18 @@ export function AgentNativeMotionText({
       throw error;
     }
 
+    const textTimelineDurationMs = previewAnimations.reduce(
+      (duration, entry) => Math.max(duration, entry.delay + entry.durationMs),
+      0,
+    );
+    const previewSpanKey = `react:${primaryAnimation.targetNodeId}`;
+    const reportPreviewSpanDuration = (durationMs: number) => {
+      window.parent.postMessage(
+        { type: "motion-preview-span", key: previewSpanKey, durationMs },
+        "*",
+      );
+    };
+
     let isPreviewing = false;
 
     const handlePreviewMessage = (event: MessageEvent<unknown>) => {
@@ -295,6 +362,10 @@ export function AgentNativeMotionText({
         event.source !== window.parent ||
         !isMotionPreviewMessage(event.data)
       ) {
+        return;
+      }
+      if (event.data.type === "motion-preview-duration-request") {
+        reportPreviewSpanDuration(textTimelineDurationMs);
         return;
       }
       if (event.data.type === "motion-preview-clear") {
@@ -308,26 +379,33 @@ export function AgentNativeMotionText({
       }
 
       const t = Number(event.data.t);
-      const timelineDuration = Number(event.data.durationMs);
-      if (!Number.isFinite(t) || !Number.isFinite(timelineDuration)) return;
-      if (timelineDuration <= 0) return;
+      const requestedTimelineDuration = Number(event.data.durationMs);
+      if (!Number.isFinite(t) || !Number.isFinite(requestedTimelineDuration)) {
+        return;
+      }
+      if (requestedTimelineDuration <= 0) return;
+      if (textTimelineDurationMs > requestedTimelineDuration) {
+        reportPreviewSpanDuration(textTimelineDurationMs);
+      }
       if (!isPreviewing) {
         isPreviewing = true;
         for (const entry of previewAnimations) entry.animation.pause();
       }
-      const timelineTime = Math.max(0, Math.min(1, t)) * timelineDuration;
+      const timelineTime =
+        Math.max(0, Math.min(1, t)) * requestedTimelineDuration;
       for (const entry of previewAnimations) {
-        const elapsed = Math.max(0, timelineTime - entry.delay);
         entry.animation.currentTime =
           playbackMode === "once"
-            ? Math.min(entry.durationMs, elapsed)
-            : elapsed;
+            ? Math.min(entry.delay + entry.durationMs, timelineTime)
+            : timelineTime;
       }
     };
     window.addEventListener("message", handlePreviewMessage);
+    reportPreviewSpanDuration(textTimelineDurationMs);
 
     return () => {
       window.removeEventListener("message", handlePreviewMessage);
+      reportPreviewSpanDuration(0);
       for (const entry of previewAnimations) {
         entry.animation.cancel();
       }
@@ -355,6 +433,9 @@ function validateAnimations(animations: MotionTextAnimation[]): void {
     throw new Error("AgentNativeMotionText requires at least one animation.");
   }
   const first = animations[0]!;
+  const firstOrder = motionTextOrder(first);
+  const firstAnimationDirection = motionTextAnimationDirection(first);
+  const firstIgnoreSpaces = motionTextIgnoreSpaces(first);
   const properties = new Set<MotionTextProperty>();
   for (const animation of animations) {
     validateAnimation(animation);
@@ -362,10 +443,16 @@ function validateAnimations(animations: MotionTextAnimation[]): void {
       animation.targetNodeId !== first.targetNodeId ||
       animation.unit !== first.unit ||
       animation.direction !== first.direction ||
-      animation.staggerMs !== first.staggerMs
+      motionTextAnimationDirection(animation) !== firstAnimationDirection ||
+      motionTextOrder(animation) !== firstOrder ||
+      animation.overlapPercent !== first.overlapPercent ||
+      (animation.unit === "character" &&
+        motionTextIgnoreSpaces(animation) !== firstIgnoreSpaces) ||
+      (animation.overlapPercent === undefined &&
+        animation.staggerMs !== first.staggerMs)
     ) {
       throw new Error(
-        "AgentNativeMotionText animations for one target must share target, unit, direction, and stagger.",
+        "AgentNativeMotionText animations for one target must share target, unit, direction, animation direction, order, overlap, character whitespace, and fixed stagger settings.",
       );
     }
     if (properties.has(animation.property)) {
@@ -393,13 +480,51 @@ function validateAnimation(animation: MotionTextAnimation): void {
   if (animation.direction !== "forward" && animation.direction !== "reverse") {
     throw new Error("AgentNativeMotionText direction is unsupported.");
   }
+  if (
+    animation.animationDirection !== undefined &&
+    !MOTION_TEXT_ANIMATION_DIRECTIONS.has(animation.animationDirection)
+  ) {
+    throw new Error("AgentNativeMotionText animationDirection is unsupported.");
+  }
+  if (
+    animation.order !== undefined &&
+    !MOTION_TEXT_ORDERS.has(animation.order)
+  ) {
+    throw new Error("AgentNativeMotionText order is unsupported.");
+  }
+  if (
+    (animation.order === "top-to-bottom" ||
+      animation.order === "bottom-to-top") &&
+    animation.unit !== "line" &&
+    animation.unit !== "paragraph"
+  ) {
+    throw new Error(
+      "AgentNativeMotionText vertical order requires line or paragraph units.",
+    );
+  }
+  if (
+    animation.overlapPercent !== undefined &&
+    (!Number.isFinite(animation.overlapPercent) ||
+      animation.overlapPercent < 0 ||
+      animation.overlapPercent > 100)
+  ) {
+    throw new Error(
+      "AgentNativeMotionText overlapPercent must be between 0 and 100.",
+    );
+  }
+  if (
+    animation.ignoreSpaces !== undefined &&
+    typeof animation.ignoreSpaces !== "boolean"
+  ) {
+    throw new Error("AgentNativeMotionText ignoreSpaces must be a boolean.");
+  }
   if (!MOTION_TEXT_PROPERTIES.has(animation.property)) {
     throw new Error("AgentNativeMotionText property is unsupported.");
   }
   if (
     !Number.isFinite(animation.staggerMs) ||
     animation.staggerMs < 0 ||
-    animation.staggerMs > 5000
+    animation.staggerMs > 120_000
   ) {
     throw new Error("AgentNativeMotionText staggerMs is invalid.");
   }
@@ -455,9 +580,62 @@ function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
   else if (ref) ref.current = value;
 }
 
+function motionTextAnimationDirection(
+  animation: MotionTextAnimation,
+): MotionTextAnimationDirection {
+  return animation.animationDirection ?? "in";
+}
+
+function motionTextOrder(animation: MotionTextAnimation): MotionTextOrder {
+  return (
+    animation.order ??
+    (animation.direction === "reverse" ? "right-to-left" : "left-to-right")
+  );
+}
+
+function motionTextIgnoreSpaces(animation: MotionTextAnimation): boolean {
+  return animation.ignoreSpaces ?? true;
+}
+
+function textOrderRanks(
+  count: number,
+  order: MotionTextOrder,
+  seed: string,
+): number[] {
+  const indexes = Array.from({ length: count }, (_, index) => index);
+  if (order === "right-to-left" || order === "bottom-to-top") {
+    indexes.reverse();
+  } else if (order === "center-out") {
+    const center = (count - 1) / 2;
+    indexes.sort(
+      (left, right) =>
+        Math.abs(left - center) - Math.abs(right - center) || left - right,
+    );
+  } else if (order === "random") {
+    let state = 2_166_136_261;
+    for (let index = 0; index < seed.length; index += 1) {
+      state = Math.imul(state ^ seed.charCodeAt(index), 16_777_619);
+    }
+    for (let index = indexes.length - 1; index > 0; index -= 1) {
+      state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+      const swapIndex = state % (index + 1);
+      [indexes[index], indexes[swapIndex]] = [
+        indexes[swapIndex]!,
+        indexes[index]!,
+      ];
+    }
+  }
+  const ranks: number[] = [];
+  indexes.forEach((index, rank) => {
+    ranks[index] = rank;
+  });
+  return ranks;
+}
+
 function textTokens(
   text: string,
   unit: Exclude<MotionTextUnit, "line" | "paragraph">,
+  ignoreSpaces: boolean,
 ): MotionTextUnitToken[] {
   if (unit === "character") {
     const Segmenter = Intl.Segmenter;
@@ -469,7 +647,7 @@ function textTokens(
       : Array.from(text);
     return parts.map((part) => ({
       text: part,
-      animated: !/^\s+$/u.test(part),
+      animated: !ignoreSpaces || !/^\s+$/u.test(part),
     }));
   }
 
@@ -490,7 +668,7 @@ function textTokens(
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index]!;
     if (/^\s+$/u.test(chunk.text)) {
-      tokens.push({ text: chunk.text, animated: false });
+      tokens.push({ text: chunk.text, animated: !ignoreSpaces });
     } else if (chunk.word) {
       tokens.push({ text: chunk.text, animated: true });
     } else if (tokens.length && tokens[tokens.length - 1]!.animated) {
@@ -526,7 +704,9 @@ function renderTextNodes(
   collectTextLeaves(node, textLeaves, { current: 0 });
   const text = textLeaves.map((leaf) => leaf.text).join("");
   const unit = animation.unit === "character" ? "character" : "word";
-  const tokenValues = textTokens(text, unit);
+  const ignoreSpaces =
+    animation.unit === "character" ? motionTextIgnoreSpaces(animation) : true;
+  const tokenValues = textTokens(text, unit, ignoreSpaces);
   const tokens: MotionTextToken[] = [];
   let tokenOffset = 0;
   for (const token of tokenValues) {
@@ -615,6 +795,18 @@ function renderTextLeaf(
     const text = leaf.text.slice(start - leaf.start, end - leaf.start);
     if (!token.animated) {
       parts.push(text);
+      continue;
+    }
+    if (/^\s+$/u.test(token.text)) {
+      parts.push(text);
+      parts.push(
+        <span
+          aria-hidden="true"
+          className="agent-native-motion-text-unit agent-native-motion-text-space-unit"
+          data-agent-native-motion-text-unit={token.index}
+          key={`${token.index}-${start}-space`}
+        />,
+      );
       continue;
     }
     parts.push(
@@ -733,7 +925,10 @@ function resolveMotionUnits(
 }
 
 interface MotionPreviewMessage {
-  type: "motion-preview" | "motion-preview-clear";
+  type:
+    | "motion-preview-duration-request"
+    | "motion-preview"
+    | "motion-preview-clear";
   t?: number;
   durationMs?: number;
 }

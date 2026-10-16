@@ -217,16 +217,6 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
               </Empty>
             )}
           </SettingsGroup>
-          <p className="mt-2 px-1 text-xs leading-5 text-muted-foreground">
-            <SentenceWithLink
-              text={t(`${K}modelFootnote`, { link: SENTENCE_LINK_TOKEN })}
-              link={
-                <SettingsPageLink page="model">
-                  {t(`${K}modelFootnoteLink`)}
-                </SettingsPageLink>
-              }
-            />
-          </p>
         </div>
         {groups.org.length > 0 ? (
           <SettingsGroup id="org-keys" title={t(`${K}orgKeys`)}>

@@ -2871,9 +2871,6 @@ const messages: ToolkitAgentChatTranslation = {
     "{{owner}} が作成・ローテーションしています。接続はそちらで解除してください。",
   "settingsApiKeys.membersLocked":
     "{{org}} とキーを共有できるのはオーナーと管理者のみです。",
-  "settingsApiKeys.modelFootnote":
-    "独自のモデルプロバイダーを使うには、{{link}}。",
-  "settingsApiKeys.modelFootnoteLink": "モデルで追加します",
   "settingsApiKeys.name": "名前",
   "settingsApiKeys.noKeys": "まだキーはありません",
   "settingsApiKeys.noKeysDescription":

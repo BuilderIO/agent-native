@@ -20,7 +20,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Popover,
@@ -255,7 +254,6 @@ export function PlayerControls(props: PlayerControlsProps) {
             container={menuPortalContainer}
           >
             <DropdownMenuLabel>Speed</DropdownMenuLabel>
-            <DropdownMenuSeparator />
             {SPEED_OPTIONS.map((rate) => (
               <DropdownMenuItem
                 key={rate}

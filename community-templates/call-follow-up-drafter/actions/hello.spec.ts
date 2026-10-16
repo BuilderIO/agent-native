@@ -14,4 +14,10 @@ describe("hello", () => {
 
     expect(result).toEqual({ message: "Hello, Steve!" });
   });
+
+  it("does not apply the default when name is an empty string", async () => {
+    const result = await action.run({ name: "" });
+
+    expect(result).toEqual({ message: "Hello, !" });
+  });
 });

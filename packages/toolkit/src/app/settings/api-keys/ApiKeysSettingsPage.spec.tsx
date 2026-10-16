@@ -289,8 +289,11 @@ describe("ApiKeysSettingsPage", () => {
       stripe.querySelector('[aria-label="Manage STRIPE_SECRET_KEY"]'),
     ).not.toBeNull();
 
-    expect(container.textContent).toContain(
-      "To use your own model provider, add it in Model.",
+    expect(container.textContent).not.toContain("Model footnote");
+    expect(container.textContent).not.toContain("Model footnote link");
+    expect(container.textContent).not.toContain("modelFootnote");
+    expect(container.textContent).not.toContain(
+      "To use your own model provider",
     );
     expect(container.textContent).not.toContain("Organization keys");
 

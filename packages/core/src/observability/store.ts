@@ -7,6 +7,11 @@ import {
   ensureIndexExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import {
+  OBSERVABILITY_MIGRATIONS,
+  OBSERVABILITY_MIGRATIONS_TABLE,
+} from "./migrations.js";
 import {
   sanitizeToolErrorMessage,
   TOOL_ERROR_CAPTURE_METADATA_KEY,
@@ -160,6 +165,7 @@ function withUserFilter(
 
 export const observabilityStore = defineStore({
   id: "observability",
+  after: ["chat_threads"],
   migrations: [
     {
       name: "baseline",
@@ -505,6 +511,11 @@ export const observabilityStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      OBSERVABILITY_MIGRATIONS_TABLE,
+      OBSERVABILITY_MIGRATIONS,
+      { data: [1, 2, 3] },
+    ),
   ],
 });
 

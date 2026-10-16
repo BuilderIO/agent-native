@@ -3,9 +3,14 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
 const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
+const callActionMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
   isReferenceStorageReady: isReferenceStorageReadyMock,
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: callActionMock,
 }));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -14,6 +19,7 @@ import {
   fireEvent,
   render as renderWithoutQueryClient,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -79,6 +85,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       }[key] ?? key
     );
   },
+  useFormatters: () => ({ formatDate: (value: string) => value }),
+}));
+
+vi.mock("@/components/deck/SlideRenderer", () => ({
+  default: () => <div data-testid="reference-deck-preview" />,
 }));
 
 vi.mock("./GoogleDriveConnectionCta", () => ({
@@ -183,6 +194,7 @@ describe("<NewDeckReferenceStep>", () => {
   afterEach(() => {
     cleanup();
     isReferenceStorageReadyMock.mockReset();
+    callActionMock.mockReset();
   });
 
   it("confirms a PPTX import and keeps it selected until generation continues", async () => {
@@ -211,7 +223,7 @@ describe("<NewDeckReferenceStep>", () => {
     );
     expect(screen.getByLabelText("PPT - Imported")).toBeTruthy();
     expect(
-      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
     ).toContain("Reference PPT");
     expect(
       screen.getByRole("button", { name: "Continue to generate" }),
@@ -301,7 +313,7 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByRole("status").textContent).toContain("Reference PDF");
     expect(screen.getByLabelText("PDF - Imported")).toBeTruthy();
     expect(
-      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
     ).toContain("Reference PDF");
   });
 
@@ -380,7 +392,7 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByRole("status").textContent).toContain("Reference DOCX");
     expect(screen.getByLabelText("DOCX - Imported")).toBeTruthy();
     expect(
-      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
     ).toContain("Reference DOCX");
   });
 
@@ -644,34 +656,120 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
   });
 
-  it("hides the recent section and sorts reference decks by recency", async () => {
-    const deck = (id: string, title: string, updatedAt: string): Deck => ({
-      id,
-      title,
-      createdAt: updatedAt,
-      updatedAt,
-      slides: [],
-    });
-
-    await renderStep({
+  it("searches references in the preview picker and selects one deck", async () => {
+    callActionMock.mockResolvedValue({
       decks: [
-        deck("older", "Older deck", "2026-08-01T00:00:00.000Z"),
-        deck("newer", "Newer deck", "2026-08-10T00:00:00.000Z"),
+        {
+          id: "deck-campaign",
+          title: "Campaign launch",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+          previewSlide: {
+            id: "slide-campaign",
+            content: "<h1>Campaign</h1>",
+            notes: "",
+            layout: "title",
+          },
+        },
       ],
     });
+    const { onSelect } = await renderStep({ decks: [] });
 
-    expect(screen.queryByText("Recent")).toBeNull();
-    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
 
-    const options = screen.getAllByRole("option");
-    expect(options.map((option) => option.textContent?.trim())).toEqual([
-      "None",
-      "Newer deck",
-      "Older deck",
-    ]);
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+    expect(picker.querySelector(".agent-template-library-grid")).toBeTruthy();
+    expect(await screen.findByTestId("reference-deck-preview")).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search decks" }), {
+      target: { value: "campaign" },
+    });
+    await waitFor(() =>
+      expect(callActionMock).toHaveBeenLastCalledWith(
+        "list-decks",
+        {
+          includePreview: "true",
+          limit: 12,
+          search: "campaign",
+          cursor: undefined,
+        },
+        expect.objectContaining({
+          method: "GET",
+          signal: expect.any(AbortSignal),
+        }),
+      ),
+    );
+
+    await act(async () => {
+      picker.querySelector<HTMLElement>("[aria-pressed]")?.click();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("dialog", { name: "Reference deck" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toContain("Campaign launch");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceDeckId: "deck-campaign" }),
+    );
+  });
+
+  it("shows a fallback preview when a deck slide is too large to render", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-large-preview",
+          title: "Large slide deck",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+          previewTooLarge: true,
+        },
+      ],
+    });
+    await renderStep({ decks: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+
+    expect(
+      picker.querySelector(
+        ".agent-template-library-preview .slide-reference-preview-fallback svg",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("omits date metadata when a deck timestamp is missing or invalid", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-missing-date",
+          title: "Deck without a date",
+          updatedAt: null,
+        },
+        {
+          id: "deck-invalid-date",
+          title: "Deck with an invalid date",
+          updatedAt: "not-a-date",
+        },
+      ],
+    });
+    await renderStep({ decks: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+
+    expect(picker.querySelectorAll("time")).toHaveLength(0);
   });
 
   it("requires an explicit reference deck choice", async () => {
+    callActionMock.mockResolvedValue({ decks: [] });
     const { onSelect } = await renderStep({
       designSystems: [],
       defaultDesignSystemId: null,
@@ -687,15 +785,24 @@ describe("<NewDeckReferenceStep>", () => {
     });
 
     expect(
-      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
     ).toContain("Match the style of an existing deck");
     expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
       "disabled",
       true,
     );
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
-    fireEvent.click(screen.getByRole("option", { name: "None" }));
+    callActionMock.mockResolvedValue({ decks: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "None" }));
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Reference deck" }),
+      ).toBeNull(),
+    );
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -793,7 +900,7 @@ describe("<NewDeckReferenceStep>", () => {
     });
 
     expect(
-      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
     ).toBe("Match the style of an existing deck");
   });
 
@@ -810,10 +917,14 @@ describe("<NewDeckReferenceStep>", () => {
       ],
     });
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
-    fireEvent.click(screen.getByRole("option", { name: "None" }));
+    callActionMock.mockResolvedValue({ decks: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "None" }));
+      await Promise.resolve();
+    });
 
-    const trigger = screen.getByRole("combobox", { name: "Reference deck" });
+    const trigger = screen.getByRole("button", { name: "Reference deck" });
     expect(trigger.textContent).toBe("None");
     expect(trigger.textContent).not.toContain(
       "Match the style of an existing deck",
@@ -821,6 +932,15 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("shows the deck name in the trigger after selecting a deck", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
     const { onSelect } = await renderStep({
       decks: [
         {
@@ -833,15 +953,22 @@ describe("<NewDeckReferenceStep>", () => {
       ],
     });
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
-    fireEvent.click(screen.getByRole("option", { name: "Some deck" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const card = await screen.findByText("Some deck");
+    await act(async () => {
+      card
+        .closest(".agent-template-library-card")
+        ?.querySelector<HTMLElement>("[aria-pressed]")
+        ?.click();
+      await Promise.resolve();
+    });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     });
 
     expect(
-      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
     ).toBe("Some deck");
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({ referenceDeckIdSource: "selection" }),

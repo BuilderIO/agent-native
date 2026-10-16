@@ -13,8 +13,13 @@ const mocks = vi.hoisted(() => ({
   trackPluginInit: vi.fn(),
 }));
 
-vi.mock("../db/migrations.js", () => ({
+vi.mock("../db/migrations.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/migrations.js")>()),
   runMigrations: mocks.runMigrations,
+}));
+
+vi.mock("../org/schema-store.js", () => ({
+  orgStore: { ready: mocks.migrateOrgSchema },
 }));
 
 vi.mock("./auth.js", () => ({
@@ -45,7 +50,6 @@ vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
 
-import { ORG_MIGRATIONS } from "../org/migrations.js";
 import { createAuthPlugin } from "./auth-plugin.js";
 
 describe("createAuthPlugin", () => {
@@ -146,12 +150,7 @@ describe("createAuthPlugin", () => {
     createAuthPlugin()(nitroApp);
     const initPromise = mocks.trackPluginInit.mock.calls[0]?.[1];
 
-    expect(mocks.runMigrations).toHaveBeenCalledWith(ORG_MIGRATIONS, {
-      table: "_org_migrations",
-    });
-    await vi.waitFor(() =>
-      expect(mocks.migrateOrgSchema).toHaveBeenCalledWith(nitroApp),
-    );
+    await vi.waitFor(() => expect(mocks.migrateOrgSchema).toHaveBeenCalled());
     expect(mocks.autoMountAuth).not.toHaveBeenCalled();
 
     resolveOrgSchema();

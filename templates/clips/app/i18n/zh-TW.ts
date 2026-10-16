@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "這是什麼？",
     off: "關",
     none: "無",
+    noneExplanation:
+      "「無」表示新的 Clip 不會包含先前的螢幕時間。Rewind 開啟時仍會持續錄製螢幕。若要停止，請選擇下方的「關閉」。",
     custom: "自訂…",
     customLabel: "自訂長度",
     customAmount: "長度",
@@ -29,13 +31,13 @@ const messages = {
       "無法存取 Rewind 儲存空間。請檢查磁碟空間和資料夾權限後再試一次。",
     rewindConsentTitle: "開啟 Rewind？",
     rewindConsentBody:
-      "Clips 會持續錄製你的螢幕，並將內容保留在此裝置上。代理程式會取得文字摘錄，只有在你核准後才會分享影片。",
+      "Rewind 開啟時，Clips 會持續錄製螢幕，並在此裝置保留近期記錄，直到達到你設定的時間或儲存空間上限。選擇「螢幕 + 音訊」也會錄製麥克風和系統音效。已連線的代理程式無須 Clips 個別核准即可直接存取螢幕影像；之後如何使用這些影像取決於代理程式。你選擇的較早螢幕時間會自動加入每個新 Clip，並遵循該 Clip 的分享設定。預設情況下，將選定時段分享為 Clip 的要求會在傳送前審核。在 Rewind 設定中關閉傳送前審核，即可自動傳送這些要求。Clip 可能包含錄到的麥克風和系統音訊。關閉 Rewind 會停止新的錄製，但會保留已儲存的記錄。Rewind 關閉期間，記錄可能超過時間或儲存空間上限，直到錄製再次開始。選擇「全部刪除」可立即清除已儲存的記錄。",
     rewindConsentCancel: "暫不",
     rewindConsentConfirm: "開啟 Rewind",
     rewindConsentBusy: "正在開啟 Rewind…",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
-      "預設為關閉。螢幕歷程記錄會保留在此裝置上，直到你將它加入錄影或核准分享請求。",
+      "如要包含更早的螢幕時間，請先開啟 Rewind。Rewind 開啟時，會在此裝置保留近期螢幕記錄並遵守時間和儲存空間上限。Rewind 關閉期間，已儲存的記錄可能超過這些上限，直到錄製再次開始。若要立即清除，請開啟 Settings > Rewind > Storage > On this device 並選擇 Delete all。預設情況下，分享所選時段的 Clip 要求會在傳送前審核；在 Rewind 設定中關閉傳送前審核後，這些要求會自動傳送。",
     requestFailed: "無法包含更早的螢幕時間。錄製會繼續，但不含這部分。",
     localOnlyUnavailable: "僅限本機的錄製不會儲存更早的螢幕時間。",
     saving: "正在儲存錄製前的 {{window}}…",
@@ -2058,6 +2060,7 @@ const messages = {
     viewsCount: "{{count}} 次觀看",
     recordingMenu: "錄製選單",
     moveToFolder: "移動到資料夾",
+    moveHere: "移到此處",
     unarchive: "取消封存",
     shareNamedMeeting: "分享“{{title}}”",
     shareMeeting: "分享會議",
