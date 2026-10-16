@@ -64,6 +64,7 @@ export {
   type PreparedYDocMutationLease,
   type LiveCopyRead,
   type MutateLiveCopyOptions,
+  type LiveCopyCallChange,
   type LiveCopyMutationResult,
   type SeedLiveCopyOptions,
   type LiveCopySeedResult,
