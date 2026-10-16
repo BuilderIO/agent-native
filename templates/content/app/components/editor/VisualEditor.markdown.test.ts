@@ -24,6 +24,8 @@ import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import {
   act,
   createElement,
+  useCallback,
+  useState,
   type ComponentProps,
   type ComponentType,
 } from "react";
@@ -1960,6 +1962,71 @@ describe("live suggestion presentation", () => {
       expect(docToNfm(editor.getJSON() as any)).toBe(readback);
     } finally {
       editor.destroy();
+    }
+  });
+  it("reports an outdated accept readback without re-checking on every parent render", async () => {
+    // DocumentEditor builds the readback inline, and each report renders it
+    // again even when the divergence it keeps is unchanged.
+    const before = "Before";
+    const readback = " AddedBefore";
+    const suggestion: VisualEditorSuggestion = {
+      id: "accept-outdated",
+      kind: "insert_text",
+      beforeText: "",
+      afterText: " Added",
+      beforePresentation: { source: before, from: 0, to: 0 },
+      afterPresentation: { source: readback, from: 0, to: 6 },
+      anchor: { from: 0, prefix: "", suffix: before },
+      presentation: "settling",
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+    const reported: string[] = [];
+    let divergence: string | null = null;
+    function Parent() {
+      const [actual, setActual] = useState<string | null>(null);
+      const [, setRenders] = useState(0);
+      divergence = actual;
+      const onOutdated = useCallback((id: string, content: string) => {
+        reported.push(id);
+        setActual((previous) => (previous === content ? previous : content));
+        setRenders((count) => count + 1);
+      }, []);
+      return createElement(VisualEditor, {
+        content: `${before} peer`,
+        onChange: () => {},
+        suggestions: suggestionList,
+        acceptedDecisionReadback: { id: suggestion.id, content: readback },
+        onAcceptedDecisionReadbackOutdated: onOutdated,
+      });
+    }
+    const suggestionList = [suggestion];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              TooltipProviderWithoutChildren,
+              { delayDuration: 0 },
+              createElement(
+                QueryClientProvider,
+                { client: queryClient },
+                createElement(Parent),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(divergence).toBe(`${before} peer`);
+      expect(reported).toEqual([suggestion.id]);
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
     }
   });
   it("keeps an accepted insertion visible while the mounted editor is still behind", () => {
