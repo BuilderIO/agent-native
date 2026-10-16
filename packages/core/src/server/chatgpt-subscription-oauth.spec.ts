@@ -6,19 +6,22 @@ import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
   getUserLabEnabled: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  getUserSetting: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
 
 // Account reads hit the settings and OAuth tables, which a fresh test database
-// does not have. These tests only need "no account", so stub those reads.
+// does not have. Default every read to "no account"; the unresolved-scope test
+// asserts these reads never happen, so the stub cannot hide a skipped guard.
 vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
-  listOAuthAccountsByOwner: vi.fn(async () => []),
+  listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
 }));
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
-  getUserSetting: vi.fn(async () => null),
+  getUserSetting: mocks.getUserSetting,
 }));
 
 import {
@@ -40,6 +43,8 @@ const NONCE = "fresh-test-nonce";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getUserLabEnabled.mockResolvedValue(false);
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+  mocks.getUserSetting.mockResolvedValue(null);
   _resetLabRegistryForTests();
   registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
@@ -101,6 +106,8 @@ describe("ChatGPT subscription OAuth contract", () => {
         await expect(
           hasChatGPTSubscriptionCredential("alice@example.com"),
         ).resolves.toBe(false);
+        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+        expect(mocks.getUserSetting).not.toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
