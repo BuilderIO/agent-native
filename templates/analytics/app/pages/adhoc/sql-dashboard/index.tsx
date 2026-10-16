@@ -3231,6 +3231,7 @@ function SqlDashboardPageContent({
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
             key={`filters:${loadedDashboardId}`}
+            loadedDashboardId={loadedDashboardId}
             filters={dashboard.filters}
             views={dashboardViewsLoaded ? views : null}
             viewsRefreshing={dashboardViewsState === "loading"}

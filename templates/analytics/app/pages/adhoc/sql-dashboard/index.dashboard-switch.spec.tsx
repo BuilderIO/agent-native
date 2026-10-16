@@ -10,6 +10,8 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import {
   MemoryRouter,
+  createMemoryRouter,
+  RouterProvider,
   Route,
   Routes,
   useNavigate,
@@ -45,12 +47,26 @@ const mocks = vi.hoisted(() => ({
   editorRenders: [] as { open: boolean; dashboardId: string }[],
   submitEditorOn: null as string | null,
   submitViewOn: null as string | null,
+  submitFilterOn: null as string | null,
+  transientFilter: null as { busy: string | null; disabled: boolean } | null,
   filterBarRenders: [] as {
     routeId: string;
     label: string;
     canSave: boolean;
   }[],
   filterBarMounts: 0,
+  retainedFilter: null as {
+    update: ReturnType<
+      typeof import("./use-filter-search-params").useFilterSearchParams
+    >[1];
+    canUpdate: () => boolean;
+    unmounts: number;
+  } | null,
+  replayRetainedFilter: false,
+  retainedFilterAttempt: null as {
+    busy: string | null;
+    admitted: boolean;
+  } | null,
   transientViewAttempts: 0,
   transientSaveTriggerVisible: false,
   saveView:
@@ -161,6 +177,32 @@ vi.mock("@/hooks/use-dashboard-views", () => ({
   }),
 }));
 
+vi.mock("./use-filter-search-params", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./use-filter-search-params")>();
+  return {
+    ...actual,
+    useFilterSearchParams: (
+      ...args: Parameters<typeof actual.useFilterSearchParams>
+    ) => {
+      const result = actual.useFilterSearchParams(...args);
+      useLayoutEffect(() => {
+        if (args[0] !== "dash-a" || mocks.retainedFilter) return;
+        const retained = {
+          update: result[1],
+          canUpdate: result[3],
+          unmounts: 0,
+        };
+        mocks.retainedFilter = retained;
+        return () => {
+          retained.unmounts++;
+        };
+      }, []);
+      return result;
+    },
+  };
+});
+
 vi.mock("./DashboardFilterBar", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./DashboardFilterBar")>();
   return {
@@ -174,11 +216,47 @@ vi.mock("./DashboardFilterBar", async (importOriginal) => {
         mocks.filterBarMounts++;
       }, []);
       useLayoutEffect(() => {
+        if (
+          mocks.replayRetainedFilter &&
+          routeId === "dash-a" &&
+          label === "Region B"
+        ) {
+          mocks.replayRetainedFilter = false;
+          const retained = mocks.retainedFilter!;
+          mocks.retainedFilterAttempt = {
+            busy: document
+              .querySelector(
+                '[role="group"][aria-label="sqlDashboard.filters"]',
+              )!
+              .getAttribute("aria-busy"),
+            admitted: retained.canUpdate(),
+          };
+          retained.update((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("f_oldRegion", "retained-overwrite");
+            return next;
+          });
+        }
         mocks.filterBarRenders.push({
           routeId,
           label,
           canSave: !!props.onSaveView,
         });
+        if (routeId === mocks.submitFilterOn && label === "Region A") {
+          mocks.submitFilterOn = null;
+          const input = document.querySelector<HTMLInputElement>(
+            '[role="group"][aria-label="sqlDashboard.filters"] input',
+          )!;
+          mocks.transientFilter = {
+            busy: input.closest('[role="group"]')!.getAttribute("aria-busy"),
+            disabled: input.disabled,
+          };
+          Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            "value",
+          )!.set!.call(input, "old-config-event");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
         if (routeId === mocks.submitViewOn && label === "Region A") {
           mocks.submitViewOn = null;
           const input = document.querySelector('[role="dialog"] input');
@@ -410,8 +488,13 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.editorRenders = [];
     mocks.submitEditorOn = null;
     mocks.submitViewOn = null;
+    mocks.submitFilterOn = null;
+    mocks.transientFilter = null;
     mocks.filterBarRenders = [];
     mocks.filterBarMounts = 0;
+    mocks.retainedFilter = null;
+    mocks.replayRetainedFilter = false;
+    mocks.retainedFilterAttempt = null;
     mocks.transientViewAttempts = 0;
     mocks.transientSaveTriggerVisible = false;
     mocks.saveView.mockReset();
@@ -556,6 +639,162 @@ describe("SqlDashboardPage dashboard switch", () => {
     });
     expect(mocks.saveView).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Region B");
+  });
+
+  it.each([false, true])(
+    "blocks an actual old-config input event in the new route's pre-effect commit (cached=%s)",
+    async (cached) => {
+      mocks.dashboards["dash-a"].filters = [
+        { id: "oldRegion", label: "Region A", type: "text" },
+      ];
+      mocks.dashboards["dash-b"].filters = [
+        { id: "country", label: "Country B", type: "text" },
+      ];
+      if (cached)
+        queryClient.setQueryData(
+          ["data", "sql-dashboard", "dash-b"],
+          mocks.dashboards["dash-b"],
+        );
+      const loader = vi.fn(() => null);
+      const dataRouter = createMemoryRouter(
+        [
+          {
+            path: "/dashboards/:id",
+            loader,
+            element: <SqlDashboardPage />,
+          },
+        ],
+        { initialEntries: ["/dashboards/dash-a?f_oldRegion=east"] },
+      );
+      try {
+        await act(async () =>
+          root.render(
+            <QueryClientProvider client={queryClient}>
+              <TooltipProvider>
+                <RouterProvider router={dataRouter} />
+              </TooltipProvider>
+            </QueryClientProvider>,
+          ),
+        );
+        await settle();
+        mocks.submitFilterOn = "dash-b";
+        await act(async () => {
+          await dataRouter.navigate("/dashboards/dash-b?f_country=west#target");
+        });
+        await settle();
+        expect(mocks.transientFilter).not.toBeNull();
+        expect(dataRouter.state.location.pathname).toBe("/dashboards/dash-b");
+        expect(dataRouter.state.location.search).toBe("?f_country=west");
+        expect(dataRouter.state.location.hash).toBe("#target");
+        expect(loader).toHaveBeenCalledTimes(2);
+        expect(mocks.transientFilter).toEqual({ busy: "true", disabled: true });
+        expect(container.textContent).toContain("Country B");
+      } finally {
+        dataRouter.dispose();
+      }
+    },
+  );
+
+  it("revokes an actual page updater after its bar unmounts even when its route returns", async () => {
+    mocks.dashboards["dash-a"].filters = [
+      { id: "oldRegion", label: "Region A", type: "text" },
+    ];
+    mocks.dashboards["dash-b"].filters = [
+      { id: "country", label: "Region B", type: "text" },
+    ];
+    const loader = vi.fn(() => null);
+    const dataRouter = createMemoryRouter(
+      [{ path: "/dashboards/:id", loader, element: <SqlDashboardPage /> }],
+      { initialEntries: ["/dashboards/dash-a?f_oldRegion=first"] },
+    );
+    try {
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              <RouterProvider router={dataRouter} />
+            </TooltipProvider>
+          </QueryClientProvider>,
+        ),
+      );
+      await settle();
+      const retained = mocks.retainedFilter!;
+      expect(retained.canUpdate()).toBe(true);
+      await act(async () => {
+        await dataRouter.navigate("/dashboards/dash-b?f_country=west#b");
+      });
+      await settle();
+      expect(retained.unmounts).toBe(1);
+      expect(container.textContent).toContain("Region B");
+      mocks.replayRetainedFilter = true;
+      await act(async () => {
+        await dataRouter.navigate(
+          "/dashboards/dash-a?f_oldRegion=return#target",
+        );
+      });
+      await settle();
+      expect(mocks.replayRetainedFilter).toBe(false);
+      expect(dataRouter.state.location.pathname).toBe("/dashboards/dash-a");
+      expect(dataRouter.state.location.hash).toBe("#target");
+      expect(dataRouter.state.location.search).toBe("?f_oldRegion=return");
+      expect(mocks.retainedFilterAttempt).toEqual({
+        busy: "true",
+        admitted: false,
+      });
+      expect(retained.canUpdate()).toBe(false);
+      expect(loader).toHaveBeenCalledTimes(3);
+      expect(container.textContent).toContain("Region A");
+    } finally {
+      dataRouter.dispose();
+    }
+  });
+
+  it("discards a preset draft and old selection when the loaded dashboard remounts the bar", async () => {
+    const filter = {
+      id: "app",
+      label: "App",
+      type: "multi-select",
+      options: [
+        { value: "chat", label: "Chat" },
+        { value: "slides", label: "Slides" },
+        { value: "design", label: "Design" },
+      ],
+    };
+    mocks.dashboards["dash-a"].filters = [filter];
+    mocks.dashboards["dash-b"].filters = [{ ...filter, label: "App B" }];
+    await renderAt("/dashboards/dash-a?f_app=chat,slides");
+    const editMode = () =>
+      [...container.querySelectorAll<HTMLElement>('[role="radio"]')].find(
+        (element) => element.textContent === "dashboardMode.edit",
+      )!;
+    const trigger = () =>
+      container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+    await act(async () => editMode().click());
+    act(() => trigger().click());
+    act(() => viewButton("sqlDashboard.saveAsGroup").click());
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="sqlDashboard.groupName"]',
+    )!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "A preset draft");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const mounts = mocks.filterBarMounts;
+    await goTo("/dashboards/dash-b?f_app=slides,design");
+    expect(mocks.filterBarMounts).toBe(mounts + 1);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => editMode().click());
+    expect(trigger().textContent).toBe("Slides, Design");
+    act(() => trigger().click());
+    act(() => viewButton("sqlDashboard.saveAsGroup").click());
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[aria-label="sqlDashboard.groupName"]',
+      )!.value,
+    ).toBe("");
   });
 
   it("retains the save-view draft through same-dashboard URL and filter-config replacement", async () => {

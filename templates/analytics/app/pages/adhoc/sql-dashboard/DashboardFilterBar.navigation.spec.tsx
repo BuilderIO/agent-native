@@ -2,7 +2,15 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, useEffect } from "react";
+import {
+  act,
+  startTransition,
+  StrictMode,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useState,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   createMemoryRouter,
@@ -19,6 +27,7 @@ import { useSqlQuery } from "@/lib/sql-query";
 
 import { DashboardFilterBar } from "./DashboardFilterBar";
 import type { DashboardFilter } from "./types";
+import { useFilterSearchParams } from "./use-filter-search-params";
 
 const mocks = vi.hoisted(() => ({ callAction: vi.fn() }));
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -82,25 +91,39 @@ let submission: { resolve: () => void; signal: AbortSignal };
 let barFilters: DashboardFilter[];
 let saveView: ReturnType<typeof vi.fn<() => void>> | undefined;
 let savePreset: ReturnType<typeof vi.fn<() => void>> | undefined;
+let loadedOwner: string | undefined;
+let queuedUpdate: ReturnType<typeof useFilterSearchParams>[1] | undefined;
+let queuedAdmission: (() => boolean) | undefined;
+
+function QueuedFilterProbe() {
+  const [, update, , canUpdate] = useFilterSearchParams(loadedOwner);
+  queuedUpdate ??= update;
+  queuedAdmission ??= canUpdate;
+  return null;
+}
 
 function TrackedFilterBar() {
   useEffect(() => {
     filterBarMounts++;
   }, []);
   return (
-    <DashboardFilterBar
-      filters={barFilters}
-      onSaveView={saveView}
-      onSavePreset={savePreset}
-      views={[
-        {
-          id: "launch",
-          filters: { f_app: "slides,design" },
-          isDefault: true,
-        },
-        { id: "staff", filters: { f_app: "chat", f_staff: "true" } },
-      ]}
-    />
+    <>
+      <DashboardFilterBar
+        filters={barFilters}
+        loadedDashboardId={loadedOwner}
+        onSaveView={saveView}
+        onSavePreset={savePreset}
+        views={[
+          {
+            id: "launch",
+            filters: { f_app: "slides,design" },
+            isDefault: true,
+          },
+          { id: "staff", filters: { f_app: "chat", f_staff: "true" } },
+        ]}
+      />
+      {loadedOwner && <QueuedFilterProbe />}
+    </>
   );
 }
 
@@ -260,6 +283,9 @@ describe("dashboard filter feedback during navigation", () => {
     barFilters = filters;
     saveView = undefined;
     savePreset = undefined;
+    loadedOwner = undefined;
+    queuedUpdate = undefined;
+    queuedAdmission = undefined;
     blockNavigations = false;
     filterBarMounts = 0;
     queryClient = new QueryClient({
@@ -304,6 +330,201 @@ describe("dashboard filter feedback during navigation", () => {
     ).toBe("true");
     return input;
   }
+
+  it("keeps event admission unavailable before commit and restores it after StrictMode effect replay", async () => {
+    loads = [];
+    const admissions: boolean[] = [];
+    let committed: ReturnType<typeof useFilterSearchParams> | undefined;
+    let setups = 0;
+    let cleanups = 0;
+    function Probe() {
+      const result = useFilterSearchParams("test");
+      admissions.push(result[3]());
+      useLayoutEffect(() => {
+        committed = result;
+        setups++;
+        return () => {
+          cleanups++;
+        };
+      }, []);
+      return null;
+    }
+    router = createMemoryRouter(
+      [{ path: "/dashboards/:id", element: <Probe /> }],
+      {
+        initialEntries: ["/dashboards/test?f_app=chat#target"],
+      },
+    );
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <RouterProvider router={router} />
+        </StrictMode>,
+      ),
+    );
+    expect(admissions).toEqual([false, false]);
+    expect(setups).toBe(2);
+    expect(cleanups).toBe(1);
+    expect(committed![3]()).toBe(true);
+    await act(async () =>
+      committed![1]((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("f_app", "slides");
+        return next;
+      }),
+    );
+    expect(router.state.location.search).toBe("?f_app=slides");
+    expect(router.state.location.hash).toBe("#target");
+    expect(committed![3]()).toBe(true);
+  });
+
+  it("rejects speculative owner approval without a key through suspended and abandoned renders", async () => {
+    loads = [];
+    let committed: ReturnType<typeof useFilterSearchParams> | undefined;
+    let setOwner: (owner: string) => void = () => {
+      throw new Error("Probe has not rendered");
+    };
+    let suspendedOwner: string | null = "b";
+    const attempts: string[] = [];
+    const never = new Promise<never>(() => {});
+    function Probe({ owner }: { owner: string }) {
+      const result = useFilterSearchParams(owner);
+      attempts.push(owner);
+      useLayoutEffect(() => {
+        committed = result;
+      });
+      if (owner === suspendedOwner) throw never;
+      return <output>{owner}</output>;
+    }
+    function Owner() {
+      const [owner, update] = useState("a");
+      setOwner = update;
+      return (
+        <Suspense fallback={<p>fallback</p>}>
+          <Probe owner={owner} />
+        </Suspense>
+      );
+    }
+    router = createMemoryRouter(
+      [{ path: "/dashboards/:id", element: <Owner /> }],
+      {
+        initialEntries: ["/dashboards/b?f_current=b#target"],
+      },
+    );
+    await act(async () => root.render(<RouterProvider router={router} />));
+    const old = committed!;
+    expect(old[3]()).toBe(false);
+    await act(async () => startTransition(() => setOwner("b")));
+    expect(attempts).toContain("b");
+    expect(container.textContent).toBe("a");
+    expect(committed).toBe(old);
+    expect(old[3]()).toBe(false);
+    const update = vi.fn((prev: URLSearchParams) => {
+      const next = new URLSearchParams(prev);
+      next.set("f_old", "retained");
+      return next;
+    });
+    await act(async () => old[1](update));
+    expect(update).not.toHaveBeenCalled();
+    expect(router.state.location.search).toBe("?f_current=b");
+    expect(router.state.location.hash).toBe("#target");
+    await act(async () => setOwner("a"));
+    expect(old[3]()).toBe(false);
+    suspendedOwner = null;
+    await act(async () => setOwner("b"));
+    expect(container.textContent).toBe("b");
+    expect(committed![3]).toBe(old[3]);
+    expect(old[3]()).toBe(true);
+  });
+
+  it("blocks a previously queued callback after the router is idle with a different loaded owner", async () => {
+    loadedOwner = "selected";
+    await render("/dashboards/test?id=selected&f_app=chat", undefined, true);
+    const originalUpdate = queuedUpdate!;
+    const originalAdmission = queuedAdmission!;
+    act(() => {
+      void router.navigate("/dashboards/test?id=foreign&f_app=slides#target");
+    });
+    await settle();
+    expect(router.state.navigation.state).toBe("idle");
+    act(() =>
+      originalUpdate((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("f_app", "old-config");
+        return next;
+      }),
+    );
+    expect(originalAdmission()).toBe(false);
+    expect(router.state.location.search).toBe("?id=foreign&f_app=slides");
+    expect(router.state.location.hash).toBe("#target");
+    expect(loads).toHaveLength(2);
+    expect(appTrigger().disabled).toBe(true);
+    act(() => {
+      void router.navigate("/dashboards/test?id=selected&f_app=chat");
+    });
+    await settle();
+    expect(originalAdmission()).toBe(true);
+    expect(appTrigger().disabled).toBe(false);
+  });
+
+  it.each(["failure", "cancel", "POST"])(
+    "preserves a nonempty preset name after temporary busy %s until manual reopen",
+    async (outcome) => {
+      savePreset = vi.fn<() => void>();
+      await render("/dashboards/test?f_app=chat,slides", undefined, true);
+      act(() => appTrigger().click());
+      act(() => button("Save as group…").click());
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Group name"]',
+      )!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "Review apps");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const form = input.closest("form")!;
+      act(() => {
+        void router.navigate(
+          outcome === "POST"
+            ? "/dashboards/test?f_app=chat,slides#write"
+            : "/dashboards/other?f_app=chat,slides#foreign",
+          outcome === "POST"
+            ? { formMethod: "POST", formData: new FormData() }
+            : undefined,
+        );
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() =>
+        form.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+      );
+      expect(savePreset).not.toHaveBeenCalled();
+      if (outcome === "failure")
+        await act(async () => loads[1].reject(new Error("controlled failure")));
+      else if (outcome === "cancel") {
+        act(() => {
+          void router.navigate("/dashboards/test?f_app=chat,slides");
+        });
+        await settle();
+      } else {
+        await act(async () => submission.resolve());
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+        await settle();
+      }
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() => appTrigger().click());
+      act(() => button("Save as group…").click());
+      expect(
+        document.querySelector<HTMLInputElement>(
+          'input[aria-label="Group name"]',
+        )!.value,
+      ).toBe("Review apps");
+      expect(savePreset).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["failure", "cancel", "POST"])(
     "preserves the save-view draft after protected navigation %s until manual reopen and saves current filters once",

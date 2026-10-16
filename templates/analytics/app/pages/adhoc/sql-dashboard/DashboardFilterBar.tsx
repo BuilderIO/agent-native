@@ -159,6 +159,7 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  loadedDashboardId?: string | null;
   // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
   views?: readonly DashboardSavedView[] | null;
   // While a cached list refetches it can still hold a deleted view, so Reset is
@@ -220,6 +221,7 @@ class BusyFocusBoundary extends Component<
 
 export function DashboardFilterBar({
   filters,
+  loadedDashboardId,
   views = NO_VIEWS,
   viewsRefreshing = false,
   onSaveView,
@@ -227,7 +229,8 @@ export function DashboardFilterBar({
   shared = false,
 }: DashboardFilterBarProps) {
   const t = useT();
-  const [searchParams, setSearchParams, filtersBusy] = useFilterSearchParams();
+  const [searchParams, setSearchParams, filtersBusy, canUpdateFilters] =
+    useFilterSearchParams(loadedDashboardId);
   const barRef = useRef<HTMLDivElement>(null);
   const restoreBusyFocus = (event: Event) => {
     // An overlay's unmount callback can retain its pre-navigation render.
@@ -301,7 +304,8 @@ export function DashboardFilterBar({
   }, [views, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
-    if (filtersBusy || !viewName.trim() || !onSaveView || savingView) return;
+    if (!canUpdateFilters() || !viewName.trim() || !onSaveView || savingView)
+      return;
     setSavingView(true);
     try {
       const currentFilters = extractFilterParams(uniqueFilters, searchParams);
@@ -322,7 +326,7 @@ export function DashboardFilterBar({
       setSavingView(false);
     }
   }, [
-    filtersBusy,
+    canUpdateFilters,
     viewName,
     onSaveView,
     savingView,
@@ -379,7 +383,10 @@ export function DashboardFilterBar({
                   }
                   setValue={(updates) => setParam(updates)}
                   onSavePreset={
-                    onSavePreset && ((preset) => onSavePreset(f.id, preset))
+                    onSavePreset &&
+                    ((preset) => {
+                      if (canUpdateFilters()) onSavePreset(f.id, preset);
+                    })
                   }
                   shared={shared}
                 />
@@ -597,12 +604,13 @@ function MultiSelectFilter({
   const [query, setQuery] = useState("");
   const [naming, setNaming] = useState(false);
   const [groupName, setGroupName] = useState("");
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
   useEffect(() => {
     if (!disabled) return;
     setOpen(false);
     setQuery("");
     setNaming(false);
-    setGroupName("");
   }, [disabled]);
   const saveAsGroupRef = useRef<HTMLButtonElement>(null);
   const refocusSaveAsGroupRef = useRef(false);
@@ -698,7 +706,13 @@ function MultiSelectFilter({
     setGroupName("");
   };
   const saveGroup = () => {
-    if (!onSavePreset || !trimmedGroupName || groupNameTaken) return;
+    if (
+      disabledRef.current ||
+      !onSavePreset ||
+      !trimmedGroupName ||
+      groupNameTaken
+    )
+      return;
     savedPresetLabelRef.current = trimmedGroupName;
     onSavePreset({
       label: trimmedGroupName,
@@ -718,7 +732,7 @@ function MultiSelectFilter({
         open={open && !disabled}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen && !disabled);
-          if (nextOpen) return;
+          if (nextOpen || disabled) return;
           savedPresetLabelRef.current = null;
           setQuery("");
           stopNaming();

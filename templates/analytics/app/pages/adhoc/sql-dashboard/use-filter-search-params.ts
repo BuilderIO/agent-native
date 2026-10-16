@@ -2,6 +2,7 @@ import {
   startTransition,
   useCallback,
   useContext,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,16 +11,34 @@ import {
   UNSAFE_DataRouterContext,
   useLocation,
   useNavigate,
+  useParams,
   type RouterState,
 } from "react-router";
 
 type Draft = { key: string; params: URLSearchParams };
+type Scope = {
+  loadedDashboardId: string | null | undefined;
+  renderedDashboardId: string | undefined;
+};
 const subscribeToNothing = () => () => {};
 const noServerNavigation = () => null;
 
 // Only read navigation within this dashboard can compose with this bar's
 // config. Preserve other destinations and in-flight writes.
-function admitsFilterEdits(state: RouterState | null | undefined) {
+function admitsFilterEdits(
+  state: RouterState | null | undefined,
+  loadedDashboardId: string | null | undefined,
+  renderedDashboardId: string | undefined,
+) {
+  const committedId = state
+    ? new URLSearchParams(state.location.search).get("id") ||
+      state.matches[state.matches.length - 1]?.params.id
+    : renderedDashboardId;
+  if (
+    loadedDashboardId !== undefined &&
+    (!loadedDashboardId || loadedDashboardId !== committedId)
+  )
+    return false;
   if (!state) return true;
   const { location: committed, navigation } = state;
   const target = navigation.location ?? committed;
@@ -31,10 +50,31 @@ function admitsFilterEdits(state: RouterState | null | undefined) {
   );
 }
 
-export function useFilterSearchParams() {
+export function useFilterSearchParams(loadedDashboardId?: string | null) {
   const router = useContext(UNSAFE_DataRouterContext)?.router;
   const renderedLocation = useLocation();
   const navigate = useNavigate();
+  const { id: routeId } = useParams();
+  const renderedDashboardId =
+    new URLSearchParams(renderedLocation.search).get("id") || routeId;
+  const scope = useRef<Scope | null>(null);
+  useLayoutEffect(() => {
+    scope.current = { loadedDashboardId, renderedDashboardId };
+    return () => {
+      scope.current = null;
+    };
+  }, [loadedDashboardId, renderedDashboardId]);
+  const canUpdate = useCallback(() => {
+    const committedScope = scope.current;
+    return (
+      committedScope !== null &&
+      admitsFilterEdits(
+        router?.state,
+        committedScope.loadedDashboardId,
+        committedScope.renderedDashboardId,
+      )
+    );
+  }, [router]);
   // Only this bar subscribes synchronously; route/dashboard rendering stays in
   // the router's transition. Action promises can outlive their navigation.
   const state = useSyncExternalStore(
@@ -56,7 +96,7 @@ export function useFilterSearchParams() {
       const current = router?.state;
       const committed = current?.location ?? renderedLocation;
       const location = current?.navigation.location ?? committed;
-      if (!admitsFilterEdits(current)) return;
+      if (!canUpdate()) return;
       const key = current?.navigation.location?.key;
       const params = update(
         new URLSearchParams(
@@ -81,8 +121,13 @@ export function useFilterSearchParams() {
       });
       if (accepted) setDraft(accepted);
     },
-    [router, renderedLocation, navigate],
+    [router, renderedLocation, navigate, canUpdate],
   );
 
-  return [displayed, updateParams, !admitsFilterEdits(state)] as const;
+  return [
+    displayed,
+    updateParams,
+    !admitsFilterEdits(state, loadedDashboardId, renderedDashboardId),
+    canUpdate,
+  ] as const;
 }
