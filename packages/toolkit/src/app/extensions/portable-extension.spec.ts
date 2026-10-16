@@ -21,6 +21,7 @@ describe("portable extension runtime", () => {
       slotId: "crm.sidebar",
       title: "Customer notes",
       content: '<div x-data="{ ready: true }">Hello</div>',
+      linkNonce: "test-link-nonce",
       slotContext: { customerId: "cus_123" },
     });
 
@@ -92,11 +93,20 @@ describe("portable extension runtime", () => {
     const html = buildAgentNativeExtensionHtml({
       extensionId: "ext-1",
       content: "<div></div>",
+      linkNonce: "test-link-nonce",
       slotContext: { label: "</script><script>alert(1)</script>" },
     });
 
     expect(html).toContain("\\u003c/script>");
     expect(html).not.toContain("</script><script>alert");
+  });
+
+  it("requires a nonce for the private host bridge", () => {
+    expect(() =>
+      Reflect.apply(buildAgentNativeExtensionHtml, null, [
+        { extensionId: "ext-1", content: "<div></div>" },
+      ]),
+    ).toThrow("linkNonce is required to build extension HTML");
   });
 
   it("removes allow-same-origin from extension sandbox values", () => {

@@ -286,6 +286,25 @@ describe("ExtensionViewer MCP embeds", () => {
     );
   });
 
+  it("keeps the render route when an MCP embed has no inline extension content", async () => {
+    embedState.active = true;
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).includes("/_agent-native/extensions/iframe/display-sources")
+        ? Response.json(displaySourcesResponse)
+        : Response.json({ ...extensionResponse, content: "" }),
+    );
+
+    const iframe = await renderViewer();
+
+    await vi.waitFor(() => {
+      expect(iframe.getAttribute("src")).toContain(
+        "/_agent-native/extensions/ext-1/render",
+      );
+    });
+    expect(iframe.getAttribute("src")).not.toContain("#");
+    expect(iframe.getAttribute("srcdoc")).toBeNull();
+  });
+
   it("applies the configured img-src and media-src to the MCP embed srcdoc", async () => {
     embedState.active = true;
     const iframe = await renderViewer();

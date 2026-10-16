@@ -485,6 +485,69 @@ describe("createAgentNativeHostBridge", () => {
     channel.port1.close();
     channel.port2.close();
   });
+
+  it("does not send an in-flight port response to a replacement frame", async () => {
+    const oldChannel = new MessageChannel();
+    const nextChannel = new MessageChannel();
+    const oldResponses: unknown[] = [];
+    const nextResponses: unknown[] = [];
+    oldChannel.port2.addEventListener("message", (event) =>
+      oldResponses.push(event.data),
+    );
+    nextChannel.port2.addEventListener("message", (event) =>
+      nextResponses.push(event.data),
+    );
+    oldChannel.port2.start();
+    nextChannel.port2.start();
+
+    let resolveContext!: (value: { resource: { id: string } }) => void;
+    let markContextStarted!: () => void;
+    const contextStarted = new Promise<void>((resolve) => {
+      markContextStarted = resolve;
+    });
+    const contextResult = new Promise<{ resource: { id: string } }>(
+      (resolve) => {
+        resolveContext = resolve;
+      },
+    );
+    const bridge = createAgentNativeHostBridge({
+      allowWindowMessages: false,
+      targetPort: oldChannel.port1,
+      getContext: () => {
+        markContextStarted();
+        return contextResult;
+      },
+    }).start();
+
+    oldChannel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "reused-after-reload",
+    });
+    await contextStarted;
+
+    bridge.setTargetPort(nextChannel.port1);
+    nextChannel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "reused-after-reload",
+    });
+    await nextTick();
+    resolveContext({ resource: { id: "current-frame" } });
+    await nextTick();
+
+    expect(oldResponses).toEqual([]);
+    expect(nextResponses).toHaveLength(1);
+    expect(nextResponses[0]).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
+      requestId: "reused-after-reload",
+      context: { resource: { id: "current-frame" } },
+    });
+
+    bridge.stop();
+    oldChannel.port1.close();
+    oldChannel.port2.close();
+    nextChannel.port1.close();
+    nextChannel.port2.close();
+  });
 });
 
 describe("iframe-side host helpers", () => {

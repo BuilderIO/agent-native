@@ -285,12 +285,29 @@ export function buildExtensionExternalLinkTargetBootstrap(
         }
       }, { once: true });
 
+      function linkFromEvent(event) {
+        var path = typeof event.composedPath === 'function'
+          ? event.composedPath()
+          : [];
+        if (!path || path.length === 0) path = [event.target];
+        for (var i = 0; i < path.length; i += 1) {
+          var element = path[i];
+          if (!element || element.nodeType !== 1) continue;
+          var name = String(element.localName || element.tagName || '').toLowerCase();
+          if (
+            (name === 'a' || name === 'area') &&
+            (element.hasAttribute('href') ||
+              element.hasAttributeNS('http://www.w3.org/1999/xlink', 'href'))
+          ) return element;
+        }
+        return null;
+      }
+
       document.addEventListener('click', function(event) {
         if (!event.isTrusted) return;
-        var target = event.target;
-        if (!target || typeof target.closest !== 'function') return;
-        var link = target.closest('a');
-        if (!link || link.hasAttribute('download')) return;
+        if (!linkNonce) return;
+        var link = linkFromEvent(event);
+        if (!link) return;
         var href = link.getAttribute('href') ||
           link.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
           link.getAttribute('xlink:href');
@@ -315,6 +332,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
       }, true);
 
       document.addEventListener('submit', function(event) {
+        if (!linkNonce) return;
         var form = event.target;
         if (!form || form.tagName !== 'FORM') return;
         var submitter = event.submitter;

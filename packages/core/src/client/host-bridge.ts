@@ -309,6 +309,8 @@ type HostResponse<TValue> =
   | { ok: true; value: TValue }
   | { ok: false; error: Error };
 
+type HostBridgePost = (message: Record<string, unknown>) => boolean;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -681,6 +683,7 @@ export function createAgentNativeHostBridge(
 ): AgentNativeHostBridge {
   let targetWindow = options.targetWindow ?? null;
   let targetPort = options.targetPort ?? null;
+  let targetPortListener: ((event: MessageEvent) => void) | null = null;
   let started = false;
   const allowWindowMessages = options.allowWindowMessages ?? true;
   const allowedOrigin = normalizeOrigin(options.agentOrigin);
@@ -729,7 +732,24 @@ export function createAgentNativeHostBridge(
     return true;
   }
 
-  async function sendInit(requestId?: string): Promise<boolean> {
+  function postToTargetPort(
+    port: MessagePort,
+    message: Record<string, unknown>,
+  ): boolean {
+    if (!started || targetPort !== port) return false;
+    try {
+      port.postMessage(message);
+      return true;
+    } catch {
+      // coercion-ok: false reports an undeliverable post through the boolean contract.
+      return false;
+    }
+  }
+
+  async function sendInit(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     const message: Record<string, unknown> = {
       type: AGENT_NATIVE_HOST_MESSAGE_TYPES.INIT,
       version: AGENT_NATIVE_HOST_BRIDGE_VERSION,
@@ -765,18 +785,21 @@ export function createAgentNativeHostBridge(
         emit({ type: "error", requestId, error: messageError(error) });
       }
     }
-    const sent = post(message);
+    const sent = reply(message);
     if (sent) emit({ type: "init", requestId });
     return sent;
   }
 
-  async function sendContext(requestId?: string): Promise<boolean> {
+  async function sendContext(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     try {
       const context = attachSession(
         await resolveHostContext(options.getContext),
         session,
       );
-      const sent = post({
+      const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
         ok: true,
         requestId,
@@ -787,7 +810,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err });
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
         ok: false,
         requestId,
@@ -796,10 +819,13 @@ export function createAgentNativeHostBridge(
     }
   }
 
-  async function sendAuth(requestId?: string): Promise<boolean> {
+  async function sendAuth(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     try {
       const auth = await resolveHostAuth(options.auth);
-      const sent = post({
+      const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.AUTH,
         ok: true,
         requestId,
@@ -810,7 +836,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err });
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.AUTH,
         ok: false,
         requestId,
@@ -819,10 +845,13 @@ export function createAgentNativeHostBridge(
     }
   }
 
-  async function sendActions(requestId?: string): Promise<boolean> {
+  async function sendActions(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     try {
       const actions = await resolveActionManifest(options.actions);
-      const sent = post({
+      const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
         ok: true,
         requestId,
@@ -833,7 +862,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err });
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
         ok: false,
         requestId,
@@ -842,9 +871,12 @@ export function createAgentNativeHostBridge(
     }
   }
 
-  async function sendWebMcpTools(requestId?: string): Promise<boolean> {
+  async function sendWebMcpTools(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     if (!options.webmcp) {
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
         ok: false,
         requestId,
@@ -853,7 +885,7 @@ export function createAgentNativeHostBridge(
     }
     try {
       const tools = await options.webmcp.listTools();
-      const sent = post({
+      const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
         ok: true,
         requestId,
@@ -864,7 +896,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err });
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
         ok: false,
         requestId,
@@ -972,6 +1004,7 @@ export function createAgentNativeHostBridge(
   async function handleAction(
     message: IncomingHostMessage,
     event: MessageEvent,
+    reply: HostBridgePost,
   ) {
     if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) return;
     const name = typeof message.name === "string" ? message.name : "";
@@ -1000,7 +1033,7 @@ export function createAgentNativeHostBridge(
         command: (command, payload) =>
           runHostCommand(command, payload, requestId, event),
       });
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
         ok: true,
         requestId,
@@ -1009,7 +1042,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err, origin: event.origin });
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
         ok: false,
         requestId,
@@ -1021,6 +1054,7 @@ export function createAgentNativeHostBridge(
   async function handleWebMcpTool(
     message: IncomingHostMessage,
     event: MessageEvent,
+    reply: HostBridgePost,
   ) {
     if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL)
       return;
@@ -1043,7 +1077,7 @@ export function createAgentNativeHostBridge(
       await assertWebMcpApproved(tool, message.args, context, requestId, event);
       emit({ type: "webmcp-tool", name, requestId, origin: event.origin });
       const result = await options.webmcp.executeListedTool(tool, message.args);
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
         ok: true,
         requestId,
@@ -1052,7 +1086,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err, origin: event.origin });
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
         ok: false,
         requestId,
@@ -1064,6 +1098,7 @@ export function createAgentNativeHostBridge(
   async function handleCommand(
     message: IncomingHostMessage,
     event: MessageEvent,
+    reply: HostBridgePost,
   ) {
     if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) return;
     const command = typeof message.command === "string" ? message.command : "";
@@ -1077,7 +1112,7 @@ export function createAgentNativeHostBridge(
         requestId,
         event,
       );
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND_RESULT,
         ok: true,
         requestId,
@@ -1086,7 +1121,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err, origin: event.origin });
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND_RESULT,
         ok: false,
         requestId,
@@ -1101,16 +1136,27 @@ export function createAgentNativeHostBridge(
     if (!allowWindowMessages) return;
     if (!trusted(event)) return;
 
-    handleIncoming(message, event);
+    handleIncoming(message, event, post);
   }
 
-  function onPortMessage(event: MessageEvent) {
-    const message = event.data;
-    if (!isIncomingHostMessage(message)) return;
-    handleIncoming(message, event);
+  function attachTargetPort(port: MessagePort) {
+    const listener = (event: MessageEvent) => {
+      const message = event.data;
+      if (!isIncomingHostMessage(message)) return;
+      handleIncoming(message, event, (response) =>
+        postToTargetPort(port, response),
+      );
+    };
+    targetPortListener = listener;
+    port.addEventListener("message", listener);
+    port.start();
   }
 
-  function handleIncoming(message: IncomingHostMessage, event: MessageEvent) {
+  function handleIncoming(
+    message: IncomingHostMessage,
+    event: MessageEvent,
+    reply: HostBridgePost,
+  ) {
     const sourceWindow = getWindowFromSource(event.source);
     if (allowWindowMessages && !targetPort && !targetWindow && sourceWindow) {
       targetWindow = sourceWindow;
@@ -1122,23 +1168,23 @@ export function createAgentNativeHostBridge(
         requestId: message.requestId,
         origin: event.origin,
       });
-      void sendInit(message.requestId);
+      void sendInit(message.requestId, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT) {
-      void sendContext(message.requestId);
+      void sendContext(message.requestId, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS) {
-      void sendActions(message.requestId);
+      void sendActions(message.requestId, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) {
-      void handleAction(message, event);
+      void handleAction(message, event, reply);
     } else if (
       message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS
     ) {
-      void sendWebMcpTools(message.requestId);
+      void sendWebMcpTools(message.requestId, reply);
     } else if (
       message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL
     ) {
-      void handleWebMcpTool(message, event);
+      void handleWebMcpTool(message, event, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) {
-      void handleCommand(message, event);
+      void handleCommand(message, event, reply);
     } else {
       emit({ type: "ignored", reason: "message", origin: event.origin });
     }
@@ -1148,15 +1194,17 @@ export function createAgentNativeHostBridge(
     start() {
       if (started || typeof window === "undefined") return bridge;
       if (allowWindowMessages) window.addEventListener("message", onMessage);
-      targetPort?.addEventListener("message", onPortMessage);
-      targetPort?.start();
       started = true;
+      if (targetPort) attachTargetPort(targetPort);
       return bridge;
     },
     stop() {
       if (!started || typeof window === "undefined") return;
       if (allowWindowMessages) window.removeEventListener("message", onMessage);
-      targetPort?.removeEventListener("message", onPortMessage);
+      if (targetPort && targetPortListener) {
+        targetPort.removeEventListener("message", targetPortListener);
+      }
+      targetPortListener = null;
       started = false;
     },
     setTargetWindow(nextTargetWindow) {
@@ -1164,12 +1212,12 @@ export function createAgentNativeHostBridge(
     },
     setTargetPort(nextTargetPort) {
       if (targetPort === nextTargetPort) return;
-      if (started) targetPort?.removeEventListener("message", onPortMessage);
-      targetPort = nextTargetPort;
-      if (started && targetPort) {
-        targetPort.addEventListener("message", onPortMessage);
-        targetPort.start();
+      if (started && targetPort && targetPortListener) {
+        targetPort.removeEventListener("message", targetPortListener);
       }
+      targetPortListener = null;
+      targetPort = nextTargetPort;
+      if (started && targetPort) attachTargetPort(targetPort);
     },
     post,
     sendInit,

@@ -109,7 +109,8 @@ export interface CreateHttpAgentNativeExtensionStorageOptions {
 export interface BuildAgentNativeExtensionHtmlOptions {
   extensionId: string;
   content: string;
-  linkNonce?: string;
+  /** Required so the sandbox can establish its private host bridge. */
+  linkNonce: string;
   title?: string;
   slotId?: string;
   slotContext?: Record<string, unknown> | null;
@@ -464,6 +465,9 @@ export function buildAgentNativeExtensionHtml({
   themeCss = "",
   isDark = false,
 }: BuildAgentNativeExtensionHtmlOptions): string {
+  if (!linkNonce) {
+    throw new TypeError("linkNonce is required to build extension HTML");
+  }
   const extensionIdJson = safeJson(extensionId);
   const slotIdJson = safeJson(slotId ?? "");
   const slotContextJson = safeJson(slotContext ?? {});

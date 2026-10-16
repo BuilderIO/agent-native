@@ -1339,8 +1339,12 @@ export function ExtensionViewer({
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
             src={
-              !usesSrcDoc && externalLinksEnabled && linkNonce
-                ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
+              extension && !usesSrcDoc
+                ? externalLinksEnabled
+                  ? linkNonce
+                    ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
+                    : undefined
+                  : iframeSrc
                 : undefined
             }
             srcDoc={usesSrcDoc ? iframeSrcDoc : undefined}

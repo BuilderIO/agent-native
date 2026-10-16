@@ -14,18 +14,62 @@ const READY = "agent-native-extension-open-url-ready";
 // Runs the real extension shell (not the host) in its own jsdom window and checks which link
 // clicks it hands to the host. At the top level window.parent === window, so
 // the shell's postMessage calls land on the spy installed before parsing.
-function loadShell(content: string, options: { secureRandom?: boolean } = {}) {
+function loadShell(
+  content: string,
+  options: { secureRandom?: boolean; linkNonce?: string } = {},
+) {
   const posted: any[] = [];
-  const dom = new JSDOM(buildExtensionHtml(content, ":root{}", false, "ext"), {
-    runScripts: "dangerously",
-    url: "https://analytics.example/_agent-native/extensions/ext/render",
-    beforeParse(window: any) {
-      (window as any).postMessage = (message: unknown) => posted.push(message);
-      if (options.secureRandom === false) {
-        Object.defineProperty(window, "crypto", { value: undefined });
-      }
+  let externalLinkClickHandler: ((event: any) => void) | undefined;
+  const dom = new JSDOM(
+    buildExtensionHtml(
+      content,
+      ":root{}",
+      false,
+      "ext",
+      undefined,
+      undefined,
+      options.linkNonce,
+    ),
+    {
+      runScripts: "dangerously",
+      url: "https://analytics.example/_agent-native/extensions/ext/render",
+      beforeParse(window: any) {
+        (window as any).postMessage = (message: unknown) =>
+          posted.push(message);
+        class TestMessagePort {
+          addEventListener() {}
+          close() {}
+          postMessage() {}
+          start() {}
+        }
+        window.MessagePort = TestMessagePort;
+        window.MessageChannel = class {
+          port1 = new TestMessagePort();
+          port2 = new TestMessagePort();
+        };
+        const addEventListener = window.document.addEventListener.bind(
+          window.document,
+        );
+        window.document.addEventListener = (
+          type: string,
+          listener: EventListenerOrEventListenerObject,
+          listenerOptions?: AddEventListenerOptions | boolean,
+        ) => {
+          if (
+            type === "click" &&
+            typeof listener === "function" &&
+            listener.toString().includes("linkFromEvent(event)")
+          ) {
+            externalLinkClickHandler = listener as (event: any) => void;
+          }
+          return addEventListener(type, listener, listenerOptions);
+        };
+        if (options.secureRandom === false) {
+          Object.defineProperty(window, "crypto", { value: undefined });
+        }
+      },
     },
-  });
+  );
   const window = dom.window as any;
   const binding = posted.find(
     (message) => message?.type === "agent-native-extension-binding",
@@ -55,6 +99,18 @@ function loadShell(content: string, options: { secureRandom?: boolean } = {}) {
       });
       target.dispatchEvent(event);
       return event.defaultPrevented;
+    },
+    clickTrusted(target: Element, composedPath: EventTarget[] = [target]) {
+      let defaultPrevented = false;
+      externalLinkClickHandler?.call(window.document, {
+        isTrusted: true,
+        target,
+        composedPath: () => composedPath,
+        preventDefault() {
+          defaultPrevented = true;
+        },
+      });
+      return defaultPrevented;
     },
   };
 }
@@ -88,6 +144,55 @@ describe("extension shell link routing", () => {
     const blank = shell.window.document.getElementById("blank");
 
     expect(shell.click(blank)).toBe(false);
+    expect(shell.opened()).toEqual([]);
+  });
+
+  it("keeps same-frame external navigation native without a link nonce", () => {
+    const shell = loadShell(
+      '<a id="external" href="https://example.com/">external</a>',
+    );
+
+    expect(
+      shell.clickTrusted(shell.window.document.getElementById("external")),
+    ).toBe(false);
+  });
+
+  it("intercepts external area, SVG, shadow-root, and download links", () => {
+    const shell = loadShell(
+      `
+        <map name="external-links"><area id="area" href="https://example.com/area"></map>
+        <svg><a id="svg" href="https://example.com/svg"><text>svg</text></a></svg>
+        <div id="host"></div>
+        <a id="download" href="https://files.example.com/export.csv" download>download</a>
+      `,
+      { linkNonce: "frame-link-nonce" },
+    );
+    const document = shell.window.document;
+    const shadowRoot = document.getElementById("host").attachShadow({
+      mode: "open",
+    });
+    shadowRoot.innerHTML =
+      '<a id="inside" href="https://example.com/shadow"><span>go</span></a>';
+
+    const area = document.getElementById("area");
+    const svgText = document.querySelector("#svg text");
+    const shadowText = shadowRoot.querySelector("span");
+    expect(
+      shell.clickTrusted(area, [area, document.querySelector("map")]),
+    ).toBe(true);
+    expect(
+      shell.clickTrusted(svgText, [svgText, document.querySelector("#svg")]),
+    ).toBe(true);
+    expect(
+      shell.clickTrusted(shadowText, [
+        shadowText,
+        shadowRoot.querySelector("a"),
+        shadowRoot,
+        document.getElementById("host"),
+      ]),
+    ).toBe(true);
+    const download = document.getElementById("download");
+    expect(shell.clickTrusted(download, [download])).toBe(true);
     expect(shell.opened()).toEqual([]);
   });
 

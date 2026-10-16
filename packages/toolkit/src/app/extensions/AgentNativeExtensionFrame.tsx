@@ -462,11 +462,12 @@ export const AgentNativeExtensionFrame = forwardRef<
   }, [contextJson, extension, getContext, slotId]);
 
   const srcDoc = useMemo(() => {
+    if (!linkNonce) return "";
     return buildAgentNativeExtensionHtml({
       extensionId: extension.id,
       title: title ?? extension.name,
       content: extension.content,
-      linkNonce: linkNonce ?? undefined,
+      linkNonce,
       slotId,
       slotContext: initialContextRef.current.context,
       themeCss,
