@@ -146,7 +146,7 @@ A function that throws is reported as `{ unreadable: "<message>" }` rather than 
 
 ### `recorder.onReport()` {#on-report}
 
-`recorder.onReport()` sends reports to a destination. It accepts a listener and returns a function that removes it. The listener receives every report built with a reason other than `"manual"`. That covers Report a problem (`"user"`), uncaught errors (`"error"`), and tests (`"test"`).
+`recorder.onReport()` sends reports to a destination. It accepts a listener and returns a function that removes it. The listener receives every report built with a reason other than `"manual"`. That covers uncaught errors (`"error"`) and tests (`"test"`). An app can still emit a `"user"` report by mounting the exported `ReportProblemDialog` directly.
 
 ```ts
 recorder.onReport((report) => posthog.capture("problem_report", report));
@@ -211,16 +211,6 @@ A window or cap that is not a positive number throws a `RangeError` instead of f
 
 ## Destinations {#destinations}
 
-### Report a problem {#report-a-problem}
-
-Every app has **Report a problem**. It is at the bottom of the sidebar, in the agent panel's options menu, and in the command menu (⌘K).
-
-- It asks whether to attach what the app did in the last two minutes, and previews the counts, the failures, and the first events. It asks every time.
-- When the user agrees, the full report is stored as a private file that only that user can read. The app's agent receives a short summary with a reference to the file.
-- The agent reads more of the report with the `read-problem-report` action, filtered by event type or time.
-- When the page has no agent chat, the button copies the summary and the reference instead.
-- The report needs file storage. Without it, the dialog says the report was not attached, and nothing is sent.
-
 ### Sentry {#sentry}
 
 When an app has browser Sentry configured through Agent-Native (see [Error reporting](/docs/observability#sentry)), every Sentry error event gets:
@@ -242,7 +232,7 @@ When developer logs are on, the Clips extension reads it in the recorded tab whe
 
 ## Privacy {#privacy}
 
-- **It stays in the browser.** A report leaves only when a destination sends it: Report a problem after the user agrees, a Clips recording the user started, Sentry, or a listener the developer registered.
+- **It stays in the browser.** A report leaves only when a destination sends it: a Clips recording the user started, Sentry, or a listener the developer registered.
 - **Secrets are removed.** A field whose name looks secret (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) reads `"[redacted]"`. Token-looking text inside any value, such as JWTs, bearer tokens, and provider API keys, is replaced with `[redacted]` too. These are the same redactors core uses for error reports.
 - **Values are bounded.** Strings are cut at 200 characters and each event at about 2 KB. A cut says what it dropped. Request and response bodies are never recorded.
 - **It forgets.** It keeps only the window, up to its caps. It is cleared on reload and on sign-out.
