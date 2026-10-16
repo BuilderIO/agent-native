@@ -55,7 +55,10 @@ async function assertParentIsNotDescendant({
 
     for (const child of children) {
       if (child.id === parentId) {
-        throw new Error("A document cannot be moved under one of its children");
+        throw new ActionContractError(
+          "A document cannot be moved under one of its children",
+          { errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT", statusCode: 400 },
+        );
       }
       queue.push(child.id);
     }
