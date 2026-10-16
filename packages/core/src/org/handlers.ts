@@ -1771,23 +1771,36 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const e = await exec();
-
-  if (raw) {
-    const existing = await e.execute({
-      sql: `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? AND id != ? LIMIT 1`,
-      args: [raw, ctx.orgId],
+  if (!e.transaction) {
+    throw createError({
+      statusCode: 503,
+      message: "Organization domain updates require transaction support",
     });
-    if (existing.rows.length > 0) {
-      throw createError({
-        statusCode: 409,
-        message: "Another organization already uses this domain",
-      });
-    }
   }
 
-  await e.execute({
-    sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
-    args: [raw, ctx.orgId],
+  await e.transaction(async (tx) => {
+    if (raw) {
+      await tx.execute({
+        sql: `SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))`,
+        args: [`agent-native:org-domain:${raw}`],
+      });
+
+      const existing = await tx.execute({
+        sql: `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? AND id != ? LIMIT 1`,
+        args: [raw, ctx.orgId],
+      });
+      if (existing.rows.length > 0) {
+        throw createError({
+          statusCode: 409,
+          message: "Another organization already uses this domain",
+        });
+      }
+    }
+
+    await tx.execute({
+      sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
+      args: [raw, ctx.orgId],
+    });
   });
   invalidateDomainMatchCache();
   invalidateMemberOrgCaches();
@@ -2164,13 +2177,19 @@ export const receiveA2ASecretHandler = defineEventHandler(
 
     const e = await exec();
     const orgRes = await e.execute({
-      sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
       args: [orgDomain],
     });
     if (orgRes.rows.length === 0) {
       throw createError({
         statusCode: 404,
         message: "No local org matches that domain",
+      });
+    }
+    if (orgRes.rows.length > 1) {
+      throw createError({
+        statusCode: 409,
+        message: "Multiple local organizations match that domain",
       });
     }
     const row = orgRes.rows[0] as any;
