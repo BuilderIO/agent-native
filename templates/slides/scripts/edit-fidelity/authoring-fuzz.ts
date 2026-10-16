@@ -354,6 +354,7 @@ type SaveReloadRequestAbortRule = {
   path: string | RegExp;
   method?: string;
   errorTexts: readonly string[];
+  maxRequestAgeMs?: number | null;
 };
 
 const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
@@ -383,7 +384,10 @@ const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
   },
   {
     path: "/_agent-native/actions/get-deck-access-status",
+    method: "GET",
     errorTexts: navigationAbortErrors,
+    // The page reload deliberately cancels this read-only access probe.
+    maxRequestAgeMs: null,
   },
   browserSessionRegistrationRequestRule,
   browserSessionClaimRequestRule,
@@ -406,19 +410,39 @@ export function isExpectedSaveReloadWatchedRequestAbort(
     requestWasPendingAtReloadNavigation &&
     !requestStartedDuringNavigation &&
     !competingClaimStartedAfterNavigation &&
+    Number.isFinite(requestAgeMs) &&
     requestAgeMs >= 0 &&
-    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
     saveReloadRequestAbortRules.some((rule) => {
       const matchesPath =
         typeof rule.path === "string"
           ? rule.path === pathname
           : rule.path.test(pathname);
+      const requestAgeLimitMs =
+        rule.maxRequestAgeMs === null
+          ? null
+          : (rule.maxRequestAgeMs ?? reloadNavigationAbortMaxRequestAgeMs);
       return (
         matchesPath &&
         (!rule.method || rule.method === method) &&
-        rule.errorTexts.includes(errorText)
+        rule.errorTexts.includes(errorText) &&
+        (requestAgeLimitMs === null || requestAgeMs < requestAgeLimitMs)
       );
     })
+  );
+}
+
+function isWithinWatchedRequestAgeLimit(
+  requestAgeMs: number,
+  rule: SaveReloadRequestAbortRule,
+) {
+  const requestAgeLimitMs =
+    rule.maxRequestAgeMs === null
+      ? null
+      : (rule.maxRequestAgeMs ?? reloadNavigationAbortMaxRequestAgeMs);
+  return (
+    Number.isFinite(requestAgeMs) &&
+    requestAgeMs >= 0 &&
+    (requestAgeLimitMs === null || requestAgeMs < requestAgeLimitMs)
   );
 }
 
@@ -678,8 +702,6 @@ function isExpectedWatchedRequestNavigationAbort(
         candidate.settledAgeMs !== undefined &&
         candidate.settledAgeMs >= 0 &&
         candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
-    candidate.ageMs >= 0 &&
-    candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
     (candidate.settledAgeMs === undefined ||
       (candidate.settledAgeMs >= 0 &&
         candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
@@ -688,7 +710,11 @@ function isExpectedWatchedRequestNavigationAbort(
         typeof rule.path === "string"
           ? rule.path === candidate.pathname
           : rule.path.test(candidate.pathname);
-      return matchesPath && (!rule.method || rule.method === candidate.method);
+      return (
+        matchesPath &&
+        (!rule.method || rule.method === candidate.method) &&
+        isWithinWatchedRequestAgeLimit(candidate.ageMs, rule)
+      );
     })
   );
 }

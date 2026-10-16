@@ -1271,11 +1271,40 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       "/_agent-native/actions/get-deck-access-status",
       "NS_BINDING_ABORTED",
       "save/reload",
-      undefined,
+      "GET",
       true,
       100,
     ),
   ).toBe(true);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      true,
+      30_000,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      30_000,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      true,
+    ),
+  ).toBe(false);
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/claim",
@@ -1376,7 +1405,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       "/_agent-native/actions/get-deck-access-status",
       "net::ERR_ABORTED",
       "save/reload",
-      undefined,
+      "GET",
       true,
       100,
     ),
@@ -1504,6 +1533,40 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
       ],
     ),
   ).toBe(true);
+  const accessStatusUrl =
+    "http://localhost:45715/_agent-native/actions/get-deck-access-status";
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${accessStatusUrl} due to access control checks.`,
+      "save/reload",
+      [
+        {
+          url: accessStatusUrl,
+          pathname: "/_agent-native/actions/get-deck-access-status",
+          method: "GET",
+          ageMs: 30_000,
+          sameOrigin: true,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${accessStatusUrl} due to access control checks.`,
+      "save/reload",
+      [
+        {
+          url: accessStatusUrl,
+          pathname: "/_agent-native/actions/get-deck-access-status",
+          method: "GET",
+          ageMs: Number.POSITIVE_INFINITY,
+          sameOrigin: true,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(false);
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "step 12", [
       candidate,
