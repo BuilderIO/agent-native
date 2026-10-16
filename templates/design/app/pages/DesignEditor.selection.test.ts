@@ -1385,6 +1385,7 @@ describe("DesignEditor motion timeline hydration", () => {
       ),
     ).toEqual([
       {
+        id: "legacy-track-0",
         targetNodeId: "e2e-alpha-button",
         label: "Alpha Button",
         property: "opacity",
@@ -1397,19 +1398,24 @@ describe("DesignEditor motion timeline hydration", () => {
   });
 
   it("creates style-keyframe tracks at the current playhead", () => {
-    expect(
-      upsertMotionStyleKeyframes({
-        tracks: [],
-        targetNodeId: "e2e-alpha-button",
-        label: "Alpha Button",
-        styles: { opacity: "0.25", backgroundColor: "rgb(255, 0, 0)" },
-        computedStyles: {
-          opacity: "1",
-          backgroundColor: "rgb(34, 197, 94)",
-        },
-        playhead: 0.5,
-      }),
-    ).toEqual([
+    const tracks = upsertMotionStyleKeyframes({
+      tracks: [],
+      targetNodeId: "e2e-alpha-button",
+      label: "Alpha Button",
+      styles: { opacity: "0.25", backgroundColor: "rgb(255, 0, 0)" },
+      computedStyles: {
+        opacity: "1",
+        backgroundColor: "rgb(34, 197, 94)",
+      },
+      playhead: 0.5,
+    });
+
+    expect(tracks.map(({ id }) => id)).toEqual([
+      expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+      expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+    ]);
+    expect(new Set(tracks.map(({ id }) => id)).size).toBe(2);
+    expect(tracks.map(({ id: _id, ...track }) => track)).toEqual([
       {
         targetNodeId: "e2e-alpha-button",
         label: "Alpha Button",
@@ -1417,7 +1423,6 @@ describe("DesignEditor motion timeline hydration", () => {
         keyframes: [
           { t: 0, value: "1", ease: "ease" },
           { t: 0.5, value: "0.25", ease: "ease" },
-          { t: 1, value: "1", ease: "ease" },
         ],
       },
       {
@@ -1427,7 +1432,6 @@ describe("DesignEditor motion timeline hydration", () => {
         keyframes: [
           { t: 0, value: "rgb(34, 197, 94)", ease: "ease" },
           { t: 0.5, value: "rgb(255, 0, 0)", ease: "ease" },
-          { t: 1, value: "rgb(34, 197, 94)", ease: "ease" },
         ],
       },
     ]);

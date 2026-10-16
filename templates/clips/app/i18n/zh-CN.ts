@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "这是什么？",
     off: "关",
     none: "无",
+    noneExplanation:
+      "“无”表示新 Clip 不会包含此前的屏幕时间。Rewind 开启时仍会持续录制屏幕。要停止，请选择下方的“关闭”。",
     custom: "自定义…",
     customLabel: "自定义时长",
     customAmount: "时长",
@@ -28,13 +30,13 @@ const messages = {
       "无法访问 Rewind 存储空间。请检查磁盘空间和文件夹权限后重试。",
     rewindConsentTitle: "开启 Rewind？",
     rewindConsentBody:
-      "Clips 会持续录制你的屏幕，并将内容保留在此设备上。智能体会获取文本摘录，只有你批准后才会分享视频。",
+      "Rewind 开启时，Clips 会持续录制屏幕，并在此设备上保留近期记录，直到达到你设置的时间或存储上限。选择“屏幕 + 音频”还会录制麦克风和系统声音。已连接的智能体无需 Clips 单独审批即可直接访问屏幕图像；之后如何使用这些图像取决于智能体。你选择的较早屏幕时长会自动添加到每个新 Clip 中，并遵循该 Clip 的分享设置。默认情况下，将选定时间段作为 Clip 分享的请求会在发送前经过审核。在 Rewind 设置中关闭发送前审核，即可自动发送这些请求。Clip 可能包含录制到的麦克风和系统音频。关闭 Rewind 会停止新的录制，但会保留已保存的记录。Rewind 关闭期间，记录可能超过时间或存储上限，直到录制再次开始。选择“全部删除”可立即清除已保存的记录。",
     rewindConsentCancel: "暂不",
     rewindConsentConfirm: "开启 Rewind",
     rewindConsentBusy: "正在开启 Rewind…",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
-      "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
+      "如需包含更早的屏幕内容，请先开启 Rewind。Rewind 开启时，会在此设备上保留近期屏幕记录并遵守时间和存储上限。Rewind 关闭期间，已保存的记录可能超过这些上限，直到录制再次开始。要立即清除，请打开 Settings > Rewind > Storage > On this device 并选择 Delete all。默认情况下，分享所选时间段的 Clip 请求会在发送前经过审核；在 Rewind 设置中关闭发送前审核后，这些请求会自动发送。",
     requestFailed: "无法包含更早的屏幕时间。录制将继续，但不包含这部分。",
     localOnlyUnavailable: "仅本地录制不会保存更早的屏幕时间。",
     saving: "正在保存录制前的 {{window}}…",
