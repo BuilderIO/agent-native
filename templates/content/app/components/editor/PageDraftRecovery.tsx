@@ -37,6 +37,7 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { LiveEditorSessionContext } from "./live-editor-session";
 import {
   clearPageDraftJournal,
+  liveDraftWriterIds,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
   writePageDraftJournal,
@@ -110,6 +111,16 @@ export function PageDraftRecovery({
     "checking" | "promoting" | "waiting_sql" | "ready" | "failed"
   >("checking");
   const [journalRevision, setJournalRevision] = useState(0);
+  // Another tab's open editor settles its own journal entries; replaying one
+  // here races its save queue and sends a save for text nobody typed here.
+  const [liveWriters, setLiveWriters] = useState<{
+    scopeKey: string;
+    writerIds: ReadonlySet<string>;
+  } | null>(null);
+  const skippedWriterIds =
+    liveWriters && liveWriters.scopeKey === scopeKey
+      ? liveWriters.writerIds
+      : undefined;
   const journalAttemptRef = useRef<string | null>(null);
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
@@ -190,7 +201,7 @@ export function PageDraftRecovery({
     };
     let entry;
     try {
-      entry = readPageDraftJournal(scope);
+      entry = readPageDraftJournal(scope, skippedWriterIds);
     } catch {
       setJournalState("failed");
       return;
@@ -199,6 +210,23 @@ export function PageDraftRecovery({
       sweepLegacyRetainedPageDraftMarkers();
       setJournalState("ready");
       return;
+    }
+    if (!skippedWriterIds && scopeKey) {
+      let cancelled = false;
+      void liveDraftWriterIds().then(
+        (writerIds) => {
+          // Without Web Locks no writer reads as live, so every entry
+          // replays, as it did before writer locks.
+          if (!cancelled)
+            setLiveWriters({ scopeKey, writerIds: writerIds ?? new Set() });
+        },
+        () => {
+          if (!cancelled) setJournalState("failed");
+        },
+      );
+      return () => {
+        cancelled = true;
+      };
     }
     const matchingSqlDraft =
       draft?.editorSessionId === entry.scope.writerId &&
@@ -471,9 +499,11 @@ export function PageDraftRecovery({
     editorReleased,
     journalRevision,
     journalState,
+    scopeKey,
     scopeVerified,
     session?.email,
     session?.orgId,
+    skippedWriterIds,
   ]);
 
   useEffect(() => {
@@ -712,11 +742,14 @@ export function PageDraftRecovery({
     }
     if (session?.email) {
       try {
-        const journal = readPageDraftJournal({
-          accountId: session.email.trim().toLowerCase(),
-          orgId: session.orgId ?? null,
-          documentId: document.id,
-        });
+        const journal = readPageDraftJournal(
+          {
+            accountId: session.email.trim().toLowerCase(),
+            orgId: session.orgId ?? null,
+            documentId: document.id,
+          },
+          skippedWriterIds,
+        );
         if (
           journal?.snapshot.title === draft.title &&
           journal.snapshot.content === draft.content
@@ -739,6 +772,7 @@ export function PageDraftRecovery({
     scopeVerified,
     session?.email,
     session?.orgId,
+    skippedWriterIds,
   ]);
 
   // Keep the editor at one tree position so a notice never remounts it.

@@ -52,6 +52,58 @@ export class PageDraftJournalError extends Error {
 const PREFIX = "content-page-draft-journal-v1:";
 // Retired: these markers kept a permanent "saved to History" banner on screen.
 const LEGACY_RETAINED_PREFIX = "content-page-draft-retained-v1:";
+const WRITER_LOCK_PREFIX = "content-page-draft-writer-v1:";
+
+function lockManager(): LockManager | null {
+  return typeof navigator === "undefined" ? null : (navigator.locks ?? null);
+}
+
+/**
+ * Holds a Web Lock named for this editor session until the returned release
+ * runs. Every tab shares the journal, so the lock is how another tab tells an
+ * entry whose editor is still open from one a closed or reloaded tab left
+ * behind; the browser drops it with the tab.
+ */
+export function holdPageDraftWriter(writerId: string): () => void {
+  const locks = lockManager();
+  if (!locks) return () => {};
+  let released = false;
+  let release: (() => void) | null = null;
+  locks
+    .request(
+      WRITER_LOCK_PREFIX + writerId,
+      () =>
+        new Promise<void>((resolve) => {
+          if (released) resolve();
+          else release = resolve;
+        }),
+    )
+    .catch(() => {
+      // coercion-ok: A writer whose lock was refused reads as gone, so
+      // another tab may replay its journal, as it did before writer locks.
+    });
+  return () => {
+    released = true;
+    release?.();
+  };
+}
+
+/**
+ * The writer IDs whose editors are open in some tab, or null when this
+ * browser has no Web Locks and cannot tell.
+ */
+export async function liveDraftWriterIds(): Promise<ReadonlySet<string> | null> {
+  const locks = lockManager();
+  if (!locks) return null;
+  const { held = [] } = await locks.query();
+  return new Set(
+    held.flatMap(({ name }) =>
+      name?.startsWith(WRITER_LOCK_PREFIX)
+        ? [name.slice(WRITER_LOCK_PREFIX.length)]
+        : [],
+    ),
+  );
+}
 
 function storage(): Storage {
   try {
@@ -337,10 +389,13 @@ export function listPageDraftJournal(
 
 export function readPageDraftJournal(
   scope: Omit<PageDraftJournalScope, "writerId">,
+  skipWriterIds: ReadonlySet<string> = new Set(),
 ): PageDraftJournalEntry | null {
   return (
     listPageDraftJournal(scope).find(
-      (entry) => entry.recoveryStatus !== "retained_in_history",
+      (entry) =>
+        entry.recoveryStatus !== "retained_in_history" &&
+        !skipWriterIds.has(entry.scope.writerId),
     ) ?? null
   );
 }

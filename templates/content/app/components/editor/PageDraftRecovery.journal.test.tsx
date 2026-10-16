@@ -40,6 +40,7 @@ const state = vi.hoisted(() => ({
   sweep: vi.fn(),
   draft: null as null | Record<string, unknown>,
   read: vi.fn(),
+  live: vi.fn(),
   verify: vi.fn(),
   session: null as null | { email: string; orgId: string },
 }));
@@ -75,6 +76,8 @@ vi.mock("@/hooks/use-documents", () => ({
   useResolvePreviewDocumentDraft: () => ({ mutateAsync: state.resolve }),
 }));
 vi.mock("./page-draft-journal", () => ({
+  holdPageDraftWriter: () => () => {},
+  liveDraftWriterIds: state.live,
   readPageDraftJournal: state.read,
   sweepLegacyRetainedPageDraftMarkers: state.sweep,
   writePageDraftJournal: (input: {
@@ -164,8 +167,12 @@ describe("Page browser journal recovery", () => {
     state.draft = null;
     state.session = { email: "writer@example.test", orgId: "org" };
     state.read.mockImplementation(
-      () => state.entries.find((entry) => !entry.recoveryStatus) ?? null,
+      (_scope: unknown, skip: ReadonlySet<string> = new Set()) =>
+        state.entries.find(
+          (entry) => !entry.recoveryStatus && !skip.has(entry.scope.writerId),
+        ) ?? null,
     );
+    state.live.mockResolvedValue(new Set());
     state.receipt.mockResolvedValue({ found: false });
     state.refetch.mockResolvedValue(undefined);
     state.verify.mockResolvedValue(undefined);
@@ -194,6 +201,55 @@ describe("Page browser journal recovery", () => {
     expect(state.entries).toEqual([]);
     expect(state.rebase).toHaveBeenCalledTimes(1);
     expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("leaves an entry whose editor is open in another tab to that tab", async () => {
+    state.entries = [entry("other-tab", "Typed in the other tab")];
+    state.live.mockResolvedValue(new Set(["other-tab"]));
+
+    await act(async () => render());
+
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.upsert).not.toHaveBeenCalled();
+    expect(state.entries).toHaveLength(1);
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("replays a closed tab's entry past one whose editor is still open", async () => {
+    state.entries = [
+      entry("other-tab", "Typed in the other tab"),
+      entry("closed-tab", "Typed before closing"),
+    ];
+    state.live.mockResolvedValue(new Set(["other-tab"]));
+    state.rebase.mockResolvedValue({
+      status: "saved",
+      document: { ...page, content: "Typed before closing" },
+    });
+
+    await act(async () => render());
+
+    expect(state.rebase).toHaveBeenCalledOnce();
+    expect(state.rebase).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "Typed before closing" }),
+    );
+    expect(state.entries.map((item) => item.scope.writerId)).toEqual([
+      "other-tab",
+    ]);
+  });
+
+  it("shows a failure, not the editor, when open tabs cannot be read", async () => {
+    state.entries = [entry("other-tab", "Typed in the other tab")];
+    state.live.mockRejectedValue(new Error("lock manager unavailable"));
+
+    await act(async () => render());
+
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
   });
 
   it("clears a journal generation superseded by Use saved without retaining or replaying it", async () => {
