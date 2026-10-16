@@ -2604,6 +2604,9 @@ function parseContainer(
       openLine.replace(/\sopen(?=\s|>|$)/, ""),
       DETAILS_ATTRS,
     );
+    // HTML reads any value of `open` as open, and the editor writes it bare.
+    if (attrs.open !== undefined && !["", "open", "true"].includes(attrs.open))
+      reportLoss("dropped-attribute", `<details open="${attrs.open}">`);
     let summary = "";
     let bodyStart = childStart;
     const summaryLine = lines[childStart]?.slice(indent) ?? "";
@@ -2760,7 +2763,7 @@ function cellClosesFrom(
   for (let index = close - 1; index > start; index--) {
     const line = lineAt(index);
     next[index - start] =
-      ROW_EDGE.test(line) || /<\/t[dh]>$/.test(line)
+      ROW_EDGE.test(line) || CELL_LINE_END.test(line)
         ? index
         : next[index - start + 1];
   }
@@ -2823,7 +2826,7 @@ function parseTable(
       if (cd === "</tr>") break;
       if (!cd) continue;
       // HTML reads a cell's line breaks as spaces.
-      if (/^<t[dh][\s>]/.test(cd) && !/<\/t[dh]>$/.test(cd)) {
+      if (/^<t[dh][\s>]/.test(cd) && !CELL_LINE_END.test(cd)) {
         cellCloses ??= cellClosesFrom(start, close, lineAt);
         const end = cellCloses[i - start];
         // A cell left open at its row's end is dropped, not read into the
@@ -2832,9 +2835,11 @@ function parseTable(
           for (; i <= end; i++) cd += ` ${lineAt(i)}`;
           cd = cd
             .replace(/^(<t[dh][^>]*>)\s+/, "$1")
-            .replace(/\s+(<\/t[dh]>)$/, "$1");
+            .replace(/\s+(<\/t[dh]>)(?=(?:\s*<\/tr>)?$)/, "$1");
         }
       }
+      rowClosed = /<\/t[dh]>\s*<\/tr>$/.test(cd);
+      if (rowClosed) cd = cd.replace(/\s*<\/tr>$/, "");
       // The writer puts one cell on a line and escapes `<` outside code and
       // math, so a close tag outside those before the line's end is an
       // agent's `<td>a</td><td>b</td>`.
@@ -2919,6 +2924,8 @@ const CELL_ATTRS = new Set(["color", "align"]);
 const COL_ATTRS = new Set(["color", "width"]);
 const TABLE_WRAPPER_LINE = /^<\/?(?:colgroup|thead|tbody|tfoot)>$/;
 const ROW_EDGE = /^<\/?tr[\s>]/;
+// A cell's line may also close its row; the writer never closes one there.
+const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 
 function splitTableCells(source: string): string[] {
   const cells: string[] = [];
