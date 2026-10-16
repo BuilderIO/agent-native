@@ -55,6 +55,7 @@ let deleteContentDatabase: typeof import("./delete-content-database.js").default
 let restoreContentDatabase: typeof import("./restore-content-database.js").default;
 let moveDocument: typeof import("./move-document.js").default;
 let undoContentImport: typeof import("./undo-content-import.js").default;
+let importContentSource: typeof import("./import-content-source.js").default;
 let rollbackSlashDocument: typeof import("./rollback-created-slash-document.js").default;
 let planContentTrashPurge: typeof import("./plan-content-trash-purge.js").default;
 let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
@@ -98,6 +99,7 @@ beforeAll(async () => {
     .default;
   moveDocument = (await import("./move-document.js")).default;
   undoContentImport = (await import("./undo-content-import.js")).default;
+  importContentSource = (await import("./import-content-source.js")).default;
   rollbackSlashDocument = (await import("./rollback-created-slash-document.js"))
     .default;
   planContentTrashPurge = (await import("./plan-content-trash-purge.js"))
@@ -524,6 +526,86 @@ async function seedPageTree() {
     id,
   }));
   return { ids, rows };
+}
+
+/**
+ * A page with a child in one space, both in that space's Files collection, and
+ * a page in a second space to move them under.
+ */
+async function seedSpaceMove() {
+  const key = fixtureKey();
+  const ids = {
+    fromSpace: `${key}_sa`,
+    toSpace: `${key}_sb`,
+    fromFiles: `${key}_fa`,
+    toFiles: `${key}_fb`,
+    moved: `${key}_p1`,
+    child: `${key}_p3`,
+    parent: `${key}_p2`,
+    movedItem: `${key}_m2`,
+    childItem: `${key}_m1`,
+    parentItem: `${key}_m3`,
+  };
+  const db = getDb();
+  for (const [spaceId, filesId] of [
+    [ids.fromSpace, ids.fromFiles],
+    [ids.toSpace, ids.toFiles],
+  ] as const) {
+    await db.insert(schema.contentSpaces).values({
+      id: spaceId,
+      name: `Synthetic ${spaceId}`,
+      kind: "user",
+      ownerEmail: OWNER,
+      orgId: null,
+      filesDatabaseId: filesId,
+      createdBy: OWNER,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+    await db.insert(schema.contentDatabases).values({
+      id: filesId,
+      ownerEmail: OWNER,
+      spaceId,
+      documentId: `${filesId}_page`,
+      title: "Files",
+      systemRole: "files",
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+  }
+  await db.insert(schema.documents).values([
+    pageValues(ids.moved, null, "Moved", { spaceId: ids.fromSpace }),
+    pageValues(ids.child, ids.moved, "Child", {
+      spaceId: ids.fromSpace,
+      position: 0,
+    }),
+    pageValues(ids.parent, null, "New parent", { spaceId: ids.toSpace }),
+  ]);
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values([
+      itemValues(ids.movedItem, ids.fromFiles, ids.moved, 0),
+      itemValues(ids.childItem, ids.fromFiles, ids.child, 1),
+      itemValues(ids.parentItem, ids.toFiles, ids.parent, 0),
+    ]);
+  const rows: LockedRow[] = [
+    { label: "child membership", kind: "membership", id: ids.childItem },
+    { label: "moved membership", kind: "membership", id: ids.movedItem },
+    { label: "moved page", kind: "page", id: ids.moved },
+    { label: "new parent page", kind: "page", id: ids.parent },
+    { label: "child page", kind: "page", id: ids.child },
+  ];
+  return { key, ids, rows };
+}
+
+function moveToOtherSpace(seed: Awaited<ReturnType<typeof seedSpaceMove>>) {
+  return asOwner(() =>
+    moveDocument.run({
+      id: seed.ids.moved,
+      spaceId: seed.ids.toSpace,
+      parentId: seed.ids.parent,
+    }),
+  );
 }
 
 /** An empty page fresh from the slash menu, filed in a collection with its parent. */
@@ -1378,6 +1460,21 @@ describe.skipIf(!POSTGRES_URL)(
         ]);
       });
 
+      it("move to another space", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedSpaceMove();
+          return { rows: seed.rows, run: () => moveToOtherSpace(seed) };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "child membership",
+          "moved membership",
+          "moved page",
+          "new parent page",
+          "child page",
+        ]);
+      });
+
       it("undo import", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedCollection();
@@ -1631,6 +1728,22 @@ describe.skipIf(!POSTGRES_URL)(
                   parentId: seed.ids.parent,
                 }),
               ),
+          };
+        });
+      }, 120_000);
+
+      it("moving a page to another space against an edit of it", async () => {
+        await runCycle(async () => {
+          const seed = await seedSpaceMove();
+          return {
+            // edit-document: the page's memberships, then the page.
+            first: (tx) => lockPrimaryBlocksFields(tx, seed.ids.moved),
+            second: (tx) =>
+              tx
+                .update(schema.documents)
+                .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+                .where(eq(schema.documents.id, seed.ids.moved)),
+            run: () => moveToOtherSpace(seed),
           };
         });
       }, 120_000);
@@ -1908,6 +2021,104 @@ describe.skipIf(!POSTGRES_URL)(
       expect(await readPage(seed.ids.otherParent)).toMatchObject({
         parentId: null,
       });
+    });
+
+    it("refuses a move to another space that would close a cycle with a concurrent move back", async () => {
+      const seed = await seedSpaceMove();
+      // The concurrent move takes the new parent into the first space, under
+      // child. This move waits on nothing else that move holds.
+      const { action: move } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.parent]);
+          await tx
+            .update(schema.documents)
+            .set({ spaceId: seed.ids.fromSpace, parentId: seed.ids.child })
+            .where(eq(schema.documents.id, seed.ids.parent));
+        },
+        () => moveToOtherSpace(seed),
+      );
+      await expect(move).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        spaceId: seed.ids.fromSpace,
+        parentId: null,
+      });
+    });
+
+    it("refuses a move to another space whose new parent moves to Trash while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const trashedAt = new Date().toISOString();
+      const { action: move } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.parent]);
+          await tx
+            .update(schema.documents)
+            .set({
+              trashedAt,
+              trashRootId: seed.ids.parent,
+              updatedAt: trashedAt,
+            })
+            .where(eq(schema.documents.id, seed.ids.parent));
+        },
+        () => moveToOtherSpace(seed),
+      );
+      await expect(move).rejects.toMatchObject({
+        errorCode: "PARENT_TRASHED",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        spaceId: seed.ids.fromSpace,
+        parentId: null,
+      });
+    });
+
+    it("skips an imported reparent that would close a cycle with a concurrent move", async () => {
+      // The first space has a Files collection, which the import files into.
+      const seed = await seedSpaceMove();
+      const other = `${seed.key}_p0`;
+      const otherChild = `${seed.key}_p4`;
+      await getDb()
+        .insert(schema.documents)
+        .values([
+          pageValues(other, null, "Other", { spaceId: seed.ids.fromSpace }),
+          pageValues(otherChild, other, "Other child", {
+            spaceId: seed.ids.fromSpace,
+          }),
+        ]);
+      // The move puts moved under otherChild while the import puts other
+      // under child, which is under moved. They lock no row in common.
+      const { action: imported } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.moved, otherChild]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: otherChild })
+            .where(eq(schema.documents.id, seed.ids.moved));
+        },
+        () =>
+          asOwner(() =>
+            importContentSource.run({
+              files: {
+                "other.md": `---
+id: "${other}"
+title: "Other"
+parentId: "${seed.ids.child}"
+---
+`,
+              },
+            }),
+          ),
+      );
+      await expect(imported).resolves.toMatchObject({
+        skipped: [
+          { path: "other.md", reason: "Skipped parent update: cycle." },
+        ],
+      });
+      expect(await readPage(other)).toMatchObject({ parentId: null });
     });
 
     it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {

@@ -6,6 +6,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import { reconcileDocuments } from "./_content-files.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   assertSubtreeCanChangeSpace,
@@ -17,6 +18,11 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+import {
+  lockDocumentRows,
+  lockOwnerPageTree,
+  sortRowIds,
+} from "./_row-lock-order.js";
 
 type ContentDb = ReturnType<typeof getDb>;
 type ContentTx = Parameters<Parameters<ContentDb["transaction"]>[0]>[0];
@@ -82,6 +88,96 @@ async function rekeyPrimaryBlocksFields(args: {
     await tx
       .delete(schema.documentBlockFields)
       .where(eq(schema.documentBlockFields.id, fromFieldId));
+  }
+}
+
+async function membershipIdsOf(tx: ContentDb, documentIds: string[]) {
+  const membershipIds: string[] = [];
+  for (const idGroup of groups(documentIds)) {
+    const memberships: Array<{ id: string }> = await tx
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.documentId, idGroup));
+    membershipIds.push(...memberships.map((membership) => membership.id));
+  }
+  return membershipIds;
+}
+
+/**
+ * Locks a move between spaces in the global order and re-checks what the move
+ * read before it. The pages leave their owner's tree for the mover's, so a
+ * move the other way could close a cycle through either tree. Edits lock a
+ * page's Files membership before the page, and this move deletes it.
+ */
+async function lockMoveBetweenSpaces(args: {
+  tx: ContentDb;
+  root: PageSubtreeDocument;
+  ids: string[];
+  spaceId: string;
+  parentId: string | null;
+  userEmail: string;
+}) {
+  const { tx, root, ids, spaceId, parentId, userEmail } = args;
+  for (const ownerEmail of sortRowIds([root.ownerEmail as string, userEmail])) {
+    await lockOwnerPageTree(tx, ownerEmail);
+  }
+  const membershipIds = await membershipIdsOf(tx, ids);
+  await lockDatabaseMemberships(tx, membershipIds);
+  await lockDocumentRows(tx, parentId ? [...ids, parentId] : ids);
+  const lockedMembershipIds = new Set(membershipIds);
+  if (
+    (await membershipIdsOf(tx, ids)).some((id) => !lockedMembershipIds.has(id))
+  ) {
+    throw contractError(
+      "This page changed while it was being moved. Try again.",
+      "PAGE_SUBTREE_CHANGED",
+    );
+  }
+
+  const [current] = await tx
+    .select({
+      spaceId: schema.documents.spaceId,
+      ownerEmail: schema.documents.ownerEmail,
+      trashedAt: schema.documents.trashedAt,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, root.id));
+  if (!current || current.trashedAt) {
+    throw contractError("Document not found.", "DOCUMENT_NOT_FOUND", 404);
+  }
+  if (
+    current.spaceId !== root.spaceId ||
+    current.ownerEmail !== root.ownerEmail
+  ) {
+    throw contractError(
+      "The document's move scope changed. Read it again and retry.",
+      "DOCUMENT_MOVE_SCOPE_CHANGED",
+    );
+  }
+  if (!parentId) return;
+  const [parent] = await tx
+    .select({
+      spaceId: schema.documents.spaceId,
+      ownerEmail: schema.documents.ownerEmail,
+      trashedAt: schema.documents.trashedAt,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, parentId));
+  if (!parent) {
+    throw contractError(
+      "Parent document not found.",
+      "DOCUMENT_NOT_FOUND",
+      404,
+    );
+  }
+  if (parent.trashedAt) {
+    throw contractError("Parent document is in Trash", "PARENT_TRASHED");
+  }
+  if (parent.spaceId !== spaceId || parent.ownerEmail !== userEmail) {
+    throw contractError(
+      "The document's move scope changed. Read it again and retry.",
+      "DOCUMENT_MOVE_SCOPE_CHANGED",
+    );
   }
 }
 
@@ -242,6 +338,14 @@ export async function movePageToSpace(args: {
         );
 
       await db.transaction(async (tx) => {
+        await lockMoveBetweenSpaces({
+          tx: tx as unknown as ContentDb,
+          root,
+          ids,
+          spaceId,
+          parentId,
+          userEmail,
+        });
         const idSet = new Set(ids);
         for (const idGroup of groups(ids)) {
           const children: Array<{ id: string }> = await tx

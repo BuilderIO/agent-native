@@ -34,6 +34,7 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
@@ -143,13 +144,14 @@ function hasParentCycle(
   return false;
 }
 
-async function assertParentIsNotDescendant(input: {
-  ownerEmail: string;
-  id: string;
-  parentId: string | null;
-}) {
-  if (!input.parentId) return;
-  const db = getDb();
+async function parentIsDescendant(
+  db: ReturnType<typeof getDb>,
+  input: {
+    ownerEmail: string;
+    id: string;
+    parentId: string;
+  },
+) {
   const queue = [input.id];
   const visited = new Set<string>();
 
@@ -169,12 +171,11 @@ async function assertParentIsNotDescendant(input: {
       );
 
     for (const child of children) {
-      if (child.id === input.parentId) {
-        throw new Error("Skipped parent update: cycle.");
-      }
+      if (child.id === input.parentId) return true;
       queue.push(child.id);
     }
   }
+  return false;
 }
 
 export default defineAction({
@@ -692,19 +693,14 @@ export default defineAction({
             (parentAccess.resource.ownerEmail as string) === ownerEmail &&
             parentAccess.resource.spaceId === spaceById.get(id)
           ) {
-            try {
-              await assertParentIsNotDescendant({ ownerEmail, id, parentId });
-              safeParentId = parentId;
-            } catch (err) {
+            if (await parentIsDescendant(db, { ownerEmail, id, parentId })) {
               skipped.push({
                 path: pathById.get(id) ?? id,
-                reason:
-                  err instanceof Error
-                    ? err.message
-                    : "Skipped parent update: cycle.",
+                reason: "Skipped parent update: cycle.",
               });
               continue;
             }
+            safeParentId = parentId;
           } else {
             skipped.push({
               path: pathById.get(id) ?? id,
@@ -722,25 +718,52 @@ export default defineAction({
           continue;
         }
 
-        await db
-          .update(schema.documents)
-          .set({
-            parentId: safeParentId,
-            position: nextPosition,
-            updatedAt: sql<string>`TO_CHAR(
+        const reparented = await db.transaction(async (transaction) => {
+          const tx = transaction as unknown as typeof db;
+          // A move elsewhere can put safeParentId under this page after the
+          // check above; move-document serializes on the same lock.
+          if (
+            safeParentId &&
+            safeParentId !== (currentParentById.get(id) ?? null)
+          ) {
+            await lockOwnerPageTree(tx, ownerEmail);
+            if (
+              await parentIsDescendant(tx, {
+                ownerEmail,
+                id,
+                parentId: safeParentId,
+              })
+            ) {
+              return false;
+            }
+          }
+          await tx
+            .update(schema.documents)
+            .set({
+              parentId: safeParentId,
+              position: nextPosition,
+              updatedAt: sql<string>`TO_CHAR(
               GREATEST(
                 ${schema.documents.updatedAt}::timestamptz + INTERVAL '1 millisecond',
                 CURRENT_TIMESTAMP
               ) AT TIME ZONE 'UTC',
               'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
             )`,
-          })
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.ownerEmail, ownerEmail),
-            ),
-          );
+            })
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, ownerEmail),
+              ),
+            );
+          return true;
+        });
+        if (!reparented) {
+          skipped.push({
+            path: pathById.get(id) ?? id,
+            reason: "Skipped parent update: cycle.",
+          });
+        }
       }
 
       await ensureDocumentsFilesMembership(
