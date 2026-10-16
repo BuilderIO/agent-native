@@ -462,7 +462,12 @@ const messages = {
       signInWithEmail: "使用电子邮件登录",
       signedInAs: "登录身份",
       switchAccount: "切换账户",
-      verifyEmail: "检查您的电子邮件以验证帐户，然后重新打开此链接。",
+      verifyEmail:
+        "请检查您的邮箱并打开验证链接。验证后会返回此计划；如果系统要求登录，请在下方使用同一邮箱登录。",
+      resendVerification: "重新发送验证邮件",
+      resendingVerification: "正在发送验证邮件…",
+      verificationEmailResent: "验证邮件已发送。",
+      verificationEmailFailed: "无法重新发送验证邮件，请重试。",
     },
     localMode: {
       badge: "本地模式",

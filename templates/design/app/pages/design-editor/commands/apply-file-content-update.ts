@@ -41,6 +41,7 @@ export interface ApplyFileContentUpdateArgs {
       immediateSave?: boolean;
       awaitSave?: boolean;
       persist?: boolean;
+      previewOnly?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
       sourceBaseContent?: string;
@@ -48,6 +49,7 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      serverAccepted?: boolean;
     },
   ) => void;
   applyLocalContentUpdate: (
@@ -59,6 +61,7 @@ export interface ApplyFileContentUpdateArgs {
       immediateSave?: boolean;
       awaitSave?: boolean;
       persist?: boolean;
+      previewOnly?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
       sourceBaseContent?: string;
@@ -66,6 +69,7 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      serverAccepted?: boolean;
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesignRef: RefObject<boolean>;
@@ -133,6 +137,7 @@ export function runApplyFileContentUpdate(
     immediateSave?: boolean;
     awaitSave?: boolean;
     persist?: boolean;
+    previewOnly?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;
     sourceBaseContent?: string;
@@ -140,6 +145,7 @@ export function runApplyFileContentUpdate(
     shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
+    serverAccepted?: boolean;
   } = {},
 ): ApplyFileContentUpdateResult {
   if (!canEditDesignRef.current) return { status: "refused" };
@@ -172,16 +178,22 @@ export function runApplyFileContentUpdate(
     return { status: "refused" };
   }
   const acceptedContent = prepared.content;
+  const previewOnly =
+    options.previewOnly === true &&
+    options.persist === false &&
+    options.recordHistory === false;
   const needsIdentityMigration = Boolean(options.updatedAt && prepared.changed);
   const identityMigrationSourceContent =
     options.identityMigrationSourceContent ??
     (needsIdentityMigration ? nextContent : undefined);
 
-  acknowledgeAuthoritativeClipboardMutation({
-    fileId,
-    nextContent: acceptedContent,
-    publication: options.clipboardMutation,
-  });
+  if (!previewOnly) {
+    acknowledgeAuthoritativeClipboardMutation({
+      fileId,
+      nextContent: acceptedContent,
+      publication: options.clipboardMutation,
+    });
+  }
   const shouldRecordHistory =
     options.recordHistory !== false && !options.updatedAt;
   if (
@@ -229,7 +241,7 @@ export function runApplyFileContentUpdate(
       !needsIdentityMigration &&
       canWriteCollabText(overviewYdoc, overviewIsSynced, previousContent),
   });
-  if (writeLiveDoc && overviewYdoc) {
+  if (writeLiveDoc && overviewYdoc && !previewOnly) {
     writeCollabText(
       overviewYdoc,
       overviewYdoc.getText("content"),
@@ -238,20 +250,22 @@ export function runApplyFileContentUpdate(
     );
   }
   let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
-  if (options.persist === false && !needsIdentityMigration) {
-    cancelQueuedFileContentSave(fileId);
-  } else {
-    const completion = queueFileContentSave(fileId, acceptedContent, {
-      expectedVersionHash: sourceContentHash(
-        needsIdentityMigration
-          ? nextContent
-          : (options.sourceBaseContent ?? previousContent),
-      ),
-      syncCollab,
-      immediate: true,
-      identityMigrationSourceContent,
-    });
-    if (completion instanceof Promise) saveCompletion = completion;
+  if (!options.serverAccepted) {
+    if (options.persist === false && !needsIdentityMigration) {
+      cancelQueuedFileContentSave(fileId);
+    } else {
+      const completion = queueFileContentSave(fileId, acceptedContent, {
+        expectedVersionHash: sourceContentHash(
+          needsIdentityMigration
+            ? nextContent
+            : (options.sourceBaseContent ?? previousContent),
+        ),
+        syncCollab,
+        immediate: true,
+        identityMigrationSourceContent,
+      });
+      if (completion instanceof Promise) saveCompletion = completion;
+    }
   }
   return {
     status: "accepted",

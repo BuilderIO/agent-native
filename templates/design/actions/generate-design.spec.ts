@@ -339,6 +339,9 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties?.canvasFrames?.type).toBe("string");
     expect(parameters.properties?.reuseLabels?.type).toBe("string");
     expect(parameters.properties?.contextModeOverride?.type).toBe("string");
+    expect(parameters.properties?.devices?.description).toContain(
+      "ignore this field",
+    );
 
     const parsed = (action as any).schema.safeParse({
       designId: "design_123",
@@ -467,6 +470,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       expect.objectContaining({
         app_name: "design",
         output_id: "design-1",
+        generation_attempt_id: expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/),
         output_type: "design",
         file_count: 1,
         outcome: "completed",
@@ -474,6 +478,24 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       }),
       undefined,
     );
+    const started = track.mock.calls.find(
+      ([event]) => event === "generation_started",
+    )?.[1];
+    const completed = track.mock.calls.find(
+      ([event]) => event === "generation_completed",
+    )?.[1];
+    expect(started?.generation_attempt_id).toBe(
+      completed?.generation_attempt_id,
+    );
+    expect(result.urlPath).toContain(
+      `generation_attempt_id=${completed?.generation_attempt_id}`,
+    );
+    const link = (action as any).link({ args: {}, result });
+    expect(
+      new URL(link.url, "https://agent-native.test").searchParams.get(
+        "generation_attempt_id",
+      ),
+    ).toBe(completed?.generation_attempt_id);
   });
 
   it("reports generation when a stylesheet is saved for an existing design", async () => {
@@ -552,6 +574,17 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     expect(
       track.mock.calls.some(([name]) => name === "generation_completed"),
     ).toBe(false);
+    expect(
+      track.mock.calls
+        .filter(([name]) => name === "generation_failed")
+        .map(([, properties]) => properties),
+    ).toEqual([
+      expect.objectContaining({
+        error_type: "no_files_saved",
+        files_saved: 0,
+        generation_path: "generate_design",
+      }),
+    ]);
     expect(result.fileErrors).toEqual([
       {
         filename: "index.html",
@@ -635,6 +668,14 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
         message: expect.stringContaining("changed since it was read"),
       },
     ]);
+    expect(
+      track.mock.calls
+        .filter(([name]) => name === "generation_completed")
+        .map(([, properties]) => properties),
+    ).toEqual([expect.objectContaining({ outcome: "partial", file_count: 1 })]);
+    expect(
+      track.mock.calls.some(([name]) => name === "generation_failed"),
+    ).toBe(false);
   });
 
   it("updates fileType separately when it changes, alongside the guarded content write", async () => {
@@ -861,12 +902,22 @@ describe("generate-design: new-file creation path", () => {
     });
 
     const savedFileId = result.savedFiles[0]!.id;
-    expect(result.urlPath).toBe(
-      `/design/design-1?editorView=overview&screen=${savedFileId}`,
+    const resultUrl = new URL(result.urlPath, "https://agent-native.test");
+    expect(resultUrl.pathname).toBe("/design/design-1");
+    expect(resultUrl.searchParams.get("editorView")).toBe("overview");
+    expect(resultUrl.searchParams.get("screen")).toBe(savedFileId);
+    const generationAttemptId = resultUrl.searchParams.get(
+      "generation_attempt_id",
     );
+    expect(generationAttemptId).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
     const link = action.link?.({ args: {}, result });
     expect(link?.url).toContain(`screen=${savedFileId}`);
     expect(link?.url).toContain("view=editor");
+    expect(
+      new URL(link!.url, "https://agent-native.test").searchParams.get(
+        "generation_attempt_id",
+      ),
+    ).toBe(generationAttemptId);
   });
 
   it("defaults a generated web screen to a desktop canvas and responsive breakpoints", async () => {
@@ -990,6 +1041,239 @@ describe("generate-design: new-file creation path", () => {
       heightMode: "fixed",
     });
     expect(data.breakpointSet).toBeUndefined();
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+  });
+
+  it.each([
+    ["Turn this into a 1200x627 ad", 1200, 627],
+    ["Create a LinkedIn ad", 1200, 627],
+    ["Create a LinkedIn ad with desktop and mobile versions", 1200, 627],
+    [
+      "Create an Instagram post at exactly 1080x1350 pixels with desktop and mobile versions",
+      1080,
+      1350,
+    ],
+  ])(
+    "keeps exact-size output free of device breakpoints: %s",
+    async (prompt, width, height) => {
+      const result = await action.run({
+        designId: "design-1",
+        prompt,
+        devices: ["desktop", "mobile"],
+        files: [
+          {
+            filename: "ad.html",
+            fileType: "html",
+            content: "<!doctype html><html><body>Ad</body></html>",
+          },
+        ],
+        canvasFrames: [
+          { filename: "ad.html", x: 0, y: 0, width: 1440, height: 900 },
+        ],
+      });
+
+      const data = mocks.getDesignData();
+      const fileId = result.savedFiles[0]!.id;
+      expect(data.canvasFrames).toMatchObject({
+        [fileId]: { width, height },
+      });
+      expect(data.screenMetadata).toMatchObject({
+        [fileId]: {
+          width,
+          height,
+          breakpointWidths: [],
+        },
+      });
+      expect(data.breakpointSet).toBeUndefined();
+      expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+    },
+  );
+
+  it("uses only explicitly requested devices for a noun-only artwork guess", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a custom promo banner with a mobile version",
+      devices: ["desktop", "tablet", "mobile"],
+      files: [
+        {
+          filename: "banner.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Banner</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "banner.html", x: 0, y: 0, width: 390, height: 844 },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    expect(data.canvasFrames).toMatchObject({
+      [fileId]: { width: 390, height: 844 },
+    });
+    expect(data.breakpointSet).toBeUndefined();
+    expect(data.screenMetadata).toMatchObject({
+      [fileId]: { width: 390, height: 844 },
+    });
+    expect(data.screenMetadata).not.toMatchObject({
+      [fileId]: { heightMode: "fixed" },
+    });
+    expect(result).not.toHaveProperty("ignoredDevices");
+  });
+
+  it("clears an existing mobile frame when an app screen becomes fixed artwork", async () => {
+    setExistingFile("<html><body>Old mobile screen</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 844, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 390,
+          height: 844,
+          breakpointWidths: [390],
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Turn this into a 1200x627 ad",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Fixed campaign art</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    expect(data.canvasFrames).toMatchObject({
+      "file-1": { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+    expect(data.breakpointSet).toMatchObject({ id: "responsive" });
+  });
+
+  it("pins the model-provided height for a fixed artwork request without dimensions", async () => {
+    setExistingFile("<html><body>Old campaign art</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 728, height: 90, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 728,
+          height: 90,
+          breakpointWidths: [390],
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Turn this into an ad",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Updated campaign art</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    expect(data.canvasFrames).toMatchObject({
+      "file-1": { width: 728, height: 90 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      "file-1": {
+        width: 728,
+        height: 90,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+  });
+
+  it("pins a new noun-only artwork canvas below the editor's auto-fit height", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a banner ad for our spring sale",
+      files: [
+        {
+          filename: "banner.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Spring sale</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "banner.html", x: 0, y: 0, width: 1200, height: 627 },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    expect(data.canvasFrames).toMatchObject({
+      [fileId]: { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      [fileId]: {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+    expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("lets explicit devices override a noun-only artwork guess", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Design a promo banner",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "promo.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Promo</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    const metadata = (
+      data.screenMetadata as Record<string, Record<string, unknown>>
+    )[fileId]!;
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [expect.objectContaining({ widthPx: 390 })],
+    });
+    expect(metadata).toMatchObject({ width: 1440, height: 900 });
+    expect(metadata).not.toHaveProperty("breakpointWidths");
+    expect(metadata).not.toHaveProperty("heightMode");
+    expect(result).not.toHaveProperty("ignoredDevices");
   });
 
   it("rejects unsupported exact dimensions before writing files", async () => {
@@ -1108,6 +1392,138 @@ describe("generate-design: new-file creation path", () => {
       breakpointWidths: [768],
       heightPinned: true,
       heightMode: "fixed",
+    });
+  });
+
+  it.each([
+    "Update the social post copy; keep the exact canvas size 1080x1350",
+    "Update the Instagram post copy",
+  ])(
+    "preserves manually added breakpoints when a fixed artwork copy edit restates the same size: %s",
+    async (prompt) => {
+      setExistingFile("<html><body>Old post copy</body></html>", {
+        filename: "post.html",
+      });
+      mocks.setDesignData({
+        canvasFrames: {
+          "file-1": { x: 0, y: 0, width: 1080, height: 1350 },
+        },
+        screenMetadata: {
+          "file-1": {
+            width: 1080,
+            height: 1350,
+            breakpointWidths: [390],
+          },
+        },
+      });
+
+      await action.run({
+        designId: "design-1",
+        prompt,
+        files: [
+          {
+            filename: "post.html",
+            fileType: "html",
+            content: "<html><body>Updated post copy</body></html>",
+          },
+        ],
+      });
+
+      expect(mocks.getDesignData().screenMetadata).toMatchObject({
+        "file-1": {
+          width: 1080,
+          height: 1350,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      });
+    },
+  );
+
+  it("keeps manually added breakpoints on same-size fixed artwork edits", async () => {
+    setExistingFile("<html><body>Old artwork</body></html>", {
+      filename: "post.html",
+    });
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1080, height: 1350 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 1080,
+          height: 1350,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Update the Instagram post background color",
+      devices: [],
+      files: [
+        {
+          filename: "post.html",
+          fileType: "html",
+          content: "<html><body>Updated artwork</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1080,
+        height: 1350,
+        breakpointWidths: [390],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+  });
+
+  it("drops manually added breakpoints when explicitly converting the canvas size", async () => {
+    setExistingFile("<html><body>Old artwork</body></html>", {
+      filename: "post.html",
+    });
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1200, height: 627 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 1200,
+          height: 627,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Turn this into a 1200x627 ad",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "post.html",
+          fileType: "html",
+          content: "<html><body>Updated artwork</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
     });
   });
 
@@ -1366,6 +1782,125 @@ describe("generate-design: new-file creation path", () => {
       breakpointWidths: [],
       heightPinned: true,
       heightMode: "fixed",
+    });
+  });
+
+  it.each([
+    ["Create a LinkedIn ad for our mobile app launch", 1200, 627],
+    ["Create a mobile leaderboard", 320, 50],
+  ])(
+    "uses the fixed canvas for %s without app breakpoints",
+    async (prompt, width, height) => {
+      const result = await action.run({
+        designId: "design-1",
+        prompt,
+        devices: ["desktop", "mobile"],
+        files: [
+          {
+            filename: "ad.html",
+            fileType: "html",
+            content: "<!doctype html><html><body>Launch ad</body></html>",
+          },
+        ],
+        canvasFrames: [
+          { filename: "ad.html", x: 0, y: 0, width: 1200, height: 628 },
+        ],
+      });
+
+      const data = mocks.getDesignData();
+      const fileId = result.savedFiles[0]!.id;
+      expect(data.canvasFrames).toMatchObject({
+        [fileId]: { width, height },
+      });
+      expect(data.screenMetadata).toMatchObject({
+        [fileId]: {
+          width,
+          height,
+          breakpointWidths: [],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      });
+      expect(data.breakpointSet).toBeUndefined();
+    },
+  );
+
+  it("keeps an exact-size ad free of mobile frames even when devices are passed", async () => {
+    setExistingFile("<!doctype html><html><body>Old screen</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900, breakpointWidths: [390] },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Turn this into a 1200x627 ad",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Launch ad</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    expect(data.breakpointSet).toMatchObject({ id: "responsive" });
+    expect(data.canvasFrames).toMatchObject({
+      "file-1": { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+  });
+
+  it("drops a fixed screen's added breakpoints when it is resized", async () => {
+    setExistingFile("<!doctype html><html><body>Old ad</body></html>");
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1200, height: 627, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 1200,
+          height: 627,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Instagram story version of the ad, 1080x1920 canvas",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Story</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      "file-1": { width: 1080, height: 1920, breakpointWidths: [] },
     });
   });
 
@@ -2136,5 +2671,260 @@ describe("generate-design: explicit device request resizes an existing frame", (
       { width: number; height: number }
     >;
     expect(metadata["file-1"]).toMatchObject({ width: 390, height: 844 });
+  });
+});
+
+describe("generate-design: generation attempt tracking", () => {
+  const html = "<html><body>Hello</body></html>";
+
+  function events(name: string) {
+    return track.mock.calls
+      .filter(([event]) => event === name)
+      .map(([, properties]) => properties as Record<string, unknown>);
+  }
+
+  function generationEvents() {
+    return track.mock.calls
+      .map(([event]) => event as string)
+      .filter((event) => event.startsWith("generation_"));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    track.mockReset();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([
+      { id: "design-1", title: "Untitled Design", data: null },
+    ]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.readAppState.mockResolvedValue(null);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("records one started and one completed event for a saved generation", async () => {
+    const prompt = "A secret product launch page for Project Nightjar";
+    const result = await action.run({
+      designId: "design-1",
+      prompt,
+      designSystemId: "ds-1",
+      files: [{ filename: "index.html", fileType: "html", content: html }],
+    });
+
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_completed",
+    ]);
+    const [started] = events("generation_started");
+    const [completed] = events("generation_completed");
+    expect(started).toMatchObject({
+      output_id: "design-1",
+      output_type: "design",
+      generation_path: "generate_design",
+      prompt_type: "ui",
+      prompt_length_bucket: "1-50",
+      has_reference_design_system: true,
+      app_name: "design",
+    });
+    expect(completed).toMatchObject({
+      output_id: "design-1",
+      generation_path: "generate_design",
+      outcome: "completed",
+      file_count: 1,
+      generation_attempt_id: started.generation_attempt_id,
+    });
+    expect(JSON.stringify(track.mock.calls)).not.toContain("Nightjar");
+    expect(events("design_edited")).toEqual([
+      expect.objectContaining({
+        edit_type: "generation",
+        generation_attempt_id: started.generation_attempt_id,
+      }),
+    ]);
+    expect(result.urlPath).toContain(String(started.generation_attempt_id));
+  });
+
+  it("records nothing when the caller cannot edit the design", async () => {
+    const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
+    mocks.assertAccess.mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Landing page",
+        files: [{ filename: "index.html", fileType: "html", content: html }],
+      }),
+    ).rejects.toBe(denied);
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it("records one failure and rethrows the original error when the save throws", async () => {
+    const boom = Object.assign(new Error("db down"), { statusCode: 503 });
+    mocks.mutateDesignData.mockRejectedValueOnce(boom);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Landing page",
+        files: [{ filename: "index.html", fileType: "html", content: html }],
+      }),
+    ).rejects.toBe(boom);
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_failed",
+    ]);
+    const [started] = events("generation_started");
+    expect(events("generation_failed")[0]).toMatchObject({
+      output_id: "design-1",
+      generation_path: "generate_design",
+      generation_attempt_id: started.generation_attempt_id,
+      error_type: "http_503",
+      files_saved: 0,
+    });
+  });
+
+  it("records a failure when the design-system access check fails after start", async () => {
+    const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
+    mocks.assertAccess
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Landing page",
+        designSystemId: "ds-private",
+        files: [{ filename: "index.html", fileType: "html", content: html }],
+      }),
+    ).rejects.toBe(denied);
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_failed",
+    ]);
+  });
+
+  it("attributes a call that fills a pending generate-screens frame to the screens path", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "planning",
+      prompt: "App",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "home.html",
+          status: "queued",
+          role: "screen",
+          agentId: "agent-frame-1",
+          agentName: "A",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 900 },
+        },
+      ],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Home screen",
+      files: [{ filename: "home.html", fileType: "html", content: html }],
+    });
+
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_completed",
+    ]);
+    for (const properties of [
+      ...events("generation_started"),
+      ...events("generation_completed"),
+    ]) {
+      expect(properties).toMatchObject({
+        generation_path: "screens",
+        generation_session_id: "session-1",
+      });
+    }
+  });
+
+  it("keeps the generate_design path once the plan was cancelled, even with queued frames", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "cancelled",
+      prompt: "App",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "home.html",
+          status: "queued",
+          role: "screen",
+          agentId: "agent-frame-1",
+          agentName: "A",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 900 },
+        },
+      ],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Home screen",
+      files: [{ filename: "home.html", fileType: "html", content: html }],
+    });
+
+    const [started] = events("generation_started");
+    expect(started.generation_path).toBe("generate_design");
+    expect(started).not.toHaveProperty("generation_session_id");
+  });
+
+  it("keeps the generate_design path for a file outside the pending plan", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "done",
+      prompt: "App",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "home.html",
+          status: "done",
+          role: "screen",
+          agentId: "agent-frame-1",
+          agentName: "A",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 900 },
+        },
+      ],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Home screen",
+      files: [{ filename: "home.html", fileType: "html", content: html }],
+    });
+
+    const [started] = events("generation_started");
+    expect(started.generation_path).toBe("generate_design");
+    expect(started).not.toHaveProperty("generation_session_id");
+  });
+
+  it("still saves and returns when the tracking provider throws", async () => {
+    track.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Landing page",
+      files: [{ filename: "index.html", fileType: "html", content: html }],
+    });
+
+    expect(result.fileCount).toBe(1);
+    expect(result.savedFiles).toHaveLength(1);
   });
 });

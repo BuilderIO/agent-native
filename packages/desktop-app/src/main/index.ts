@@ -20,6 +20,7 @@ import {
 } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import { desktopRemoteMcpUnavailable } from "@shared/chat-first-mcp";
+import { requiresConfiguredCodeAgentProvider } from "@shared/code-agent-readiness";
 import {
   CODE_AGENTS_SURFACE_ID,
   CODE_AGENT_GOALS,
@@ -7009,7 +7010,6 @@ async function createCodeAgentRun(
     };
   }
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
-  const isDesktopAppCreation = userMetadata.kind === "desktop-create-app";
   const isDesktopLocalCodeChange =
     userMetadata.kind === "desktop-local-code-change";
   const engine = normalizeCodeAgentRequestedEngine(
@@ -7028,7 +7028,10 @@ async function createCodeAgentRun(
       error: `Unsupported execution target: ${requestedExecutionTarget}`,
     };
   }
-  const executionTarget = requestedExecutionTarget ?? "local";
+  const executionTarget = (requestedExecutionTarget ?? "local") as
+    | "local"
+    | "worktree"
+    | "portal";
   const requestedWorktree = isObject(payload.worktree)
     ? payload.worktree
     : undefined;
@@ -7065,19 +7068,19 @@ async function createCodeAgentRun(
     };
   }
   const provider = ensureCodeAgentLlmProvider();
-  if (!provider.ok && !isDesktopAppCreation) {
-    if (!isDesktopLocalCodeChange && executionTarget !== "portal") {
-      return {
-        ok: false,
-        message: "Connect a model provider before starting a coding chat.",
-        error: provider.error,
-      };
-    }
+  if (
+    requiresConfiguredCodeAgentProvider({
+      providerConfigured: provider.ok,
+      localCodeChange: isDesktopLocalCodeChange,
+      executionTarget,
+    })
+  ) {
+    return {
+      ok: false,
+      message: "Connect a model provider before starting a coding chat.",
+      error: provider.error,
+    };
   }
-
-  // App creation must still produce a visible chat when setup is incomplete.
-  // The runner records the credential gap on this queued run, which lets the
-  // chat render the shared Builder/custom-key recovery actions and retry it.
 
   const goal =
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];

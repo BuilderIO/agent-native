@@ -1,4 +1,6 @@
+import type { WriteReceipt } from "@agent-native/core/action";
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
+import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../.generated/actions-registry.js", () => ({
@@ -15,7 +17,14 @@ vi.mock("../../.generated/actions-registry.js", () => ({
   },
 }));
 
+import { GENERIC_NO_DATA_FALLBACK_MESSAGE } from "../lib/real-data-actions";
 import { realDataFinalGuard } from "./agent-chat";
+
+const SAVED_RECEIPT: WriteReceipt = {
+  changed: true,
+  verified: true,
+  summary: 'Saved 1 op(s) to "growth"; 1 panel(s) verified rendering.',
+};
 
 function userMessage(
   text: string,
@@ -639,7 +648,12 @@ describe("realDataFinalGuard dashboard edits", () => {
           "Updated both panels to use only DUAL_TRACK and IMPLEMENTATION classifications as requested.",
         toolResults: [
           { name: "get-sql-dashboard", isError: false, content: "ok" },
-          { name: "mutate-dashboard", isError: false, content: "ok" },
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "ok",
+            receipt: SAVED_RECEIPT,
+          },
         ],
       }),
     );
@@ -656,12 +670,256 @@ describe("realDataFinalGuard dashboard edits", () => {
           "Done. DUAL_TRACK deals now have a 62 percent win rate versus 41 percent for IMPLEMENTATION.",
         toolResults: [
           { name: "get-sql-dashboard", isError: false, content: "ok" },
-          { name: "mutate-dashboard", isError: false, content: "ok" },
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "ok",
+            receipt: SAVED_RECEIPT,
+          },
         ],
       }),
     );
 
     expect(result).not.toBeNull();
+  });
+
+  describe("a mutate-dashboard write counts as a completed save only through its receipt", () => {
+    const editRequest = {
+      userText: "Edit the Growth dashboard to change the time range default",
+      draftText: "I changed the default time range.",
+    };
+    const guardAfter = (receipt?: WriteReceipt) =>
+      realDataFinalGuard(
+        guardContext({
+          ...editRequest,
+          toolResults: [
+            {
+              name: "mutate-dashboard",
+              isError: false,
+              content: "{}",
+              ...(receipt ? { receipt } : {}),
+            },
+          ],
+        }),
+      );
+
+    it("accepts a saved write, verified or not (the receipt guard owns the honesty retry)", () => {
+      expect(guardAfter(SAVED_RECEIPT)).toBeNull();
+      expect(
+        guardAfter({
+          ...SAVED_RECEIPT,
+          verified: false,
+          summary: "Unchecked.",
+        }),
+      ).toBeNull();
+    });
+
+    it("does not accept a write the receipt says changed nothing", () => {
+      expect(guardAfter({ ...SAVED_RECEIPT, changed: false })).not.toBeNull();
+    });
+
+    it("does not accept a result with no receipt, such as a dry run", () => {
+      expect(guardAfter()).not.toBeNull();
+    });
+  });
+
+  describe("on a dashboard page, whose chat context names the open dashboard", () => {
+    // The sidebar appends every chat context item to the message, and the
+    // dashboard page publishes the open dashboard as one
+    // (use-dashboard-chat-context).
+    const dashboardPageItem = [
+      "## Dashboard: Product signups",
+      "The user currently has this Analytics dashboard selected: Product signups.",
+      "Dashboard id: product-signups",
+      "Dashboard kind: sql",
+      "Panel count: 6",
+      "User can edit: yes",
+      "Current URL: /adhoc/product-signups",
+      "Use the Analytics dashboard actions to inspect, edit, or restore this dashboard.",
+    ].join("\n");
+    const onDashboardPage = (message: string) =>
+      appendAgentChatContextToMessage(message, dashboardPageItem);
+    const markerTurns = [
+      {
+        userText:
+          "Add a note to Signups per day: signups were counted twice on Oct 6 and 7.",
+        draftText:
+          "Done. I added a note to Signups per day for October 6 and 7.",
+        toolResults: [
+          {
+            name: "save-data-note",
+            isError: false,
+            content: JSON.stringify({
+              id: "note-1",
+              kind: "data",
+              title: "Signups double-counted",
+              startDate: "2026-10-06",
+              endDate: "2026-10-07",
+              dashboard: {
+                dashboardId: "product-signups",
+                shownOn: [{ id: "signups-per-day", title: "Signups per day" }],
+              },
+            }),
+          },
+        ],
+      },
+      {
+        userText: "Mark the Product Hunt launch on Oct 3 at 00:01 Pacific.",
+        draftText:
+          'Added "Product Hunt live" on October 3 to the Launches set. It shows on this dashboard\'s time charts.',
+        toolResults: [
+          { name: "list-key-dates", isError: false, content: '{"sets":[]}' },
+          {
+            name: "save-key-date",
+            isError: false,
+            content: JSON.stringify({
+              id: "date-1",
+              setId: "launches",
+              date: "2026-10-03",
+              label: "Product Hunt live",
+              dashboard: { dashboardId: "product-signups", setShown: true },
+            }),
+          },
+        ],
+      },
+      {
+        userText: "Hide the setup incident on Setup completions per day.",
+        draftText:
+          "Done. Setup completions per day no longer shows the setup incident.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "{}",
+            receipt: SAVED_RECEIPT,
+          },
+        ],
+      },
+    ];
+
+    it("accepts a marker the agent saved, judging the request by the user's own words", () => {
+      expect(
+        markerTurns.map((turn) =>
+          realDataFinalGuard(
+            guardContext({ ...turn, userText: onDashboardPage(turn.userText) }),
+          ),
+        ),
+      ).toEqual([null, null, null]);
+    });
+
+    it("judges a marker draft that states figures as it does off the dashboard page", () => {
+      const [noteTurn] = markerTurns;
+      const draftText =
+        "Done. Signups per day doubled to 1,240 on October 6, so I added a note.";
+      const offPage = realDataFinalGuard(
+        guardContext({ ...noteTurn, draftText }),
+      );
+      const onPage = realDataFinalGuard(
+        guardContext({
+          ...noteTurn,
+          userText: onDashboardPage(noteTurn.userText),
+          draftText,
+        }),
+      );
+
+      expect(offPage?.retryMessage).toContain("real source query");
+      expect(onPage).toEqual(offPage);
+    });
+
+    it("still steers a dashboard build or clone to its template", () => {
+      for (const userText of [
+        "Build a dashboard like the Growth dashboard for Acme",
+        "Clone the Revenue dashboard for the EMEA team",
+      ]) {
+        const result = realDataFinalGuard(
+          guardContext({
+            userText: onDashboardPage(userText),
+            draftText: "On it.",
+          }),
+        );
+
+        expect(result?.retryMessage).toContain(
+          "dashboard construction/template-clone",
+        );
+      }
+    });
+
+    it("still reads a build request an app sends as REAL_DATA_REQUIRED context", () => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: appendAgentChatContextToMessage(
+            "Signups by source over the last 30 days",
+            "The user wants to create a new analytics dashboard. REAL_DATA_REQUIRED: run at least one real data-source query action before presenting numbers.",
+          ),
+          draftText: "On it.",
+        }),
+      );
+
+      expect(result?.retryMessage).toContain(
+        "dashboard construction/template-clone",
+      );
+    });
+
+    it("judges a panel-editor request as it does off the dashboard page", () => {
+      const ask = "Signups by plan";
+      const panelRequest =
+        'The user wants to add a new panel to SQL dashboard "product-signups". REAL_DATA_REQUIRED: run at least one real data-source query action for this panel.';
+      const judge = (userText: string) =>
+        realDataFinalGuard(guardContext({ userText, draftText: "On it." }));
+      const offPage = judge(appendAgentChatContextToMessage(ask, panelRequest));
+
+      expect(offPage?.retryMessage ?? "").not.toContain(
+        "dashboard construction/template-clone",
+      );
+      expect([
+        // As the panel editor submits it: the sidebar wraps it in the page's items.
+        judge(
+          onDashboardPage(appendAgentChatContextToMessage(ask, panelRequest)),
+        ),
+        // Staged in the composer, it shares one block with the page's items.
+        judge(
+          appendAgentChatContextToMessage(
+            ask,
+            `${dashboardPageItem}\n\n## Active app context\n${panelRequest}`,
+          ),
+        ),
+      ]).toEqual([offPage, offPage]);
+    });
+
+    it("doesn't read the open dashboard's name as a source the user asked for", () => {
+      const ask = "How many signups did we get last week?";
+      const onWarehouseDashboard = appendAgentChatContextToMessage(
+        ask,
+        dashboardPageItem.replace(/Product signups/g, "Warehouse KPIs"),
+      );
+      const judge = (userText: string) =>
+        realDataFinalGuard(
+          guardContext({
+            userText,
+            draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+            toolResults: [
+              {
+                name: "data-source-status",
+                isError: false,
+                content: JSON.stringify({
+                  configuredDataSources: [
+                    {
+                      provider: "first-party",
+                      label: "First-party Analytics",
+                      via: "built-in",
+                      queryAction: "query-agent-native-analytics",
+                    },
+                  ],
+                }),
+              },
+            ],
+          }),
+        );
+      const offPage = judge(ask);
+
+      expect(offPage?.retryMessage).toContain("query-agent-native-analytics");
+      expect(judge(onWarehouseDashboard)).toEqual(offPage);
+    });
   });
 
   it("does not treat a skipped compose as a completed dashboard edit", () => {

@@ -1,3 +1,5 @@
+import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { EngineToolResultImagePart } from "./engine/types.js";
 
 export const AGENT_IMAGES_FIELD = "_agentImages";
@@ -6,22 +8,11 @@ export const MAX_TOOL_RESULT_IMAGES = 4;
 
 export const MAX_TOOL_RESULT_IMAGE_BASE64_CHARS = 2_000_000;
 
-const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
-
 type SupportedMediaType = EngineToolResultImagePart["mediaType"];
 
 export interface NormalizedToolResultImages {
   images: EngineToolResultImagePart[];
   notes: string[];
-}
-
-function isSupportedMediaType(value: unknown): value is SupportedMediaType {
-  return typeof value === "string" && SUPPORTED_IMAGE_MEDIA_TYPES.has(value);
 }
 
 const BASE64_RE = /^[A-Za-z0-9+/=\s]+$/;
@@ -50,15 +41,17 @@ function normalizeOneImage(
 
   let data = typeof raw.data === "string" ? raw.data.trim() : "";
   let mediaType: unknown = raw.mediaType;
-  const dataUrlMatch = data.match(/^data:([^;,]+);base64,(.+)$/s);
-  if (dataUrlMatch) {
-    mediaType = dataUrlMatch[1];
-    data = dataUrlMatch[2];
+  const parsedDataUrl = parseBase64DataUrl(data);
+  if (parsedDataUrl) {
+    mediaType = parsedDataUrl.mediaType;
+    data = parsedDataUrl.data;
   }
   if (data.length === 0) {
     return { note: `[image ${describe} dropped: no url or base64 data]` };
   }
-  if (!isSupportedMediaType(mediaType)) {
+  const normalizedMediaType =
+    typeof mediaType === "string" ? normalizeImageMediaType(mediaType) : null;
+  if (!normalizedMediaType) {
     return {
       note: `[image ${describe} dropped: unsupported media type ${String(
         mediaType ?? "(missing)",
@@ -67,13 +60,19 @@ function normalizeOneImage(
   }
   if (data.length > MAX_TOOL_RESULT_IMAGE_BASE64_CHARS) {
     return {
-      note: `[image ${describe} (${mediaType}) dropped: ${data.length.toLocaleString()} base64 chars exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-char limit — return a smaller image or a public https url instead]`,
+      note: `[image ${describe} (${normalizedMediaType}) dropped: ${data.length.toLocaleString()} base64 chars exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-char limit — return a smaller image or a public https url instead]`,
     };
   }
   if (!BASE64_RE.test(data)) {
     return { note: `[image ${describe} dropped: data is not valid base64]` };
   }
-  return { image: { data, mediaType, ...(label ? { label } : {}) } };
+  return {
+    image: {
+      data,
+      mediaType: normalizedMediaType as SupportedMediaType,
+      ...(label ? { label } : {}),
+    },
+  };
 }
 
 export function normalizeToolResultImages(

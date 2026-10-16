@@ -743,6 +743,7 @@ type DesktopOpenRequest = {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+  settingsTab?: string;
 };
 
 type DesktopChatOpenAppRequest = {
@@ -1003,6 +1004,8 @@ interface ElectronAPI {
     ): Promise<QuickPromptSettings>;
     dismiss(): void;
     setPickerOpen(open: boolean): void;
+    setSetupRequired(required: boolean): void;
+    openProviderSettings(): void;
     onHidden(cb: () => void): () => void;
     submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };

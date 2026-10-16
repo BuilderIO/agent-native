@@ -28,7 +28,7 @@ When any **mutating** action runs (anything that isn't a read-only `GET`), the f
 - **Action** — the action name (e.g. `delete-recording`).
 - **Actor** — `agent`, `human`, or `system`, plus the actor's email — populated **even for agent calls**, so you get "the agent, acting for alice@, …".
 - **Run linkage** — the agent `threadId` / `turnId` that triggered the call (a tool call), so a mutation traces back to the exact agent turn.
-- **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, or `a2a`.
+- **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp`, or `a2a`. These are agent protocols, so a call over `mcp`, `webmcp`, or `a2a` records as `agent` acting for you, not as you.
 - **Outcome** — `success`, `error` (with an error code), or `denied` (blocked by a human-approval gate).
 - **Inputs** — the call arguments, with credential-shaped values [redacted](#privacy).
 - **Target & owner** — the resource the action changed, used to [scope reads](#reading).
@@ -57,13 +57,13 @@ No wiring needed — the capture hooks into `defineAction` transparently. Read-o
           name: "caller",
           type: "enum",
           nullable: false,
-          note: "tool | frontend | http | cli | mcp | a2a — the surface that invoked the action.",
+          note: "tool | frontend | http | cli | mcp | webmcp | a2a — the surface that invoked the action.",
         },
         {
           name: "actor_kind",
           type: "enum",
           nullable: false,
-          note: "agent | human | system",
+          note: "agent | human | service | system — service for the organization's own service principals, agent for other tool, mcp, webmcp, and a2a calls.",
         },
         { name: "actor_email", type: "text", nullable: true },
         { name: "org_id", type: "text", nullable: true },
@@ -168,6 +168,21 @@ const { data } = useActionQuery("list-audit-events", {
 ```
 
 The agent can call the same action — ask it "what did you change on this recording?" and it answers from the trail.
+
+## Export to a SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** returns the organization's trail as [OCSF](https://schema.ocsf.io) 1.9.0 API Activity events (`class_uid` 6003), oldest first, for a SIEM to pull on a schedule. Owners and admins only, and it reads the same `org` and `admins` events as the organization audit log, never anyone's private rows.
+
+| Input    | Meaning                                                      |
+| -------- | ------------------------------------------------------------ |
+| `since`  | Only events at or after this ISO 8601 timestamp or epoch ms. |
+| `until`  | Only events before this ISO 8601 timestamp or epoch ms.      |
+| `cursor` | The `nextCursor` from the previous page.                     |
+| `limit`  | Events per page, up to 500 (default 100).                    |
+
+It returns `{ events, hasMore, nextCursor }`. Store every returned `nextCursor` and send it back on the next pull, including when `events` is empty; empty pages advance the ready watermark. The cursor replays a five-minute overlap to catch late commits, so deduplicate across pulls by `metadata.uid`. The newest five seconds are held back so a late-written row is never skipped.
+
+Each event maps `status` to `status_id` (`success` is Success; `error` and `denied` are Failure, with `denied` also `action_id` Denied and a higher `severity_id`), the actor to `actor.user` (a service principal is type Service), the action to `api.operation`, and the target to `resources`. Run, task, parent-task, thread, turn, and app ids have no OCSF field, so they sit under `unmapped`. Call arguments are never exported.
 
 ## Privacy & retention {#privacy}
 

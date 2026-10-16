@@ -31,6 +31,20 @@ const authPlugin = createToolkitAuthPlugin({
     "/status",
     "/_agent-native/actions/get-public-status-page",
   ],
+  publicPathsWithQueryToken: [
+    {
+      path: "/api/session-replay/recordings/:recordingId/manifest",
+      queryParam: "agent_access",
+    },
+    {
+      path: "/api/session-replay/recordings/:recordingId/chunks/:seq",
+      queryParam: "agent_access",
+    },
+    {
+      path: "/api/session-replay/recordings/:recordingId/chunks",
+      queryParam: "agent_access",
+    },
+  ],
   publicCorsPaths: ["/track", "/api/analytics/track", "/api/analytics/replay"],
   marketing: {
     appName: "Analytics",

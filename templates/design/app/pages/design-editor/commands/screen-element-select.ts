@@ -12,6 +12,7 @@ import {
   canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
   elementInfoFromCodeLayerNode,
+  hasSettledPortableStyles,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
@@ -49,7 +50,6 @@ export interface ScreenElementSelectArgs {
   ) => ApplyFileContentUpdateResult;
   clearPendingOverviewLayerSelectionTimer: () => void;
   createdOverviewLayerSelection: { screenId: string; layerId: string } | null;
-  focusDesignInspectorForSelection: () => void;
   getCodeLayerProjectionForScreen: (
     screenId: string,
   ) => CodeLayerProjection | null;
@@ -87,7 +87,6 @@ export function runScreenElementSelect(
     applyFileContentUpdate,
     clearPendingOverviewLayerSelectionTimer,
     createdOverviewLayerSelection,
-    focusDesignInspectorForSelection,
     getCodeLayerProjectionForScreen,
     getScreenContent,
     handleBreakpointBarSelect,
@@ -120,6 +119,14 @@ export function runScreenElementSelect(
     breakpointWidthPx?: number;
   } = {},
 ) {
+  if (
+    viewModeRef.current === "overview" &&
+    !intent &&
+    options.breakpointWidthPx !== activeBreakpointWidthStateRef.current
+  ) {
+    return false;
+  }
+
   const pendingLayerId = pendingOverviewLayerSelectionRef.current;
   const pendingScreenId =
     pendingOverviewScreenSelectionRef.current ??
@@ -150,8 +157,7 @@ export function runScreenElementSelect(
         node?.dataAttributes["data-agent-native-node-id"] ===
           pendingLayerId)) &&
     !isScreenRootElementInfo(canonical) &&
-    (canonical.portableStyleSnapshot !== undefined ||
-      canonical.styleSnapshotCaptureFailed === true) &&
+    hasSettledPortableStyles(canonical) &&
     !blockedSelection;
   if (ignoredLayerSelectionEcho) {
     if (exactPendingLayerEcho) setSelectedElement(canonical);
@@ -257,7 +263,7 @@ export function runScreenElementSelect(
     }
   }
   if (node) {
-    if (viewModeRef.current === "overview") {
+    if (viewModeRef.current === "overview" && intent) {
       // Activate the frame scope before caching its measurement. The scope
       // switch invalidates rendered metadata, so doing this after the write
       // drops the only responsive measurement for the selected layer.
@@ -297,8 +303,8 @@ export function runScreenElementSelect(
   // stamp. Fixing that requires the code-layer projection itself to
   // model `<template>` repeater children as selectable/attributable
   // nodes, which is out of scope for this selection-time fix.
-  // Figma spec §1: Shift+click is the only additive (union) click gesture.
-  // Cmd/Ctrl+click alone deep-selects and REPLACES, same as a plain click —
+  // Shift+click is the additive (union) click gesture. Cmd/Ctrl+click alone
+  // deep-selects and REPLACES, same as a plain click —
   // it must not be OR'd in here, or a deep-selected child gets unioned onto
   // the container it was cycled out of instead of replacing it.
   const additiveSelection = Boolean(
@@ -351,6 +357,5 @@ export function runScreenElementSelect(
   }
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
-  focusDesignInspectorForSelection();
   return true;
 }

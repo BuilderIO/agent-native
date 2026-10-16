@@ -144,6 +144,8 @@ const messages = {
     mcpStaticTokenDescription:
       "Open the full connect page to create a token for clients that cannot complete OAuth.",
     mcpOpenConnectPage: "Open full connect page",
+    mcpIdentityError: "Couldn't load this app's connection details.",
+    mcpRetry: "Try again",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -1051,15 +1053,19 @@ const messages = {
     scheduleUnavailableTitle: "Schedules won't run in this deploy",
     scheduleUnavailableLocalTitle: "Schedules don't run in local development",
     scheduleUnavailableDisabled:
-      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
+      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableNoScheduler:
-      "This hosting target has no durable scheduler, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
+      "This deploy has no scheduler, so scheduled automations won't fire, event-triggered automations stay queued, and crashed runs aren't recovered. Webhook-triggered automations and Run now still work.",
+    scheduleUnavailableMissingSecret:
+      "This deploy has a scheduler, but {{secret}} isn't set, so every scheduler request is rejected. Scheduled automations won't fire, event-triggered automations stay queued, and crashed runs aren't recovered. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableLocal:
       "Schedules stay off on a dev machine unless you opt in. Event- and webhook-triggered automations and Run now still work.",
     scheduleUnavailableDisabledFix:
       "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
     scheduleUnavailableLocalFix:
       "Set AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=true to run schedules on this machine.",
+    scheduleUnavailableMissingSecretFix:
+      "Set {{secret}} in this deployment's environment variables, then redeploy.",
     scheduleUnavailableFixLabel: "Show more",
     scheduleUnavailableFixLabelOpen: "Show less",
   },
@@ -1832,6 +1838,8 @@ const messages = {
     promoteMustContain: "Reply must contain…",
     promoteMustContainOptional: "Optional text to check for in the reply…",
     promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteReviewedPromptLabel:
+      "Manually reviewed prompt (never copied from production)",
     promoteNeedsContains:
       "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",

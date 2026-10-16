@@ -2,8 +2,8 @@
  * Condition evaluator for event-triggered automations.
  *
  * Given an event payload and a natural-language condition string, asks a
- * fast model whether the condition is satisfied. Results are memoized to
- * avoid redundant model calls for identical (condition, payload) pairs.
+ * fast model whether the condition is satisfied. Results are memoized by
+ * condition, payload, execution identity, resolved engine, and model.
  *
  * This goes through the same engine-resolution path as interactive chat and
  * the automation's own agentic run (`resolveEngine`), instead of calling a
@@ -29,9 +29,10 @@ import {
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 
-const CONDITION_EVAL_VERSION = "v3";
+const CONDITION_EVAL_VERSION = "v4";
 const CONDITION_EVALUATION_TIMEOUT_MS = 15_000;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -47,20 +48,34 @@ export interface ConditionEvaluatorIdentity {
   appId?: string;
 }
 
-function cacheKey(condition: string, payload: unknown): string {
-  // Salt the cache key with the prompt version + a separate hash of the
-  // payload so two callers can't cross-pollute each other's cache via
-  // colliding JSON encodings, and a prompt change wipes the cache.
-  let payloadHash: string;
+function cacheKey(
+  condition: string,
+  payload: unknown,
+  identity: ConditionEvaluatorIdentity,
+  engineName: string,
+  model: string,
+): string | null {
+  // Include the resolved classifier scope so owners, apps, engines, and models
+  // cannot reuse one another's yes/no result.
+  let serializedPayload: string | undefined;
   try {
-    payloadHash = createHash("sha256")
-      .update(JSON.stringify(payload) ?? "")
-      .digest("hex")
-      .slice(0, 16);
+    serializedPayload = JSON.stringify(payload);
   } catch {
-    payloadHash = "unstringifiable";
+    // coercion-ok: null marks this payload uncacheable; evaluation continues.
+    return null;
   }
-  const raw = `${CONDITION_EVAL_VERSION}|${condition}|${payloadHash}`;
+  const payloadHash = createHash("sha256")
+    .update(serializedPayload ?? "")
+    .digest("hex")
+    .slice(0, 16);
+  const scope = JSON.stringify([
+    identity.userEmail.trim().toLowerCase(),
+    identity.orgId ?? null,
+    identity.appId ?? null,
+    engineName,
+    model,
+  ]);
+  const raw = `${CONDITION_EVAL_VERSION}|${scope}|${condition}|${payloadHash}`;
   return createHash("sha256").update(raw).digest("hex").slice(0, 32);
 }
 
@@ -68,13 +83,14 @@ export async function evaluateCondition(
   condition: string | undefined,
   payload: unknown,
   identity: ConditionEvaluatorIdentity,
-  options: { deadlineAt?: number; signal?: AbortSignal } = {},
+  options: {
+    deadlineAt?: number;
+    signal?: AbortSignal;
+    engine?: AgentEngine;
+    resolvedModel?: string;
+  } = {},
 ): Promise<boolean> {
   if (!condition || !condition.trim()) return true;
-
-  const key = cacheKey(condition, payload);
-  const cached = _cache.get(key);
-  if (cached !== undefined) return cached;
 
   const remainingMs =
     options.deadlineAt === undefined
@@ -93,6 +109,68 @@ export async function evaluateCondition(
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let removeAbortListener: (() => void) | undefined;
+  const evaluate = async () => {
+    let engine: AgentEngine;
+    let model: string;
+    try {
+      engine =
+        options.engine ??
+        (await resolveEngine({
+          credentialIdentity: {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+          },
+          appId: identity.appId,
+        }));
+      if (options.resolvedModel !== undefined) {
+        model = options.resolvedModel;
+      } else {
+        const modelCandidate =
+          (await getStoredModelForEngine(engine, { appId: identity.appId })) ??
+          engine.defaultModel;
+        model = normalizeModelForEngine(engine, modelCandidate);
+      }
+    } catch (err) {
+      if (controller.signal.aborted) throw err;
+      console.error("[triggers] Condition eval error:", err);
+      throw new Error(
+        err instanceof Error
+          ? `Condition evaluation failed: ${err.message}`
+          : "Condition evaluation failed: unknown error",
+      );
+    }
+
+    if (controller.signal.aborted) {
+      throw new Error(
+        options.signal?.aborted
+          ? "Condition evaluation aborted."
+          : "Condition evaluation timed out.",
+      );
+    }
+
+    const key = cacheKey(condition, payload, identity, engine.name, model);
+    if (key !== null) {
+      const cached = _cache.get(key);
+      if (cached !== undefined) return cached;
+    }
+
+    const result = await callClassifier(
+      condition,
+      payload,
+      engine,
+      model,
+      controller.signal,
+    );
+    if (controller.signal.aborted) {
+      throw new Error(
+        options.signal?.aborted
+          ? "Condition evaluation aborted."
+          : "Condition evaluation timed out.",
+      );
+    }
+    if (key !== null) _cache.set(key, result);
+    return result;
+  };
   const timeout = new Promise<never>((_resolve, reject) => {
     timeoutId = setTimeout(() => {
       reject(new Error("Condition evaluation timed out."));
@@ -114,7 +192,7 @@ export async function evaluateCondition(
   let result: boolean;
   try {
     result = await Promise.race([
-      callClassifier(condition, payload, identity, controller.signal),
+      evaluate(),
       timeout,
       ...(aborted ? [aborted] : []),
     ]);
@@ -123,14 +201,14 @@ export async function evaluateCondition(
     removeAbortListener?.();
   }
 
-  _cache.set(key, result);
   return result;
 }
 
 async function callClassifier(
   condition: string,
   payload: unknown,
-  identity: ConditionEvaluatorIdentity,
+  engine: AgentEngine,
+  model: string,
   signal: AbortSignal,
 ): Promise<boolean> {
   let payloadStr: string;
@@ -160,18 +238,6 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
   let text = "";
   let streamErrorMessage: string | undefined;
   try {
-    const engine = await resolveEngine({
-      credentialIdentity: {
-        userEmail: identity.userEmail,
-        orgId: identity.orgId,
-      },
-      appId: identity.appId,
-    });
-    const modelCandidate =
-      (await getStoredModelForEngine(engine, { appId: identity.appId })) ??
-      engine.defaultModel;
-    const model = normalizeModelForEngine(engine, modelCandidate);
-
     const stream = engine.stream({
       model,
       systemPrompt:

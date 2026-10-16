@@ -10,14 +10,15 @@ import { assertPlanEditor } from "../server/plans.js";
 
 export default defineAction({
   description:
-    "Initialize a plan's live editor from its saved blocks exactly once.",
+    "Initialize a plan's live editor, or one of its block editors, from saved content exactly once.",
   agentTool: false,
   deferLoading: false,
   schema: z.object({
     planId: z.string().min(1),
+    blockId: z.string().min(1).optional(),
     seedUpdateBase64: z.string().min(1).max(16_000_000),
   }),
-  run: async ({ planId, seedUpdateBase64 }, ctx) => {
+  run: async ({ planId, blockId, seedUpdateBase64 }, ctx) => {
     if (ctx?.caller !== "frontend") {
       throw Object.assign(
         new Error("This operation belongs to the browser editor."),
@@ -26,7 +27,7 @@ export default defineAction({
     }
     await assertPlanEditor(planId);
     const result = await seedXmlFragmentIfEmpty(
-      `plan:${planId}`,
+      blockId ? `plan:${planId}:${blockId}` : `plan:${planId}`,
       base64ToUint8Array(seedUpdateBase64),
     );
     return {

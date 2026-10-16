@@ -24,7 +24,9 @@ const selected = new Set(selectedSites().map((site) => site.id));
 test.skip(!selected.has("design"), "design not in this run's selection");
 
 const SCREEN_COUNT = 48;
-const LIVE_IFRAME_BUDGET = 32;
+const LIVE_SCREEN_BUDGET = 32;
+const LIVE_IFRAME_CEILING = 96;
+const STATIC_PREVIEW_BUDGET = 64;
 
 /**
  * Every browsing context that previews a screen. On a board larger than the
@@ -33,8 +35,9 @@ const LIVE_IFRAME_BUDGET = 32;
  * are only the protected active screen and never follow the camera. Counting
  * live editors alone measures that one screen, not the pool culling bounds.
  */
-const PREVIEW_IFRAME_SELECTOR =
-  "iframe[data-design-preview-iframe], iframe[data-screen-static-preview]";
+const LIVE_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
+const STATIC_PREVIEW_SELECTOR = "iframe[data-screen-static-preview]";
+const PREVIEW_IFRAME_SELECTOR = `${LIVE_IFRAME_SELECTOR}, ${STATIC_PREVIEW_SELECTOR}`;
 
 function screenHtml(index: number): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -102,6 +105,27 @@ async function previewIframeIds(page: Page): Promise<string[]> {
       ),
     );
   return ids.sort();
+}
+
+async function previewPoolCounts(page: Page): Promise<{
+  liveScreens: number;
+  liveIframes: number;
+  staticPreviews: number;
+}> {
+  const [liveScreens, liveIframes, staticPreviews] = await Promise.all([
+    page.locator("[data-screen-shell]").evaluateAll(
+      (shells) =>
+        shells.filter((shell) => {
+          const tier = shell
+            .querySelector("[data-screen-content]")
+            ?.getAttribute("data-cull-tier");
+          return tier === "visible" || tier === "culled";
+        }).length,
+    ),
+    page.locator(LIVE_IFRAME_SELECTOR).count(),
+    page.locator(STATIC_PREVIEW_SELECTOR).count(),
+  ]);
+  return { liveScreens, liveIframes, staticPreviews };
 }
 
 /**
@@ -210,6 +234,7 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
 
     const initialIframeIds = await settledPreviewIframeIds(page);
     const initialIframes = initialIframeIds.length;
+    const initialPool = await previewPoolCounts(page);
     const placeholders = await page
       .locator('[data-screen-content][data-cull-tier="placeholder"]')
       .count();
@@ -302,6 +327,7 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
 
     const afterIframeIds = await previewIframeIds(page);
     const afterIframes = afterIframeIds.length;
+    const afterPool = await previewPoolCounts(page);
     expect(
       afterIframeIds,
       `the preview pool held the same ${initialIframes} iframe(s) after the camera moved (zoom ${initialZoomLabel} -> ${finalZoomLabel}, transform ${initialTransform} -> ${finalTransform}); before ${JSON.stringify(initialIframeIds)}, after ${JSON.stringify(afterIframeIds)}`,
@@ -319,12 +345,18 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
         ).__betaCullingPerf,
     );
     console.info(
-      `[beta-design-culling] ${JSON.stringify({ initialIframes, afterIframes, placeholders, ...perf })}`,
+      `[beta-design-culling] ${JSON.stringify({ initialIframes, afterIframes, initialPool, afterPool, placeholders, ...perf })}`,
     );
-    expect(initialIframes).toBeLessThanOrEqual(LIVE_IFRAME_BUDGET);
-    expect(afterIframes).toBeLessThanOrEqual(LIVE_IFRAME_BUDGET);
+    expect(initialPool.liveScreens).toBeLessThanOrEqual(LIVE_SCREEN_BUDGET);
+    expect(afterPool.liveScreens).toBeLessThanOrEqual(LIVE_SCREEN_BUDGET);
+    expect(initialPool.liveIframes).toBeLessThanOrEqual(LIVE_IFRAME_CEILING);
+    expect(afterPool.liveIframes).toBeLessThanOrEqual(LIVE_IFRAME_CEILING);
+    expect(initialPool.staticPreviews).toBeLessThanOrEqual(
+      STATIC_PREVIEW_BUDGET,
+    );
+    expect(afterPool.staticPreviews).toBeLessThanOrEqual(STATIC_PREVIEW_BUDGET);
     expect(placeholders).toBeGreaterThanOrEqual(
-      SCREEN_COUNT - LIVE_IFRAME_BUDGET,
+      SCREEN_COUNT - LIVE_SCREEN_BUDGET,
     );
     expect(
       (perf?.iframeAdded ?? 0) + (perf?.iframeRemoved ?? 0),

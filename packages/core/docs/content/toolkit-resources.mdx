@@ -37,7 +37,7 @@ Mount the complete panel when you want the whole browser/editor surface with
 no assembly required:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel scope="personal" resourceFilter="files" />;
 ```
@@ -53,6 +53,8 @@ Compose the tree and editor primitives yourself for custom chrome:
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
 } from "@agent-native/core/client/resources";

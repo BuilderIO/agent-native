@@ -8,15 +8,51 @@ const appState = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 const tmpRoots: string[] = [];
 
 vi.mock("../application-state/script-helpers.js", () => ({
-  readAppState: vi.fn(async (key: string) => appState.get(key) ?? null),
+  readAppState: vi.fn(async (key: string) => {
+    const value = appState.get(key);
+    return value == null ? null : structuredClone(value);
+  }),
   writeAppState: vi.fn(async (key: string, value: Record<string, unknown>) => {
-    appState.set(key, value);
+    appState.set(key, structuredClone(value));
+  }),
+  compareAndSetAppState: vi.fn(
+    async (
+      key: string,
+      expectedValue: Record<string, unknown> | null,
+      nextValue: Record<string, unknown> | null,
+    ) => {
+      const currentValue = appState.get(key) ?? null;
+      if (JSON.stringify(currentValue) !== JSON.stringify(expectedValue)) {
+        return false;
+      }
+      if (nextValue === null) appState.delete(key);
+      else appState.set(key, structuredClone(nextValue));
+      return true;
+    },
+  ),
+  compareAndSetManyAppState: vi.fn(async (operations: any[]) => {
+    if (
+      operations.some((operation) => {
+        const currentValue = appState.get(operation.key) ?? null;
+        return (
+          JSON.stringify(currentValue) !==
+          JSON.stringify(operation.expectedValue)
+        );
+      })
+    ) {
+      return false;
+    }
+    for (const operation of operations) {
+      if (operation.nextValue === null) appState.delete(operation.key);
+      else appState.set(operation.key, structuredClone(operation.nextValue));
+    }
+    return true;
   }),
   deleteAppState: vi.fn(async (key: string) => appState.delete(key)),
   listAppState: vi.fn(async (prefix: string) =>
     [...appState.entries()]
       .filter(([key]) => key.startsWith(prefix))
-      .map(([key, value]) => ({ key, value })),
+      .map(([key, value]) => ({ key, value: structuredClone(value) })),
   ),
 }));
 

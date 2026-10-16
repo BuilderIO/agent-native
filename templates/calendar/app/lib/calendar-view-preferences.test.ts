@@ -2,6 +2,7 @@ import type { CalendarEvent } from "@shared/api";
 import {
   CALENDAR_COLORS,
   DEFAULT_CALENDAR_VIEW_PREFERENCES,
+  normalizeAllDayMaxHeight,
   normalizeCalendarViewPreferences,
 } from "@shared/calendar-view-preferences";
 import { describe, expect, it } from "vitest";
@@ -31,6 +32,13 @@ const googleEvent: CalendarEvent = {
 };
 
 describe("calendar view preferences", () => {
+  it("bounds the all-day section height preference", () => {
+    expect(normalizeAllDayMaxHeight(144)).toBe(144);
+    expect(normalizeAllDayMaxHeight(1)).toBe(48);
+    expect(normalizeAllDayMaxHeight(500)).toBe(320);
+    expect(normalizeAllDayMaxHeight("144")).toBe(88);
+  });
+
   it("normalizes invalid values back to defaults", () => {
     expect(
       normalizeCalendarViewPreferences({

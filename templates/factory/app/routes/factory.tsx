@@ -1420,6 +1420,7 @@ function AutomationsView({
                       draft.source ?? "slack",
                       connections,
                       draft.slackWorkspace ?? "primary",
+                      draft.template ?? "blank",
                     )
                   }
                 >

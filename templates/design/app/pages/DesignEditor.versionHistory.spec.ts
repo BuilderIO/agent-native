@@ -2,15 +2,16 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor version history", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const rootSource = readFileSync("app/root.tsx", "utf8");
   const eventsSource = readFileSync("app/lib/design-ui-events.ts", "utf8");
 
   it("exposes version history from the project menu", () => {
-    expect(editorSource).toContain('{"Version history" /* i18n-ignore */}');
+    expect(editorSource).toContain('t("designEditor.fileMenu.versionHistory")');
     expect(editorSource).toContain("setHistoryOpen(true)");
-    expect(editorSource).toContain("IconHistory");
     expect(editorSource).toContain("<HistoryPanel");
   });
 

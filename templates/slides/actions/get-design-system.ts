@@ -8,6 +8,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 
 const MAX_AGENT_CONTEXT_CHARS = 14_000;
 const MAX_JSON_CONTEXT_CHARS = 2_500;
@@ -18,6 +22,7 @@ const MAX_SUMMARY_CONTEXT_CHARS = 1_500;
 const MAX_SUMMARY_TOKEN_VALUES = 16;
 const MAX_SUMMARY_INSTRUCTIONS_CHARS = 600;
 const MAX_SUMMARY_DESCRIPTION_CHARS = 600;
+const MAX_PROMPT_TITLE_CHARS = 120;
 
 interface BuilderGenerationContext {
   builderDesignSystemId: string;
@@ -40,6 +45,18 @@ interface BuilderGenerationContext {
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
+}
+
+function formatDesignSystemPromptTitle(title: string): string {
+  const normalized = title
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const bounded =
+    normalized.length <= MAX_PROMPT_TITLE_CHARS
+      ? normalized
+      : `${normalized.slice(0, MAX_PROMPT_TITLE_CHARS - 1).trimEnd()}…`;
+  return JSON.stringify(bounded || "Untitled design system") ?? '""';
 }
 
 // list-design-systems only ever reads the docCount baked into row.data at
@@ -133,6 +150,7 @@ function buildDesignSystemAgentContext({
   assets,
   customInstructions,
   builder,
+  purpose,
 }: {
   id: string;
   title: string;
@@ -141,12 +159,21 @@ function buildDesignSystemAgentContext({
   assets?: string | null;
   customInstructions?: string | null;
   builder: BuilderGenerationContext | null;
+  purpose: "selected" | "reference";
 }): string {
-  const lines: string[] = [
-    "## Selected Design System Context",
-    `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
-    "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
-  ];
+  const promptTitle = formatDesignSystemPromptTitle(title);
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference)",
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+          "When this linked system applies, use its tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ]
+      : [
+          "## Selected Design System Context",
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
+          "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ];
 
   if (description?.trim()) {
     lines.push("", "Description:", description.trim());
@@ -216,6 +243,7 @@ function buildCompactDesignSystemAgentContext({
   data,
   customInstructions,
   builderDesignSystemId,
+  purpose,
 }: {
   id: string;
   title: string;
@@ -223,11 +251,19 @@ function buildCompactDesignSystemAgentContext({
   data?: string | null;
   customInstructions?: string | null;
   builderDesignSystemId: string | null;
+  purpose: "selected" | "reference";
 }): string {
-  const lines: string[] = [
-    "## Selected Design System Context (summary)",
-    `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
-  ];
+  const promptTitle = formatDesignSystemPromptTitle(title);
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference summary)",
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+        ]
+      : [
+          "## Selected Design System Context (summary)",
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
+        ];
 
   if (description?.trim()) {
     lines.push("", "Description:", description.trim());
@@ -261,9 +297,21 @@ function buildCompactDesignSystemAgentContext({
 
 export default defineAction({
   description:
-    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. compact='true' returns only the bounded summary that deck and design reads already include.",
+    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. Use purpose='reference' only for a system linked to a style-reference deck; that guidance remains advisory to a separately selected target system. compact='true' returns only the bounded summary that deck and design reads already include.",
   schema: z.object({
     id: z.string().describe("Design system ID"),
+    deckId: z
+      .string()
+      .optional()
+      .describe(
+        "Deck that links this design system. Lets anyone who can read the deck read only the rendering fields (id, title, data) of its design system.",
+      ),
+    purpose: z
+      .enum(["selected", "reference"])
+      .optional()
+      .describe(
+        "Use 'reference' for a system linked to a style-reference deck; its guidance applies only when no separate target system is selected.",
+      ),
     compact: z
       .enum(["true", "false"])
       .optional()
@@ -278,8 +326,13 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
-  run: async ({ id, compact }) => {
-    const access = await resolveAccess("design-system", id);
+  run: async ({ id, deckId, compact, purpose = "selected" }, ctx) => {
+    const deckAccess = deckId ? await resolveAccess("deck", deckId) : null;
+    const access = deckAccess
+      ? await readDeckLinkedDesignSystem(deckAccess.resource, id)
+      : await resolveAccess("design-system", id).then(
+          (direct) => direct && { resource: direct.resource, viaDeck: false },
+        );
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
         statusCode: 404,
@@ -287,6 +340,18 @@ export default defineAction({
     }
 
     const row = access.resource;
+
+    // Deck readers get only what renders the deck; the rest of the record
+    // (instructions, assets, notes, Builder docs) stays with design-system
+    // readers.
+    if (access.viaDeck) {
+      return {
+        id: row.id,
+        title: row.title,
+        data: projectRenderingDesignSystemData(row.data),
+      };
+    }
+
     const builderReference = parseBuilderDesignSystemProxyReference(row.data);
 
     if (compact === "true") {
@@ -305,6 +370,7 @@ export default defineAction({
           customInstructions: row.customInstructions,
           builderDesignSystemId:
             builderReference?.builderDesignSystemId ?? null,
+          purpose,
         }),
       };
     }
@@ -324,7 +390,11 @@ export default defineAction({
         )
       : null;
 
-    if (builder && typeof builder.docCount === "number") {
+    if (
+      ctx?.caller !== "mcp-widget" &&
+      builder &&
+      typeof builder.docCount === "number"
+    ) {
       await persistBuilderDocCount(row, builder.docCount);
     }
 
@@ -348,6 +418,7 @@ export default defineAction({
         assets: row.assets,
         customInstructions: row.customInstructions,
         builder,
+        purpose,
       }),
     };
   },

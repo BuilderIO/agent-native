@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
   parsePptx: vi.fn(),
   importPptxBufferToDeck: vi.fn(),
+  track: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mocks.track(...args),
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -176,8 +181,17 @@ describe("import-google-slides-reference action", () => {
       vi.fn(async () => new Response(new Uint8Array([1]))),
     );
 
-    await action.run({ fileId: "presentation_123" });
+    await action.run({ fileId: "presentation_123", purpose: "reference" });
 
+    expect(mocks.track).toHaveBeenCalledWith(
+      "deck_created",
+      expect.objectContaining({
+        output_id: "deck-1",
+        creation_method: "import_gslides",
+        purpose: "reference",
+      }),
+      { userId: "user@example.com" },
+    );
     expect(mocks.parsePptx).toHaveBeenCalledWith(expect.anything(), {
       includeHiddenSlides: true,
     });

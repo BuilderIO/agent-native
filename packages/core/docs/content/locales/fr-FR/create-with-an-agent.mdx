@@ -1,0 +1,167 @@
+---
+title: "Créer une application avec un agent IA"
+description: "Donnez un seul prompt à Claude, ChatGPT, Codex, Cursor ou un autre agent IA et laissez-le créer et démarrer pour vous une nouvelle application Agent-Native."
+---
+
+# Créer une application avec un agent IA
+
+Vous pouvez demander à un agent IA de créer votre application Agent-Native. Vous collez un prompt, l’agent exécute les commandes d’installation et vous montre une application en cours d’exécution à la fin.
+
+Si vous préférez saisir les commandes vous-même, suivez plutôt [Démarrage](/docs/getting-started).
+
+## Avant de commencer
+
+- Un agent IA capable d’exécuter des commandes de terminal, comme Claude Code, Codex ou Cursor. Les agents qui ne font que discuter, comme ChatGPT ou Claude sur le web, peuvent quand même aider. Voir [Agents qui ne peuvent pas exécuter de commandes](#chat-only-agents).
+- [Node.js](https://nodejs.org) 22.22 ou version ultérieure.
+- Un dossier vide où la nouvelle application pourra vivre.
+
+Vous n’avez pas besoin de clé d’API pour créer l’application. Il en faut une seulement lorsque vous voulez que l’agent de l’application vous réponde. Voir [Connecter un LLM](/docs/getting-started#connect-an-llm).
+
+## Collez ce prompt
+
+Ouvrez votre agent dans le dossier vide et collez le prompt ci-dessous. Remplacez `my-app` dans la première ligne par le nom de votre choix. Vous ne devez le changer qu’une seule fois.
+
+```markdown
+Crée une nouvelle application Agent-Native dans un nouveau dossier
+nommé my-app et démarre-la. Utilise ce nom partout où une étape
+ci-dessous indique APP_NAME.
+
+1. Vérifie que Node.js est en version 22.22 ou ultérieure et que pnpm
+   est disponible. Si pnpm est absent, exécute `corepack enable`. Si
+   corepack n’est pas disponible non plus, exécute
+   `npm install -g pnpm`. Si Node.js est trop ancien, arrête-toi et
+   préviens-moi au lieu de l’installer.
+2. Exécute cette commande :
+   npx --yes @agent-native/core@latest create APP_NAME \
+    --standalone --template chat
+3. Dans le nouveau dossier APP_NAME, exécute `pnpm install`.
+4. Lis APP_NAME/AGENTS.md pour savoir comment l’application est
+   organisée.
+5. Démarre l’application avec `pnpm dev` et laisse-la tourner en
+   arrière-plan.
+6. Lis l’URL locale affichée par `pnpm dev`. Vérifie qu’elle répond,
+   par exemple avec `curl -I <url>`. N’ouvre pas de navigateur et
+   n’utilise pas d’outils de navigateur headless. J’ouvrirai
+   l’application moi-même.
+7. Montre-moi le résultat. Donne-moi l’URL locale et la réponse que
+   tu en as obtenue. Ne te contente pas de dire que l’installation
+   est terminée.
+
+Règles :
+
+- N’invente pas de clés d’API et ne me demande pas d’en coller.
+  Connecter un LLM est facultatif et je le ferai moi-même.
+- N’affiche pas les secrets d’un fichier .env.
+- Si une commande échoue, montre-moi l’erreur et ce que tu as
+  essayé. Ne la cache pas.
+```
+
+## Ce que l’agent doit faire
+
+Une bonne exécution se termine par ces résultats, et vous pouvez vérifier chacun d’eux vous-même :
+
+- Un nouveau dossier d’application, nommé `my-app` sauf si vous l’avez changé, qui contient `actions/`, `app/` et un fichier `AGENTS.md`.
+- `pnpm dev` en cours d’exécution sans erreur.
+- Une URL locale, généralement `http://localhost:8080`, dont l’agent a vérifié qu’elle répond.
+
+Ouvrez ensuite l’URL locale dans votre propre navigateur. Sur l’écran d’accueil, choisissez **Continue as local dev**. La page Get started s’affiche.
+
+Si l’un d’eux manque, demandez à l’agent de montrer la dernière commande qu’il a exécutée et sa sortie.
+
+<Callout tone="info">
+
+Si les commandes échouent avec des erreurs de dépendances peer, une ancienne copie d’un paquet dans le cache npx peut en être la cause. Demandez à l’agent d’exécuter `npx clear-npx-cache` puis de réessayer.
+
+</Callout>
+
+## Choisir la bonne méthode pour votre agent
+
+| Type d’agent                | Exemples                                                | Fonctionnement                                               |
+| --------------------------- | ------------------------------------------------------- | ------------------------------------------------------------ |
+| Agents de terminal et d’IDE | Claude Code, Codex, Cursor, GitHub Copilot dans VS Code | Collez le prompt. L’agent exécute chaque commande pour vous. |
+| Agents de chat uniquement   | ChatGPT, Claude sur le web                              | Demandez les commandes, puis exécutez-les vous-même.         |
+
+### Agents qui ne peuvent pas exécuter de commandes {#chat-only-agents}
+
+Un agent de chat uniquement ne peut pas ouvrir de terminal, donc il ne peut pas créer l’application. Collez quand même le prompt et ajoutez cette ligne au début :
+
+```markdown
+Tu ne peux pas exécuter de commandes. Donne-moi chaque commande à
+exécuter dans mon terminal, une par une, et attends que je te dise ce
+qui s’est passé avant de continuer.
+```
+
+L’agent vous guide à travers les mêmes étapes et vous aide en cas de problème.
+
+## Votre agent et l’agent de l’application
+
+Deux agents peuvent travailler sur votre application, et ils n’ont pas le même rôle.
+
+- **Votre propre agent** est celui dans lequel vous avez collé le prompt, comme Claude Code, Codex ou Cursor. Il vit en dehors de l’application, dans votre terminal ou votre éditeur.
+- **L’agent de l’application** est le chat intégré à l’application. Vous l’ouvrez dans le navigateur pendant que l’application tourne.
+
+|                                           | Votre propre agent (hors de l’application)                                                                                                                          | L’agent de l’application (dans l’application)                                                                                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Où vous l’utilisez                        | Votre terminal ou votre éditeur                                                                                                                                     | Le chat de l’application dans le navigateur                                                                                                                          |
+| Sur quoi il travaille                     | Les fichiers de votre projet                                                                                                                                        | Les données de l’application et l’écran que vous regardez                                                                                                            |
+| Ce qu’il peut faire                       | Créer le projet, installer des paquets, exécuter `pnpm dev`, écrire et modifier des actions, des pages et des tables de base de données, et préparer un déploiement | Appeler les actions de l’application comme des outils, lire et mettre à jour les données de l’application et répondre aux questions sur ce qui est affiché à l’écran |
+| Nécessite un LLM connecté à l’application | Non, il utilise son propre modèle                                                                                                                                   | Oui. Voir [Connecter un LLM](/docs/getting-started#connect-an-llm)                                                                                                   |
+| Idéal pour                                | Construire et modifier l’application                                                                                                                                | Utiliser l’application et effectuer son travail quotidien                                                                                                            |
+
+Votre propre agent construit l’application. L’agent de l’application la fait fonctionner. Quand votre propre agent ajoute une action, l’agent de l’application peut l’appeler tout de suite, car les deux utilisent la même action.
+
+### Aider votre propre agent à bien construire
+
+L’application générée est configurée pour que votre propre agent y travaille bien sans instructions supplémentaires.
+
+- `AGENTS.md`, à la racine de l’application, indique à un agent comment l’application est organisée et quelles règles suivre.
+- `.agents/skills/` contient de courts guides pour les tâches courantes, comme ajouter une fonctionnalité ou écrire une action.
+- La documentation de votre version exacte du framework est fournie avec l’application. Un agent peut y chercher avec `pnpm action docs-search --query "<topic>"`.
+
+Quand vous demandez quelque chose de nouveau, vous pouvez dire à l’agent de lire d’abord ces fichiers. Par exemple : « Lis AGENTS.md et la skill correspondante avant de rien modifier. »
+
+Pour que votre propre agent utilise les outils d’une application en cours d’exécution plutôt que son code, voir [Agents externes](/docs/external-agents).
+
+## Demander votre première modification
+
+Une fois l’application lancée, demandez à votre agent une petite modification et regardez-le travailler. Voici quelques exemples :
+
+```markdown
+Ajoute une action nommée list-notes qui renvoie une liste vide, puis
+affiche-la sur une nouvelle page /notes.
+```
+
+```markdown
+Change l’action hello pour qu’elle salue les gens avec "Welcome" au
+lieu de "Hello", puis appelle-la pour Alex afin de confirmer.
+```
+
+```markdown
+Lis la documentation sur le déploiement d’une application, puis
+dis-moi quelles étapes je dois suivre pour mettre cette application
+en ligne.
+```
+
+L’agent modifie les mêmes actions que celles utilisées par l’interface et par l’agent de l’application. Ce modèle d’actions partagé explique pourquoi une modification apparaît partout. [Concepts clés](/docs/key-concepts) explique comment tout s’articule.
+
+## Étapes suivantes
+
+<Cards>
+
+### [Démarrage](/docs/getting-started)
+
+Créez la même application à la main et découvrez comment fonctionne une action.
+
+### [Agents externes](/docs/external-agents)
+
+Connectez Claude, ChatGPT, Codex ou Cursor à une application déjà en cours d’exécution.
+
+### [Actions](/docs/actions-overview)
+
+Définissez les capacités que votre interface et vos agents utilisent ensemble.
+
+### [Déployer une application](/docs/deploy-an-app)
+
+Passez du développement local à une vraie base de données et à un hébergeur pris en charge.
+
+</Cards>

@@ -1,5 +1,6 @@
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 
+import { type FileUploadStatusProbe } from "../../shared/file-upload-status";
 import {
   MEDIA_PERMISSION_DEVICES,
   hasGrantedDeviceLabels,
@@ -473,46 +474,64 @@ async function readAuthStatus(
   }
 }
 
-async function readVideoStorageConfigured(
+async function readVideoStorageStatus(
   settings: ExtensionSettings,
-): Promise<boolean> {
+): Promise<FileUploadStatusProbe> {
   const base = settings.clipsBaseUrl.replace(/\/+$/, "");
-  const headers = await authHeaders(settings);
 
   try {
-    const response = await fetch(`${base}/_agent-native/file-upload/status`, {
-      method: "GET",
-      headers,
-      credentials: "include",
-      cache: "no-store",
-    });
-    const body = response.ok
-      ? ((await response.json().catch(() => null)) as {
-          configured?: boolean;
-          builderReauthorizationRequired?: boolean;
-        } | null)
-      : null;
-    if (body?.builderReauthorizationRequired) return false;
-    if (body?.configured) return true;
+    const headers = await authHeaders(settings);
+    const response = await fetch(
+      `${base}/_agent-native/actions/get-video-storage-status`,
+      {
+        method: "GET",
+        headers,
+        credentials: "include",
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return "unavailable";
+    const body = (await response.json()) as {
+      result?: unknown;
+      configured?: unknown;
+      mode?: unknown;
+      hostedRemaining?: unknown;
+    };
+    const status = body.result ?? body;
+    if (
+      typeof status !== "object" ||
+      status === null ||
+      !(
+        "configured" in status &&
+        "mode" in status &&
+        "hostedRemaining" in status
+      )
+    ) {
+      return "unavailable";
+    }
+    const value = status as {
+      configured: unknown;
+      mode: unknown;
+      hostedRemaining: unknown;
+    };
+    if (
+      typeof value.configured !== "boolean" ||
+      (value.mode !== "own" &&
+        value.mode !== "hosted" &&
+        value.mode !== "none") ||
+      !Number.isSafeInteger(value.hostedRemaining) ||
+      (value.hostedRemaining as number) < 0 ||
+      value.configured !== (value.mode !== "none") ||
+      (value.mode === "hosted" && (value.hostedRemaining as number) < 1)
+    ) {
+      return "unavailable";
+    }
+    return value.mode === "own" ||
+      (value.mode === "hosted" && (value.hostedRemaining as number) > 0)
+      ? "configured"
+      : "missing";
   } catch {
-    // Fall through to the Builder status check.
-  }
-
-  try {
-    const response = await fetch(`${base}/_agent-native/builder/status`, {
-      method: "GET",
-      headers,
-      credentials: "include",
-      cache: "no-store",
-    });
-    const body = response.ok
-      ? ((await response.json().catch(() => null)) as {
-          configured?: boolean;
-        } | null)
-      : null;
-    return !!body?.configured;
-  } catch {
-    return false;
+    return "unavailable";
   }
 }
 
@@ -1232,7 +1251,8 @@ async function init(): Promise<void> {
       }
       // Recording never waits on storage: without it, record in the Clips
       // tab, which asks for storage only after Stop.
-      if (!(await readVideoStorageConfigured(settings))) {
+      const storageStatus = await readVideoStorageStatus(settings);
+      if (storageStatus !== "configured") {
         await saveSettings(settings);
         await createTab(recordFirstUrl(settings));
         window.close();

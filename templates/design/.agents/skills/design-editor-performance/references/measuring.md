@@ -14,12 +14,22 @@ DATABASE_URL=postgres://postgres@127.0.0.1:5432/design_perf AUTH_DISABLED=1 \
 pnpm perf:runtime-budget --base-url http://127.0.0.1:9444
 ```
 
-`--design <id>` reuses an existing board instead of seeding one, and `--headed`
-shows the browser. `e2e/fixtures/seed-perf-stress-design.ts` creates the board
-by itself when you want to drive it by hand.
+`--design <id>` reuses an existing board instead of seeding one, `--headed`
+shows the browser, and `--channel` picks the Playwright Chromium channel
+(`chromium` by default, `chrome` for installed Chrome). Install full Chromium
+with `pnpm exec playwright install chromium`; the headless shell alone is not
+enough. `e2e/fixtures/seed-perf-stress-design.ts` creates the board by itself
+when you want to drive it by hand.
 
 ## Traps that faked results
 
+- **Playwright's default headless browser has no site isolation.**
+  `chromium.launch({ headless: true })` runs Chrome Headless Shell, which keeps
+  every frame in one renderer. Chrome gives the sandboxed previews a renderer
+  of their own, so in the shell their paint lands on the editor's main thread
+  and their heap counts as the editor's. The budget launches the `chromium`
+  channel and reports could-not-measure when previews share the editor's
+  renderer.
 - **A gesture that never happened measures nothing.** Assert that the screen
   moved, the text changed, or the card count went up before reading a timing.
   A drag probe that sets `style.left` from script never reproduces drag jank;

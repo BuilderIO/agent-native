@@ -84,7 +84,7 @@ Setze `visible: false` für einen App-Bereich, solange das dahinterliegende Lab 
 Eine App-Seite beginnt meist als Element in `extraTabs` und wird dadurch zu einer eigenen Seite in der App-Gruppe. Für mehr Kontrolle registrierst du auf Modulebene mit `registerSettingsPages` eine `SettingsPageDefinition` (`id`, `group`, `order`, `label`, `icon`, `component` sowie optional `visible`, `subpages` und `searchEntries`). Eine Definition mit derselben ID wie eine vorhandene Seite ersetzt diese. So kann eine App eine Core-Seite durch eine eigene Variante austauschen. Dispatch ergänzt auf diesem Weg die App-Rollenspalte unter Mitglieder:
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,

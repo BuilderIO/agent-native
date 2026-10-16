@@ -4,29 +4,33 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WaveBackground } from "./WaveBackground.js";
 
-const { oceanMount, oceanReady, probeWebgpuSupport, webGlMount } = vi.hoisted(
+const { oceanError, oceanMount, oceanReady, probeWebgpuSupport } = vi.hoisted(
   () => ({
+    oceanError: {
+      current: undefined as ((error: unknown) => void) | undefined,
+    },
     oceanMount: vi.fn(),
     oceanReady: { current: undefined as (() => void) | undefined },
     probeWebgpuSupport: vi.fn(),
-    webGlMount: vi.fn(),
   }),
 );
 
-vi.mock("./WebGlWaveBackground.js", () => ({
-  WebGlWaveBackground: () => {
-    webGlMount();
-    return <div data-agent-native-wave="true" data-testid="webgl-wave" />;
-  },
-}));
-
 vi.mock("./ocean/hero-ocean-background.js", () => ({
-  HeroOceanBackground: ({ onReady }: { onReady: () => void }) => {
+  HeroOceanBackground: ({
+    onError,
+    onReady,
+  }: {
+    onError: (error: unknown) => void;
+    onReady: () => void;
+  }) => {
     oceanMount();
+    oceanError.current = onError;
     oceanReady.current = onReady;
     return <div data-agent-native-wave="true" data-testid="ocean-wave" />;
   },
@@ -40,6 +44,8 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  oceanError.current = undefined;
   oceanReady.current = undefined;
 });
 
@@ -63,41 +69,50 @@ describe("WaveBackground", () => {
     }
   });
 
-  it("keeps the WebGL wave visible while checking WebGPU support", () => {
+  it("renders no fallback in server HTML or while checking WebGPU support", () => {
     probeWebgpuSupport.mockReturnValue(new Promise(() => {}));
+
+    expect(renderToString(createElement(WaveBackground))).toBe("");
 
     render(<WaveBackground className="fixed inset-0" />);
 
-    expect(screen.getByTestId("webgl-wave")).toBeDefined();
-    expect(webGlMount).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("ocean-wave")).toBeNull();
     expect(oceanMount).not.toHaveBeenCalled();
   });
 
-  it("keeps the WebGL wave until the Calendar ocean draws its first frame", async () => {
+  it("shows only the Calendar ocean after support is confirmed", async () => {
     probeWebgpuSupport.mockResolvedValue("supported");
 
     render(<WaveBackground />);
 
-    expect(screen.getByTestId("webgl-wave")).toBeDefined();
     await waitFor(() => expect(screen.getByTestId("ocean-wave")).toBeDefined());
-    expect(screen.getByTestId("webgl-wave")).toBeDefined();
     expect(oceanMount).toHaveBeenCalledOnce();
 
     act(() => oceanReady.current?.());
 
-    await waitFor(() => expect(screen.queryByTestId("webgl-wave")).toBeNull());
+    expect(screen.getByTestId("ocean-wave")).toBeDefined();
+  });
+
+  it("leaves the background empty when the ocean renderer fails", async () => {
+    probeWebgpuSupport.mockResolvedValue("supported");
+
+    render(<WaveBackground />);
+
+    await waitFor(() => expect(screen.getByTestId("ocean-wave")).toBeDefined());
+    act(() => oceanError.current?.(new Error("renderer failed")));
+
+    expect(screen.queryByTestId("ocean-wave")).toBeNull();
   });
 
   it.each(["unsupported", "probe-failed"] as const)(
-    "keeps the WebGL wave when WebGPU is %s",
+    "leaves the background empty when WebGPU is %s",
     async (support) => {
       probeWebgpuSupport.mockResolvedValue(support);
 
       render(<WaveBackground />);
 
-      await waitFor(() =>
-        expect(screen.getByTestId("webgl-wave")).toBeDefined(),
-      );
+      await waitFor(() => expect(probeWebgpuSupport).toHaveBeenCalledOnce());
+      expect(screen.queryByTestId("ocean-wave")).toBeNull();
       expect(oceanMount).not.toHaveBeenCalled();
     },
   );

@@ -42,6 +42,14 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  ensureTable: vi.fn(async () => {}),
+  SHARED_OWNER: "__shared__",
+  resourcePutIfCurrentInTransaction: async (input: unknown) => {
+    const resource = await resourcePutIfCurrentMock(input);
+    return resource ? { resource, notify: vi.fn() } : null;
+  },
+  organizationResourceOwner: (orgId: string) =>
+    `__organization__:${encodeURIComponent(orgId)}`,
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -142,7 +150,7 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    getDbExec: getDbExecMock,
+    getDbExec: () => actual.getScopedDbExec() ?? getDbExecMock(),
   };
 });
 
@@ -166,7 +174,12 @@ describe("processRecurringJobs", () => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
-    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
+    getDbExecMock.mockReturnValue({
+      execute: dbExecuteMock,
+      transaction: async (
+        fn: (tx: { execute: typeof dbExecuteMock }) => Promise<unknown>,
+      ) => fn({ execute: dbExecuteMock }),
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",
@@ -239,6 +252,17 @@ Summarize the inbox.`,
           threadId,
           status: "running",
           abort,
+          events: [
+            {
+              seq: 0,
+              event: {
+                type: "tool_done",
+                tool: "send-notification",
+                result: "Sent",
+                completedSideEffect: true,
+              },
+            },
+          ],
         };
         void Promise.resolve().then(async () => {
           try {
@@ -375,6 +399,46 @@ Summarize the inbox.`,
     });
     expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
     expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale pause without clearing an active run marker", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-stale-pause",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/stale-pause.md",
+        content: `---
+schedule: "* * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+lastStatus: running
+lastRun: "${new Date().toISOString()}"
+lastErrorCode: "missing_credentials"
+consecutiveFailures: 3
+pausedReason: "missing_credentials"
+pausedAt: "2026-10-01T00:00:00.000Z"
+---
+
+Summarize the inbox.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    const content: string = resourcePutMock.mock.calls.at(-1)![2];
+    const { meta } = parseJobResource(content);
+    expect(meta.enabled).toBe(true);
+    expect(meta.pausedReason).toBeUndefined();
+    expect(meta.pausedAt).toBeUndefined();
+    expect(meta.lastStatus).toBe("running");
+    expect(meta.lastErrorCode).toBe("missing_credentials");
+    expect(meta.consecutiveFailures).toBe(3);
   });
 
   it("seeds a scheduled automation without dropping its automation metadata", async () => {
@@ -668,6 +732,7 @@ Process the feedback.`,
       expect.any(Number),
       expect.any(Object),
       undefined,
+      expect.any(Function),
     );
   });
 
@@ -705,8 +770,14 @@ createdBy: __shared__
 Run the second job.`,
       },
     ]);
-    runAgentLoopWrapperMock.mockImplementation(async () => {
+    runAgentLoopWrapperMock.mockImplementation(async (opts) => {
       runCount += 1;
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Sent",
+        completedSideEffect: true,
+      });
       if (runCount === 1) await firstRunGate;
       return {
         inputTokens: 100,
@@ -1035,7 +1106,7 @@ Run job ${index}.`,
 
     expect(
       resourcePutMock.mock.calls.filter((call) =>
-        String(call[2]).includes("lastStatus: skipped"),
+        String(call[2]).includes("lastStatus: error"),
       ),
     ).toHaveLength(66);
   });
@@ -1128,11 +1199,13 @@ Import action items.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "template-job-action",
       "tool-search",
     ]);
     expect(firstRequestToolNames).not.toContain("list-integration-memory");
     expect(availableToolNames).toEqual([
+      "automation-no-op",
       "list-integration-memory",
       "template-job-action",
       "tool-search",
@@ -1178,6 +1251,7 @@ Import action items.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "manage-jobs",
       "manage-progress",
       "template-job-action",
@@ -1217,6 +1291,7 @@ Import action items.`,
       .map((tool: { name: string }) => tool.name)
       .sort();
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "other-framework-action",
       "template-job-action",
     ]);
@@ -1563,19 +1638,25 @@ createdBy: alice+jobs@agent-native.test
 Post the digest.`,
       },
     ]);
-    resourceGetByPathMock.mockResolvedValue({
-      id: "resource-edited",
-      owner: "alice+jobs@agent-native.test",
-      path: "jobs/channel-digest.md",
-      content: `---
+    resourceGetByPathMock.mockImplementation(async () => {
+      const running = parseJobResource(resourcePutMock.mock.calls[0]![2]).meta;
+      return {
+        id: "resource-edited",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
 schedule: "0 21 * * *"
 timezone: Asia/Tokyo
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: alice+jobs@agent-native.test
+lastRun: ${running.lastRun}
+lastHistoryId: ${running.lastHistoryId}
+lastStatus: running
 ---
 
 Post the revised digest.`,
+      };
     });
 
     await processRecurringJobs({
@@ -1714,7 +1795,8 @@ schedule: "* * * * *"
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: ghost@agent-native.test
-lastStatus: skipped
+lastStatus: error
+lastErrorCode: owner_missing
 lastError: "user \\"ghost@agent-native.test\\" no longer exists"
 lastCheck: "${new Date(Date.now() - 60_000).toISOString()}"
 ---
@@ -1751,7 +1833,8 @@ schedule: "* * * * *"
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: ghost@agent-native.test
-lastStatus: skipped
+lastStatus: error
+lastErrorCode: owner_missing
 lastError: "user \\"ghost@agent-native.test\\" no longer exists"
 ${offset === undefined ? "" : `lastCheck: "${new Date(Date.now() + offset).toISOString()}"`}
 ---
@@ -1768,7 +1851,7 @@ Do some work.`,
       });
 
       expect(runAgentLoopMock).not.toHaveBeenCalled();
-      expect(result.status).toBe("skipped");
+      expect(result.status).toBe("error");
       expect(resourcePutMock).toHaveBeenCalledTimes(writes);
       if (writes > 0) {
         const content: string = resourcePutMock.mock.calls[0][2];

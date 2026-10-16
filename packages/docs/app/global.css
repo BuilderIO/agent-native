@@ -2285,10 +2285,10 @@ html.dark .shiki span {
 }
 
 .mobile-docs-nav {
-  position: sticky;
-  top: 64px;
-  z-index: 40;
-  margin: 0 -16px;
+  position: relative;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   padding: 0 16px;
   background: var(--bg);
   border-bottom: 1px solid var(--docs-border);
@@ -2296,7 +2296,6 @@ html.dark .shiki span {
 
 @media (min-width: 640px) {
   .mobile-docs-nav {
-    margin: 0 -24px;
     padding: 0 24px;
   }
 }
@@ -2317,15 +2316,21 @@ html.dark .shiki span {
   -webkit-tap-highlight-color: transparent;
 }
 
-.mobile-docs-nav-trigger svg:last-child {
+.mobile-docs-nav-chevron {
   margin-inline-start: auto;
   color: var(--fg-secondary);
+  transition: transform 150ms ease;
+}
+
+.mobile-docs-nav-chevron.is-open {
+  transform: rotate(180deg);
 }
 
 .mobile-docs-nav-dropdown {
   position: absolute;
   inset-inline: 0;
   top: 100%;
+  z-index: 1;
   background: var(--bg);
   border-bottom: 1px solid var(--docs-border);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -2338,6 +2343,15 @@ html.dark .shiki span {
   list-style: none;
   margin: 0;
   padding: 8px 0;
+}
+
+.mobile-docs-nav-section + .mobile-docs-nav-section {
+  margin-top: 6px;
+}
+
+.mobile-docs-nav-group-trigger {
+  color: var(--fg-secondary);
+  font-weight: 400;
 }
 
 .mobile-docs-nav-link {
@@ -2366,12 +2380,6 @@ html.dark .shiki span {
 .mobile-docs-nav-sublink {
   padding-inline-start: 36px;
   font-size: 13px;
-}
-
-@media (max-width: 1023px) {
-  .mobile-docs-nav + .docs-article {
-    margin-top: 24px;
-  }
 }
 
 .docs-article > .docs-block {

@@ -1,3 +1,4 @@
+import type { ModelEngineConfig } from "@agent-native/core/agent/model-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import {
@@ -19,6 +20,7 @@ import { normalizeTooltipText } from "@agent-native/toolkit/ui/tooltip";
 import {
   IconMessageCircle,
   IconMessageDots,
+  IconMessageReport,
   IconTerminal2,
   IconLayoutSidebarRightCollapse,
   IconLayoutGrid,
@@ -46,6 +48,7 @@ import { useLocation, useNavigate } from "react-router";
 
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
+import { ReportProblemDialog } from "../feedback/ReportProblemDialog.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
 import { ShareButton } from "../sharing/index.js";
 import {
@@ -55,6 +58,7 @@ import {
 import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 import {
   MultiTabAssistantChat,
+  type MultiTabAssistantChatHeaderCallbackProps,
   type MultiTabAssistantChatHeaderProps,
   type MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
@@ -91,6 +95,7 @@ import {
   type BuilderConnectTransport,
 } from "../settings/index.js";
 import { RouterSidebarLink } from "../shared/index.js";
+import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   SettingsReturnPathRecorder,
@@ -183,8 +188,10 @@ export function settingsRouteHashForSection(
 
 export function AgentPanelSettingsNavigation({
   onOpenSettings,
+  onReadyChange,
 }: {
   onOpenSettings?: (section?: string) => void;
+  onReadyChange?: (ready: boolean) => void;
 } = {}) {
   const navigate = useNavigate();
 
@@ -199,7 +206,7 @@ export function AgentPanelSettingsNavigation({
       const requested = requestedSettingsSection(section, window.location.hash);
       const navigation = navigate(
         {
-          pathname: appPath("/settings"),
+          pathname: "/settings",
           hash: settingsRouteHashForSection(section, window.location.hash),
         },
         // The hash can't tell API keys from Integrations; the redesigned
@@ -221,12 +228,15 @@ export function AgentPanelSettingsNavigation({
       AGENT_PANEL_OPEN_SETTINGS_EVENT,
       handleOpenSettings,
     );
-    return () =>
+    onReadyChange?.(true);
+    return () => {
+      onReadyChange?.(false);
       window.removeEventListener(
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
-  }, [navigate, onOpenSettings]);
+    };
+  }, [navigate, onOpenSettings, onReadyChange]);
 
   return null;
 }
@@ -402,11 +412,14 @@ export function shouldShowAgentPanelPageNewChatButton(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
   activeTabMessageCount: number,
+  activeTabIsPersisted = false,
 ) {
   return shouldShowAgentPanelPageHeader(
     tabs,
     activeTabId,
     activeTabMessageCount,
+    false,
+    activeTabIsPersisted,
   );
 }
 
@@ -415,9 +428,11 @@ export function shouldShowAgentPanelPageHeader(
   activeTabId: string,
   activeTabMessageCount: number,
   showWhenEmpty = false,
+  activeTabIsPersisted = false,
 ) {
   if (!activeTabId) return false;
   if (activeTabMessageCount > 0) return true;
+  if (activeTabIsPersisted) return true;
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   return Boolean(
@@ -533,7 +548,12 @@ export interface AgentPanelProps extends Omit<
   AssistantChatProps,
   "onSwitchToCli"
 > {
+  onReadyChange?: (ready: boolean) => void;
   defaultMode?: "chat" | "cli";
+  onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
+  onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
+  onTabsClosed?: MultiTabAssistantChatProps["onTabsClosed"];
+  onTabsClosing?: MultiTabAssistantChatProps["onTabsClosing"];
   className?: string;
   style?: React.CSSProperties;
   onCollapse?: () => void;
@@ -717,6 +737,11 @@ function CodeAccessUnavailablePanel({
 }
 
 function AgentPanelInner({
+  onReadyChange,
+  onReferenceTargetChange,
+  onNavigationChange,
+  onTabsClosed,
+  onTabsClosing,
   defaultMode = "chat",
   className,
   style,
@@ -767,6 +792,22 @@ function AgentPanelInner({
   const t = useT();
   const location = useLocation();
   const mounted = useClientOnly();
+  const [chatCommandsReady, setChatCommandsReady] = useState(false);
+  const [modeCommandsReady, setModeCommandsReady] = useState(false);
+  const [settingsCommandsReady, setSettingsCommandsReady] = useState(false);
+  useEffect(() => {
+    onReadyChange?.(
+      chatCommandsReady && modeCommandsReady && settingsCommandsReady,
+    );
+    return () => onReadyChange?.(false);
+  }, [
+    onReadyChange,
+    chatCommandsReady,
+    modeCommandsReady,
+    settingsCommandsReady,
+  ]);
+  const [activeChatModelEngine, setActiveChatModelEngine] =
+    useState<ModelEngineConfig | null>(null);
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const firstRunOnboardingGateOwnsSurface =
     useFirstRunOnboardingGateOwnsSurface();
@@ -902,8 +943,11 @@ function AgentPanelInner({
       }
     }
     window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
-    return () =>
+    setModeCommandsReady(true);
+    return () => {
+      setModeCommandsReady(false);
       window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
+    };
   }, [switchMode]);
 
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
@@ -1132,6 +1176,7 @@ function AgentPanelInner({
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [reportProblemOpen, setReportProblemOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
   const pendingHeaderOverlayRef = useRef<(() => void) | null>(null);
   const closeHeaderMenuForOverlay = useCallback(() => {
@@ -1275,6 +1320,10 @@ function AgentPanelInner({
             }
           />
         ) : null}
+        <ReportProblemDialog
+          open={reportProblemOpen}
+          onOpenChange={setReportProblemOpen}
+        />
         {mode === "chat" && (
           <IconTooltip
             content={
@@ -1511,6 +1560,19 @@ function AgentPanelInner({
                 {t("agentPanel.feedback")}
               </DropdownMenuItem>
             ) : null}
+            <DropdownMenuItem
+              onSelect={(event) =>
+                deferAgentPanelOverlayOpen(
+                  event,
+                  closeHeaderMenuForOverlay,
+                  () => setReportProblemOpen(true),
+                  pendingHeaderOverlayRef,
+                )
+              }
+            >
+              <IconMessageReport size={14} className="shrink-0" />
+              {t("agentChat.reportProblem.menuItem")}
+            </DropdownMenuItem>
             {((mode === "chat" && activeTabId) ||
               (mode === "cli" &&
                 (canUseCodeTools || renderCliTab) &&
@@ -1601,6 +1663,7 @@ function AgentPanelInner({
       feedbackOpen,
       feedbackEnabled,
       getChatThreadShareUrl,
+      reportProblemOpen,
       headerMenuOpen,
       isWideDrawer,
       mode,
@@ -1635,12 +1698,13 @@ function AgentPanelInner({
     ({
       activeTabId,
       activeTabMessageCount,
+      activeTabIsPersisted,
       addTab,
       clearActiveTab,
       showHistory,
       tabs,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => {
+    }: MultiTabAssistantChatHeaderCallbackProps) => {
       const activeTab = activeTabId
         ? tabs.find((tab) => tab.id === activeTabId)
         : undefined;
@@ -1649,15 +1713,20 @@ function AgentPanelInner({
         activeTabId,
         activeTabMessageCount,
         showPageHeaderWhenEmpty,
+        activeTabIsPersisted,
       );
       const canShareActiveTab =
-        activeTab && (activeTabMessageCount > 0 || activeTab.status !== "idle");
+        activeTab &&
+        (activeTabIsPersisted ||
+          activeTabMessageCount > 0 ||
+          activeTab.status !== "idle");
       const showNewChatAction =
         showPageNewChatButton &&
         shouldShowAgentPanelPageNewChatButton(
           tabs,
           activeTabId,
           activeTabMessageCount,
+          activeTabIsPersisted,
         );
 
       return (
@@ -1834,7 +1903,7 @@ function AgentPanelInner({
       closeAllTabs,
       showHistory,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => {
+    }: MultiTabAssistantChatHeaderCallbackProps) => {
       const { activeTab, childTabs, focusParentId, hasSubTabs, mainTabs } =
         getAgentPanelChatTabGroups(tabs, activeTabId);
       const showSidebarChatTabs =
@@ -2318,7 +2387,10 @@ function AgentPanelInner({
 
   return (
     <ThinkingDisplayProvider value={assistantChatProps.thinkingDisplay}>
-      <AgentPanelSettingsNavigation onOpenSettings={onOpenSettings} />
+      <AgentPanelSettingsNavigation
+        onOpenSettings={onOpenSettings}
+        onReadyChange={setSettingsCommandsReady}
+      />
       <div
         className={cn(
           "agent-panel-root agent-kit-density flex flex-1 flex-col min-h-0 min-w-0 h-full antialiased",
@@ -2386,6 +2458,11 @@ function AgentPanelInner({
           {mounted && (
             <MultiTabAssistantChat
               {...assistantChatProps}
+              onCommandListenersReadyChange={setChatCommandsReady}
+              onReferenceTargetChange={onReferenceTargetChange}
+              onNavigationChange={onNavigationChange}
+              onTabsClosed={onTabsClosed}
+              onTabsClosing={onTabsClosing}
               threadContentSlot={assistantChatProps.threadContentSlot}
               agentChatSurface={effectiveAgentChatSurface}
               apiUrl={apiUrl}
@@ -2402,6 +2479,7 @@ function AgentPanelInner({
               emptyStateAddon={emptyStateAddon}
               emptyStateFooter={emptyStateFooter}
               onMessageCountChange={onMessageCountChange}
+              onActiveModelEngineChange={setActiveChatModelEngine}
               suggestions={suggestions}
               dynamicSuggestions={dynamicSuggestions}
               suggestionPlacement={
@@ -2493,7 +2571,7 @@ function AgentPanelInner({
                 </div>
               }
             >
-              <ResourcesPanel />
+              <ResourcesPanel modelEngine={activeChatModelEngine} />
             </Suspense>
           </div>
         )}
@@ -2677,6 +2755,7 @@ function AgentPanelErrorFallback({
 }
 
 export function AgentPanel(props: AgentPanelProps) {
+  useRegisterAgentChatSurface(true);
   const [resetKey, setResetKey] = useState(0);
   const resetPanel = useCallback(() => {
     try {

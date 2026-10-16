@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyPlanContentPatches,
   planContentSchema,
+  planContentPatchesSchema,
+  storedPlanContentSchema,
   type PlanContent,
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
@@ -1024,6 +1026,134 @@ describe("canvas frame / annotation patch interactions", () => {
 });
 
 describe("replace-blocks and replace-block validation", () => {
+  it.each([
+    [
+      "replace-block checklist",
+      (block: unknown) => ({
+        op: "replace-block",
+        blockId: "checklist",
+        block,
+      }),
+      {
+        id: "checklist",
+        type: "checklist",
+        data: {},
+      },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "replace-block annotated-code",
+      (block: unknown) => ({
+        op: "replace-block",
+        blockId: "annotated-code",
+        block,
+      }),
+      {
+        id: "annotated-code",
+        type: "annotated-code",
+        data: {},
+      },
+      /annotated-code blocks require data\.code/,
+    ],
+    [
+      "replace-blocks checklist",
+      (block: unknown) => ({ op: "replace-blocks", blocks: [block] }),
+      {
+        id: "checklist",
+        type: "checklist",
+        data: {},
+      },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "replace-blocks annotated-code",
+      (block: unknown) => ({ op: "replace-blocks", blocks: [block] }),
+      {
+        id: "annotated-code",
+        type: "annotated-code",
+        data: {},
+      },
+      /annotated-code blocks require data\.code/,
+    ],
+  ])(
+    "preserves omitted fields through %s parsing",
+    (_label, makePatch, block, message) => {
+      const previous = planContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "checklist",
+            type: "checklist",
+            data: { items: [{ id: "item", label: "Keep this" }] },
+          },
+          {
+            id: "annotated-code",
+            type: "annotated-code",
+            data: { code: "const keep = true;" },
+          },
+        ],
+      });
+      const rawPatch = makePatch(block);
+      const parsedPatches = planContentPatchesSchema.parse([rawPatch]);
+
+      expect(
+        "block" in (parsedPatches[0] ?? {})
+          ? (parsedPatches[0] as { block: unknown }).block
+          : (parsedPatches[0] as { blocks: unknown[] }).blocks[0],
+      ).toEqual(block);
+      expect(() => applyPlanContentPatches(previous, parsedPatches)).toThrow(
+        message,
+      );
+    },
+  );
+
+  it("keeps unchanged legacy defaults through replacement patch parsing", () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-checklist", type: "checklist", data: {} },
+        { id: "legacy-code", type: "annotated-code", data: {} },
+      ],
+    });
+    const patches = planContentPatchesSchema.parse([
+      {
+        op: "replace-blocks",
+        blocks: [
+          { id: "legacy-checklist", type: "checklist", data: {} },
+          { id: "legacy-code", type: "annotated-code", data: {} },
+        ],
+      },
+    ]);
+
+    const next = applyPlanContentPatches(previous, patches);
+    expect(next.blocks).toMatchObject([
+      { id: "legacy-checklist", data: { items: [] } },
+      { id: "legacy-code", data: { code: "" } },
+    ]);
+  });
+
+  it("rejects incomplete authored blocks in append and replacement patches", () => {
+    const incompleteQuestionBlock = {
+      id: "incomplete-questions",
+      type: "question-form",
+      data: {},
+    } as never;
+
+    expect(() =>
+      applyPlanContentPatches(basePlan(), [
+        { op: "append-block", block: incompleteQuestionBlock },
+      ]),
+    ).toThrow(/require data\.questions/i);
+    expect(() =>
+      applyPlanContentPatches(basePlan(), [
+        {
+          op: "replace-blocks",
+          blocks: [incompleteQuestionBlock],
+        },
+      ]),
+    ).toThrow(/question-form blocks require data\.questions/i);
+  });
+
   it("replace-blocks rejects a set with duplicate ids", () => {
     expect(() =>
       applyPlanContentPatches(basePlan(), [
@@ -1123,6 +1253,217 @@ describe("patch-wireframe-html: find/replace mechanics", () => {
 });
 
 describe("applyPlanContentPatches validates the input plan first", () => {
+  it("preserves untouched legacy defaults during an unrelated block update", () => {
+    const legacy = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy", type: "question-form", data: {} },
+        {
+          id: "legacy-tabs",
+          type: "tabs",
+          data: {
+            tabs: [
+              {
+                id: "legacy-tab",
+                label: "Legacy tab",
+                blocks: [
+                  { id: "legacy-nested", type: "question-form", data: {} },
+                ],
+              },
+            ],
+          },
+        },
+        { id: "copy", type: "rich-text", data: { markdown: "Original." } },
+      ],
+    });
+
+    const next = applyPlanContentPatches(legacy, [
+      { op: "update-block", blockId: "legacy", patch: { title: "Questions" } },
+      {
+        op: "update-block",
+        blockId: "legacy-tabs",
+        patch: { title: "Legacy questions" },
+      },
+      { op: "update-rich-text", blockId: "copy", markdown: "Updated." },
+    ]);
+
+    expect(next.blocks[0]).toMatchObject({
+      id: "legacy",
+      type: "question-form",
+      title: "Questions",
+      data: { questions: [] },
+    });
+    expect(next.blocks[1]).toMatchObject({
+      id: "legacy-tabs",
+      title: "Legacy questions",
+      type: "tabs",
+      data: {
+        tabs: [
+          {
+            blocks: [
+              {
+                id: "legacy-nested",
+                type: "question-form",
+                data: { questions: [] },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(next.blocks[2]).toMatchObject({
+      id: "copy",
+      type: "rich-text",
+      data: { markdown: "Updated." },
+    });
+  });
+
+  it.each(["tabs", "columns"] as const)(
+    "preserves unchanged nested legacy defaults in update-block %s patches",
+    (type) => {
+      const nestedQuestion = {
+        id: "legacy-nested-questions",
+        type: "question-form",
+        data: {},
+      };
+      const containerData =
+        type === "tabs"
+          ? {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Questions",
+                  blocks: [nestedQuestion],
+                },
+              ],
+            }
+          : {
+              columns: [
+                {
+                  id: "column",
+                  blocks: [nestedQuestion],
+                },
+              ],
+            };
+      const content = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [{ id: "container", type, data: containerData }],
+      });
+      const existing = content.blocks[0];
+      if (!existing || existing.type !== type) {
+        throw new Error(`expected ${type} container`);
+      }
+
+      const next = applyPlanContentPatches(content, [
+        {
+          op: "update-block",
+          blockId: "container",
+          patch: { data: existing.data as unknown as Record<string, unknown> },
+        },
+      ]);
+
+      expect(next.blocks[0]).toMatchObject({
+        id: "container",
+        type,
+        data:
+          type === "tabs"
+            ? {
+                tabs: [
+                  {
+                    blocks: [
+                      {
+                        id: "legacy-nested-questions",
+                        type: "question-form",
+                        data: { questions: [] },
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {
+                columns: [
+                  {
+                    blocks: [
+                      {
+                        id: "legacy-nested-questions",
+                        type: "question-form",
+                        data: { questions: [] },
+                      },
+                    ],
+                  },
+                ],
+              },
+      });
+    },
+  );
+
+  it.each(["tabs", "columns"] as const)(
+    "rejects incomplete nested authoring data in update-block %s patches",
+    (type) => {
+      const existingNestedBlock = {
+        id: "existing",
+        type: "rich-text",
+        data: { markdown: "Existing." },
+      };
+      const content = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "container",
+            type,
+            data:
+              type === "tabs"
+                ? {
+                    tabs: [
+                      {
+                        id: "tab",
+                        label: "Tab",
+                        blocks: [existingNestedBlock],
+                      },
+                    ],
+                  }
+                : {
+                    columns: [{ id: "column", blocks: [existingNestedBlock] }],
+                  },
+          },
+        ],
+      });
+      const data: Record<string, unknown> =
+        type === "tabs"
+          ? {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Tab",
+                  blocks: [
+                    { id: "incomplete", type: "question-form", data: {} },
+                  ],
+                },
+              ],
+            }
+          : {
+              columns: [
+                {
+                  id: "column",
+                  blocks: [{ id: "incomplete", type: "checklist", data: {} }],
+                },
+              ],
+            };
+
+      expect(() =>
+        applyPlanContentPatches(content, [
+          {
+            op: "update-block",
+            blockId: "container",
+            patch: { data },
+          },
+        ]),
+      ).toThrow(
+        /require (data\.(questions|items)|at least one (questions|items))/i,
+      );
+    },
+  );
+
   it("throws when the starting content is already invalid", () => {
     const broken = {
       version: 2,

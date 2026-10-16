@@ -512,7 +512,7 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
     ["back", ["A", "C", "S", "B", "D"]],
     ["forward", ["S", "B", "A", "D", "C"]],
     ["backward", ["A", "S", "C", "B", "D"]],
-  ] as const)("uses the native oracle order for %s", (mode, expected) => {
+  ] as const)("uses the configured order for %s", (mode, expected) => {
     const { args, applyLocalContentUpdate } = multiHarness(
       G8_CONTENT,
       ["A", "C"],

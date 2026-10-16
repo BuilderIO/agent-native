@@ -10,3 +10,5 @@ Core conserva el estado de aplicación, el acceso con alcance y el motor de Cont
 El motor de Context X-Ray sigue siendo de Core. Usa la presentación de Toolkit para mostrar contexto de forma coherente, pero mantén decisiones de estado y acceso en Core y acciones. [Context awareness](/docs/context-awareness) hace visible para el agente la navegación, selección y objeto enfocado; [Resources](/docs/toolkit-resources) cubre archivos y adjuntos.
 
 El contexto nunca sustituye los controles de acceso. Conserva las comprobaciones de recursos y credenciales antes de recuperar conocimiento de proveedores.
+
+Toolkit exporta el panel listo para usar desde @agent-native/toolkit/app/context-xray. La app proporciona el manifiesto, el estado optimista de fijación o expulsión y las funciones; el panel no obtiene datos ni ejecuta acciones.

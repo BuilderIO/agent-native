@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
-import { getDbExec } from "../../db/client.js";
 import { createGetDb } from "../../db/create-get-db.js";
+import { defineStore } from "../../db/store-registry.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -30,25 +30,26 @@ const getDb = createGetDb({
   extensionSlotInstalls,
 });
 
-let _initPromise: Promise<void> | undefined;
+export const extensionSlotsStore = defineStore({
+  id: "extension_slots",
+  migrations: [
+    {
+      name: "baseline",
+      sql: [
+        EXTENSION_SLOTS_CREATE_SQL,
+        EXTENSION_SLOTS_BY_SLOT_INDEX_SQL,
+        EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL,
+        EXTENSION_SLOTS_UNIQUE_INDEX_SQL,
+        EXTENSION_SLOT_INSTALLS_CREATE_SQL,
+        EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL,
+        EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
+      ],
+    },
+  ],
+});
 
-export async function ensureSlotTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      await client.execute(EXTENSION_SLOTS_CREATE_SQL);
-      await client.execute(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
-      await client.execute(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
-      await client.execute(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
-      await client.execute(EXTENSION_SLOT_INSTALLS_CREATE_SQL);
-      await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
-      await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureSlotTables(): Promise<void> {
+  return extensionSlotsStore.ready();
 }
 
 export interface ExtensionSlotRow {

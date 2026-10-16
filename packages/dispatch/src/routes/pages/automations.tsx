@@ -190,9 +190,7 @@ export default function AutomationsRoute() {
   }, [ordered, query]);
   const enabledCount = visibleAutomations.filter((item) => item.enabled).length;
   const errorCount = visibleAutomations.filter(
-    (item) =>
-      item.enabled &&
-      (item.lastStatus === "error" || item.lastStatus === "skipped"),
+    (item) => item.enabled && item.lastStatus === "error",
   ).length;
   const pendingToggleIdentity = toggleAutomation.isPending
     ? toggleAutomation.variables
@@ -327,7 +325,14 @@ export default function AutomationsRoute() {
                         </div>
                       </button>
                       {item.lastError ? (
-                        <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-destructive">
+                        <div
+                          className={cn(
+                            "mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs",
+                            item.lastStatus === "skipped"
+                              ? "text-muted-foreground"
+                              : "text-destructive",
+                          )}
+                        >
                           <span className="min-w-0 break-words">
                             {item.lastError}
                           </span>

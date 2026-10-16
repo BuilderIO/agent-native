@@ -110,6 +110,82 @@ describe("create-factory-automation", () => {
     expect(createFactoryAutomationMock).not.toHaveBeenCalled();
   });
 
+  it("routes reportable GitHub jobs to the fixed QA channel", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "GitHub issue triage",
+        source: "github",
+        template: "github-issues",
+        repository: "BuilderIO/agent-native",
+      },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(createFactoryAutomationMock.mock.calls[0]?.[3]).toMatchObject({
+      config: {
+        slackWorkspace: "primary",
+        slackChannelId: "C0C4U4XRT6X",
+        slackChannelName: "#qa-agent-native",
+      },
+    });
+  });
+
+  it("requires both GitHub and Slack connections for enabled issue reporting", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "GitHub issue triage",
+        source: "github",
+        template: "github-issues",
+        repository: "BuilderIO/agent-native",
+        slackChannelId: "CQA123",
+        enabled: true,
+      },
+      { userEmail: "owner@example.com" },
+    );
+    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
+      1,
+      "github",
+      "owner@example.com",
+      expect.objectContaining({ orgId: "org-1", verb: "creating" }),
+    );
+    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
+      2,
+      "slack",
+      "owner@example.com",
+      expect.objectContaining({
+        orgId: "org-1",
+        slackWorkspace: "primary",
+        verb: "creating",
+      }),
+    );
+    expect(createFactoryAutomationMock.mock.calls[0]?.[3]).toMatchObject({
+      config: {
+        slackWorkspace: "primary",
+        slackChannelId: "C0C4U4XRT6X",
+        slackChannelName: "#qa-agent-native",
+      },
+    });
+  });
+
+  it("does not require a findings destination for PR governance jobs", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "PR governance",
+        source: "github",
+        template: "pr-governance",
+        repository: "BuilderIO/agent-native",
+      },
+      { userEmail: "owner@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, source: "github" });
+  });
+
   it("creates a Slack job with a work limit", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     const result = await action.run(

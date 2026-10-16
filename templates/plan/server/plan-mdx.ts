@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+
 import {
   BlockRegistry,
   prop,
@@ -22,14 +25,19 @@ import {
 } from "../shared/plan-assets.js";
 import { registerPlanBlocks } from "../shared/plan-block-registry.js";
 import {
+  assertPlanContentAuthoringChanges,
+  PLAN_BLOCK_MAX_DEPTH,
   PLAN_CONTENT_VERSION,
   createPlanBlockId,
+  PlanContentValidationError,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanAnnotation,
   type PlanAnnotationPlacement,
   type PlanArtboard,
   type PlanBlock,
   type PlanBoardSection,
+  type PlanColumnsBlock,
   type PlanConnector,
   type PlanContent,
   type PlanLegacyWireframeBlock,
@@ -40,7 +48,10 @@ import {
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import type { PlanComment } from "../shared/types.js";
-import { normalizePlanContent } from "./plan-content.js";
+import {
+  normalizePlanContent,
+  normalizeStoredPlanContent,
+} from "./plan-content.js";
 
 const planMdxRegistry = new BlockRegistry();
 registerPlanBlocks(planMdxRegistry);
@@ -717,7 +728,7 @@ export async function exportPlanContentToMdxFolder(
   input: ExportPlanMdxInput,
 ): Promise<PlanMdxFolder> {
   const content =
-    normalizePlanContent(
+    normalizeStoredPlanContent(
       input.content ?? {
         version: PLAN_CONTENT_VERSION,
         title: input.title,
@@ -1061,7 +1072,7 @@ function parsePlanMdxFile(
           ? error.message
           : String(error);
     const location = line && column ? `:${line + lineOffset}:${column}` : "";
-    throw new Error(`${filename}${location}: ${reason}`);
+    throw new PlanContentValidationError(`${filename}${location}: ${reason}`);
   }
 }
 
@@ -1234,7 +1245,15 @@ function stringifyChildren(children: MdxNode[] | undefined): string {
 }
 
 type ParsedPlanNode =
-  | { type: "block"; block: PlanBlock }
+  | {
+      type: "block";
+      block: PlanBlock;
+      hasSourceId: boolean;
+      sourceId?: string;
+      sourceIndex: number;
+      matchPrevious: boolean;
+      matchedPreviousId?: string;
+    }
   | { type: "markdown"; markdown: string };
 
 function resolveMarkdownRunIds(
@@ -1243,12 +1262,29 @@ function resolveMarkdownRunIds(
     firstMarkdownBlockId?: string;
     markdownBlockIds?: string[];
     markdownBlocks?: MarkdownBlockState[];
+    previousBlocks?: PlanBlock[];
+    usedBlockIds?: ReadonlySet<string>;
   } = {},
 ): string[] {
   const stateBlocks: MarkdownBlockState[] =
     options.markdownBlocks && options.markdownBlocks.length > 0
       ? options.markdownBlocks
       : (options.markdownBlockIds?.map((id) => ({ id })) ?? []);
+
+  const previousIdsByMarkdown = new Map<string, string[]>();
+  if (stateBlocks.length === 0) {
+    const usedBlockIds = new Set(options.usedBlockIds);
+    if (options.firstMarkdownBlockId) {
+      usedBlockIds.add(options.firstMarkdownBlockId);
+    }
+    for (const block of options.previousBlocks ?? []) {
+      if (block.type !== "rich-text" || usedBlockIds.has(block.id)) continue;
+      const markdown = block.data.markdown.trim();
+      const ids = previousIdsByMarkdown.get(markdown) ?? [];
+      ids.push(block.id);
+      previousIdsByMarkdown.set(markdown, ids);
+    }
+  }
 
   const hasHashes = stateBlocks.some((block) => block.hash);
   if (!hasHashes && stateBlocks.length === markdowns.length) {
@@ -1270,6 +1306,8 @@ function resolveMarkdownRunIds(
     if (index === 0 && options.firstMarkdownBlockId) {
       return options.firstMarkdownBlockId;
     }
+    const previousId = previousIdsByMarkdown.get(markdown.trim())?.shift();
+    if (previousId) return previousId;
     return createPlanBlockId("markdown");
   });
 }
@@ -1281,27 +1319,110 @@ function parseBlocksFromNodes(
     firstMarkdownBlockId?: string;
     markdownBlockIds?: string[];
     markdownBlocks?: MarkdownBlockState[];
+    preserveAuthoringFieldPresence?: boolean;
+    salvageInvalidBlocks?: boolean;
+    blockDepth?: number;
+    previousBlocks?: PlanBlock[];
+    generatedIds?: WeakSet<object>;
   } = {},
 ): PlanBlock[] {
+  const generatedIds = options.generatedIds ?? new WeakSet<object>();
   const parsedNodes: ParsedPlanNode[] = [];
   const looseNodes: MdxNode[] = [];
+  let previousBlockIndex = 0;
+  let hasPendingMarkdown = false;
   const flushLoose = () => {
     const markdown = stringifyChildren(looseNodes).trim();
     looseNodes.length = 0;
+    hasPendingMarkdown = false;
     if (!markdown) return;
     parsedNodes.push({ type: "markdown", markdown });
+    previousBlockIndex += 1;
   };
 
-  for (const [index, child] of (nodes ?? []).entries()) {
-    const block = parseBlock(child, `${idContext}-${index}`);
+  for (const child of nodes ?? []) {
+    const blockIndex = previousBlockIndex + (hasPendingMarkdown ? 1 : 0);
+    const sourceIdAttribute = findAttribute(child, "id");
+    const sourceId = stringAttr(child, "id");
+    const previousBlock = sourceIdAttribute
+      ? options.previousBlocks?.find((candidate) => candidate.id === sourceId)
+      : options.previousBlocks?.[blockIndex];
+    let block: PlanBlock | null;
+    try {
+      const parsedBlock = parseBlock(
+        child,
+        `${idContext}-${blockIndex}`,
+        options.preserveAuthoringFieldPresence,
+        options.salvageInvalidBlocks,
+        options.blockDepth ?? 0,
+        previousBlock,
+        generatedIds,
+      );
+      block = parsedBlock
+        ? validateAndPreserveAuthoringField(
+            parsedBlock,
+            child,
+            options.preserveAuthoringFieldPresence === true,
+          )
+        : parsedBlock;
+      if (block && previousBlock) {
+        block = reuseMatchingNestedBlockIds(block, previousBlock, generatedIds);
+      }
+      if (
+        block &&
+        !sourceIdAttribute &&
+        previousBlock &&
+        samePlanBlockSource(block, previousBlock)
+      ) {
+        block = { ...block, id: previousBlock.id };
+      }
+    } catch (error) {
+      if (!options.salvageInvalidBlocks) throw error;
+      flushLoose();
+      const placeholder = invalidBlockWarningPlaceholder(
+        sourceId ?? createStablePlanSourceId(`${idContext}-${blockIndex}`),
+        elementName(child) ?? "unknown",
+        stringAttr(child, "title"),
+        error,
+      );
+      if (!sourceIdAttribute) generatedIds.add(placeholder);
+      parsedNodes.push({
+        type: "block",
+        block: placeholder,
+        hasSourceId: !!sourceIdAttribute,
+        sourceId,
+        sourceIndex: blockIndex,
+        matchPrevious: false,
+      });
+      previousBlockIndex += 1;
+      continue;
+    }
     if (block) {
       flushLoose();
-      parsedNodes.push({ type: "block", block });
+      if (!sourceIdAttribute) generatedIds.add(block);
+      parsedNodes.push({
+        type: "block",
+        block,
+        hasSourceId: !!sourceIdAttribute,
+        sourceId,
+        sourceIndex: blockIndex,
+        matchPrevious: true,
+      });
+      previousBlockIndex += 1;
     } else {
       looseNodes.push(child);
+      if (!hasPendingMarkdown) {
+        hasPendingMarkdown = stringifyChildren([child]).trim().length > 0;
+      }
     }
   }
   flushLoose();
+  preserveIdlessBlockIds(
+    parsedNodes,
+    options.previousBlocks,
+    idContext,
+    generatedIds,
+  );
 
   const markdowns = parsedNodes
     .filter(
@@ -1309,7 +1430,15 @@ function parseBlocksFromNodes(
         node.type === "markdown",
     )
     .map((node) => node.markdown);
-  const markdownIds = resolveMarkdownRunIds(markdowns, options);
+  const usedBlockIds = new Set<string>();
+  for (const node of parsedNodes) {
+    if (node.type === "block") usedBlockIds.add(node.block.id);
+  }
+  const markdownIds = resolveMarkdownRunIds(markdowns, {
+    ...options,
+    previousBlocks: options.previousBlocks,
+    usedBlockIds,
+  });
   let markdownIndex = 0;
   const blocks = parsedNodes.map((node) => {
     if (node.type === "block") return node.block;
@@ -1323,11 +1452,1305 @@ function parseBlocksFromNodes(
   return blocks;
 }
 
+function invalidBlockWarningPlaceholder(
+  id: string,
+  originalType: string,
+  title: string | undefined,
+  error: unknown,
+): PlanBlock {
+  const summary =
+    error instanceof Error ? error.message.slice(0, 500) : "Parse error";
+  return {
+    id,
+    type: "callout",
+    title,
+    data: {
+      tone: "warning",
+      body: `​__unknown_block__:${originalType}\n${summary}`,
+    },
+  };
+}
+
 function elementName(node: MdxNode | undefined): string | undefined {
   return node?.type === "mdxJsxFlowElement" ||
     node?.type === "mdxJsxTextElement"
     ? node.name
     : undefined;
+}
+
+const requiredAuthoringFieldByBlockType: Partial<
+  Record<PlanBlock["type"], string>
+> = {
+  checklist: "items",
+  "question-form": "questions",
+  "visual-questions": "questions",
+  tabs: "tabs",
+  "data-model": "entities",
+  "annotated-code": "code",
+};
+
+function isLegacyDefault(value: unknown): boolean {
+  return (Array.isArray(value) && value.length === 0) || value === "";
+}
+
+function stripBlockIdsForSourceComparison(
+  current: Record<string, unknown>,
+  previous: Record<string, unknown>,
+): void {
+  if (current.type !== previous.type) return;
+  delete current.id;
+  delete previous.id;
+
+  const type = current.type as PlanBlock["type"];
+  const currentData = current.data as Record<string, unknown> | undefined;
+  const previousData = previous.data as Record<string, unknown> | undefined;
+  if (!currentData || !previousData) return;
+
+  const requiredField = requiredAuthoringFieldByBlockType[type];
+  if (
+    requiredField &&
+    currentData[requiredField] === undefined &&
+    isLegacyDefault(previousData[requiredField])
+  ) {
+    delete currentData[requiredField];
+    delete previousData[requiredField];
+  }
+
+  const nestedKey =
+    type === "tabs" ? "tabs" : type === "columns" ? "columns" : null;
+  if (!nestedKey) return;
+  const currentGroups = currentData[nestedKey];
+  const previousGroups = previousData[nestedKey];
+  if (!Array.isArray(currentGroups) || !Array.isArray(previousGroups)) return;
+
+  for (
+    let index = 0;
+    index < Math.min(currentGroups.length, previousGroups.length);
+    index += 1
+  ) {
+    const currentGroup = currentGroups[index];
+    const previousGroup = previousGroups[index];
+    if (
+      !currentGroup ||
+      typeof currentGroup !== "object" ||
+      !previousGroup ||
+      typeof previousGroup !== "object"
+    ) {
+      continue;
+    }
+    delete (currentGroup as Record<string, unknown>).id;
+    delete (previousGroup as Record<string, unknown>).id;
+    const currentBlocks = (currentGroup as Record<string, unknown>).blocks;
+    const previousBlocks = (previousGroup as Record<string, unknown>).blocks;
+    if (!Array.isArray(currentBlocks) || !Array.isArray(previousBlocks))
+      continue;
+    for (
+      let blockIndex = 0;
+      blockIndex < Math.min(currentBlocks.length, previousBlocks.length);
+      blockIndex += 1
+    ) {
+      const currentBlock = currentBlocks[blockIndex];
+      const previousBlock = previousBlocks[blockIndex];
+      if (
+        currentBlock &&
+        typeof currentBlock === "object" &&
+        previousBlock &&
+        typeof previousBlock === "object"
+      ) {
+        stripBlockIdsForSourceComparison(
+          currentBlock as Record<string, unknown>,
+          previousBlock as Record<string, unknown>,
+        );
+      }
+    }
+  }
+}
+
+function samePlanBlockSource(current: PlanBlock, previous: PlanBlock): boolean {
+  if (current.type !== previous.type) return false;
+  const currentCopy = JSON.parse(JSON.stringify(current)) as Record<
+    string,
+    unknown
+  >;
+  const previousCopy = JSON.parse(JSON.stringify(previous)) as Record<
+    string,
+    unknown
+  >;
+  stripBlockIdsForSourceComparison(currentCopy, previousCopy);
+  return isDeepStrictEqual(currentCopy, previousCopy);
+}
+
+function canonicalSourceJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalSourceJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(
+        ([key, entry]) =>
+          `${JSON.stringify(key)}:${canonicalSourceJson(entry)}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function stripEmptyRequiredFieldsForSourceKey(value: unknown): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const block = value as Record<string, unknown>;
+  if (typeof block.type !== "string") return;
+  const data = block.data as Record<string, unknown> | undefined;
+  if (!data) return;
+
+  const requiredField =
+    requiredAuthoringFieldByBlockType[block.type as PlanBlock["type"]];
+  if (requiredField && isLegacyDefault(data[requiredField])) {
+    delete data[requiredField];
+  }
+
+  const nestedKey =
+    block.type === "tabs"
+      ? "tabs"
+      : block.type === "columns"
+        ? "columns"
+        : null;
+  const groups = nestedKey ? data[nestedKey] : null;
+  if (!Array.isArray(groups)) return;
+  for (const group of groups) {
+    if (!group || typeof group !== "object") continue;
+    const blocks = (group as Record<string, unknown>).blocks;
+    if (!Array.isArray(blocks)) continue;
+    for (const nestedBlock of blocks) {
+      stripEmptyRequiredFieldsForSourceKey(nestedBlock);
+    }
+  }
+}
+
+function hasMissingRequiredSourceField(block: PlanBlock): boolean {
+  const requiredField = requiredAuthoringFieldByBlockType[block.type];
+  const data = block.data as Record<string, unknown>;
+  if (requiredField && data[requiredField] === undefined) return true;
+
+  const nestedKey =
+    block.type === "tabs"
+      ? "tabs"
+      : block.type === "columns"
+        ? "columns"
+        : null;
+  const groups = nestedKey ? data[nestedKey] : null;
+  return (
+    Array.isArray(groups) &&
+    groups.some((group) => {
+      if (!group || typeof group !== "object") return false;
+      const blocks = (group as Record<string, unknown>).blocks;
+      return (
+        Array.isArray(blocks) &&
+        blocks.some(
+          (nestedBlock) =>
+            nestedBlock &&
+            typeof nestedBlock === "object" &&
+            hasMissingRequiredSourceField(nestedBlock as PlanBlock),
+        )
+      );
+    })
+  );
+}
+
+function planBlockSourceFingerprint(
+  block: PlanBlock,
+  normalizeLegacyDefaults = false,
+): string {
+  const currentCopy = JSON.parse(JSON.stringify(block)) as Record<
+    string,
+    unknown
+  >;
+  const previousCopy = JSON.parse(JSON.stringify(block)) as Record<
+    string,
+    unknown
+  >;
+  stripBlockIdsForSourceComparison(currentCopy, previousCopy);
+  if (normalizeLegacyDefaults) {
+    stripEmptyRequiredFieldsForSourceKey(currentCopy);
+  }
+  return createHash("sha256")
+    .update(canonicalSourceJson(currentCopy))
+    .digest("hex");
+}
+
+function nestedPlanGroups(block: PlanBlock): unknown[] | null {
+  if (block.type !== "tabs" && block.type !== "columns") return null;
+  const groups = (block.data as Record<string, unknown>)[block.type];
+  return Array.isArray(groups) ? groups : null;
+}
+
+function nestedGroupShellKey(group: unknown): string | null {
+  if (!group || typeof group !== "object" || Array.isArray(group)) return null;
+  const copy = JSON.parse(JSON.stringify(group)) as Record<string, unknown>;
+  delete copy.id;
+  delete copy.blocks;
+  return canonicalSourceJson(copy);
+}
+
+function nestedGroupPairs(
+  currentGroups: unknown[],
+  previousGroups: unknown[],
+  generatedIds: WeakSet<object>,
+): Array<[number, number]> {
+  const pairs: Array<[number, number]> = [];
+  const claimedPrevious = new Set<number>();
+  const previousById = new Map<string, number>();
+  for (const [index, group] of previousGroups.entries()) {
+    if (!group || typeof group !== "object") continue;
+    const id = (group as Record<string, unknown>).id;
+    if (typeof id === "string" && id) previousById.set(id, index);
+  }
+
+  for (const [currentIndex, group] of currentGroups.entries()) {
+    if (!group || typeof group !== "object") continue;
+    const record = group as Record<string, unknown>;
+    if (generatedIds.has(group)) continue;
+    const id = record.id;
+    const previousIndex = typeof id === "string" ? previousById.get(id) : null;
+    if (previousIndex === undefined || previousIndex === null) continue;
+    pairs.push([currentIndex, previousIndex]);
+    claimedPrevious.add(previousIndex);
+  }
+
+  const currentByShell = new Map<string, number[]>();
+  const previousByShell = new Map<string, number[]>();
+  for (const [index, group] of currentGroups.entries()) {
+    if (!group || typeof group !== "object" || !generatedIds.has(group)) {
+      continue;
+    }
+    const key = nestedGroupShellKey(group);
+    if (key === null) continue;
+    const indices = currentByShell.get(key) ?? [];
+    indices.push(index);
+    currentByShell.set(key, indices);
+  }
+  for (const [index, group] of previousGroups.entries()) {
+    if (!group || typeof group !== "object") continue;
+    const key = nestedGroupShellKey(group);
+    if (key === null) continue;
+    const indices = previousByShell.get(key) ?? [];
+    indices.push(index);
+    previousByShell.set(key, indices);
+  }
+
+  for (const [key, currentIndices] of currentByShell) {
+    const previousIndices = previousByShell.get(key);
+    if (!previousIndices) continue;
+    if (currentIndices.length === 1 && previousIndices.length === 1) {
+      if (!claimedPrevious.has(previousIndices[0]!)) {
+        pairs.push([currentIndices[0]!, previousIndices[0]!]);
+      }
+      continue;
+    }
+    if (currentIndices.length !== previousIndices.length) continue;
+    for (const [offset, currentIndex] of currentIndices.entries()) {
+      const previousIndex = previousIndices[offset];
+      if (previousIndex === undefined || claimedPrevious.has(previousIndex)) {
+        continue;
+      }
+      pairs.push([currentIndex, previousIndex]);
+      claimedPrevious.add(previousIndex);
+    }
+  }
+  return pairs;
+}
+
+function nestedSourceOverlapCount(
+  current: PlanBlock,
+  previous: PlanBlock,
+  generatedIds: WeakSet<object>,
+  fingerprintCountsByBlock: WeakMap<object, Map<string, number>>,
+): number {
+  const currentGroups = nestedPlanGroups(current);
+  const previousGroups = nestedPlanGroups(previous);
+  if (!currentGroups || !previousGroups) return 0;
+
+  let overlap = 0;
+  for (const [currentIndex, previousIndex] of nestedGroupPairs(
+    currentGroups,
+    previousGroups,
+    generatedIds,
+  )) {
+    const currentGroup = currentGroups[currentIndex];
+    const previousGroup = previousGroups[previousIndex];
+    if (
+      !currentGroup ||
+      typeof currentGroup !== "object" ||
+      !previousGroup ||
+      typeof previousGroup !== "object"
+    ) {
+      continue;
+    }
+    const currentBlocks = (currentGroup as Record<string, unknown>).blocks;
+    const previousBlocks = (previousGroup as Record<string, unknown>).blocks;
+    if (!Array.isArray(currentBlocks) || !Array.isArray(previousBlocks)) {
+      continue;
+    }
+    const currentCounts = new Map<string, number>();
+    const previousCounts = new Map<string, number>();
+    const addBlockSources = (
+      counts: Map<string, number>,
+      blocks: unknown[],
+    ) => {
+      for (const block of blocks) {
+        if (!block || typeof block !== "object") continue;
+        const blockCounts = nestedBlockSourceFingerprintCounts(
+          block as PlanBlock,
+          fingerprintCountsByBlock,
+        );
+        for (const [fingerprint, count] of blockCounts) {
+          counts.set(fingerprint, (counts.get(fingerprint) ?? 0) + count);
+        }
+      }
+    };
+    addBlockSources(currentCounts, currentBlocks);
+    addBlockSources(previousCounts, previousBlocks);
+    for (const [fingerprint, currentCount] of currentCounts) {
+      overlap += Math.min(currentCount, previousCounts.get(fingerprint) ?? 0);
+    }
+  }
+  return overlap;
+}
+
+function nestedBlockSourceFingerprintCounts(
+  block: PlanBlock,
+  cache: WeakMap<object, Map<string, number>>,
+): Map<string, number> {
+  const cached = cache.get(block);
+  if (cached) return cached;
+
+  const counts = new Map<string, number>();
+  const fingerprint = planBlockSourceFingerprint(block, true);
+  counts.set(fingerprint, 1);
+  for (const group of nestedPlanGroups(block) ?? []) {
+    if (!group || typeof group !== "object") continue;
+    const children = (group as Record<string, unknown>).blocks;
+    if (!Array.isArray(children)) continue;
+    for (const child of children) {
+      if (!child || typeof child !== "object") continue;
+      for (const [
+        childFingerprint,
+        count,
+      ] of nestedBlockSourceFingerprintCounts(child as PlanBlock, cache)) {
+        counts.set(
+          childFingerprint,
+          (counts.get(childFingerprint) ?? 0) + count,
+        );
+      }
+    }
+  }
+  cache.set(block, counts);
+  return counts;
+}
+
+function nestedParentShellFingerprint(block: PlanBlock): string | null {
+  const groups = nestedPlanGroups(block);
+  if (!groups) return null;
+  const copy = JSON.parse(JSON.stringify(block)) as Record<string, unknown>;
+  delete copy.id;
+  const data = copy.data as Record<string, unknown> | undefined;
+  const copiedGroups = data?.[block.type];
+  if (!Array.isArray(copiedGroups)) return null;
+  for (const group of copiedGroups) {
+    if (!group || typeof group !== "object") continue;
+    const record = group as Record<string, unknown>;
+    delete record.id;
+    delete record.blocks;
+  }
+  return createHash("sha256").update(canonicalSourceJson(copy)).digest("hex");
+}
+
+function preserveIdlessBlockIds(
+  parsedNodes: ParsedPlanNode[],
+  previousBlocks: PlanBlock[] | undefined,
+  idContext: string,
+  generatedIds: WeakSet<object>,
+): void {
+  if (!previousBlocks?.length) return;
+
+  const nestedFingerprintCountsByBlock = new WeakMap<
+    object,
+    Map<string, number>
+  >();
+  type Candidate = { block: PlanBlock; index: number };
+  const exactCandidates = new Map<string, Candidate[]>();
+  const legacyCandidates = new Map<string, Candidate[]>();
+  const nestedShellCandidates = new Map<string, Candidate[]>();
+  const addCandidate = (
+    map: Map<string, Candidate[]>,
+    key: string,
+    candidate: Candidate,
+  ) => {
+    const candidates = map.get(key) ?? [];
+    candidates.push(candidate);
+    map.set(key, candidates);
+  };
+  const previousById = new Map(
+    previousBlocks.map((block) => [block.id, block]),
+  );
+  for (const [index, block] of previousBlocks.entries()) {
+    const candidate = { block, index };
+    addCandidate(exactCandidates, planBlockSourceFingerprint(block), candidate);
+    addCandidate(
+      legacyCandidates,
+      planBlockSourceFingerprint(block, true),
+      candidate,
+    );
+    const shell = nestedParentShellFingerprint(block);
+    if (shell) addCandidate(nestedShellCandidates, shell, candidate);
+  }
+
+  const claimedPreviousIds = new Set<string>();
+  for (const node of parsedNodes) {
+    if (node.type !== "block" || !node.hasSourceId || !node.sourceId) continue;
+    const previous = previousById.get(node.sourceId);
+    if (!previous) continue;
+    node.matchedPreviousId = previous.id;
+    claimedPreviousIds.add(previous.id);
+    node.block = preserveGeneratedNestedIds(
+      reuseMatchingNestedBlockIds(node.block, previous, generatedIds),
+      previous,
+      generatedIds,
+      `${idContext}-${node.sourceIndex}`,
+    );
+  }
+
+  const currentKeys = parsedNodes.map((node) =>
+    node.type === "block"
+      ? planBlockSourceFingerprint(node.block, true)
+      : planBlockSourceFingerprint(
+          {
+            id: "",
+            type: "rich-text",
+            data: { markdown: node.markdown },
+          },
+          true,
+        ),
+  );
+  const previousKeys = previousBlocks.map((block) =>
+    planBlockSourceFingerprint(block, true),
+  );
+  const countKeys = (keys: string[]) => {
+    const counts = new Map<string, number>();
+    for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  };
+  const currentKeyCounts = countKeys(currentKeys);
+  const previousKeyCounts = countKeys(previousKeys);
+  const previousUniqueIndexByKey = new Map<string, number>();
+  previousKeys.forEach((key, index) => {
+    if (previousKeyCounts.get(key) === 1) {
+      previousUniqueIndexByKey.set(key, index);
+    }
+  });
+  const anchorByCurrentIndex = new Map<
+    number,
+    { currentIndex: number; previousIndex: number }
+  >();
+  currentKeys.forEach((key, index) => {
+    const previousIndex = previousUniqueIndexByKey.get(key);
+    if (currentKeyCounts.get(key) === 1 && previousIndex !== undefined) {
+      anchorByCurrentIndex.set(index, { currentIndex: index, previousIndex });
+    }
+  });
+  const previousAnchorBefore: Array<
+    { currentIndex: number; previousIndex: number } | undefined
+  > = [];
+  let previousAnchor:
+    | { currentIndex: number; previousIndex: number }
+    | undefined;
+  for (let index = 0; index < currentKeys.length; index += 1) {
+    previousAnchorBefore[index] = previousAnchor;
+    previousAnchor = anchorByCurrentIndex.get(index) ?? previousAnchor;
+  }
+  const previousAnchorAfter: Array<
+    { currentIndex: number; previousIndex: number } | undefined
+  > = [];
+  previousAnchor = undefined;
+  for (let index = currentKeys.length - 1; index >= 0; index -= 1) {
+    previousAnchorAfter[index] = previousAnchor;
+    previousAnchor = anchorByCurrentIndex.get(index) ?? previousAnchor;
+  }
+  const anchorCountBefore: number[] = [];
+  let anchorCount = 0;
+  for (let index = 0; index < currentKeys.length; index += 1) {
+    anchorCountBefore[index] = anchorCount;
+    if (anchorByCurrentIndex.has(index)) anchorCount += 1;
+  }
+  const anchorCountAfter: number[] = [];
+  anchorCount = 0;
+  for (let index = currentKeys.length - 1; index >= 0; index -= 1) {
+    anchorCountAfter[index] = anchorCount;
+    if (anchorByCurrentIndex.has(index)) anchorCount += 1;
+  }
+  const predictedPreviousIndex = (currentIndex: number) => {
+    const before = previousAnchorBefore[currentIndex];
+    const after = previousAnchorAfter[currentIndex];
+    if (
+      before &&
+      after &&
+      before.currentIndex < currentIndex &&
+      after.currentIndex > currentIndex &&
+      after.previousIndex > before.previousIndex
+    ) {
+      const currentDistance = after.currentIndex - before.currentIndex;
+      const previousDistance = after.previousIndex - before.previousIndex;
+      return (
+        before.previousIndex +
+        ((currentIndex - before.currentIndex) / currentDistance) *
+          previousDistance
+      );
+    }
+    const nearest =
+      before && after
+        ? currentIndex - before.currentIndex <=
+          after.currentIndex - currentIndex
+          ? before
+          : after
+        : (before ?? after);
+    return nearest
+      ? nearest.previousIndex + (currentIndex - nearest.currentIndex)
+      : currentIndex;
+  };
+  const currentCandidateRanks = new Map<ParsedPlanNode, Map<string, number>>();
+  const currentCandidateCounts = new Map<string, number>();
+  const candidateMatchKey = (
+    node: Extract<ParsedPlanNode, { type: "block" }>,
+    matchKind: "exact" | "legacy" | "nested-shell",
+  ) => {
+    const fingerprint =
+      matchKind === "nested-shell"
+        ? nestedParentShellFingerprint(node.block)
+        : planBlockSourceFingerprint(node.block, matchKind === "legacy");
+    return fingerprint ? `${matchKind}:${fingerprint}` : undefined;
+  };
+  parsedNodes.forEach((node) => {
+    if (node.type !== "block" || node.hasSourceId || !node.matchPrevious) {
+      return;
+    }
+    const ranks = new Map<string, number>();
+    for (const matchKind of ["exact", "legacy", "nested-shell"] as const) {
+      const key = candidateMatchKey(node, matchKind);
+      if (!key || ranks.has(key)) continue;
+      const rank = currentCandidateCounts.get(key) ?? 0;
+      ranks.set(key, rank);
+      currentCandidateCounts.set(key, rank + 1);
+    }
+    currentCandidateRanks.set(node, ranks);
+  });
+  const hasConfidentOutOfRangePrediction = (currentIndex: number) => {
+    const before = previousAnchorBefore[currentIndex];
+    const after = previousAnchorAfter[currentIndex];
+    if (before && after) {
+      const nearest =
+        currentIndex - before.currentIndex <= after.currentIndex - currentIndex
+          ? before
+          : after;
+      return nearest === before
+        ? anchorCountBefore[currentIndex]! >= 2
+        : anchorCountAfter[currentIndex]! >= 2;
+    }
+    return before
+      ? anchorCountBefore[currentIndex]! >= 2
+      : after
+        ? anchorCountAfter[currentIndex]! >= 2
+        : false;
+  };
+  const currentNestedShellCounts = new Map<string, number>();
+  for (const node of parsedNodes) {
+    if (node.type !== "block" || node.hasSourceId || !node.matchPrevious) {
+      continue;
+    }
+    const shell = nestedParentShellFingerprint(node.block);
+    if (shell) {
+      currentNestedShellCounts.set(
+        shell,
+        (currentNestedShellCounts.get(shell) ?? 0) + 1,
+      );
+    }
+  }
+  const contextScore = (currentIndex: number, previousIndex: number) => {
+    if (currentKeyCounts.size === 1 && previousKeyCounts.size === 1) return 0;
+    let score = 0;
+    for (let distance = 1; distance <= 16; distance += 1) {
+      const weight = 17 - distance;
+      const currentBefore = currentKeys[currentIndex - distance];
+      const previousBefore = previousKeys[previousIndex - distance];
+      if (
+        currentBefore === undefined ||
+        previousBefore === undefined ||
+        currentBefore !== previousBefore
+      ) {
+        break;
+      }
+      score += weight;
+    }
+    for (let distance = 1; distance <= 16; distance += 1) {
+      const weight = 17 - distance;
+      const currentAfter = currentKeys[currentIndex + distance];
+      const previousAfter = previousKeys[previousIndex + distance];
+      if (
+        currentAfter === undefined ||
+        previousAfter === undefined ||
+        currentAfter !== previousAfter
+      ) {
+        break;
+      }
+      score += weight;
+    }
+    return score;
+  };
+  type MatchPair = {
+    node: Extract<ParsedPlanNode, { type: "block" }>;
+    currentIndex: number;
+    candidate: Candidate;
+    priority: number;
+    context: number;
+    distance: number;
+    matchKind: "exact" | "legacy" | "nested-shell";
+  };
+  const pairs: MatchPair[] = [];
+  const insertedOutsidePreviousSource = new Set<ParsedPlanNode>();
+  const addPairs = (
+    node: Extract<ParsedPlanNode, { type: "block" }>,
+    currentIndex: number,
+    candidates: Candidate[] | undefined,
+    priority: number,
+    matchKind: "exact" | "legacy" | "nested-shell",
+  ) => {
+    const allCandidates = candidates ?? [];
+    const useBoundedCandidates = allCandidates.length > 64;
+    const matchKey = candidateMatchKey(node, matchKind);
+    const rank = matchKey
+      ? currentCandidateRanks.get(node)?.get(matchKey)
+      : undefined;
+    const rankedCandidate =
+      rank === undefined ? undefined : allCandidates[rank];
+    const currentCandidateCount = matchKey
+      ? (currentCandidateCounts.get(matchKey) ?? 0)
+      : 0;
+    const before = previousAnchorBefore[currentIndex];
+    const after = previousAnchorAfter[currentIndex];
+    const previousCandidateStart = allCandidates[0]?.index;
+    const previousCandidateEnd = allCandidates[allCandidates.length - 1]?.index;
+    const anchorsCrossedCandidateRun =
+      (before !== undefined &&
+        previousCandidateStart !== undefined &&
+        before.previousIndex >= previousCandidateStart) ||
+      (after !== undefined &&
+        previousCandidateEnd !== undefined &&
+        after.previousIndex <= previousCandidateEnd);
+    let expectedPreviousIndex = useBoundedCandidates
+      ? predictedPreviousIndex(currentIndex)
+      : null;
+    if (useBoundedCandidates && matchKey && anchorsCrossedCandidateRun) {
+      if (rankedCandidate) {
+        expectedPreviousIndex = rankedCandidate.index;
+      } else if (rank !== undefined) {
+        insertedOutsidePreviousSource.add(node);
+        return;
+      }
+    }
+    if (
+      expectedPreviousIndex !== null &&
+      (expectedPreviousIndex < 0 ||
+        expectedPreviousIndex >= previousBlocks.length)
+    ) {
+      const hasLeadingInsertionSignal =
+        after !== undefined &&
+        previousCandidateEnd !== undefined &&
+        after.previousIndex > previousCandidateEnd;
+      if (
+        expectedPreviousIndex < 0 &&
+        hasConfidentOutOfRangePrediction(currentIndex) &&
+        allCandidates.length < currentCandidateCount &&
+        (!rankedCandidate || hasLeadingInsertionSignal)
+      ) {
+        insertedOutsidePreviousSource.add(node);
+        return;
+      }
+      if (!rankedCandidate) {
+        insertedOutsidePreviousSource.add(node);
+        return;
+      }
+      expectedPreviousIndex = rankedCandidate.index;
+    }
+    let candidateStart = 0;
+    let candidateEnd = allCandidates.length;
+    if (useBoundedCandidates) {
+      const minimum = expectedPreviousIndex! - 16;
+      const maximum = expectedPreviousIndex! + 16;
+      let low = 0;
+      let high = allCandidates.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (allCandidates[middle]!.index < minimum) low = middle + 1;
+        else high = middle;
+      }
+      candidateStart = low;
+      high = allCandidates.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (allCandidates[middle]!.index <= maximum) low = middle + 1;
+        else high = middle;
+      }
+      candidateEnd = low;
+    }
+    const available = allCandidates
+      .slice(candidateStart, candidateEnd)
+      .filter((candidate) => !claimedPreviousIds.has(candidate.block.id));
+    const representative = available[0];
+    if (!representative) {
+      return;
+    }
+    const isValid = (candidate: Candidate) =>
+      matchKind === "nested-shell"
+        ? nestedParentShellFingerprint(node.block) ===
+            nestedParentShellFingerprint(candidate.block) &&
+          nestedSourceOverlapCount(
+            node.block,
+            candidate.block,
+            generatedIds,
+            nestedFingerprintCountsByBlock,
+          ) > 0
+        : samePlanBlockSource(node.block, candidate.block);
+    if (!isValid(representative)) return;
+    const rankedPairs: MatchPair[] = [];
+    for (const candidate of available) {
+      if (!isValid(candidate)) continue;
+      rankedPairs.push({
+        node,
+        currentIndex,
+        candidate,
+        priority,
+        context: contextScore(currentIndex, candidate.index),
+        distance:
+          expectedPreviousIndex === null
+            ? 0
+            : Math.abs(candidate.index - expectedPreviousIndex),
+        matchKind,
+      });
+    }
+    rankedPairs.sort(
+      (left, right) =>
+        (expectedPreviousIndex === null
+          ? right.context - left.context
+          : left.distance - right.distance || right.context - left.context) ||
+        left.candidate.index - right.candidate.index,
+    );
+    pairs.push(...rankedPairs.slice(0, useBoundedCandidates ? 4 : undefined));
+  };
+
+  parsedNodes.forEach((node, currentIndex) => {
+    if (node.type === "block" && !node.hasSourceId && node.matchPrevious) {
+      addPairs(
+        node,
+        currentIndex,
+        exactCandidates.get(planBlockSourceFingerprint(node.block)),
+        2_048,
+        "exact",
+      );
+      if (hasMissingRequiredSourceField(node.block)) {
+        addPairs(
+          node,
+          currentIndex,
+          legacyCandidates.get(planBlockSourceFingerprint(node.block, true)),
+          1_024,
+          "legacy",
+        );
+      }
+      const shell = nestedParentShellFingerprint(node.block);
+      if (
+        shell &&
+        currentNestedShellCounts.get(shell) === 1 &&
+        nestedShellCandidates.get(shell)?.length === 1
+      ) {
+        addPairs(
+          node,
+          currentIndex,
+          nestedShellCandidates.get(shell),
+          0,
+          "nested-shell",
+        );
+      }
+    }
+  });
+
+  pairs.sort(
+    (left, right) =>
+      right.priority - left.priority ||
+      left.distance - right.distance ||
+      right.context - left.context ||
+      left.currentIndex - right.currentIndex ||
+      left.candidate.index - right.candidate.index,
+  );
+  const matchedCurrentNodes = new Set<ParsedPlanNode>();
+  for (const { node, candidate, matchKind } of pairs) {
+    if (
+      matchedCurrentNodes.has(node) ||
+      claimedPreviousIds.has(candidate.block.id)
+    ) {
+      continue;
+    }
+    const matchedBlock = reuseMatchingNestedBlockIds(
+      node.block,
+      candidate.block,
+      generatedIds,
+    );
+    if (
+      matchKind === "nested-shell"
+        ? nestedSourceOverlapCount(
+            matchedBlock,
+            candidate.block,
+            generatedIds,
+            nestedFingerprintCountsByBlock,
+          ) === 0
+        : !samePlanBlockSource(matchedBlock, candidate.block)
+    ) {
+      continue;
+    }
+    const matchedWithNestedIds = preserveGeneratedNestedIds(
+      matchedBlock,
+      candidate.block,
+      generatedIds,
+      `${idContext}-${candidate.index}`,
+    );
+    node.block = { ...matchedWithNestedIds, id: candidate.block.id };
+    generatedIds.add(node.block);
+    node.matchedPreviousId = candidate.block.id;
+    claimedPreviousIds.add(candidate.block.id);
+    matchedCurrentNodes.add(node);
+  }
+
+  const currentIdCounts = new Map<string, number>();
+  for (const node of parsedNodes) {
+    if (node.type !== "block") continue;
+    currentIdCounts.set(
+      node.block.id,
+      (currentIdCounts.get(node.block.id) ?? 0) + 1,
+    );
+  }
+  const reservedIds = new Set([
+    ...previousBlocks.map((block) => block.id),
+    ...currentIdCounts.keys(),
+  ]);
+  for (const node of parsedNodes) {
+    if (node.type !== "block" || node.hasSourceId || node.matchedPreviousId) {
+      continue;
+    }
+    const previousCount = currentIdCounts.get(node.block.id) ?? 0;
+    const isInsertedOutsidePreviousSource =
+      insertedOutsidePreviousSource.has(node);
+    if (
+      !isInsertedOutsidePreviousSource &&
+      !claimedPreviousIds.has(node.block.id) &&
+      previousCount <= 1
+    ) {
+      continue;
+    }
+
+    const positionalPrevious = isInsertedOutsidePreviousSource
+      ? undefined
+      : previousBlocks[node.sourceIndex];
+    if (
+      positionalPrevious &&
+      !claimedPreviousIds.has(positionalPrevious.id) &&
+      (currentIdCounts.get(positionalPrevious.id) ?? 0) <= 1
+    ) {
+      const previousId = node.block.id;
+      const hasGeneratedId = generatedIds.has(node.block);
+      node.block = { ...node.block, id: positionalPrevious.id };
+      if (hasGeneratedId) generatedIds.add(node.block);
+      node.matchedPreviousId = positionalPrevious.id;
+      claimedPreviousIds.add(positionalPrevious.id);
+      if (previousId !== positionalPrevious.id) {
+        currentIdCounts.set(previousId, Math.max(0, previousCount - 1));
+        currentIdCounts.set(
+          positionalPrevious.id,
+          (currentIdCounts.get(positionalPrevious.id) ?? 0) + 1,
+        );
+      }
+      continue;
+    }
+
+    const previousId = node.block.id;
+    const sourceKey = planBlockSourceFingerprint(node.block, true);
+    let suffix = 0;
+    let id: string;
+    do {
+      id = createStablePlanSourceId(
+        `${idContext}-new-${node.sourceIndex}-${sourceKey}-${suffix}`,
+      );
+      suffix += 1;
+    } while (reservedIds.has(id));
+    const hasGeneratedId = generatedIds.has(node.block);
+    node.block = { ...node.block, id };
+    if (hasGeneratedId) generatedIds.add(node.block);
+    currentIdCounts.set(previousId, Math.max(0, previousCount - 1));
+    currentIdCounts.set(id, 1);
+    reservedIds.add(id);
+  }
+}
+
+function samePlanColumnSource(
+  current: PlanColumnsBlock["data"]["columns"][number],
+  previous: PlanColumnsBlock["data"]["columns"][number],
+): boolean {
+  const currentCopy = JSON.parse(JSON.stringify(current)) as Record<
+    string,
+    unknown
+  >;
+  const previousCopy = JSON.parse(JSON.stringify(previous)) as Record<
+    string,
+    unknown
+  >;
+  delete currentCopy.id;
+  delete previousCopy.id;
+  const currentBlocks = currentCopy.blocks;
+  const previousBlocks = previousCopy.blocks;
+  if (Array.isArray(currentBlocks) && Array.isArray(previousBlocks)) {
+    for (
+      let index = 0;
+      index < Math.min(currentBlocks.length, previousBlocks.length);
+      index += 1
+    ) {
+      const currentBlock = currentBlocks[index];
+      const previousBlock = previousBlocks[index];
+      if (
+        currentBlock &&
+        typeof currentBlock === "object" &&
+        previousBlock &&
+        typeof previousBlock === "object"
+      ) {
+        stripBlockIdsForSourceComparison(
+          currentBlock as Record<string, unknown>,
+          previousBlock as Record<string, unknown>,
+        );
+      }
+    }
+  }
+  return isDeepStrictEqual(currentCopy, previousCopy);
+}
+
+function samePlanNestedGroupSource(
+  current: Record<string, unknown>,
+  previous: Record<string, unknown>,
+): boolean {
+  const currentCopy = JSON.parse(JSON.stringify(current)) as Record<
+    string,
+    unknown
+  >;
+  const previousCopy = JSON.parse(JSON.stringify(previous)) as Record<
+    string,
+    unknown
+  >;
+  delete currentCopy.id;
+  delete previousCopy.id;
+
+  const currentBlocks = currentCopy.blocks;
+  const previousBlocks = previousCopy.blocks;
+  if (Array.isArray(currentBlocks) && Array.isArray(previousBlocks)) {
+    if (currentBlocks.length !== previousBlocks.length) return false;
+    const blocksMatch = currentBlocks.every((block, index) => {
+      const previousBlock = previousBlocks[index];
+      return (
+        !!block &&
+        typeof block === "object" &&
+        !!previousBlock &&
+        typeof previousBlock === "object" &&
+        samePlanBlockSource(block as PlanBlock, previousBlock as PlanBlock)
+      );
+    });
+    if (!blocksMatch) return false;
+    delete currentCopy.blocks;
+    delete previousCopy.blocks;
+  }
+  return isDeepStrictEqual(currentCopy, previousCopy);
+}
+
+function reuseMatchingNestedBlockIds(
+  current: PlanBlock,
+  previous: PlanBlock,
+  generatedIds?: WeakSet<object>,
+): PlanBlock {
+  if (current.type !== previous.type) return current;
+  const nestedKey =
+    current.type === "tabs"
+      ? "tabs"
+      : current.type === "columns"
+        ? "columns"
+        : null;
+  if (!nestedKey) return current;
+
+  const currentData = current.data as Record<string, unknown>;
+  const previousData = previous.data as Record<string, unknown>;
+  const currentGroups = currentData[nestedKey];
+  const previousGroups = previousData[nestedKey];
+  if (!Array.isArray(currentGroups) || !Array.isArray(previousGroups)) {
+    return current;
+  }
+
+  const groups = currentGroups.map((group, groupIndex) => {
+    const previousGroup = previousGroups[groupIndex];
+    if (
+      !group ||
+      typeof group !== "object" ||
+      !previousGroup ||
+      typeof previousGroup !== "object"
+    ) {
+      return group;
+    }
+
+    const currentGroup = group as Record<string, unknown>;
+    const previousGroupRecord = previousGroup as Record<string, unknown>;
+    const currentBlocks = currentGroup.blocks;
+    const previousBlocks = previousGroupRecord.blocks;
+    const blocks =
+      Array.isArray(currentBlocks) && Array.isArray(previousBlocks)
+        ? currentBlocks.map((block, blockIndex) => {
+            const previousBlock = previousBlocks[blockIndex];
+            if (
+              !block ||
+              typeof block !== "object" ||
+              !previousBlock ||
+              typeof previousBlock !== "object"
+            ) {
+              return block;
+            }
+            const currentBlock = block as PlanBlock;
+            const previousNestedBlock = previousBlock as PlanBlock;
+            const hasCurrentId =
+              typeof currentBlock.id === "string" && currentBlock.id;
+            if (
+              (hasCurrentId && currentBlock.id !== previousNestedBlock.id) ||
+              (!hasCurrentId &&
+                !samePlanBlockSource(currentBlock, previousNestedBlock))
+            ) {
+              return block;
+            }
+            const matchedBlock = {
+              ...currentBlock,
+              id: hasCurrentId ? currentBlock.id : previousNestedBlock.id,
+            };
+            if (generatedIds?.has(currentBlock)) generatedIds.add(matchedBlock);
+            return reuseMatchingNestedBlockIds(
+              matchedBlock,
+              previousNestedBlock,
+              generatedIds,
+            );
+          })
+        : currentBlocks;
+
+    const updatedGroup: Record<string, unknown> = {
+      ...currentGroup,
+      ...(Array.isArray(currentBlocks) ? { blocks } : {}),
+    };
+    if (generatedIds?.has(group)) generatedIds.add(updatedGroup);
+    if (
+      !(typeof currentGroup.id === "string" && currentGroup.id) &&
+      samePlanNestedGroupSource(updatedGroup, previousGroupRecord)
+    ) {
+      updatedGroup.id = previousGroupRecord.id;
+    }
+    return updatedGroup;
+  });
+
+  const updated: PlanBlock = {
+    ...current,
+    data: { ...currentData, [nestedKey]: groups },
+  } as PlanBlock;
+  if (generatedIds?.has(current)) generatedIds.add(updated);
+  return updated;
+}
+
+function preserveGeneratedNestedIds(
+  current: PlanBlock,
+  previous: PlanBlock,
+  generatedIds: WeakSet<object>,
+  idContext: string,
+): PlanBlock {
+  if (current.type !== previous.type) return current;
+  const currentGroups = nestedPlanGroups(current);
+  const previousGroups = nestedPlanGroups(previous);
+  if (!currentGroups || !previousGroups) return current;
+
+  const groupPairs = nestedGroupPairs(
+    currentGroups,
+    previousGroups,
+    generatedIds,
+  );
+  const previousGroupIds = new Set(
+    previousGroups.flatMap((group) => {
+      if (!group || typeof group !== "object") return [];
+      const id = (group as Record<string, unknown>).id;
+      return typeof id === "string" && id ? [id] : [];
+    }),
+  );
+  const matchedGroups = new Set(groupPairs.map(([index]) => index));
+  const matchedGroupByCurrent = new Map(groupPairs);
+  const groups = currentGroups.map((group, groupIndex) => {
+    if (!group || typeof group !== "object") return group;
+    const previousGroupIndex = matchedGroupByCurrent.get(groupIndex);
+    const previousGroup =
+      previousGroupIndex === undefined
+        ? undefined
+        : previousGroups[previousGroupIndex];
+    if (!previousGroup || typeof previousGroup !== "object") return group;
+
+    const currentGroup = group as Record<string, unknown>;
+    const previousGroupRecord = previousGroup as Record<string, unknown>;
+    let updatedGroup = currentGroup;
+    if (
+      generatedIds.has(group) &&
+      typeof previousGroupRecord.id === "string" &&
+      previousGroupRecord.id !== currentGroup.id
+    ) {
+      updatedGroup = { ...updatedGroup, id: previousGroupRecord.id };
+      generatedIds.add(updatedGroup);
+    }
+
+    const currentBlocks = currentGroup.blocks;
+    const previousBlocks = previousGroupRecord.blocks;
+    if (!Array.isArray(currentBlocks) || !Array.isArray(previousBlocks)) {
+      return updatedGroup;
+    }
+    if (
+      !currentBlocks.every(
+        (block) =>
+          !!block &&
+          typeof block === "object" &&
+          typeof (block as Record<string, unknown>).type === "string",
+      )
+    ) {
+      return updatedGroup;
+    }
+    const parsedBlocks: ParsedPlanNode[] = currentBlocks.map((block, index) => {
+      const record = block as Record<string, unknown>;
+      const hasSourceId = !generatedIds.has(block);
+      return {
+        type: "block",
+        block: block as PlanBlock,
+        hasSourceId,
+        sourceId:
+          hasSourceId && typeof record.id === "string" ? record.id : undefined,
+        sourceIndex: index,
+        matchPrevious: true,
+      };
+    });
+    preserveIdlessBlockIds(
+      parsedBlocks,
+      previousBlocks as PlanBlock[],
+      `${idContext}-${groupIndex}`,
+      generatedIds,
+    );
+    const blocks = parsedBlocks.map((node) =>
+      node.type === "block" ? node.block : null,
+    );
+
+    const updatedGroupWithBlocks = { ...updatedGroup, blocks };
+    if (generatedIds.has(group)) generatedIds.add(updatedGroupWithBlocks);
+    return updatedGroupWithBlocks;
+  });
+
+  const usedGroupIds = new Set<string>();
+  for (const [groupIndex, group] of groups.entries()) {
+    if (!group || typeof group !== "object") continue;
+    const id = (group as Record<string, unknown>).id;
+    if (
+      typeof id === "string" &&
+      id &&
+      (!generatedIds.has(group) || matchedGroups.has(groupIndex))
+    ) {
+      usedGroupIds.add(id);
+    }
+  }
+  const uniqueGroups = groups.map((group, groupIndex) => {
+    if (
+      !group ||
+      typeof group !== "object" ||
+      !generatedIds.has(group) ||
+      matchedGroups.has(groupIndex)
+    ) {
+      return group;
+    }
+    const record = group as Record<string, unknown>;
+    const oldId = record.id;
+    if (typeof oldId !== "string" || !oldId) return group;
+    if (!previousGroupIds.has(oldId) && !usedGroupIds.has(oldId)) {
+      usedGroupIds.add(oldId);
+      return group;
+    }
+    const shellKey = nestedGroupShellKey(group) ?? "group";
+    let suffix = 0;
+    let id: string;
+    do {
+      id = createStablePlanSourceId(
+        `${idContext}-group-${groupIndex}-new-${shellKey}-${suffix}`,
+      );
+      suffix += 1;
+    } while (previousGroupIds.has(id) || usedGroupIds.has(id));
+    usedGroupIds.add(id);
+    const updated = { ...record, id };
+    generatedIds.add(updated);
+    return updated;
+  });
+
+  const currentData = current.data as Record<string, unknown>;
+  const updatedData =
+    current.type === "tabs"
+      ? {
+          ...currentData,
+          tabs: uniqueGroups as Extract<
+            PlanBlock,
+            { type: "tabs" }
+          >["data"]["tabs"],
+        }
+      : {
+          ...currentData,
+          columns: uniqueGroups as PlanColumnsBlock["data"]["columns"],
+        };
+  const updated: PlanBlock = {
+    ...current,
+    data: updatedData,
+  } as PlanBlock;
+  if (generatedIds.has(current)) generatedIds.add(updated);
+  return updated;
+}
+
+function validateAndPreserveAuthoringField(
+  block: PlanBlock,
+  node: MdxNode,
+  preserveMissing: boolean,
+): PlanBlock {
+  const field = requiredAuthoringFieldByBlockType[block.type];
+  if (!field) return block;
+  const attribute = findAttribute(node, field);
+  if (!attribute) {
+    if (!preserveMissing) return block;
+    const data = { ...block.data } as Record<string, unknown>;
+    delete data[field];
+    return { ...block, data } as PlanBlock;
+  }
+
+  const fieldValue = attributeValue(attribute);
+  const valid =
+    field === "code"
+      ? typeof fieldValue === "string"
+      : Array.isArray(fieldValue);
+  if (!valid) {
+    const expected = field === "code" ? "a string" : "an array";
+    throw new PlanContentValidationError(
+      `Plan MDX <${elementName(node) ?? block.type}> attribute "${field}" must resolve to ${expected}.`,
+    );
+  }
+
+  return block;
 }
 
 function findAttribute(node: MdxNode, name: string): MdxAttribute | undefined {
@@ -1346,7 +2769,7 @@ function requiredStringAttr(node: MdxNode, name: string): string | undefined {
   if (!attr) return undefined;
   const value = attributeValue(attr);
   if (typeof value !== "string") {
-    throw new Error(
+    throw new PlanContentValidationError(
       `Wireframe <Screen> attribute "${name}" must resolve to a string, got ${typeof value}. Use a quoted string or a static template literal.`,
     );
   }
@@ -1373,9 +2796,9 @@ function dataAttr<T>(node: MdxNode, name: string): T | undefined {
   return value && typeof value === "object" ? (value as T) : undefined;
 }
 
-function baseBlock(node: MdxNode) {
+function baseBlock(node: MdxNode, idContext: string) {
   return {
-    id: stringAttr(node, "id") ?? createPlanBlockId("block"),
+    id: stringAttr(node, "id") ?? createStablePlanSourceId(idContext),
     title: stringAttr(node, "title"),
     summary: stringAttr(node, "summary"),
     editable: boolAttr(node, "editable"),
@@ -1444,7 +2867,15 @@ function suggestBlockTag(name: string): string | undefined {
   return undefined;
 }
 
-function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
+function parseBlock(
+  node: MdxNode,
+  idContext = "block",
+  preserveAuthoringFieldPresence = false,
+  salvageInvalidBlocks = false,
+  blockDepth = 0,
+  previousBlock?: PlanBlock,
+  generatedIds?: WeakSet<object>,
+): PlanBlock | null {
   const rawName = elementName(node);
   const dispatchNode: MdxNode = rawName
     ? normalizeBlockAliasNode(node, rawName)
@@ -1452,16 +2883,29 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const name = dispatchNode.name;
   node = dispatchNode;
   if (name === "Columns") {
-    const parsed = parseReadableColumnsBlock(node, idContext);
+    if (blockDepth >= PLAN_BLOCK_MAX_DEPTH) {
+      throw new PlanContentValidationError(
+        `Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`,
+      );
+    }
+    const parsed = parseReadableColumnsBlock(
+      node,
+      idContext,
+      preserveAuthoringFieldPresence,
+      salvageInvalidBlocks,
+      blockDepth,
+      previousBlock,
+      generatedIds,
+    );
     if (parsed) return parsed;
   }
   if (name && WIREFRAME_ONLY_COMPONENTS.has(name)) {
-    throw new Error(
+    throw new PlanContentValidationError(
       `Malformed wireframe: <${name}> must be nested inside a <WireframeBlock> (plan.mdx) or <Artboard> (canvas.mdx), not used as a standalone block.`,
     );
   }
   if (name && planMdxRegistry.hasTag(name)) {
-    const base = baseBlock(node);
+    const base = baseBlock(node, idContext);
     const parsed = parseSpecBlock(
       planMdxRegistry,
       node as unknown as MdxJsxNode,
@@ -1470,7 +2914,15 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
       idContext,
     );
     if (parsed) {
-      return { ...base, type: parsed.type, data: parsed.data } as PlanBlock;
+      const block = {
+        ...base,
+        type: parsed.type,
+        data: parsed.data,
+      } as PlanBlock;
+      if (block.type === "tabs" && generatedIds) {
+        markGeneratedNestedContentIds(block.data.tabs, generatedIds);
+      }
+      return block;
     }
   }
   if (!name || !BLOCK_COMPONENTS.has(name)) {
@@ -1486,7 +2938,7 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
       const known = knownBlockTags().join(", ");
       const suggestion = suggestBlockTag(rawName);
       const hint = suggestion ? ` Did you mean <${suggestion}>?` : "";
-      throw new Error(
+      throw new PlanContentValidationError(
         `Unknown plan block <${rawName}> (plan.mdx).${hint} Known blocks: ${known}. ` +
           `If you meant a different block, use its exact tag. Lowercase HTML tags ` +
           `inside RichText are fine; capitalized component tags must be real blocks.`,
@@ -1494,7 +2946,7 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     }
     return null;
   }
-  const base = baseBlock(node);
+  const base = baseBlock(node, idContext);
   if (name === "RichText") {
     return {
       ...base,
@@ -1600,11 +3052,16 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     return { ...base, type: "callout", data: { tone: "decision", body } };
   }
   if (name === "TabsBlock") {
+    const tabs = (arrayAttr(node, "tabs") ?? []) as Extract<
+      PlanBlock,
+      { type: "tabs" }
+    >["data"]["tabs"];
+    if (generatedIds) markGeneratedNestedContentIds(tabs, generatedIds);
     return {
       ...base,
       type: "tabs",
       data: {
-        tabs: arrayAttr(node, "tabs") ?? [],
+        tabs,
         orientation:
           stringAttr(node, "orientation") === "vertical"
             ? "vertical"
@@ -1633,31 +3090,108 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   };
 }
 
+function markGeneratedNestedContentIds(
+  value: unknown,
+  generatedIds: WeakSet<object>,
+): void {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) markGeneratedNestedContentIds(item, generatedIds);
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    (typeof record.type === "string" || Array.isArray(record.blocks)) &&
+    (typeof record.id !== "string" || !record.id)
+  ) {
+    generatedIds.add(record);
+  }
+
+  if (Array.isArray(record.blocks)) {
+    markGeneratedNestedContentIds(record.blocks, generatedIds);
+  }
+
+  if (record.type === "tabs" || record.type === "columns") {
+    const groups =
+      record.data && typeof record.data === "object"
+        ? (record.data as Record<string, unknown>)[record.type]
+        : undefined;
+    if (Array.isArray(groups)) {
+      for (const group of groups) {
+        if (!group || typeof group !== "object") continue;
+        const groupRecord = group as Record<string, unknown>;
+        if (typeof groupRecord.id !== "string" || !groupRecord.id) {
+          generatedIds.add(groupRecord);
+        }
+        if (Array.isArray(groupRecord.blocks)) {
+          markGeneratedNestedContentIds(groupRecord.blocks, generatedIds);
+        }
+      }
+    }
+  }
+}
+
 function parseReadableColumnsBlock(
   node: MdxNode,
   idContext: string,
+  preserveAuthoringFieldPresence = false,
+  salvageInvalidBlocks = false,
+  blockDepth = 0,
+  previousBlock?: PlanBlock,
+  generatedIds?: WeakSet<object>,
 ): PlanBlock | null {
   const columnNodes = (node.children ?? []).filter(
     (child) => elementName(child) === "Column",
   );
   if (columnNodes.length === 0) return null;
-  const base = baseBlock(node);
+  const base = baseBlock(node, idContext);
+  const previousColumns =
+    previousBlock?.type === "columns" ? previousBlock.data.columns : [];
   return {
     ...base,
     type: "columns",
     data: {
       columns: columnNodes.map((column, index) => {
+        const sourceId = stringAttr(column, "id");
         const id =
-          stringAttr(column, "id") ?? createPlanBlockId(`column-${index + 1}`);
-        return {
-          id,
+          sourceId ??
+          createStablePlanSourceId(`${idContext}-${base.id}-column-${index}`);
+        const previousColumn = sourceId
+          ? previousColumns.find((candidate) => candidate.id === sourceId)
+          : previousColumns[index];
+        const blocks = parseBlocksFromNodes(
+          column.children,
+          `${idContext}-${base.id}-${id}`,
+          {
+            firstMarkdownBlockId: stringAttr(column, "contentId"),
+            preserveAuthoringFieldPresence,
+            salvageInvalidBlocks,
+            blockDepth: blockDepth + 1,
+            previousBlocks: previousColumn?.blocks,
+            generatedIds,
+          },
+        );
+        const columnId =
+          !sourceId &&
+          previousColumn &&
+          samePlanColumnSource(
+            {
+              id,
+              label: stringAttr(column, "label")?.trim() || undefined,
+              blocks,
+            },
+            previousColumn,
+          )
+            ? previousColumn.id
+            : id;
+        const parsedColumn = {
+          id: columnId,
           label: stringAttr(column, "label")?.trim() || undefined,
-          blocks: parseBlocksFromNodes(
-            column.children,
-            `${idContext}-${base.id}-${id}`,
-            { firstMarkdownBlockId: stringAttr(column, "contentId") },
-          ),
+          blocks,
         };
+        if (!findAttribute(column, "id")) generatedIds?.add(parsedColumn);
+        return parsedColumn;
       }),
     },
   };
@@ -1698,6 +3232,10 @@ function createStableWireframeNodeId(
     .slice(0, 80);
 }
 
+function createStablePlanSourceId(context: string): string {
+  return `source-${createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
+}
+
 function parseWireframeNode(
   node: MdxNode,
   path = "node",
@@ -1725,7 +3263,11 @@ function parseWireframeNode(
 
 export async function parsePlanMdxFolder(
   folder: PlanMdxFolder,
-  options: { salvageInvalidBlocks?: boolean } = {},
+  options: {
+    allowStoredLegacyDefaults?: boolean;
+    salvageInvalidBlocks?: boolean;
+    validateAuthoringChangesAgainst?: PlanContent | null;
+  } = {},
 ): Promise<PlanContent> {
   const files = planMdxFileSchema.parse(folder);
   const parsedMatter = parseSimpleFrontmatter(files["plan.mdx"]);
@@ -1735,9 +3277,15 @@ export async function parsePlanMdxFolder(
     lineCountBeforeContent(files["plan.mdx"], parsedMatter.content),
   );
   const state = parsePlanState(files[".plan-state.json"]);
+  const generatedIds = new WeakSet<object>();
   const blocks = parseBlocksFromNodes(planTree.children, "plan-block", {
     markdownBlockIds: state?.markdownBlockIds,
     markdownBlocks: state?.markdownBlocks,
+    preserveAuthoringFieldPresence:
+      options.validateAuthoringChangesAgainst !== undefined,
+    salvageInvalidBlocks: options.salvageInvalidBlocks,
+    previousBlocks: options.validateAuthoringChangesAgainst?.blocks,
+    generatedIds,
   });
 
   const canvas = files["canvas.mdx"]
@@ -1748,7 +3296,7 @@ export async function parsePlanMdxFolder(
     : undefined;
   if (canvas && state?.canvas) canvas.viewport = state.canvas;
 
-  const content: PlanContent = {
+  let content: PlanContent = {
     version:
       typeof parsedMatter.data.version === "number"
         ? parsedMatter.data.version
@@ -1766,10 +3314,157 @@ export async function parsePlanMdxFolder(
     canvas,
     blocks,
   };
-  const normalized = normalizePlanContent(content, options);
+  if (
+    options.salvageInvalidBlocks &&
+    options.validateAuthoringChangesAgainst !== undefined
+  ) {
+    content = salvageInvalidAuthoringBlocks(
+      content,
+      options.validateAuthoringChangesAgainst,
+    );
+  } else if (options.validateAuthoringChangesAgainst !== undefined) {
+    assertPlanContentAuthoringChanges(
+      content,
+      options.validateAuthoringChangesAgainst,
+    );
+  }
+  const normalized = normalizePlanContent(content, {
+    allowStoredLegacyDefaults: options.allowStoredLegacyDefaults,
+    salvageInvalidBlocks: options.salvageInvalidBlocks,
+  });
   if (!normalized)
-    throw new Error("MDX source did not parse into valid plan content.");
+    throw new PlanContentValidationError(
+      "MDX source did not parse into valid plan content.",
+    );
   return normalized;
+}
+
+function salvageInvalidAuthoringBlocks(
+  content: PlanContent,
+  previous: PlanContent | null | undefined,
+): PlanContent {
+  const blocks = salvageAuthoringBlockList(
+    content.blocks,
+    content.version,
+    previous,
+    0,
+  );
+  return { ...content, blocks };
+}
+
+function salvageAuthoringBlockList(
+  blocks: PlanBlock[],
+  version: number,
+  previous: PlanContent | null | undefined,
+  depth: number,
+): PlanBlock[] {
+  return blocks.map((block) => {
+    const nested = salvageNestedAuthoringBlocks(
+      block,
+      version,
+      previous,
+      depth,
+    );
+    const validationSchema = previous
+      ? storedPlanContentSchema
+      : planContentSchema;
+    const result = validationSchema.safeParse({ version, blocks: [nested] });
+    if (!result.success) {
+      return invalidBlockWarningPlaceholder(
+        block.id,
+        block.type,
+        block.title,
+        result.error,
+      );
+    }
+
+    try {
+      assertPlanContentAuthoringChanges(
+        { version, blocks: [nested] },
+        previous,
+      );
+      return nested;
+    } catch (error) {
+      if (
+        previous &&
+        !(
+          error instanceof Error &&
+          error.message.startsWith(
+            "Plan source edit contains invalid authored block data",
+          )
+        )
+      ) {
+        throw error;
+      }
+      return invalidBlockWarningPlaceholder(
+        block.id,
+        block.type,
+        block.title,
+        error,
+      );
+    }
+  });
+}
+
+function salvageNestedAuthoringBlocks(
+  block: PlanBlock,
+  version: number,
+  previous: PlanContent | null | undefined,
+  depth: number,
+): PlanBlock {
+  const record = block as unknown as Record<string, unknown>;
+  const data = record.data;
+  if (!data || typeof data !== "object") return block;
+  const nestedKey =
+    record.type === "tabs"
+      ? "tabs"
+      : record.type === "columns"
+        ? "columns"
+        : null;
+  if (!nestedKey) return block;
+
+  const nestedData = data as Record<string, unknown>;
+  const groups = nestedData[nestedKey];
+  if (!Array.isArray(groups)) return block;
+  if (depth >= PLAN_BLOCK_MAX_DEPTH && hasNestedBlocks(groups)) {
+    return invalidBlockWarningPlaceholder(
+      block.id,
+      block.type,
+      block.title,
+      new Error(`Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`),
+    );
+  }
+
+  return {
+    ...block,
+    data: {
+      ...nestedData,
+      [nestedKey]: groups.map((group) => {
+        if (!group || typeof group !== "object") return group;
+        const groupRecord = group as Record<string, unknown>;
+        if (!Array.isArray(groupRecord.blocks)) return group;
+        return {
+          ...groupRecord,
+          blocks: salvageAuthoringBlockList(
+            groupRecord.blocks as PlanBlock[],
+            version,
+            previous,
+            depth + 1,
+          ),
+        };
+      }),
+    },
+  } as PlanBlock;
+}
+
+function hasNestedBlocks(groups: unknown[]): boolean {
+  return groups.some(
+    (group) =>
+      !!group &&
+      typeof group === "object" &&
+      Array.isArray((group as Record<string, unknown>).blocks) &&
+      ((group as Record<string, unknown>).blocks as unknown[]).length > 0,
+  );
 }
 
 function parsePrototype(tree: MdxNode): PlanPrototype | undefined {
@@ -1832,7 +3527,9 @@ function parsePlanState(source: string | undefined) {
   try {
     return planMdxStateSchema.parse(JSON.parse(source));
   } catch {
-    throw new Error(".plan-state.json is not valid visual plan state.");
+    throw new PlanContentValidationError(
+      ".plan-state.json is not valid visual plan state.",
+    );
   }
 }
 

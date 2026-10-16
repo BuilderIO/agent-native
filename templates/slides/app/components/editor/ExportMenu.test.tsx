@@ -60,6 +60,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint":
           "A copy of this deck was created in your Google Drive.",
+        "editorExport.googleSlidesGoTo": "Go to Google Slides",
         "editorExport.downloadHtml": "Download as HTML",
         "editorExport.duplicateDeck": "Duplicate deck",
         "editorExport.export": "Export",
@@ -78,6 +79,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportGoogleSlidesError":
           "Could not export Google Slides.",
         "editorExport.exportHtmlError": "Could not export HTML.",
+        "comments.close": "Close",
       }) as Record<string, string>
     )[key] ?? key,
 }));
@@ -92,6 +94,7 @@ import {
 import {
   canExportPptxFromServer,
   ExportMenu,
+  ExportSubmenu,
   type ExportMenuHandle,
 } from "./ExportMenu";
 
@@ -343,20 +346,27 @@ describe("<ExportMenu>", () => {
     expect(canExportPptxFromServer(undefined)).toBe(false);
   });
 
-  it("renders export actions inline inside a parent menu", async () => {
+  it("renders export actions inside a parent menu through a headless handle", async () => {
     const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    const ref = createRef<ExportMenuHandle>();
     render(
       <QueryClientProvider client={queryClient}>
+        <ExportMenu
+          ref={ref}
+          headless
+          hasSlides
+          deckId="deck-1"
+          deckTitle="Quarterly Review"
+          onDuplicate={vi.fn()}
+          onExportPdf={vi.fn()}
+          onExportPptx={onExportPptx}
+        />
         <DropdownMenu open>
           <DropdownMenuContent>
-            <ExportMenu
-              inline
+            <ExportSubmenu
+              exportMenuRef={ref}
               hasSlides
-              deckId="deck-1"
-              deckTitle="Quarterly Review"
-              onDuplicate={vi.fn()}
-              onExportPdf={vi.fn()}
-              onExportPptx={onExportPptx}
+              showGoogleSlides={false}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -364,7 +374,9 @@ describe("<ExportMenu>", () => {
     );
 
     expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
-    const exportTrigger = screen.getByRole("menuitem", { name: "Export" });
+    const exportTrigger = screen.getByRole("menuitem", {
+      name: "appMenu.export",
+    });
     fireEvent.focus(exportTrigger);
     fireEvent.keyDown(exportTrigger, { key: "ArrowRight" });
     fireEvent.click(screen.getByText("Export as PPTX"));
@@ -387,8 +399,9 @@ describe("<ExportMenu>", () => {
       "A copy of this deck was created in your Google Drive.",
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Export to Google Slides" }),
+      screen.getByRole("button", { name: "Go to Google Slides" }),
     );
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
     expect(window.open).toHaveBeenCalledWith(
       "https://docs.google.com/presentation/d/new-deck/edit",
       "_blank",
@@ -509,6 +522,9 @@ describe("<ExportMenu>", () => {
       ),
     );
     expect(window.open).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("shows a loading dialog for PDF instead of navigating away", async () => {

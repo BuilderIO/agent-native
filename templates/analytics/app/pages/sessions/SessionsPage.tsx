@@ -159,7 +159,8 @@ export function EmptySessionsState() {
   const t = useT();
   const storageStatus = useReplayStorageStatus();
   const showStorageHint =
-    !storageStatus.isLoading && storageStatus.data?.configured === false;
+    storageStatus.isError ||
+    (storageStatus.isSuccess && storageStatus.data?.configured === false);
   return (
     <div className="p-6 lg:p-8">
       {showStorageHint ? <ReplayStorageHint /> : null}
@@ -232,15 +233,31 @@ export function ReplayStorageHint({
     },
   });
 
-  const builderConnected = Boolean(
-    builderConnect.configured ||
-    builderStatus.status?.configured ||
-    storageStatus.data?.builderConfigured,
+  const builderAiConnected = Boolean(
+    builderConnect.configured || builderStatus.status?.configured,
   );
+  const storageConnected =
+    storageStatus.isSuccess && storageStatus.data?.configured === true;
   const builderStatusLoading =
     storageStatus.isLoading ||
     builderStatus.loading ||
     !builderConnect.hasFetchedStatus;
+  const effectiveBuilderConnectionScope =
+    builderConnect.effective === "org" ||
+    builderConnect.effective === "personal"
+      ? builderConnect.effective
+      : undefined;
+  const builderConnectionScope =
+    effectiveBuilderConnectionScope &&
+    builderConnect.canConnect[effectiveBuilderConnectionScope]
+      ? effectiveBuilderConnectionScope
+      : builderConnect.canConnect.org !== builderConnect.canConnect.personal
+        ? builderConnect.canConnect.org
+          ? "org"
+          : "personal"
+        : undefined;
+  const canConnectBuilder =
+    builderConnect.canConnect.org || builderConnect.canConnect.personal;
   const [s3Expanded, setS3Expanded] = useState(false);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
   const [savingStorage, setSavingStorage] = useState(false);
@@ -277,6 +294,29 @@ export function ReplayStorageHint({
 
   return (
     <Collapsible open={s3Expanded} onOpenChange={setS3Expanded}>
+      {storageStatus.isError ? (
+        <div
+          role="alert"
+          aria-busy={storageStatus.isFetching || undefined}
+          className={cn(
+            "flex items-center justify-between gap-3 rounded-md border border-border bg-card p-4 text-sm",
+            !embedded && "mb-6",
+          )}
+        >
+          <span className="text-muted-foreground">
+            {t("sessions.storageStatusUnavailable")}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void storageStatus.refetch()}
+            disabled={storageStatus.isFetching}
+          >
+            {t("sidebar.retry")}
+          </Button>
+        </div>
+      ) : null}
       <div
         className={cn(
           !embedded &&
@@ -294,13 +334,32 @@ export function ReplayStorageHint({
                   {t("sessions.storageSetupTitle")}
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {t("sessions.storageSetupDescription")}
+                  {builderConnect.statusUnavailable
+                    ? builderConnect.error
+                    : !builderStatusLoading && !canConnectBuilder
+                      ? t("dataSources.workspaceAdminRequiredDescription", {
+                          name: "Builder.io",
+                        })
+                      : builderAiConnected &&
+                          storageStatus.data?.builderUploadConfigured === false
+                        ? t("sessions.builderAiConnectedStorageNeedsGrant")
+                        : t("sessions.storageSetupDescription")}
                 </p>
               </div>
             </div>
           ) : null}
           <div className="flex max-w-full flex-wrap items-center gap-3">
-            <BuilderConnectPopover flow={builderConnect}>
+            <BuilderConnectPopover
+              flow={builderConnect}
+              onConnect={(provisionAccount) =>
+                builderConnect.start({
+                  provisionAccount,
+                  ...(builderConnectionScope
+                    ? { scope: builderConnectionScope }
+                    : {}),
+                })
+              }
+            >
               <Button
                 type="button"
                 size="sm"
@@ -308,19 +367,32 @@ export function ReplayStorageHint({
                 disabled={
                   builderConnect.connecting ||
                   builderStatusLoading ||
-                  builderConnected
+                  !canConnectBuilder ||
+                  storageConnected
                 }
               >
                 {builderConnect.connecting ? (
                   <IconLoader2 className="h-4 w-4 animate-spin" />
-                ) : builderConnected ? (
+                ) : storageConnected ? (
                   <IconCheck className="h-4 w-4" />
                 ) : null}
-                {builderConnected
+                {storageConnected
                   ? t("sessions.storageConnected")
                   : t("sessions.connectBuilder")}
               </Button>
             </BuilderConnectPopover>
+            {builderConnect.statusUnavailable ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="builder-status-retry"
+                onClick={() => builderConnect.retry()}
+                disabled={builderStatus.loading || builderConnect.connecting}
+              >
+                {t("sidebar.retry")}
+              </Button>
+            ) : null}
             <CollapsibleTrigger asChild>
               <Button type="button" variant="ghost" size="sm">
                 <IconServer className="h-3.5 w-3.5" />

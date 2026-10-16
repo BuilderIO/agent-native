@@ -71,7 +71,9 @@ export async function resolveLocalhostConnectionScope(options?: {
     capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) &&
     decodeCapabilityDesignId(capability) === designId
   ) {
-    const access = await resolveAccess("design", designId);
+    const access = await resolveAccess("design", designId, {
+      authCapability: capability,
+    });
     const resource = access?.resource as
       | { ownerEmail?: unknown; orgId?: unknown }
       | undefined;

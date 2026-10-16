@@ -41,6 +41,7 @@ import {
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import type { AgentRun } from "@agent-native/core/progress/types";
 import {
   AgentToggleButton,
   AgentSidebar,
@@ -101,6 +102,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { useIsMobile } from "../../hooks/use-mobile";
+import { getDispatchRunThreadContext } from "../../lib/dispatch-run-thread.js";
 import {
   filterBuiltInApps,
   type ConnectedAppSummary,
@@ -389,8 +391,6 @@ function chatFirstPrimaryTabForPath(
     return "new-chat";
   }
   if (
-    pathname === "/integrations" ||
-    pathname.startsWith("/integrations/") ||
     pathname === "/admin/integrations" ||
     pathname.startsWith("/admin/integrations/")
   ) {
@@ -2458,21 +2458,15 @@ function DispatchLayout({
       dispatchNavLinkTarget("/chat"),
     );
   }
-  function openRunThread(threadId: string) {
+  function openRunThread(threadId: string, run: AgentRun) {
     void navigate("/chat", {
       state: {
         dispatchThread: {
           id: `${Date.now()}-${threadId}`,
           threadId,
+          ...getDispatchRunThreadContext(threadId, run),
         },
       },
-    });
-    window.requestAnimationFrame(() => {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:open-thread", {
-          detail: { threadId },
-        }),
-      );
     });
   }
   const sidebarSuggestions = [

@@ -921,6 +921,139 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  describe("workspace app org scope", () => {
+    function stubDb(existing: Record<string, unknown>[] = []) {
+      const execute = vi.fn(async (statement: unknown) => {
+        const sql = String((statement as { sql?: unknown })?.sql ?? statement);
+        if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+          return { rows: existing, rowsAffected: 0 };
+        }
+        return { rows: [], rowsAffected: 1 };
+      });
+      mocks.getDbExec.mockReturnValue({ execute });
+      return execute;
+    }
+    const writesTo = (
+      execute: ReturnType<typeof vi.fn>,
+      verb: "INSERT INTO" | "UPDATE",
+    ) =>
+      execute.mock.calls.filter(([statement]) =>
+        String((statement as { sql?: unknown })?.sql ?? "").includes(
+          `${verb} workspace_apps`,
+        ),
+      );
+
+    it("materializes listed apps with the request org id", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "new-app", name: "New app", path: "/new-app" },
+      ]);
+      const execute = stubDb();
+
+      await runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      const inserts = writesTo(execute, "INSERT INTO");
+      expect(inserts).toHaveLength(1);
+      expect((inserts[0][0] as any).args[2]).toBe("org-123");
+    });
+
+    it("lists without writing when the request has no org", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "new-app", name: "New app", path: "/new-app" },
+      ]);
+      const execute = stubDb();
+
+      await runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(writesTo(execute, "INSERT INTO")).toHaveLength(0);
+      expect(writesTo(execute, "UPDATE")).toHaveLength(0);
+    });
+
+    it("does not assign an existing null-org row to the listing org", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "legacy-app", name: "Renamed", path: "/legacy-app" },
+      ]);
+      const execute = stubDb([
+        {
+          id: "legacy-app",
+          owner_email: "",
+          org_id: null,
+          visibility: "org",
+          name: "Legacy",
+          path: "/legacy-app",
+        },
+      ]);
+
+      await runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(writesTo(execute, "INSERT INTO")).toHaveLength(0);
+      for (const [statement] of writesTo(execute, "UPDATE")) {
+        const { sql, args } = statement as { sql: string; args: unknown[] };
+        expect(sql).toContain("org_id IS NULL");
+        expect(args).toEqual(expect.not.arrayContaining(["org-123"]));
+      }
+    });
+
+    it("rejects scaffolding without an org before any side effect", async () => {
+      const execute = stubDb();
+      const existsSync = vi.spyOn(fs, "existsSync");
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          scaffoldWorkspaceAppFromTemplate({ template: "mail" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(existsSync).not.toHaveBeenCalled();
+      existsSync.mockRestore();
+    });
+
+    it("rejects a metadata update without an org before writing anything", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "tracker-app", name: "Tracker app", path: "/tracker-app" },
+      ]);
+      const execute = stubDb();
+      const settingsBefore = new Map(mocks.settings);
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          updateWorkspaceAppMetadata({ appId: "tracker-app", name: "Renamed" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(mocks.settings).toEqual(settingsBefore);
+    });
+
+    it("rejects app creation without an org before reserving anything", async () => {
+      const execute = stubDb();
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          startWorkspaceAppCreation({ prompt: "Track tasks", appId: "tasks" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(execute).not.toHaveBeenCalled();
+    });
+  });
+
   it("refreshes renamed manifest records and keeps rows absent from the manifest", async () => {
     stubNoPendingContext();
     stubManifest([
@@ -1580,6 +1713,7 @@ describe("startWorkspaceAppCreation", () => {
     appId = "onboarding",
     ctx: { userEmail: string; orgId?: string } = {
       userEmail: "dev@example.test",
+      orgId: "org-123",
     },
   ) {
     return runWithRequestContext(ctx, () =>
@@ -1961,7 +2095,9 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "project-provisioned" }),
     );
-    expect(mocks.settings.get(settingsKey)).toMatchObject({
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({
       builderProjectId: "project-provisioned",
     });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
@@ -1997,7 +2133,6 @@ describe("startWorkspaceAppCreation", () => {
               name: "notes.txt",
               dataUrl: "",
               text: "Requirements",
-              size: Buffer.byteLength("Requirements", "utf8"),
               id: "file-notes",
             },
           ],
@@ -2015,6 +2150,74 @@ describe("startWorkspaceAppCreation", () => {
         ],
       }),
     );
+  });
+
+  it("rejects an invalid attachment before reserving the app or calling Builder", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.runBuilderAgent.mockClear();
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          startWorkspaceAppCreation({
+            prompt: "Build an app",
+            appId: "onboarding",
+            attachments: [
+              {
+                type: "upload",
+                contentType: "text/plain",
+                name: "notes.md",
+                dataUrl: "",
+                id: "file-notes",
+              },
+            ],
+          }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_attachment" });
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("logs why Builder could not start the branch", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(
+      new Error("Builder agent run failed (500)", {
+        cause: new Error("socket hang up"),
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = (await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        startWorkspaceAppCreation({
+          prompt: "Build an app",
+          appId: "onboarding",
+        }),
+    )) as any;
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      reason: "builder-error",
+    });
+    const logged = warn.mock.calls.find(
+      ([message]) =>
+        message === "[dispatch] workspace app creation unavailable",
+    );
+    expect(logged?.[1]).toMatchObject({
+      appId: "onboarding",
+      reason: "builder-error",
+      error: expect.stringContaining("socket hang up"),
+    });
   });
 
   it("does not let an organization member persist an auto-provisioned project", async () => {

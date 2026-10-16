@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { createDesignVersionSnapshot } from "../server/lib/design-versions.js";
+import { createDesignVersionSnapshotWithSourceMutationLock } from "../server/lib/design-versions.js";
 
 export default defineAction({
   description:
@@ -12,10 +12,13 @@ export default defineAction({
     designId: z.string().describe("Design project ID"),
   }),
   run: async ({ designId }) => {
-    const version = await createDesignVersionSnapshot(designId, {
-      label: "Before editor screen delete",
-      chatContext: { surface: "editor", actionName: "delete-file" },
-    });
+    const version = await createDesignVersionSnapshotWithSourceMutationLock(
+      designId,
+      {
+        label: "Before editor screen delete",
+        chatContext: { surface: "editor", actionName: "delete-file" },
+      },
+    );
     return version;
   },
 });

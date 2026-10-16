@@ -1,8 +1,11 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding/first-run-enabled";
 import { fetchFirstRunOnboardingStatus } from "@agent-native/core/client/onboarding/first-run-status";
 import { trackOnboardingEvent } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/use-preview-mode";
+import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
+import { Button } from "@agent-native/toolkit/ui/button";
 import React, {
   Suspense,
   createContext,
@@ -20,8 +23,11 @@ const FirstRunOnboarding = lazy(() =>
   })),
 );
 
-type FirstRunDecision = "pending" | "eligible" | "ineligible";
+type FirstRunDecision = "pending" | "eligible" | "ineligible" | "unavailable";
 type FirstRunCookieState = "present" | "absent" | "unreadable";
+
+const FIRST_RUN_STATUS_MAX_ATTEMPTS = 2;
+const FIRST_RUN_STATUS_RETRY_DELAY_MS = 500;
 
 const FirstRunOnboardingGateContext = createContext(false);
 
@@ -55,7 +61,9 @@ export function FirstRunOnboardingStartupGate({
   fallback?: React.ReactNode;
   suppressSurface?: boolean;
 }) {
+  const t = useT();
   const previewMode = useOnboardingPreviewMode();
+  const preloading = useSessionPreloading();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
   useEffect(() => {
     if (firstRunCookieState === "unreadable") {
@@ -71,14 +79,19 @@ export function FirstRunOnboardingStartupGate({
   const [decision, setDecision] = useState<FirstRunDecision>(
     shouldResolve ? "pending" : "ineligible",
   );
+  const [retryNumber, setRetryNumber] = useState(0);
 
   useEffect(() => {
     if (!shouldResolve) {
       setDecision("ineligible");
       return;
     }
+    // Under a hinted preload the session is unknown; the status read and the
+    // onboarding_started event it leads to would carry the anonymous identity.
+    if (preloading) return;
 
     let cancelled = false;
+    let retryTimeout: number | undefined;
     const handleFirstRunCompleted = () => {
       trackOnboardingEvent("onboarding_app_entered", { flow: "first_run" });
       cancelled = true;
@@ -89,22 +102,38 @@ export function FirstRunOnboardingStartupGate({
       handleFirstRunCompleted,
     );
     setDecision("pending");
-    void fetchFirstRunOnboardingStatus()
-      .then((firstRun) => {
-        if (!cancelled) setDecision(firstRun ? "eligible" : "ineligible");
-      })
-      .catch(() => {
-        if (!cancelled) setDecision("ineligible");
-      });
+    const resolveStatus = (attempt: number) => {
+      void fetchFirstRunOnboardingStatus()
+        .then((firstRun) => {
+          if (!cancelled) setDecision(firstRun ? "eligible" : "ineligible");
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (attempt < FIRST_RUN_STATUS_MAX_ATTEMPTS) {
+            retryTimeout = window.setTimeout(
+              () => resolveStatus(attempt + 1),
+              FIRST_RUN_STATUS_RETRY_DELAY_MS,
+            );
+            return;
+          }
+          console.warn(
+            "[onboarding] first-run status remained unavailable after retry",
+            error,
+          );
+          setDecision("unavailable");
+        });
+    };
+    resolveStatus(1);
 
     return () => {
       cancelled = true;
+      if (retryTimeout !== undefined) window.clearTimeout(retryTimeout);
       window.removeEventListener(
         "agent-native:first-run-completed",
         handleFirstRunCompleted,
       );
     };
-  }, [shouldResolve]);
+  }, [retryNumber, shouldResolve, preloading]);
 
   const ownsSurface = !suppressSurface && decision === "eligible";
   const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
@@ -129,6 +158,25 @@ export function FirstRunOnboardingStartupGate({
       {app}
       {!suppressSurface && decision === "pending" && (
         <FirstRunOnboardingStartupLoading fallback={fallback} />
+      )}
+      {!suppressSurface && decision === "unavailable" && (
+        <div
+          role="alert"
+          data-first-run-status-error="true"
+          className="fixed inset-0 z-[110] flex flex-col items-center justify-center gap-2 bg-background px-6 text-center"
+        >
+          <span className="text-sm text-muted-foreground">
+            {t("agentChat.common.chunkLoadFailed")}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setRetryNumber((current) => current + 1)}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
       )}
       {ownsSurface && (
         <Suspense

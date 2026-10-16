@@ -160,10 +160,12 @@ describe("runDuplicateSelection selection tracking", () => {
       };
     };
     const setSelectedLayerIdsState = vi.fn();
+    const clearExplicitOverviewScreenSelection = vi.fn();
 
     runDuplicateSelection({
       activeFile: file,
       designId,
+      clearExplicitOverviewScreenSelection,
       applyFileContentUpdate: (_targetFileId, nextContent) =>
         acceptedUpdate(nextContent),
       applyLocalContentUpdate: (nextContent) => acceptedUpdate(nextContent),
@@ -203,5 +205,6 @@ describe("runDuplicateSelection selection tracking", () => {
     expect(setSelectedLayerIdsState).not.toHaveBeenCalledWith([
       originalNode!.id,
     ]);
+    expect(clearExplicitOverviewScreenSelection).toHaveBeenCalledOnce();
   });
 });

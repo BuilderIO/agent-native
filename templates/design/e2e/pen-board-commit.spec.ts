@@ -1,14 +1,14 @@
+import { appPath } from "./helpers";
 import {
   expect,
+  expectOnlyChanged,
+  styleOf,
   test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+  type SavedNode,
+} from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+test.use({ viewport: { width: 1440, height: 1000 } });
 
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
 <body style="margin:0;min-height:600px">
@@ -16,166 +16,113 @@ const SCREEN_HTML = `<!doctype html>
   <h1 data-agent-native-node-id="hero" style="position:absolute;left:24px;top:16px;margin:0">Hero</h1>
 </main></body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
+function added(before: Map<string, SavedNode>, after: Map<string, SavedNode>) {
+  return [...after.values()].filter(
+    (node) =>
+      !before.has(node.id) && node.tag !== "html" && node.tag !== "body",
   );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
 }
 
-async function createDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Board pen ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  const second = await action(request, "create-file", {
-    designId,
-    filename: "second.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const secondId = second.id ?? second.data?.id;
-  const board = await action(request, "create-file", {
-    designId,
-    filename: "__board__.html",
-    content: `<!doctype html><html><head><meta charset="utf-8"><title>Board</title></head><body style="margin:0;position:relative;background:transparent;overflow:visible"></body></html>`,
-    fileType: "html",
-  });
-  const boardFileId = board.id ?? board.data?.id;
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 800, height: 600 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
-      },
-      {
-        op: "set",
-        path: ["screenMetadata", secondId],
-        value: { sourceType: "inline", width: 800, height: 600 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", secondId],
-        value: { x: 1200, y: 0, width: 800, height: 600, z: 0 },
-      },
-      { op: "set", path: ["boardFileId"], value: boardFileId },
-    ],
-  });
-  return { designId, fileId, secondId, boardFileId };
-}
-
-async function allVectors(page: Page) {
-  return page.evaluate(() => {
-    const out: Array<{
-      frame: string;
-      left: string;
-      top: string;
-      fill: string | null;
-      d: string | null;
-    }> = [];
-    document.querySelectorAll("iframe").forEach((iframe) => {
-      const doc = (iframe as HTMLIFrameElement).contentDocument;
-      if (!doc) return;
-      const label =
-        iframe.getAttribute("data-screen-iframe-id") ??
-        iframe.getAttribute("title") ??
-        "(iframe)";
-      doc
-        .querySelectorAll<SVGElement>("svg[data-an-primitive]")
-        .forEach((svg) => {
-          out.push({
-            frame: label,
-            left: (svg as unknown as HTMLElement).style.left,
-            top: (svg as unknown as HTMLElement).style.top,
-            fill: svg.querySelector("path")?.getAttribute("fill") ?? null,
-            d: svg.querySelector("path")?.getAttribute("d") ?? null,
-          });
-        });
-    });
-    return out;
-  });
-}
-
-async function penClick(page: Page, x: number, y: number) {
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.up();
-  await page.waitForTimeout(250);
-}
-
-async function screenVectorCount(page: Page) {
-  return page.evaluate(() => {
-    const doc = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-screen-iframe-id]",
-    )?.contentDocument;
-    return doc ? doc.querySelectorAll("svg[data-an-primitive]").length : -1;
-  });
-}
-
-test("Escape finishes a multi-anchor Pen path on the board", async ({
-  page,
-  request,
+test("Escape finishes a three-anchor Pen path drawn between two screens as one open board vector at the clicked points", async ({
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(1);
-    await page.waitForTimeout(3000);
+  const id = await app.seed(SCREEN_HTML, {
+    files: { "second.html": SCREEN_HTML },
+  });
+  const { files } = await app.savedRecord(id);
+  const screenId = (filename: string) =>
+    files.find((file) => file.filename === filename)!.id;
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", screenId("index.html")],
+            value: { sourceType: "inline", width: 800, height: 600 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", screenId("index.html")],
+            value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+          },
+          {
+            op: "set",
+            path: ["screenMetadata", screenId("second.html")],
+            value: { sourceType: "inline", width: 800, height: 600 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", screenId("second.html")],
+            value: { x: 1200, y: 0, width: 800, height: 600, z: 0 },
+          },
+        ],
+      },
+    },
+  );
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.zoomTo100();
+  await app.settled();
+  const screens = {
+    first: await app.savedNodes(id),
+    second: await app.savedNodes(id, "second.html"),
+  };
+  const board = await app.savedNodes(id, "__board__.html");
 
-    const boxes = await Promise.all(
-      (await page.locator("[data-screen-card]").all()).map((card) =>
-        card.boundingBox(),
-      ),
-    );
-    const first = boxes[0]!;
-    const second = boxes[1]!;
-    const gapX = (first.x + first.width + second.x) / 2;
-    const gapY = first.y + 120;
-
-    await page.keyboard.press("p");
-    await page.waitForTimeout(400);
-    await penClick(page, gapX - 40, gapY);
-    await penClick(page, gapX + 20, gapY + 60);
-    await penClick(page, gapX - 20, gapY + 120);
-    await page.keyboard.press("Escape");
-    await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-
-    await expect
-      .poll(async () => (await allVectors(page)).length, { timeout: 20_000 })
-      .toBe(1);
-    const vectors = await allVectors(page);
-    expect(vectors).toHaveLength(1);
-    expect(vectors[0]?.d).not.toMatch(/Z\s*$/i);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
+  await app.page.keyboard.press("p");
+  await expect(
+    app.page.getByRole("button", { name: "Pen", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  for (const [x, y] of [
+    [960, 120],
+    [1020, 180],
+    [980, 240],
+  ] as const) {
+    const point = await app.pagePoint(x, y, "index.html");
+    await app.page.mouse.click(point.x, point.y);
   }
+  await expect(
+    app.page.locator("[data-pen-path-overlay] [data-pen-anchor]"),
+  ).toHaveCount(3);
+  await app.page.keyboard.press("Escape");
+
+  await expect(app.page.locator("[data-pen-path-overlay]")).toHaveCount(0);
+  await app.settled();
+  const boardAfter = await app.savedNodes(id, "__board__.html");
+  expect(
+    added(board, boardAfter).map((node) => [
+      node.tag,
+      node.attrs["data-an-primitive"],
+    ]),
+  ).toEqual([["svg", "path"]]);
+  const [vector] = added(board, boardAfter);
+  const style = styleOf(vector);
+  const box = [style.left, style.top, style.width, style.height].map((value) =>
+    Math.round(Number.parseFloat(value)),
+  );
+  expect(box, "the vector's box spans the clicked anchors").toEqual([
+    960, 120, 60, 120,
+  ]);
+  const [closed, ...anchors] = JSON.parse(
+    vector.attrs["data-an-pen-nodes"]!,
+  ) as [number, ...number[][]];
+  expect(closed, "Escape leaves the path open").toBe(0);
+  expect(
+    anchors.map(([x, y]) => [Math.round(x!), Math.round(y!)]),
+    "anchors in board coordinates",
+  ).toEqual([
+    [960, 120],
+    [1020, 180],
+    [980, 240],
+  ]);
+  expectOnlyChanged(screens.first, await app.savedNodes(id), []);
+  expectOnlyChanged(
+    screens.second,
+    await app.savedNodes(id, "second.html"),
+    [],
+  );
 });

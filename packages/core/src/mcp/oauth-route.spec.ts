@@ -2,6 +2,28 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const trackMock = vi.hoisted(() => vi.fn());
+const connectionClaims = new Map<string, Record<string, unknown>>();
+vi.mock("../tracking/registry.js", () => ({
+  isTrackingSuppressed: () => false,
+  track: trackMock,
+  listTrackingProviders: () => ["test"],
+}));
+vi.mock("../settings/store.js", () => ({
+  mutateSetting: async (
+    key: string,
+    updater: (value: Record<string, unknown> | null) => Record<string, unknown>,
+  ) => {
+    const next = updater(connectionClaims.get(key) ?? null);
+    connectionClaims.set(key, next);
+    return next;
+  },
+}));
+beforeEach(() => {
+  trackMock.mockClear();
+  connectionClaims.clear();
+});
+
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -114,7 +136,6 @@ vi.mock("./oauth-store.js", () => ({
   MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   MCP_OAUTH_CODE_TTL_MS: 600_000,
-  MCP_OAUTH_REFRESH_TOKEN_TTL_MS: 365 * 24 * 60 * 60_000,
   generateOpaqueToken: vi.fn(() => `opaque-${++counter}`),
   registerOAuthClient: vi.fn(async (params: any) => {
     const row = {
@@ -138,7 +159,7 @@ vi.mock("./oauth-store.js", () => ({
       code: `code-${++counter}`,
       ...params,
       issuedForEmail: params.ownerEmail,
-      createdAt: Date.now(),
+      grantCreatedAtMs: params.grantCreatedAtMs,
       expiresAt: Date.now() + 600_000,
       consumedAt: null,
     };
@@ -179,7 +200,7 @@ vi.mock("./oauth-store.js", () => ({
       ...params,
       issuedForEmail: params.ownerEmail,
       createdAt: Date.now(),
-      expiresAt: Date.now() + 90 * 24 * 60 * 60_000,
+      expiresAt: null,
       revokedAt: null,
     });
   }),
@@ -190,7 +211,7 @@ vi.mock("./oauth-store.js", () => ({
       !row.issuedForEmail?.trim() ||
       row.issuedForEmail !== row.ownerEmail ||
       row.revokedAt ||
-      row.expiresAt < Date.now()
+      (row.expiresAt !== null && row.expiresAt < Date.now())
     )
       return null;
     return { ...row };
@@ -204,11 +225,11 @@ vi.mock("./oauth-store.js", () => ({
         row.issuedForEmail === expectedOwnerEmail &&
         row.ownerEmail === expectedOwnerEmail &&
         !row.revokedAt &&
-        row.expiresAt >= Date.now()
+        (row.expiresAt === null || row.expiresAt >= Date.now())
       ) {
         const now = Date.now();
         row.lastUsedAt = now;
-        row.expiresAt = now + 365 * 24 * 60 * 60_000;
+        row.expiresAt = null;
         return "renewed";
       }
       return "invalid";
@@ -343,6 +364,120 @@ describe("MCP OAuth route", () => {
     ]);
   });
 
+  it("records one OAuth connection across registration, reconnect, code replay and token refresh", async () => {
+    const verifier = "v".repeat(50);
+    const connect = async () => {
+      const client = await (
+        await handleMcpOAuth(
+          event({
+            method: "POST",
+            body: {
+              client_name: "Claude",
+              redirect_uris: ["http://localhost:5555/callback"],
+            } as any,
+          }),
+          "/register",
+        )
+      ).json();
+      const params = {
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: "http://localhost:5555/callback",
+        resource: "https://mail.agent-native.com/mcp",
+        code_challenge: challenge(verifier),
+        code_challenge_method: "S256",
+      };
+      const consent = await handleMcpOAuth(
+        event({ query: params }),
+        "/authorize",
+      );
+      const consentToken = (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )![1];
+      const approved = await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            ...params,
+            decision: "approve",
+            consent_token: consentToken,
+          },
+        }),
+        "/authorize",
+      );
+      const code = new URL(approved.headers.get("location")!).searchParams.get(
+        "code",
+      )!;
+      const body = {
+        grant_type: "authorization_code",
+        client_id: client.client_id,
+        redirect_uri: params.redirect_uri,
+        code,
+        code_verifier: verifier,
+      };
+      const token = await handleMcpOAuth(
+        event({ method: "POST", body }),
+        "/token",
+        { appId: "agent-native-plan" },
+      );
+      expect(token.status).toBe(200);
+      const replay = await handleMcpOAuth(
+        event({ method: "POST", body }),
+        "/token",
+      );
+      expect(replay.status).toBe(400);
+      const tokens = await token.json();
+      for (let i = 0; i < 2; i++) {
+        const refreshed = await handleMcpOAuth(
+          event({
+            method: "POST",
+            body: {
+              grant_type: "refresh_token",
+              client_id: client.client_id,
+              refresh_token: tokens.refresh_token,
+            },
+          }),
+          "/token",
+        );
+        expect(refreshed.status).toBe(200);
+      }
+    };
+    await connect();
+    await connect();
+    expect(trackMock.mock.calls).toEqual([
+      [
+        "agent_connected",
+        {
+          email: "steve@example.com",
+          app: "plan",
+          client: "claude",
+          connection_method: "oauth",
+        },
+        { userId: "steve@example.com" },
+      ],
+    ]);
+  });
+
+  it("does not record OAuth consent, invalid grants or failed issuance", async () => {
+    await openConsent();
+    expect(trackMock).not.toHaveBeenCalled();
+    const response = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          client_id: "missing",
+          redirect_uri: "http://localhost:5555/callback",
+          code: "missing",
+          code_verifier: "v".repeat(50),
+        },
+      }),
+      "/token",
+    );
+    expect(response.status).toBe(400);
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
   it("serves protected-resource and authorization-server metadata", async () => {
     const protectedRes = handleMcpOAuthProtectedResourceMetadata(event());
     expect(protectedRes.status).toBe(200);
@@ -369,6 +504,19 @@ describe("MCP OAuth route", () => {
       authorization_response_iss_parameter_supported: true,
       client_id_metadata_document_supported: true,
     });
+  });
+
+  it("names the resource on the MCP server's base path when both variables are set", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubEnv("APP_BASE_PATH", "/legacy");
+    try {
+      const protectedRes = handleMcpOAuthProtectedResourceMetadata(event());
+      await expect(protectedRes.json()).resolves.toMatchObject({
+        resource: "https://mail.agent-native.com/dispatch/mcp",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("prefers configured public URL over forwarded request headers for OAuth resource", async () => {
@@ -2075,7 +2223,7 @@ describe("MCP OAuth route", () => {
 
     const rowBefore = refreshRows.get(firstToken.refresh_token);
     expect(rowBefore).toBeTruthy();
-    const expiryBefore = rowBefore.expiresAt;
+    expect(rowBefore.expiresAt).toBeNull();
 
     const laterTime = Date.now() + 1000;
     vi.spyOn(Date, "now").mockReturnValue(laterTime);
@@ -2092,7 +2240,7 @@ describe("MCP OAuth route", () => {
     );
 
     const rowAfter = refreshRows.get(firstToken.refresh_token);
-    expect(rowAfter.expiresAt).toBeGreaterThan(expiryBefore);
+    expect(rowAfter.expiresAt).toBeNull();
     expect(rowAfter.lastUsedAt).toBe(laterTime);
   });
 });
@@ -2216,6 +2364,61 @@ describe("MCP OAuth grant validation", () => {
         email: "steve@example.com",
         requestOrigin: "https://mail.agent-native.com",
       });
+  });
+
+  it("keeps the original grant anchor across code exchange and refresh after logout", async () => {
+    const { clientId, code } = await authorizedCode();
+    const grantCreatedAtMs = Date.now() - 120_000;
+    codes.get(code).createdAt = grantCreatedAtMs;
+
+    const firstResponse = await exchange(clientId, code);
+    expect(firstResponse.status).toBe(200);
+    const first = await firstResponse.json();
+    const firstClaims = await verifyMcpOAuthAccessToken(
+      first.access_token,
+      "https://mail.agent-native.com/mcp",
+    );
+    expect(firstClaims?.grantCreatedAtMs).toBe(grantCreatedAtMs);
+    expect(refreshRows.get(first.refresh_token)?.grantCreatedAtMs).toBe(
+      grantCreatedAtMs,
+    );
+
+    const logoutAtMs = Date.now();
+    const refreshedResponse = await refresh(clientId, first.refresh_token);
+    expect(refreshedResponse.status).toBe(200);
+    const refreshed = await refreshedResponse.json();
+    const refreshedClaims = await verifyMcpOAuthAccessToken(
+      refreshed.access_token,
+      "https://mail.agent-native.com/mcp",
+    );
+
+    expect(refreshedClaims?.issuedAt).toBeGreaterThanOrEqual(
+      Math.floor((logoutAtMs - 1000) / 1000),
+    );
+    expect(refreshedClaims?.issuedAt).toBeLessThanOrEqual(
+      Math.floor((Date.now() + 1000) / 1000),
+    );
+    expect(refreshedClaims?.grantCreatedAtMs).toBe(grantCreatedAtMs);
+    expect(refreshedClaims!.grantCreatedAtMs!).toBeLessThan(logoutAtMs);
+    expect(refreshRows.get(first.refresh_token)?.grantCreatedAtMs).toBe(
+      grantCreatedAtMs,
+    );
+  });
+
+  it("keeps legacy grants usable for MCP when their persisted issue time is absent", async () => {
+    const { clientId, code } = await authorizedCode();
+    codes.get(code).createdAt = null;
+
+    const response = await exchange(clientId, code);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const token = await verifyMcpOAuthAccessToken(
+      body.access_token,
+      "https://mail.agent-native.com/mcp",
+    );
+    expect(token).not.toBeNull();
+    expect(token?.grantCreatedAtMs).toBeUndefined();
+    expect(refreshRows.get(body.refresh_token)?.grantCreatedAtMs).toBeNull();
   });
 
   it("renews and signs refresh access inside the shared issuance transaction", async () => {
@@ -2391,11 +2594,13 @@ describe("MCP OAuth grant validation", () => {
       expect(codes.get(code).consumedAt).toBeNull();
       expect(refreshRows.size).toBe(0);
       if (failure === "insertion") expect(sign).not.toHaveBeenCalled();
+      expect(trackMock).not.toHaveBeenCalled();
 
       const retried = await exchange(clientId, code);
       expect(retried.status).toBe(200);
       expect((await retried.json()).access_token).toBeTruthy();
       expect(refreshRows.size).toBe(1);
+      expect(trackMock).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -2470,9 +2675,7 @@ describe("MCP OAuth grant validation", () => {
     expect(retriedBody.refresh_token).toBe(issued.refresh_token);
     expect(retriedBody.access_token).toBeTruthy();
     expect(sign).toHaveBeenCalledTimes(1);
-    expect(refreshRows.get(issued.refresh_token).expiresAt).toBeGreaterThan(
-      before.expiresAt,
-    );
+    expect(refreshRows.get(issued.refresh_token).expiresAt).toBeNull();
   });
 
   it.each(["revoked", "deleted", "transferred", "rekeyed"])(

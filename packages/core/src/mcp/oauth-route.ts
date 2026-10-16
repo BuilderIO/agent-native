@@ -5,11 +5,20 @@ import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
 import type { DbExec } from "../db/client.js";
 import { getOrgDomain } from "../org/context.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "../server/app-base-path.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
+import {
+  describeBearerCredentialRefusalWithRecovery,
+  type BearerCredentialRefusal,
+} from "../server/bearer-credential-refusal.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { trackAgentConnected } from "./agent-connected.js";
 import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
@@ -114,19 +123,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function normalizeBasePath(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
-  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withSlash.replace(/\/+$/, "");
-}
-
-function configuredBasePath(): string {
-  return normalizeBasePath(
-    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
-  );
-}
-
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -155,11 +151,11 @@ function configuredPublicBaseUrl(): string | undefined {
 }
 
 function appendConfiguredBasePath(baseUrl: string): string {
-  const basePath = configuredBasePath();
+  const basePath = getConfiguredAppBasePath();
   if (!basePath) return stripTrailingSlash(baseUrl);
   try {
     const url = new URL(baseUrl);
-    const pathname = normalizeBasePath(url.pathname);
+    const pathname = normalizeAppBasePath(url.pathname);
     if (pathname === basePath || pathname.endsWith(`${basePath}`)) {
       return stripTrailingSlash(`${url.origin}${pathname}`);
     }
@@ -181,9 +177,26 @@ function deriveOrigin(event: H3Event): string {
 }
 
 export function getMcpOAuthIssuer(event: H3Event): string | undefined {
-  const baseUrl = configuredPublicBaseUrl() || deriveOrigin(event);
+  return resolveMcpOAuthIssuer(deriveOrigin(event));
+}
+
+/**
+ * The issuer MCP credentials are bound to, given the caller's request origin.
+ * Verification accepts only this issuer's resources, so anything that mints a
+ * bearer for this app must resolve its audience here, not from request headers:
+ * a configured public URL wins over the host a page was reached through.
+ */
+export function resolveMcpOAuthIssuer(
+  requestOrigin: string | undefined,
+): string | undefined {
+  const baseUrl = configuredPublicBaseUrl() || requestOrigin;
   if (!baseUrl) return undefined;
   return appendConfiguredBasePath(baseUrl);
+}
+
+export function getMcpConnectUrl(event: H3Event): string | undefined {
+  const issuer = getMcpOAuthIssuer(event);
+  return issuer ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/connect` : undefined;
 }
 
 function normalizeMcpResourcePath(routePath?: string): string {
@@ -275,15 +288,24 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   return metadataUrl.toString();
 }
 
+/** `refusal` is set only when the request presented a bearer token. */
 export function buildMcpOAuthChallenge(
   event: H3Event,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  refusal?: BearerCredentialRefusal,
 ): string {
   const metadata = getMcpOAuthProtectedResourceMetadataUrl(event, routePath);
-  const scope = MCP_OAUTH_RESOURCE_SCOPE;
-  return metadata
-    ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
-    : `Bearer scope="${scope}"`;
+  const params = [
+    ...(metadata ? [`resource_metadata="${metadata}"`] : []),
+    `scope="${MCP_OAUTH_RESOURCE_SCOPE}"`,
+    ...(refusal
+      ? [
+          `error="invalid_token"`,
+          `error_description="${describeBearerCredentialRefusalWithRecovery(refusal, getMcpConnectUrl(event))}"`,
+        ]
+      : []),
+  ];
+  return `Bearer ${params.join(", ")}`;
 }
 
 function protectedResourcePathFromRequest(
@@ -985,6 +1007,7 @@ async function handleAuthorize(
         createOAuthCode(
           {
             clientId,
+            clientName: client.clientName,
             redirectUri,
             codeChallenge: params.code_challenge,
             codeChallengeMethod: "S256",
@@ -1053,6 +1076,7 @@ async function issueTokenSet(
     scope: string;
     resource: string;
     issuer: string;
+    grantCreatedAtMs: number | null;
   },
   tx: DbExec,
 ): Promise<Record<string, unknown>> {
@@ -1066,6 +1090,7 @@ async function issueTokenSet(
       orgDomain: params.orgDomain ?? null,
       scope: params.scope,
       resource: params.resource,
+      grantCreatedAtMs: params.grantCreatedAtMs,
     },
     tx,
   );
@@ -1092,6 +1117,7 @@ function grantUnavailableError(description: string): Response {
 async function handleAuthorizationCodeGrant(
   event: H3Event,
   body: Record<string, string>,
+  options: McpOAuthRouteOptions,
 ): Promise<Response> {
   const code = body.code;
   const clientId = body.client_id;
@@ -1119,7 +1145,7 @@ async function handleAuthorizationCodeGrant(
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
   try {
-    return await withMcpCredentialIssuance(
+    const response = await withMcpCredentialIssuance(
       {
         email: row.ownerEmail,
         orgId: row.orgId,
@@ -1139,12 +1165,23 @@ async function handleAuthorizationCodeGrant(
               scope: consumed.scope,
               resource: consumed.resource,
               issuer,
+              grantCreatedAtMs: consumed.createdAt,
             },
             tx,
           ),
         );
       },
     );
+    if (response.status === 200) {
+      await trackAgentConnected({
+        email: row.ownerEmail,
+        origin: issuer,
+        appId: options.appId,
+        client: row.clientName ?? null,
+        method: "oauth",
+      });
+    }
+    return response;
   } catch (error) {
     if (
       error instanceof McpCredentialIssuanceError &&
@@ -1213,6 +1250,7 @@ async function handleRefreshTokenGrant(
           scope: existing.scope,
           resource: existing.resource,
           issuer,
+          grantCreatedAtMs: existing.grantCreatedAtMs,
         });
         return json({
           access_token: accessToken,
@@ -1239,14 +1277,17 @@ async function handleRefreshTokenGrant(
   }
 }
 
-async function handleToken(event: H3Event): Promise<Response> {
+async function handleToken(
+  event: H3Event,
+  options: McpOAuthRouteOptions,
+): Promise<Response> {
   if (getMethod(event) !== "POST") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
   const body = await readOAuthParams(event);
   switch (body.grant_type) {
     case "authorization_code":
-      return handleAuthorizationCodeGrant(event, body);
+      return handleAuthorizationCodeGrant(event, body, options);
     case "refresh_token":
       return handleRefreshTokenGrant(event, body);
     default:
@@ -1262,7 +1303,7 @@ export async function handleMcpOAuth(
   const path = subpath.replace(/^\/+/, "").replace(/\/+$/, "");
   try {
     if (path === "authorize") return await handleAuthorize(event, options);
-    if (path === "token") return await handleToken(event);
+    if (path === "token") return await handleToken(event, options);
     if (path === "register") return await handleRegister(event);
     setResponseStatus(event, 404);
     return json({ error: "Not found" }, 404);

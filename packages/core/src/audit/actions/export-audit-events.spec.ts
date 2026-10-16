@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
 import type { AuditEvent } from "../types.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -57,6 +58,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   seq = 0;
 });
@@ -169,7 +171,15 @@ describe("export-audit-events", () => {
       makeEvent({ id: "agent-evt", actorKind: "agent", createdAt: 100 }),
     );
     await insertAuditEvent(
-      makeEvent({ id: "human-evt", actorKind: "human", createdAt: 200 }),
+      makeEvent({
+        id: "human-evt",
+        caller: "frontend",
+        actorKind: "human",
+        createdAt: 200,
+      }),
+    );
+    await insertAuditEvent(
+      makeEvent({ id: "service-evt", actorKind: "service", createdAt: 300 }),
     );
 
     const result = await exportAuditEvents.run(
@@ -179,5 +189,13 @@ describe("export-audit-events", () => {
 
     expect(result.rowCount).toBe(1);
     expect(JSON.parse(result.content).id).toBe("human-evt");
+
+    const serviceResult = await exportAuditEvents.run(
+      { format: "ndjson", actorKind: "service" },
+      { userEmail: "alice@x.com" },
+    );
+
+    expect(serviceResult.rowCount).toBe(1);
+    expect(JSON.parse(serviceResult.content).id).toBe("service-evt");
   });
 });

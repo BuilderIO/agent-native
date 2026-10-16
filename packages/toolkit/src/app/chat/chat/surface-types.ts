@@ -1,4 +1,7 @@
-import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import type {
+  AgentRequestContext,
+  AgentTransport,
+} from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import type { AgentChatContextItem } from "@agent-native/core/client/agent-chat";
@@ -32,12 +35,19 @@ export type AgentRecoveryAction = "continue" | "retry";
 
 export type AgentChatSurfaceKind = "app" | "dev-frame" | "desktop";
 
+export type AssistantChatSnapshotSaveSource =
+  | "transport"
+  | "metadata"
+  | "host-fallback";
+
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
   attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** Drop a queued submit instead of handing it to chat after this time. */
+  submissionExpiresAt?: number;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
@@ -51,7 +61,10 @@ export type AssistantChatSubmitResult =
   | { status: "submitted" }
   | {
       status: "rejected";
-      reason: "engine-not-configured" | "submission-unavailable";
+      reason:
+        | "engine-not-configured"
+        | "submission-unavailable"
+        | "submission-expired";
     };
 
 export interface AssistantChatHandle {
@@ -72,10 +85,15 @@ export interface AssistantChatHandle {
    */
   setComposerContextItem(
     item: AgentChatContextItem,
-    options?: { focus?: boolean },
-  ): void;
+    options?: { focus?: boolean; threadScoped?: boolean },
+  ): void | Promise<AgentChatContextItem | void>;
+  /** Whether the composer can hold this item alongside the context it already has. */
+  canStageComposerContextItem(item: AgentChatContextItem): boolean;
   /** Remove a keyed context item from the composer. */
-  removeComposerContextItem(key: string): void;
+  removeComposerContextItem(
+    key: string,
+    options?: { threadScoped?: boolean; stagingId?: string },
+  ): void | Promise<void>;
   /** Clear all staged context items from the composer. */
   clearComposerContextItems(): void;
   /** Programmatically send a recovery prompt without replacing the original request. */
@@ -224,7 +242,7 @@ export interface AssistantChatProps {
   onSwitchToCli?: () => void;
   /** Callback when message count changes */
   onMessageCountChange?: (count: number) => void;
-  /** Callback to save thread data to the server (provided by useChatThreads) */
+  /** Return `false` to keep a failed snapshot retryable; other legacy return values count as success. */
   onSaveThread?: (
     threadId: string,
     data: {
@@ -232,8 +250,13 @@ export interface AssistantChatProps {
       title: string;
       preview: string;
       messageCount: number;
+      titleSource?: "fallback";
     },
-  ) => void;
+    context?: AgentRequestContext,
+    source?: AssistantChatSnapshotSaveSource,
+  ) => unknown;
+  /** Called after the thread record and its transcript snapshot both save. */
+  onThreadSnapshotPersisted?: (threadId: string, messageCount: number) => void;
   /** Callback to generate a title from the first user message, on the model it was sent with */
   onGenerateTitle?: (
     threadId: string,
@@ -263,6 +286,8 @@ export interface AssistantChatProps {
   missingApiKeySetupLayout?: BuilderSetupCardLayout;
   /** Hide the provider setup panel when another host surface owns that prompt. */
   showMissingApiKeySetup?: boolean;
+  /** Keep chat-owned recovery cards hidden when the host renders the setup card. */
+  setupCardOwner?: "chat" | "host";
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
   /** Center the composer on a fresh empty chat instead of pinning it low. */
@@ -346,11 +371,6 @@ export interface AssistantChatProps {
    * hosts without the sidebar provider stack can use upload-only.
    */
   plusMenuMode?: "full" | "upload-only" | "hidden";
-  /**
-   * Enable framework provider/env status checks. Embedded hosts that provide
-   * model/provider state through another transport can disable these probes.
-   */
-  providerStatusChecksEnabled?: boolean;
   /** Replace the built-in transport with an AgentKit-native BYO transport. */
   createTransport?: (context: AssistantChatAdapterContext) => AgentTransport;
   /** Hide the default guided-question card when another host owns its flow. */

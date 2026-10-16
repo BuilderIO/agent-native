@@ -75,13 +75,15 @@ describe("MultiScreenCanvas preview warming", () => {
           screens={screens}
           zoom={10}
           activeId="screen-0"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
           onPick={() => {}}
         />,

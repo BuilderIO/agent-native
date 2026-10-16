@@ -10,8 +10,10 @@
  * the raw secret never enters the model's context.
  */
 
+import { fail, isActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
+import { SAVE_TO_FILE_MAX_BYTES } from "../workspace-files/constants.js";
 import {
   collectSecretValues,
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
@@ -28,11 +30,13 @@ import {
 } from "./url-safety.js";
 import {
   formatWebContentResult,
+  hasWebContentSearch,
   parseWebContentSearchOptions,
   processWebContent,
 } from "./web-content.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const MAX_WEB_REQUEST_HTML_BYTES = SAVE_TO_FILE_MAX_BYTES;
 const VISION_IMAGE_CONTENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -41,6 +45,22 @@ const VISION_IMAGE_CONTENT_TYPES = new Set([
 ]);
 const CREDENTIAL_NAME_RE =
   /(?:^|[-_])(access[-_]?token|api[-_]?key|auth(?:orization)?|credential|expires?|key[-_]?pair[-_]?id|key|password|passwd|policy|secret|session|signature|sig|token|jwt|assertion)(?:$|[-_])/i;
+
+function isHtmlResponseContentType(contentType: string): boolean {
+  const mediaType = contentType.toLowerCase();
+  return (
+    mediaType === "text/html" ||
+    mediaType === "application/xhtml+xml" ||
+    mediaType.endsWith("+html")
+  );
+}
+
+function truncateToolText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  const marker = "\n...[truncated]";
+  if (maxChars <= marker.length) return marker.slice(0, maxChars);
+  return `${value.slice(0, maxChars - marker.length)}${marker}`;
+}
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== "undefined")
@@ -138,7 +158,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to an external URL: APIs, webhooks, or web pages. HTML/XHTML responses up to 20 MB are extracted before maxChars limits the response body; optional metadata and links can add characters. Raw and other inline responses remain capped at 1 MB. saveToFile can stage responses up to 20 MB. For HTML, it saves extracted Markdown or text unless responseMode is raw; with search, it returns bounded matches instead of a preview. Sends realistic Chrome-on-macOS headers by default; explicit headers override them. Supports \${keys.NAME} placeholders in url, headers, and body, resolved server-side so raw secrets never enter context. Never use this for internal /_agent-native/ endpoints or localhost action URLs; call registered actions directly.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -169,7 +189,7 @@ export function createFetchToolEntry(
             maxChars: {
               type: "number",
               description:
-                "Maximum response body characters to return. Default: 32000. Max: 200000. Increase when you need to read a large document, API response, or dataset.",
+                "Maximum response-body characters returned to context. Default: 32000; max: 200000. Metadata and optional links are additional. This limits extracted content, not the HTML download. Use saveToFile for a longer extracted document.",
             },
             responseMode: {
               type: "string",
@@ -194,12 +214,12 @@ export function createFetchToolEntry(
             includeLinks: {
               type: "boolean",
               description:
-                "Whether extracted HTML responses should include a compact links list. Default: true for extracted pages.",
+                "Whether extracted HTML responses should include a compact links list. Default: true for inline responses and false when saveToFile is set.",
             },
             search: {
               type: "object",
               description:
-                "Optional post-fetch search over extracted content by default. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
+                "Optional post-fetch search over extracted content by default. Searches at most the first 500,000 characters of the selected source; saved results report searchSourceTruncated when this limit is reached. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
               properties: {
                 query: { type: "string" },
                 queries: { type: "array", items: { type: "string" } },
@@ -215,7 +235,7 @@ export function createFetchToolEntry(
             saveToFile: {
               type: "string",
               description:
-                "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/page.html'). When set, returns only a compact summary {savedTo, status, bytes, preview}. Useful for large web pages or API responses that would overflow context.",
+                "Workspace path to stage a response up to 20 MB (e.g. 'scratch/research/page.md'). HTML saves full extracted Markdown/text unless responseMode is raw; non-HTML and raw mode save the response body. With search, returns matches bounded by maxChars and reports when source scanning was capped; without search, returns a preview.",
             },
           },
           required: ["url"],
@@ -237,7 +257,10 @@ export function createFetchToolEntry(
         const rawUrl = String(args.url ?? "");
         const method = normalizeExtensionProxyMethod(args.method || "GET");
         if (!method) {
-          return "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.";
+          fail(
+            "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.",
+            { errorCode: "web_request_invalid_method" },
+          );
         }
         const rawHeaders =
           typeof args.headers === "string"
@@ -288,7 +311,9 @@ export function createFetchToolEntry(
               allResolvedKeys.push(...(bodyResult.resolvedKeys ?? []));
             }
           } catch (err: any) {
-            return `Error resolving key references: ${err?.message ?? err}`;
+            fail(`Error resolving key references: ${err?.message ?? err}`, {
+              errorCode: "web_request_key_resolution_failed",
+            });
           }
         }
         const secretValues = collectSecretValues(allSecretValues);
@@ -297,7 +322,10 @@ export function createFetchToolEntry(
           : undefined;
 
         if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
-          return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
+          fail(
+            `Requests to private/internal addresses are not allowed: "${rawUrl}".`,
+            { errorCode: "web_request_url_blocked" },
+          );
         }
 
         if (opts.validateUrl && allUsedKeys.length > 0) {
@@ -308,10 +336,16 @@ export function createFetchToolEntry(
               resolvedKeys,
             );
             if (!allowed) {
-              return `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`;
+              fail(
+                `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`,
+                { errorCode: "web_request_url_blocked" },
+              );
             }
           } catch (err: any) {
-            return `URL validation error: ${err?.message ?? err}`;
+            if (isActionContractError(err)) throw err;
+            fail(`URL validation error: ${err?.message ?? err}`, {
+              errorCode: "web_request_url_validation_failed",
+            });
           }
         }
 
@@ -319,7 +353,9 @@ export function createFetchToolEntry(
         try {
           headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
         } catch {
-          return `Invalid headers JSON: ${rawHeaders}`;
+          fail(`Invalid headers JSON: ${rawHeaders}`, {
+            errorCode: "web_request_invalid_headers",
+          });
         }
         headers = applyBrowserDefaults(headers);
 
@@ -354,7 +390,9 @@ export function createFetchToolEntry(
               redirectUrl &&
               (await isBlockedExtensionUrlWithDns(redirectUrl))
             ) {
-              return "Redirect to private/internal address blocked.";
+              fail("Redirect to private/internal address blocked.", {
+                errorCode: "web_request_url_blocked",
+              });
             }
             if (redirectUrl && opts.validateUrl && allUsedKeys.length > 0) {
               const allowed = await opts.validateUrl(
@@ -363,17 +401,29 @@ export function createFetchToolEntry(
                 resolvedKeys,
               );
               if (!allowed) {
-                return "Redirect URL is not in the allowlist for the referenced keys.";
+                fail(
+                  "Redirect URL is not in the allowlist for the referenced keys.",
+                  { errorCode: "web_request_url_blocked" },
+                );
               }
             }
-            return `HTTP ${response.status} ${response.statusText}\n\nRedirect: ${
-              redirectUrl ? redactString(redirectUrl, secretValues) : "(none)"
-            }`;
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\nRedirect: ${
+                redirectUrl ? redactString(redirectUrl, secretValues) : "(none)"
+              }`,
+              { errorCode: `http_${response.status}` },
+            );
           }
 
           const contentType =
             response.headers.get("content-type")?.split(";")[0].trim() ??
             "text/plain";
+          const requestedResponseMode = String(args.responseMode ?? "auto");
+          const normalizedResponseMode = requestedResponseMode.toLowerCase();
+          const isHtmlContentType = isHtmlResponseContentType(contentType);
+          const httpErrorCode = response.ok
+            ? undefined
+            : `http_${response.status}`;
 
           const saveToFilePath =
             typeof (args as Record<string, unknown>).saveToFile === "string"
@@ -421,36 +471,137 @@ export function createFetchToolEntry(
           }
 
           let body: string;
-          try {
-            const readLimit = saveToFilePath
-              ? 20 * 1024 * 1024
+          let bodyResult: {
+            text: string;
+            truncated: boolean;
+            size: number;
+          };
+          const readLimit =
+            saveToFilePath ||
+            (isHtmlContentType && normalizedResponseMode !== "raw")
+              ? MAX_WEB_REQUEST_HTML_BYTES
               : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
-            const result = await readResponseTextWithLimit(response, readLimit);
-            body = result.text;
+          try {
+            bodyResult = await readResponseTextWithLimit(response, readLimit);
           } catch {
-            body = "(could not read response body)";
+            fail("(could not read response body)", {
+              errorCode: httpErrorCode ?? "web_request_body_unreadable",
+            });
           }
+          if (bodyResult.truncated) {
+            const declaredBytes = Number(
+              response.headers.get("content-length"),
+            );
+            const exceedsSaveLimit =
+              readLimit === MAX_WEB_REQUEST_HTML_BYTES ||
+              (Number.isFinite(declaredBytes) &&
+                declaredBytes > MAX_WEB_REQUEST_HTML_BYTES);
+            const recovery = exceedsSaveLimit
+              ? `The response exceeds web-request's ${MAX_WEB_REQUEST_HTML_BYTES}-byte limit.`
+              : `Retry with saveToFile to stage responses up to ${MAX_WEB_REQUEST_HTML_BYTES} bytes.`;
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\nResponse too large: at least ${bodyResult.size} bytes observed; maximum ${readLimit} bytes. ${recovery}`,
+              {
+                errorCode: "web_request_response_too_large",
+              },
+            );
+          }
+          body = bodyResult.text;
           body = redactString(body, secretValues);
+          if (response.ok) {
+            const { providerApiResponseOutcomeForUrl } =
+              await import("../provider-api/index.js");
+            const outcome = providerApiResponseOutcomeForUrl(
+              resolvedUrl,
+              response,
+              body,
+            );
+            if (!outcome.ok)
+              fail(
+                `HTTP ${response.status} ${outcome.statusText}\n\n${body.slice(0, maxChars)}`,
+                { errorCode: "web_request_provider_failed" },
+              );
+          }
           let displayBody: string;
           let processedMode = "raw";
+          let searchResultsTruncated = false;
+          let searchSourceTruncated = false;
+          let fileContent = body;
+          let fileContentType = contentType;
+          const search = parseWebContentSearchOptions(args.search);
+          const hasSearch = hasWebContentSearch(search);
+          const includeLinks =
+            args.includeLinks === undefined
+              ? !saveToFilePath
+              : parseBooleanArg(args.includeLinks);
+          const saveContentFormat =
+            saveToFilePath &&
+            isHtmlContentType &&
+            normalizedResponseMode !== "raw"
+              ? normalizedResponseMode === "text"
+                ? "text"
+                : "markdown"
+              : undefined;
           try {
             const processed = await processWebContent({
               url: resolvedUrl,
               body,
               contentType,
-              responseMode: String(args.responseMode ?? "auto"),
+              responseMode:
+                saveToFilePath && hasSearch ? "matches" : requestedResponseMode,
               extract: String(args.extract ?? "readability"),
-              includeLinks:
-                args.includeLinks === undefined
-                  ? true
-                  : parseBooleanArg(args.includeLinks),
-              search: parseWebContentSearchOptions(args.search),
-              maxChars,
+              includeLinks,
+              search,
+              maxChars: saveContentFormat ? null : maxChars,
+              saveContentFormat,
             });
             processedMode = processed.mode;
+            searchSourceTruncated = processed.searchTruncated ?? false;
             displayBody = formatWebContentResult(processed);
+
+            if (saveToFilePath && hasSearch && displayBody.length > maxChars) {
+              searchResultsTruncated = true;
+              displayBody = truncateToolText(displayBody, maxChars);
+            }
+
+            if (saveContentFormat) {
+              if (processed.fullContent === undefined) {
+                throw new Error(
+                  "HTML extraction did not produce saved content",
+                );
+              }
+              fileContent = formatWebContentResult({
+                ...processed,
+                mode: saveContentFormat,
+                content: processed.fullContent,
+                fullContent: undefined,
+                matches: undefined,
+                totalMatches: undefined,
+                omittedMatches: undefined,
+                searchSource: undefined,
+                searchTruncated: undefined,
+                truncated: false,
+              });
+              fileContentType =
+                saveContentFormat === "markdown"
+                  ? "text/markdown"
+                  : "text/plain";
+            }
+
+            if (
+              !saveToFilePath &&
+              isHtmlContentType &&
+              normalizedResponseMode !== "raw" &&
+              processed.truncated &&
+              processed.contentLength !== undefined
+            ) {
+              displayBody += `\n\nFull extracted content: ${processed.contentLength} characters. Retry with saveToFile (up to ${MAX_WEB_REQUEST_HTML_BYTES} bytes), then use workspace-files grep or read with offsets.`;
+            }
           } catch (err: any) {
-            return `web-request post-processing error: ${err?.message ?? String(err)}`;
+            fail(
+              `web-request post-processing error: ${err?.message ?? String(err)}`,
+              { errorCode: httpErrorCode ?? "web_request_processing_failed" },
+            );
           }
 
           console.log(
@@ -461,7 +612,6 @@ export function createFetchToolEntry(
             try {
               const {
                 writeWorkspaceFile,
-                SAVE_TO_FILE_MAX_BYTES,
                 isScratchWorkspacePath,
                 toWorkspaceFileCard,
               } = await import("../workspace-files/store.js");
@@ -482,41 +632,76 @@ export function createFetchToolEntry(
                   `Refusing to save a failed response to durable workspace file "${saveToFilePath}" (status ${response.status}). Use a scratch/... path for diagnostics.`,
                 );
               }
+              const savedFormat = saveContentFormat ?? "raw";
               const meta = await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
-                body,
-                contentType,
+                fileContent,
+                fileContentType,
                 {
                   maxFileBytes: SAVE_TO_FILE_MAX_BYTES,
                 },
               );
-              const bytes = Buffer.byteLength(body, "utf8");
-              const preview = displayBody.slice(0, 2000);
+              const bytes = Buffer.byteLength(fileContent, "utf8");
+              const previewSource = saveContentFormat
+                ? fileContent
+                : displayBody;
+              const preview = previewSource.slice(0, 2000);
+              if (!response.ok)
+                fail(
+                  `HTTP ${response.status} ${response.statusText}\n\n${truncateToolText(displayBody, maxChars)}`,
+                  { errorCode: `http_${response.status}` },
+                );
               return JSON.stringify({
                 savedToFile: true,
                 savedTo: saveToFilePath,
                 status: response.status,
                 bytes,
+                chars: fileContent.length,
                 contentType,
+                savedFormat,
                 responseMode: processedMode,
-                preview:
-                  preview.length < displayBody.length ? `${preview}…` : preview,
+                ...(hasSearch
+                  ? {
+                      searchResults: displayBody,
+                      searchResultsTruncated,
+                      searchSourceTruncated,
+                    }
+                  : {
+                      preview:
+                        preview.length < previewSource.length
+                          ? `${preview}…`
+                          : preview,
+                    }),
                 ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
               });
             } catch (saveErr: any) {
-              return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;
+              if (isActionContractError(saveErr)) throw saveErr;
+              fail(
+                `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`,
+                {
+                  errorCode: httpErrorCode ?? "web_request_save_failed",
+                },
+              );
             }
           }
 
+          if (!response.ok)
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`,
+              { errorCode: `http_${response.status}` },
+            );
           return `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`;
         } catch (err: any) {
+          if (isActionContractError(err)) throw err;
           const elapsed = Date.now() - startTime;
           if (err?.name === "AbortError") {
             console.log(
               `[fetch-tool] ${method} ${rawUrl} → TIMEOUT (${elapsed}ms)`,
             );
-            return `Request timed out after ${timeoutMs}ms.`;
+            fail(`Request timed out after ${timeoutMs}ms.`, {
+              errorCode: "web_request_timeout",
+            });
           }
           const message = redactSecrets(
             err?.message ?? String(err),
@@ -525,7 +710,9 @@ export function createFetchToolEntry(
           console.log(
             `[fetch-tool] ${method} ${rawUrl} → ERROR: ${message} (${elapsed}ms)`,
           );
-          return `Request failed: ${message}`;
+          fail(`Request failed: ${message}`, {
+            errorCode: "web_request_failed",
+          });
         } finally {
           clearTimeout(timeout);
         }

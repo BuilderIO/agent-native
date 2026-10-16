@@ -1,13 +1,13 @@
 import {
   AGENT_ACCESS_PARAM,
   getConfiguredAppBasePath,
+  getForwardedRequestOrigin,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
-  getRequestURL,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
@@ -101,7 +101,7 @@ export default defineEventHandler(async (event) => {
         : "This private document is not readable through anonymous HTTP",
       id,
       getConfiguredAppBasePath(),
-      getRequestURL(event).origin,
+      getForwardedRequestOrigin(event),
     );
     setResponseStatus(event, denied.statusCode);
     return denied.body;

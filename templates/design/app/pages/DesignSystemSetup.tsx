@@ -38,13 +38,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import { useDesignSystemWorkflowsState } from "@/hooks/use-design-system-workflows";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   uploadAndIndexFigmaFiles,
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
+
+import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 
 interface GitHubLink {
   id: string;
@@ -136,16 +138,21 @@ function designSystemIndexFailureMessage(
 }
 
 export default function DesignSystemSetup() {
-  const enabled = useDesignSystemWorkflows();
+  const workflowsState = useDesignSystemWorkflowsState();
   const t = useT();
-  return enabled ? (
+  return workflowsState.status === "ready" && workflowsState.enabled ? (
     <DesignSystemSetupContent />
   ) : (
-    <Button asChild variant="outline">
-      <Link to="/design-systems">
-        {t("designSystemSetup.backToDesignSystems")}
-      </Link>
-    </Button>
+    <div className="flex flex-wrap items-center gap-2">
+      {workflowsState.status === "ready" && !workflowsState.enabled ? (
+        <JoinDesignSystemWaitlistButton />
+      ) : null}
+      <Button asChild variant="outline">
+        <Link to="/design-systems">
+          {t("designSystemSetup.backToDesignSystems")}
+        </Link>
+      </Button>
+    </div>
   );
 }
 

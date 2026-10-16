@@ -1006,6 +1006,7 @@ export function ExtensionsSidebarSection() {
                 </div>
                 <PromptComposer
                   autoFocus
+                  requireAgentEngine
                   placeholder={copy.createPlaceholder}
                   draftScope="extensions:sidebar-create"
                   onSubmit={handleCreate}

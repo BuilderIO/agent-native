@@ -362,9 +362,7 @@ describe("document database layout", () => {
 
     expect(selectionBarIndex).toBeGreaterThan(-1);
     expect(scrollSurfaceIndex).toBeGreaterThan(selectionBarIndex);
-    expect(source).toContain(
-      "const effectiveCanEdit = canEdit && document.canEdit === true",
-    );
+    expect(source).toContain("document.canEdit === true");
     expect(source).toContain("effectiveCanEdit && document.canManage === true");
     expect(source).toContain("canRemoveSelected={canRemoveSelected}");
     expect(source).toContain("Clear");

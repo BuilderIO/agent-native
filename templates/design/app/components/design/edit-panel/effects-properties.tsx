@@ -1,9 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
 import {
   IconBackground,
   IconBlur,
@@ -241,12 +237,11 @@ export function remapIndexedShadowStash(
 }
 
 function shadowColorWithOpacity(color: string, opacity: number): string {
-  const parsed = parseCssColor(color);
-  return parsed
-    ? rgbaToCss(withColorOpacity(parsed, opacity))
-    : opacity <= 0
-      ? "rgba(0, 0, 0, 0)"
-      : color;
+  return (
+    withCssColorOpacity(color, opacity) ??
+    // guard:allow-raw-color — a shadow with no readable color falls back to concrete transparent black.
+    (opacity <= 0 ? "rgba(0, 0, 0, 0)" : color)
+  );
 }
 
 export function effectsSelectionIsMixed(styles: {
@@ -613,6 +608,7 @@ function ShadowEffectRow({
           label={t("editPanel.labels.color")}
           value={cssColorOrFallback(layer.color, DEFAULT_DROP_SHADOW_COLOR)}
           onChange={(value, meta) => onChange({ color: value }, meta)}
+          bindTokens
         />
       </InspectorControlField>
     </EffectPopoverRow>
@@ -783,7 +779,7 @@ export function EffectsProperties({
           {effectsAreMixed ? (
             <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
               {
-                "Click + to replace mixed content" /* i18n-ignore figma mixed effects hint */
+                "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
               }
             </p>
           ) : (

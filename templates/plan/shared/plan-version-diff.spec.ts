@@ -99,6 +99,42 @@ describe("diffPlanVersions — block diffs", () => {
     expect(diff.changedBlocks).toHaveLength(0);
   });
 
+  it("labels a legacy data-model block without entities", () => {
+    const block = {
+      id: "model-1",
+      type: "data-model",
+      data: {},
+    } as unknown as PlanContent["blocks"][number];
+
+    const result = diffPlanVersions(
+      { content: makeContent([block]) },
+      { content: makeContent([]) },
+    );
+
+    expect(result.kind).toBe("diff");
+    if (result.kind !== "diff") throw new Error("unreachable");
+    expect(result.diff.addedBlocks).toEqual([
+      { id: "model-1", label: "Data model" },
+    ]);
+  });
+
+  it("labels a legacy tabs block without tabs", () => {
+    const block = {
+      id: "tabs-1",
+      type: "tabs",
+      data: {},
+    } as unknown as PlanContent["blocks"][number];
+
+    const result = diffPlanVersions(
+      { content: makeContent([block]) },
+      { content: makeContent([]) },
+    );
+
+    expect(result.kind).toBe("diff");
+    if (result.kind !== "diff") throw new Error("unreachable");
+    expect(result.diff.addedBlocks).toEqual([{ id: "tabs-1", label: "Tabs" }]);
+  });
+
   it("returns initial for oldest version (older = null)", () => {
     const content = makeContent([richText("a", "Hello")]);
     const result = diffPlanVersions({ content }, null);

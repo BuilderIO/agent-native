@@ -18,9 +18,17 @@ import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 import { z } from "zod";
 
+import {
+  readAgentAppModelDefaultSettings,
+  normalizeAgentAppModelDefaultAppId,
+} from "../agent/app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_CALLBACK_PATH } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
-import { DEFAULT_MODEL } from "../agent/default-model.js";
+import {
+  resolveAgentEngineStatus,
+  type AgentEngineStatusDeps,
+  type AgentEngineStatusResponse,
+} from "../agent/engine-status.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import type { CredentialFixer } from "../agent/engine/credential-state.js";
 import {
@@ -29,12 +37,9 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import type { AgentEngineEntry } from "../agent/engine/registry.js";
 import {
-  isAgentEngineSettingConfigured,
-  getAgentEngineEntry,
-  detectEngineFromEnv,
+  detectEngineFromEnvForRequest,
   detectEngineFromUserSecrets,
   isStoredEngineUsableForRequest,
-  normalizeModelForEngine,
 } from "../agent/engine/registry.js";
 import {
   canUpdateAgentLoopSettings,
@@ -43,6 +48,13 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+export {
+  normalizeAgentEngineStatusModel,
+  resolveAgentEngineStatus,
+  type AgentEngineStatusResult,
+  type AgentEngineStatusResponse,
+  type AgentEngineStatusDeps,
+} from "../agent/engine-status.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   getState,
@@ -93,7 +105,11 @@ import {
   registerBuiltinNotificationChannels,
 } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
-import { getOrgContext } from "../org/context.js";
+import {
+  getOrgContext,
+  hasOrgScopeResolutionUnavailable,
+  resolveOrgScopeForEmail,
+} from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
@@ -144,16 +160,21 @@ import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
-import { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
+import {
+  isAgentChatAiSetupReady,
+  isBuilderChatSetupReady,
+} from "./agent-chat-ai-setup.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
+import { memoizeAgentEngineStatus } from "./agent-engine-status-cache.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
 import { isAnonymousWaitlistSessionEmail } from "./anonymous-identity.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
+import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
 import {
@@ -219,6 +240,7 @@ import {
   exchangeBuilderOAuthAuthorization,
   getBuilderOAuthGrants,
   getBuilderOAuthStoredScope,
+  hasUsableBuilderOAuthSessionForReadiness,
   hasStoredBuilderOAuthGrant,
   isBuilderOrgManagerRole,
   isPersonalBuilderGrantAllowed,
@@ -237,6 +259,7 @@ import {
 import {
   resolveCoreRoutesMcpOptions,
   type CoreRoutesMcpOptions,
+  type ResolvedCoreRoutesMcp,
 } from "./core-routes/mcp-connect-options.js";
 import {
   getAllowedCorsOrigin,
@@ -244,12 +267,15 @@ import {
 } from "./cors-origins.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import {
-  canUseDeployCredentialFallbackForRequest,
+  assertCredentialStoreReadable,
   CredentialStoreUnavailableError,
   getBuilderKeyConnections,
   prefetchSecrets,
-  readDeployCredentialEnv,
   resolveSecret,
+  resolveSecretDetailed,
+  resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderPrivateKey,
+  type BuilderCredentialLookupIdentity,
 } from "./credential-provider.js";
 import {
   decideCredentialWriteScope,
@@ -290,6 +316,7 @@ import {
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
+import { isDirectLoopbackRequest, isLoopbackRequest } from "./loopback.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import {
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
@@ -311,6 +338,8 @@ import {
 } from "./realtime-token.js";
 import {
   getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
@@ -337,167 +366,90 @@ export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
 
-export function normalizeAgentEngineStatusModel(
-  entry:
-    | { name: string; defaultModel: string; supportedModels: readonly string[] }
-    | undefined,
-  model: string | null | undefined,
-): string {
-  if (!entry) return model ?? DEFAULT_MODEL;
-  return normalizeModelForEngine(entry, model ?? entry.defaultModel);
-}
-
-type AgentEngineStatusEntry = {
-  name: string;
-  defaultModel: string;
-  supportedModels: readonly string[];
-  requiredEnvVars: readonly string[];
-};
-
-export interface AgentEngineStatusResult {
-  configured: boolean;
-  engine?: string;
-  model?: string;
-  source?: "settings" | "env" | "app_secrets";
-  envVar?: string;
-  openAiBaseUrlConfigured?: boolean;
-}
-
-export interface AgentEngineStatusResponse extends AgentEngineStatusResult {
-  /** Strict chat-only eligibility; distinct from broad engine `configured`. */
-  chatEligible: boolean;
-}
-
-export interface AgentEngineStatusDeps<
-  E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
-> {
-  readStoredEngine: () => Promise<{ engine?: string; model?: string } | null>;
-  readOpenAiBaseUrlConfigured: () => boolean | Promise<boolean>;
-  isStoredEngineUsable: (
-    stored: unknown,
-    entry: E,
-  ) => boolean | Promise<boolean>;
-  detectFromUserSecrets: () => Promise<E | null>;
-  detectFromEnv: () => E | null | Promise<E | null>;
-  lookupEntry?: (engine: string) => E | undefined;
-}
-
-/**
- * Resolve "does this request have a usable AI provider" for one identity.
- *
- * Every call site pays for these lookups on a user-visible path (the agent
- * composer blocks on the status probe), so the two identity-independent reads
- * start together and the expensive `app_secrets` sweep only runs when the
- * cheaper sources have not already answered.
- */
-export async function resolveAgentEngineStatus<
-  E extends AgentEngineStatusEntry,
->(deps: AgentEngineStatusDeps<E>): Promise<AgentEngineStatusResult> {
-  const lookupEntry = (deps.lookupEntry ?? getAgentEngineEntry) as (
-    engine: string,
-  ) => E | undefined;
-  const [stored, openAiBaseUrlConfigured] = await Promise.all([
-    deps.readStoredEngine(),
-    deps.readOpenAiBaseUrlConfigured(),
-  ]);
-
-  if (isAgentEngineSettingConfigured(stored)) {
-    const engine = (stored as { engine: string }).engine;
-    const entry = lookupEntry(engine);
-    return {
-      configured: true,
-      engine,
-      model: normalizeAgentEngineStatusModel(entry, stored?.model),
-      source: "settings",
-      openAiBaseUrlConfigured,
-    };
-  }
-
-  const configuredEngine = getAppConfig().agent.engine;
-  const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
-  if (envEntry) {
-    if (await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)) {
-      return {
-        configured: true,
-        engine: envEntry.name,
-        model: envEntry.defaultModel ?? DEFAULT_MODEL,
-        source: "env",
-        envVar: "AGENT_ENGINE",
-        openAiBaseUrlConfigured,
-      };
-    }
-    if (getRequestContext()?.isSyntheticTraffic !== true) {
-      return { configured: false, openAiBaseUrlConfigured };
-    }
-  }
-
-  // Stored provider selections win over an existing Builder connection, so
-  // this is checked before the app_secrets sweep — and the sweep is skipped
-  // entirely when it answers.
-  if (stored && typeof stored.engine === "string") {
-    const entry = lookupEntry(stored.engine);
-    if (entry && (await deps.isStoredEngineUsable(stored, entry))) {
-      return {
-        configured: true,
-        engine: stored.engine,
-        model: normalizeAgentEngineStatusModel(entry, stored.model),
-        source: "env",
-        envVar: entry.requiredEnvVars[0],
-        openAiBaseUrlConfigured,
-      };
-    }
-  }
-
-  // Per-user app_secrets — a user who connected Builder (or pasted their own
-  // provider key) may not have any deploy-level env vars set.
-  const detectedFromUser = await deps.detectFromUserSecrets();
-  if (detectedFromUser) {
-    return {
-      configured: true,
-      engine: detectedFromUser.name,
-      model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-      source: "app_secrets",
-      envVar: detectedFromUser.requiredEnvVars[0],
-      openAiBaseUrlConfigured,
-    };
-  }
-
-  const detected = await deps.detectFromEnv();
-  if (detected) {
-    return {
-      configured: true,
-      engine: detected.name,
-      model: detected.defaultModel ?? DEFAULT_MODEL,
-      source: "env",
-      envVar: detected.requiredEnvVars[0],
-      openAiBaseUrlConfigured,
-    };
-  }
-
-  return { configured: false, openAiBaseUrlConfigured };
-}
-
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
+  const credentialIdentity: BuilderCredentialLookupIdentity = {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId(),
+  };
+  let builderConnectionPromise: Promise<boolean> | undefined;
+  const hasBuilderConnectionCandidate = () => {
+    builderConnectionPromise ??= (async () => {
+      if (
+        credentialIdentity.userEmail &&
+        isBuilderChatSetupReady({
+          oauthSessionUsable: await hasUsableBuilderOAuthSessionForReadiness(
+            credentialIdentity.userEmail,
+            credentialIdentity.orgId,
+          ),
+        })
+      ) {
+        return true;
+      }
+      const credentials =
+        await resolveBuilderGatewayCredentialsDetailed(credentialIdentity);
+      assertCredentialStoreReadable(credentials);
+      if (
+        isBuilderChatSetupReady({
+          privateKey: credentials.privateKey,
+          publicKey: credentials.publicKey,
+        })
+      ) {
+        return true;
+      }
+      return isBuilderChatSetupReady({
+        legacyPrivateKey: await resolveBuilderPrivateKey(credentialIdentity),
+      });
+    })();
+    return builderConnectionPromise;
+  };
+  let userSecretsEnginePromise: Promise<AgentEngineEntry | null> | undefined;
+  const detectFromUserSecrets = () => {
+    userSecretsEnginePromise ??= detectEngineFromUserSecrets(
+      credentialIdentity,
+      { isBuilderConnectionUsable: hasBuilderConnectionCandidate },
+    );
+    return userSecretsEnginePromise;
+  };
+
   return {
+    readAppDefault: async () => {
+      const app = getAppConfig().app;
+      const appId = normalizeAgentAppModelDefaultAppId(
+        app.id ?? app.template ?? app.slug,
+      );
+      if (!appId) return null;
+      const settings = await readAgentAppModelDefaultSettings(
+        {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId(),
+          ...(getRequestContext()?.orgScope === "personal"
+            ? { orgScope: "personal" as const }
+            : {}),
+        },
+        appId,
+      );
+      return settings.engine && settings.model
+        ? { engine: settings.engine, model: settings.model }
+        : null;
+    },
     readStoredEngine: async () =>
       (await readDefaultAgentEngineSetting()) as {
         engine?: string;
         model?: string;
       } | null,
     readOpenAiBaseUrlConfigured: async () => {
-      try {
-        if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
-      } catch {
-        /* fall through to deployment env when allowed */
-      }
-      return (
-        canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR) &&
-        !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
-      );
+      const resolved = await resolveSecretDetailed(OPENAI_BASE_URL_ENV_VAR);
+      assertCredentialStoreReadable(resolved);
+      return Boolean(resolved.value?.trim());
     },
-    isStoredEngineUsable: isStoredEngineUsableForRequest,
-    detectFromUserSecrets: detectEngineFromUserSecrets,
-    detectFromEnv: detectEngineFromEnv,
+    isStoredEngineUsable: (stored, entry) =>
+      entry.name === "builder"
+        ? hasBuilderConnectionCandidate()
+        : isStoredEngineUsableForRequest(stored, entry, {
+            credentialIdentity,
+          }),
+    detectFromUserSecrets,
+    detectFromEnv: detectEngineFromEnvForRequest,
   };
 }
 
@@ -507,13 +459,30 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
  */
 export async function resolveAgentEngineStatusIdentity(
   event: H3Event,
-): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
+): Promise<{
+  userEmail: string | undefined;
+  orgId: string | undefined;
+  orgScope?: "personal";
+}> {
   const session = await getSession(event);
   const userEmail = session?.email;
   if (!userEmail) return { userEmail: undefined, orgId: undefined };
   try {
     const orgCtx = await getOrgContext(event);
-    return { userEmail, orgId: orgCtx.orgId ?? undefined };
+    if (orgCtx.orgId) return { userEmail, orgId: orgCtx.orgId };
+    if (hasOrgScopeResolutionUnavailable(event)) {
+      return { userEmail, orgId: undefined };
+    }
+    if (orgCtx.email.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+      return { userEmail, orgId: undefined, orgScope: "personal" };
+    }
+    const scope = await resolveOrgScopeForEmail(userEmail);
+    if (scope.status === "organization") {
+      return { userEmail, orgId: scope.orgId };
+    }
+    return scope.status === "personal"
+      ? { userEmail, orgId: undefined, orgScope: "personal" }
+      : { userEmail, orgId: undefined };
   } catch (error) {
     /* org module not present in this template */
     if (!isMissingOrganizationTableError(error)) throw error;
@@ -1370,9 +1339,13 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
-  "design_make_real_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
+]);
+const BUILDER_WAITLIST_USE_CASE_GROUPS = new Map([
+  ["design_make_real_waitlist", "design_publish_app"],
+  ["design_system_workflows_waitlist", "design_publish_app"],
+  ["design_system_waitlist", "design_publish_app"],
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
@@ -1443,9 +1416,16 @@ function cleanBuilderWaitlistText(
 
 function normalizeBuilderWaitlistUseCase(value: unknown): string {
   const useCase = cleanBuilderWaitlistText(value, 100);
-  return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
-    ? useCase
-    : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (!useCase) return BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (BUILDER_WAITLIST_USE_CASES.has(useCase)) return useCase;
+
+  // The published waitlist form validates this select against its own option
+  // list. Keep new Design entry points in the existing Design category; their
+  // exact surfaces remain in the text `source` field.
+  return (
+    BUILDER_WAITLIST_USE_CASE_GROUPS.get(useCase) ??
+    BUILDER_WAITLIST_DEFAULT_USE_CASE
+  );
 }
 
 function normalizeBuilderWaitlistTemplate(value: unknown): string | undefined {
@@ -1709,10 +1689,10 @@ async function detectUsageEngineName(
   userEmail: string | undefined,
 ): Promise<string | null> {
   try {
-    const orgId = userEmail
-      ? (await resolveAgentEngineStatusIdentity(event)).orgId
-      : undefined;
-    const status = await runWithRequestContext({ userEmail, orgId }, () =>
+    const identity = userEmail
+      ? await resolveAgentEngineStatusIdentity(event)
+      : { userEmail, orgId: undefined };
+    const status = await runWithRequestContext(identity, () =>
       resolveAgentEngineStatus({
         ...requestAgentEngineStatusDeps(),
         // Tracking only needs the engine name; skip the base-URL secret read.
@@ -1733,6 +1713,14 @@ async function trackBuilderLifecycle(
 ): Promise<void> {
   if (!userEmail) return;
   const engine = await detectUsageEngineName(event, userEmail);
+  const cookieSessionId = readAnalyticsSessionId(getHeader(event, "cookie"));
+  const headerSessionId = readBrowserSessionIdHeader(event);
+  const sessionId =
+    cookieSessionId && headerSessionId
+      ? cookieSessionId === headerSessionId
+        ? cookieSessionId
+        : undefined
+      : (cookieSessionId ?? headerSessionId);
   track(
     name,
     {
@@ -1743,7 +1731,10 @@ async function trackBuilderLifecycle(
       }),
       ...properties,
     },
-    { userId: userEmail },
+    {
+      userId: userEmail,
+      ...(sessionId ? { sessionId } : {}),
+    },
   );
 }
 
@@ -2567,6 +2558,8 @@ export async function activateBuilderAccount(
     const credentials = await provisionBuilderAccount({
       email: ownerEmail,
       name: session.name,
+      agentNativeApp: input.tracking.agentNativeApp,
+      agentNativeTemplate: input.tracking.agentNativeTemplate,
     });
     const { writeBuilderCredentials } =
       await import("./credential-provider.js");
@@ -2596,6 +2589,16 @@ export async function activateBuilderAccount(
         credential_scope: written.scope,
         account_provisioned: true,
       },
+    );
+    track(
+      "llm_credential_changed",
+      {
+        change_type: "connected",
+        provider: "builder",
+        scope: written.scope,
+        credential_kind: "builder",
+      },
+      { userId: ownerEmail },
     );
     await recordBuilderConnectionAudit({
       connected: true,
@@ -2946,6 +2949,89 @@ export function createOAuthPopupWaitingHandler() {
         : OAUTH_POPUP_COMPLETE_HTML
       : OAUTH_POPUP_WAITING_HTML;
   });
+}
+
+/**
+ * External-agent connection routes: OAuth metadata and the connect page,
+ * device flow and token subroutes when connect is on, and the public identity
+ * route either way.
+ */
+export function mountMcpConnectRoutes(
+  app: H3AppShim,
+  mcpConnect: ResolvedCoreRoutesMcp,
+): void {
+  const mcpConnectOpts = {
+    appId: mcpConnect.appId,
+    appName: mcpConnect.appName,
+    serverName: mcpConnect.serverName,
+    connect: mcpConnect.connect,
+  };
+  if (mcpConnect.connect) {
+    app.use(
+      "/.well-known/oauth-protected-resource",
+      defineEventHandler((event: H3Event) =>
+        handleMcpOAuthProtectedResourceMetadata(event),
+      ),
+    );
+    app.use(
+      "/.well-known/oauth-authorization-server",
+      defineEventHandler((event: H3Event) =>
+        handleMcpOAuthAuthorizationServerMetadata(event),
+      ),
+    );
+    app.use(
+      "/.well-known/openid-configuration",
+      defineEventHandler((event: H3Event) =>
+        handleMcpOAuthAuthorizationServerMetadata(event),
+      ),
+    );
+    for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+      app.use(
+        `${mcpRoutePrefix}/oauth`,
+        defineEventHandler(async (event: H3Event) => {
+          const subpath = event.url?.pathname || "";
+          return handleMcpOAuth(event, subpath, {
+            appId: mcpConnect.appId,
+            appName: mcpConnect.appName,
+          });
+        }),
+      );
+    }
+
+    // Frictionless external-agent connection. A logged-in user mints a
+    // per-user, scoped, revocable MCP bearer token here — via the browser
+    // Connect page or the OAuth-style device-code flow a CLI drives — so
+    // they never copy a shared deployment secret. The handler resolves the
+    // browser session itself and serves its own login form (like /open)
+    // for the page + unauth device endpoints; the /token, /device/authorize,
+    // /tokens, /tokens/revoke subpaths require a session and 401 without it.
+    // The auth guard bypasses ONLY the page + identity + device/start +
+    // device/poll (see createAuthGuardFn in auth.ts).
+    for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+      app.use(
+        `${mcpRoutePrefix}/connect`,
+        defineEventHandler(async (event: H3Event) => {
+          // The framework strips the mount prefix from event.url.pathname,
+          // so what remains is the subpath after `/connect` (e.g. `/token`,
+          // `/device/start`, or `` for the page itself).
+          const subpath = event.url?.pathname || "";
+          return handleMcpConnect(event, subpath, mcpConnectOpts);
+        }),
+      );
+    }
+  } else {
+    // Settings and share dialogs take the server name and MCP URL from
+    // here, and still show them when the connect page and its token flows
+    // are off.
+    for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+      app.use(
+        `${mcpRoutePrefix}/connect/identity`,
+        defineEventHandler((event: H3Event) =>
+          handleMcpConnect(event, "/identity", mcpConnectOpts),
+        ),
+      );
+    }
+  }
 }
 
 export function mountApplicationStateRoutes(
@@ -3598,6 +3684,7 @@ export function createCoreRoutesPlugin(
         "google_calendar",
         "google_docs",
         "google_drive",
+        "bigquery",
         "google_sheets",
         "google_slides",
         "github",
@@ -5436,6 +5523,16 @@ export function createCoreRoutesPlugin(
               credential_scope: credentialScope,
             },
           );
+          track(
+            "llm_credential_changed",
+            {
+              change_type: "connected",
+              provider: "builder",
+              scope: credentialScope,
+              credential_kind: "builder",
+            },
+            { userId: ownerEmail },
+          );
           await recordBuilderConnectionAudit({
             connected: true,
             ownerEmail,
@@ -5825,29 +5922,57 @@ export function createCoreRoutesPlugin(
       );
 
       // GET /_agent-native/agent-engine/status — reports broad engine status
-      // plus the stricter eligibility gate for interactive Agent-Native chat.
+      // plus the chat setup snapshot used by interactive composers.
       getH3App(nitroApp).use(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
-            const { userEmail, orgId } =
+            const statusStartedAt = Date.now();
+            const { userEmail, orgId, orgScope } =
               await resolveAgentEngineStatusIdentity(event);
-            return await runWithRequestContext(
-              { userEmail, orgId },
-              async (): Promise<AgentEngineStatusResponse> => {
-                const [engineStatus, chatEligible] = await Promise.all([
-                  resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
-                  isAgentChatAiSetupReady(),
-                ]);
-                return { ...engineStatus, chatEligible };
+            const directLoopbackRequest = isDirectLoopbackRequest(event);
+            const requestOrigin = directLoopbackRequest
+              ? `http://${getHeader(event, "host")}`
+              : undefined;
+            const status = await memoizeAgentEngineStatus(
+              {
+                userEmail,
+                orgId,
+                orgScope,
+                isDirectLoopbackRequest: directLoopbackRequest,
               },
+              async () =>
+                await runWithRequestContext(
+                  {
+                    userEmail,
+                    orgId,
+                    ...(orgScope ? { orgScope } : {}),
+                    isLoopbackRequest: isLoopbackRequest(event),
+                    isDirectLoopbackRequest: directLoopbackRequest,
+                    ...(requestOrigin ? { requestOrigin } : {}),
+                  },
+                  async (): Promise<AgentEngineStatusResponse> => {
+                    const deps = requestAgentEngineStatusDeps();
+                    const engineStatus = await resolveAgentEngineStatus(deps);
+                    const chatEligible = await isAgentChatAiSetupReady({
+                      status: engineStatus,
+                      detectFromUserSecrets: deps.detectFromUserSecrets,
+                    });
+                    return { ...engineStatus, chatEligible };
+                  },
+                ),
             );
+            const statusMs = Date.now() - statusStartedAt;
+            if (statusMs >= 1_000) {
+              console.warn(`[agent-engine/status] slow lookup ms=${statusMs}`);
+            }
+            return status;
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an
             // authoritative answer to the client, so a DB blip here renders as
-            // "connect an AI provider" and gates the composer. 503 is the only
-            // response the client can tell apart from a real answer — it maps
-            // to `unavailable`, which keeps the composer usable and retries.
+            // "connect an AI provider" and gates the composer. 503 maps to the
+            // separate `unavailable` state, which keeps text editable but
+            // blocks dispatch until a later status read can verify setup.
             console.error("[agent-engine/status] lookup failed", err);
             setResponseStatus(event, 503);
             return { error: "Could not read the agent engine configuration." };
@@ -6168,16 +6293,35 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          const result = await runWithRequestContext(
-            { userEmail, orgId: session.orgId },
-            () =>
-              uploadFile({
-                data: filePart.data,
-                filename: filePart.filename,
-                mimeType: filePart.type,
-                ownerEmail: userEmail,
-              }),
-          );
+          let result;
+          try {
+            result = await runWithRequestContext(
+              { userEmail, orgId: session.orgId },
+              () =>
+                uploadFile({
+                  data: filePart.data,
+                  filename: filePart.filename,
+                  mimeType: filePart.type,
+                  ownerEmail: userEmail,
+                }),
+            );
+          } catch (error) {
+            // A thrown provider error (e.g. an upstream API rejecting the
+            // request) carries its own `status`/`statusCode`, which h3 would
+            // otherwise surface verbatim to the client — indistinguishable
+            // from this route's own deliberate 4xx responses above and
+            // useless for the composer's generic "could not upload" copy.
+            // Normalize to one clear failure instead of leaking whatever
+            // status the active provider happened to respond with. Use 503
+            // (not 502/504) since gateway statuses get rewritten by the CDN
+            // layer anyway — see cdnSafeOriginStatus.
+            console.error("[file-upload] provider upload failed", error);
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "The configured storage provider could not upload this file. Try again or check Settings → File uploads.",
+            };
+          }
 
           if (result) {
             setResponseStatus(event, 201);
@@ -6479,66 +6623,10 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      const mcpConnect = resolveCoreRoutesMcpOptions(options);
-      if (mcpConnect.connect) {
-        getH3App(nitroApp).use(
-          "/.well-known/oauth-protected-resource",
-          defineEventHandler((event: H3Event) =>
-            handleMcpOAuthProtectedResourceMetadata(event),
-          ),
-        );
-        getH3App(nitroApp).use(
-          "/.well-known/oauth-authorization-server",
-          defineEventHandler((event: H3Event) =>
-            handleMcpOAuthAuthorizationServerMetadata(event),
-          ),
-        );
-        getH3App(nitroApp).use(
-          "/.well-known/openid-configuration",
-          defineEventHandler((event: H3Event) =>
-            handleMcpOAuthAuthorizationServerMetadata(event),
-          ),
-        );
-        for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
-          getH3App(nitroApp).use(
-            `${mcpRoutePrefix}/oauth`,
-            defineEventHandler(async (event: H3Event) => {
-              const subpath = event.url?.pathname || "";
-              return handleMcpOAuth(event, subpath, {
-                appId: mcpConnect.appId,
-                appName: mcpConnect.appName,
-              });
-            }),
-          );
-        }
-
-        // Frictionless external-agent connection. A logged-in user mints a
-        // per-user, scoped, revocable MCP bearer token here — via the browser
-        // Connect page or the OAuth-style device-code flow a CLI drives — so
-        // they never copy a shared deployment secret. The handler resolves the
-        // browser session itself and serves its own login form (like /open)
-        // for the page + unauth device endpoints; the /token, /device/authorize,
-        // /tokens, /tokens/revoke subpaths require a session and 401 without it.
-        // The auth guard bypasses ONLY the page + device/start + device/poll
-        // (see createAuthGuardFn in auth.ts).
-        const mcpConnectOpts = {
-          appId: mcpConnect.appId,
-          appName: mcpConnect.appName,
-          serverName: mcpConnect.serverName,
-        };
-        for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
-          getH3App(nitroApp).use(
-            `${mcpRoutePrefix}/connect`,
-            defineEventHandler(async (event: H3Event) => {
-              // The framework strips the mount prefix from event.url.pathname,
-              // so what remains is the subpath after `/connect` (e.g. `/token`,
-              // `/device/start`, or `` for the page itself).
-              const subpath = event.url?.pathname || "";
-              return handleMcpConnect(event, subpath, mcpConnectOpts);
-            }),
-          );
-        }
-      }
+      mountMcpConnectRoutes(
+        getH3App(nitroApp),
+        resolveCoreRoutesMcpOptions(options),
+      );
 
       if (!options.disableOpenRoute) {
         // Stable deep-link route. External agents (MCP/A2A) surface

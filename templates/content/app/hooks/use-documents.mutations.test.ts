@@ -8,6 +8,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation,
   useActionQuery,
 }));
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
   useQueryClient: () => ({
@@ -17,10 +20,44 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   }),
 }));
 
+import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
+
 import {
   useCreateDocument,
+  useUpdateDocument,
   useUpdatePreviewDocumentDraft,
 } from "./use-documents";
+
+describe("useUpdateDocument request telemetry", () => {
+  beforeEach(() => useActionMutation.mockReset());
+
+  it("keeps recovery metadata in headers and preserves ordinary save options", () => {
+    useActionMutation.mockImplementation((_name, options) => options);
+    useUpdateDocument();
+    const options = useActionMutation.mock.calls.find(
+      ([name]) => name === "update-document",
+    )![1];
+    const payload = { id: "page", content: "draft" };
+    expect(options.headers(payload)).toBeUndefined();
+    expect(options.headers(withContentSaveOrigin(payload, "recovery"))).toEqual(
+      { "X-Content-Save-Origin": "recovery" },
+    );
+    expect(options.skipActionQueryInvalidation).toBe(true);
+    expect(options.onSuccess).toBeTypeOf("function");
+    expect(payload).toEqual({ id: "page", content: "draft" });
+  });
+
+  it("tags every page-load recovery save without adding payload fields", () => {
+    useActionMutation.mockImplementation((_name, options) => options);
+    useUpdateDocument({ saveOrigin: "recovery" });
+    const options = useActionMutation.mock.calls.find(
+      ([name]) => name === "update-document",
+    )![1];
+    expect(options.headers({ id: "page" })).toEqual({
+      "X-Content-Save-Origin": "recovery",
+    });
+  });
+});
 
 describe("useUpdatePreviewDocumentDraft", () => {
   beforeEach(() => {

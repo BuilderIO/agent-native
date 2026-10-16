@@ -7,6 +7,7 @@ import {
   emitAsync,
   listSubscriptions,
   subscribe,
+  subscribeAll,
   unsubscribe,
 } from "./bus.js";
 import { __resetEventRegistry, registerEvent, getEvent } from "./registry.js";
@@ -92,6 +93,38 @@ describe("event-bus", () => {
 
       expect(a).toHaveBeenCalledTimes(1);
       expect(b).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("subscribeAll", () => {
+    it("delivers every event with its name until unsubscribed", () => {
+      const handler = vi.fn();
+      const id = subscribeAll(handler);
+
+      emit("first.event", { n: 1 }, { owner: "alice@example.com" });
+      emit("second.event", { n: 2 });
+      expect(unsubscribe(id)).toBe(true);
+      emit("third.event", { n: 3 });
+
+      expect(
+        handler.mock.calls.map(([event, payload]) => [event, payload]),
+      ).toEqual([
+        ["first.event", { n: 1 }],
+        ["second.event", { n: 2 }],
+      ]);
+      expect(handler.mock.calls[0][2].owner).toBe("alice@example.com");
+      expect(listSubscriptions()).toHaveLength(0);
+    });
+
+    it("makes emitAsync wait for and surface a failed wildcard handler", async () => {
+      const failure = new Error("could not load subscribers");
+      subscribeAll(async () => {
+        throw failure;
+      });
+
+      await expect(emitAsync("any.event", {})).rejects.toMatchObject({
+        errors: [failure],
+      });
     });
   });
 

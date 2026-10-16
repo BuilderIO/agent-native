@@ -18,6 +18,10 @@ const MAX_SEEN = 16;
  */
 export function createAuthoredContentBase() {
   let unheld: { revision: string; base: AuthoredContentBase } | null = null;
+  let acknowledged: {
+    saved: AuthoredContentBase;
+    base: AuthoredContentBase;
+  } | null = null;
   // Only the editor's own reports say what it holds. The page's local copy
   // takes a save's answer, the other writer's text included, before the
   // editor receives that text.
@@ -46,6 +50,7 @@ export function createAuthoredContentBase() {
       const { saved, sentContent, authoredOn } = args;
       if (!saved.revision) return;
       const shown = editorContent === null ? seen : [...seen, editorContent];
+      acknowledged = authoredOn ? { saved, base: authoredOn } : null;
       unheld =
         authoredOn &&
         saved.content !== sentContent &&
@@ -53,12 +58,22 @@ export function createAuthoredContentBase() {
           ? { revision: saved.revision, base: authoredOn }
           : null;
     },
+    /** A newer SQL snapshot is not an authored base until the editor holds it. */
+    adopted(saved: AuthoredContentBase, authoredOn: AuthoredContentBase) {
+      if (!saved.revision) return;
+      const shown = editorContent === null ? seen : [...seen, editorContent];
+      acknowledged = { saved, base: authoredOn };
+      unheld = shown.some((content) => holds(content, saved, authoredOn))
+        ? null
+        : { revision: saved.revision, base: authoredOn };
+    },
     /** The editor reported its text after an edit here. */
     edited(content: string) {
       editorContent = content;
     },
     /** The editor merged the saved body at `revision` into its own text. */
     merged(revision: string) {
+      if (acknowledged?.saved.revision === revision) acknowledged = null;
       if (unheld?.revision === revision) unheld = null;
     },
     /** The editor's text changed without an edit here, as a peer's arrives. */
@@ -66,6 +81,18 @@ export function createAuthoredContentBase() {
       editorContent = content;
       seen.push(content);
       if (seen.length > MAX_SEEN) seen.shift();
+      const ack = acknowledged;
+      const acknowledgedRevision = ack?.saved.revision;
+      if (
+        ack &&
+        acknowledgedRevision !== undefined &&
+        acknowledgedRevision === saved.revision
+      ) {
+        unheld = holds(content, ack.saved, ack.base)
+          ? null
+          : { revision: acknowledgedRevision, base: ack.base };
+        return;
+      }
       if (!unheld || unheld.revision !== saved.revision) return;
       if (holds(content, saved, unheld.base)) unheld = null;
     },
@@ -76,6 +103,7 @@ export function createAuthoredContentBase() {
     },
     reset() {
       unheld = null;
+      acknowledged = null;
       editorContent = null;
       seen = [];
     },

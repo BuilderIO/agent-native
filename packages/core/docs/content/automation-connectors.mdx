@@ -22,9 +22,9 @@ An app assigns each workflow a stable ID, a connector ID, input/output schemas, 
 
 ## Worked example: notify Slack via n8n {#worked-example}
 
-An app that wants to hand a "notify sales" job to an n8n workflow defines it once, then invokes it by ID — never by URL:
+An app that wants to hand a "notify sales" job to an n8n workflow defines it once, then invokes it by ID — never by URL. No first-party template configures a workflow connector yet, so an app opts in by adding an action like this one:
 
-```ts filename="server/plugins/automation-connectors.ts"
+```ts filename="actions/invoke-automation-workflow.ts"
 import {
   createAutomationRuntime,
   createInvokeAutomationWorkflowAction,
@@ -57,7 +57,7 @@ const automation = createAutomationRuntime({
         baseUrl: "https://n8n.example.com",
         path: "/webhook/notify-sales",
         method: "POST",
-        headers: { Authorization: "Bearer ${keys.N8N_WEBHOOK_TOKEN}" },
+        headers: { Authorization: "Bearer ${keys.N8N_WEBHOOK_CREDENTIAL}" },
         timeoutMs: 10_000,
       },
     },
@@ -79,6 +79,8 @@ export default createInvokeAutomationWorkflowAction(automation);
 ```
 
 The agent calls this action with `{ workflowId: "notify-sales-slack", input: { leadEmail: "jane@acme.com" } }` — it never sees `https://n8n.example.com/webhook/notify-sales` or the bearer token. `outbound.baseUrl` + `outbound.path` are static, app-owned config; the runtime rejects any attempt to call a different origin.
+
+`N8N_WEBHOOK_CREDENTIAL` is the credential name the n8n integration lists. Save the credential as a key with that name, and `${keys.N8N_WEBHOOK_CREDENTIAL}` resolves it server-side. The file name sets the action name, so the agent sees this tool as `invoke-automation-workflow`.
 
 Mount callback handlers only under `/_agent-native/automations/`; all normal app operations remain actions. Keep the callback route minimal: authenticate, claim idempotency, enqueue, and acknowledge — never run an agent loop inside the webhook request itself.
 

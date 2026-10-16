@@ -8,7 +8,10 @@ import { promisify } from "node:util";
 import ffmpegPath from "ffmpeg-static";
 import { describe, expect, it } from "vitest";
 
-import { probeMediaDurationMs } from "./video-frame.js";
+import {
+  extractJpegFrameFromFile,
+  probeMediaDurationMs,
+} from "./video-frame.js";
 
 const execFileAsync = promisify(execFile);
 const availableFfmpegPath =
@@ -205,6 +208,185 @@ describe("probeMediaDurationMs", () => {
             requireComplete: true,
           }),
         ).resolves.toBeNull();
+      } finally {
+        if (previousFfmpegPath === undefined) {
+          delete process.env.FFMPEG_PATH;
+        } else {
+          process.env.FFMPEG_PATH = previousFfmpegPath;
+        }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+describe("extractJpegFrameFromFile", () => {
+  it("classifies empty media separately from a missing timestamp frame", async () => {
+    const root = await mkdtemp(join(tmpdir(), "clips-empty-frame-test-"));
+    const emptyPath = join(root, "empty.mp4");
+    await writeFile(emptyPath, new Uint8Array());
+
+    try {
+      await expect(
+        extractJpegFrameFromFile({ mediaPath: emptyPath, atMs: 1000 }),
+      ).rejects.toMatchObject({
+        name: "VideoFrameExtractionError",
+        code: "EMPTY_MEDIA",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!availableFfmpegPath)(
+    "classifies audio-only media separately from a missing timestamp frame",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "clips-audio-frame-test-"));
+      const audioPath = join(root, "audio-only.mp4");
+      const previousFfmpegPath = process.env.FFMPEG_PATH;
+      process.env.FFMPEG_PATH = availableFfmpegPath!;
+
+      try {
+        await execFileAsync(availableFfmpegPath!, [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "anullsrc=channel_layout=stereo:sample_rate=44100",
+          "-t",
+          "1",
+          "-c:a",
+          "aac",
+          audioPath,
+        ]);
+
+        await expect(
+          extractJpegFrameFromFile({ mediaPath: audioPath, atMs: 500 }),
+        ).rejects.toMatchObject({
+          name: "VideoFrameExtractionError",
+          code: "NO_VIDEO_TRACK",
+        });
+      } finally {
+        if (previousFfmpegPath === undefined) {
+          delete process.env.FFMPEG_PATH;
+        } else {
+          process.env.FFMPEG_PATH = previousFfmpegPath;
+        }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!availableFfmpegPath)(
+    "returns the frame that starts within the millisecond before atMs",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "clips-frame-start-test-"));
+      const videoPath = join(root, "video.mp4");
+      const framePath = join(root, "frame.jpg");
+      const previousFfmpegPath = process.env.FFMPEG_PATH;
+      process.env.FFMPEG_PATH = availableFfmpegPath!;
+
+      // Frame n is one of three grays (n mod 3), so a neighbouring frame
+      // reads differently. At 30 fps most frames start between milliseconds.
+      const shadeAt = async (atMs: number) => {
+        await writeFile(
+          framePath,
+          await extractJpegFrameFromFile({ mediaPath: videoPath, atMs }),
+        );
+        const { stdout } = await execFileAsync(
+          availableFfmpegPath!,
+          [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            framePath,
+            "-vf",
+            "scale=1:1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-",
+          ],
+          { encoding: "buffer" },
+        );
+        const level = stdout[0];
+        return level < 75 ? 0 : level < 168 ? 1 : 2;
+      };
+
+      try {
+        await execFileAsync(availableFfmpegPath!, [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=c=black:s=32x32:r=30:d=1.2,geq=lum='40+mod(N,3)*80':cb=128:cr=128",
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          videoPath,
+        ]);
+
+        // Frame starts rounded up to whole milliseconds, as comments store them.
+        for (const frame of [1, 2, 30, 31]) {
+          const atMs = Math.ceil((frame * 1000) / 30);
+          expect({ atMs, shade: await shadeAt(atMs) }).toEqual({
+            atMs,
+            shade: frame % 3,
+          });
+        }
+      } finally {
+        if (previousFfmpegPath === undefined) {
+          delete process.env.FFMPEG_PATH;
+        } else {
+          process.env.FFMPEG_PATH = previousFfmpegPath;
+        }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!availableFfmpegPath)(
+    "classifies a missing timestamp separately from recordings without video",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "clips-timestamp-frame-test-"));
+      const videoPath = join(root, "video.mp4");
+      const previousFfmpegPath = process.env.FFMPEG_PATH;
+      process.env.FFMPEG_PATH = availableFfmpegPath!;
+
+      try {
+        await execFileAsync(availableFfmpegPath!, [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=c=red:s=32x32:r=1",
+          "-t",
+          "1",
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          videoPath,
+        ]);
+
+        await expect(
+          extractJpegFrameFromFile({ mediaPath: videoPath, atMs: 10_000 }),
+        ).rejects.toMatchObject({
+          name: "VideoFrameExtractionError",
+          code: "NO_FRAME_AT_TIMESTAMP",
+        });
       } finally {
         if (previousFfmpegPath === undefined) {
           delete process.env.FFMPEG_PATH;

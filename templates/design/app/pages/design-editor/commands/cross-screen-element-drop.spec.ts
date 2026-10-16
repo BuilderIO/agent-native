@@ -101,6 +101,7 @@ function runStoredCrossScreenDrop(args: {
   const baseContentByFile = new Map(contentByFile);
   const historyEntries: unknown[] = [];
   const selectionEvents: string[] = [];
+  const clearExplicitOverviewScreenSelection = vi.fn();
   const cancelledFileIds: string[] = [];
   const fileHistoryMutationPendingRef = { current: false };
   let clearPendingHistoryCalls = 0;
@@ -167,6 +168,7 @@ function runStoredCrossScreenDrop(args: {
       applyFileContentUpdate,
       boardFileId: args.boardFileId,
       canEditDesign: true,
+      clearExplicitOverviewScreenSelection,
       clearPendingOverviewLayerSelectionTimer: () => {},
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       designSourceType: "inline",
@@ -241,6 +243,7 @@ function runStoredCrossScreenDrop(args: {
     activeFileId,
     createdOverviewLayerSelection,
     historyEntries,
+    clearExplicitOverviewScreenSelection,
     fileHistoryMutationPendingRef,
     selectionEvents,
     selectedElement,
@@ -395,21 +398,21 @@ describe("shouldAbsolutePlaceOnEmptyScreen", () => {
 });
 
 describe("absolutePlacePointForDrop", () => {
-  it("uses the pointer on an empty screen even when a stale anchor rect is present", () => {
+  it("uses the pointer on an empty screen even when a stale absolute origin is present", () => {
     expect(
       absolutePlacePointForDrop({
         placeAbsoluteOnEmptyScreen: true,
-        targetAnchorRect: { left: 180, top: 240 },
+        targetAbsoluteOrigin: { left: 180, top: 240 },
         targetLocalPoint: { x: 180, y: 240 },
       }),
     ).toEqual({ x: 180, y: 240 });
   });
 
-  it("subtracts the anchor origin when placing into a positioned container", () => {
+  it("subtracts the absolute origin when placing into a container", () => {
     expect(
       absolutePlacePointForDrop({
         placeAbsoluteOnEmptyScreen: false,
-        targetAnchorRect: { left: 100, top: 50 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 180, y: 240 },
       }),
     ).toEqual({ x: 80, y: 190 });
@@ -588,14 +591,21 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 
     const written = result.writes.get("target");
     expect(written).toBeTruthy();
+    const copyNode = buildCodeLayerProjection(written!).nodes.find(
+      (node) => node.layerName === "Copy",
+    );
+    expect(copyNode).toBeDefined();
+    expect(copyNode?.layerNameSource).toBe("text");
     const copy = new DOMParser()
       .parseFromString(written!, "text/html")
-      .querySelector('[data-agent-native-layer-name="Copy"]');
+      .querySelector(copyNode!.selectors[0]!);
+    expect(copy?.textContent).toBe("Copy");
     expect(copy?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
       "grid",
     );
     expect((copy as HTMLElement | null)?.style.gridColumn).toBe("3 / 4");
     expect((copy as HTMLElement | null)?.style.gridRow).toBe("2 / 3");
+    expect(result.clearExplicitOverviewScreenSelection).toHaveBeenCalledOnce();
   });
 
   it("links an inline duplicate into another Screen in the same Design", () => {
@@ -767,7 +777,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
             row: 2,
             rowEnd: 3,
           },
-          targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+          targetAbsoluteOrigin: { left: 100, top: 50 },
           targetLocalPoint: { x: 240, y: 300 },
           sourcePointerOffset: { x: 10, y: 12 },
           duplicate: true,
@@ -842,7 +852,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         sourcePointerOffset: { x: 10, y: 12 },
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
@@ -994,7 +1004,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         sourcePointerOffset: { x: 10, y: 12 },
         duplicate: true,
@@ -1039,7 +1049,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         duplicate: true,
         sourceCloneHtml,
@@ -1066,7 +1076,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
-  it("persists an unanchored board drop in authored coordinates outside the render window", () => {
+  it("persists an unanchored board drop in authored coordinates outside board content", () => {
     const renderOrigin = { x: -16_384, y: -8_192 };
     const targetCanvasPoint = { x: -18_099.98, y: -9_234.5 };
     const targetLocalPoint = {
@@ -1087,7 +1097,7 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardRenderGeometry: true,
+        targetOutsideBoardContentBounds: true,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1122,7 +1132,7 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardRenderGeometry: false,
+        targetOutsideBoardContentBounds: false,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1232,6 +1242,9 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
       "move-id",
     );
     expect(selection.selectedLayerIds).toEqual([movedNode!.id]);
+    expect(
+      selection.clearExplicitOverviewScreenSelection,
+    ).toHaveBeenCalledOnce();
     expect(selection.createdOverviewLayerSelection).toEqual({
       screenId: "target",
       layerId: movedNode!.id,
@@ -1287,7 +1300,7 @@ describe("runCrossScreenElementDrop shader publication preflight", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         duplicate: true,
         sourceCloneHtml:
@@ -3091,7 +3104,7 @@ describe("runCrossScreenElementDrop — portable style capture failure", () => {
         targetAnchorSelector: "body",
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         styleSnapshotCaptureFailed: true,
       },

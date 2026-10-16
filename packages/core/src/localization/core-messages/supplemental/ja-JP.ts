@@ -68,6 +68,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "トークンを作成できませんでした。",
   networkError: "ネットワークエラーです。もう一度お試しください。",
   urlTitle: "MCP URL",
+  servicePrincipals: "サービスプリンシパル",
+  principalUngoverned: "未管理",
+  principalActive: "有効",
+  principalSuspended: "一時停止中",
+  principalRetired: "廃止済み",
+  principalUngovernedHint: "オーナーも操作の許可も設定されていません。",
+  principalOwner: "オーナー",
+  principalRisk: "リスク",
+  riskLow: "低",
+  riskMedium: "中",
+  riskHigh: "高",
+  suspend: "一時停止",
+  resume: "再開",
+  couldNotUpdatePrincipal: "サービスプリンシパルを更新できませんでした。",
+  containmentIncomplete:
+    "更新しましたが、停止できない実行またはトークンがあります。もう一度お試しください。",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {
@@ -91,6 +107,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "完全な接続ページを開いて、OAuth を完了できないクライアント用のトークンを作成します。",
   mcpOpenConnectPage: "完全な接続ページを開く",
+  mcpIdentityError: "このアプリの接続情報を読み込めませんでした。",
+  mcpRetry: "再試行",
   mcpConnect: mcpConnectMessages,
 };
 

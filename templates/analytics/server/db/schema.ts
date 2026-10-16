@@ -10,7 +10,7 @@ import {
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 import { sql } from "drizzle-orm";
-import { boolean } from "drizzle-orm/pg-core";
+import { boolean, check, varchar } from "drizzle-orm/pg-core";
 
 export * from "./schema-monitoring.js";
 export * from "./schema-errors.js";
@@ -29,6 +29,7 @@ export const dashboards = table("dashboards", {
   hiddenBy: text("hidden_by"),
   folderId: text("folder_id"),
   updatedBy: text("updated_by"),
+  githubSyncState: text("github_sync_state"),
   ...ownableColumns(),
 });
 
@@ -45,6 +46,7 @@ export const dashboardFolders = table("dashboard_folders", {
   scope: text("scope", { enum: ["personal", "shared"] }).notNull(),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  githubSync: text("github_sync"),
   ...ownableColumns(),
 });
 
@@ -63,6 +65,7 @@ export const dashboardRevisions = table(
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by"),
     chatContext: text("chat_context"),
+    changeSummary: text("change_summary"),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
   },
@@ -105,6 +108,7 @@ export const dashboardReportSubscriptions = table(
     dashboardId: text("dashboard_id").notNull(),
     name: text("name").notNull(),
     recipients: text("recipients").notNull().default("[]"),
+    slackWebhookUrl: text("slack_webhook_url"),
     filters: text("filters").notNull().default("{}"),
     frequency: text("frequency", { enum: ["daily"] })
       .notNull()
@@ -746,44 +750,230 @@ export const analyticsDbAdminConnections = table(
   }),
 );
 
-export const sessionRecordings = table("session_recordings", {
-  id: text("id").primaryKey(),
-  publicKeyId: text("public_key_id").notNull(),
-  clientRecordingId: text("client_recording_id").notNull(),
-  sessionId: text("session_id").notNull(),
-  userId: text("user_id"),
-  anonymousId: text("anonymous_id"),
-  userKey: text("user_key"),
-  startedAt: text("started_at").notNull(),
-  endedAt: text("ended_at"),
-  durationMs: integer("duration_ms"),
-  chunkCount: integer("chunk_count").notNull().default(0),
-  eventCount: integer("event_count").notNull().default(0),
-  totalBytes: integer("total_bytes").notNull().default(0),
-  pageCount: integer("page_count").notNull().default(0),
-  errorCount: integer("error_count").notNull().default(0),
-  networkErrorCount: integer("network_error_count").notNull().default(0),
-  rageClickCount: integer("rage_click_count").notNull().default(0),
-  privacyMode: text("privacy_mode").notNull().default("unknown"),
-  firstUrl: text("first_url"),
-  lastUrl: text("last_url"),
-  path: text("path"),
-  hostname: text("hostname"),
-  referrer: text("referrer"),
-  app: text("app"),
-  template: text("template"),
-  status: text("status", { enum: ["active", "completed"] })
-    .notNull()
-    .default("active"),
-  metadata: text("metadata").notNull().default("{}"),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-  lastIngestedAt: text("last_ingested_at"),
-  ...ownableColumns(),
-});
+export const sourceIndexRuns = table(
+  "source_index_runs",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    status: text("status", {
+      enum: ["running", "succeeded", "failed"],
+    }).notNull(),
+    trigger: text("trigger", { enum: ["manual", "scheduled"] }).notNull(),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at"),
+    entryCount: integer("entry_count"),
+    sourceRevisions: text("source_revisions").notNull().default("{}"),
+    error: text("error"),
+    createdByEmail: text("created_by_email"),
+  },
+  (run) => ({
+    orgStartedIdx: index("source_index_runs_org_started_idx").on(
+      run.orgId,
+      run.startedAt,
+    ),
+  }),
+);
+
+export const externalDashboardMigrations = table(
+  "bi_migration_external_dashboards",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    provider: varchar("provider", { length: 32 }).notNull(),
+    sourceId: varchar("source_id", { length: 200 }).notNull(),
+    sourceName: varchar("source_name", { length: 200 }),
+    sourceUpdatedAt: varchar("source_updated_at", { length: 64 }),
+    status: text("status", {
+      enum: ["not_started", "migrating", "migrated", "failed"],
+    })
+      .notNull()
+      .default("not_started"),
+    targetDashboardId: varchar("target_dashboard_id", { length: 200 }),
+    originalMigratorEmail: varchar("original_migrator_email", {
+      length: 320,
+    }),
+    migrationClaimedAt: text("migration_claimed_at"),
+    migrationClaimToken: varchar("migration_claim_token", { length: 36 }),
+    failureCode: text("failure_code", {
+      enum: [
+        "provider_unavailable",
+        "unsupported_content",
+        "dashboard_write_failed",
+        "verification_failed",
+        "unknown",
+      ],
+    }),
+    providerStatus: integer("provider_status"),
+    elementDiagnostics: text("element_diagnostics").notNull().default("[]"),
+    flaggedCount: integer("flagged_count").notNull().default(0),
+    migratedAt: text("migrated_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    sourceUniqueIdx: uniqueIndex(
+      "bi_migration_external_dashboards_source_unique_idx",
+    ).on(t.orgId, t.provider, t.sourceId),
+    orgStatusUpdatedIdx: index(
+      "bi_migration_external_dashboards_org_status_updated_idx",
+    ).on(t.orgId, t.status, t.updatedAt),
+    statusCheck: check(
+      "bi_migration_external_dashboards_status_check",
+      sql`${t.status} IN ('not_started', 'migrating', 'migrated', 'failed')`,
+    ),
+    failureCodeCheck: check(
+      "bi_migration_external_dashboards_failure_code_check",
+      sql`${t.failureCode} IS NULL OR ${t.failureCode} IN ('provider_unavailable', 'unsupported_content', 'dashboard_write_failed', 'verification_failed', 'unknown')`,
+    ),
+    providerStatusCheck: check(
+      "bi_migration_external_dashboards_provider_status_check",
+      sql`${t.providerStatus} IS NULL OR ${t.providerStatus} BETWEEN 100 AND 599`,
+    ),
+    elementDiagnosticsLengthCheck: check(
+      "bi_migration_external_dashboards_element_diagnostics_length_check",
+      sql`char_length(${t.elementDiagnostics}) <= 50000`,
+    ),
+    flaggedCountCheck: check(
+      "bi_migration_external_dashboards_flagged_count_check",
+      sql`${t.flaggedCount} >= 0`,
+    ),
+  }),
+);
+
+/** Named groups of key dates (launches, product changes) shown on every time chart of a dashboard. */
+export const analyticsKeyDateSets = table(
+  "analytics_key_date_sets",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    name: varchar("name", { length: 80 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_key_date_sets_org_idx").on(t.orgId),
+  }),
+);
+
+export const analyticsKeyDates = table(
+  "analytics_key_dates",
+  {
+    id: text("id").primaryKey(),
+    setId: text("set_id").notNull(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    date: varchar("date", { length: 10 }).notNull(),
+    time: varchar("time", { length: 5 }),
+    timeZone: varchar("time_zone", { length: 64 }),
+    label: varchar("label", { length: 120 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    setIdx: index("analytics_key_dates_set_idx").on(t.setId, t.date),
+    orgIdx: index("analytics_key_dates_org_idx").on(t.orgId),
+  }),
+);
+
+export const analyticsDataNotes = table(
+  "analytics_data_notes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    title: varchar("title", { length: 120 }).notNull(),
+    note: varchar("note", { length: 1000 }).notNull(),
+    startDate: varchar("start_date", { length: 10 }),
+    endDate: varchar("end_date", { length: 10 }),
+    status: varchar("status", { length: 8 }).notNull().default("open"),
+    fix: varchar("fix", { length: 500 }),
+    /** JSON array of event names. */
+    matchEvents: text("match_events").notNull().default("[]"),
+    /** JSON array of event names. */
+    unlessEvents: text("unless_events").notNull().default("[]"),
+    /** JSON array of { dashboardId, panelId }. */
+    panels: text("panels").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_data_notes_org_idx").on(t.orgId),
+  }),
+);
+
+export const sessionRecordings = table(
+  "session_recordings",
+  {
+    id: text("id").primaryKey(),
+    publicKeyId: text("public_key_id").notNull(),
+    clientRecordingId: text("client_recording_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    userId: text("user_id"),
+    anonymousId: text("anonymous_id"),
+    userKey: text("user_key"),
+    clientStartedAt: text("client_started_at"),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at"),
+    durationMs: integer("duration_ms"),
+    chunkCount: integer("chunk_count").notNull().default(0),
+    eventCount: integer("event_count").notNull().default(0),
+    totalBytes: integer("total_bytes").notNull().default(0),
+    pageCount: integer("page_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    networkErrorCount: integer("network_error_count").notNull().default(0),
+    rageClickCount: integer("rage_click_count").notNull().default(0),
+    privacyMode: text("privacy_mode").notNull().default("unknown"),
+    firstUrl: text("first_url"),
+    lastUrl: text("last_url"),
+    path: text("path"),
+    hostname: text("hostname"),
+    referrer: text("referrer"),
+    app: text("app"),
+    template: text("template"),
+    status: text("status", { enum: ["active", "completed"] })
+      .notNull()
+      .default("active"),
+    metadata: text("metadata").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    lastIngestedAt: text("last_ingested_at"),
+    ...ownableColumns(),
+  },
+  (recording) => ({
+    clientStartedIdx: index("session_recordings_client_started_idx").on(
+      recording.clientRecordingId,
+      recording.startedAt,
+    ),
+    clientStartedAtIdx: index("session_recordings_client_started_at_idx").on(
+      recording.clientRecordingId,
+      recording.clientStartedAt,
+    ),
+  }),
+);
 
 export const sessionRecordingShares = createSharesTable(
   "session_recording_shares",
+);
+
+export const sessionRecordingSessionAssociations = table(
+  "session_recording_session_associations",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id")
+      .notNull()
+      .references(() => sessionRecordings.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").notNull(),
+  },
+  (association) => ({
+    recordingSessionUnique: uniqueIndex(
+      "session_recording_session_associations_recording_session_idx",
+    ).on(association.recordingId, association.sessionId),
+    sessionRecordingIdx: index(
+      "session_recording_session_associations_session_recording_idx",
+    ).on(association.sessionId, association.recordingId),
+  }),
 );
 
 export const sessionReplayChunks = table(

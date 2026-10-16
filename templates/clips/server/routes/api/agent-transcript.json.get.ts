@@ -1,7 +1,7 @@
+import { getForwardedRequestOrigin } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
-  getRequestURL,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -17,6 +17,7 @@ import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 import {
   applyAgentJsonHeaders,
   CLIPS_AGENT_ACCESS_PARAM,
+  describeAgentAccessFailure,
   getServerAppBasePath,
   loadAgentTranscript,
   loadPublicAgentAccess,
@@ -133,8 +134,9 @@ export default defineEventHandler(async (event: H3Event) => {
   });
 
   if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    return accessResult.failure.body;
+    const failure = describeAgentAccessFailure(accessResult.failure);
+    setResponseStatus(event, failure.status);
+    return failure.body;
   }
 
   let transcriptWindow: AgentTranscriptWindow | null;
@@ -153,7 +155,7 @@ export default defineEventHandler(async (event: H3Event) => {
     recording.durationMs,
   );
   const api = buildAgentApiUrls(recording.id, {
-    origin: getRequestURL(event).origin,
+    origin: getForwardedRequestOrigin(event),
     basePath: getServerAppBasePath(),
     token: accessResult.access.apiToken,
   });

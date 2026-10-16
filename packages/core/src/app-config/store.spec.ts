@@ -23,6 +23,8 @@ describe("app config store", () => {
     delete process.env.DISPATCH_ADMIN_EMAILS;
     delete process.env.WORKSPACE_OWNER_EMAIL;
     delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
   });
 
   afterEach(() => {
@@ -34,11 +36,25 @@ describe("app config store", () => {
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(true);
     expect(getAppConfig().privateBlob.provider).toBeUndefined();
     expect(getAppConfig().app.homePath).toBeUndefined();
+    expect(getAppConfig().analytics.authSessionReplay).toBe(false);
+  });
+
+  it("opts auth-page replay in through app config", () => {
+    defineAppConfig({ analytics: { authSessionReplay: true } });
+
+    expect(getAppConfig().analytics.authSessionReplay).toBe(true);
   });
 
   it("reads a declared environment alias", () => {
     process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(false);
+  });
+
+  it("reads the mounted app path from its declared aliases", () => {
+    process.env.APP_BASE_PATH = "/server";
+    process.env.VITE_APP_BASE_PATH = "/vite";
+
+    expect(getAppConfig().app.basePath).toBe("/vite");
   });
 
   it("reads the MCP static-token owner from its declared alias", () => {
@@ -232,6 +248,8 @@ describe("app identity", () => {
       "AGENT_NATIVE_WORKSPACE_APP_ID",
       "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
       "APP_NAME",
+      "APP_BASE_PATH",
+      "VITE_APP_BASE_PATH",
     ]) {
       delete process.env[key];
     }

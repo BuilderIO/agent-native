@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 interface TokenRow {
   id: string;
   jti: string;
@@ -14,6 +16,8 @@ interface TokenRow {
   revoked_at: number | null;
 }
 interface DeviceRow {
+  client: string | null;
+  purpose: string | null;
   device_code: string;
   user_code: string;
   owner_email: string | null;
@@ -30,6 +34,8 @@ let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
 let failNextOrgLookup = false;
+let failNextOrgServiceList = false;
+let failNextRevokeByName = false;
 let failNextDeviceCodeLookup = false;
 const getDbExecMock = vi.fn(() => ({ execute: exec }));
 const executeDdlMock = vi.hoisted(() => vi.fn());
@@ -37,6 +43,8 @@ const executeDdlMock = vi.hoisted(() => vi.fn());
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   const sql = (typeof input === "string" ? input : input.sql).trim();
   const args = (typeof input === "string" ? [] : (input.args ?? [])) as any[];
+  const ledger = storeLedgerResult(sql);
+  if (ledger) return ledger;
 
   if (/^CREATE TABLE/i.test(sql)) {
     if (failNextCreateTable) {
@@ -68,12 +76,8 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     });
     return { rows: [], rowsAffected: 1 };
   }
-  if (/^SELECT revoked_at FROM mcp_connect_tokens WHERE jti = \?/i.test(sql)) {
-    const t = tokens.find((r) => r.jti === args[0]);
-    return { rows: t ? [{ revoked_at: t.revoked_at }] : [], rowsAffected: 0 };
-  }
   if (
-    /^SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = \?/i.test(
+    /^SELECT org_id, owner_email, kind, revoked_at FROM mcp_connect_tokens WHERE jti = \?/i.test(
       sql,
     )
   ) {
@@ -84,7 +88,14 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     const t = tokens.find((r) => r.jti === args[0]);
     return {
       rows: t
-        ? [{ org_id: t.org_id, owner_email: t.owner_email, kind: t.kind }]
+        ? [
+            {
+              org_id: t.org_id,
+              owner_email: t.owner_email,
+              kind: t.kind,
+              revoked_at: t.revoked_at,
+            },
+          ]
         : [],
       rowsAffected: 0,
     };
@@ -104,6 +115,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       sql,
     )
   ) {
+    if (failNextOrgServiceList) {
+      failNextOrgServiceList = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const rows = tokens
       .filter((r) => r.org_id === args[0] && r.kind === "service")
       .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
@@ -124,6 +139,25 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     if (!t) return { rows: [], rowsAffected: 0 };
     t.revoked_at = args[0];
     return { rows: [], rowsAffected: 1 };
+  }
+  if (
+    /^UPDATE mcp_connect_tokens SET revoked_at = \? WHERE org_id = \? AND kind = 'service' AND service_name = \?/i.test(
+      sql,
+    )
+  ) {
+    if (failNextRevokeByName) {
+      failNextRevokeByName = false;
+      throw new Error("connection terminated");
+    }
+    const hit = tokens.filter(
+      (r) =>
+        r.org_id === args[1] &&
+        r.kind === "service" &&
+        r.service_name === args[2] &&
+        r.revoked_at == null,
+    );
+    for (const t of hit) t.revoked_at = args[0];
+    return { rows: [], rowsAffected: hit.length };
   }
   if (/^UPDATE mcp_connect_tokens SET revoked_at = \?/i.test(sql)) {
     const t = tokens.find(
@@ -156,6 +190,8 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       created_at: args[7],
       expires_at: args[8],
       consumed_at: args[9],
+      client: args[10],
+      purpose: args[11],
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -271,6 +307,7 @@ describe("connect-store", () => {
     devices = [];
     failNextCreateTable = false;
     failNextOrgLookup = false;
+    failNextOrgServiceList = false;
     failNextDeviceCodeLookup = false;
     vi.restoreAllMocks();
   });
@@ -335,35 +372,25 @@ describe("connect-store", () => {
       },
     );
 
-    it("isJtiRevoked is false for an active token and true after revoke", async () => {
+    it("reports a revoked token as revoked, not found", async () => {
       await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
-      expect(await store.isJtiRevoked("j")).toBe(false);
+      expect(await store.lookupConnectTokenOrg("j")).toMatchObject({
+        status: "found",
+      });
       const id = tokens[0].id;
       expect(await store.revokeToken("a@example.com", id)).toBe(true);
-      expect(await store.isJtiRevoked("j")).toBe(true);
+      expect(await store.lookupConnectTokenOrg("j")).toEqual({
+        status: "revoked",
+      });
     });
 
-    it("isJtiRevoked is false for an unknown jti", async () => {
-      expect(await store.isJtiRevoked("nope")).toBe(false);
-    });
-
-    it("isJtiRevoked throws instead of answering 'not revoked' when the store can't be read", async () => {
+    it("reports a revoked token's unreadable row as unavailable, not missing", async () => {
       await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
       await store.revokeToken("a@example.com", tokens[0].id);
-      getDbExecMock.mockImplementation(() => ({
-        execute: async (input: string | { sql: string; args?: unknown[] }) => {
-          const sql = typeof input === "string" ? input : input.sql;
-          if (/SELECT revoked_at FROM mcp_connect_tokens/.test(sql)) {
-            throw new Error("db down");
-          }
-          return exec(input);
-        },
-      }));
-      try {
-        await expect(store.isJtiRevoked("j")).rejects.toThrow("db down");
-      } finally {
-        getDbExecMock.mockImplementation(() => ({ execute: exec }));
-      }
+      failNextOrgLookup = true;
+      expect(await store.lookupConnectTokenOrg("j")).toEqual({
+        status: "unavailable",
+      });
     });
 
     it("looks up the org bound to a token and distinguishes missing rows", async () => {
@@ -567,6 +594,14 @@ describe("connect-store", () => {
       expect(list[0].createdBy).toBe("admin@example.com");
     });
 
+    it("throws when the org service-token store cannot be read", async () => {
+      failNextOrgServiceList = true;
+
+      await expect(store.listOrgServiceTokens("org-1")).rejects.toThrow(
+        "CONNECTION_LOST",
+      );
+    });
+
     it("revokeOrgServiceToken is org-scoped and kills the jti via the shared gate", async () => {
       const id = await store.recordMintedToken({
         jti: "jti-svc",
@@ -578,14 +613,58 @@ describe("connect-store", () => {
       });
 
       expect(await store.revokeOrgServiceToken("org-2", id)).toBe(false);
-      expect(await store.isJtiRevoked("jti-svc")).toBe(false);
+      expect(await store.lookupConnectTokenOrg("jti-svc")).toMatchObject({
+        status: "found",
+      });
 
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(true);
-      expect(await store.isJtiRevoked("jti-svc")).toBe(true);
+      expect(await store.lookupConnectTokenOrg("jti-svc")).toEqual({
+        status: "revoked",
+      });
 
       const first = tokens[0].revoked_at;
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(false);
       expect(tokens[0].revoked_at).toBe(first);
+    });
+
+    it("revokeServiceTokensByName revokes only that service's active tokens in one org", async () => {
+      const mint = (jti: string, org: string, name: string) =>
+        store.recordMintedToken({
+          jti,
+          ownerEmail: store.serviceIdentityEmail(name, org),
+          orgId: org,
+          kind: "service",
+          serviceName: name,
+          createdBy: "admin@example.com",
+        });
+      await mint("a1", "org-1", "ci");
+      await mint("a2", "org-1", "ci");
+      await mint("b1", "org-1", "other");
+      await mint("c1", "org-2", "ci");
+      const already = await mint("a0", "org-1", "ci");
+      await store.revokeOrgServiceToken("org-1", already);
+
+      expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(2);
+      expect(await store.lookupConnectTokenOrg("a1")).toMatchObject({
+        status: "revoked",
+      });
+      expect(await store.lookupConnectTokenOrg("a2")).toMatchObject({
+        status: "revoked",
+      });
+      expect(await store.lookupConnectTokenOrg("b1")).toMatchObject({
+        status: "found",
+      });
+      expect(await store.lookupConnectTokenOrg("c1")).toMatchObject({
+        status: "found",
+      });
+      expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(0);
+    });
+
+    it("revokeServiceTokensByName throws on a connection error instead of reporting 0", async () => {
+      failNextRevokeByName = true;
+      await expect(
+        store.revokeServiceTokensByName("org-1", "ci"),
+      ).rejects.toThrow("connection terminated");
     });
 
     it("revokeOrgServiceToken never touches personal tokens (kind mismatch)", async () => {
@@ -600,6 +679,30 @@ describe("connect-store", () => {
   });
 
   describe("device-code lifecycle", () => {
+    it("persists client attribution and credential-only purpose through device consumption", async () => {
+      const created = await store.createDeviceCode(null, {
+        client: "claude,cursor",
+        purpose: "credential",
+      });
+      await store.approveDeviceCode(
+        created.userCode,
+        "person@example.com",
+        null,
+      );
+      const consumed = await store.consumeDeviceCode(
+        created.deviceCode,
+        "test-jti",
+      );
+      expect(consumed).toMatchObject({
+        client: "claude,cursor",
+        purpose: "credential",
+      });
+      expect(await store.getDeviceCode(created.deviceCode)).toMatchObject({
+        client: "claude,cursor",
+        purpose: "credential",
+        status: "consumed",
+      });
+    });
     describe.each(["approve", "consume", "claim", "finish"] as const)(
       "%s mutation result",
       (operation) => {

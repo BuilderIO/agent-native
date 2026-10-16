@@ -1,9 +1,16 @@
 import { readFileSync } from "node:fs";
 
+import ts from "typescript";
 import { parse } from "yaml";
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
 const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
+const signupScheduledWorkflowPath =
+  ".github/workflows/signup-e2e-scheduled.yml";
+const signupAgentScheduledWorkflowPath =
+  ".github/workflows/signup-agent-scheduled.yml";
+const reportWorkflowPath = ".github/workflows/beta-e2e-report.yml";
+const scheduledDigestPath = "scripts/beta-e2e-digest.ts";
 const fleetPath = "e2e/beta/lib/fleet.ts";
 const chatPath = "e2e/beta/lib/chat.ts";
 const sitesPath = "scripts/netlify-beta-sites.json";
@@ -11,6 +18,7 @@ const configPath = "e2e/beta/playwright.config.ts";
 const globalSetupPath = "e2e/beta/global-setup.ts";
 
 const issues: string[] = [];
+const forbiddenIssueFragments = ["issues: write", "gh issue ", "ISSUE_TITLE"];
 
 function read(path: string): string {
   try {
@@ -23,8 +31,34 @@ function read(path: string): string {
   }
 }
 
+function findExportedConstDeclaration(
+  source: ts.SourceFile,
+  name: string,
+): ts.VariableDeclaration | undefined {
+  const declarations = source.statements
+    .filter(
+      (statement): statement is ts.VariableStatement =>
+        ts.isVariableStatement(statement) &&
+        (statement.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+        statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        ) === true,
+    )
+    .flatMap((statement) => statement.declarationList.declarations)
+    .filter(
+      (declaration) =>
+        ts.isIdentifier(declaration.name) && declaration.name.text === name,
+    );
+
+  return declarations.length === 1 ? declarations[0] : undefined;
+}
+
 const workflow = read(workflowPath);
 const scheduledWorkflow = read(scheduledWorkflowPath);
+const signupScheduledWorkflow = read(signupScheduledWorkflowPath);
+const signupAgentScheduledWorkflow = read(signupAgentScheduledWorkflowPath);
+const reportWorkflow = read(reportWorkflowPath);
+const scheduledDigest = read(scheduledDigestPath);
 const fleet = read(fleetPath);
 const chat = read(chatPath);
 const config = read(configPath);
@@ -60,10 +94,43 @@ if (sitesRaw) {
 }
 
 if (chat) {
-  const lunaIds = [...chat.matchAll(/gpt-5[.-]6-luna/g)];
-  if (lunaIds.length === 0) {
+  const chatSource = ts.createSourceFile(
+    chatPath,
+    chat,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+    const initializer = findExportedConstDeclaration(
+      chatSource,
+      name,
+    )?.initializer;
+    const configured =
+      initializer &&
+      (ts.isStringLiteral(initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(initializer))
+        ? initializer.text
+        : undefined;
+    if (configured !== "gpt-6-luna") {
+      issues.push(
+        `${chatPath} ${name} must be set to gpt-6-luna; found ${JSON.stringify(configured ?? (initializer ? "non-string initializer" : "missing"))}. This suite is budgeted for the current low-cost model.`,
+      );
+    }
+  }
+  const modelPatternDeclaration = findExportedConstDeclaration(
+    chatSource,
+    "LUNA_MODEL_PATTERN",
+  );
+  const modelPatternInitializer = modelPatternDeclaration?.initializer;
+  if (
+    !modelPatternInitializer ||
+    !ts.isRegularExpressionLiteral(modelPatternInitializer) ||
+    modelPatternInitializer.getText(chatSource) !==
+      String.raw`/^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i`
+  ) {
     issues.push(
-      `${chatPath} no longer names a luna model id. This suite is budgeted for luna; changing the model changes what every run costs.`,
+      `${chatPath} LUNA_MODEL_PATTERN must accept only the current low-cost model aliases. Loosening the pattern can make the budget guard accept a more expensive model.`,
     );
   }
   if (!chat.includes("assertOnlyLuna")) {
@@ -529,6 +596,14 @@ if (workflow) {
       /set \+e\s+BETA_E2E_AUTHED=0 pnpm e2e:beta "\$\{select_args\[@\]\}" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/,
     );
     const emptyCheck = authedRun.indexOf('grep -q "Total: 0 tests in 0 files"');
+    const narrowedSkip = authedRun.indexOf('"$BETA_E2E_NARROWED" = "true"');
+    const skipMessage = authedRun.indexOf(
+      "No authenticated tests in this slot match the app or title selection; skipping authenticated setup.",
+    );
+    const skipReportCleanup = authedRun.indexOf(
+      'rm -rf "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT" "e2e/beta/test-results/$BETA_E2E_REPORT_SLOT"',
+    );
+    const skipExit = authedRun.indexOf("exit 0", skipMessage);
     const propagate = authedRun.indexOf('exit "$selection_status"');
     const finalRun = authedRun.lastIndexOf('pnpm e2e:beta "${select_args[@]}"');
     if (
@@ -538,12 +613,15 @@ if (workflow) {
       listCommand < 0 ||
       emptyCheck < listCommand ||
       !authedRun.includes('grep -q "Error: No tests found"') ||
-      !authedRun.includes('"$BETA_E2E_NARROWED" = "true"') ||
+      narrowedSkip < emptyCheck ||
+      skipMessage < narrowedSkip ||
+      skipReportCleanup < skipMessage ||
+      skipExit < skipReportCleanup ||
       propagate < emptyCheck ||
       finalRun < propagate
     ) {
       issues.push(
-        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
+        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, remove that empty slot's report and test artifacts before upload, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
       );
     }
 
@@ -603,6 +681,82 @@ if (workflow) {
   }
 }
 
+if (workflow) {
+  try {
+    type DirectWorkflow = {
+      on?: {
+        workflow_dispatch?: {
+          inputs?: Record<string, { options?: unknown }>;
+        };
+      };
+      jobs?: Record<
+        string,
+        {
+          if?: unknown;
+          needs?: unknown;
+          uses?: unknown;
+          with?: Record<string, unknown>;
+        }
+      >;
+    };
+    const parsed = parse(workflow) as DirectWorkflow;
+    const report = parsed.jobs?.report;
+    const condition = String(report?.if ?? "");
+    const expectedNeeds = [
+      "discover",
+      "gate",
+      "public",
+      "fleet",
+      "authed",
+      "advisory",
+      "signup",
+    ];
+    const needs = Array.isArray(report?.needs) ? report.needs : [];
+    const laneOptions = parsed.on?.workflow_dispatch?.inputs?.lane?.options;
+    if (
+      !condition.includes("github.event_name == 'workflow_dispatch'") ||
+      !condition.includes("github.workflow == 'Beta E2E (browser)'") ||
+      !condition.includes("always()") ||
+      condition.includes("!cancelled()")
+    ) {
+      issues.push(
+        workflowPath +
+          " must report direct manual runs, including canceled lanes, while reusable scheduled, signup, and deploy callers cannot double-post.",
+      );
+    }
+    if (
+      report?.uses !== "./.github/workflows/beta-e2e-report.yml" ||
+      !expectedNeeds.every((job) => needs.includes(job)) ||
+      !String(report.with?.run_result ?? "").includes("needs.*.result")
+    ) {
+      issues.push(
+        workflowPath +
+          " direct report must wait for every lane and pass the aggregate result to " +
+          reportWorkflowPath +
+          ".",
+      );
+    }
+    if (
+      !Array.isArray(laneOptions) ||
+      laneOptions.includes("signup") ||
+      !["public", "authed", "public+authed"].every((lane) =>
+        laneOptions.includes(lane),
+      )
+    ) {
+      issues.push(
+        workflowPath +
+          " manual signup runs must use the dedicated Signup E2E workflow reporter; the browser dispatch options should be public, authed, and public+authed only.",
+      );
+    }
+  } catch (error) {
+    issues.push(
+      workflowPath +
+        " direct reporting could not be checked: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  }
+}
+
 const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const prodDeploy = read(prodDeployPath);
 if (prodDeploy && prodDeploy.includes("beta-e2e")) {
@@ -612,7 +766,17 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
         inputs?: Record<string, { default?: unknown }>;
       };
     };
-    jobs?: Record<string, { needs?: unknown; if?: unknown }>;
+    jobs?: Record<
+      string,
+      {
+        if?: unknown;
+        needs?: unknown;
+        permissions?: Record<string, unknown>;
+        secrets?: Record<string, unknown>;
+        uses?: unknown;
+        with?: Record<string, unknown>;
+      }
+    >;
   };
 
   let parsedDeploy: ProdDeploy | null = null;
@@ -641,6 +805,41 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
       `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
     );
   }
+
+  const report = parsedDeploy?.jobs?.["report-beta-e2e"];
+  const reportIf = String(report?.if ?? "");
+  const reportNeeds = Array.isArray(report?.needs)
+    ? report.needs
+    : typeof report?.needs === "string"
+      ? [report.needs]
+      : [];
+  const reportPermissions = report?.permissions ?? {};
+  if (
+    !reportIf.includes("always()") ||
+    !reportIf.includes("inputs.beta_e2e") ||
+    !reportIf.includes("needs.beta-e2e.result != 'skipped'") ||
+    !reportNeeds.includes("beta-e2e") ||
+    report?.uses !== `./${reportWorkflowPath}` ||
+    !String(report.with?.run_result ?? "").includes("needs.beta-e2e.result") ||
+    reportPermissions.actions !== "read" ||
+    reportPermissions.contents !== "read" ||
+    !String(report.secrets?.QA_SLACK_BOT_TOKEN ?? "").includes(
+      "secrets.QA_SLACK_BOT_TOKEN",
+    )
+  ) {
+    issues.push(
+      `${prodDeployPath} must send the opted-in production Beta E2E result, including failed or cancelled runs, through the shared Slack reporter with read-only run/artifact access.`,
+    );
+  }
+
+  const deployNeeds = Array.isArray(parsedDeploy?.jobs?.deploy?.needs)
+    ? parsedDeploy.jobs.deploy.needs
+    : [];
+  if (deployNeeds.includes("report-beta-e2e")) {
+    issues.push(
+      `${prodDeployPath} must not make production deploys wait for the informational Slack report job.`,
+    );
+  }
 }
 
 if (scheduledWorkflow) {
@@ -661,6 +860,42 @@ if (scheduledWorkflow) {
         `${scheduledWorkflowPath} must run the beta E2E check on the 0 */6 * * * schedule.`,
       );
     }
+
+    const jobs = parsed.jobs as
+      | Record<string, { with?: Record<string, unknown>; secrets?: unknown }>
+      | undefined;
+    const scheduledBetaE2E = jobs?.["beta-e2e"];
+    if (scheduledBetaE2E?.with?.lane !== "public") {
+      issues.push(
+        `${scheduledWorkflowPath} must run only the public lane until Beta databases are isolated; authenticated tests can write to production.`,
+      );
+    }
+    const scheduledSecrets = scheduledBetaE2E?.secrets;
+    const scheduledSlackSecret =
+      typeof scheduledSecrets === "object" &&
+      scheduledSecrets !== null &&
+      !Array.isArray(scheduledSecrets)
+        ? (scheduledSecrets as Record<string, unknown>).QA_SLACK_BOT_TOKEN
+        : undefined;
+    if (
+      typeof scheduledSecrets !== "object" ||
+      scheduledSecrets === null ||
+      Array.isArray(scheduledSecrets) ||
+      Object.keys(scheduledSecrets).some(
+        (name) => name !== "QA_SLACK_BOT_TOKEN",
+      ) ||
+      scheduledSlackSecret !== "${{ secrets.QA_SLACK_BOT_TOKEN }}"
+    ) {
+      issues.push(
+        `${scheduledWorkflowPath} must pass only QA_SLACK_BOT_TOKEN from its matching secret to the public scheduled suite.`,
+      );
+    }
+    const report = jobs?.report;
+    if (report?.with?.update_baseline !== false) {
+      issues.push(
+        `${scheduledWorkflowPath} must preserve the shared full-suite notification baseline because its public lane does not cover authenticated failures.`,
+      );
+    }
   } catch (error) {
     issues.push(
       `${scheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
@@ -669,63 +904,287 @@ if (scheduledWorkflow) {
 
   const requiredFragments = [
     "uses: ./.github/workflows/beta-e2e.yml",
-    "lane: public+authed",
-    "issues: write",
-    "[beta-e2e] Scheduled beta health check failing",
-    "gh issue list",
-    "--state open",
-    "gh issue comment",
-    "gh issue create",
-    "gh issue close",
+    "uses: ./.github/workflows/beta-e2e-report.yml",
+    "run_result: " + "$" + "{{ needs.beta-e2e.result }}",
   ];
   for (const fragment of requiredFragments) {
     if (!scheduledWorkflow.includes(fragment)) {
       issues.push(
-        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite and deduplicate its GitHub issue lifecycle.`,
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the public suite and shared report workflow.`,
       );
     }
   }
 
-  const reportingFragments = [
-    "scripts/beta-e2e-digest.ts",
-    "QA_SLACK_BOT_TOKEN",
-    "method: chat.postMessage",
-    "C0C4U4XRT6X",
-    "Slack notification not configured",
+  const forbiddenDigestFragments = [
+    "issueNumber",
+    "issueUrl",
+    "ISSUE_TITLE",
+    "ISSUE_LABELS",
+    "issue.md",
+    "beta-e2e-state:v1",
+    "STATE_MARKER_PREFIX",
+    "renderIssueBody",
   ];
-  for (const fragment of reportingFragments) {
-    if (!scheduledWorkflow.includes(fragment)) {
+  for (const fragment of forbiddenDigestFragments) {
+    if (scheduledDigest.includes(fragment)) {
       issues.push(
-        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. A failed run must produce the digest issue and the #qa-agent-native Slack message, and an unconfigured Slack token must be reported rather than skipped silently.`,
+        scheduledDigestPath +
+          " must use artifact-backed state and reports; found the removed issue fallback " +
+          JSON.stringify(fragment) +
+          ".",
       );
     }
   }
-  if (
-    !/uses:\s*slackapi\/slack-github-action@[0-9a-f]{40}\s+#\s*v\d/.test(
-      scheduledWorkflow,
-    )
-  ) {
-    issues.push(
-      `${scheduledWorkflowPath} must pin slackapi/slack-github-action by full commit SHA with a version comment, like every other action in this repository.`,
-    );
-  }
-  try {
-    const parsed = parse(scheduledWorkflow) as {
-      jobs?: Record<string, { permissions?: Record<string, string> }>;
-    };
-    const permissions = Object.entries(parsed.jobs?.report?.permissions ?? {})
-      .map(([scope, level]) => `${scope}: ${level}`)
-      .sort()
-      .join(", ");
-    const expected = "actions: read, contents: read, issues: write";
-    if (permissions !== expected) {
+  for (const fragment of forbiddenIssueFragments) {
+    if (scheduledWorkflow.includes(fragment)) {
       issues.push(
-        `${scheduledWorkflowPath} report job permissions must be exactly "${expected}" (read the run's jobs and artifacts, write the issue) and nothing broader; found "${permissions}".`,
+        scheduledWorkflowPath +
+          " must not use GitHub Issues for beta E2E findings; found " +
+          JSON.stringify(fragment) +
+          ".",
+      );
+    }
+  }
+  const scheduledReportFragments = [
+    "uses: ./.github/workflows/beta-e2e-report.yml",
+    "run_result: " + "$" + "{{ needs.beta-e2e.result }}",
+    "update_baseline: false",
+    "actions: read",
+    "contents: read",
+  ];
+  for (const fragment of scheduledReportFragments) {
+    if (!scheduledWorkflow.includes(fragment)) {
+      issues.push(
+        scheduledWorkflowPath +
+          " is missing " +
+          JSON.stringify(fragment) +
+          "; its single report job must call the shared report workflow.",
+      );
+    }
+  }
+}
+
+if (signupScheduledWorkflow) {
+  try {
+    const parsed = parse(signupScheduledWorkflow) as {
+      on?: Record<string, unknown>;
+      jobs?: Record<
+        string,
+        {
+          if?: unknown;
+          steps?: Array<{ if?: unknown; name?: unknown; run?: unknown }>;
+        }
+      >;
+    };
+    const condition = parsed.jobs?.["signup-e2e"]?.if;
+    const normalizedCondition =
+      typeof condition === "string"
+        ? condition
+            .replace(/^\$\{\{|\}\}$/g, "")
+            .replace(/\s+/g, " ")
+            .trim()
+        : "";
+    if (
+      normalizedCondition !==
+        "github.event_name != 'schedule' || vars.BETA_DATABASES_ISOLATED == 'true'" ||
+      !Object.hasOwn(parsed.on ?? {}, "workflow_dispatch")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must gate scheduled signup writes on BETA_DATABASES_ISOLATED == 'true' while preserving manual dispatch.`,
+      );
+    }
+
+    const reportSteps = parsed.jobs?.report?.steps ?? [];
+    const skippedSummary = reportSteps.find(
+      (step) => step.name === "Explain skipped Beta signup schedule",
+    );
+    const degradedReport = reportSteps.find(
+      (step) =>
+        step.name === "Build a degraded report when collection itself failed",
+    );
+    const continuityPlan = reportSteps.find(
+      (step) => step.name === "Plan the Signup E2E recovery rollup",
+    );
+    const slackConfig = reportSteps.find(
+      (step) => step.name === "Check Slack configuration",
+    );
+    if (
+      typeof skippedSummary?.if !== "string" ||
+      !skippedSummary.if.includes("needs.signup-e2e.result == 'skipped'") ||
+      typeof skippedSummary.run !== "string" ||
+      !skippedSummary.run.includes("BETA_DATABASES_ISOLATED")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must explain an isolation-gated schedule skip in the run summary.`,
+      );
+    }
+    if (
+      typeof degradedReport?.if !== "string" ||
+      !degradedReport.if.includes("needs.signup-e2e.result == 'failure'") ||
+      !degradedReport.if.includes("needs.signup-e2e.result == 'cancelled'") ||
+      degradedReport.if.includes("needs.signup-e2e.result != 'success'")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must not report an intentional skipped signup run as a collection failure.`,
+      );
+    }
+    if (
+      typeof continuityPlan?.run !== "string" ||
+      !continuityPlan.run.includes("outcome=inconclusive")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must preserve the prior report state when signup is skipped or inconclusive.`,
+      );
+    }
+    if (
+      typeof slackConfig?.if !== "string" ||
+      !slackConfig.if.includes(
+        "steps.previous-state.outputs.continuity_unknown == 'true' && needs.signup-e2e.result == 'success'",
+      )
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must not attempt Slack delivery for unknown continuity when the signup job was intentionally skipped.`,
       );
     }
   } catch (error) {
     issues.push(
-      `${scheduledWorkflowPath} report job permissions could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+      `${signupScheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+if (signupAgentScheduledWorkflow) {
+  try {
+    const parsed = parse(signupAgentScheduledWorkflow) as {
+      on?: Record<string, unknown>;
+    };
+    if (
+      Object.hasOwn(parsed.on ?? {}, "schedule") ||
+      !Object.hasOwn(parsed.on ?? {}, "workflow_dispatch")
+    ) {
+      issues.push(
+        `${signupAgentScheduledWorkflowPath} must keep its unattended schedule disabled until Beta database isolation is verified and preserve manual dispatch.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${signupAgentScheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+if (reportWorkflow) {
+  const reportingFragments = [
+    "scripts/beta-e2e-digest.ts",
+    "beta-e2e-digest-",
+    "$" + "{{ github.run_attempt }}",
+    "state.json",
+    "current-attempt",
+    "branch=$GITHUB_REF_NAME",
+    "for workflow_file in beta-e2e-scheduled.yml beta-e2e.yml deploy-production-sites-prebuilt.yml",
+    "Report production Beta E2E pre-flight status",
+    "Report directly dispatched beta E2E status",
+    "report_job_result",
+    "workflow_source=direct",
+    "workflow_source=production",
+    "actions/upload-artifact@",
+    "retention-days: 90",
+    "COLLECT_OUTCOME: " + "$" + "{{ steps.collect.outcome }}",
+    "metadata_incomplete=$metadata_incomplete",
+    "Fail after posting an incomplete metadata report",
+    "Findings: 1 total; showing 1; 0 omitted from this Slack message.",
+    "QA_SLACK_BOT_TOKEN",
+    "method: chat.postMessage",
+    "C0C4U4XRT6X",
+    "Slack notification not configured",
+    "Verify the Slack report was posted",
+    "::error::$message",
+  ];
+  for (const fragment of reportingFragments) {
+    if (!reportWorkflow.includes(fragment)) {
+      issues.push(
+        reportWorkflowPath +
+          " is missing " +
+          JSON.stringify(fragment) +
+          ". A failed run must preserve the full artifact-backed report and send one rolled-up #qa-agent-native Slack message when its notification is due.",
+      );
+    }
+  }
+  if (!scheduledDigest.includes("Full report and Playwright artifacts")) {
+    issues.push(
+      scheduledDigestPath +
+        " must link the full per-run report from its single Slack summary.",
+    );
+  }
+  for (const fragment of forbiddenIssueFragments) {
+    if (reportWorkflow.includes(fragment)) {
+      issues.push(
+        reportWorkflowPath +
+          " must not use GitHub Issues for beta E2E findings; found " +
+          JSON.stringify(fragment) +
+          ".",
+      );
+    }
+  }
+  if (
+    (reportWorkflow.match(/method:\s*chat\.postMessage/g) ?? []).length !== 1
+  ) {
+    issues.push(
+      reportWorkflowPath +
+        " must post one batched Slack message per run, not one message per finding.",
+    );
+  }
+  if (
+    !/uses:\s*slackapi\/slack-github-action@[0-9a-f]{40}\s+#\s*v\d/.test(
+      reportWorkflow,
+    )
+  ) {
+    issues.push(
+      reportWorkflowPath +
+        " must pin slackapi/slack-github-action by full commit SHA with a version comment, like every other action in this repository.",
+    );
+  }
+  if (
+    !/uses:\s*actions\/upload-artifact@[0-9a-f]{40}\s+#\s*v\d/.test(
+      reportWorkflow,
+    )
+  ) {
+    issues.push(
+      reportWorkflowPath +
+        " must pin actions/upload-artifact by full commit SHA with a version comment.",
+    );
+  }
+  try {
+    const parsed = parse(reportWorkflow) as {
+      on?: { workflow_call?: { inputs?: Record<string, unknown> } };
+      jobs?: Record<string, { permissions?: Record<string, string> }>;
+    };
+    if (!parsed.on?.workflow_call?.inputs?.run_result) {
+      issues.push(
+        reportWorkflowPath +
+          " must accept the caller run result as a required workflow_call input.",
+      );
+    }
+    const permissions = Object.entries(parsed.jobs?.report?.permissions ?? {})
+      .map(([scope, level]) => scope + ": " + level)
+      .sort()
+      .join(", ");
+    const expected = "actions: read, contents: read";
+    if (permissions !== expected) {
+      issues.push(
+        reportWorkflowPath +
+          ' report job permissions must be exactly "' +
+          expected +
+          '" (read run data and artifacts only) and nothing broader; found "' +
+          permissions +
+          '".',
+      );
+    }
+  } catch (error) {
+    issues.push(
+      reportWorkflowPath +
+        " report job permissions could not be checked: " +
+        (error instanceof Error ? error.message : String(error)),
     );
   }
 }

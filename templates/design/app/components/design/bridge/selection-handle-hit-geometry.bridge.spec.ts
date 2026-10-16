@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
 /**
- * Figma parity: selecting a short element and immediately dragging it from
+ * Selecting a short element and immediately dragging it from
  * its own center must start a MOVE, never a resize. Reported by Steve: a
  * freshly created text wordmark couldn't be dragged — the pointer moved
  * 200px+ horizontally with zero net `left` change, because the drag landed

@@ -1,6 +1,10 @@
 import { createError, getHeader, type H3Event } from "h3";
 
 import {
+  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "../agent/durable-background.js";
+import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
   normalizeAnalyticsClientPlatform,
@@ -13,19 +17,29 @@ import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
   isCredentialMembershipUnavailable,
 } from "./credential-membership-unavailable.js";
+import { isDirectLoopbackRequest, isLoopbackRequest } from "./loopback.js";
 import {
   getRequestContext,
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
+  hasExplicitPersonalOrgScope,
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
-const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
+const resolveOrgScopeForEmail: (typeof import("../org/context.js"))["resolveOrgScopeForEmail"] =
   (...args) =>
-    import("../org/context.js").then(({ resolveOrgIdForEmail }) =>
-      resolveOrgIdForEmail(...args),
+    import("../org/context.js").then(({ resolveOrgScopeForEmail }) =>
+      resolveOrgScopeForEmail(...args),
     );
+async function hasOrgScopeResolutionUnavailable(
+  event: H3Event,
+): Promise<boolean> {
+  const { hasOrgScopeResolutionUnavailable } =
+    await import("../org/context.js");
+  return hasOrgScopeResolutionUnavailable(event);
+}
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
   ...args
 ) =>
@@ -113,6 +127,30 @@ export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const trimmed = typeof value === "string" ? value.trim() : "";
   return /^[!-~]{1,127}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function readDurableBrowserSessionId(event: H3Event): string | undefined {
+  const body = (event as EventWithAgentRunContext).context?.[
+    "__agentChatBackgroundBody"
+  ];
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return undefined;
+  }
+  const record = body as Record<string, unknown>;
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      record,
+      AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+    )
+  ) {
+    return undefined;
+  }
+  const value = record[AGENT_CHAT_BROWSER_SESSION_ID_FIELD];
+  if (value === null) return undefined;
+  if (typeof value === "string" && /^[!-~]{1,127}$/.test(value)) {
+    return value;
+  }
+  throw new Error("Malformed browser session id in durable agent run payload.");
 }
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
@@ -230,16 +268,43 @@ export async function resolveAgentRunOwnerContext(
   });
 }
 
+export type AgentRunOrgScope = {
+  orgId?: string;
+  orgScope?: "personal";
+};
+
 export async function resolveAgentRunOrgId(options: {
   event: H3Event;
   ownerContext: AgentRunOwnerContext;
   resolveOrgId?: OrgIdResolver;
 }): Promise<string | undefined> {
-  if (Object.prototype.hasOwnProperty.call(options.ownerContext, "orgId")) {
-    return normalizeId(options.ownerContext.orgId);
+  return (await resolveAgentRunOrgScope(options)).orgId;
+}
+
+export async function resolveAgentRunOrgScope(options: {
+  event: H3Event;
+  ownerContext: AgentRunOwnerContext;
+  resolveOrgId?: OrgIdResolver;
+}): Promise<AgentRunOrgScope> {
+  const { ownerContext } = options;
+  const hasOwnerOrgId = Object.prototype.hasOwnProperty.call(
+    ownerContext,
+    "orgId",
+  );
+  if (hasOwnerOrgId) {
+    const orgId = normalizeId(ownerContext.orgId);
+    if (orgId) return { orgId };
+    return ownerContext.orgScope === "personal" ? { orgScope: "personal" } : {};
+  }
+  if (
+    ownerContext.orgScope === "personal" ||
+    hasExplicitPersonalOrgScope(options.event)
+  ) {
+    return { orgScope: "personal" };
   }
 
   let resolvedOrgId: string | undefined;
+  let orgLookupFailed = false;
 
   if (options.resolveOrgId) {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
@@ -249,34 +314,55 @@ export async function resolveAgentRunOrgId(options: {
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
     } catch {
-      // Session not available.
+      orgLookupFailed = true;
     }
 
     if (!resolvedOrgId) {
       try {
         const orgContext = await getOrgContext(options.event);
         resolvedOrgId = normalizeId(orgContext.orgId);
+        const scopeUnavailable = await hasOrgScopeResolutionUnavailable(
+          options.event,
+        );
+        if (!resolvedOrgId && scopeUnavailable) orgLookupFailed = true;
+        if (
+          !resolvedOrgId &&
+          !scopeUnavailable &&
+          !orgLookupFailed &&
+          ownerContext.owner &&
+          !ownerContext.anonymous &&
+          normalizeId(orgContext.email)?.toLowerCase() ===
+            ownerContext.owner.trim().toLowerCase()
+        ) {
+          return { orgScope: "personal" };
+        }
       } catch {
-        // Org tables may not exist yet on first boot.
+        orgLookupFailed = true;
       }
     }
   }
 
-  if (
-    !resolvedOrgId &&
-    options.ownerContext.owner &&
-    !options.ownerContext.anonymous
-  ) {
+  if (!resolvedOrgId && ownerContext.owner && !ownerContext.anonymous) {
     try {
-      resolvedOrgId = normalizeId(
-        await resolveOrgIdForEmail(options.ownerContext.owner),
-      );
+      const scope = await resolveOrgScopeForEmail(ownerContext.owner);
+      if (scope.status === "organization") {
+        resolvedOrgId = normalizeId(scope.orgId);
+      } else if (scope.status === "unknown") {
+        orgLookupFailed = true;
+      } else if (!orgLookupFailed) {
+        return { orgScope: "personal" };
+      }
     } catch {
-      // Org tables may not exist yet on first boot.
+      orgLookupFailed = true;
     }
   }
 
-  return resolvedOrgId;
+  if (resolvedOrgId) return { orgId: resolvedOrgId };
+  // An absent org is personal only when every available membership lookup succeeded.
+  if (!orgLookupFailed && ownerContext.owner && !ownerContext.anonymous) {
+    return { orgScope: "personal" };
+  }
+  return {};
 }
 
 export async function resolveAgentRunRequestContext(options: {
@@ -285,9 +371,11 @@ export async function resolveAgentRunRequestContext(options: {
   resolveOrgId?: OrgIdResolver;
   isBackgroundWorker?: boolean;
 }): Promise<RequestContext> {
-  const orgId = await resolveAgentRunOrgId(options);
+  const { orgId, orgScope } = await resolveAgentRunOrgScope(options);
   const timezone = readAgentRunTimezone(options.event);
-  const browserSessionId = readBrowserSessionIdHeader(options.event);
+  const browserSessionId = options.isBackgroundWorker
+    ? readDurableBrowserSessionId(options.event)
+    : readBrowserSessionIdHeader(options.event);
   const browserTabId = readBrowserTabIdHeader(options.event);
   const identitySessionToken = getRequestIdentitySessionToken(
     options.event,
@@ -296,6 +384,20 @@ export async function resolveAgentRunRequestContext(options: {
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
   const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
+  const durableBody = options.isBackgroundWorker
+    ? (eventContext(options.event as EventWithAgentRunContext)[
+        "__agentChatBackgroundBody"
+      ] as Record<string, unknown> | undefined)
+    : undefined;
+  const durableRequestContext = durableBody?.[AGENT_CHAT_REQUEST_CONTEXT_FIELD];
+  const durableOrigin =
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext) &&
+    typeof (durableRequestContext as Record<string, unknown>).requestOrigin ===
+      "string"
+      ? (durableRequestContext as Record<string, string>).requestOrigin
+      : undefined;
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -305,10 +407,11 @@ export async function resolveAgentRunRequestContext(options: {
     ...(options.ownerContext.authUserId
       ? { authUserId: options.ownerContext.authUserId }
       : {}),
-    ...(options.ownerContext.orgScope === "personal"
-      ? { orgScope: "personal" as const }
-      : {}),
+    ...(orgScope === "personal" ? { orgScope: "personal" as const } : {}),
     ...(options.ownerContext.anonymous ? { agentRunAnonymous: true } : {}),
+    ...(options.ownerContext.anonymous && !orgId
+      ? { defaultAgentEngineScope: "deployment" as const }
+      : {}),
     ...(options.ownerContext.identityAuthenticatedAtMs !== undefined
       ? {
           identityAuthenticatedAtMs:
@@ -322,6 +425,15 @@ export async function resolveAgentRunRequestContext(options: {
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
     ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
+    requestOrigin: options.isBackgroundWorker
+      ? durableOrigin
+      : getForwardedRequestOrigin(options.event),
+    isLoopbackRequest: options.isBackgroundWorker
+      ? false
+      : isLoopbackRequest(options.event),
+    isDirectLoopbackRequest: options.isBackgroundWorker
+      ? false
+      : isDirectLoopbackRequest(options.event),
     ...(browserTabId ? { run: { ...run, browserTabId } } : {}),
     ...(!browserTabId && Object.keys(run).length > 0 ? { run } : {}),
   };

@@ -9,6 +9,11 @@ import { parseArgs } from "node:util";
 
 import { chromium, type CDPSession, type Page } from "@playwright/test";
 
+import {
+  expectedCanvasScaleAtZoomPercent,
+  readZoomUntilAvailable,
+} from "./runtime-budget-zoom.ts";
+
 type BudgetFile = {
   copies: number;
   iterations: number;
@@ -43,6 +48,7 @@ const { values } = parseArgs({
     out: { type: "string" },
     summary: { type: "string" },
     headed: { type: "boolean", default: false },
+    channel: { type: "string", default: "chromium" },
   },
 });
 const baseUrl = values["base-url"]?.replace(/\/$/, "");
@@ -98,7 +104,11 @@ if (!values.design) seededDesignId = seedDesign();
 const designId = values.design ?? seededDesignId!;
 const sessionStartedAt = Date.now();
 
-const browser = await chromium.launch({ headless: !values.headed });
+const browser = await chromium.launch({
+  channel: values.channel,
+  headless: !values.headed,
+});
+const browserVersion = browser.version();
 const context = await browser.newContext({
   viewport: { width: 1280, height: 720 },
   deviceScaleFactor: 2,
@@ -112,6 +122,12 @@ await page.addInitScript(() => {
       refreshes: { at: number; screen: string; from: string; to: string }[];
       liveInserts: number[];
       previewRemounts: number[];
+      selectionEvents: {
+        at: number;
+        screen: string;
+        sourceId: string;
+        tagName: string;
+      }[];
     };
   };
   w.__budget = {
@@ -119,6 +135,7 @@ await page.addInitScript(() => {
     refreshes: [],
     liveInserts: [],
     previewRemounts: [],
+    selectionEvents: [],
   };
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
@@ -146,13 +163,35 @@ await page.addInitScript(() => {
   // An editor draws as its document parses and says so with this message;
   // its load event waits for images and fonts as well.
   addEventListener("message", (event) => {
-    if (event.data?.type !== "agent-native:editor-chrome-ready") return;
+    if (event.data?.type === "agent-native:editor-chrome-ready") {
+      for (const frame of document.querySelectorAll(
+        "iframe[data-design-preview-iframe]",
+      )) {
+        if ((frame as HTMLIFrameElement).contentWindow === event.source) {
+          frame.setAttribute("data-budget-loaded", "");
+        }
+      }
+      return;
+    }
+    if (event.data?.type !== "element-select") return;
     for (const frame of document.querySelectorAll(
       "iframe[data-design-preview-iframe]",
     )) {
-      if ((frame as HTMLIFrameElement).contentWindow === event.source) {
-        frame.setAttribute("data-budget-loaded", "");
-      }
+      if ((frame as HTMLIFrameElement).contentWindow !== event.source) continue;
+      const payload = event.data.payload as
+        | { sourceId?: unknown; tagName?: unknown }
+        | undefined;
+      const title = frame
+        .closest("[data-screen-shell]")
+        ?.querySelector("[data-frame-title]")
+        ?.getAttribute("title");
+      w.__budget.selectionEvents.push({
+        at: performance.now(),
+        screen: title ?? "",
+        sourceId: typeof payload?.sourceId === "string" ? payload.sourceId : "",
+        tagName: typeof payload?.tagName === "string" ? payload.tagName : "",
+      });
+      break;
     }
   });
   addEventListener("DOMContentLoaded", () => {
@@ -260,10 +299,49 @@ await page
 metrics.editorVisibleMs = Date.now() - loadStartedAt;
 await page.waitForTimeout(8000);
 
-async function heapAfterGcMB(session: CDPSession): Promise<number> {
-  await session.send("HeapProfiler.collectGarbage");
-  const { usedSize } = await session.send("Runtime.getHeapUsage");
-  return usedSize / 1e6;
+type RendererMemory = {
+  editorHeapMB: number;
+  totalHeapMB: number;
+  editorDocuments: number;
+  totalDocuments: number;
+  processes: number;
+};
+// The editor's renderer holds the page and its same-origin live editors;
+// out-of-process frames (the static previews) add renderers of their own.
+async function readRendererMemory(): Promise<RendererMemory> {
+  const frameSessions: CDPSession[] = [];
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try {
+      frameSessions.push(await context.newCDPSession(frame));
+    } catch (error) {
+      if (!String(error).includes("does not have a separate CDP session")) {
+        throw error;
+      }
+    }
+  }
+  // Chrome puts every sandboxed preview of a site in one renderer, so many
+  // frame sessions report the same isolate; count each isolate once.
+  const sessionByIsolate = new Map<string, CDPSession>();
+  for (const session of [cdp, ...frameSessions]) {
+    const { id } = await session.send("Runtime.getIsolateId");
+    if (!sessionByIsolate.has(id)) sessionByIsolate.set(id, session);
+  }
+  const perProcess = [];
+  for (const session of sessionByIsolate.values()) {
+    await session.send("HeapProfiler.collectGarbage");
+    const { usedSize } = await session.send("Runtime.getHeapUsage");
+    const { documents } = await session.send("Memory.getDOMCounters");
+    perProcess.push({ heapMB: usedSize / 1e6, documents });
+  }
+  await Promise.all(frameSessions.map((session) => session.detach()));
+  return {
+    editorHeapMB: perProcess[0]!.heapMB,
+    totalHeapMB: perProcess.reduce((sum, p) => sum + p.heapMB, 0),
+    editorDocuments: perProcess[0]!.documents,
+    totalDocuments: perProcess.reduce((sum, p) => sum + p.documents, 0),
+    processes: perProcess.length,
+  };
 }
 const now = () => page.evaluate(() => performance.now());
 function countSince(field: "liveInserts" | "previewRemounts", since: number) {
@@ -301,32 +379,71 @@ const zoomOf = () =>
     const match = /scale\(([0-9.]+)\)/.exec(transform);
     return match ? Number(match[1]) * 100 : null;
   });
-async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
-  const distance = async () => Math.log(((await zoomOf()) ?? 10) / target);
-  // A CI runner reads the zoom back several times slower than a laptop.
-  const giveUpAt = Date.now() + 60_000;
-  while (Date.now() < giveUpAt) {
-    const off = await distance();
-    if (Math.abs(off) < 0.06) break;
-    // Fire and forget: awaiting each wheel event lets the camera settle between
-    // them. Smaller steps near the target, because events queued behind a long
-    // frame all land at once and overshoot.
-    void cdp.send("Input.dispatchMouseEvent", {
-      type: "mouseWheel",
-      x,
-      y,
-      deltaX: 0,
-      deltaY: Math.sign(off) * Math.min(40, Math.max(2, Math.abs(off) * 40)),
-      modifiers: 2,
-    });
-    // Near the target, let the camera apply each step before reading again;
-    // otherwise a slow runner overshoots back and forth around it.
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.abs(off) < 0.3 ? 120 : 16),
+const zoomPercentFromUrl = () =>
+  page.evaluate(() => {
+    const raw = new URLSearchParams(location.search).get("zoom");
+    const zoom = raw === null ? Number.NaN : Number(raw);
+    return Number.isFinite(zoom) && zoom > 0 ? zoom : null;
+  });
+async function zoomTo(target: number): Promise<boolean> {
+  const startedAt = Date.now();
+  const deadline = startedAt + 10_000;
+  const remainingTimeout = () => Math.max(1, deadline - Date.now());
+  // This benchmark measures camera-driven rendering and preview churn; wheel
+  // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
+  const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
+  const currentZoomPercent = await readZoomUntilAvailable(
+    zoomPercentFromUrl,
+    (ms) => page.waitForTimeout(ms),
+    deadline,
+    () => cdp.send("Runtime.terminateExecution"),
+  );
+  if (currentZoomPercent === null) return false;
+  // Overview zoom is normalized by board geometry, so compare the world
+  // transform with the exact route zoom instead of the rounded toolbar label.
+  const currentCanvasScale = await readZoomUntilAvailable(
+    zoomOf,
+    (ms) => page.waitForTimeout(ms),
+    deadline,
+    () => cdp.send("Runtime.terminateExecution"),
+  );
+  const expectedScale = expectedCanvasScaleAtZoomPercent(
+    currentCanvasScale,
+    currentZoomPercent,
+    target,
+  );
+  if (expectedScale === null) return false;
+  await readout.click({ timeout: remainingTimeout() });
+  const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+  await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
+  await zoomInput.press("Enter", { timeout: remainingTimeout() });
+  const actual = await readZoomUntilAvailable(
+    async () => {
+      const zoom = await zoomOf();
+      const routeZoom = await zoomPercentFromUrl();
+      const label = (await readout.textContent())?.trim();
+      return zoom !== null &&
+        routeZoom === target &&
+        Math.abs(zoom - expectedScale) <=
+          Math.max(0.005, expectedScale * 0.001) &&
+        label === `${target}%`
+        ? zoom
+        : null;
+    },
+    (ms) => page.waitForTimeout(ms),
+    deadline,
+    () => cdp.send("Runtime.terminateExecution"),
+  );
+  const arrived = actual !== null;
+  if (!arrived) {
+    const actualZoom = await zoomOf();
+    const actualText =
+      actualZoom === null ? "unavailable" : `${actualZoom.toFixed(1)}%`;
+    console.log(
+      `  zoom ${target}% ended at ${actualText} with readout ${(await readout.textContent())?.trim() ?? "unavailable"} after ${Date.now() - startedAt}ms`,
     );
   }
-  await page.waitForTimeout(1500);
-  return Math.abs(await distance()) < 0.15;
+  return arrived;
 }
 
 async function until(check: () => Promise<boolean>, timeoutMs = 30_000) {
@@ -336,6 +453,37 @@ async function until(check: () => Promise<boolean>, timeoutMs = 30_000) {
     await page.waitForTimeout(250);
   }
   return false;
+}
+
+async function panToViewportCenter(locator: ReturnType<Page["locator"]>) {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("browser viewport is unavailable");
+  let lastBox = await settledBox(locator);
+
+  for (let attempt = 0; attempt < 96; attempt += 1) {
+    // coercion-ok: The editor can reload during a camera move; this loop retries until it settles.
+    const box = await locator.boundingBox({ timeout: 500 }).catch(() => null);
+    if (!box) {
+      await page.waitForTimeout(30);
+      continue;
+    }
+    lastBox = box;
+    if (box && box.y >= 120 && box.y + box.height <= viewport.height - 120) {
+      return;
+    }
+
+    const centerY = viewport.height / 2;
+    await page.mouse.move(viewport.width / 2, centerY);
+    await page.mouse.wheel(
+      0,
+      box && box.y + box.height / 2 < centerY ? -120 : 120,
+    );
+    await page.waitForTimeout(30);
+  }
+
+  throw new Error(
+    `${locator} never moved into the canvas viewport; last box ${JSON.stringify(lastBox)} after 96 wheel ticks`,
+  );
 }
 
 // An editor can reboot while the board settles after a camera move, detaching
@@ -350,11 +498,60 @@ async function settledBox(locator: ReturnType<Page["locator"]>) {
   throw new Error(`${locator} never appeared`);
 }
 
+async function stableBox(locator: ReturnType<Page["locator"]>) {
+  const deadline = Date.now() + 10_000;
+  // coercion-ok: A transient preview reload detaches the locator; the bounded poll retries it.
+  let previous = await locator.boundingBox({ timeout: 500 }).catch(() => null);
+  let lastBox = previous;
+  let stableReads = 0;
+  while (Date.now() < deadline) {
+    // coercion-ok: A transient preview reload detaches the locator; the bounded poll retries it.
+    const box = await locator.boundingBox({ timeout: 500 }).catch(() => null);
+    if (
+      box &&
+      previous &&
+      Math.abs(box.x - previous.x) <= 0.5 &&
+      Math.abs(box.y - previous.y) <= 0.5 &&
+      Math.abs(box.width - previous.width) <= 0.5 &&
+      Math.abs(box.height - previous.height) <= 0.5
+    ) {
+      stableReads += 1;
+      if (stableReads >= 2) return box;
+    } else {
+      stableReads = 0;
+    }
+    previous = box;
+    if (box) lastBox = box;
+    await page.waitForTimeout(100);
+  }
+  throw new Error(
+    `${locator} did not settle; last box ${JSON.stringify(lastBox)}`,
+  );
+}
+
 const tree = page.getByRole("tree", { name: "Layers" });
 const editorFrame = (filename: string) =>
   page.frameLocator(
     `[data-screen-shell]:has([data-frame-title][title="${filename}" i]) iframe[data-design-preview-iframe]`,
   );
+async function waitForLiveEditor(filename: string) {
+  const selector = `[data-screen-shell]:has([data-frame-title][title="${filename}" i]) iframe[data-design-preview-iframe]`;
+  await page.waitForFunction(
+    (frameSelector) => {
+      const frame = document.querySelector<HTMLIFrameElement>(frameSelector);
+      const previewDocument = frame?.contentDocument;
+      return Boolean(
+        frame?.hasAttribute("data-budget-loaded") &&
+        previewDocument?.readyState === "complete" &&
+        previewDocument.querySelector(
+          '[data-agent-native-edit-overlay="shield"]',
+        ),
+      );
+    },
+    selector,
+    { timeout: 30_000 },
+  );
+}
 async function selectScreenRow(name: string) {
   // A deep selection expands its screen's whole subtree, burying the other
   // screens' rows. One page call: the button disables itself as rows collapse.
@@ -409,10 +606,21 @@ async function step(name: string, run: () => Promise<boolean>) {
     worstFrameByStep[name] ?? 0,
     await worstFrameSince(startedAt),
   );
+  return tookEffect;
 }
 
-const heapSeries = [await heapAfterGcMB(cdp)];
-metrics.heapAfterLoadMB = heapSeries[0]!;
+const heapSeries = [await readRendererMemory()];
+metrics.editorHeapAfterLoadMB = heapSeries[0]!.editorHeapMB;
+metrics.totalHeapAfterLoadMB = heapSeries[0]!.totalHeapMB;
+const frameProcesses = heapSeries[0]!.processes - 1;
+const measuredIn = `${values.channel} ${browserVersion}, ${
+  frameProcesses
+    ? `out-of-process frames in ${frameProcesses} renderer(s) besides the editor's`
+    : "every frame in the editor's renderer"
+}`;
+console.log(`Measuring in ${measuredIn}`);
+// The editor heap gates assume static previews are out of process, as in Chrome.
+if (!frameProcesses) failedSteps.push("previewIsolation");
 const refreshesFrom = await now();
 const visits = [
   "Nested 2",
@@ -424,12 +632,6 @@ const visits = [
   "Icons 2",
   "Dashboard 4",
 ];
-const zoomPoints = [
-  [640, 360],
-  [500, 300],
-  [800, 420],
-  [600, 500],
-] as const;
 let zoomCycleBoots = 0;
 let zoomCycleRemounts = 0;
 
@@ -440,41 +642,88 @@ async function runSession() {
     const heading = editorFrame("dashboard-2.html")
       .locator("main header h1")
       .first();
-    const box = await settledBox(heading);
-    await zoomTo(60, Math.round(box.x + 4), Math.round(box.y + box.height / 2));
-    await page.waitForTimeout(2500);
+    await settledBox(heading);
+    if (
+      !(await step("initialZoomAndPan", async () => {
+        if (!(await zoomTo(60))) return false;
+        await page.keyboard.press("Escape");
+        await panToViewportCenter(heading);
+        return true;
+      }))
+    ) {
+      return;
+    }
 
-    await step("select", async () => {
-      await page.keyboard.press("Escape");
-      await editorFrame("dashboard-2.html")
-        .locator('[data-agent-native-edit-overlay="shield"]')
-        .first()
-        .waitFor({ state: "attached", timeout: 30_000 });
-      const target = await settledBox(heading);
-      await page.keyboard.down("ControlOrMeta");
-      await page.mouse.click(
-        target.x + target.width / 2,
-        target.y + target.height / 2,
-      );
-      await page.keyboard.up("ControlOrMeta");
-      await page
-        .getByRole("button", { name: "Typography details" })
-        .waitFor({ timeout: 10_000 });
-      return true;
-    });
+    if (
+      !(await step("select", async () => {
+        const modifier = process.platform === "darwin" ? "Meta" : "Control";
+        const details = page.getByRole("button", {
+          name: "Typography details",
+        });
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          await page.keyboard.press("Escape");
+          await waitForLiveEditor("dashboard-2.html");
+          const selectionCount = await page.evaluate(
+            () => (window as any).__budget.selectionEvents.length as number,
+          );
+          const target = await stableBox(heading);
+          await page.keyboard.down(modifier);
+          try {
+            await page.mouse.click(
+              target.x + target.width / 2,
+              target.y + target.height / 2,
+            );
+          } finally {
+            await page.keyboard.up(modifier);
+          }
+          const selected = await page
+            .waitForFunction(
+              ({ after, filename }) => {
+                const events = (window as any).__budget.selectionEvents.slice(
+                  after,
+                );
+                return events.some(
+                  (event: { screen: string; tagName: string }) =>
+                    event.screen === filename && event.tagName === "h1",
+                );
+              },
+              { after: selectionCount, filename: "dashboard-2.html" },
+              { timeout: 1_500 },
+            )
+            .then(
+              () => true,
+              () => false,
+            );
+          if (!selected) continue;
+          await details.waitFor({ timeout: 5_000 });
+          return true;
+        }
+        throw new Error(
+          "canvas click emitted no H1 selection for dashboard-2.html",
+        );
+      }))
+    ) {
+      return;
+    }
     const original = (await heading.textContent())?.trim() ?? "";
     await step("textEdit", async () => {
-      await page.keyboard.press("Enter");
+      const target = await settledBox(heading);
+      await page.mouse.dblclick(
+        target.x + target.width / 2,
+        target.y + target.height / 2,
+        { delay: 100 },
+      );
       await editorFrame("dashboard-2.html")
         .locator('[contenteditable="true"]')
         .first()
         .waitFor({ timeout: 10_000 });
-      await page.keyboard.press("ControlOrMeta+a");
+      const modifier = process.platform === "darwin" ? "Meta" : "Control";
+      await page.keyboard.press(`${modifier}+a`);
       await page.keyboard.type(`Budget ${iteration}`, { delay: 20 });
-      await page.keyboard.press("ControlOrMeta+Enter");
+      await page.keyboard.press(`${modifier}+Enter`);
       await page.waitForTimeout(1500);
       const edited = (await heading.textContent())?.trim();
-      await page.keyboard.press("ControlOrMeta+z");
+      await page.keyboard.press(`${modifier}+z`);
       await page.waitForTimeout(2000);
       return (
         edited === `Budget ${iteration}` &&
@@ -482,6 +731,8 @@ async function runSession() {
       );
     });
     await step("color", async () => {
+      const computedColor = (el: Element) => getComputedStyle(el).color;
+      const originalColor = await heading.evaluate(computedColor);
       const fill = page
         .locator("section")
         .filter({ has: page.getByRole("heading", { name: /^Fill$/i }) })
@@ -490,7 +741,15 @@ async function runSession() {
         .getByRole("button", { name: "Open color picker" })
         .first()
         .click();
+      // The picker opens in the notation its color was written in, and the
+      // board's Tailwind v4 palette is OKLCH, so Hex is a mode to choose.
+      const modeSelect = page.getByRole("combobox", { name: "Color model" });
+      await modeSelect.waitFor({ timeout: 10_000 });
       const hex = page.locator('[aria-label="Hex"]').first();
+      if (!(await hex.isVisible())) {
+        await modeSelect.click();
+        await page.getByRole("option", { name: "Hex", exact: true }).click();
+      }
       await hex.fill(iteration % 2 ? "2563EB" : "DC2626");
       await hex.press("Enter");
       const applied = (await hex.inputValue())
@@ -498,8 +757,13 @@ async function runSession() {
         .includes(iteration % 2 ? "2563EB" : "DC2626");
       await page.keyboard.press("Escape");
       await page.waitForTimeout(1500);
-      await page.keyboard.press("ControlOrMeta+z");
-      await page.waitForTimeout(1500);
+      // Choosing Hex rewrites an OKLCH color as a history step of its own, so
+      // undo until the heading is back to the color it started with.
+      for (let undo = 0; undo < 3; undo += 1) {
+        await page.keyboard.press("ControlOrMeta+z");
+        await page.waitForTimeout(1500);
+        if ((await heading.evaluate(computedColor)) === originalColor) break;
+      }
       return applied;
     });
     await page.keyboard.press("Escape");
@@ -519,12 +783,11 @@ async function runSession() {
       await page.waitForTimeout(1500);
       return duplicated && undone;
     });
-    const [x, y] = zoomPoints[iteration % zoomPoints.length]!;
     await step("zoomCycle", async () => {
       const startedAt = await now();
       let arrivedEverywhere = true;
       for (const zoom of [13, 31, 7, 145, 10]) {
-        arrivedEverywhere = (await zoomTo(zoom, x, y)) && arrivedEverywhere;
+        arrivedEverywhere = (await zoomTo(zoom)) && arrivedEverywhere;
       }
       zoomCycleBoots += await countSince("liveInserts", startedAt);
       zoomCycleRemounts += await countSince("previewRemounts", startedAt);
@@ -563,14 +826,15 @@ async function runSession() {
       return true;
     });
     await page.keyboard.press("Escape");
-    await zoomTo(8, 640, 360);
-    heapSeries.push(await heapAfterGcMB(cdp));
+    await step("finalZoom", () => zoomTo(8));
+    heapSeries.push(await readRendererMemory());
   }
 }
 
 try {
   await runSession();
 } catch (error) {
+  console.error("runtime budget session failed", error);
   failedSteps.push(`session (${String(error).split("\n")[0]?.slice(0, 160)})`);
 }
 
@@ -608,14 +872,24 @@ const refreshes = (
 metrics.visibleRefreshes = refreshes.length;
 metrics.editorBootsPerZoomCycle = zoomCycleBoots / budgets.iterations;
 metrics.previewRemountsPerZoomCycle = zoomCycleRemounts / budgets.iterations;
-metrics.heapEndMB = heapSeries[heapSeries.length - 1]!;
+const end = heapSeries[heapSeries.length - 1]!;
+metrics.editorHeapEndMB = end.editorHeapMB;
+metrics.totalHeapEndMB = end.totalHeapMB;
+metrics.editorDocumentsEnd = end.editorDocuments;
+metrics.totalDocumentsEnd = end.totalDocuments;
 // The first iteration fills caches; growth after it is what a long session keeps paying.
 const afterWarmUp = heapSeries.slice(2);
-metrics.heapGrowthPerIterationMB =
+const growthPerIteration = (heapMB: (read: RendererMemory) => number) =>
   afterWarmUp.length > 1
-    ? (afterWarmUp[afterWarmUp.length - 1]! - afterWarmUp[0]!) /
+    ? (heapMB(afterWarmUp[afterWarmUp.length - 1]!) - heapMB(afterWarmUp[0]!)) /
       (afterWarmUp.length - 1)
     : Number.NaN;
+metrics.editorHeapGrowthPerIterationMB = growthPerIteration(
+  (read) => read.editorHeapMB,
+);
+metrics.totalHeapGrowthPerIterationMB = growthPerIteration(
+  (read) => read.totalHeapMB,
+);
 for (const [name, worst] of Object.entries(worstFrameByStep)) {
   metrics[`${name}WorstFrameMs`] = worst;
 }
@@ -637,6 +911,8 @@ const gateRows = Object.entries(budgets.gates).map(([name, { max, why }]) => {
 });
 const overBudget = gateRows.filter((row) => row.over);
 const table = [
+  `Measured in ${measuredIn}.`,
+  "",
   "| Gate | Measured | Max | Result | Why |",
   "| --- | --- | --- | --- | --- |",
   ...gateRows.map(
@@ -663,7 +939,18 @@ if (values.out) {
   writeFileSync(
     values.out,
     JSON.stringify(
-      { designId, metrics, heapSeries, failedSteps, refreshes },
+      {
+        designId,
+        browser: {
+          channel: values.channel,
+          version: browserVersion,
+          frameProcesses,
+        },
+        metrics,
+        heapSeries,
+        failedSteps,
+        refreshes,
+      },
       null,
       2,
     ),

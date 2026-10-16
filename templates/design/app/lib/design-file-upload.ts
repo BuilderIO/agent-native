@@ -1,10 +1,16 @@
 import { parseUploadResponse, type ImportResult } from "@/lib/design-import";
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
 
+import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
+
 /** Server fallback and token-free image-hydration ceiling. Browser-local `.fig`
  * imports do not use this raw-file cap. */
 export const MAX_FIG_UPLOAD_BYTES = 50 * 1024 * 1024;
 export const MAX_FIG_UPLOAD_MB = MAX_FIG_UPLOAD_BYTES / 1024 / 1024;
+export const MAX_BROWSER_FIG_BYTES = BROWSER_FIG_LIMITS.fileBytes;
+export const MAX_BROWSER_FIG_MB = MAX_BROWSER_FIG_BYTES / 1024 / 1024;
+export const MAX_BROWSER_FIG_GB = MAX_BROWSER_FIG_MB / 1024;
+export const MAX_BROWSER_FIG_FRAMES = BROWSER_FIG_LIMITS.frames;
 
 const FIG_CHUNK_BYTES = 3 * 1024 * 1024;
 

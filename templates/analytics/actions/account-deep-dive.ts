@@ -366,7 +366,7 @@ async function loadGongEvidence(options: {
 
 export default defineAction({
   description:
-    "Build a bounded CRM/Gong account or deal evidence bundle from HubSpot and Gong. Use this first for named account, customer, deal, opportunity, renewal, risk, or deep-dive prompts. This is not a complete account-health result: for account health, follow it with verified product-usage queries for the resolved customer using the account-health skill.",
+    "Build a bounded CRM/Gong account or deal evidence bundle from HubSpot and Gong. Use it for the HubSpot CRM context of a named account, deal, or opportunity; ask run-gong-native-insight first for what was said in calls. This is not a complete account-health result: for account health, follow it with verified product-usage queries for the resolved customer using the account-health skill.",
   schema: z.object({
     query: z
       .string()

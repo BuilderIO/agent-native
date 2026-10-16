@@ -3,7 +3,7 @@ import {
   buildCodeLayerTree,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   runSelectionColorChange,
@@ -22,7 +22,10 @@ import {
   selectionColorTargets,
   selectionColorValues,
 } from "./edit-panel/document-colors";
-import { extractDocumentColorPalette } from "./EditPanel";
+import {
+  extractDocumentColorPalette,
+  withCapturedSelectionColorScopeIdentities,
+} from "./EditPanel";
 import type { ElementInfo } from "./types";
 
 function fakeElement(computedStyles: Record<string, string>): ElementInfo {
@@ -35,6 +38,57 @@ function fakeElement(computedStyles: Record<string, string>): ElementInfo {
     isFlexContainer: false,
   };
 }
+
+describe("withCapturedSelectionColorScopeIdentities", () => {
+  it("adds only scope identity to persisted-source upload metadata", () => {
+    const content = '<div style="color: #123456"></div>';
+    const scopes = [
+      {
+        fileId: "file-b",
+        content,
+        projection: buildCodeLayerProjection(content),
+        sourceId: "node-b",
+        selector: ".b",
+        wholeDocument: false,
+      },
+      {
+        fileId: "file-a",
+        content,
+        projection: buildCodeLayerProjection(content),
+        wholeDocument: true,
+      },
+    ];
+    const meta = {
+      phase: "commit" as const,
+      requirePersistedSourceAcceptance: true,
+    };
+
+    expect(withCapturedSelectionColorScopeIdentities(scopes, meta)).toEqual({
+      ...meta,
+      capturedSelectionColorScopeIdentities: [
+        { fileId: "file-a", wholeDocument: true },
+        {
+          fileId: "file-b",
+          sourceId: "node-b",
+          selector: ".b",
+          wholeDocument: false,
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(withCapturedSelectionColorScopeIdentities(scopes, meta)),
+    ).not.toContain(content);
+  });
+
+  it("preserves ordinary style metadata without adding scope identities", () => {
+    const meta = { phase: "commit" as const };
+
+    expect(withCapturedSelectionColorScopeIdentities([], meta)).toBe(meta);
+    expect(withCapturedSelectionColorScopeIdentities([], undefined)).toBe(
+      undefined,
+    );
+  });
+});
 
 describe("extractDocumentColorPalette", () => {
   it("collects hex colors from inline styles across multiple files", () => {
@@ -644,6 +698,35 @@ describe("selectionColorValues", () => {
     );
 
     expect(values).toEqual([{ property: "color", value: "Mixed" }]);
+  });
+
+  it("adds the colors a truncated subtree read found and warns on an unreadable one", () => {
+    const element = {
+      ...fakeElement({ backgroundColor: "#ffffff" }),
+      selector: '[data-agent-native-node-id="card"]',
+      styleSnapshotReadOnDemand: true,
+    };
+    expect(
+      selectionColorValues(element, [], () => ({
+        status: "truncated",
+        nodes: [{ "background-color": "#101828ff" }],
+      })).map((color) => color.value),
+    ).toEqual(["#ffffff", "#101828ff"]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(
+        selectionColorValues(element, [], () => ({ status: "failed" })).map(
+          (color) => color.value,
+        ),
+      ).toEqual(["#ffffff"]);
+      expect(warn).toHaveBeenCalledWith(
+        "Could not read the colors under the selection",
+        '[data-agent-native-node-id="card"]',
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("omits named computed colors without an authored token to replace", () => {

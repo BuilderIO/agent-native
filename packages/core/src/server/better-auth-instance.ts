@@ -12,11 +12,16 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { getCurrentAuthEndpointContext } from "@better-auth/core/context";
 import {
   betterAuth,
   type BetterAuthOptions,
   type BetterAuthPlugin,
 } from "better-auth";
+import {
+  createAuthMiddleware,
+  createEmailVerificationToken,
+} from "better-auth/api";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
@@ -48,9 +53,12 @@ import {
   neonPoolOptions,
   guardNeonPool,
   sharedDbPool,
+  resolveSharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
 } from "../db/client.js";
+import { ensureTable as ensureEmailLogTable } from "../email-catalog/log.js";
 import {
   CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
   CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
@@ -81,6 +89,7 @@ import {
   enforceSignupAdmission,
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -191,6 +200,10 @@ export {
   type AuthLoginMode,
 } from "./auth-login-mode.js";
 
+const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
+// Signup delivery holds its transaction, connection, and per-address lock.
+const VERIFICATION_EMAIL_TIMEOUT_MS = 10_000;
+
 async function flushSignupTracking(): Promise<void> {
   try {
     await Promise.race([
@@ -259,12 +272,16 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
+  const requestSessionId = normalizeAnalyticsSessionId(
+    requestHeaders.get("x-agent-native-session-id"),
+  );
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
     : undefined;
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
+  let sessionId: string | undefined;
   try {
     const browser =
       (context?.request?.url?.includes("newUserCallbackURL")
@@ -275,6 +292,8 @@ export async function emitSignupEventForCreatedUser(
       signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
     attribution = browser?.attribution;
     anonymousId = browser?.anonymousId;
+    sessionId =
+      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -283,9 +302,13 @@ export async function emitSignupEventForCreatedUser(
   // so an account created by another signed-in user (admin or API creation)
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
-  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
+  const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
+  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
+  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
+  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  if (user.id && eventAttribution) {
     try {
-      await persistUserFirstTouchAttribution(user.id, attribution);
+      await persistUserFirstTouchAttribution(user.id, eventAttribution);
     } catch (err) {
       // The signup itself already succeeded; the event below still carries
       // the attribution, so only the row copy is missing, and loudly so.
@@ -305,8 +328,9 @@ export async function emitSignupEventForCreatedUser(
     authUserId: user.id,
     email,
     name: user.name,
-    attribution,
-    anonymousId,
+    attribution: eventAttribution,
+    anonymousId: eventAnonymousId,
+    sessionId: eventSessionId,
   });
 }
 
@@ -333,6 +357,7 @@ export async function trackSignupEvent({
   name,
   attribution,
   anonymousId,
+  sessionId,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -351,6 +376,7 @@ export async function trackSignupEvent({
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
+  sessionId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -379,6 +405,7 @@ export async function trackSignupEvent({
       userId: email,
       authUserId,
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     },
   );
   await flushSignupTracking();
@@ -859,6 +886,7 @@ export interface BetterAuthConfig {
 
 let _auth: BetterAuthInstance | undefined;
 let _initPromise: Promise<BetterAuthInstance> | undefined;
+let _authInitGeneration = 0;
 let _neonAuthPool: any;
 
 const pgAuthSchema = {
@@ -1250,12 +1278,24 @@ export async function getBetterAuth(
   if (_auth) return _auth;
   if (_initPromise) return _initPromise;
 
-  _initPromise = createBetterAuthInstance(config).catch((error) => {
-    _initPromise = undefined;
-    throw error;
-  });
-  _auth = await _initPromise;
-  return _auth;
+  const generation = _authInitGeneration;
+  let initPromise: Promise<BetterAuthInstance>;
+  initPromise = createBetterAuthInstance(config)
+    .then((auth) => {
+      if (generation !== _authInitGeneration) {
+        throw new Error(
+          "Better Auth initialization was invalidated before it completed.",
+        );
+      }
+      _auth = auth;
+      return auth;
+    })
+    .catch((error) => {
+      if (_initPromise === initPromise) _initPromise = undefined;
+      throw error;
+    });
+  _initPromise = initPromise;
+  return initPromise;
 }
 
 export function getBetterAuthSync(): BetterAuthInstance | undefined {
@@ -1953,27 +1993,38 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 }
 
 export async function resetBetterAuth(): Promise<void> {
+  _authInitGeneration++;
   _auth = undefined;
   _initPromise = undefined;
   _neonAuthPool = undefined;
 }
 
 let _poolCloseHookRegistered = false;
+let _dbExecCloseHookRegistered = false;
+function resetAuthInstanceState(): void {
+  _authInitGeneration++;
+  _auth = undefined;
+  _initPromise = undefined;
+  _neonAuthPool = undefined;
+}
+
 function resetAuthOnPoolClose(driver?: string, url?: string): void {
   if (_poolCloseHookRegistered) return;
   _poolCloseHookRegistered = true;
-  onSharedDbPoolsClosed(() => {
-    _auth = undefined;
-    _initPromise = undefined;
-    _neonAuthPool = undefined;
-  });
+  onSharedDbPoolsClosed(resetAuthInstanceState);
   if (driver && url) {
-    onSharedDbPoolReplaced(driver, url, () => {
-      _auth = undefined;
-      _initPromise = undefined;
-      _neonAuthPool = undefined;
-    });
+    onSharedDbPoolReplaced(driver, url, resetAuthInstanceState);
   }
+}
+
+function resetAuthOnDbExecClose(): void {
+  if (_dbExecCloseHookRegistered) return;
+  _dbExecCloseHookRegistered = true;
+  // Nitro can close this worker's PGlite client before the process exits.
+  onDbClientsClosing(() => {
+    resetAuthInstanceState();
+    _dbExecCloseHookRegistered = false;
+  });
 }
 
 async function createBetterAuthInstance(
@@ -2199,6 +2250,38 @@ async function createBetterAuthInstance(
     },
   });
 
+  const sendVerificationEmail: NonNullable<
+    NonNullable<BetterAuthOptions["emailVerification"]>["sendVerificationEmail"]
+  > = async ({ user, url, token }) => {
+    const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
+    const emailChange = await verifiedEmailChangeFromToken(
+      token,
+      secret,
+      user.email,
+    );
+    if (emailChange)
+      await preflightEmailIdentityRekey(
+        emailChange.oldEmail,
+        emailChange.newEmail,
+      );
+    const renderedEmail = await renderTransactionalEmail(
+      emailChange
+        ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+        : CORE_VERIFY_SIGNUP_EMAIL_ID,
+      { email: user.email, verifyUrl: deliveredVerifyUrl },
+    );
+    await sendEmail({
+      to: user.email,
+      ...renderedEmail,
+      disableClickTracking: true,
+      templateId: emailChange
+        ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+        : CORE_VERIFY_SIGNUP_EMAIL_ID,
+      authCritical: true,
+      timeoutMs: VERIFICATION_EMAIL_TIMEOUT_MS,
+    });
+  };
+
   const auth = betterAuth({
     basePath,
     baseURL: appUrl,
@@ -2215,6 +2298,42 @@ async function createBetterAuthInstance(
       // Email verification is enabled only when a provider is ready. Without
       // one, hosted deployments keep password signup available.
       requireEmailVerification,
+      onExistingUserSignUp: requireEmailVerification
+        ? async ({ user }) => {
+            // Duplicate signup is unauthenticated, and direct auth.api calls
+            // such as the register route skip Better Auth's IP rate limit.
+            // The lock makes a concurrent signup for this address wait for
+            // this transaction, so it sees the sent row before checking.
+            const db = getDbExec();
+            await db.execute({
+              sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+              args: [`existing-account-verification:${user.email}`],
+            });
+            const { rows } = await db.execute({
+              sql: `SELECT 1 FROM email_log
+                WHERE template_id = ? AND recipient = ? AND status = 'sent' AND created_at > ?
+                LIMIT 1`,
+              args: [
+                CORE_VERIFY_SIGNUP_EMAIL_ID,
+                user.email,
+                Date.now() - EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS,
+              ],
+            });
+            if (rows.length > 0) return;
+            const endpoint = getCurrentAuthEndpointContext();
+            const callbackURL =
+              typeof endpoint.body?.callbackURL === "string" &&
+              endpoint.body.callbackURL
+                ? endpoint.body.callbackURL
+                : "/";
+            const token = await createEmailVerificationToken(
+              secret,
+              user.email,
+            );
+            const url = `${endpoint.context.baseURL}/verify-email?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
+            await sendVerificationEmail({ user, url, token });
+          }
+        : undefined,
       sendResetPassword: async ({ user, token }) => {
         const appBasePath = (
           process.env.VITE_APP_BASE_PATH ||
@@ -2242,34 +2361,7 @@ async function createBetterAuthInstance(
     emailVerification: {
       sendOnSignUp: requireEmailVerification,
       autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url, token }) => {
-        const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
-        const emailChange = await verifiedEmailChangeFromToken(
-          token,
-          secret,
-          user.email,
-        );
-        if (emailChange)
-          await preflightEmailIdentityRekey(
-            emailChange.oldEmail,
-            emailChange.newEmail,
-          );
-        const renderedEmail = await renderTransactionalEmail(
-          emailChange
-            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
-            : CORE_VERIFY_SIGNUP_EMAIL_ID,
-          { email: user.email, verifyUrl: deliveredVerifyUrl },
-        );
-        await sendEmail({
-          to: user.email,
-          ...renderedEmail,
-          disableClickTracking: true,
-          templateId: emailChange
-            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
-            : CORE_VERIFY_SIGNUP_EMAIL_ID,
-          authCritical: true,
-        });
-      },
+      sendVerificationEmail,
       afterEmailVerification: async (user, request) => {
         if (!request) return;
         const token = new URL(request.url).searchParams.get("token");
@@ -2303,10 +2395,7 @@ async function createBetterAuthInstance(
         updateEmailWithoutVerification: false,
         sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
           await preflightEmailIdentityRekey(user.email, newEmail);
-          const confirmationBasePath = getConfiguredAppBasePath();
-          const confirmationUrl = confirmationBasePath
-            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
-            : url;
+          const confirmationUrl = emailAuthLinkLandingUrl(url) ?? url;
           const renderedEmail = await renderTransactionalEmail(
             CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
             { email: user.email, newEmail, confirmationUrl },
@@ -2575,6 +2664,54 @@ async function createBetterAuthInstance(
           ]),
       ...enterprisePlugins,
       ...configuredPlugins,
+      {
+        id: "verification-email-delivery",
+        hooks: {
+          before: [
+            {
+              matcher: (ctx) =>
+                ctx.path === "/sign-up/email" && requireEmailVerification,
+              handler: createAuthMiddleware(async () => {
+                // A failed delivery rolls signup back; lazy log DDL must not
+                // leave its readiness cache pointing at a rolled-back table.
+                await ensureEmailLogTable();
+              }),
+            },
+          ],
+        },
+        init(ctx) {
+          const emailVerification = ctx.options.emailVerification;
+          if (!emailVerification?.sendVerificationEmail) return;
+          const sendVerificationEmail = emailVerification.sendVerificationEmail;
+          const deliveries = new WeakSet<Promise<unknown>>();
+          emailVerification.sendVerificationEmail = (...args) => {
+            const delivery = sendVerificationEmail(...args);
+            if (delivery instanceof Promise) deliveries.add(delivery);
+            return delivery;
+          };
+          const passwordOptions = ctx.options.emailAndPassword;
+          const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
+          if (passwordOptions && onExistingUserSignUp) {
+            passwordOptions.onExistingUserSignUp = (...args) => {
+              const delivery = onExistingUserSignUp(...args);
+              deliveries.add(delivery);
+              return delivery;
+            };
+          }
+          const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
+          return {
+            context: {
+              runInBackgroundOrAwait(task) {
+                // Better Auth swallows even awaited task errors; verification
+                // must fail the request before the UI can claim mail was sent.
+                if (task instanceof Promise && deliveries.has(task))
+                  return task;
+                return runInBackgroundOrAwait(task);
+              },
+            },
+          };
+        },
+      },
     ],
   });
 
@@ -2595,6 +2732,7 @@ export async function buildDatabaseConfig(): Promise<
   } = await import("../db/create-get-db.js");
 
   if (isPgliteUrl(url)) {
+    resetAuthOnDbExecClose();
     const { drizzle } = await loadPgliteDrizzle();
     const client = await getPgliteClient(url);
     const db = drizzle({
@@ -2617,13 +2755,15 @@ export async function buildDatabaseConfig(): Promise<
       url,
       () => new Pool({ connectionString: url, ...neonPoolOptions() }),
     );
+    const getActivePool = () => resolveSharedDbPool("neon", url, _neonAuthPool);
     guardNeonPool(_neonAuthPool, url, "db/neon-auth");
     const { drizzle } = await import("drizzle-orm/neon-serverless");
     const db = scopeDbToPoolTransactions(
-      drizzle(buildResilientNeonPool(_neonAuthPool), {
+      drizzle(buildResilientNeonPool(_neonAuthPool, getActivePool), {
         schema: pgAuthSchema,
       }),
       _neonAuthPool,
+      getActivePool,
     );
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
@@ -2638,12 +2778,14 @@ export async function buildDatabaseConfig(): Promise<
   const sql = sharedDbPool("postgres-js", url, () =>
     postgres(url, pgPoolOptions(url)),
   );
+  const getActivePool = () => resolveSharedDbPool("postgres-js", url, sql);
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const db = scopeDbToPoolTransactions(
-    drizzle(buildResilientPostgresJsClient(sql), {
+    drizzle(buildResilientPostgresJsClient(sql, getActivePool), {
       schema: pgAuthSchema,
     }),
     sql,
+    getActivePool,
   );
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {

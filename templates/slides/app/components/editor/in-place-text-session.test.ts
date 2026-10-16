@@ -479,7 +479,117 @@ describe("in-place text session: entering and ending", () => {
     );
   });
 
-  it("reserves the initial size of an absolutely positioned text box", () => {
+  function mockBox(el: HTMLElement) {
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+  }
+
+  it("never reserves a fit-mode freeform box, before or after end()", () => {
+    const el = mount(
+      '<div id="t" class="fmd-text-box" data-slide-object-id="a" style="position: absolute; left: 10px; top: 20px; width: 240px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    for (let line = 0; line < 3; line += 1) {
+      type(el, " wrapped line");
+      key(el, { key: "Enter", shiftKey: true });
+    }
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    expect(beforeInput(el, "historyUndo").defaultPrevented).toBe(true);
+    expect(beforeInput(el, "historyRedo").defaultPrevented).toBe(true);
+    expect(el.style.getPropertyValue("contain")).toBe("");
+
+    session.end();
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    expect(el.getAttribute("style")).not.toContain("contain");
+  });
+
+  it("reserves an absolute box that is anchored by an inline bottom", () => {
+    const el = mount(
+      '<div id="t" style="position: absolute; left: 10px; bottom: 20px; width: 240px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+  });
+
+  it("never reserves an absolute box whose inline height is auto", () => {
+    const el = mount(
+      '<div id="t" style="position: absolute; left: 10px; top: 20px; width: 240px; height: auto">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+  });
+
+  it("never reserves a box a stylesheet class makes absolute", () => {
+    const style = document.createElement("style");
+    style.textContent = ".caption { position: absolute; }";
+    document.head.append(style);
+    const el = mount(
+      '<div id="t" class="caption" style="left: 10px; top: 20px; width: 240px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    style.remove();
+  });
+
+  it("strips legacy size containment from a freeform text box when a session starts", () => {
+    const el = mount(
+      '<div id="t" class="fmd-text-box" data-slide-object-id="a" style="position: absolute; top: 20px; width: 240px; contain: size; contain-intrinsic-size: 240px 48px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    expect(el.style.top).toBe("20px");
+  });
+
+  it("keeps an author's other contain tokens when stripping the size token", () => {
+    const el = mount(
+      '<div id="t" data-slide-object-id="a" style="position: absolute; top: 20px; width: 240px; contain: layout size paint; contain-intrinsic-size: 240px 48px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    session.end();
+
+    expect(el.style.getPropertyValue("contain")).toBe("layout paint");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+  });
+
+  it("leaves containment on a non-freeform absolute box alone at start", () => {
+    const el = mount(
+      '<div id="t" style="position: absolute; top: 20px; width: 240px; contain: size; contain-intrinsic-size: 240px 48px">Alpha</div>',
+    );
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+  });
+
+  it("reserves the initial size of an absolutely positioned text box with an inline height", () => {
     const el = mount(
       '<div id="t" style="position: absolute; left: 10px; top: 20px; width: 240px; height: 48px">Alpha</div>',
     );
@@ -1003,6 +1113,37 @@ describe("in-place text session: the caret at the click point", () => {
   );
 
   it.each([
+    ["Home", "Linux x86_64", false, 0],
+    ["End", "Linux x86_64", false, 16],
+    ["ArrowLeft", "MacIntel", true, 0],
+    ["ArrowRight", "MacIntel", true, 16],
+  ] as const)(
+    "%s keeps the caret in a real list item on %s",
+    (keyName, platform, metaKey, expectedOffset) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+      const el = mount(
+        '<div id="t"><ul><li>Alpha beta gamma<ul><li>Nested line</li></ul></li></ul></div>',
+      );
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, "Alpha beta gamma");
+      caret(text, 8);
+
+      const event = key(el, { key: keyName, metaKey });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect([
+        window.getSelection()!.anchorNode,
+        window.getSelection()!.anchorOffset,
+      ]).toEqual([text, expectedOffset]);
+      expect(
+        el
+          .querySelector(":scope > ul > li")
+          ?.contains(window.getSelection()!.anchorNode),
+      ).toBe(true);
+    },
+  );
+
+  it.each([
     ["Home", false, 6],
     ["End", false, 10],
     ["ArrowLeft", true, 6],
@@ -1332,6 +1473,51 @@ describe("in-place text session: Enter", () => {
     session.end();
     expect(session.element.querySelector("ul")?.textContent).toBe("OneTwo");
     expect(session.element.querySelector("p")?.textContent).toBe("Plain line");
+  });
+
+  it("splits a real list item inside a flex text box after a toolbar command", () => {
+    const el = mount(
+      '<div id="t" style="display:flex"><div><p></p></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.querySelector("p")!, 0);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+    type(session.element, "First");
+    const firstItem = el.querySelector("ul > li");
+    expect(firstItem?.textContent).toContain("First");
+    expect(firstItem?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+
+    expect(
+      beforeInput(session.element, "insertParagraph").defaultPrevented,
+    ).toBe(true);
+
+    const items = Array.from(el.querySelectorAll(":scope ul > li"));
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.textContent)).toEqual(["First", ZWSP]);
+    expect(items[1]?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+    type(session.element, "Second");
+    expect(items.map((item) => item.textContent)).toEqual(["First", "Second"]);
+  });
+
+  it("keeps an empty materialized root line as the list caret target", () => {
+    const el = mount('<div id="t"><span></span><p>After</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(el.querySelector("span")!, 0);
+
+    expect(session.commands.applyAuthoringCommand("bulletList")).toBe(true);
+    type(session.element, "First");
+
+    const item = el.querySelector("ul > li");
+    expect(item?.textContent).toContain("First");
+    expect(item?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+    expect(el.querySelector("p")?.textContent).toBe("After");
   });
 
   it("keeps inline styling when the empty list item exits into a paragraph", () => {
@@ -1829,6 +2015,171 @@ describe("in-place text session: deleting", () => {
     );
   });
 
+  it("merges paragraphs on Delete while keeping receiver style and inline marks", () => {
+    const el = mount(
+      '<div id="t"><p style="color: blue; font-size: 30px"><em>Alpha</em></p><p style="color: red"><a href="https://example.com/merge"><strong>Beta</strong></a></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Alpha"), 5);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe(
+      '<p style="color: blue; font-size: 30px"><em>Alpha</em><a href="https://example.com/merge"><strong>Beta</strong></a></p>',
+    );
+    expect(el.children).toHaveLength(1);
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "Alpha"));
+    expect(window.getSelection()?.anchorOffset).toBe(5);
+    session.end();
+    expect(el.innerHTML).toBe(
+      '<p style="color: blue; font-size: 30px"><em>Alpha</em><a href="https://example.com/merge"><strong>Beta</strong></a></p>',
+    );
+  });
+
+  it("keeps the caret after a trailing soft break when merging on Delete", () => {
+    const el = mount('<div id="t"><p>Alpha<br></p><p>Beta</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstElementChild!, el.firstElementChild!.childNodes.length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+    type(el, "x");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "xBeta"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+    session.end();
+    expect(el.innerHTML).toBe("<p>Alpha<br>xBeta</p>");
+  });
+
+  it("keeps the caret after a trailing soft break when Delete joins an empty paragraph", () => {
+    const el = mount('<div id="t"><p>Alpha<br></p><p></p></div>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstElementChild!, el.firstElementChild!.childNodes.length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+    type(el, "x");
+
+    expect(el.innerHTML).toBe("<p>Alpha<br>x</p>");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "x"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+  });
+
+  it.each([
+    [
+      "a styled paragraph row",
+      '<p data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span><span>After</span></p>',
+    ],
+    [
+      "a styled div row",
+      '<div data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span><span>After</span></div>',
+    ],
+  ])("preserves %s when Delete joins the preceding paragraph", (_name, row) => {
+    const el = mount(`<div id="t"><p>Before</p>${row}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Before"), "Before".length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+
+    expect(el.children).toHaveLength(1);
+    const mergedRow = el.firstElementChild as HTMLElement;
+    expect(mergedRow.hasAttribute("data-slide-plain-row")).toBe(true);
+    expect(mergedRow.style.cssText).toBe("display: flex; gap: 12px;");
+    expect(mergedRow.firstElementChild?.textContent).toBe("●");
+    expect(mergedRow.lastElementChild?.textContent).toBe("BeforeAfter");
+    expect(window.getSelection()?.anchorNode?.textContent).toBe("Before");
+    expect(el.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
+    expect(window.getSelection()?.anchorOffset).toBe("Before".length);
+  });
+
+  it("inserts before bare row text and keeps the caret at the join", () => {
+    const el = mount(
+      '<div id="t"><p>Before</p><p data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span>old<span>after</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Before"), "Before".length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+
+    const row = el.firstElementChild as HTMLElement;
+    expect(row.getAttribute("style")).toBe("display:flex;gap:12px");
+    expect(row.textContent).toBe("●Beforeoldafter");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(row, "Before"));
+    expect(window.getSelection()?.anchorOffset).toBe("Before".length);
+
+    type(el, "x");
+    expect(row.textContent).toBe("●Beforexoldafter");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(row, "Beforex"));
+    expect(window.getSelection()?.anchorOffset).toBe("Beforex".length);
+  });
+
+  it("places the caret after the marker when an empty paragraph joins a row", () => {
+    const el = mount(
+      '<div id="t"><p></p><p data-slide-plain-row="true" style="display:flex;gap:12px"><span>●</span><span>After</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.firstElementChild!, 0);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+
+    const row = el.firstElementChild as HTMLElement;
+    const content = textOf(row, "After");
+    expect(row.getAttribute("style")).toBe("display:flex;gap:12px");
+    expect(row.firstElementChild?.textContent).toBe("●");
+    expect(window.getSelection()?.anchorNode).toBe(content);
+    expect(window.getSelection()?.anchorOffset).toBe(0);
+
+    type(el, "x");
+    expect(row.textContent).toBe("●xAfter");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(row, "xAfter"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+  });
+
+  it("keeps the caret after a trailing soft break when merging on Backspace", () => {
+    const el = mount('<div id="t"><p>Alpha<br></p><p>Beta</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Beta"), 0);
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    type(el, "x");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "xBeta"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+    session.end();
+
+    expect(el.innerHTML).toBe("<p>Alpha<br>xBeta</p>");
+  });
+
+  it("leaves trailing paragraph whitespace to native Delete", () => {
+    const el = mount('<div id="t"><p>Alpha </p><p>Beta</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Alpha "), 5);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(
+      false,
+    );
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0].textContent).toBe("Alpha ");
+    expect(el.children[1].textContent).toBe("Beta");
+  });
+
+  it("removes an empty placeholder paragraph without deleting prior text", () => {
+    for (const receiver of [`merge31`, `merge31${ZWSP}`]) {
+      const el = mount(`<div id="t"><p>${receiver}</p><p>${ZWSP}</p></div>`);
+      session = startInPlaceTextSession(el);
+      caret(el.lastElementChild!, 0);
+
+      expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+        true,
+      );
+      expect(el.textContent?.replaceAll(ZWSP, "")).toBe("merge31");
+      expect(el.children).toHaveLength(1);
+      expect(window.getSelection()?.anchorNode).toBe(textOf(el, "merge31"));
+      expect(window.getSelection()?.anchorOffset).toBe(
+        textOf(el, "merge31").length,
+      );
+      session.end();
+      session = null;
+    }
+  });
+
   it("removes a divider before merging the paragraph that follows it", () => {
     const el = mount('<div id="t"><p>Before</p><hr><p>After</p></div>');
     session = startInPlaceTextSession(el);
@@ -1866,6 +2217,77 @@ describe("in-place text session: deleting", () => {
       session = null;
     }
   });
+
+  it.each([
+    ["h2", "<h2>Heading</h2>", "Heading"],
+    ["blockquote", "<blockquote><p>Quoted</p></blockquote>", "Quoted"],
+  ])(
+    "demotes a %s at the caret on Backspace when the browser omits beforeinput",
+    (tag, content, text) => {
+      const el = mount(`<div id="t">${content}</div>`);
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, text), 0);
+
+      const event = key(el, { key: "Backspace" });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(el.querySelector(tag)).toBeNull();
+      expect(el.textContent).toBe(text);
+    },
+  );
+
+  it.each([
+    ["h2", "<h2> Heading</h2>", " Heading"],
+    ["blockquote", "<blockquote><p> Quoted</p></blockquote>", " Quoted"],
+  ])(
+    "keeps native Backspace for leading whitespace in a %s",
+    (tag, content, text) => {
+      const el = mount(`<div id="t">${content}</div>`);
+      session = startInPlaceTextSession(el);
+      const leading = textOf(el, text);
+      caret(leading, 1);
+
+      const keydown = key(el, { key: "Backspace" });
+      const input = beforeInput(el, "deleteContentBackward");
+
+      expect(keydown.defaultPrevented).toBe(false);
+      expect(input.defaultPrevented).toBe(false);
+      expect(el.querySelector(tag)).not.toBeNull();
+      expect(el.textContent).toBe(text);
+    },
+  );
+
+  it.each([
+    ["h2", "<h2> <strong>Heading</strong></h2>", "Heading"],
+    [
+      "blockquote",
+      "<blockquote><p> <strong>Quoted</strong></p></blockquote>",
+      "Quoted",
+    ],
+  ])(
+    "deletes whitespace in a previous text node before demoting a %s",
+    (tag, content, text) => {
+      const el = mount(`<div id="t">${content}</div>`);
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, text), 0);
+      const leadingSpace = textNodes(el).find((node) => node.data === " ")!;
+      const token = textOf(el, text);
+      const selection = window.getSelection()!;
+
+      const keydown = key(el, { key: "Backspace" });
+      const modify = vi.spyOn(selection, "modify").mockImplementation(() => {
+        select(leadingSpace, 0, token, 0);
+      });
+      const input = beforeInput(el, "deleteContentBackward");
+
+      expect(keydown.defaultPrevented).toBe(false);
+      expect(input.defaultPrevented).toBe(true);
+      expect(modify).toHaveBeenCalledWith("extend", "backward", "character");
+      expect(el.querySelector(tag)).not.toBeNull();
+      expect(el.textContent?.replaceAll(ZWSP, "")).toBe(text);
+      expect(el.querySelector("strong")?.textContent).toBe(text);
+    },
+  );
 
   it("makes a paragraph after a heading when Enter is at its end", () => {
     const el = mount('<div id="t"><h2>Heading</h2></div>');
@@ -1931,24 +2353,28 @@ describe("in-place text session: deleting", () => {
     expect(remainingList.style.paddingLeft).toBe("1.25em");
   });
 
-  it("lets Backspace fall through at an empty sole top-level list item", () => {
-    const el = mount('<ul id="t"><li>\u200b</li></ul>');
-    session = startInPlaceTextSession(el);
-    const item = el.querySelector("li")!;
-    const text = item.firstChild as Text;
-    caret(text, text.length);
-    const before = session.element.innerHTML;
-    const modify = vi
-      .spyOn(window.getSelection()!, "modify")
-      .mockImplementation(() => {});
+  it.each(["ul", "ol"] as const)(
+    "turns an empty sole top-level %s item into a paragraph on Backspace",
+    (listTag) => {
+      const el = mount(`<${listTag} id="t"><li>\u200b</li></${listTag}>`);
+      session = startInPlaceTextSession(el);
+      const item = el.querySelector("li")!;
+      const text = item.firstChild as Text;
+      caret(text, text.length);
 
-    beforeInput(session.element, "deleteContentBackward");
+      expect(
+        beforeInput(session.element, "deleteContentBackward").defaultPrevented,
+      ).toBe(true);
 
-    expect(modify).toHaveBeenCalledWith("extend", "backward", "character");
-    expect(session.element.innerHTML).toBe(before);
-    expect(session.changed).toBe(false);
-    expect(session.undo()).toBe(false);
-  });
+      expect(session.element.tagName).toBe("DIV");
+      expect(session.element.querySelector("ul, ol, li")).toBeNull();
+      expect(session.element.querySelectorAll("p")).toHaveLength(1);
+      expect(session.element.firstElementChild?.textContent).toBe(ZWSP);
+      expect(session.changed).toBe(true);
+      expect(session.undo()).toBe(true);
+      expect(session.element.tagName).toBe(listTag.toUpperCase());
+    },
+  );
 
   it("preserves the ordinal after lifting the first ordered item", () => {
     const liftFirst = (el: HTMLElement) => {
@@ -2249,6 +2675,7 @@ describe("in-place text session: undo", () => {
     let undone = 0;
     while (session.undo()) undone++;
     expect(undone).toBe(IN_PLACE_TEXT_UNDO_LIMIT);
+    expect(session.historyStats().countEvictions).toBe(5);
   });
 
   it("retains enough undo steps for a 500-operation authoring session", () => {
@@ -2257,13 +2684,120 @@ describe("in-place text session: undo", () => {
     caret(el.firstChild!, 1);
     const original = el.innerHTML;
 
-    for (let i = 0; i < 2000; i++)
+    for (let i = 0; i < 3000; i++)
       session.commands.align(i % 2 === 0 ? "left" : "right");
 
     let undone = 0;
     while (session.undo()) undone++;
-    expect(undone).toBe(2000);
+    expect(undone).toBe(3000);
     expect(el.innerHTML).toBe(original);
+    expect(session.historyStats().byteEvictions).toBe(0);
+  });
+
+  it("stores differences instead of repeating large Latin-1 snapshots", () => {
+    const operationCount = 500;
+    const originalText = "x".repeat(380_000);
+    const el = mount(`<p id="t">${originalText}</p>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, originalText.slice(0, 16)), 0);
+    const originalHtml = el.innerHTML;
+    const aligns = ["left", "right"] as const;
+
+    for (let i = 0; i < operationCount; i++) {
+      session.commands.align(aligns[i % 2]);
+    }
+
+    const history = session.historyStats();
+    expect(history.peakBytes).toBeLessThan(1024 * 1024);
+    expect(history.initialStateEvicted).toBe(false);
+    expect(history.byteEvictions).toBe(0);
+
+    let undone = 0;
+    while (session.undo()) undone++;
+    expect(undone).toBe(operationCount);
+    expect(el.innerHTML).toBe(originalHtml);
+  });
+
+  it("stores differences instead of repeating two-byte snapshots", () => {
+    const operationCount = 500;
+    const originalText = "x".repeat(380_000) + ZWSP;
+    const el = mount(`<p id="t">${originalText}</p>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, originalText.slice(0, 16)), 0);
+    const originalHtml = el.innerHTML;
+    const aligns = ["left", "right"] as const;
+
+    for (let i = 0; i < operationCount; i++) {
+      session.commands.align(aligns[i % 2]);
+    }
+
+    const history = session.historyStats();
+    expect(history.peakBytes).toBeLessThan(1024 * 1024);
+    expect(history.peakBytes).toBeLessThan(IN_PLACE_TEXT_UNDO_BYTE_LIMIT);
+    expect(history.retainedBytes).toBeLessThanOrEqual(
+      IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
+    );
+    expect(history.initialStateEvicted).toBe(false);
+    expect(history.byteEvictions).toBe(0);
+
+    let undone = 0;
+    while (session.undo()) undone++;
+    expect(undone).toBe(operationCount);
+    expect(el.innerHTML).toBe(originalHtml);
+  });
+
+  it("restores 500 one-character edits to a large text block through undo and redo", () => {
+    const operationCount = 500;
+    const originalText = "x".repeat(380_000);
+    const el = mount(`<p id="t">${originalText}</p>`);
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, 16);
+    const originalHtml = el.innerHTML;
+    let offset = 190_000;
+
+    for (let i = 0; i < operationCount; i++) {
+      expect(
+        session.apply(() => {
+          text.insertData(offset, "y");
+          offset += 1;
+        }),
+      ).toBe(true);
+    }
+
+    const finalHtml = el.innerHTML;
+    expect(session.historyStats().peakBytes).toBeLessThan(2 * 1024 * 1024);
+    expect(session.historyStats().initialStateEvicted).toBe(false);
+    expect(session.historyStats().byteEvictions).toBe(0);
+
+    let undone = 0;
+    while (session.undo()) undone++;
+    expect(undone).toBe(operationCount);
+    expect(el.innerHTML).toBe(originalHtml);
+
+    let redone = 0;
+    while (session.redo()) redone++;
+    expect(redone).toBe(operationCount);
+    expect(el.innerHTML).toBe(finalHtml);
+  }, 90_000);
+
+  it("keeps history intact when its expected base was changed externally", () => {
+    const initialText = `${"a".repeat(256)}bc`;
+    const el = mount(`<p id="t">${initialText}</p>`);
+    const activeSession = startInPlaceTextSession(el);
+    session = activeSession;
+    const text = el.firstChild as Text;
+    caret(text, 256);
+    activeSession.apply(() => text.insertData(256, "x"));
+
+    text.replaceData(0, 1, "z");
+    const changedHtml = el.innerHTML;
+
+    expect(() => activeSession.undo()).toThrow(
+      "undo history content no longer matches its snapshot",
+    );
+    expect(el.innerHTML).toBe(changedHtml);
+    expect(activeSession.historyStats().undoDepth).toBe(1);
   });
 
   it("keeps redo available after a no-op Tab command", () => {
@@ -2280,16 +2814,24 @@ describe("in-place text session: undo", () => {
     expect(textOf(el, "OneX").data).toBe("OneX");
   });
 
-  it("keeps large snapshots within the serialized byte budget", () => {
-    const large = "x".repeat(Math.floor(IN_PLACE_TEXT_UNDO_BYTE_LIMIT * 0.6));
+  it("does not retain repeated copies of unchanged oversized HTML", () => {
+    const large = "x".repeat(Math.floor(IN_PLACE_TEXT_UNDO_BYTE_LIMIT * 0.55));
     const el = mount(`<p id="t">${large}</p>`);
     session = startInPlaceTextSession(el);
     const aligns = ["left", "right"] as const;
     session.commands.align("center");
     session.commands.align(aligns[0]);
+    expect(session.historyStats().peakBytes).toBeLessThan(1024 * 1024);
+    expect(session.historyStats().byteEvictions).toBe(0);
+    expect(session.historyStats().initialStateEvicted).toBe(false);
+    expect(session.undo()).toBe(true);
     expect(session.undo()).toBe(true);
     expect(session.undo()).toBe(false);
     expect(el.textContent).toBe(large);
+    expect(session.historyStats().retainedBytes).toBeLessThanOrEqual(
+      IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
+    );
+    expect(session.historyStats().initialStateEvicted).toBe(false);
   });
 });
 
@@ -2760,6 +3302,49 @@ describe("in-place text session: commands", () => {
     );
   });
 
+  it("keeps shared underline on nested sibling text when typing without it", () => {
+    const el = mount(
+      '<div id="t" style="text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: red; text-decoration-thickness: 2px; text-underline-offset: 5px"><p><strong>before</strong></p><ul><li><p><strong>nested alpha</strong></p><ul><li><em>target</em></li><li>nested beta</li></ul></li></ul><p>after</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const underlineAppearance = (value: string) => {
+      const text = textOf(el, value);
+      for (
+        let ancestor = text.parentElement;
+        ancestor && el.contains(ancestor);
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (style.textDecorationLine.includes("underline")) {
+          return [
+            "text-decoration-color",
+            "text-decoration-style",
+            "text-decoration-thickness",
+            "text-underline-offset",
+          ].map((property) => style.getPropertyValue(property));
+        }
+      }
+      return null;
+    };
+    const expectedUnderlineAppearance = underlineAppearance("before");
+    const target = textOf(el, "target");
+    caret(target, 3);
+
+    expect(session.commands.underline()).toBe(true);
+    type(el, "x");
+
+    expect(el.textContent?.replaceAll(ZWSP, "")).toContain("tarxget");
+    expect(underlineAppearance("before")).toEqual(expectedUnderlineAppearance);
+    expect(underlineAppearance("nested alpha")).toEqual(
+      expectedUnderlineAppearance,
+    );
+    expect(underlineAppearance("nested beta")).toEqual(
+      expectedUnderlineAppearance,
+    );
+    expect(underlineAppearance("after")).toEqual(expectedUnderlineAppearance);
+    expect(underlineAppearance("x")).toBeNull();
+  });
+
   it("keeps a collapsed caret attached while creating a code run", () => {
     const el = mount('<p id="t">Hello</p>');
     session = startInPlaceTextSession(el);
@@ -3027,13 +3612,13 @@ describe("in-place text session: commands", () => {
     expect(window.getSelection()!.toString()).toBe("One two");
   });
 
-  it("selects the current block before the whole edit for Mod-A", () => {
+  it("selects every block on the first Mod-A and keeps it on a second", () => {
     const el = mount('<div id="t"><p>One</p><p>Two</p></div>');
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Two"), 1);
 
     key(el, { key: "a", metaKey: true });
-    expect(window.getSelection()?.toString()).toBe("Two");
+    expect(window.getSelection()?.toString()).toBe("OneTwo");
     key(el, { key: "a", metaKey: true });
     expect(window.getSelection()?.toString()).toBe("OneTwo");
   });
@@ -3123,6 +3708,205 @@ describe("in-place text session: commands", () => {
     expect(el.children[2]?.textContent).not.toContain("---");
   });
 
+  it("converts a divider when inserted text has no input data", () => {
+    const el = mount('<p id="t"><span style="color: red">---</span></p>');
+    session = startInPlaceTextSession(el);
+    const dashes = textOf(el, "---");
+    const before = beforeInput(el, "insertText", { data: null });
+    expect(before.defaultPrevented).toBe(false);
+    dashes.data += " ";
+    caret(dashes, dashes.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertText",
+        data: null,
+        bubbles: true,
+      }),
+    );
+
+    expect(session.element.querySelectorAll(":scope > hr")).toHaveLength(1);
+  });
+
+  it("converts a divider after a replacement inserts a non-breaking space", () => {
+    const el = mount('<p id="t"><span style="color: red">---</span></p>');
+    session = startInPlaceTextSession(el);
+    const dashes = textOf(el, "---");
+    dashes.data += "\u00a0";
+    caret(dashes, dashes.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertReplacementText",
+        data: "\u00a0",
+        bubbles: true,
+      }),
+    );
+
+    expect(session.element.querySelectorAll(":scope > hr")).toHaveLength(1);
+  });
+
+  it("converts a divider after native input inserts a non-breaking space", () => {
+    const el = mount('<p id="t"><span style="color: red">---</span></p>');
+    session = startInPlaceTextSession(el);
+    const dashes = textOf(el, "---");
+    dashes.data += "\u00a0";
+    caret(dashes, dashes.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertText",
+        data: "\u00a0",
+        bubbles: true,
+      }),
+    );
+
+    expect(session.element.querySelectorAll(":scope > hr")).toHaveLength(1);
+  });
+
+  it.each(["insertText", "insertReplacementText"] as const)(
+    "keeps native %s when beforeinput has no text payload",
+    (inputType) => {
+      const original =
+        '<p id="t"><span style="color: red">replace me</span></p>';
+      const el = mount(original);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, "replace me");
+      caret(text, text.length);
+
+      const before = beforeInput(el, inputType, { data: null });
+      expect(before.defaultPrevented).toBe(false);
+
+      text.insertData(text.length, "!");
+      caret(text, text.length);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType,
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      expect(session.element.innerHTML).toBe(
+        '<span style="color: red">replace me!</span>',
+      );
+      expect(session.undo()).toBe(true);
+      expect(session.element.innerHTML).toBe(
+        '<span style="color: red">replace me</span>',
+      );
+      session.end();
+      expect(session.element.outerHTML).toBe(original);
+    },
+  );
+
+  it.each(["- ", "--- "])(
+    "does not convert existing %j after an empty replacement",
+    (prefix) => {
+      const el = mount(`<p id="t">${prefix}</p>`);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+
+      const before = beforeInput(el, "insertReplacementText", { data: null });
+      expect(before.defaultPrevented).toBe(false);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType: "insertReplacementText",
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      expect(session.element.tagName).toBe("P");
+      expect(session.element.querySelector(":scope > hr")).toBeNull();
+      expect(session.element.textContent).toBe(prefix);
+    },
+  );
+
+  it.each(["- ", "--- "])(
+    "does not convert existing %j when a null-data replacement target starts at line start",
+    (prefix) => {
+      const el = mount(`<p id="t">${prefix}</p>`);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+      const target = document.createRange();
+      target.setStart(text, 0);
+      target.collapse(true);
+      const before = new InputEvent("beforeinput", {
+        inputType: "insertReplacementText",
+        data: null,
+        bubbles: true,
+        cancelable: false,
+      });
+      Object.defineProperty(before, "getTargetRanges", {
+        value: () => [target],
+      });
+      el.dispatchEvent(before);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType: "insertReplacementText",
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      expect(session.element.tagName).toBe("P");
+      expect(session.element.querySelector(":scope > hr")).toBeNull();
+      expect(session.element.textContent).toBe(prefix);
+    },
+  );
+
+  it.each([
+    ["insertText", "-", "bullet"],
+    ["insertReplacementText", "---", "divider"],
+  ] as const)(
+    "applies a null-data %s shortcut only after its trigger is inserted",
+    (inputType, prefix, result) => {
+      const el = mount(`<p id="t">${prefix}</p>`);
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+
+      const before = beforeInput(el, inputType, { data: null });
+      expect(before.defaultPrevented).toBe(false);
+      text.insertData(text.length, " ");
+      caret(text, text.length);
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType,
+          data: null,
+          bubbles: true,
+        }),
+      );
+
+      if (result === "bullet") {
+        expect(session.element.textContent).toContain("●");
+      } else {
+        expect(session.element.querySelector(":scope > hr")).not.toBeNull();
+      }
+    },
+  );
+
+  it("uses transferred text when replacement input data is empty", () => {
+    const el = mount('<p id="t">teh</p>');
+    session = startInPlaceTextSession(el);
+    const text = textOf(el, "teh");
+    select(text, 0, text, text.length);
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData("text/plain", "the");
+
+    const before = beforeInput(el, "insertReplacementText", {
+      data: "",
+      dataTransfer,
+    });
+
+    expect(before.defaultPrevented).toBe(true);
+    expect(session.element.textContent).toBe("the");
+    expect(session.undo()).toBe(true);
+    expect(session.element.textContent).toBe("teh");
+  });
+
   it("converts a bullet shortcut after a break without restyling earlier text", () => {
     const el = mount(
       '<div id="t"><span style="color: red">Before</span><br>*<br>After</div>',
@@ -3133,7 +3917,9 @@ describe("in-place text session: commands", () => {
 
     type(el, " ");
 
-    expect(session.element.textContent).toBe("Before●After");
+    expect(session.element.textContent?.replaceAll(ZWSP, "")).toBe(
+      "Before●After",
+    );
     expect(session.element.querySelectorAll(":scope > div")).toHaveLength(3);
     expect(session.element.children[0].querySelector("span")?.style.color).toBe(
       "red",
@@ -3965,7 +4751,7 @@ describe("in-place text session: review fixes", () => {
     );
   });
 
-  it("strips pasted links from mixed rich blocks inside an existing link", () => {
+  it("keeps pasted links outside an existing link for mixed rich blocks", () => {
     const el = mount(
       '<div id="t"><p><a href="https://example.com/original">Intro</a></p></div>',
     );
@@ -3978,13 +4764,17 @@ describe("in-place text session: review fixes", () => {
     });
     session.end();
 
-    expect(el.querySelectorAll("a")).toHaveLength(1);
-    expect(el.querySelector("a")?.textContent).toBe("Intro");
+    const anchors = Array.from(el.querySelectorAll("a"));
+    expect(anchors.map((a) => a.textContent)).toEqual([
+      "Intro",
+      "Docs list item",
+    ]);
+    expect(anchors[0].href.endsWith("/original")).toBe(true);
     expect(el.querySelectorAll("a a")).toHaveLength(0);
-    expect(el.textContent).toContain("Docs list item");
+    expect(el.textContent).toContain("Docs paragraph");
   });
 
-  it("pastes a list into a paragraph as lines, since a paragraph cannot hold one", () => {
+  it("pastes a list into a paragraph as a list, since a paragraph cannot hold one", () => {
     const el = mount('<p id="t">Intro</p>');
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Intro"), 5);
@@ -3992,8 +4782,12 @@ describe("in-place text session: review fixes", () => {
       "text/html": "<ul><li>One</li><li>Two</li></ul>",
       "text/plain": "One\nTwo",
     });
+    const root = session.element;
     session.end();
-    expect(el.innerHTML).toBe("IntroOne<br>Two");
+    expect(root.querySelector("p")?.textContent).toBe("Intro");
+    expect(
+      Array.from(root.querySelectorAll("ul > li"), (item) => item.textContent),
+    ).toEqual(["One", "Two"]);
   });
 });
 
@@ -4345,6 +5139,45 @@ describe("in-place text session: Content authoring parity", () => {
       "bold",
     );
   });
+
+  it.each([
+    [
+      "bold",
+      '<span style="font-weight: 700">**bold*</span>',
+      "*",
+      "bold",
+      'span[style*="font-weight"]',
+    ],
+    [
+      "italic",
+      '<span style="font-style: italic">*italic</span>',
+      "*",
+      "italic",
+      'span[style*="font-style"]',
+    ],
+    [
+      "strike",
+      '<span style="text-decoration-line: line-through">~~strike~</span>',
+      "~",
+      "strike",
+      'span[style*="text-decoration"]',
+    ],
+    ["code", "<code>`code</code>", "`", "code", "code"],
+  ])(
+    "keeps active %s formatting when its Markdown shortcut is typed",
+    (_format, markup, trigger, result, selector) => {
+      const el = mount(`<div id="t"><p>${markup}</p></div>`);
+      session = startInPlaceTextSession(el);
+      const prefix = markup.replace(/<[^>]+>/g, "");
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+
+      type(el, trigger);
+
+      expect(el.textContent).toBe(result);
+      expect(el.querySelector(selector)?.textContent).toBe(result);
+    },
+  );
 
   it("keeps markdown bold on and following typing outside its mark in a styled list", () => {
     const el = mount(
@@ -4915,6 +5748,40 @@ describe("in-place text session: Content authoring parity", () => {
     expect(session.element.querySelectorAll("li > li")).toHaveLength(0);
     expect(session.element.querySelector("li")?.style.color).toBe("red");
     expect(session.element.querySelector("li")?.style.fontSize).toBe("30px");
+  });
+
+  it("keeps the caret after a trailing soft break when toggling a paragraph into a list", () => {
+    const el = mount('<div id="t"><p>Text<br></p></div>');
+    session = startInPlaceTextSession(el);
+    const paragraph = el.querySelector("p")!;
+    caret(paragraph, paragraph.childNodes.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    const item = el.querySelector(":scope > ul > li")!;
+    expect(item.innerHTML).toBe("Text<br>");
+    expect(window.getSelection()?.anchorNode).toBe(item);
+    expect(window.getSelection()?.anchorOffset).toBe(item.childNodes.length);
+
+    type(el, "x");
+    expect(item.innerHTML).toBe("Text<br>x");
+  });
+
+  it("keeps the caret after text following a soft break when toggling a paragraph into a list", () => {
+    const el = mount('<div id="t"><p>Text<br>More</p></div>');
+    session = startInPlaceTextSession(el);
+    const paragraph = el.querySelector("p")!;
+    caret(paragraph, paragraph.childNodes.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    const item = el.querySelector(":scope > ul > li")!;
+    expect(item.innerHTML).toBe("Text<br>More");
+    expect(window.getSelection()?.anchorNode).toBe(item.lastChild);
+    expect(window.getSelection()?.anchorOffset).toBe("More".length);
+
+    type(el, "x");
+    expect(item.innerHTML).toBe("Text<br>Morex");
   });
 
   it("turns off one nested list item without unwrapping its styled sibling", () => {

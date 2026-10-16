@@ -43,14 +43,13 @@ type ActionMutationName = Parameters<typeof useActionMutation>[0];
 
 const mutationName = (name: string): ActionMutationName => name;
 
-export function CustomApiCard() {
+export function CustomApiPanel() {
   const t = useT();
   const { canManageOrg, org } = useOrgRole();
   const scope = org?.orgId && canManageOrg ? "org" : "user";
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
   const register = useActionMutation(mutationName("provider-api-register"));
   const test = useActionMutation(mutationName("test-custom-api-connection"));
-  const [open, setOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [registeredProviderId, setRegisteredProviderId] = useState<
     string | null
@@ -204,6 +203,210 @@ export function CustomApiCard() {
     values.credentialKey.trim() ||
     (authType === "basic" ? values.usernameKey.trim() : "");
   return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {(["label", "baseUrl", "path"] as const).map((key) => (
+          <div className="space-y-2" key={key}>
+            <Label htmlFor={`custom-api-${key}`}>
+              {t(`dataSources.customApi.fields.${key}`)}
+            </Label>
+            <Input
+              id={`custom-api-${key}`}
+              value={values[key]}
+              onChange={set(key)}
+              placeholder={t(`dataSources.customApi.placeholders.${key}`)}
+              type={key === "baseUrl" ? "url" : "text"}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="custom-api-query">
+          {t("dataSources.customApi.fields.query")}
+        </Label>
+        <Textarea
+          id="custom-api-query"
+          value={values.query}
+          onChange={set("query")}
+          placeholder={t("dataSources.customApi.placeholders.query")}
+          rows={3}
+        />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="custom-api-items-path">
+            {t("dataSources.customApi.fields.itemsPath")}
+          </Label>
+          <Input
+            id="custom-api-items-path"
+            value={values.itemsPath}
+            onChange={set("itemsPath")}
+            placeholder={t("dataSources.customApi.placeholders.itemsPath")}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="custom-api-docs">
+            {t("dataSources.customApi.fields.docsUrl")}
+          </Label>
+          <Input
+            id="custom-api-docs"
+            type="url"
+            value={values.docsUrl}
+            onChange={set("docsUrl")}
+            placeholder={t("dataSources.customApi.placeholders.docsUrl")}
+          />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="custom-api-auth">
+          {t("dataSources.customApi.fields.authType")}
+        </Label>
+        <Select
+          value={authType}
+          onValueChange={(value) => {
+            setAuthType(value as AuthType);
+            setError(null);
+            resetConnectionState();
+          }}
+        >
+          <SelectTrigger id="custom-api-auth">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">
+              {t("dataSources.customApi.authNone")}
+            </SelectItem>
+            <SelectItem value="bearer">
+              {t("dataSources.customApi.authBearer")}
+            </SelectItem>
+            <SelectItem value="basic">
+              {t("dataSources.customApi.authBasic")}
+            </SelectItem>
+            <SelectItem value="api-key-header">
+              {t("dataSources.customApi.authApiKey")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {needsKey && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {authType === "basic" ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="custom-api-username-key">
+                  {t("dataSources.customApi.fields.usernameKey")}
+                </Label>
+                <Input
+                  id="custom-api-username-key"
+                  value={values.usernameKey}
+                  onChange={set("usernameKey")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="custom-api-password-key">
+                  {t("dataSources.customApi.fields.passwordKey")}
+                </Label>
+                <Input
+                  id="custom-api-password-key"
+                  value={values.passwordKey}
+                  onChange={set("passwordKey")}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="custom-api-credential-key">
+                {t("dataSources.customApi.fields.credentialKey")}
+              </Label>
+              <Input
+                id="custom-api-credential-key"
+                value={values.credentialKey}
+                onChange={set("credentialKey")}
+              />
+            </div>
+          )}
+          {authType === "api-key-header" && (
+            <div className="space-y-2">
+              <Label htmlFor="custom-api-header-name">
+                {t("dataSources.customApi.fields.headerName")}
+              </Label>
+              <Input
+                id="custom-api-header-name"
+                value={values.headerName}
+                onChange={set("headerName")}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {needsKey && credentialLink && (
+        <p className="text-sm text-muted-foreground">
+          {t("dataSources.customApi.keyHint")}{" "}
+          <a
+            className="inline-flex items-center gap-1 underline"
+            href={`/settings/integrations/secrets/${encodeURIComponent(credentialLink)}`}
+          >
+            {credentialLink}
+            <IconExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+          </a>
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={handleRegister}
+          disabled={register.isPending || !values.label || !values.baseUrl}
+        >
+          {t("dataSources.customApi.register")}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleTest}
+          disabled={!registered || test.isPending || !values.path}
+        >
+          {t("dataSources.customApi.test")}
+        </Button>
+      </div>
+      {result && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Badge>
+              {t("dataSources.customApi.connectionResult")}:{" "}
+              {result.status ?? t("dataSources.customApi.unknown")}
+            </Badge>
+            <Badge>
+              {t("dataSources.customApi.rowCount")}:{" "}
+              {result.rowCount ?? result.sampleRows?.length ?? 0}
+            </Badge>
+          </div>
+          {result.columns?.length ? (
+            <p className="text-sm text-muted-foreground">
+              {t("dataSources.customApi.columns")}: {result.columns.join(", ")}
+            </p>
+          ) : null}
+          <pre className="max-h-56 overflow-auto rounded-md bg-muted p-3 text-xs">
+            {JSON.stringify((result.sampleRows ?? []).slice(0, 5), null, 2)}
+          </pre>
+          {result.ok && (
+            <Button onClick={saveAsProgram} disabled={isGenerating}>
+              {t("dataSources.customApi.handoffButton")}
+            </Button>
+          )}
+        </div>
+      )}
+      {codeRequiredDialog}
+    </div>
+  );
+}
+
+export function CustomApiCard() {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
     <Card>
       <CardHeader className="p-0">
         <button
@@ -225,206 +428,10 @@ export function CustomApiCard() {
           )}
         </button>
       </CardHeader>
-      {open && (
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {(["label", "baseUrl", "path"] as const).map((key) => (
-              <div className="space-y-2" key={key}>
-                <Label htmlFor={`custom-api-${key}`}>
-                  {t(`dataSources.customApi.fields.${key}`)}
-                </Label>
-                <Input
-                  id={`custom-api-${key}`}
-                  value={values[key]}
-                  onChange={set(key)}
-                  placeholder={t(`dataSources.customApi.placeholders.${key}`)}
-                  type={key === "baseUrl" ? "url" : "text"}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="custom-api-query">
-              {t("dataSources.customApi.fields.query")}
-            </Label>
-            <Textarea
-              id="custom-api-query"
-              value={values.query}
-              onChange={set("query")}
-              placeholder={t("dataSources.customApi.placeholders.query")}
-              rows={3}
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="custom-api-items-path">
-                {t("dataSources.customApi.fields.itemsPath")}
-              </Label>
-              <Input
-                id="custom-api-items-path"
-                value={values.itemsPath}
-                onChange={set("itemsPath")}
-                placeholder={t("dataSources.customApi.placeholders.itemsPath")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="custom-api-docs">
-                {t("dataSources.customApi.fields.docsUrl")}
-              </Label>
-              <Input
-                id="custom-api-docs"
-                type="url"
-                value={values.docsUrl}
-                onChange={set("docsUrl")}
-                placeholder={t("dataSources.customApi.placeholders.docsUrl")}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="custom-api-auth">
-              {t("dataSources.customApi.fields.authType")}
-            </Label>
-            <Select
-              value={authType}
-              onValueChange={(value) => {
-                setAuthType(value as AuthType);
-                setError(null);
-                resetConnectionState();
-              }}
-            >
-              <SelectTrigger id="custom-api-auth">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">
-                  {t("dataSources.customApi.authNone")}
-                </SelectItem>
-                <SelectItem value="bearer">
-                  {t("dataSources.customApi.authBearer")}
-                </SelectItem>
-                <SelectItem value="basic">
-                  {t("dataSources.customApi.authBasic")}
-                </SelectItem>
-                <SelectItem value="api-key-header">
-                  {t("dataSources.customApi.authApiKey")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {needsKey && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {authType === "basic" ? (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="custom-api-username-key">
-                      {t("dataSources.customApi.fields.usernameKey")}
-                    </Label>
-                    <Input
-                      id="custom-api-username-key"
-                      value={values.usernameKey}
-                      onChange={set("usernameKey")}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="custom-api-password-key">
-                      {t("dataSources.customApi.fields.passwordKey")}
-                    </Label>
-                    <Input
-                      id="custom-api-password-key"
-                      value={values.passwordKey}
-                      onChange={set("passwordKey")}
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="custom-api-credential-key">
-                    {t("dataSources.customApi.fields.credentialKey")}
-                  </Label>
-                  <Input
-                    id="custom-api-credential-key"
-                    value={values.credentialKey}
-                    onChange={set("credentialKey")}
-                  />
-                </div>
-              )}
-              {authType === "api-key-header" && (
-                <div className="space-y-2">
-                  <Label htmlFor="custom-api-header-name">
-                    {t("dataSources.customApi.fields.headerName")}
-                  </Label>
-                  <Input
-                    id="custom-api-header-name"
-                    value={values.headerName}
-                    onChange={set("headerName")}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-          {needsKey && credentialLink && (
-            <p className="text-sm text-muted-foreground">
-              {t("dataSources.customApi.keyHint")}{" "}
-              <a
-                className="inline-flex items-center gap-1 underline"
-                href={`/settings/integrations/secrets/${encodeURIComponent(credentialLink)}`}
-              >
-                {credentialLink}
-                <IconExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              </a>
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={handleRegister}
-              disabled={register.isPending || !values.label || !values.baseUrl}
-            >
-              {t("dataSources.customApi.register")}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleTest}
-              disabled={!registered || test.isPending || !values.path}
-            >
-              {t("dataSources.customApi.test")}
-            </Button>
-          </div>
-          {result && (
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge>
-                  {t("dataSources.customApi.connectionResult")}:{" "}
-                  {result.status ?? t("dataSources.customApi.unknown")}
-                </Badge>
-                <Badge>
-                  {t("dataSources.customApi.rowCount")}:{" "}
-                  {result.rowCount ?? result.sampleRows?.length ?? 0}
-                </Badge>
-              </div>
-              {result.columns?.length ? (
-                <p className="text-sm text-muted-foreground">
-                  {t("dataSources.customApi.columns")}:{" "}
-                  {result.columns.join(", ")}
-                </p>
-              ) : null}
-              <pre className="max-h-56 overflow-auto rounded-md bg-muted p-3 text-xs">
-                {JSON.stringify((result.sampleRows ?? []).slice(0, 5), null, 2)}
-              </pre>
-              {result.ok && (
-                <Button onClick={saveAsProgram} disabled={isGenerating}>
-                  {t("dataSources.customApi.handoffButton")}
-                </Button>
-              )}
-            </div>
-          )}
-          {codeRequiredDialog}
-        </CardContent>
-      )}
+      {/* Stays mounted while collapsed so form and result state survive toggling. */}
+      <CardContent hidden={!open}>
+        <CustomApiPanel />
+      </CardContent>
     </Card>
   );
 }

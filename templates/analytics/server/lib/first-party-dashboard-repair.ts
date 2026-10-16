@@ -6,7 +6,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
-  FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  FIRST_PARTY_BIGQUERY_DASHBOARD_IDS,
   repairKnownFirstPartyDashboardQueries,
 } from "./canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
@@ -117,7 +117,7 @@ async function applyRepairToDashboardRow(
 }
 
 export async function repairPersistedFirstPartyDashboardQueries(): Promise<boolean> {
-  // guard:allow-unscoped — startup repair targets two fixed first-party dashboards
+  // guard:allow-unscoped — startup repair targets fixed first-party dashboard IDs
   // and only replaces the exact shipped legacy SQL under an optimistic fence.
   const db = getDb() as any;
   const rows = await db
@@ -135,7 +135,7 @@ export async function repairPersistedFirstPartyDashboardQueries(): Promise<boole
     .where(
       inArray(schema.dashboards.id, [
         FIRST_PARTY_DASHBOARD_ID,
-        FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+        ...FIRST_PARTY_BIGQUERY_DASHBOARD_IDS,
       ]),
     );
   let changed = false;

@@ -157,7 +157,6 @@ interface SourceFormState {
   granolaPageSize: string;
   granolaUpdatedAfter: string;
   zoomMeetingIds: string;
-  zoomMeetingTopics: string;
   zoomLookbackDays: string;
   zoomConfigExtras: Record<string, unknown>;
   githubRepos: string;
@@ -256,7 +255,6 @@ function defaultForm(
     granolaPageSize: "10",
     granolaUpdatedAfter: "",
     zoomMeetingIds: "",
-    zoomMeetingTopics: "",
     zoomLookbackDays: "7",
     zoomConfigExtras: {},
     githubRepos: "",
@@ -283,10 +281,12 @@ function zoomConfigFromSource(config: Record<string, unknown>) {
     !Array.isArray(config.zoom)
       ? (config.zoom as Record<string, unknown>)
       : {};
-  const { meetingIds, meetingTopics, lookbackDays, ...extras } = zoom;
+  const { meetingIds, lookbackDays, ...extras } = zoom;
+  // Title matching and summary import were removed; saving drops their keys.
+  delete extras.meetingTopics;
+  delete extras.includeSummaries;
   return {
     zoomMeetingIds: listValue(meetingIds),
-    zoomMeetingTopics: listValue(meetingTopics),
     zoomLookbackDays:
       typeof lookbackDays === "number" || typeof lookbackDays === "string"
         ? String(lookbackDays)
@@ -386,7 +386,6 @@ function buildConfig(form: SourceFormState) {
     config.zoom = {
       ...form.zoomConfigExtras,
       meetingIds: zoomFilterLines(form.zoomMeetingIds),
-      meetingTopics: zoomFilterLines(form.zoomMeetingTopics),
       lookbackDays: numberValue(form.zoomLookbackDays, 7, 1, 30),
     };
   }
@@ -1838,6 +1837,7 @@ function MarkdownImportDialog({
 
 function SourceListItem({
   source,
+  updating,
   syncPending,
   onReview,
   onRotateIngestToken,
@@ -1847,6 +1847,7 @@ function SourceListItem({
   onArchive,
 }: {
   source: BrainSource;
+  updating: boolean;
   syncPending: boolean;
   onReview: () => void;
   onRotateIngestToken?: () => void;
@@ -1882,7 +1883,14 @@ function SourceListItem({
             <h2 className="truncate text-sm font-medium text-foreground sm:text-[0.9375rem]">
               {sourceName(source)}
             </h2>
-            <StatusBadge status={sourceHealth(source)} />
+            {updating ? (
+              <Badge variant="outline" className="gap-1.5" role="status">
+                <IconLoader2 className="size-3 animate-spin" />
+                {t("sources.updatingSource")}
+              </Badge>
+            ) : (
+              <StatusBadge status={sourceHealth(source)} />
+            )}
             <VisibilityBadge visibility={source.visibility} />
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -1949,11 +1957,14 @@ function SourceListItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
+              <DropdownMenuItem
+                disabled={syncPending || updating}
+                onSelect={onSync}
+              >
                 <IconRefresh className="size-4" />
                 {t("sources.syncNow")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onTune}>
+              <DropdownMenuItem disabled={updating} onSelect={onTune}>
                 <IconSettings2 className="size-4" />
                 {t("sources.tuneSource")}
               </DropdownMenuItem>
@@ -2108,9 +2119,12 @@ export default function SourcesRoute() {
       includeArchived: false,
     } as any,
   );
+  // Checking every provider's credentials takes seconds, and a source edit
+  // doesn't change them, so source saves skip refreshing this query.
   const connectionProvidersQuery = useActionQuery<ConnectionProvidersResponse>(
     "list-connection-providers" as any,
     {} as any,
+    { resources: ["brain-connection-provider"] },
   );
   const healthQuery = useActionQuery<BrainHealthResponse>(
     "get-brain-health" as any,
@@ -2124,7 +2138,8 @@ export default function SourcesRoute() {
       status?: "active" | "paused";
       config?: Record<string, unknown>;
     }
-  >("update-source" as any);
+  >("update-source" as any, { resources: ["brain-source"] });
+  const [updatingSourceId, setUpdatingSourceId] = useState<string | null>(null);
   const createSource = useActionMutation<
     CreateSourceResponse,
     {
@@ -2204,10 +2219,24 @@ export default function SourcesRoute() {
     form.provider === "github" ? validateGitHubRepoInput(form.githubRepos) : [];
   const zoomMeetingIdIssues =
     form.provider === "zoom" ? invalidZoomMeetingIds(form.zoomMeetingIds) : [];
+  const zoomMeetingIdsMissing =
+    form.provider === "zoom" &&
+    zoomFilterLines(form.zoomMeetingIds).length === 0;
+  // Undefined until the provider list loads; only a confirmed non-admin locks.
+  const canManageZoom = connectionProvidersQuery.data?.canManageZoom;
+  const zoomSettingsLocked =
+    form.provider === "zoom" && canManageZoom === false;
+  const selectableProviders = providers.filter(
+    (provider) =>
+      provider.value !== "zoom" ||
+      canManageZoom === true ||
+      (!!editingSource && form.provider === "zoom"),
+  );
   const formConfigInvalid =
     slackChannelIssues.length > 0 ||
     githubRepoIssues.length > 0 ||
-    zoomMeetingIdIssues.length > 0;
+    zoomMeetingIdIssues.length > 0 ||
+    zoomMeetingIdsMissing;
   const formMissingCredentialKeys =
     formProviderMetadata?.credentialHealth?.status === "missing"
       ? formProviderMetadata.credentialHealth.missingCredentialKeys
@@ -2316,13 +2345,26 @@ export default function SourcesRoute() {
     if (formConfigInvalid) return;
     const config = buildConfig(form);
     if (editingSource) {
+      const sourceId = editingSource.id;
       await updateSource.mutateAsync({
-        id: editingSource.id,
+        id: sourceId,
         title: form.title.trim() || defaultTitle(form.provider, t),
-        status:
-          form.autoSync || sourceEnabled(editingSource) ? "active" : "paused",
-        config,
+        status: zoomSettingsLocked
+          ? undefined
+          : form.autoSync || sourceEnabled(editingSource)
+            ? "active"
+            : "paused",
+        config: zoomSettingsLocked ? undefined : config,
       });
+      setSetupOpen(false);
+      setUpdatingSourceId(sourceId);
+      try {
+        await sourcesQuery.refetch({ cancelRefetch: false });
+      } finally {
+        setUpdatingSourceId((current) =>
+          current === sourceId ? null : current,
+        );
+      }
     } else {
       const result = await createSource.mutateAsync({
         title: form.title.trim() || defaultTitle(form.provider, t),
@@ -2343,7 +2385,6 @@ export default function SourcesRoute() {
       }
       return;
     }
-    setSetupOpen(false);
   }
 
   async function confirmArchiveSource() {
@@ -2436,6 +2477,7 @@ export default function SourcesRoute() {
               <SourceListItem
                 key={source.id}
                 source={source}
+                updating={updatingSourceId === source.id}
                 syncPending={
                   syncSource.isPending || rotateSourceIngestToken.isPending
                 }
@@ -3011,7 +3053,7 @@ export default function SourcesRoute() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {providers.map((provider) => (
+                  {selectableProviders.map((provider) => (
                     <SelectItem key={provider.value} value={provider.value}>
                       {provider.label}
                     </SelectItem>
@@ -3248,12 +3290,18 @@ export default function SourcesRoute() {
 
             {form.provider === "zoom" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
+                {zoomSettingsLocked ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("sources.zoomAdminOnly")}
+                  </p>
+                ) : null}
                 <div className="grid gap-2">
                   <Label htmlFor="zoom-meeting-ids">
                     {t("sources.zoomMeetingIds")}
                   </Label>
                   <Textarea
                     id="zoom-meeting-ids"
+                    disabled={zoomSettingsLocked}
                     value={form.zoomMeetingIds}
                     onChange={(event) =>
                       updateForm({ zoomMeetingIds: event.target.value })
@@ -3282,22 +3330,6 @@ export default function SourcesRoute() {
                     {t("sources.zoomMeetingIdsDescription")}
                   </p>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="zoom-meeting-topics">
-                    {t("sources.zoomMeetingTopics")}
-                  </Label>
-                  <Textarea
-                    id="zoom-meeting-topics"
-                    value={form.zoomMeetingTopics}
-                    onChange={(event) =>
-                      updateForm({ zoomMeetingTopics: event.target.value })
-                    }
-                    placeholder={"Weekly Sync\nMarketing Standup"}
-                  />
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("sources.zoomMeetingTopicsDescription")}
-                  </p>
-                </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="zoom-lookback-days">
@@ -3305,6 +3337,7 @@ export default function SourcesRoute() {
                     </Label>
                     <Input
                       id="zoom-lookback-days"
+                      disabled={zoomSettingsLocked}
                       type="number"
                       min={1}
                       max={30}
@@ -3320,6 +3353,7 @@ export default function SourcesRoute() {
                     </Label>
                     <Input
                       id="zoom-poll-minutes"
+                      disabled={zoomSettingsLocked}
                       type="number"
                       min={5}
                       max={1440}
@@ -3480,6 +3514,7 @@ export default function SourcesRoute() {
                   </span>
                 </span>
                 <Switch
+                  disabled={zoomSettingsLocked}
                   checked={form.autoSync}
                   onCheckedChange={(autoSync) => updateForm({ autoSync })}
                 />

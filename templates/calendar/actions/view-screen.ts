@@ -73,7 +73,7 @@ async function fetchEventsForRange(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Basic route context is included in <current-screen>; call this for a fresh snapshot when visible event details matter.",
   schema: z.object({}),
   http: false,
   run: async (_args, ctx) => {

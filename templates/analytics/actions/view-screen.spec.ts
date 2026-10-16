@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FIRST_PARTY_BIGQUERY_DASHBOARD_ID } from "../server/lib/canonical-first-party-dashboard-repair";
+import { summarizeDashboardAnnotations } from "../server/lib/dashboard-annotation-summary";
+import { CONNECT_UNDERCOUNT } from "../shared/annotation-fixtures";
+
 const navigationState: { current: unknown } = { current: null };
 const urlState: { current: unknown } = { current: null };
 const selectedObjectState: { current: unknown } = { current: null };
@@ -49,6 +53,19 @@ const listSessionRecordingsPage = vi.fn(async () => ({
 
 vi.mock("../server/lib/analytics-alerts", () => ({
   listAnalyticsAlertRules: vi.fn(async () => []),
+}));
+const loadDashboardAnnotationSummary = vi.fn(
+  async (
+    _drawn: unknown,
+    _dashboardId: string,
+    _config: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => ({
+    keyDateSets: [],
+    dataNotes: [],
+  }),
+);
+vi.mock("../server/lib/dashboard-annotation-reads", () => ({
+  loadDashboardAnnotationSummary,
 }));
 vi.mock("../server/lib/dashboard-catalog", () => ({
   listDashboardCatalog: vi.fn(async () => []),
@@ -135,6 +152,25 @@ describe("view-screen monitoring status-pages branch", () => {
     expect(getDashboard).not.toHaveBeenCalled();
   });
 
+  it("does not surface a stale dashboard selection on a saved Ask thread", async () => {
+    selectedObjectState.current = {
+      type: "dashboard",
+      id: "dash-1",
+      title: "Revenue",
+    };
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/ask/thread-1" },
+    );
+
+    const out = await runScreen();
+
+    expect(out.selectedObject).toBeUndefined();
+    expect(out.navigation).toEqual({ view: "ask" });
+    expect(out.dashboard).toBeUndefined();
+    expect(getDashboard).not.toHaveBeenCalled();
+  });
+
   it("does not let stale Ask navigation mask a dashboard URL", async () => {
     selectedObjectState.current = {
       type: "dashboard",
@@ -169,6 +205,39 @@ describe("view-screen monitoring status-pages branch", () => {
       email: "user@example.test",
       orgId: "org-1",
     });
+  });
+
+  it("describes only a SQL dashboard's key dates and data notes", async () => {
+    const dashboard = (kind: string) => ({
+      id: "dash-1",
+      kind,
+      title: "Revenue",
+      config: { name: "Revenue", panels: [] },
+      ownerEmail: "user@example.test",
+      orgId: "org-1",
+      visibility: "private",
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "user@example.test",
+      updatedAt: "2026-06-25T00:00:00.000Z",
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+    });
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+    loadDashboardAnnotationSummary.mockClear();
+
+    getDashboard.mockResolvedValue(dashboard("sql") as never);
+    expect((await runScreen()).dashboard).toHaveProperty("keyDateSets", []);
+
+    getDashboard.mockResolvedValue(dashboard("explorer") as never);
+    const explorer = (await runScreen()).dashboard;
+    expect(explorer).toHaveProperty("kind", "explorer");
+    expect(explorer).not.toHaveProperty("keyDateSets");
+    expect(explorer).not.toHaveProperty("dataNotes");
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledTimes(1);
   });
 
   it("lists status pages in the monitoring surfaces catalog", async () => {
@@ -339,6 +408,29 @@ describe("view-screen Sessions context", () => {
         limit: 25,
       }),
     );
+  });
+
+  it("preserves the anonymous visitor filter in the bounded session view", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: { visitorType: "anonymous" },
+      },
+    );
+
+    const out = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visitorType: "anonymous" }),
+    );
+    expect(out.sessionReplayPage).toMatchObject({
+      filters: { visitorType: "anonymous" },
+      fullPageAction: {
+        args: { visitorType: "anonymous" },
+      },
+    });
   });
 
   it("keeps the UI page offset, filters, and full-page retrieval scope", async () => {
@@ -927,5 +1019,212 @@ describe("view-screen route performance", () => {
 
     expect(out.page).toBe("route-performance");
     expect(out.routePerformance).toEqual({ labEnabled: false });
+  });
+});
+
+describe("view-screen dashboard summary", () => {
+  const sql = "SELECT week, value FROM warehouse.weekly_totals";
+
+  function savedDashboard(panels: Array<Record<string, unknown>>) {
+    return {
+      id: "dash-1",
+      kind: "sql",
+      title: "Weekly",
+      config: { name: "Weekly", panels },
+      ownerEmail: "owner@example.test",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      canEdit: true,
+      canManage: true,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "owner@example.test",
+      updatedAt: "2026-06-25T00:00:00.000Z",
+      updatedBy: "owner@example.test",
+    };
+  }
+
+  function showDashboard(panels: Array<Record<string, unknown>>) {
+    getDashboard.mockReset();
+    getDashboard.mockResolvedValue(savedDashboard(panels) as never);
+    selectedObjectState.current = null;
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+  }
+
+  beforeEach(() => {
+    userEmail = "user@example.test";
+  });
+
+  it("summarizes panels by bound columns instead of embedding their SQL", async () => {
+    showDashboard([
+      {
+        id: "trend",
+        title: "Trend",
+        source: "bigquery",
+        chartType: "line",
+        width: 2,
+        sql,
+        config: { xKey: "week", yKeys: ["value"], color: "#ff0000" },
+      },
+    ]);
+
+    const out = await runScreen();
+
+    expect(out.dashboard.panels[0]).toMatchObject({
+      id: "trend",
+      chartType: "line",
+      bindings: { xKey: "week", yKeys: ["value"] },
+    });
+    expect(JSON.stringify(out)).not.toContain(sql);
+    expect(out.dashboard).not.toHaveProperty("ownerEmail");
+    expect(out.dashboard.revision).toBe("2026-06-25T00:00:00.000Z");
+    expect(out.dashboard.canEdit).toBe(true);
+  });
+
+  it("shows the key dates and data notes the dashboard's charts draw", async () => {
+    const summary = {
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [
+        {
+          id: "note-connect-undercount",
+          kind: "data",
+          title: "Connect clicks undercounted",
+          status: "open",
+          startDate: "2026-10-02",
+          panelIds: ["trend"],
+        },
+      ],
+    };
+    loadDashboardAnnotationSummary.mockResolvedValueOnce(summary);
+    showDashboard([
+      { id: "trend", title: "Trend", chartType: "line", width: 1, sql },
+    ]);
+
+    const out = await runScreen();
+
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      {
+        scope: { email: "owner@example.test", orgId: "org-1" },
+        editable: true,
+      },
+      "dash-1",
+      expect.objectContaining({ name: "Weekly" }),
+    );
+    expect(out.dashboard).toMatchObject(summary);
+  });
+
+  it("places data notes on a first-party dashboard's repaired charts, not its stored SQL", async () => {
+    // The repair widens this stored DAU query to count app_entered too.
+    const storedSql =
+      "SELECT event_date, COUNT(DISTINCT user_key) AS users FROM events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL GROUP BY 1";
+    const appEntered = {
+      ...CONNECT_UNDERCOUNT,
+      matchEvents: ["app_entered"],
+      unlessEvents: [],
+    };
+    loadDashboardAnnotationSummary.mockImplementationOnce(
+      async (_drawn, dashboardId, config) => ({
+        ...summarizeDashboardAnnotations(dashboardId, config, [], [appEntered]),
+      }),
+    );
+    getDashboard.mockReset();
+    getDashboard.mockResolvedValue({
+      ...savedDashboard([
+        {
+          id: "dau-over-time",
+          title: "DAU",
+          source: "bigquery",
+          chartType: "line",
+          width: 1,
+          sql: storedSql,
+        },
+      ]),
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+    } as never);
+    selectedObjectState.current = null;
+    setScreen(
+      { view: "adhoc", dashboardId: FIRST_PARTY_BIGQUERY_DASHBOARD_ID },
+      { pathname: `/dashboards/${FIRST_PARTY_BIGQUERY_DASHBOARD_ID}` },
+    );
+
+    const out = await runScreen();
+
+    expect(out.dashboard.dataNotes).toEqual([
+      expect.objectContaining({
+        id: CONNECT_UNDERCOUNT.id,
+        panelIds: ["dau-over-time"],
+      }),
+    ]);
+  });
+
+  it("drops key-date lists before panels when a large dashboard is trimmed", async () => {
+    loadDashboardAnnotationSummary.mockResolvedValueOnce({
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [],
+    });
+    showDashboard(
+      Array.from({ length: 90 }, (_, index) => ({
+        id: `panel-${index}`,
+        title: `Panel number ${index}`,
+        chartType: "line",
+        width: 1,
+        sql,
+        config: { xKey: "week", yKeys: ["value"] },
+      })),
+    );
+
+    const out = await runScreen();
+
+    expect(out.dashboard.trimmed).toBe(true);
+    expect(out.dashboard.keyDateSets).toEqual([
+      { id: "launches", name: "Launches", shown: true, dateCount: 1 },
+    ]);
+  });
+
+  it("stays valid JSON under the auto-block cap for a large dashboard", async () => {
+    showDashboard(
+      Array.from({ length: 90 }, (_, index) => ({
+        id: `panel-${index}`,
+        title: `Panel number ${index}`,
+        source: "bigquery",
+        chartType: "line",
+        width: 1,
+        sql: `${sql} WHERE n = ${index}`.padEnd(3_000, " "),
+        config: { xKey: "week", yKeys: ["value", "value_4wk_avg"] },
+      })),
+    );
+
+    const text = await viewScreenAction.run({} as never);
+    const out = JSON.parse(text);
+
+    expect(text.length).toBeLessThan(10_000);
+    expect(out.dashboard.trimmed).toBe(true);
+    expect(out.dashboard.hint).toContain("get-sql-dashboard");
+    expect(out.dashboard.panels.length).toBeGreaterThan(0);
+    expect(out.dashboard.panels.length + out.dashboard.omittedPanelCount).toBe(
+      90,
+    );
   });
 });
