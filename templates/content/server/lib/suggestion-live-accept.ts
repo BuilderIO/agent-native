@@ -156,7 +156,11 @@ async function acceptSteps(members: ResourceSuggestion[]) {
     const operation = member.operations[0]!;
     const before = markdownPayload(operation.before, "before").markdown;
     const earlier = [...steps.values()].flatMap((step) => {
-      if (markdownPayload(step.operation.before, "before").markdown !== before)
+      // Saved as a whole before and after, it has no range to excuse.
+      if (
+        step.operation.anchor == null ||
+        markdownPayload(step.operation.before, "before").markdown !== before
+      )
         return [];
       const { from, to } = operationAnchor(step.operation);
       return [{ from, to }];

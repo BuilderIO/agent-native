@@ -126,7 +126,13 @@ export function applyMarkdownSuggestionWithSiblings(
   acceptedSiblingRanges: MarkdownRange[],
 ): string | null {
   const direct = applyMarkdownSuggestionOperation(currentMarkdown, operation);
-  if (direct !== null || !acceptedSiblingRanges.length) return direct;
+  // Saved as a whole before and after, it applies only to that before-state.
+  if (
+    direct !== null ||
+    !acceptedSiblingRanges.length ||
+    operation.anchor == null
+  )
+    return direct;
   return applyMarkdownSuggestionOperation(
     currentMarkdown,
     withSiblingRanges(operation, acceptedSiblingRanges),

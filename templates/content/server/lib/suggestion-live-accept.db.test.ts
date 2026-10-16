@@ -465,6 +465,94 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
     expect((await stored(documentId)).content).toBe(after.text);
   });
 
+  /** A proposal of a whole-page member and a ranged one, in `order`. */
+  async function decideWholePageProposal(
+    documentId: string,
+    order: "whole page first" | "range first",
+  ) {
+    const document = await getDocumentAction.run({ id: documentId }, ctx);
+    const before = document.content;
+    const wholePage = {
+      ordinal: 0,
+      kind: "replace_text",
+      targetId: "body",
+      schemaVersion: 1,
+      before: { markdown: before },
+      after: { markdown: before.replace("sets the scene", "opens") },
+      anchor: null,
+    };
+    const [ranged] = markdownSuggestionOperationsForFindReplace({
+      before,
+      find: "closing",
+      replace: "final",
+      start: before.indexOf("closing"),
+    });
+    const operations =
+      order === "whole page first"
+        ? [wholePage, ranged!]
+        : [ranged!, wholePage];
+    const created = await createProposal.run(
+      {
+        resourceType: "document",
+        resourceId: documentId,
+        adapterKind,
+        baseRevision: document.revision,
+        summary: "Edits",
+        idempotencyKey: `live-accept-whole-page-${documentId}`,
+        suggestions: operations.map((operation, index) => ({
+          summary: `Edit ${index + 1}`,
+          operations: [operation],
+        })),
+      },
+      ctx,
+    );
+    return decideProposal.run(
+      {
+        proposalId: created.proposal.id,
+        decision: "accepted",
+        idempotencyKey: `decide-whole-page-${documentId}`,
+        members: created.suggestions.map((suggestion) => ({
+          id: suggestion.id,
+          observedRevision: suggestion.revision,
+          observedBase: suggestion.baseRevision,
+        })),
+      },
+      ctx,
+    );
+  }
+
+  ownerIt(
+    "accepts a proposal whose first member was saved as the whole page",
+    async () => {
+      const documentId = await seedPage(page);
+      const result = await decideWholePageProposal(
+        documentId,
+        "whole page first",
+      );
+      expect(result.suggestions.map(({ status }) => status)).toEqual([
+        "accepted",
+        "accepted",
+      ]);
+      expect((await stored(documentId)).content).toBe(
+        canonicalizeNfm(
+          page.replace("sets the scene", "opens").replace("closing", "final"),
+        ),
+      );
+    },
+  );
+
+  ownerIt(
+    "refuses a whole-page member once a sibling changed the page, and writes nothing",
+    async () => {
+      const documentId = await seedPage(page);
+      const before = await liveCopy(documentId);
+      await expect(
+        decideWholePageProposal(documentId, "range first"),
+      ).rejects.toMatchObject({ errorCode: "suggestion_stale" });
+      expect(await liveCopy(documentId)).toEqual(before);
+    },
+  );
+
   ownerIt(
     "moves the stored anchor of a comment on text after the change",
     async () => {
