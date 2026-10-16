@@ -8,7 +8,7 @@ use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
@@ -475,8 +475,8 @@ impl BubbleHitMask {
     }
 }
 
-fn bubble_hit_mask() -> &'static Mutex<Option<BubbleHitMask>> {
-    static MASK: OnceLock<Mutex<Option<BubbleHitMask>>> = OnceLock::new();
+fn bubble_hit_mask() -> &'static Mutex<Option<Arc<BubbleHitMask>>> {
+    static MASK: OnceLock<Mutex<Option<Arc<BubbleHitMask>>>> = OnceLock::new();
     MASK.get_or_init(|| Mutex::new(None))
 }
 
@@ -512,8 +512,8 @@ fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
     tauri::async_runtime::spawn(async move {
         let mut prev_interactive: Option<bool> = None;
         loop {
-            {
-                // Checked under the lock so a concurrent disable always wins.
+            // Copy the mask out so the cursor and window queries run unlocked.
+            let (win, mask) = {
                 let mut slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
                 if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
                     break;
@@ -524,15 +524,23 @@ fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
                     BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst);
                     break;
                 };
-                let interactive = is_bubble_dragging()
-                    || slot
-                        .as_ref()
-                        .is_none_or(|mask| cursor_over_bubble_hit_mask(&win, mask));
-                if prev_interactive != Some(interactive) {
-                    prev_interactive = Some(interactive);
+                (win, slot.clone())
+            };
+            let interactive = is_bubble_dragging()
+                || mask
+                    .as_deref()
+                    .is_none_or(|mask| cursor_over_bubble_hit_mask(&win, mask));
+            if prev_interactive != Some(interactive) {
+                {
+                    // Rechecked under the lock so a concurrent disable always wins.
+                    let _slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+                    if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
+                        break;
+                    }
                     let _ = win.set_ignore_cursor_events(!interactive);
-                    let _ = app.emit_to(BUBBLE_LABEL, BUBBLE_HOVER_EVENT, interactive);
                 }
+                prev_interactive = Some(interactive);
+                let _ = app.emit_to(BUBBLE_LABEL, BUBBLE_HOVER_EVENT, interactive);
             }
             tokio::select! {
                 _ = tokio::time::sleep(BUBBLE_HIT_TRACK_INTERVAL) => {}
@@ -574,7 +582,7 @@ pub async fn set_bubble_hit_mask(
         }
         _ => {}
     }
-    *slot = mask;
+    *slot = mask.map(Arc::new);
     Ok(())
 }
 
