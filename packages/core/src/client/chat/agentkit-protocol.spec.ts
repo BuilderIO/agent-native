@@ -1087,6 +1087,106 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(resumed.at(-1)?.type).toBe("run.completed");
   });
 
+  it("settles an excluded decline after the backing run has expired", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async readRunState() {
+          return { status: "missing" };
+        },
+        async subscribe() {
+          return noEvents();
+        },
+      }),
+    );
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "expired-run",
+        requestId: "expired-request",
+        response: { status: "declined" },
+      }),
+    ).resolves.toBeUndefined();
+    await transport.dispose();
+  });
+
+  it("restores the pending request before declining an excluded provider", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    const subscribe = vi.fn(async () => {
+      return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield {
+          type: "connection-request",
+          requestId: "restored-request",
+          provider: "gong",
+          reason: "connect",
+        };
+      })();
+    });
+    const continueTurn = vi.fn(async () => ({
+      id: "turn-2",
+      runId: "run-2",
+      sessionId: "thread-1",
+      events: noEvents(),
+    }));
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "run-1",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+            continueTurn,
+          };
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "run-1",
+            turnId: "turn-1",
+            terminalReason: null,
+          };
+        },
+        subscribe,
+      }),
+    );
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "run-1",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-1", after: 0 }),
+    );
+    expect(continueTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnId: "turn-1",
+        connection: { id: "gong", status: "declined" },
+      }),
+    );
+    await transport.dispose();
+  });
+
   it("terminates a paused run when connection setup fails", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

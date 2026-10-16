@@ -4144,12 +4144,33 @@ export function createAgentKitProtocolAdapter(
   if (runtime.capabilities.rich?.connectionRequests) {
     transport.resolveConnectionRequest = async (input) => {
       pruneRetainedRuns();
-      const run = findRun(input.threadId, input.runId);
+      let run = findRun(input.threadId, input.runId);
       if (!run) {
-        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        if (runs.has(input.runId)) {
+          throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        }
+        try {
+          run = await restoreRunFromRuntime(input);
+        } catch (error) {
+          if (
+            input.response.status === "declined" &&
+            error instanceof Error &&
+            error.message === `Unknown AgentKit run: ${input.runId}`
+          ) {
+            return;
+          }
+          throw error;
+        }
+        if (run.pumpPromise) await run.pumpPromise;
       }
       touchRun(run);
       if (run.pendingConnectionRequestId !== input.requestId) {
+        const staleDecline =
+          input.response.status === "declined" &&
+          (run.terminal ||
+            (run.initialAuthorityRead?.kind === "read" &&
+              run.initialAuthorityRead.state.status !== "running"));
+        if (staleDecline) return;
         throw new Error(
           `Connection response ${input.requestId} does not match pending request ${run.pendingConnectionRequestId ?? "<none>"}.`,
         );
