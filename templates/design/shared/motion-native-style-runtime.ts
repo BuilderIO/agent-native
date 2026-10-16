@@ -221,7 +221,7 @@ export function motionNativeStyleEndTimeMs(
     style.timelineOffset + delaySeconds + style.duration > 120
   ) {
     invalid(
-      "Native Figma duration must be positive and offsets and delays non-negative.",
+      "Imported motion duration must be positive and offsets and delays non-negative.",
     );
   }
   return (style.timelineOffset + delaySeconds + style.duration) * 1000;
@@ -251,7 +251,7 @@ export function motionNativeStylesToTracks(
   });
 }
 
-/** Derives local text-unit runtime tracks without changing Figma source props. */
+/** Derives local text-unit runtime tracks without changing imported source props. */
 export function motionNativeStylesToTextAnimations(
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTextAnimation[] {
@@ -297,7 +297,7 @@ export function motionTextDocumentWithNativeStyles(
     if (keys.has(key)) {
       throw new MotionNativeStyleRuntimeError(
         "unsupported-style",
-        `Native Figma TextStagger for target "${animation.targetNodeId}" duplicates an authored Motion Text property. Remove one of the duplicate tracks before previewing.`,
+        `Imported Text Stagger for target "${animation.targetNodeId}" duplicates an authored Motion Text property. Remove one of the duplicate tracks before previewing.`,
       );
     }
     keys.add(key);
@@ -330,7 +330,7 @@ export function motionNativeStyleWithPositionTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Position edits must target their source Position style.",
+      "Imported Position edits must target their source Position style.",
     );
   }
 
@@ -346,7 +346,7 @@ export function motionNativeStyleWithPositionTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Position edits must keep the two source endpoints.",
+      "Imported Position edits must keep the two source endpoints.",
     );
   }
 
@@ -355,7 +355,7 @@ export function motionNativeStyleWithPositionTrack(
   if (!start || !end) {
     throw new MotionNativeStyleRuntimeError(
       "invalid-style-props",
-      "Native Figma Position endpoints must remain finite px values.",
+      "Imported Position endpoints must remain finite px values.",
     );
   }
 
@@ -376,7 +376,7 @@ export function motionNativeStyleWithPositionTrack(
     if (!isMotionPathSegmentV1(startFrame.motionPath)) {
       throw new MotionNativeStyleRuntimeError(
         "invalid-style-props",
-        "Native Figma Position path must use the version 1 cubic format.",
+        "Imported Position path must use the version 1 cubic format.",
       );
     }
     props.motionPath = {
@@ -409,7 +409,7 @@ export function motionNativeStyleWithPathTrimTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Path edits must target their source Path style.",
+      "Imported Path edits must target their source Path style.",
     );
   }
 
@@ -425,7 +425,7 @@ export function motionNativeStyleWithPathTrimTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Path edits must keep two start/end trim endpoints.",
+      "Imported Path edits must keep two start/end trim endpoints.",
     );
   }
 
@@ -434,7 +434,7 @@ export function motionNativeStyleWithPathTrimTrack(
   if (!start || !end) {
     throw new MotionNativeStyleRuntimeError(
       "invalid-style-props",
-      "Native Figma Path endpoints must be start/end percentages between 0 and 100.",
+      "Imported Path endpoints must be start/end percentages between 0 and 100.",
     );
   }
 
@@ -459,7 +459,7 @@ function pathTrimTracks(style: MotionNativeStyleInstance): MotionTrack[] {
   if (type !== "draw" && type !== "custom") {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      `Native Figma Path type "${type}" is preserved in source but is not supported by the local path-trim adapter.`,
+      `Imported Path type "${type}" is preserved in source but is not supported by the local path-trim adapter.`,
     );
   }
   const values = [
@@ -476,7 +476,7 @@ function pathTrimTracks(style: MotionNativeStyleInstance): MotionTrack[] {
     if (start < 0 || start > 100 || end < 0 || end > 100) {
       throw new MotionNativeStyleRuntimeError(
         "invalid-style-props",
-        "Native Figma Path trim endpoints must be percentages between 0 and 100.",
+        "Imported Path trim endpoints must be percentages between 0 and 100.",
       );
     }
   }
@@ -570,7 +570,7 @@ function positionTracks(style: MotionNativeStyleInstance): MotionTrack[] {
 function readMotionPath(value: MotionNativeStyleJsonValue | undefined) {
   if (value === undefined || value === null) return null;
   if (!isMotionPathSegmentV1(value)) {
-    invalid("Native Figma Position path must use the version 1 cubic format.");
+    invalid("Imported Position path must use the version 1 cubic format.");
   }
   return value;
 }
@@ -714,11 +714,11 @@ function textStaggerAnimations(
   );
   const animationDirection = text(props.animationDirection, "in");
   if (animationDirection !== "in" && animationDirection !== "out") {
-    invalid("Native Figma TextStagger animationDirection must be in or out.");
+    invalid("Imported Text Stagger animationDirection must be in or out.");
   }
   const overlap = numeric(props.presetStaggerOverlap, 50);
   if (overlap < 0 || overlap > 100) {
-    invalid("Native Figma TextStagger overlap must be between 0 and 100.");
+    invalid("Imported Text Stagger overlap must be between 0 and 100.");
   }
   const durationMs = Math.round(style.duration * 1000);
   const staggerMs = Math.round((durationMs * (100 - overlap)) / 100);
@@ -792,7 +792,7 @@ function textStaggerAnimations(
       rotationDirection !== "counterclockwise"
     ) {
       invalid(
-        "Native Figma TextStagger rotationDirection must be clockwise or counterclockwise.",
+        "Imported Text Stagger rotationDirection must be clockwise or counterclockwise.",
       );
     }
     const clockwise = rotationDirection === "clockwise";
@@ -888,7 +888,7 @@ function textStaggerUnit(value: string): MotionTextAnimation["unit"] {
   };
   const unit = units[value];
   if (!unit) {
-    invalid(`Native Figma TextStagger grouping "${value}" is unsupported.`);
+    invalid(`Imported Text Stagger grouping "${value}" is unsupported.`);
   }
   return unit;
 }
@@ -911,7 +911,7 @@ function textStaggerOrder(
   if (value === "TOP_BOTTOM" || value === "BOTTOM_TOP") {
     unsupportedTextStaggerProp("textDelayOrder");
   }
-  invalid(`Native Figma TextStagger order "${value}" is unsupported.`);
+  invalid(`Imported Text Stagger order "${value}" is unsupported.`);
 }
 
 function booleanProp(
@@ -921,7 +921,7 @@ function booleanProp(
 ): boolean {
   if (value === undefined) return fallback;
   if (typeof value !== "boolean") {
-    invalid(`Native Figma TextStagger ${property} must be a boolean.`);
+    invalid(`Imported Text Stagger ${property} must be a boolean.`);
   }
   return value;
 }
@@ -933,7 +933,7 @@ function textAnimationKey(animation: MotionTextAnimation): string {
 function unsupportedTextStaggerProp(property: string): never {
   throw new MotionNativeStyleRuntimeError(
     "unsupported-style",
-    `Native Figma TextStagger property "${property}" is preserved in source but is not supported by the local text runtime yet.`,
+    `Imported Text Stagger property "${property}" is preserved in source but is not supported by the local text runtime yet.`,
   );
 }
 
@@ -983,7 +983,7 @@ function easing(value: MotionNativeStyleJsonValue | undefined): string {
       });
     }
   }
-  invalid("Native Figma easing is not supported by the CSS runtime adapter.");
+  invalid("Imported easing is not supported by the CSS runtime adapter.");
 }
 
 function numeric(
@@ -992,7 +992,7 @@ function numeric(
 ): number {
   if (value === undefined) return fallback;
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    invalid("Native Figma motion property must be a finite number.");
+    invalid("Imported motion property must be a finite number.");
   }
   return value;
 }
@@ -1003,7 +1003,7 @@ function text(
 ): string {
   if (value === undefined) return fallback;
   if (typeof value !== "string")
-    invalid("Native Figma motion property must be a string.");
+    invalid("Imported motion property must be a string.");
   return value;
 }
 

@@ -661,7 +661,7 @@ export default defineAction({
       )
       .optional()
       .describe(
-        "Lossless native Figma Motion style instances stored in the versioned " +
+        "Lossless imported Motion style instances stored in the versioned " +
           "source metadata. Omit to preserve existing instances; provide an " +
           "array to replace them or [] to clear them.",
       ),
@@ -1126,7 +1126,7 @@ export default defineAction({
       fail(
         error instanceof MotionNativeStyleInstanceError
           ? `${error.message}${error.path ? ` (${error.path})` : ""}`
-          : "Invalid native Figma Motion styles.",
+          : "Invalid imported Motion styles.",
         {
           errorCode: "motion_native_style_invalid",
           statusCode: 422,

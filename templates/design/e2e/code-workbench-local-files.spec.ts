@@ -32,7 +32,7 @@ import { createRoot } from "react-dom/client";
 function PrimaryButton({ variant = "primary", children, ...props }) {
   const buttonRef = (button) => {
     if (!button) return;
-    Object.defineProperty(button, "__reactFiber$component-parity", {
+    Object.defineProperty(button, "__reactFiber$component-url", {
       configurable: true,
       enumerable: true,
       value: {
@@ -876,7 +876,7 @@ test.fixme("promotes and edits a URL-backed React component through the live ifr
   ).toBeVisible();
   await cdpScreenshot(
     page,
-    testInfo.outputPath("url-react-component-parity.png"),
+    testInfo.outputPath("url-react-component-contract.png"),
   );
 });
 

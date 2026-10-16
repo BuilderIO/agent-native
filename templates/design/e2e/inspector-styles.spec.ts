@@ -188,7 +188,6 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
   expectOnlyChanged(before, after, ["heading"]);
 });
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
   app,
 }) => {

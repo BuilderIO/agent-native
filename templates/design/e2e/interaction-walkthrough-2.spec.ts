@@ -202,7 +202,7 @@ async function chooseWidthMenuItem(page: Page, item: RegExp) {
 }
 
 test.describe("interaction: responsive card with auto layout and constraints", () => {
-  test("step 1-2: Frame tool draws a board frame outside any screen; rename, corner radius, and drop shadow commit via the inspector", async ({
+  test("Frame tool draws a board frame outside any screen; inspector edits commit rename, corner radius, and drop shadow", async ({
     app,
     page,
   }) => {
@@ -325,7 +325,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  test("step 3-4 (crossing the screen boundary): Option-dragging a board frame into an in-screen frame drops a copy at the drop point and leaves the original; Shift+Arrow nudges the copy 10px", async ({
+  test("Option-dragging a board frame into an in-screen frame drops a copy at the drop point, keeps the original, and Shift+Arrow nudges the copy 10px", async ({
     app,
     page,
   }) => {
@@ -395,7 +395,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
   });
 
   // fixme: product bug: Add auto layout stretches the creator text from its 30px hug width to the wrapper's 117px. The wrapper is saved without align-items, so
-  test.fixme("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
+  test.fixme("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
     app,
     page,
   }) => {
@@ -462,7 +462,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
   });
 
   // fixme: product bug: The Min width inspector field clips its value: it holds '200px' but shows '200p:' (scrollWidth > clientWidth). The card's Gap field also
-  test.fixme("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
+  test.fixme("Fill width stretches a card child to the card's content box, and min width commits on the card", async ({
     app,
     page,
   }) => {

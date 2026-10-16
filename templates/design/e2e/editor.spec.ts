@@ -430,7 +430,7 @@ test("screen overview adds, targets and removes breakpoints from the unified con
   await expect.poll(() => savedWidths(id)).toStrictEqual([]);
 });
 
-test("the frame + offers the next standard breakpoint and skips one equal to the screen's own width", async ({
+test("the frame + offers the next built-in breakpoint and skips one equal to the screen's own width", async ({
   app,
 }) => {
   const page = app.page;

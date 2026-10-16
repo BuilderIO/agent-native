@@ -1,6 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
@@ -8,13 +5,7 @@ import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
 import { motionNativeStylesToTracks } from "../shared/motion-native-style-runtime";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
-import {
-  cdpScreenshot,
-  designFrame,
-  enableLab,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
 
 let designId: string;
 let fileId: string;
@@ -70,117 +61,12 @@ async function getAction(
   return response.json();
 }
 
-async function captureMotionStep(
-  page: import("@playwright/test").Page,
-  stepId: string,
-): Promise<void> {
-  await page.waitForTimeout(300);
-  const artifactDirectory = path.resolve(
-    import.meta.dirname,
-    "../../../.tmp/design-motion-parity",
-  );
-  await mkdir(artifactDirectory, { recursive: true });
-  const state = await page
-    .getByRole("region", { name: "Motion dock" })
-    .first()
-    .evaluate((dock) => {
-      const rect = dock.getBoundingClientRect();
-      const viewport = {
-        width: window.innerWidth,
-        height: window.innerHeight,
-      };
-      const measuredShellRegions = Array.from(
-        document.querySelectorAll<HTMLElement>(
-          "nav, aside, main, [role=navigation], [role=complementary], [role=main], [data-design-chrome-region='left-shell'], [data-design-chrome-region='right-panel'], [data-design-chrome-region='top-bar']",
-        ),
-      ).map((element) => {
-        const regionRect = element.getBoundingClientRect();
-        return {
-          tag: element.tagName.toLowerCase(),
-          role: element.getAttribute("role"),
-          label:
-            element.getAttribute("aria-label") ??
-            element.getAttribute("aria-labelledby"),
-          chromeRegion: element.getAttribute("data-design-chrome-region"),
-          className:
-            typeof element.className === "string" ? element.className : "",
-          rect: {
-            x: regionRect.x,
-            y: regionRect.y,
-            width: regionRect.width,
-            height: regionRect.height,
-          },
-        };
-      });
-      return {
-        text: (dock as HTMLElement).innerText,
-        viewport,
-        rect: {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        },
-        shellRegions: measuredShellRegions,
-        spans: Array.from(
-          dock.querySelectorAll<HTMLElement>('[role="slider"]'),
-        ).map((element) => {
-          const spanRect = element.getBoundingClientRect();
-          const rowRect = element.parentElement?.getBoundingClientRect();
-          return {
-            label: element.getAttribute("aria-label"),
-            startMs: element.getAttribute("aria-valuenow"),
-            range: element.getAttribute("aria-valuetext"),
-            rect: {
-              x: spanRect.x,
-              y: spanRect.y,
-              width: spanRect.width,
-              height: spanRect.height,
-            },
-            rowRect: rowRect
-              ? {
-                  x: rowRect.x,
-                  y: rowRect.y,
-                  width: rowRect.width,
-                  height: rowRect.height,
-                }
-              : null,
-          };
-        }),
-        controls: Array.from(
-          dock.querySelectorAll<HTMLElement>(
-            "button,input,[role=slider],[role=checkbox]",
-          ),
-        ).map((element) => ({
-          role: element.getAttribute("role") ?? element.tagName.toLowerCase(),
-          label:
-            element.getAttribute("aria-label") ??
-            element.getAttribute("title") ??
-            element.textContent?.trim() ??
-            "",
-          value:
-            (element as HTMLInputElement).value ||
-            element.getAttribute("aria-valuenow"),
-          disabled:
-            (element as HTMLButtonElement).disabled ||
-            element.getAttribute("aria-disabled") === "true",
-        })),
-      };
-    });
-  await writeFile(
-    path.join(artifactDirectory, `${stepId}.json`),
-    `${JSON.stringify({ step_id: stepId, state }, null, 2)}\n`,
-    "utf8",
-  );
-  await cdpScreenshot(page, path.join(artifactDirectory, `${stepId}.png`));
-}
-
 test.beforeAll(async ({ request }, workerInfo) => {
   baseURLForActions =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
 
   const created = await postAction(request, "create-design", {
-    title: "Motion Browser Parity",
+    title: "Motion Browser Test",
     projectType: "prototype",
   });
   designId = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -217,6 +103,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   request,
 }) => {
   test.setTimeout(240_000);
+  const syntheticTimelineDurationMs = 4000;
   await page.setViewportSize({ width: 1728, height: 941 });
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -242,106 +129,105 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await expect(
     page.getByText("Pick a property to add the first track.", { exact: false }),
   ).toBeVisible();
-  await captureMotionStep(page, "motion-01-empty-dock");
 
-  const figmaComparableTimeline = await postAction(
-    request,
-    "apply-motion-edit",
-    {
-      designId,
-      fileId,
-      sourceRef: fileId,
-      durationMs: 3601,
-      playbackMode: "once",
-      defaultEase: "ease",
-      tracks: [
-        {
-          targetNodeId: "e2e-alpha-button",
-          property: "translate",
-          keyframes: [
-            { t: 1200 / 3601, value: "0px 0px", ease: "linear" },
-            {
-              t: 1603 / 3601,
-              value: "0px -20px",
-              ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
-            },
-            {
-              t: 1999 / 3601,
-              value: "0px 20px",
-              ease: "cubic-bezier(1, 0, 1, 1)",
-            },
-            {
-              t: 2398 / 3601,
-              value: "0px -20px",
-              ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
-            },
-            {
-              t: 2804 / 3601,
-              value: "0px -20px",
-              ease: "cubic-bezier(1, 0, 1, 1)",
-            },
-            {
-              t: 3202 / 3601,
-              value: "0px 20px",
-              ease: "cubic-bezier(1, 0, 1, 1)",
-            },
-            {
-              t: 1,
-              value: "0px -20px",
-              ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
-            },
-          ],
-        },
-        {
-          targetNodeId: "e2e-alpha-button",
-          property: "scale",
-          durationMs: 1000,
-          keyframes: [
-            {
-              t: 0,
-              value: "0.1",
-              ease: "cubic-bezier(0.5, 0, 0.5, 1)",
-            },
-            { t: 1, value: "1" },
-          ],
-        },
-      ],
-    },
-  );
-  expect(figmaComparableTimeline.persisted).toBe(true);
-  const importedFigmaMotion = await getAction(request, "get-motion-timeline", {
+  const initialTimelineSave = await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: syntheticTimelineDurationMs,
+    playbackMode: "once",
+    defaultEase: "ease",
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          {
+            t: 500 / syntheticTimelineDurationMs,
+            value: "0px 0px",
+            ease: "linear",
+          },
+          {
+            t: 1000 / syntheticTimelineDurationMs,
+            value: "0px -20px",
+            ease: "ease-in",
+          },
+          {
+            t: 1500 / syntheticTimelineDurationMs,
+            value: "0px 20px",
+            ease: "ease-out",
+          },
+          {
+            t: 2000 / syntheticTimelineDurationMs,
+            value: "0px -20px",
+            ease: "ease-in",
+          },
+          {
+            t: 2500 / syntheticTimelineDurationMs,
+            value: "0px -20px",
+            ease: "ease-out",
+          },
+          {
+            t: 3000 / syntheticTimelineDurationMs,
+            value: "0px 20px",
+            ease: "ease-out",
+          },
+          {
+            t: 1,
+            value: "0px -20px",
+            ease: "ease-in",
+          },
+        ],
+      },
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "scale",
+        durationMs: 1000,
+        keyframes: [
+          {
+            t: 0,
+            value: "0.1",
+            ease: "cubic-bezier(0.5, 0, 0.5, 1)",
+          },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  });
+  expect(initialTimelineSave.persisted).toBe(true);
+  const savedMotionTimeline = await getAction(request, "get-motion-timeline", {
     designId,
     sourceRef: fileId,
   });
-  const importedTracks = importedFigmaMotion.timelines?.[0]?.tracks ?? [];
-  const importedPosition = importedTracks.find(
+  const savedTracks = savedMotionTimeline.timelines?.[0]?.tracks ?? [];
+  const savedPosition = savedTracks.find(
     (track: { targetNodeId: string; property: string }) =>
       track.targetNodeId === "e2e-alpha-button" &&
       track.property === "translate",
   );
   expect(
-    importedPosition?.keyframes.map(
+    savedPosition?.keyframes.map(
       (keyframe: { t: number; value: string; ease?: string }) => [
-        Math.round(keyframe.t * 3601),
+        Math.round(keyframe.t * syntheticTimelineDurationMs),
         keyframe.value,
         keyframe.ease,
       ],
     ),
   ).toEqual([
-    [1200, "0px 0px", "linear"],
-    [1603, "0px -20px", "cubic-bezier(0, 0.9971093535, 1, 1)"],
-    [1999, "0px 20px", "cubic-bezier(1, 0, 1, 1)"],
-    [2398, "0px -20px", "cubic-bezier(0, 0.9971093535, 1, 1)"],
-    [2804, "0px -20px", "cubic-bezier(1, 0, 1, 1)"],
-    [3202, "0px 20px", "cubic-bezier(1, 0, 1, 1)"],
-    [3601, "0px -20px", "cubic-bezier(0, 0.9971093535, 1, 1)"],
+    [500, "0px 0px", "linear"],
+    [1000, "0px -20px", "ease-in"],
+    [1500, "0px 20px", "ease-out"],
+    [2000, "0px -20px", "ease-in"],
+    [2500, "0px -20px", "ease-out"],
+    [3000, "0px 20px", "ease-out"],
+    [4000, "0px -20px", "ease-in"],
   ]);
-  const importedScale = importedTracks.find(
+  const savedScale = savedTracks.find(
     (track: { targetNodeId: string; property: string }) =>
       track.targetNodeId === "e2e-alpha-button" && track.property === "scale",
   );
   expect(
-    importedScale?.keyframes.map(
+    savedScale?.keyframes.map(
       (keyframe: { t: number; value: string; ease?: string }) => [
         keyframe.t,
         keyframe.value,
@@ -355,26 +241,27 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
-  const referenceDock = page
+  const savedTimelineDock = page
     .getByRole("region", { name: "Motion dock" })
     .first();
   await expect(
-    referenceDock.getByRole("textbox", { name: "Duration" }),
-  ).toHaveValue("3601");
-  const referencePlayhead = referenceDock.getByLabel("Current time");
-  await referencePlayhead.fill("3601");
-  await referencePlayhead.press("Tab");
-  const referenceRows = referenceDock.locator("[data-motion-track-row]");
-  await expect(referenceRows).toHaveCount(2);
-  for (const timeMs of [1200, 1603, 1999, 2398, 2804, 3202, 3601]) {
+    savedTimelineDock.getByRole("textbox", { name: "Duration" }),
+  ).toHaveValue(String(syntheticTimelineDurationMs));
+  const savedTimelinePlayhead = savedTimelineDock.getByLabel("Current time");
+  await savedTimelinePlayhead.fill(String(syntheticTimelineDurationMs));
+  await savedTimelinePlayhead.press("Tab");
+  const savedTimelineRows = savedTimelineDock.locator(
+    "[data-motion-track-row]",
+  );
+  await expect(savedTimelineRows).toHaveCount(2);
+  for (const timeMs of [500, 1000, 1500, 2000, 2500, 3000, 4000]) {
     await expect(
-      referenceRows.first().getByLabel(`Keyframe at ${timeMs}ms`),
+      savedTimelineRows.first().getByLabel(`Keyframe at ${timeMs}ms`),
     ).toBeVisible();
   }
   await expect(
-    referenceRows.nth(1).getByLabel("Keyframe at 1000ms"),
+    savedTimelineRows.nth(1).getByLabel("Keyframe at 1000ms"),
   ).toBeVisible();
-  await captureMotionStep(page, "motion-figma-comparable");
 
   const animationStyleTrigger = page.getByRole("button", {
     name: "Animations",
@@ -392,7 +279,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await expect(
     animationStyleBrowser.getByRole("button", { name: "Path" }),
   ).toBeDisabled();
-  await captureMotionStep(page, "motion-animation-style-browser");
 
   const opacityPresetSave = page.waitForResponse(
     (response) =>
@@ -415,7 +301,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await styleDescription.fill("Source-backed opacity motion");
   await page.getByRole("button", { name: "Add animation" }).last().click();
   await page.getByRole("menuitem", { name: "Opacity", exact: true }).click();
-  await captureMotionStep(page, "motion-animation-style-create");
 
   const styleSave = page.waitForResponse(
     (response) =>
@@ -473,18 +358,18 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   ).toBe(true);
   await page.getByRole("button", { name: "Close" }).click();
 
-  const savedReferenceTimeline = await getAction(
+  const timelineAfterStyleSave = await getAction(
     request,
     "get-motion-timeline",
     { designId, sourceRef: fileId },
   );
-  const referenceTimelineId = savedReferenceTimeline.timelines?.[0]?.id;
-  if (!referenceTimelineId) {
-    throw new Error("The Figma-comparable Motion timeline was not persisted.");
+  const initialTimelineId = timelineAfterStyleSave.timelines?.[0]?.id;
+  if (!initialTimelineId) {
+    throw new Error("The initial Motion timeline was not persisted.");
   }
   await postAction(request, "remove-motion-timeline", {
     designId,
-    timelineId: referenceTimelineId,
+    timelineId: initialTimelineId,
     fileId,
   });
   await gotoEditor(page, designId);
@@ -708,10 +593,9 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
       dock.locator('button[aria-label^="Play "]').getAttribute("aria-label"),
     )
     .toBe("Play loop");
-  const compareViewport = page.viewportSize();
+  const previousViewport = page.viewportSize();
   await page.setViewportSize({ width: 1728, height: 941 });
-  await captureMotionStep(page, "motion-figma-reference-equivalent");
-  if (compareViewport) await page.setViewportSize(compareViewport);
+  if (previousViewport) await page.setViewportSize(previousViewport);
   const pingPongModeSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -1058,14 +942,14 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
       response.request().method() === "POST",
     { timeout: 20_000 },
   );
-  await duration.fill("3601");
+  await duration.fill(String(syntheticTimelineDurationMs));
   await duration.press("Tab");
   const savedDuration = await durationSave;
   expect(savedDuration.ok(), await savedDuration.text()).toBe(true);
 
   const currentTime = dock.getByLabel("Current time");
   const positionTrack = dock.locator('[data-motion-property-row="translate"]');
-  for (const timeMs of [1200, 1800, 2400, 3000, 3400]) {
+  for (const timeMs of [800, 1600, 2400, 3200, 3600]) {
     await currentTime.fill(String(timeMs));
     await currentTime.press("Tab");
     const keyframeSave = page.waitForResponse(
@@ -1085,7 +969,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   }
 
   const zeroKeyframe = positionTimelineRow.getByLabel("Keyframe at 0ms");
-  const middleKeyframe = positionTimelineRow.getByLabel("Keyframe at 1200ms");
+  const middleKeyframe = positionTimelineRow.getByLabel("Keyframe at 800ms");
   await zeroKeyframe.click();
   await middleKeyframe.click({ modifiers: ["Shift"] });
   await expect(zeroKeyframe).toHaveAttribute("aria-pressed", "true");
@@ -1194,7 +1078,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     .poll(() => motionStyle.textContent())
     .not.toBe(endpointPathSource);
 
-  await currentTime.fill("3601");
+  await currentTime.fill(String(syntheticTimelineDurationMs));
   await currentTime.press("Tab");
   await expect(
     positionTrack.getByRole("button", { name: "Previous keyframe" }),
@@ -1202,10 +1086,9 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await positionTrack
     .getByRole("button", { name: "Previous keyframe" })
     .click();
-  await expect(currentTime).toHaveValue("3400");
-  await currentTime.fill("3601");
+  await expect(currentTime).toHaveValue("3600");
+  await currentTime.fill(String(syntheticTimelineDurationMs));
   await currentTime.press("Tab");
-  await captureMotionStep(page, "motion-02-position-scale-saved");
 
   const positionKeyframes = positionTimelineRow.locator(
     "[data-motion-keyframe]",
@@ -1272,15 +1155,16 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     (element) => getComputedStyle(element).translate,
   );
   await dock.getByRole("button", { name: "Play", exact: true }).click();
-  await expect(currentTime).toHaveValue("3601", { timeout: 5_000 });
+  await expect(currentTime).toHaveValue(String(syntheticTimelineDurationMs), {
+    timeout: 5_000,
+  });
   await expect
     .poll(
       () => target.evaluate((element) => getComputedStyle(element).translate),
       { timeout: 5_000, intervals: [50, 100, 150, 250, 500] },
     )
     .not.toBe(translateAtStart);
-  await expect(currentTime).toHaveValue("3601");
-  await captureMotionStep(page, "motion-03-playback");
+  await expect(currentTime).toHaveValue(String(syntheticTimelineDurationMs));
 
   await gotoEditor(page, designId);
   await expect
@@ -1293,19 +1177,20 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
   await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
-    "3601",
+    String(syntheticTimelineDurationMs),
   );
   await expect(
-    positionTimelineRow.getByLabel("Keyframe at 3601ms"),
+    positionTimelineRow.getByLabel(
+      `Keyframe at ${syntheticTimelineDurationMs}ms`,
+    ),
   ).toBeVisible();
   await expect(
     dock
       .locator('[data-motion-property-row="translate"]')
       .getByRole("button", { name: "Previous keyframe" }),
   ).toBeDisabled();
-  await captureMotionStep(page, "motion-04-reopened");
 
-  const keyframe = positionTimelineRow.getByLabel("Keyframe at 1200ms");
+  const keyframe = positionTimelineRow.getByLabel("Keyframe at 800ms");
   await keyframe.scrollIntoViewIfNeeded();
   await expect(keyframe).toBeInViewport();
   const keyframeBox = await keyframe.boundingBox();
@@ -1324,7 +1209,8 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await page.mouse.move(keyframeStartX, keyframeY);
   await page.mouse.down();
   await page.mouse.move(
-    keyframeStartX + ((1500 - 1200) / 3601) * trackBox.width,
+    keyframeStartX +
+      ((1200 - 800) / syntheticTimelineDurationMs) * trackBox.width,
     keyframeY,
     { steps: 5 },
   );
@@ -1332,7 +1218,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   const savedKeyframeMove = await keyframeSave;
   expect(savedKeyframeMove.ok(), await savedKeyframeMove.text()).toBe(true);
   await expect(
-    positionTimelineRow.getByLabel("Keyframe at 1500ms"),
+    positionTimelineRow.getByLabel("Keyframe at 1200ms"),
   ).toBeVisible();
 
   const easingSave = page.waitForResponse(
@@ -1401,7 +1287,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
       const resizedRange = await layerSpan.getAttribute("aria-valuetext");
       return Number(resizedRange?.split("–")[1]?.replace(/\D/g, ""));
     })
-    .toBeLessThan(3601);
+    .toBeLessThan(syntheticTimelineDurationMs);
   const resizedRange = await layerSpan.getAttribute("aria-valuetext");
   const resizedEnd = Number(resizedRange?.split("–")[1]?.replace(/\D/g, ""));
   expect(resizedEnd).toBeGreaterThan(3000);
@@ -1533,7 +1419,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   if (!mobileInspectorBox || !mobileDockBox) {
     throw new Error("The mobile inspector or Motion dock is not measurable.");
   }
-  await captureMotionStep(page, "motion-05-mobile-inspector");
   const pageWidths = await page.evaluate(() => ({
     innerWidth: window.innerWidth,
     clientWidth: document.documentElement.clientWidth,

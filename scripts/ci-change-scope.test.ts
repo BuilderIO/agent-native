@@ -133,24 +133,27 @@ test("normalizes paths from git output", () => {
 
 test("rejects runtime changes hidden under a test-only PR title", () => {
   assert.deepEqual(
-    runtimeSourceChangesInTestTitledPr("test: prove parity", [
-      "templates/design/actions/generate-design.ts",
-      "templates/design/app/pages/design-editor/editor-state.ts",
-      "templates/design/server/plugins/core-routes.ts",
-      "templates/design/shared/canvas-math.ts",
-      "templates/design/.generated/bridge/editor-chrome.generated.ts",
-      "packages/core/src/index.ts",
-      "templates/design/ssr-entry.ts",
-      "templates/design/agent-native.config.ts",
-      "templates/design/agent-native.json",
-      "templates/design/react-router.config.ts",
-      "templates/design/vite.config.ts",
-      "templates/design/public/logo.svg",
-      "templates/design/app/pages/design-editor/editor-state.spec.ts",
-      "templates/design/app/hooks/use-navigation-state.test.ts",
-      "templates/design/scripts/visual-edit-runtime-proof.ts",
-      "templates/slides/public/visual-edit-structure-proof.html",
-    ]),
+    runtimeSourceChangesInTestTitledPr(
+      "test: verify URL-backed visual editing",
+      [
+        "templates/design/actions/generate-design.ts",
+        "templates/design/app/pages/design-editor/editor-state.ts",
+        "templates/design/server/plugins/core-routes.ts",
+        "templates/design/shared/canvas-math.ts",
+        "templates/design/.generated/bridge/editor-chrome.generated.ts",
+        "packages/core/src/index.ts",
+        "templates/design/ssr-entry.ts",
+        "templates/design/agent-native.config.ts",
+        "templates/design/agent-native.json",
+        "templates/design/react-router.config.ts",
+        "templates/design/vite.config.ts",
+        "templates/design/public/logo.svg",
+        "templates/design/app/pages/design-editor/editor-state.spec.ts",
+        "templates/design/app/hooks/use-navigation-state.test.ts",
+        "templates/design/scripts/visual-edit-runtime-proof.ts",
+        "templates/slides/public/visual-edit-structure-proof.html",
+      ],
+    ),
     [
       "templates/design/actions/generate-design.ts",
       "templates/design/app/pages/design-editor/editor-state.ts",
@@ -167,9 +170,10 @@ test("rejects runtime changes hidden under a test-only PR title", () => {
     ],
   );
   assert.deepEqual(
-    runtimeSourceChangesInTestTitledPr("test(design)!: prove parity", [
-      "templates/design/app/pages/design-editor/editor-state.ts",
-    ]),
+    runtimeSourceChangesInTestTitledPr(
+      "test(design)!: verify URL-backed visual editing",
+      ["templates/design/app/pages/design-editor/editor-state.ts"],
+    ),
     ["templates/design/app/pages/design-editor/editor-state.ts"],
   );
   assert.deepEqual(

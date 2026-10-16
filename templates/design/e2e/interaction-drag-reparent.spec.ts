@@ -1333,7 +1333,6 @@ test.describe("drag reparent interaction", () => {
     expect(styleOf(reloadedBoardHtml, "widget")).toBe(boardStyle);
   });
 
-  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({
     app,
     page,

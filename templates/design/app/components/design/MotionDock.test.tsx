@@ -468,7 +468,7 @@ describe("Motion animation style menu", () => {
     });
   }
 
-  it("matches Figma's animation choices and order for text layers", async () => {
+  it("lists animation choices in order for text layers", async () => {
     await renderMenu(true);
     await openMenu("Add animation");
 
@@ -735,7 +735,7 @@ describe("MotionDock toolbar layout", () => {
     );
   });
 
-  it("formats ruler labels with Figma units", () => {
+  it("formats ruler labels with compact time units", () => {
     expect([0, 100, 900, 1000, 1500].map(formatMotionRulerTick)).toEqual([
       "0s",
       "100ms",
@@ -751,7 +751,7 @@ describe("MotionDock toolbar layout", () => {
     expect(markup).toContain(">900ms</span>");
   });
 
-  it("matches Figma's 100ms ruler spacing and labels at 62% zoom", () => {
+  it("labels ruler ticks at 100ms intervals at the default zoom", () => {
     const markup = render({ durationMs: 1000 });
     const ticks = Array.from(
       markup.matchAll(
@@ -910,7 +910,7 @@ describe("MotionDock selected animation settings", () => {
 });
 
 describe("MotionDock time units and Size preset", () => {
-  it("opens at Figma's observed timeline zoom level", async () => {
+  it("opens at the default timeline zoom level", async () => {
     await renderInteractive();
     const zoom = container.querySelector(
       "[data-motion-timeline-zoom] [role=slider]",
@@ -1124,7 +1124,7 @@ describe("MotionDock time units and Size preset", () => {
     expect(motionTimelineContentWidth(0.5)).toBe("100%");
   });
 
-  it("matches Figma's duration-bounded scrubber and timeline guidance", () => {
+  it("bounds the scrubber to the duration and exposes timeline guidance", () => {
     const markup = render({ tracks: sampleTracks, durationMs: 2000 });
 
     expect(markup).toContain(
@@ -1256,7 +1256,7 @@ describe("MotionDock — timeline body anatomy", () => {
 });
 
 describe("MotionDock keyframe selection and deletion", () => {
-  it("cycles playback once, loop, ping-pong, then once like Figma", async () => {
+  it("cycles playback through once, loop, and ping-pong modes", async () => {
     const onPlaybackModeChange = vi.fn();
     await renderInteractive({ tracks: sampleTracks, onPlaybackModeChange });
 
@@ -1279,7 +1279,7 @@ describe("MotionDock keyframe selection and deletion", () => {
     await cycle("ping-pong", "once");
   });
 
-  it("matches Figma's layer visibility control and updates its checked state", async () => {
+  it("toggles layer visibility and updates its checked state", async () => {
     const onToggleLayerHidden = vi.fn();
     await renderInteractive({ tracks: sampleTracks, onToggleLayerHidden });
     const visibility = container.querySelector<HTMLButtonElement>(

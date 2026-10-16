@@ -393,7 +393,7 @@ test.fixme("Shift+A on an element that already has auto layout wraps it in a new
 });
 
 // fixme: product bug, intermittent: after a screen duplicate the editor POSTs collab awareness to a stale room and gets 404
-test.fixme("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
+test.fixme("Cmd+D places screen duplicates in free slots above the source, and grouped undo/redo restores their positions", async ({
   app,
 }) => {
   const id = await app.seed(NAV_SCREEN, {
@@ -508,7 +508,7 @@ test.fixme("step 5 [overview, screens as top-level frames]: Cmd+D finds free slo
 });
 
 // fixme: product bug, intermittent: after a screen duplicate the editor GETs collab state and POSTs awareness to a stale room and gets 404
-test.fixme("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
+test.fixme("Cmd+D duplicates every selected screen in one undo step", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Source"), {

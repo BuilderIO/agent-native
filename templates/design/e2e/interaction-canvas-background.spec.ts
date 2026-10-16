@@ -365,7 +365,6 @@ test.fixme("dark: dragging a shape moves it by the drag and the canvas colour ne
   expect(await pixelAt(page, x, y)).toBe("26,26,26");
 });
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 // fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
 test.fixme("dark: grouping two shapes saves one group of both and the canvas colour never changes", async ({
   app,

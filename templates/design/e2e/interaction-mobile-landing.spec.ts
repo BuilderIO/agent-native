@@ -305,7 +305,7 @@ test.describe("mobile app build", () => {
     expectOnlyChanged(homeBefore, await app.savedNodes(id), []);
   });
 
-  test("step 18: Cmd+D three times on Card produces 4 identically-named copies, each directly above the previous, ending selection on the newest copy", async ({
+  test("Cmd+D three times on Card creates four identically named copies above each other and selects the newest copy", async ({
     app,
   }) => {
     const id = await openSeeded(app, MOBILE_HOME_HTML);
@@ -356,7 +356,7 @@ test.describe("mobile app build", () => {
       .toEqual([0]);
   });
 
-  test("step 20: renaming one duplicate's title in the Layers panel only changes that layer, leaving Header's greeting and the original Card untouched", async ({
+  test("renaming one duplicate's title in Layers changes only that layer and leaves Header's greeting and the original Card untouched", async ({
     app,
   }) => {
     const id = await openSeeded(app, MOBILE_HOME_HTML);
@@ -476,7 +476,7 @@ test.describe("mobile app build", () => {
 });
 
 test.describe("landing page build", () => {
-  test('step 18: alt-dragging HeroImage duplicates it (original stays put, copy moves, copy is selected); one undo ("undo the nudge") removes the copy and restores the original selection', async ({
+  test("Alt-dragging HeroImage duplicates it, keeps the original in place, selects the moved copy, and one undo restores the original selection", async ({
     app,
   }) => {
     const id = await openSeeded(app, LANDING_HTML);

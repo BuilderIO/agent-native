@@ -122,7 +122,6 @@ async function waitForGate(gate: Promise<void>, label: string) {
   }
 }
 
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("delayed Screen-root image upload stays with its original Screen", async ({
   app,
   page,
@@ -587,7 +586,6 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   }
 });
 
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name and how Interact is left and its frame swapped changed here.
 // fixme: product bug: After reload the client re-sends the rejected stale upload save (old #253b50 content + image URL) three times; the server answers 200
 test.fixme("active Screen upload conflict preserves SQL and live-collaboration source", async ({
   app,
@@ -1073,7 +1071,6 @@ test.fixme("active Screen upload conflict preserves SQL and live-collaboration s
   }
 });
 
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("accepted Screen-root image upload persists and renders its source", async ({
   app,
   page,
