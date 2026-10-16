@@ -272,6 +272,8 @@ function deriveRowFromThread(
     latestDate: Number(latest.internalDate ?? Date.now()),
     latestMessageId: latest.id ?? null,
     subject: getHeader(latest.payload?.headers, "Subject"),
+    // Stored HTML-escaped, as Gmail returns it; inboxRowToItem decodes it.
+    // Decoding here too would turn a sender's literal "&lt;" into "<".
     snippet: thread.snippet ?? latest.snippet ?? "",
     fromName: from.name,
     fromEmail: from.email,

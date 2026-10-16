@@ -708,6 +708,15 @@ const messages = {
     noSlides: "No slides to present",
     previousSlide: "Previous slide",
     nextSlide: "Next slide",
+    voiceNavigation: "Voice navigation",
+    voiceNavigationNextCommand: "Next slide",
+    voiceNavigationPreviousCommand: "Previous slide",
+    voiceNavigationHint: "Say “{{next}}” or “{{previous}}” to navigate.",
+    voiceNavigationListening: "Listening for “{{next}}” or “{{previous}}”.",
+    voiceNavigationUnavailable:
+      "Voice navigation isn't available in this browser.",
+    voiceNavigationError:
+      "Voice navigation stopped. Check microphone permission and connection, then try again.",
     exitPresentation: "Exit presentation",
     enterFullscreen: "Enter fullscreen",
     clickToEnterFullscreen: "Click to enter fullscreen",
@@ -822,6 +831,10 @@ const messages = {
     leaveWithoutSaving: "Exit without saving",
     editorMarkupNotSaved:
       "This edit wasn't saved because it would have added editor markup to the slide.",
+    historyStepConflict:
+      "This history step was skipped because it conflicts with the current presentation.",
+    historyStepFailed:
+      "This history step was skipped because it could not be applied.",
     textEditConflictNotSaved:
       "Your text edit wasn't saved because the same text was changed elsewhere at the same time.",
   },

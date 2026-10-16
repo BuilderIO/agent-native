@@ -106,6 +106,7 @@ async function fetchTranscript(recordingId: string) {
     recordingId: t.recordingId,
     language: t.language,
     status: t.status,
+    source: t.source,
     fullText: t.fullText,
     segments,
   };
@@ -499,6 +500,7 @@ async function addRecordingContext(
       recordingId: transcript.recordingId,
       language: transcript.language,
       status: transcript.status,
+      source: transcript.source,
       fullText: transcript.fullText,
       segments: transcript.segments,
     });

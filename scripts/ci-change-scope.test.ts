@@ -2411,6 +2411,75 @@ test("fails closed to AgentKit acceptance for unknown and empty scopes", () => {
   );
 });
 
+test("selects the deploy-path check for what a standalone Chat app installs", () => {
+  for (const path of [
+    "packages/core/src/server/auth.ts",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/agentkit/src/index.ts",
+    "packages/shared-app-config/templates.ts",
+    "packages/otel/src/index.ts",
+    "packages/recap-cli/src/index.ts",
+    "templates/chat/app/routes/_index.tsx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      true,
+      `${path} must select the deploy-path check`,
+    );
+  }
+
+  for (const path of [
+    "templates/calendar/app/routes/index.tsx",
+    "packages/dispatch/src/index.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      false,
+      `${path} cannot change a standalone Chat deploy`,
+    );
+  }
+});
+
+test("runs the deploy-path check for an edit to a guide it runs, even docs-only", () => {
+  for (const path of [
+    "packages/core/docs/content/node-js.mdx",
+    "packages/core/docs/content/docker.mdx",
+    "packages/core/docs/content/netlify.mdx",
+    "packages/core/docs/content/vercel.mdx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.docsOnly, true);
+    assert.equal(
+      scope.checks.deploy_paths,
+      true,
+      `${path} must select the deploy-path check`,
+    );
+  }
+
+  for (const path of [
+    "packages/core/docs/content/getting-started.mdx",
+    "packages/core/docs/content/locales/de-DE/docker.mdx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      false,
+      `${path} is not a guide the check runs`,
+    );
+  }
+});
+
+test("fails closed to the deploy-path check for unknown and empty scopes", () => {
+  assert.equal(classifyChangedPaths([]).checks.deploy_paths, true);
+  assert.equal(
+    classifyChangedPaths(["unknown-root-config.ts"]).checks.deploy_paths,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths(["scripts/qa-deploy-paths.ts"]).checks.deploy_paths,
+    true,
+  );
+});
+
 test("keeps package metadata targeted but runs the guards that scan it", () => {
   const scope = classifyChangedPaths(["templates/calendar/package.json"]);
 

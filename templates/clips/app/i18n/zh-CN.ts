@@ -599,6 +599,31 @@ const messages = {
     waiting: "等待…",
     nativeSpeechPrimary: "原生语音仍然是主要的转录来源。",
   },
+  transcriptImport: {
+    addFile: "添加文字记录文件",
+    imported: "已导入",
+    replaceTitle: "替换文字记录？",
+    replaceDescription: "{{fileName}} 将替换当前的文字记录。",
+    replace: "替换",
+    regenerateOverImportTitle: "替换导入的文字记录？",
+    regenerateOverImportDescription:
+      "根据录制音频生成的新文字记录将替换从文件导入的文字记录。",
+    added: "已添加文字记录",
+    replaced: "已替换文字记录",
+    failed: "无法添加文字记录",
+    invalidFile: "无法读取 {{fileName}}",
+    errorEmpty: "文件中没有文字记录内容。",
+    errorTooLarge: "文件太大，无法导入。",
+    errorNotUtf8: "文件不是 UTF-8 文本。请另存为 UTF-8 后重试。",
+    errorMissingTiming:
+      "第 {{line}} 行：应为字幕时间行，例如 00:00:01.000 --> 00:00:04.000。",
+    errorBadTiming: "第 {{line}} 行：无法读取字幕时间。",
+    errorBadRange: "第 {{line}} 行：字幕的结束时间早于开始时间。",
+    errorMissingTimestamp:
+      "第 {{line}} 行：应为开始时间，例如 0:21 或 [0:21]。",
+    errorOutOfOrder: "第 {{line}} 行：此时间早于上一个时间。",
+    errorPastEnd: "第 {{line}} 行：此时间晚于视频结束时间。",
+  },
   thumbnailPicker: {
     failedCapture: "捕捉帧失败",
     failedGif: "无法生成 GIF — 尝试更短的范围",

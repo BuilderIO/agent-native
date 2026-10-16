@@ -710,6 +710,17 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
+    voiceNavigation: "音声ナビゲーション",
+    voiceNavigationNextCommand: "次のスライド",
+    voiceNavigationPreviousCommand: "前のスライド",
+    voiceNavigationHint:
+      "「{{next}}」または「{{previous}}」と言うと移動します。",
+    voiceNavigationListening:
+      "「{{next}}」または「{{previous}}」を聞き取っています。",
+    voiceNavigationUnavailable:
+      "このブラウザーでは音声ナビゲーションを利用できません。",
+    voiceNavigationError:
+      "音声ナビゲーションが停止しました。マイクの権限と接続を確認して、もう一度お試しください。",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
@@ -825,6 +836,10 @@ const messages = {
     leaveWithoutSaving: "保存せずに終了",
     editorMarkupNotSaved:
       "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    historyStepConflict:
+      "現在のプレゼンテーションと競合するため、この履歴ステップはスキップされました。",
+    historyStepFailed:
+      "この履歴操作は適用できなかったため、スキップされました。",
     textEditConflictNotSaved:
       "同じテキストが同時に別の場所で変更されたため、テキストの編集は保存されませんでした。",
   },

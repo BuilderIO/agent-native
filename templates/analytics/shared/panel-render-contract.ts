@@ -8,6 +8,9 @@ import {
 import { axisDirection, isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
+  describeFunnelOutcomeProblems,
+  funnelOutcomeColumns,
+  funnelOutcomeKeys,
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
@@ -65,6 +68,7 @@ export const PANEL_CONFIG_KEYS = {
   seriesLabels: {},
   description: {},
   pivot: {},
+  funnelOutcomes: { onlyFor: ["funnel"] },
   stacked: {},
   legend: {},
   valueLabels: {},
@@ -256,6 +260,13 @@ const STRING_ARRAY_SHAPE: ConfigValueShape = {
   expected: "an array of result column names",
 };
 
+const FUNNEL_OUTCOME_FIELDS = [
+  "completedKey",
+  "leftKey",
+  "skippedKey",
+  "optionalKey",
+];
+
 const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   yKeys: STRING_ARRAY_SHAPE,
   rightYKeys: STRING_ARRAY_SHAPE,
@@ -283,6 +294,15 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
         STRING_ARRAY_SHAPE.valid(value.seriesOrder)),
     expected:
       "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
+  },
+  funnelOutcomes: {
+    valid: (value) =>
+      funnelOutcomeKeys(value) !== null &&
+      Object.keys(value as object).every((key) =>
+        FUNNEL_OUTCOME_FIELDS.includes(key),
+      ),
+    expected:
+      "an object with string completedKey and leftKey, and optional string skippedKey and optionalKey, each a result column name",
   },
 };
 
@@ -551,6 +571,13 @@ function collectMissingKeys(
     check(col?.linkKey, bound);
   }
   if (panel.chartType === "heatmap") check(config?.color, bound);
+  const outcomes =
+    panel.chartType === "funnel"
+      ? funnelOutcomeKeys(config?.funnelOutcomes)
+      : null;
+  for (const key of outcomes ? funnelOutcomeColumns(outcomes) : []) {
+    check(key, bound);
+  }
   return Array.from(missing);
 }
 
@@ -931,6 +958,7 @@ export function planPanelRender(
           limitChartRows(rows, panel.chartType),
           config?.xKey,
           config?.yKey,
+          config?.funnelOutcomes,
         )
       : null;
   const heatmap =
@@ -954,6 +982,14 @@ export function planPanelRender(
   const ignoredConfig = noRows
     ? []
     : collectIgnoredConfig(panel, yKeys, pivoted?.seriesKeys, missingKeys);
+  // A missing outcome column is already in missingKeys.
+  const outcomeProblems =
+    funnel?.outcomes && funnel.outcomes.missingColumns.length === 0
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
+  if (outcomeProblems) {
+    ignoredConfig.push({ key: "funnelOutcomes", reason: outcomeProblems });
+  }
 
   return {
     rows,
