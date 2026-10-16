@@ -2,6 +2,7 @@ import tailwindRuntimeUrl from "@tailwindcss/browser?url";
 import alpineRuntimeUrl from "alpinejs/dist/cdn.min.js?url";
 
 import { ensureGroupRuntime } from "../../../../shared/group-runtime";
+import { replaceForeignShaderRuntime } from "../../../../shared/shader-fills";
 import { runtimeSrcSpans } from "./runtime-src-spans";
 
 function absolute(url: string): string {
@@ -21,7 +22,7 @@ export function withLocalRuntimes(
   html: string,
   urls: { tailwind: string; alpine: string } = localRuntimeUrls(),
 ): string {
-  html = ensureGroupRuntime(html);
+  html = replaceForeignShaderRuntime(ensureGroupRuntime(html));
   if (!html || !/<script/i.test(html)) return html;
   const spans = runtimeSrcSpans(html);
   if (spans.length === 0) return html;

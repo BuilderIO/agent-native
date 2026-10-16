@@ -152,6 +152,7 @@ async function importFigBuffer({
     ...saved,
     stats: converted.stats,
     unresolvedImageRefCount: converted.stats.unresolvedImageRefCount,
+    skippedFrames: converted.skippedFrames.map((frame) => frame.frameName),
   };
 }
 

@@ -21,6 +21,7 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { shouldUseRuntimeLayerProjection } from "@/pages/design-editor/pending-edits";
+import { effectiveRelativePositionOffset } from "@/pages/design-editor/relative-position-offset";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 function getSourceParentNodeId(
@@ -134,11 +135,21 @@ export function runGetSelectedLayerSnapshots({
         : undefined;
       const styleSnapshotCaptureFailed =
         selectedInfo?.styleSnapshotCaptureFailed ? true : undefined;
+      const sourceRelativeOffset =
+        selectedInfo?.computedStyles?.position === "relative"
+          ? effectiveRelativePositionOffset(
+              selectedInfo.computedStyles,
+              selectedInfo.relativeContainingBlockDirection,
+            )
+          : undefined;
       snapshots.push({
         html,
         rootNodeId: node.dataAttributes["data-agent-native-node-id"] ?? node.id,
         sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: file.id,
+        ...(selectedInfo?.computedStyles?.position === "relative"
+          ? { sourceRelativeOffset }
+          : {}),
         portableStyleSnapshot,
         styleSnapshotCaptureFailed,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(
@@ -146,6 +157,8 @@ export function runGetSelectedLayerSnapshots({
           html,
         ),
         node,
+        repeat: selectedInfo?.repeat,
+        styleSnapshotReadOnDemand: selectedInfo?.styleSnapshotReadOnDemand,
         sourceIndex: node.source.start,
         tree: (tree ??= buildCodeLayerTree(projection)),
       });
@@ -188,6 +201,14 @@ export function runGetSelectedLayerSnapshots({
           selectedElement.id,
         sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: activeFile.id,
+        ...(selectedElement.computedStyles?.position === "relative"
+          ? {
+              sourceRelativeOffset: effectiveRelativePositionOffset(
+                selectedElement.computedStyles,
+                selectedElement.relativeContainingBlockDirection,
+              ),
+            }
+          : {}),
         portableStyleSnapshot: selectedElement.portableStyleSnapshot,
         styleSnapshotCaptureFailed: selectedElement.styleSnapshotCaptureFailed,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(
@@ -195,6 +216,8 @@ export function runGetSelectedLayerSnapshots({
           html,
         ),
         node,
+        repeat: selectedElement.repeat,
+        styleSnapshotReadOnDemand: selectedElement.styleSnapshotReadOnDemand,
         sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
         tree,
       });

@@ -84,7 +84,7 @@ Establece `visible: false` en un área de la aplicación mientras el lab que la 
 Una página de la aplicación suele empezar como un elemento de `extraTabs`, que se convierte en una página propia del grupo de la aplicación. Para tener más control, registra en el ámbito del módulo una `SettingsPageDefinition` (`id`, `group`, `order`, `label`, `icon`, `component` y, de forma opcional, `visible`, `subpages` y `searchEntries`) con `registerSettingsPages`. Una definición con el mismo ID que una página existente la reemplaza; así puede una aplicación sustituir una página de Core por su propia variante. Dispatch añade de esta forma su columna de roles de aplicación a Miembros:
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,

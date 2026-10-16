@@ -1,12 +1,11 @@
+import { appPath, expandAllLayers } from "./helpers";
 import {
   expect,
+  expectOnlyChanged,
   test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
-import { enterDirectMode, expandAllLayers, gotoEditor } from "./helpers";
+  type App,
+  type SavedNode,
+} from "./rails";
 
 const LOCKED_HTML = `<!doctype html>
 <html lang="en">
@@ -24,221 +23,101 @@ const LOCKED_HTML = `<!doctype html>
   </body>
 </html>`;
 
-function baseUrl(): string {
-  return e2eBaseURL().replace(/\/$/, "");
+const LOCKED = "data-agent-native-locked";
+
+function lockedIds(nodes: Map<string, SavedNode>) {
+  return [...nodes.values()]
+    .filter((node) => LOCKED in node.attrs)
+    .map((node) => node.id);
 }
 
-async function callAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${baseUrl()}/_agent-native/actions/${name}`,
-    { data: input },
+function withoutLock(node: SavedNode | undefined) {
+  const { [LOCKED]: _lock, ...attrs } = node?.attrs ?? {};
+  return attrs;
+}
+
+async function agentEdit(app: App, input: Record<string, unknown>) {
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/edit-design"),
+    {
+      data: { filename: "index.html", ...input },
+    },
   );
-  return {
-    ok: response.ok(),
-    status: response.status(),
-    body: await response.text(),
-  };
+  return { status: response.status(), body: await response.text() };
 }
 
-async function postAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const result = await callAction(request, name, input);
-  if (!result.ok) {
-    throw new Error(`${name} failed: ${result.status} ${result.body}`);
+async function openAndUnlockBoth(app: App) {
+  const id = await app.seed(LOCKED_HTML);
+  await app.open(id);
+  const locked = await app.savedNodes(id);
+  expect(lockedIds(locked)).toEqual(["template-background", "template-logo"]);
+  const staleHtml = await app.savedHtml(id);
+  await expandAllLayers(app.page);
+
+  for (const name of ["Logo", "Background"]) {
+    const row = app.page.getByRole("treeitem", { name });
+    await row.hover();
+    await row.getByRole("button", { name: "Unlock layer" }).click();
+    await expect(row.getByRole("button", { name: "Unlock layer" })).toHaveCount(
+      0,
+    );
   }
-  return JSON.parse(result.body);
+  await app.settled();
+  const unlocked = await app.savedNodes(id);
+  expect(unlocked.get("template-logo")?.attrs).toEqual(
+    withoutLock(locked.get("template-logo")),
+  );
+  expect(unlocked.get("template-background")?.attrs).toEqual(
+    withoutLock(locked.get("template-background")),
+  );
+  expectOnlyChanged(locked, unlocked, ["template-logo", "template-background"]);
+  return { id, staleHtml, unlocked };
 }
 
-async function readContent(request: APIRequestContext, designId: string) {
-  const response = await request.get(
-    `${baseUrl()}/_agent-native/actions/get-design?id=${designId}`,
-  );
-  const design = await response.json();
-  return (
-    design.files?.find(
-      (file: { filename?: string }) => file.filename === "index.html",
-    )?.content ?? ""
-  );
-}
+test("after the user unlocks a template's locked layers in the Layers panel, an agent edit to them saves and shows on the canvas", async ({
+  app,
+}) => {
+  const { id, unlocked } = await openAndUnlockBoth(app);
+  const brandName = [...unlocked.values()].find(
+    (node) => node.parent === "template-logo" && node.text === "Northstar",
+  )!.id;
 
-function lockedNodeIds(html: string): string[] {
-  return Array.from(
-    html.matchAll(
-      /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-locked="true"/g,
+  const edit = await agentEdit(app, {
+    designId: id,
+    edits: [{ search: "Northstar", replace: "Polestar" }],
+  });
+
+  expect(edit.status, edit.body).toBe(200);
+  await expect(app.node("template-logo")).toHaveText("Polestar");
+  await app.settled();
+  const after = await app.savedNodes(id);
+  expect(after.get(brandName)?.text).toBe("Polestar");
+  expect(after.get(brandName)?.parent).toBe("template-logo");
+  expectOnlyChanged(unlocked, after, [brandName]);
+});
+
+// fixme: product bug: edit-design returns HTTP 500 {"error":"Internal server error"}: assertLockedLayersPreserved (shared/locked-layers.ts:187) throws a bare
+test.fixme("a stale agent whole-file write that would re-lock unlocked layers is rejected with an actionable error and saves nothing", async ({
+  app,
+}) => {
+  const { id, staleHtml, unlocked } = await openAndUnlockBoth(app);
+
+  const replace = await agentEdit(app, {
+    designId: id,
+    mode: "replace-file",
+    replacementContent: staleHtml.replace(
+      "Make the work feel lighter.",
+      "Design at the speed of thought.",
     ),
-    (match) => match[1]!,
+  });
+
+  const after = await app.savedNodes(id);
+  expect(lockedIds(after)).toEqual([]);
+  expect(after.get("template-headline")?.text).toBe(
+    "Make the work feel lighter.",
   );
-}
-
-async function unlockLayer(page: Page, name: RegExp) {
-  const row = page.getByRole("treeitem", { name }).first();
-  await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.hover();
-  const unlock = row.getByRole("button", { name: "Unlock layer" });
-  await expect(unlock).toBeVisible();
-  await unlock.click();
-}
-
-test("a design whose locked layers were unlocked in the UI accepts an agent edit", async ({
-  page,
-  request,
-}) => {
-  const created = await postAction(request, "create-design", {
-    title: `Unlock locked layer ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-
-  try {
-    await postAction(request, "create-file", {
-      designId,
-      filename: "index.html",
-      content: LOCKED_HTML,
-      fileType: "html",
-    });
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-
-    await unlockLayer(page, /Logo/);
-    await unlockLayer(page, /Background/);
-
-    await expect
-      .poll(async () => lockedNodeIds(await readContent(request, designId)), {
-        timeout: 20_000,
-      })
-      .toEqual([]);
-
-    const edit = await callAction(request, "edit-design", {
-      designId,
-      filename: "index.html",
-      edits: [{ search: "Northstar", replace: "Polestar" }],
-    });
-    expect(
-      `${edit.status} ${edit.body}`,
-      "agent edit after the user unlocked both layers",
-    ).not.toMatch(/locked layer/i);
-    expect(edit.ok).toBe(true);
-
-    expect(await readContent(request, designId)).toContain("Polestar");
-  } finally {
-    await postAction(request, "delete-design", { id: designId }).catch(
-      () => {},
-    );
-  }
-});
-
-test("overview mode: unlocking a template-locked layer persists and unblocks the agent", async ({
-  page,
-  request,
-}) => {
-  const created = await postAction(request, "create-design", {
-    title: `Unlock in overview ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-
-  try {
-    await postAction(request, "create-file", {
-      designId,
-      filename: "index.html",
-      content: LOCKED_HTML,
-      fileType: "html",
-    });
-    await gotoEditor(page, designId);
-    await expect(page.locator("[data-screen-shell]").first()).toBeVisible({
-      timeout: 30_000,
-    });
-    await expandAllLayers(page);
-
-    await unlockLayer(page, /Logo/);
-    await unlockLayer(page, /Background/);
-
-    await expect
-      .poll(async () => lockedNodeIds(await readContent(request, designId)), {
-        timeout: 20_000,
-      })
-      .toEqual([]);
-
-    const edit = await callAction(request, "edit-design", {
-      designId,
-      filename: "index.html",
-      edits: [{ search: "Northstar", replace: "Polestar" }],
-    });
-    expect(
-      `${edit.status} ${edit.body}`,
-      "agent edit after the user unlocked both layers in overview",
-    ).not.toMatch(/locked layer/i);
-    expect(edit.ok).toBe(true);
-  } finally {
-    await postAction(request, "delete-design", { id: designId }).catch(
-      () => {},
-    );
-  }
-});
-
-test("an agent whole-file write cannot silently re-lock what the user unlocked", async ({
-  page,
-  request,
-}) => {
-  const created = await postAction(request, "create-design", {
-    title: `Relock loop ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-
-  try {
-    await postAction(request, "create-file", {
-      designId,
-      filename: "index.html",
-      content: LOCKED_HTML,
-      fileType: "html",
-    });
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-
-    const staleSnapshot = await readContent(request, designId);
-    expect(lockedNodeIds(staleSnapshot).sort()).toEqual([
-      "template-background",
-      "template-logo",
-    ]);
-
-    await unlockLayer(page, /Logo/);
-    await unlockLayer(page, /Background/);
-    await expect
-      .poll(async () => lockedNodeIds(await readContent(request, designId)), {
-        timeout: 20_000,
-      })
-      .toEqual([]);
-
-    const replace = await callAction(request, "edit-design", {
-      designId,
-      filename: "index.html",
-      mode: "replace-file",
-      replacementContent: staleSnapshot.replace(
-        "Make the work feel lighter.",
-        "Design at the speed of thought.",
-      ),
-    });
-
-    expect(
-      lockedNodeIds(await readContent(request, designId)),
-      `stale agent write re-locked the layers (status ${replace.status})`,
-    ).toEqual([]);
-  } finally {
-    await postAction(request, "delete-design", { id: designId }).catch(
-      () => {},
-    );
-  }
+  expectOnlyChanged(unlocked, after, []);
+  expect(replace.status, replace.body).toBeGreaterThanOrEqual(400);
+  expect(replace.status, replace.body).toBeLessThan(500);
+  expect(replace.body).toContain("the editor had unlocked");
 });

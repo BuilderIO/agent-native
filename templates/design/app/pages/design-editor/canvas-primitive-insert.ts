@@ -26,6 +26,7 @@ import {
   defaultCanvasFrameFill,
   defaultCanvasTextColor,
 } from "./canvas-primitives";
+import { ensureGoogleFontLinkInHtml } from "./code-layer-state";
 import {
   BOARD_TEXT_AUTO_COLOR_MARKER,
   destinationBackgroundLightness,
@@ -74,7 +75,7 @@ export function nextBlankScreenFilename(files: DesignFile[]): string {
 export function blankScreenHtml(title: string): string {
   const safeTitle = escapeHtmlText(title);
   const safeTitleAttribute = escapeHtmlAttributeValue(title);
-  return `<!DOCTYPE html>
+  const content = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -98,6 +99,13 @@ export function blankScreenHtml(title: string): string {
 <body data-agent-native-layer-name="${safeTitleAttribute}">
 </body>
 </html>`;
+  const linkedContent = ensureGoogleFontLinkInHtml(content, "Inter");
+  const links = [...linkedContent.matchAll(/<link\b[^>]*>/g)].map(
+    ([link]) => link,
+  );
+  return links.length > 0
+    ? content.replace("</head>", `${links.join("\n")}\n</head>`)
+    : content;
 }
 
 export function uniqueLayerId(prefix: string): string {
@@ -409,7 +417,10 @@ export function appendCanvasPrimitiveToHtml(
         }
       }
       hostOrBody.appendChild(element);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      const content = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      return primitive.kind === "text"
+        ? ensureGoogleFontLinkInHtml(content, "Inter")
+        : content;
     };
 
     if (

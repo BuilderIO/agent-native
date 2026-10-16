@@ -1,9 +1,13 @@
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 
-import type { PortableStyleSnapshot } from "@/components/design/types";
+import type {
+  ElementInfo,
+  PortableStyleSnapshot,
+} from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
+import type { RelativePositionOffset } from "@/lib/design-import";
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
 
@@ -71,6 +75,7 @@ export interface CanvasLayerClipboardEntry {
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
+  sourceRelativeOffset?: RelativePositionOffset | null;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -78,6 +83,8 @@ export interface CanvasLayerClipboardEntry {
 
 export interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
   node: CodeLayerNode;
+  repeat?: ElementInfo["repeat"];
+  styleSnapshotReadOnDemand?: boolean;
   sourceIndex: number;
   tree: CodeLayerTreeNode[];
 }

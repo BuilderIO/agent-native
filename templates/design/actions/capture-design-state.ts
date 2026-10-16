@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeMarkup,
@@ -172,21 +173,24 @@ export default defineAction({
       );
     }
 
-    await db.insert(schema.designState).values({
-      id,
-      designId,
-      sourceRef: sourceRef ?? null,
-      name,
-      kind: "capture",
-      breakpoint,
-      route: route ?? null,
-      fixtureData: null,
-      captureData: captureDataJson,
-      previewRef: previewRef ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designState).values({
+        id,
+        designId,
+        sourceRef: sourceRef ?? null,
+        name,
+        kind: "capture",
+        breakpoint,
+        route: route ?? null,
+        fixtureData: null,
+        captureData: captureDataJson,
+        previewRef: previewRef ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     return {

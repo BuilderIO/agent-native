@@ -9,7 +9,7 @@ import {
   type UseDesignHotkeysProps,
 } from "@/hooks/useDesignHotkeys";
 
-import { annotationHotkeyHandlers } from "./tool-state";
+import { annotationHotkeyHandlers, type AnnotateLabStatus } from "./tool-state";
 
 function Probe(props: UseDesignHotkeysProps) {
   useDesignHotkeys(props);
@@ -18,7 +18,11 @@ function Probe(props: UseDesignHotkeysProps) {
 
 /** Mounts the real hotkey hook with the editor's annotation handlers and presses the keys. */
 async function pressKeys(
-  capabilities: { canEditDesign: boolean; canCommentDesign: boolean },
+  capabilities: {
+    canEditDesign: boolean;
+    canCommentDesign: boolean;
+    annotateLab?: AnnotateLabStatus;
+  },
   keys: Array<{ key: string; shiftKey?: boolean }>,
 ) {
   const onComment = vi.fn();
@@ -29,7 +33,12 @@ async function pressKeys(
   await act(async () => {
     root.render(
       <Probe
-        {...annotationHotkeyHandlers({ ...capabilities, onComment, onDraw })}
+        {...annotationHotkeyHandlers({
+          annotateLab: "on",
+          ...capabilities,
+          onComment,
+          onDraw,
+        })}
       />,
     );
   });
@@ -69,6 +78,27 @@ describe("annotation hotkeys", () => {
     );
     expect(onDraw).toHaveBeenCalledTimes(1);
     expect(onComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Shift+Y out of annotate mode until the Annotate lab is on", async () => {
+    for (const annotateLab of ["off", "loading"] as const) {
+      const { onComment, onDraw } = await pressKeys(
+        { canEditDesign: true, canCommentDesign: true, annotateLab },
+        COMMENT_AND_DRAW,
+      );
+      expect(onDraw).not.toHaveBeenCalled();
+      expect(onComment).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("pins a comment with C whatever the Annotate lab says", async () => {
+    for (const annotateLab of ["on", "off", "loading"] as const) {
+      const { onComment } = await pressKeys(
+        { canEditDesign: false, canCommentDesign: true, annotateLab },
+        [{ key: "c" }],
+      );
+      expect(onComment).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("still draws only where the design is editable", async () => {

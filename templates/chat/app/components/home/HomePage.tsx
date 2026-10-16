@@ -261,7 +261,10 @@ export default function HomePage() {
   return (
     <div className="flex min-h-full flex-col">
       <section className="relative isolate flex flex-1 flex-col items-center justify-center gap-6 overflow-hidden px-4 py-16 text-center">
-        <WaveBackground className="pointer-events-none absolute inset-0 -z-10" />
+        <WaveBackground
+          matchPageSurface
+          className="pointer-events-none absolute inset-0 -z-10"
+        />
         <AgentNativeIcon
           aria-hidden="true"
           className="h-8 w-14 text-foreground"
@@ -282,15 +285,6 @@ export default function HomePage() {
             code={EDIT_HINT_CODE}
           />
         </p>
-        <Button asChild variant="link" size="sm" className="h-auto px-0">
-          <a
-            href={`${DOCS_URL}/environment-variables#llm-provider-keys`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {t("home.llmSetupLink")}
-          </a>
-        </Button>
       </section>
 
       <Separator />

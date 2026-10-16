@@ -88,6 +88,39 @@ describe("data-programs/store", () => {
       expect(runColumns.map((c) => c.name)).toContain("truncated");
     });
 
+    it("adds notified_at to a data_program_shares table created before it existed", async () => {
+      await pglite.exec(`CREATE TABLE data_program_shares (
+        id TEXT PRIMARY KEY,
+        resource_id TEXT NOT NULL,
+        principal_type TEXT NOT NULL,
+        principal_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'viewer',
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT now()
+      )`);
+      const { ensureDataProgramTables } = await loadStore();
+      const { dataProgramShares } = await import("./schema.js");
+      await ensureDataProgramTables();
+
+      const shareColumns = (await pglite
+        .prepare(
+          `SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'data_program_shares'`,
+        )
+        .all()) as Array<{ name: string }>;
+      expect(shareColumns.map((c) => c.name)).toContain("notified_at");
+
+      await expect(
+        drizzleDb.insert(dataProgramShares).values({
+          id: "share-legacy",
+          resourceId: "dp_legacy",
+          principalType: "user",
+          principalId: "viewer@example.com",
+          role: "editor",
+          createdBy: "owner@example.com",
+        }),
+      ).resolves.toBeDefined();
+    });
+
     it("memoizes the init promise (second call is a no-op re-await)", async () => {
       const { ensureDataProgramTables } = await loadStore();
       await ensureDataProgramTables();

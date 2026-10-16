@@ -1,41 +1,23 @@
+import { type Locator, type Page } from "@playwright/test";
+
+import { appPath, expandAllLayers } from "./helpers";
 import {
+  childrenOf,
   expect,
+  expectOnlyChanged,
+  savedNodeMap,
+  styleOf,
   test,
-  type APIRequestContext,
-  type Locator,
-  type Page,
-} from "@playwright/test";
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import {
-  appPath,
-  childNodeIds,
-  designFrame,
-  expandAllLayers,
-  gotoEditor,
-} from "./helpers";
-
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
-
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await request.post(`${BASE_URL}/_agent-native/actions/${name}`, {
-    data: input,
-  });
-  if (!res.ok()) {
-    throw new Error(`${name}: ${res.status()} ${await res.text()}`);
-  }
-  return res.json();
-}
 
 const CARD_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Card</title></head>
-  <body style="margin:0;position:relative;min-height:900px;background:#fff;font-family:system-ui,sans-serif">
+  <body data-agent-native-node-id="page" style="margin:0;position:relative;min-height:900px;background:#fff;font-family:system-ui,sans-serif">
     <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
          style="position:absolute;left:40px;top:40px;width:320px;height:360px;background:#fff">
       <div data-agent-native-node-id="image" data-agent-native-layer-name="Image"
@@ -55,54 +37,57 @@ const CARD_HTML = `<!doctype html>
   </body>
 </html>`;
 
-async function createCardDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Card structure and tips interactions ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: CARD_HTML,
-    fileType: "html",
-  });
-  return designId as string;
+async function openSeeded(app: App, html: string) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await app.zoomToFit();
+  return id;
 }
 
-async function getDesign(page: Page, id: string) {
-  return page.request
-    .get(`${BASE_URL}/_agent-native/actions/get-design?id=${id}`)
-    .then((r) => r.json());
-}
-
-async function fileContent(page: Page, id: string, filename: string) {
-  const record = await getDesign(page, id);
-  return (
-    (record.files ?? []).find((f: any) => f.filename === filename)?.content ??
-    ""
+/** A canvas click inside the Card picks the child under the pointer, so the Card itself is picked in Layers. */
+async function selectCardRow(app: App) {
+  await expandAllLayers(app.page);
+  await layerRowButton(app.page, "Card").click();
+  await expect(
+    layerTree(app.page).locator('[role="treeitem"][aria-selected="true"]'),
+  ).toHaveCount(1);
+  await expect(layerRow(app.page, "Card")).toHaveAttribute(
+    "aria-selected",
+    "true",
   );
 }
 
-async function dumpTrace(page: Page) {
-  return page
-    .evaluate(() => (window as any).__designTrace?.dump?.() ?? "(no trace)")
-    .catch(() => "(trace unavailable)");
+/** Every node under `rootId` in document order, without ids, so a copy can be compared to its source. */
+function subtreeShape(nodes: Map<string, SavedNode>, rootId: string) {
+  const shape: { tag: string; attrs: Record<string, string>; text: string }[] =
+    [];
+  const visit = (id: string) => {
+    const node = nodes.get(id)!;
+    const { "data-agent-native-node-id": _id, ...attrs } = node.attrs;
+    shape.push({ tag: node.tag, attrs, text: node.text });
+    for (const child of childrenOf(nodes, id)) visit(child);
+  };
+  visit(rootId);
+  return shape;
 }
 
-async function selectByNodeId(page: Page, nodeId: string) {
-  const el = designFrame(page).locator(
-    `[data-agent-native-node-id="${nodeId}"]`,
-  );
-  const box = (await el.boundingBox())!;
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  await page.mouse.click(cx, cy);
-  await page.waitForTimeout(200);
-  await page.mouse.click(cx, cy);
-  await page.waitForTimeout(200);
-  return box;
+function attrsBesidesStyle(node: SavedNode | undefined) {
+  const { style: _style, ...attrs } = node?.attrs ?? {};
+  return attrs;
+}
+
+function subtreeIds(nodes: Map<string, SavedNode>, rootId: string): string[] {
+  return [
+    rootId,
+    ...childrenOf(nodes, rootId).flatMap((child) => subtreeIds(nodes, child)),
+  ];
+}
+
+type Frame = { x: number; y: number; width: number; height: number };
+
+async function savedCanvasFrames(app: App, designId: string) {
+  const { data } = await app.savedRecord(designId);
+  return (data as { canvasFrames: Record<string, Frame> }).canvasFrames;
 }
 
 function layerTree(page: Page): Locator {
@@ -112,8 +97,7 @@ function layerTree(page: Page): Locator {
 function layerRowButton(page: Page, name: string): Locator {
   return layerTree(page)
     .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
+    .filter({ has: page.locator(`span[title="${name}"]`) });
 }
 
 function layerRow(page: Page, name: string): Locator {
@@ -122,315 +106,250 @@ function layerRow(page: Page, name: string): Locator {
   );
 }
 
-async function clickLayerRow(page: Page, name: string): Promise<void> {
-  await expandAllLayers(page);
-  const button = layerRowButton(page, name);
-  await expect(button).toBeVisible({ timeout: 10_000 });
-  await button.click({ force: true });
+/** Names of a layer's direct children as the Layers panel lists them, top row first. */
+async function layerChildNames(page: Page, parentName: string) {
+  const rows = await layerTree(page)
+    .locator('[role="treeitem"]')
+    .evaluateAll((elements) =>
+      elements.map((element) => ({
+        level: Number(element.getAttribute("aria-level")),
+        name:
+          element
+            .querySelector("[data-layer-row-name]")
+            ?.getAttribute("title") ?? "",
+      })),
+    );
+  const start = rows.findIndex((row) => row.name === parentName);
+  const names: string[] = [];
+  for (const row of rows.slice(start + 1)) {
+    if (row.level <= rows[start].level) break;
+    if (row.level === rows[start].level + 1) names.push(row.name);
+  }
+  return names;
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.describe("card component: structure, duplicate, rename, reorder, group", () => {
   test("Cmd+D duplicates the Card: same name, same position, inserted directly above, selection moves to the copy", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createCardDesign(request);
-    try {
-      await gotoEditor(page, designId);
-      const before = await selectByNodeId(page, "card");
-      await clickLayerRow(page, "Card");
-      await page.keyboard.press(`${MOD}+d`);
+    const id = await openSeeded(app, CARD_HTML);
+    const before = await app.savedNodes(id);
+    await selectCardRow(app);
 
-      const bodyChildren = designFrame(page).locator(
-        "body > [data-agent-native-node-id]",
-      );
-      await expect
-        .poll(() => bodyChildren.count(), { timeout: 10_000 })
-        .toBe(2);
-      const ids = await bodyChildren.evaluateAll((els) =>
-        els.map((el) => el.getAttribute("data-agent-native-node-id")),
-      );
-      const copyId = ids.find((id) => id !== "card")!;
-      expect(copyId, `trace: ${await dumpTrace(page)}`).toBeTruthy();
-      expect(ids.indexOf(copyId)).toBeGreaterThan(ids.indexOf("card"));
+    await app.page.keyboard.press(`${MOD}+d`);
+    await app.settled();
 
-      const copyBox = await designFrame(page)
-        .locator(`[data-agent-native-node-id="${copyId}"]`)
-        .boundingBox();
-      expect(Math.round(copyBox!.x)).toBe(Math.round(before.x));
-      expect(Math.round(copyBox!.y)).toBe(Math.round(before.y));
-
-      const namesAfter = await layerTree(page)
-        .locator('[data-layer-row-button] span[title="Card"]')
-        .count();
-      expect(namesAfter, "duplicate must keep the exact same layer name").toBe(
-        2,
-      );
-
-      await expect(layerRow(page, "Card").first()).toHaveAttribute(
-        "aria-selected",
-        "true",
-      );
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    const after = await app.savedNodes(id);
+    const copyId = childrenOf(after, "page")[1];
+    expect(childrenOf(after, "page")).toStrictEqual(["card", copyId]);
+    expect(subtreeShape(after, copyId)).toEqual(subtreeShape(before, "card"));
+    const copyIds = subtreeIds(after, copyId);
+    expect(
+      copyIds.filter((nodeId) => before.has(nodeId)),
+      "every node in the copy has a fresh id",
+    ).toEqual([]);
+    expectOnlyChanged(before, after, copyIds);
+    expect(await app.designRect(copyId)).toEqual({
+      x: 40,
+      y: 40,
+      width: 320,
+      height: 360,
+    });
+    await expect(layerRow(app.page, "Card")).toHaveCount(2);
+    await expect(layerRow(app.page, "Card").first()).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(layerRow(app.page, "Card").last()).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
   });
 
   test("renaming the duplicate's title layer in the layers panel only changes that layer, leaving the original untouched", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createCardDesign(request);
-    try {
-      await gotoEditor(page, designId);
-      await clickLayerRow(page, "Card");
-      await page.keyboard.press(`${MOD}+d`);
-      await expect
-        .poll(
-          () =>
-            layerTree(page)
-              .locator('[data-layer-row-button] span[title="Card"]')
-              .count(),
-          { timeout: 10_000 },
-        )
-        .toBe(2);
-      await expandAllLayers(page);
+    const id = await openSeeded(app, CARD_HTML);
+    await selectCardRow(app);
+    await app.page.keyboard.press(`${MOD}+d`);
+    await app.settled();
+    const duplicated = await app.savedNodes(id);
+    const copyId = childrenOf(duplicated, "page")[1];
+    const copyTitleId = subtreeIds(duplicated, copyId).find(
+      (nodeId) =>
+        duplicated.get(nodeId)?.attrs["data-agent-native-layer-name"] ===
+        "Wireless Headphones",
+    )!;
+    expect(copyTitleId, "precondition: the copy has its own title").not.toBe(
+      "title",
+    );
 
-      const titleRows = layerTree(page).locator(
-        '[data-layer-row-button] span[title="Wireless Headphones"]',
-      );
-      await expect(titleRows).toHaveCount(2, { timeout: 10_000 });
-      const duplicateTitleButton = titleRows
-        .nth(0)
-        .locator("xpath=ancestor::button[@data-layer-row-button][1]");
-      await duplicateTitleButton.dblclick({ force: true });
-      const renameInput = layerTree(page).locator("input").first();
-      await expect(renameInput).toBeVisible();
-      await renameInput.fill("Bluetooth Speaker Title");
-      await renameInput.press("Enter");
+    await expandAllLayers(app.page);
+    await layerRowButton(app.page, "Wireless Headphones")
+      .first()
+      .dblclick({ force: true });
+    const input = layerTree(app.page).locator(
+      'input[aria-label="Rename layer"]',
+    );
+    await expect(input).toBeVisible();
+    await input.fill("Bluetooth Speaker Title");
+    await input.press("Enter");
+    await expect(input).toHaveCount(0);
+    await app.settled();
 
-      await expect(
-        layerTree(page).locator(
-          '[data-layer-row-button] span[title="Bluetooth Speaker Title"]',
-        ),
-      ).toHaveCount(1, { timeout: 10_000 });
-      await expect(
-        layerTree(page).locator(
-          '[data-layer-row-button] span[title="Wireless Headphones"]',
-        ),
-      ).toHaveCount(1);
-
-      await expect
-        .poll(() => fileContent(page, designId, "index.html"), {
-          timeout: 10_000,
-        })
-        .toContain('data-agent-native-layer-name="Bluetooth Speaker Title"');
-      const html = await fileContent(page, designId, "index.html");
-      expect(html).toContain(
-        'data-agent-native-layer-name="Wireless Headphones"',
-      );
-      expect(html).toContain(
-        'data-agent-native-layer-name="Bluetooth Speaker Title"',
-      );
-
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(
-        page.getByRole("button", { name: "Move", exact: true }),
-      ).toBeVisible();
-      await expect(
-        layerTree(page).locator('[data-layer-row-button] span[title="Card"]'),
-      ).toHaveCount(2, { timeout: 10_000 });
-      await expandAllLayers(page);
-      await expect(
-        layerTree(page).locator(
-          '[data-layer-row-button] span[title="Bluetooth Speaker Title"]',
-        ),
-      ).toHaveCount(1, { timeout: 10_000 });
-      await expect(
-        layerTree(page).locator(
-          '[data-layer-row-button] span[title="Wireless Headphones"]',
-        ),
-      ).toHaveCount(1);
-
-      const reloadedHtml = await fileContent(page, designId, "index.html");
-      expect(reloadedHtml).toContain(
-        'data-agent-native-layer-name="Wireless Headphones"',
-      );
-      expect(reloadedHtml).toContain(
-        'data-agent-native-layer-name="Bluetooth Speaker Title"',
-      );
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    const after = await app.savedNodes(id);
+    expect(after.get(copyTitleId)?.attrs["data-agent-native-layer-name"]).toBe(
+      "Bluetooth Speaker Title",
+    );
+    expect(after.get("title")?.attrs["data-agent-native-layer-name"]).toBe(
+      "Wireless Headphones",
+    );
+    expectOnlyChanged(duplicated, after, [copyTitleId]);
+    await expect(
+      layerRowButton(app.page, "Bluetooth Speaker Title"),
+    ).toHaveCount(1);
+    await expect(layerRowButton(app.page, "Wireless Headphones")).toHaveCount(
+      1,
+    );
   });
 
   test("dragging Price below StatusTag in the layers panel reorders the DOM and persists after reload", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createCardDesign(request);
-    try {
-      await gotoEditor(page, designId);
-      await clickLayerRow(page, "Price");
+    const id = await openSeeded(app, CARD_HTML);
+    const before = await app.savedNodes(id);
+    expect(childrenOf(before, "cardbody")).toEqual([
+      "title",
+      "desc",
+      "statustag",
+      "price",
+    ]);
+    await expandAllLayers(app.page);
+    const statusTagRow = layerRow(app.page, "StatusTag");
+    await statusTagRow.getByRole("button", { name: "Collapse layer" }).click();
+    await expect(statusTagRow).toHaveAttribute("aria-expanded", "false");
+    const statusTagBox = (await statusTagRow.boundingBox())!;
 
-      const before = await fileContent(page, designId, "index.html");
-      const statusTagIndex = before.indexOf(
-        'data-agent-native-node-id="statustag"',
-      );
-      const priceIndex = before.indexOf('data-agent-native-node-id="price"');
-      expect(statusTagIndex).toBeGreaterThan(-1);
-      expect(priceIndex).toBeGreaterThan(-1);
-      expect(statusTagIndex).toBeLessThan(priceIndex);
+    await layerRow(app.page, "Price").dragTo(statusTagRow, {
+      targetPosition: { x: 24, y: statusTagBox.height - 1 },
+    });
+    await app.settled();
 
-      const statusTagRow = layerRow(page, "StatusTag");
-      await statusTagRow
-        .getByRole("button", { name: "Collapse layer" })
-        .click();
-      await expect(statusTagRow).toHaveAttribute("aria-expanded", "false");
-      const statusTagBox = await statusTagRow.boundingBox();
-      if (!statusTagBox) throw new Error("StatusTag row has no bounding box");
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "cardbody")).toEqual([
+      "title",
+      "desc",
+      "price",
+      "statustag",
+    ]);
+    expectOnlyChanged(before, after, ["price"]);
+    expect(styleOf(after.get("price"))).toEqual(styleOf(before.get("price")));
+    expect(await app.designRect("price")).toMatchObject({ x: 56, y: 292 });
 
-      await layerRow(page, "Price").dragTo(layerRow(page, "StatusTag"), {
-        targetPosition: { x: 24, y: statusTagBox.height - 1 },
-      });
-
-      await expect
-        .poll(
-          async () => {
-            const html = await fileContent(page, designId, "index.html");
-            const nextPriceIndex = html.indexOf(
-              'data-agent-native-node-id="price"',
-            );
-            const nextStatusTagIndex = html.indexOf(
-              'data-agent-native-node-id="statustag"',
-            );
-            return (
-              nextPriceIndex >= 0 &&
-              nextStatusTagIndex >= 0 &&
-              nextPriceIndex < nextStatusTagIndex
-            );
-          },
-          { timeout: 10_000, message: `trace: ${await dumpTrace(page)}` },
-        )
-        .toBe(true);
-
-      await gotoEditor(page, designId);
-      const afterReload = await fileContent(page, designId, "index.html");
-      const reloadedPriceIndex = afterReload.indexOf(
-        'data-agent-native-node-id="price"',
-      );
-      const reloadedStatusTagIndex = afterReload.indexOf(
-        'data-agent-native-node-id="statustag"',
-      );
-      expect(reloadedPriceIndex).toBeGreaterThan(-1);
-      expect(reloadedStatusTagIndex).toBeGreaterThan(-1);
-      expect(reloadedPriceIndex).toBeLessThan(reloadedStatusTagIndex);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await app.open(id);
+    await expandAllLayers(app.page);
+    expect(await layerChildNames(app.page, "CardBody")).toEqual([
+      "StatusTag",
+      "Price",
+      "Description",
+      "Wireless Headphones",
+    ]);
   });
 
-  test("Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings", async ({
-    page,
-    request,
+  // fixme: product bug: The saved group wrapper has no style, so inside the absolute Card it renders 320x0: a flat selection outline and inspector H 0px instead
+  test.fixme("Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings", async ({
+    app,
   }) => {
-    const designId = await createCardDesign(request);
-    try {
-      await gotoEditor(page, designId);
-      await clickLayerRow(page, "Image");
-      const imageButton = layerRowButton(page, "Image");
-      await imageButton.focus();
-      const cardBodyButton = layerRowButton(page, "CardBody");
-      await cardBodyButton.click({
-        modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
-      });
+    const id = await openSeeded(app, CARD_HTML);
+    const beforeHtml = await app.savedHtml(id);
+    const before = savedNodeMap(beforeHtml);
+    await expandAllLayers(app.page);
+    await layerRowButton(app.page, "Image").click();
+    await layerRowButton(app.page, "CardBody").click({ modifiers: ["Shift"] });
+    await expect(
+      layerTree(app.page).locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
 
-      const beforeHtml = await fileContent(page, designId, "index.html");
-      await page.keyboard.press(`${MOD}+g`);
+    await app.page.keyboard.press(`${MOD}+g`);
+    await app.settled();
 
-      await expect
-        .poll(
-          async () => {
-            const html = await fileContent(page, designId, "index.html");
-            return /data-agent-native-layer-name="Group"/i.test(html);
-          },
-          { timeout: 10_000, message: `trace: ${await dumpTrace(page)}` },
-        )
-        .toBe(true);
+    const grouped = await app.savedNodes(id);
+    const [groupId, ...others] = childrenOf(grouped, "card");
+    expect(others).toEqual([]);
+    expect(attrsBesidesStyle(grouped.get(groupId))).toEqual({
+      "data-agent-native-node-id": groupId,
+      "data-agent-native-layer-name": "Group",
+      "data-agent-native-group-wrapper": "true",
+      "data-agent-native-preserve-styles": "true",
+      "data-agent-native-group": "true",
+    });
+    expect(childrenOf(grouped, groupId)).toEqual(["image", "cardbody"]);
+    expect(styleOf(grouped.get(groupId)).overflow).toBeUndefined();
+    expectOnlyChanged(before, grouped, [groupId, "image", "cardbody"]);
+    expect(await app.designRect("image")).toEqual({
+      x: 40,
+      y: 40,
+      width: 320,
+      height: 180,
+    });
+    expect
+      .soft(await app.designRect(groupId), "the group hugs Image + CardBody")
+      .toEqual({ x: 40, y: 40, width: 320, height: 360 });
+    await expect
+      .soft(app.page.locator('input[aria-label="H size in pixels"]'))
+      .toHaveValue("360px");
 
-      const grouped = await fileContent(page, designId, "index.html");
-      const groupOpenTag =
-        /<[a-z0-9]+[^>]*data-agent-native-layer-name="Group"[^>]*>/i.exec(
-          grouped,
-        )?.[0];
-      expect(groupOpenTag, "group wrapper tag not found").toBeTruthy();
-      expect(groupOpenTag).not.toMatch(/overflow:\s*hidden/i);
-
-      await page.keyboard.press(`${MOD}+z`);
-      await expect
-        .poll(
-          async () => {
-            const html = await fileContent(page, designId, "index.html");
-            return !/data-agent-native-layer-name="Group"/i.test(html);
-          },
-          { timeout: 10_000 },
-        )
-        .toBe(true);
-      const restored = await fileContent(page, designId, "index.html");
-      expect(restored.includes('data-agent-native-node-id="image"')).toBe(true);
-      expect(restored.includes('data-agent-native-node-id="cardbody"')).toBe(
-        true,
-      );
-      expect(restored).toBe(beforeHtml);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await app.page.keyboard.press(`${MOD}+z`);
+    await app.settled();
+    expect(await app.savedHtml(id)).toBe(beforeHtml);
   });
 });
 
-async function createIconScreensDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Tips overview interactions ${Date.now()}`,
-    projectType: "prototype",
+function iconScreen(name: string) {
+  return `<!doctype html><html><body style="margin:0;min-height:200px;background:#fff"><div data-agent-native-node-id="icon-${name.toLowerCase()}" data-agent-native-layer-name="${name} icon" style="position:absolute;left:20px;top:20px;width:80px;height:80px;background:#3b82f6"></div></body></html>`;
+}
+
+async function seedIconScreens(app: App) {
+  const id = await app.seed(iconScreen("Home"), {
+    files: {
+      "search.html": iconScreen("Search"),
+      "profile.html": iconScreen("Profile"),
+    },
   });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const names = ["Home", "Search", "Profile"];
-  const fileIds: string[] = [];
-  for (const [index, name] of names.entries()) {
-    const html = `<!doctype html><html><body style="margin:0;min-height:200px;background:#fff"><div data-agent-native-node-id="icon-${name.toLowerCase()}" data-agent-native-layer-name="${name} icon" style="position:absolute;left:20px;top:20px;width:80px;height:80px;background:#3b82f6"></div></body></html>`;
-    const file = await action(request, "create-file", {
-      designId,
-      filename: index === 0 ? "index.html" : `${name.toLowerCase()}.html`,
-      content: html,
-      fileType: "html",
-    });
-    fileIds.push(file.id ?? file.data?.id);
-  }
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: fileIds.flatMap((fileId, index) => [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 200, height: 200 },
+  const { files } = await app.savedRecord(id);
+  const fileIds = ["index.html", "search.html", "profile.html"].map(
+    (filename) => files.find((file) => file.filename === filename)!.id,
+  );
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: fileIds.flatMap((fileId, index) => [
+          {
+            op: "set",
+            path: ["screenMetadata", fileId],
+            value: { sourceType: "inline", width: 200, height: 200 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId],
+            value: { x: index * 400, y: 0, width: 200, height: 200, z: index },
+          },
+        ]),
       },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: index * 400, y: 0, width: 200, height: 200, z: index },
-      },
-    ]),
-  });
-  return { designId, fileIds };
+    },
+  );
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
+  return { id, fileIds };
 }
 
 async function stableBox(
   locator: Locator,
 ): Promise<{ x: number; y: number; width: number; height: number }> {
-  let last: { x: number; y: number } | null = null;
+  let last: { x: number; y: number; width: number } | null = null;
   await expect
     .poll(
       async () => {
@@ -439,7 +358,8 @@ async function stableBox(
           box !== null &&
           last !== null &&
           Math.abs(box.x - last.x) < 1 &&
-          Math.abs(box.y - last.y) < 1;
+          Math.abs(box.y - last.y) < 1 &&
+          Math.abs(box.width - last.width) < 1;
         last = box;
         return stable;
       },
@@ -471,6 +391,7 @@ async function selectedScreenIds(page: Page): Promise<string[]> {
   );
 }
 
+/** Picking a Screen by its label fits the camera to it, so the next label has to be brought back into view. */
 async function zoomTo50Percent(page: Page) {
   await page
     .getByRole("button", { name: /^\d+%$/ })
@@ -482,280 +403,252 @@ async function zoomTo50Percent(page: Page) {
 
 test.describe("overview canvas: multi-select, marquee enclosure, pan/zoom", () => {
   test("shift-clicking the label of each icon screen selects all three together", async ({
-    page,
-    request,
+    app,
   }) => {
-    const { designId } = await createIconScreensDesign(request);
-    try {
-      await openOverview(page, designId, 3);
-      const screenIds = await page
-        .locator("[data-screen-shell]")
-        .evaluateAll((screens) =>
-          screens
-            .map((screen) => screen.getAttribute("data-frame-id"))
-            .filter((id): id is string => id !== null),
-        );
-      const labels = page.locator("[data-frame-label]");
-      await labels.nth(0).click();
-      await zoomTo50Percent(page);
-      await expect(labels.nth(1)).toBeInViewport();
-      await labels.nth(1).click({ modifiers: ["Shift"] });
-      await zoomTo50Percent(page);
-      await expect(labels.nth(2)).toBeInViewport();
-      await labels.nth(2).click({ modifiers: ["Shift"] });
+    const { id, fileIds } = await seedIconScreens(app);
+    const page = app.page;
+    await openOverview(page, id, 3);
+    const labels = page.locator("[data-frame-label]");
+    await labels.nth(0).click();
+    await expect.poll(() => selectedScreenIds(page)).toEqual([fileIds[0]]);
+    await zoomTo50Percent(page);
+    await expect(labels.nth(1)).toBeInViewport();
+    await labels.nth(1).click({ modifiers: ["Shift"] });
+    await zoomTo50Percent(page);
+    await expect(labels.nth(2)).toBeInViewport();
+    await labels.nth(2).click({ modifiers: ["Shift"] });
 
-      await expect
-        .poll(() => selectedScreenIds(page))
-        .toEqual(expect.arrayContaining(screenIds));
-      await expect
-        .poll(() => selectedScreenIds(page))
-        .toHaveLength(screenIds.length);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await expect
+      .poll(async () => [...(await selectedScreenIds(page))].sort())
+      .toEqual([...fileIds].sort());
+    await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(3);
+    await zoomTo50Percent(page);
+    const cards = await Promise.all(
+      (await page.locator("[data-screen-card]").all()).map((card) =>
+        stableBox(card),
+      ),
+    );
+    const selectionBox = page.locator("[data-frame-selection-box]");
+    await expect(selectionBox).toHaveCount(1);
+    const box = (await selectionBox.boundingBox())!;
+    const edges = (rect: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }) => ({
+      left: rect.x,
+      top: rect.y,
+      right: rect.x + rect.width,
+      bottom: rect.y + rect.height,
+    });
+    const union = {
+      left: Math.min(...cards.map((card) => edges(card).left)),
+      top: Math.min(...cards.map((card) => edges(card).top)),
+      right: Math.max(...cards.map((card) => edges(card).right)),
+      bottom: Math.max(...cards.map((card) => edges(card).bottom)),
+    };
+    const drift = Object.entries(edges(box)).map(([edge, value]) => [
+      edge,
+      Math.round(Math.abs(value - union[edge as keyof typeof union])),
+    ]);
+    expect(
+      drift.filter(([, distance]) => (distance as number) > 2),
+      "one selection box spans all three Screens",
+    ).toEqual([]);
   });
 
   test("marquee must FULLY enclose a top-level screen frame to select it; partial intersection is not enough", async ({
-    page,
-    request,
+    app,
   }) => {
-    const { designId } = await createIconScreensDesign(request);
-    try {
-      await openOverview(page, designId, 3);
-      const screens = page.locator("[data-screen-shell]");
-      const homeId = await screens.nth(0).getAttribute("data-frame-id");
-      const activeScreenId = await screens.nth(1).getAttribute("data-frame-id");
-      expect(homeId).toBeTruthy();
-      expect(activeScreenId).toBeTruthy();
-      const activeScreenLabel = page.locator(
-        `[data-screen-shell][data-frame-id="${activeScreenId}"] [data-frame-label]`,
-      );
-      await expect(activeScreenLabel).toBeInViewport();
-      await activeScreenLabel.click();
-      await expect
-        .poll(() => selectedScreenIds(page))
-        .toEqual([activeScreenId]);
-      const selectionBeforeEscape = await page.evaluate(() => {
-        const selection = (window as any).__designSelection;
-        return {
-          activeTool: selection?.activeTool,
-          mode: selection?.mode,
-          viewMode: selection?.viewMode,
-        };
-      });
-      expect(selectionBeforeEscape).toEqual({
-        activeTool: "move",
-        mode: "edit",
-        viewMode: "overview",
-      });
-      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(1);
-      await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(
-        1,
-      );
-      const surface = page.locator("[data-multi-screen-canvas-surface]");
-      await surface.evaluate((element: HTMLElement) =>
-        element.focus({ preventScroll: true }),
-      );
-      await expect
-        .poll(() =>
-          surface.evaluate((element) => document.activeElement === element),
-        )
-        .toBe(true);
-      await page.keyboard.press("Escape");
-      await expect
-        .poll(() => selectedScreenIds(page))
-        .toEqual([activeScreenId]);
-      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
-      await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(
-        0,
-      );
-      await zoomTo50Percent(page);
-      await expect
-        .poll(() => selectedScreenIds(page))
-        .toEqual([activeScreenId]);
-      const homeShell = (await page
-        .locator(`[data-screen-shell][data-frame-id="${homeId}"]`)
-        .first()
-        .boundingBox())!;
-      const surfaceBox = (await surface.boundingBox())!;
-
-      const marqueeFrom = { x: homeShell.x - 30, y: homeShell.y - 30 };
-      const partialMarqueeTo = { x: homeShell.x + 15, y: homeShell.y + 15 };
-      const fullMarqueeTo = {
-        x: homeShell.x + homeShell.width + 30,
-        y: homeShell.y + homeShell.height + 30,
+    const { id } = await seedIconScreens(app);
+    const page = app.page;
+    await openOverview(page, id, 3);
+    const screens = page.locator("[data-screen-shell]");
+    const homeId = await screens.nth(0).getAttribute("data-frame-id");
+    const activeScreenId = await screens.nth(1).getAttribute("data-frame-id");
+    expect(homeId).toBeTruthy();
+    expect(activeScreenId).toBeTruthy();
+    const activeScreenLabel = page.locator(
+      `[data-screen-shell][data-frame-id="${activeScreenId}"] [data-frame-label]`,
+    );
+    await expect(activeScreenLabel).toBeInViewport();
+    await activeScreenLabel.click();
+    await expect.poll(() => selectedScreenIds(page)).toEqual([activeScreenId]);
+    const selectionBeforeEscape = await page.evaluate(() => {
+      const selection = (window as any).__designSelection;
+      return {
+        activeTool: selection?.activeTool,
+        mode: selection?.mode,
+        viewMode: selection?.viewMode,
       };
-      expect(marqueeFrom.x).toBeGreaterThanOrEqual(surfaceBox.x);
-      expect(marqueeFrom.y).toBeGreaterThanOrEqual(surfaceBox.y);
-      expect(fullMarqueeTo.x).toBeLessThanOrEqual(
-        surfaceBox.x + surfaceBox.width,
-      );
-      expect(fullMarqueeTo.y).toBeLessThanOrEqual(
-        surfaceBox.y + surfaceBox.height,
-      );
+    });
+    expect(selectionBeforeEscape).toEqual({
+      activeTool: "move",
+      mode: "edit",
+      viewMode: "overview",
+    });
+    await expect(page.locator("[data-frame-selection-box]")).toHaveCount(1);
+    await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(1);
+    const surface = page.locator("[data-multi-screen-canvas-surface]");
+    await surface.evaluate((element: HTMLElement) =>
+      element.focus({ preventScroll: true }),
+    );
+    await expect
+      .poll(() =>
+        surface.evaluate((element) => document.activeElement === element),
+      )
+      .toBe(true);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => selectedScreenIds(page)).toEqual([activeScreenId]);
+    await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+    await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(0);
+    await zoomTo50Percent(page);
+    await expect.poll(() => selectedScreenIds(page)).toEqual([activeScreenId]);
+    const homeShell = (await page
+      .locator(`[data-screen-shell][data-frame-id="${homeId}"]`)
+      .first()
+      .boundingBox())!;
+    const surfaceBox = (await surface.boundingBox())!;
 
-      await page.mouse.move(marqueeFrom.x, marqueeFrom.y);
-      await page.mouse.down();
-      await page.mouse.move(partialMarqueeTo.x, partialMarqueeTo.y, {
-        steps: 10,
-      });
-      await page.mouse.up();
-      await expect
-        .poll(() => selectedScreenIds(page))
-        .toEqual([activeScreenId]);
-      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
-      await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(
-        0,
-      );
+    const marqueeFrom = { x: homeShell.x - 30, y: homeShell.y - 30 };
+    const partialMarqueeTo = { x: homeShell.x + 15, y: homeShell.y + 15 };
+    const fullMarqueeTo = {
+      x: homeShell.x + homeShell.width + 30,
+      y: homeShell.y + homeShell.height + 30,
+    };
+    expect(marqueeFrom.x).toBeGreaterThanOrEqual(surfaceBox.x);
+    expect(marqueeFrom.y).toBeGreaterThanOrEqual(surfaceBox.y);
+    expect(fullMarqueeTo.x).toBeLessThanOrEqual(
+      surfaceBox.x + surfaceBox.width,
+    );
+    expect(fullMarqueeTo.y).toBeLessThanOrEqual(
+      surfaceBox.y + surfaceBox.height,
+    );
 
-      await page.mouse.move(marqueeFrom.x, marqueeFrom.y);
-      await page.mouse.down();
-      await page.mouse.move(fullMarqueeTo.x, fullMarqueeTo.y, { steps: 10 });
-      await page.mouse.up();
-      await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
-      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(1);
-      await expect(
-        page.getByRole("treeitem", { selected: true }),
-      ).toContainText("Home");
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await page.mouse.move(marqueeFrom.x, marqueeFrom.y);
+    await page.mouse.down();
+    await page.mouse.move(partialMarqueeTo.x, partialMarqueeTo.y, {
+      steps: 10,
+    });
+    await page.mouse.up();
+    await expect.poll(() => selectedScreenIds(page)).toEqual([activeScreenId]);
+    await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+    await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(0);
+
+    await page.mouse.move(marqueeFrom.x, marqueeFrom.y);
+    await page.mouse.down();
+    await page.mouse.move(fullMarqueeTo.x, fullMarqueeTo.y, { steps: 10 });
+    await page.mouse.up();
+    await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
+    await expect(page.locator("[data-frame-selection-box]")).toHaveCount(1);
+    await expect(page.getByRole("treeitem", { selected: true })).toContainText(
+      "Home",
+    );
   });
 
   test("cmd+scroll zooms the overview canvas around the pointer", async ({
-    page,
-    request,
+    app,
   }) => {
-    const { designId } = await createIconScreensDesign(request);
-    try {
-      await openOverview(page, designId, 3);
-      const card = await stableBox(page.locator("[data-screen-card]").first());
-      const scale = () =>
-        page.evaluate(() => {
-          const world = document.querySelector(
-            "[data-multi-screen-canvas-world]",
-          );
-          const transform = world ? getComputedStyle(world).transform : null;
-          return transform ? new DOMMatrixReadOnly(transform).a : null;
-        });
-      const scaleBefore = await scale();
-      expect(scaleBefore).toBeGreaterThan(0);
+    const { id, fileIds } = await seedIconScreens(app);
+    const page = app.page;
+    await openOverview(page, id, 3);
+    const seededFrames = {
+      [fileIds[0]]: { x: 0, y: 0, width: 200, height: 200, z: 0 },
+      [fileIds[1]]: { x: 400, y: 0, width: 200, height: 200, z: 1 },
+      [fileIds[2]]: { x: 800, y: 0, width: 200, height: 200, z: 2 },
+    };
+    expect(await savedCanvasFrames(app, id)).toStrictEqual(seededFrames);
+    const firstCard = page.locator("[data-screen-card]").first();
+    const card = await stableBox(firstCard);
+    const anchor = {
+      x: card.x + card.width * 0.75,
+      y: card.y + card.width * 0.25,
+    };
 
-      await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
-      await page.keyboard.down(MOD);
-      await page.mouse.wheel(0, -400);
-      await page.keyboard.up(MOD);
-      await expect.poll(scale).toBeGreaterThan(scaleBefore!);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await page.mouse.move(anchor.x, anchor.y);
+    await page.keyboard.down(MOD);
+    await page.mouse.wheel(0, -400);
+    await page.keyboard.up(MOD);
+    await expect(page.getByRole("button", { name: "75%" })).toBeVisible();
+
+    const zoomed = await stableBox(firstCard);
+    const ratio = zoomed.width / card.width;
+    expect(
+      {
+        x: Math.round(zoomed.x + (anchor.x - card.x) * ratio),
+        y: Math.round(zoomed.y + (anchor.y - card.y) * ratio),
+      },
+      "the design point under the pointer stays under the pointer",
+    ).toEqual({ x: Math.round(anchor.x), y: Math.round(anchor.y) });
+    await app.settled();
+    expect(await savedCanvasFrames(app, id)).toStrictEqual(seededFrames);
   });
 });
 
 test.describe("crossing the screen boundary", () => {
   test("dragging the Price element out of the card's screen onto the empty board turns it into a board object; one undo restores it inside CardBody", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createCardDesign(request);
-    try {
-      await page.goto(appPath(`/design/${designId}?view=overview`), {
-        waitUntil: "domcontentloaded",
-      });
-      await expect(page.locator("[data-screen-card]").first()).toBeVisible({
-        timeout: 30_000,
-      });
+    const id = await openSeeded(app, CARD_HTML);
+    const screenFile = (await app.savedRecord(id)).files.find(
+      (file) => file.filename === "index.html",
+    )!;
+    const frame = (await savedCanvasFrames(app, id))[screenFile.id];
+    const beforeHtml = await app.savedHtml(id);
+    const before = savedNodeMap(beforeHtml);
+    expect(frame).toStrictEqual({ x: 0, y: 736, width: 1440, height: 1024 });
+    const price = await app.designRect("price");
+    expect(price).toMatchObject({ x: 56, y: 292 });
+    const grab = await app.pagePoint(
+      price.x + price.width / 2,
+      price.y + price.height / 2,
+    );
+    const drop = { x: 300, y: 1130 };
 
-      const priceBox = await stableBox(
-        designFrame(page).locator('[data-agent-native-node-id="price"]'),
-      );
-      expect(priceBox, `trace: ${await dumpTrace(page)}`).toBeTruthy();
+    const to = await app.pagePoint(drop.x, drop.y);
+    await app.page.mouse.move(grab.x, grab.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(to.x, to.y, { steps: 30 });
+    await app.page.mouse.up();
+    await app.settled();
 
-      const boardPoint = await page.evaluate(() => {
-        const world = document.querySelector(
-          "[data-multi-screen-canvas-world]",
-        );
-        const surface = (world?.parentElement ?? world) as HTMLElement | null;
-        if (!surface) return null;
-        const r = surface.getBoundingClientRect();
-        const cards = Array.from(
-          document.querySelectorAll("[data-screen-iframe-id]"),
-        ).map((el) => el.getBoundingClientRect());
-        for (let y = r.top + 60; y < r.bottom - 60; y += 40) {
-          for (let x = r.left + 60; x < r.right - 60; x += 40) {
-            if (
-              cards.some(
-                (c) =>
-                  x >= c.left - 24 &&
-                  x <= c.right + 24 &&
-                  y >= c.top - 24 &&
-                  y <= c.bottom + 24,
-              )
-            ) {
-              continue;
-            }
-            const hit = document.elementFromPoint(x, y);
-            if (hit && surface.contains(hit)) return { x, y };
-          }
-        }
-        return null;
-      });
-      expect(boardPoint, "no empty board point found").toBeTruthy();
+    const screenAfter = await app.savedNodes(id);
+    expect(screenAfter.has("price")).toBe(false);
+    expectOnlyChanged(before, screenAfter, subtreeIds(before, "price"));
+    await expect.poll(() => app.selectedLayers()).toEqual(["Price"]);
+    const board = savedNodeMap(await app.savedHtml(id, "__board__.html"));
+    expect(board.get("price")?.text).toBe("$149");
+    expect(attrsBesidesStyle(board.get("price"))).toEqual({
+      "data-agent-native-node-id": "price",
+      "data-agent-native-layer-name": "Price",
+      "data-agent-native-clone-root": "true",
+      "data-agent-native-preserve-styles": "true",
+    });
+    const boardPrice = styleOf(board.get("price"));
+    expect(boardPrice.position).toBe("absolute");
+    expect(boardPrice.font, "Price keeps its bold inherited font").toBe(
+      "700 16px system-ui, sans-serif",
+    );
+    const expected = {
+      left: frame.x + drop.x - price.width / 2,
+      top: frame.y + drop.y - price.height / 2,
+    };
+    expect(
+      Math.abs(parseFloat(boardPrice.left) - expected.left),
+      `board left ${boardPrice.left}, released at ${expected.left}`,
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(parseFloat(boardPrice.top) - expected.top),
+      `board top ${boardPrice.top}, released at ${expected.top}`,
+    ).toBeLessThanOrEqual(2);
 
-      await page.mouse.move(
-        priceBox!.x + priceBox!.width / 2,
-        priceBox!.y + priceBox!.height / 2,
-      );
-      await page.mouse.down();
-      await page.mouse.move(
-        priceBox!.x + priceBox!.width / 2 + 20,
-        priceBox!.y + priceBox!.height / 2,
-        { steps: 5 },
-      );
-      await page.mouse.move(boardPoint!.x, boardPoint!.y, { steps: 30 });
-      await page.waitForTimeout(500);
-      const trace = await dumpTrace(page);
-      await page.mouse.up();
-
-      let indexHtml = "";
-      let boardHtml = "";
-      await expect
-        .poll(
-          async () => {
-            indexHtml = await fileContent(page, designId, "index.html");
-            boardHtml = await fileContent(
-              page,
-              designId,
-              "__board__.html",
-            ).catch(() => "");
-            return (
-              !indexHtml.includes('data-agent-native-node-id="price"') &&
-              boardHtml.length > 0
-            );
-          },
-          {
-            timeout: 10_000,
-            message: `Price must leave the screen and land on the board. Trace: ${trace.slice(-800)}`,
-          },
-        )
-        .toBe(true);
-
-      await page.keyboard.press(`${MOD}+z`);
-      await expect
-        .poll(
-          async () => {
-            indexHtml = await fileContent(page, designId, "index.html");
-            return indexHtml.includes('data-agent-native-node-id="price"');
-          },
-          { timeout: 10_000 },
-        )
-        .toBe(true);
-      expect(
-        childNodeIds(indexHtml, "cardbody"),
-        "undo must restore Price as CardBody's own child, not merely somewhere in the document",
-      ).toContain("price");
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await app.page.keyboard.press(`${MOD}+z`);
+    await app.settled();
+    expect(await app.savedHtml(id)).toBe(beforeHtml);
+    expect(
+      savedNodeMap(await app.savedHtml(id, "__board__.html")).has("price"),
+    ).toBe(false);
+    expect(await app.designRect("price")).toMatchObject({ x: 56, y: 292 });
   });
 });

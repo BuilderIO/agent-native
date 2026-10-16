@@ -1,0 +1,266 @@
+[
+  {
+    "date": "2026-10-12",
+    "text": "Drew the Settings profile photo as the app does, so its letter shows in dark mode, and kept menus above dialogs"
+  },
+  {
+    "date": "2026-10-12",
+    "text": "Moved into the prototypes library, built on the code's design tokens, with this Changes log in place of the Spec drawer"
+  },
+  {
+    "date": "2026-10-06",
+    "text": "Gave gradients their own controls and opened a stop's color in a picker beside, as Figma does"
+  },
+  {
+    "date": "2026-10-06",
+    "text": "Rebuilt the gradient pane on Figma's stops pattern and added shader fills to the color picker"
+  },
+  {
+    "date": "2026-10-06",
+    "text": "Kept P3 and OKLCH fills in their own notation in the inspector, legibly, with the picker's numbers"
+  },
+  {
+    "date": "2026-10-06",
+    "text": "Read colors outside the picker in the notation that wrote them, and fixed P3 alpha parsing"
+  },
+  {
+    "date": "2026-10-06",
+    "text": "Added the color picker's paint row with gradients, images, and blend, and made contrast a mode"
+  },
+  {
+    "date": "2026-10-06",
+    "text": "Moved Import into the file menu as the system file panel, with the same picker on home and an empty-design canvas"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Gave the curve editor Presets and Copy in its header and a Physics mode for springs"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Added Easing, Spring, and Duration tokens with one curve editor, Material 3 easing presets, and Fluid Functionalism springs"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Grouped the tokens panel by the + menu's kinds, with its labels and order"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Reverted tokens to the flat CSS variable panel, keeping the scanner bug and the picker's scrolling Libraries tab"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Dropped the token editor's theme preview strip and the primitives policy"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Rebuilt tokens on strict tiers, theme and mode axes, and a non-modal token editor window"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Tried token collections, aliases, and modes"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Drew the color picker's border as an inset ring so its 12px padding stays on the grid"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Mapped colors with the CSS Color 4 algorithm, kept authored OKLCH values, and named fallbacks"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Wrote OKLCH, P3, and HSL with enough precision to round-trip, verified against the browser"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Dropped the section labels from the color picker's mode menu"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Redrew the color picker's eyedropper on one axis, centered"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Kept the contrast button static and showed AA and AAA status in its menu"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Centered the color picker's header actions and showed contrast failures as amber warnings"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Showed contrast as a live Aa sample in the color picker header"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Sized the color picker's copy button like the inspector's icon buttons"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Gave color contrast its own header button with a table tooltip and a fix menu"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Moved color contrast and the sRGB note into the New swatch's tooltip"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Placed the color picker after it renders so it stays on screen"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Added a contrast check with Fix to the color picker and token swap and detach to the Fill field"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Put the color picker on the 8pt grid and kept slider knobs inside their tracks"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Gave the color picker a real eyedropper, a copy button, paste of any color, and token creation"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Set menus to the editor's density and widened the color picker onto the inspector's controls"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Rotated OKLCH hue at constant lightness and chroma in the color picker"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Simplified the color picker to one square in every mode, with captioned values you can scrub and a P3 badge"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Tried picking OKLCH colors on a hue ring around each hue's lightness and chroma slice"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Drew the OKLCH picker as a continuous plane with a hue strip at the current lightness and chroma"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Redesigned the color picker with previous and new swatches and a mode property that reaches Display P3 and OKLCH"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Dropped the token source badge and edited color tokens with the inspector's color picker"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Styled menus and the Share popover with the toolkit's shadcn primitives"
+  },
+  {
+    "date": "2026-10-05",
+    "text": "Made menus text-only, kept ellipses for dialogs, and put Detach token first on ⌫"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Used the wand icon for Polish in the Edit with Agent menu"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Put Code mode behind its own Labs flag"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Added Code as a third mode built on the existing code workbench"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Showed one file at a time in Review changes, with real checkboxes"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Showed unsaved changes as a file tree beside stacked diffs"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Kept the route menu to routes and put app actions on the toolbar"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Showed edits saving to code as you go, with a visible unsaved state"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Showed the added screen live after connecting"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Moved a URL screen's route control into the Design top bar"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Used one Copy link item in every context menu"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Grouped Copy link to screen with the canvas menu's sharing items"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Ordered the empty-canvas menu like the layer menus"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Dropped Detach from app and left static conversion to the agent"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Added a connect step to Add a screen from your app"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Kept the top bar from overlapping at any width"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Showed a URL screen's route on the grid and its app as a status dot"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Modeled URL screens as instances of an app route"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Flipped prototype submenus at the window edge"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Slimmed a screen's Source and shared the device presets"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Used the current device list for the frame tool's presets"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Organized the frame tool's size presets"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Kept the Designs button's hover fill off the file name"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Made a screen selectable through its root frame"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Made the choose-one menus single choice"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Made screens selectable and resizable"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Explored a width-agnostic responsive model"
+  },
+  {
+    "date": "2026-10-02",
+    "text": "Started the Design editor shell prototype"
+  }
+]

@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Este bloco está temporariamente indisponível.",
+  "block.loading": "Carregando bloco.",
   "composer.contextUrlLabel": "Endereço URL",
   "composer.contextInvalidUrl": "Insira uma URL HTTP ou HTTPS válida.",
   "composer.contextAttach": "Anexar",
@@ -156,9 +158,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Verificando se a criação de uma nova conta está disponível.",
   "onboarding.builderActivationUnavailable":
-    "A criação de novas contas não está ativada neste app. Você ainda pode conectar uma conta existente.",
+    "Crie uma conta ou faça login para se conectar ao Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "A ativação de uma nova conta não está disponível neste modo. Você ainda pode conectar uma conta existente.",
+    "Crie uma conta ou faça login para se conectar ao Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "Não foi possível verificar se este app pode criar novas contas.",
 
@@ -173,6 +175,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Política de Privacidade",
   "onboarding.builderConsentAnd": "e",
   "onboarding.builderExistingAccount": "Tenho uma conta Builder.io",
+  "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Ativando os créditos gratuitos do Builder.io",
   "onboarding.builderConnecting":
@@ -832,6 +835,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "errorMessages.invalidAttachmentNamed":
     "O provedor do modelo rejeitou {{name}} porque o formato ou o tamanho não é compatível. Para imagens, exporte um PNG, JPEG, GIF ou WebP menor; para documentos, use um formato compatível ou cole o texto relevante e tente novamente.",
+  "recovery.resendVerificationEmail": "Reenviar e-mail de verificação",
+  "recovery.sendingVerificationEmail": "Enviando...",
+  "recovery.verificationEmailRequested":
+    "E-mail de verificação solicitado. Confira sua caixa de entrada e a pasta de spam.",
+  "recovery.verificationEmailFailed":
+    "Não foi possível solicitar o e-mail de verificação. Tente novamente.",
   "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
@@ -877,6 +886,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "e mais {{count}} em Novo, ou adicione qualquer chave personalizada",
   "secrets.emptyTitle": "Nenhuma chave ainda.",
+  "secrets.figmaTokenMustBeToken":
+    "Cole um token de acesso do Figma, não uma URL de arquivo do Figma.",
   "secrets.fromEnvironment": "Fornecido pelo ambiente de implantação.",
   "secrets.managedInVault":
     "Gerenciado no Vault do espaço de trabalho. Todos os apps deste espaço de trabalho usam este valor.",
@@ -1327,6 +1338,10 @@ const messages: ToolkitAgentChatTranslation = {
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
   "errorMessages.requestTooLarge":
     "Esta solicitação excedeu o limite de tamanho do servidor (HTTP 413). Inicie um novo chat ou remova anexos ou referências grandes e tente novamente.",
+  "errorMessages.capabilityUnavailable":
+    "Não foi possível enviar sua mensagem agora. Tente novamente em instantes.",
+  "errorMessages.capabilityUnsupported":
+    "Este app ainda não pode tentar novamente com segurança o seu prompt salvo. Atualize o app e tente de novo.",
   "errorMessages.runInterrupted": "O agente parou antes de terminar.",
   "errorMessages.runFailed": "A execução do agente falhou.",
   "errorMessages.runUnverified":
@@ -3260,6 +3275,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fechar",
   "observability.insights.rawTrace":
     "Trace bruto (todos os spans, com entradas e saídas)",
+  "reportProblem.menuItem": "Relatar um problema",
+  "reportProblem.title_one":
+    "Anexar o que o app fez no último {{count}} segundo?",
+  "reportProblem.title_many":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.title_other":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.noEvents": "Nada registrado ainda.",
+  "reportProblem.send": "Enviar ao agente",
+  "reportProblem.copy": "Copiar relatório do problema",
+  "reportProblem.attaching": "Anexando…",
+  "reportProblem.notAttached": "O relatório não foi anexado.",
+  "reportProblem.agentMessage":
+    "Algo deu errado no app. Use o relatório do problema anexado para explicar o que aconteceu.",
 };
 
 export default messages;

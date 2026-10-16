@@ -61,28 +61,29 @@ async function clickSequence(points: [number, number][]) {
   try {
     const page = await browser.newPage();
     await page.setContent(FIXTURE);
-    const selected: string[] = [];
-    await page.exposeFunction("__pushSelected", (id: string) =>
-      selected.push(id),
-    );
     await page.evaluate(() => {
+      (window as any).__selected = [];
       window.addEventListener("message", (e: MessageEvent) => {
         const data = e.data as {
           type?: string;
           payload?: { sourceId?: string };
         };
         if (data?.type === "element-select") {
-          (window as any).__pushSelected(data.payload?.sourceId ?? "");
+          (window as any).__selected.push(data.payload?.sourceId ?? "");
         }
       });
     });
     await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-    for (const [x, y] of points) {
+    for (const [index, [x, y]] of points.entries()) {
       await page.mouse.click(x, y);
-      await page.waitForTimeout(50);
+      await page.waitForFunction(
+        (expectedCount) => (window as any).__selected.length >= expectedCount,
+        index + 1,
+        { timeout: 2_000 },
+      );
     }
-    return selected;
+    return await page.evaluate(() => (window as any).__selected as string[]);
   } finally {
     await browser.close();
   }

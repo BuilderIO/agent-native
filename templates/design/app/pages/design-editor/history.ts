@@ -249,12 +249,30 @@ export interface FileDeletionHistorySnapshot {
   filename: string;
   content: string;
   fileType: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
+  fileOrderIndex?: number;
   geometry?: CanvasFrameGeometry;
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
   variantMemberships?: FileDeletionVariantMembershipSnapshot[];
+}
+
+export function insertAtFileOrderIndex<T>(
+  files: readonly T[],
+  file: T,
+  index?: number,
+): T[] {
+  if (index === undefined) return [...files, file];
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new Error("Invalid file order index");
+  }
+  const insertionIndex = Math.min(index, files.length);
+  return [
+    ...files.slice(0, insertionIndex),
+    file,
+    ...files.slice(insertionIndex),
+  ];
 }
 
 export interface FileDeletionRestoreClaim {

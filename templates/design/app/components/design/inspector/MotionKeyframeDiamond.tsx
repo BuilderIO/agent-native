@@ -13,6 +13,13 @@ export type MotionKeyframeCssProperty =
   | "scale"
   | "rotate"
   | "opacity"
+  | "width"
+  | "height"
+  | "gap"
+  | "padding-top"
+  | "padding-right"
+  | "padding-bottom"
+  | "padding-left"
   | "border-radius"
   | "background-color"
   | "border-color"
@@ -21,6 +28,7 @@ export type MotionKeyframeCssProperty =
 
 export interface MotionKeyframeDiamondProps {
   cssProperty: MotionKeyframeCssProperty;
+  keyframeProperties?: readonly MotionKeyframeCssProperty[];
   hasKeyframe: boolean;
   onToggle: () => void;
   className?: string;
@@ -28,6 +36,7 @@ export interface MotionKeyframeDiamondProps {
 
 export function MotionKeyframeDiamond({
   cssProperty,
+  keyframeProperties,
   hasKeyframe,
   onToggle,
   className,
@@ -45,6 +54,7 @@ export function MotionKeyframeDiamond({
           aria-pressed={hasKeyframe}
           aria-label={label}
           data-motion-css-property={cssProperty}
+          data-motion-css-properties={keyframeProperties?.join(" ")}
           className={cn(
             "flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground/50 transition-colors",
             "hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",

@@ -66,6 +66,11 @@ import {
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
+import {
+  EXTENSION_OPEN_URL_MESSAGE,
+  useExtensionFrameKey,
+  useOpenUrlLatch,
+} from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
@@ -737,6 +742,7 @@ export function ExtensionViewer({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
+  const openUrl = useOpenUrlLatch();
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -776,6 +782,9 @@ export function ExtensionViewer({
       if (!message) return;
 
       if (message.type === "agent-native-extension-binding") {
+        // Inside an MCP chat embed this page is itself sandboxed, so its
+        // window.open can't escape either; leave links native there.
+        openUrl.latch(message, event.source, !isEmbedMcpChatBridgeActive());
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
         const binding = message.binding ?? {};
@@ -809,6 +818,11 @@ export function ExtensionViewer({
           });
           setRefreshKey((k) => k + 1);
         }
+        return;
+      }
+
+      if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
+        openUrl.open(message);
         return;
       }
 
@@ -985,7 +999,7 @@ export function ExtensionViewer({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extensionId, queryClient]);
+  }, [extensionId, openUrl, queryClient]);
 
   const {
     data: extension,
@@ -1060,6 +1074,10 @@ export function ExtensionViewer({
     if (!extension || !usesSrcDoc || !iframeMetaCsp) return undefined;
     return buildExtensionViewerSrcDoc(extension, isDark, iframeMetaCsp);
   }, [extension, iframeMetaCsp, isDark, usesSrcDoc]);
+
+  const frameKey = useExtensionFrameKey(
+    `${extensionId}|${extension?.updatedAt}|${refreshKey}|${usesSrcDoc ? "" : iframeSrc}|${iframeSrcDoc ?? ""}`,
+  );
   const unavailableStatus = extensionLoadErrorStatus(
     extensionError ?? extensionFailureReason,
   );
@@ -1287,7 +1305,7 @@ export function ExtensionViewer({
           <iframe
             {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
-            key={`${extension.updatedAt}-${refreshKey}`}
+            key={`${extension.updatedAt}-${refreshKey}-${frameKey}`}
             src={usesSrcDoc ? undefined : iframeSrc}
             srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"

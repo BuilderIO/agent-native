@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import { createSourceDocumentProvenance } from "@shared/preview-source-provenance";
 import { act } from "react";
 import type { ComponentProps } from "react";
@@ -7,10 +8,23 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { DesignCanvas } from "./DesignCanvas";
+import { replaceLinkedScreenPreviewContent } from "./multi-screen/linked-screen-preview";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+
+const parse5Parse = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("parse5", async (importOriginal) => {
+  const parse5 = await importOriginal<typeof import("parse5")>();
+  return {
+    ...parse5,
+    parse: (...args: Parameters<typeof parse5.parse>) => {
+      parse5Parse.calls += 1;
+      return parse5.parse(...args);
+    },
+  };
+});
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -355,6 +369,196 @@ describe("DesignCanvas runtime replacement", () => {
       expect(unexpectedOrder).not.toContain("replace-document-content");
     } finally {
       await unexpectedCanvas.cleanup();
+    }
+  });
+});
+
+describe("DesignCanvas host replacement of a runtime-replaced screen", () => {
+  async function readyCanvasCapturing() {
+    const canvas = await renderCanvas(BASE);
+    const frame = canvas.iframe()!;
+    const sent: { type: string; [key: string]: unknown }[] = [];
+    frame.contentWindow!.postMessage = ((message: never) =>
+      sent.push(message)) as Window["postMessage"];
+    await act(async () =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: frame.contentWindow as unknown as Window,
+          data: { type: "editor-chrome-ready" },
+        }),
+      ),
+    );
+    buildCodeLayerProjection(BASE, {
+      source: { kind: "design-file", fileId: "screen" },
+    });
+    sent.length = 0;
+    return { canvas, sent };
+  }
+
+  it("swaps only the edited node when an undo changes one text run", async () => {
+    const { canvas, sent } = await readyCanvasCapturing();
+    try {
+      const next = BASE.replace("<p>hi</p>", "<p>bye</p>");
+
+      expect(
+        replaceLinkedScreenPreviewContent("screen", next, null, [], {
+          forceFullDocument: true,
+          allowSourceNodeSwap: true,
+        }),
+      ).toBe(true);
+
+      expect(sent.map((message) => message.type)).toEqual([
+        "replace-source-node",
+      ]);
+      expect(sent[0]).toMatchObject({
+        nodeId: "an-main",
+        html: '<main data-agent-native-node-id="an-main"><p>bye</p></main>',
+        sourceProvenance: createSourceDocumentProvenance(next),
+      });
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
+  it("derives an undo's provenance without re-parsing after the cache dropped the edited document", async () => {
+    const { canvas, sent } = await readyCanvasCapturing();
+    try {
+      const expected = structuredClone(createSourceDocumentProvenance(BASE));
+      const edited = BASE.replace("<p>hi</p>", "<p>bye</p>");
+      buildCodeLayerProjection(edited, {
+        source: { kind: "design-file", fileId: "screen" },
+      });
+      replaceLinkedScreenPreviewContent("screen", edited, null, [], {
+        forceFullDocument: true,
+        allowSourceNodeSwap: true,
+      });
+      for (const filler of ["x", "y"]) {
+        createSourceDocumentProvenance.prime(filler.repeat(13_000_000), {
+          versionHash: "",
+          uniqueNodeIds: [],
+        });
+      }
+      expect(createSourceDocumentProvenance.has(edited)).toBe(false);
+      expect(createSourceDocumentProvenance.has(BASE)).toBe(false);
+      const parsesBeforeUndo = parse5Parse.calls;
+
+      replaceLinkedScreenPreviewContent("screen", BASE, null, [], {
+        forceFullDocument: true,
+        allowSourceNodeSwap: true,
+      });
+
+      expect(parse5Parse.calls).toBe(parsesBeforeUndo);
+      expect(sent.map((message) => message.type)).toEqual([
+        "replace-source-node",
+        "replace-source-node",
+      ]);
+      expect(sent[1]!.sourceProvenance).toEqual(expected);
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
+  it("diffs an undo against a design-state preview, not the content before it", async () => {
+    const { canvas, sent } = await readyCanvasCapturing();
+    try {
+      const statePreview = BASE.replace("<p>hi</p>", "<p>hi</p><p>hover</p>");
+      replaceLinkedScreenPreviewContent("screen", statePreview, null, [], {
+        forceFullDocument: true,
+      });
+
+      replaceLinkedScreenPreviewContent(
+        "screen",
+        BASE.replace("<p>hi</p>", "<p>bye</p>"),
+        null,
+        [],
+        { forceFullDocument: true, allowSourceNodeSwap: true },
+      );
+
+      expect(sent.map((message) => message.type)).toEqual([
+        "replace-document-content",
+        "replace-document-content",
+      ]);
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
+  it("still sends the whole document when the undo changes structure", async () => {
+    const { canvas, sent } = await readyCanvasCapturing();
+    try {
+      const next = BASE.replace("<p>hi</p>", "<p>hi</p><p>restored</p>");
+
+      replaceLinkedScreenPreviewContent("screen", next, null, [], {
+        forceFullDocument: true,
+        allowSourceNodeSwap: true,
+      });
+
+      expect(sent.map((message) => message.type)).toEqual([
+        "replace-document-content",
+      ]);
+      expect(sent[0]).toMatchObject({ forceFullDocument: true });
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
+  it("rebuilds the whole document for a forced resync that changed one text run", async () => {
+    const { canvas, sent } = await readyCanvasCapturing();
+    try {
+      const next = BASE.replace("<p>hi</p>", "<p>from a collaborator</p>");
+
+      replaceLinkedScreenPreviewContent("screen", next, null, [], {
+        forceFullDocument: true,
+      });
+
+      expect(sent.map((message) => message.type)).toEqual([
+        "replace-document-content",
+      ]);
+      expect(sent[0]).toMatchObject({ forceFullDocument: true });
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
+  it("falls back to the whole document with the undo's own selection when the frame rejects the swap", async () => {
+    const { canvas, sent } = await readyCanvasCapturing();
+    try {
+      const next = BASE.replace("<p>hi</p>", "<p>bye</p>");
+      const selector = '[data-agent-native-node-id="an-main"]';
+      replaceLinkedScreenPreviewContent(
+        "screen",
+        next,
+        selector,
+        [selector, "main"],
+        { forceFullDocument: true, allowSourceNodeSwap: true },
+      );
+      expect(sent.map((message) => message.type)).toEqual([
+        "replace-source-node",
+      ]);
+
+      await act(async () =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: canvas.iframe()!.contentWindow as unknown as Window,
+            origin: window.location.origin,
+            data: { type: "replace-source-node-rejected" },
+          }),
+        ),
+      );
+
+      expect(sent.map((message) => message.type)).toEqual([
+        "replace-source-node",
+        "replace-document-content",
+      ]);
+      expect(sent[1]).toMatchObject({
+        selectedSelector: selector,
+        selectorCandidates: [selector, "main"],
+        forceFullDocument: true,
+        preserveTextEditingSession: false,
+        sourceProvenance: createSourceDocumentProvenance(next),
+      });
+    } finally {
+      await canvas.cleanup();
     }
   });
 });

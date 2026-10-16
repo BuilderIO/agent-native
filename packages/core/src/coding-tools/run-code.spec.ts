@@ -110,6 +110,37 @@ describe("run-code bridge", () => {
     expect(hiddenRan).toBe(false);
   });
 
+  it("fails providerFetch loudly on a truncated provider response", async () => {
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async () =>
+          JSON.stringify({
+            response: { status: 200, truncated: true, text: '{"results":[' },
+          }),
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        try {
+          await providerFetch("gong", "/calls/extensive", { method: "POST" });
+          console.log("NO_ERROR");
+        } catch (e) {
+          console.log("ERR:" + e.message);
+        }
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain(
+      "ERR:Provider response was cut at the response size limit",
+    );
+    expect(result).not.toContain("NO_ERROR");
+  });
+
   it("forwards structured providerFetch options to provider-api-request", async () => {
     const actions: Record<string, ActionEntry> = {
       "provider-api-request": {

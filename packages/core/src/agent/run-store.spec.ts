@@ -286,6 +286,7 @@ const {
   RUN_STALE_MS,
   resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
+const { approvalKeyForHistory } = await import("./approval-key.js");
 const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
 let ledgerRows: Array<{
@@ -593,6 +594,42 @@ describe("run store", () => {
     expect(JSON.parse(stored)).toMatchObject({
       result: "saved [inline image/png data omitted]",
       images: [{ label: "shot", omitted: "inline-bytes" }],
+    });
+  });
+
+  it("stores approval keys as opaque hashes and strips their inline inputs", async () => {
+    const approvalKey = 'upload-image:{"payload":"INLINE_APPROVAL_BASE64"}';
+    await insertRunEvent(
+      "run-approval-image",
+      2,
+      JSON.stringify({
+        type: "approval_required",
+        tool: "upload-image",
+        input: {
+          payload: "data:image/png;base64,INLINE_APPROVAL_IMAGE",
+          sourceUrl: "https://files.example.test/report.png?download=1",
+        },
+        approvalKey,
+        askId: "agent-tool-approval-ask-1",
+      }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    const event = JSON.parse(stored);
+    assertNoInlineImageBytes(stored, "event_data");
+    expect(stored).not.toContain("INLINE_APPROVAL_BASE64");
+    expect(stored).not.toContain("INLINE_APPROVAL_IMAGE");
+    expect(event).toMatchObject({
+      type: "approval_required",
+      approvalKey: approvalKeyForHistory(approvalKey),
+      input: {
+        payload: "[inline image/png data omitted]",
+        sourceUrl: "https://files.example.test/report.png?download=1",
+      },
+      askId: "agent-tool-approval-ask-1",
     });
   });
 

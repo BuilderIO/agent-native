@@ -1,6 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
+  buildAgentShareDeepLink,
+  type AgentShareDestination,
+} from "@agent-native/toolkit/sharing";
+import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
@@ -12,23 +16,21 @@ import { type ExportSettingsValue } from "@/components/design/inspector";
 import { type LayersPanelHandle } from "@/components/design/LayersPanel";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
+import { type BrowserDesignExportContext } from "@/lib/design-export-tracking";
 import {
-  exportDesignAsFigmaSvg,
   type LiveFigmaSvgSnapshot,
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
-import {
-  canCopyPngToClipboard,
-  copyPngPromiseToClipboard,
-  PngClipboardError,
-} from "@/lib/png-clipboard";
 
 import { elementInfoFromCodeLayerNode } from "../code-layer-state";
 import type { CodingHandoffResult } from "../command-types";
 import { runApplyPendingVisualStylesWithAgent } from "../commands/apply-pending-visual-styles-with-agent";
 import { runCopyAsFigmaSvg } from "../commands/copy-as-figma-svg";
+import { runCopyAsPng } from "../commands/copy-as-png";
 import { runDownloadAllScreensPdf } from "../commands/download-all-screens-pdf";
+import { runDownloadFigmaSvg } from "../commands/download-figma-svg";
 import { runDownloadPdf } from "../commands/download-pdf";
+import { runDownloadPng } from "../commands/download-png";
 import { runDownloadSvg } from "../commands/download-svg";
 import {
   resolveSelectedScreensExportBounds,
@@ -91,6 +93,7 @@ export function useEditorExportAndHandoff({
     t,
     externalAgentHost,
     id,
+    isSignedIn,
     setMode,
     setActiveTool,
     viewMode,
@@ -193,6 +196,10 @@ export function useEditorExportAndHandoff({
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
+  const exportTracking = useMemo<BrowserDesignExportContext>(
+    () => ({ designId: id, signedIn: isSignedIn }),
+    [id, isSignedIn],
+  );
 
   const handleSelectAllFrames = useCallback(() => {
     recordSelectionHistoryAroundChange(() => {
@@ -301,13 +308,17 @@ export function useEditorExportAndHandoff({
     [],
   );
 
+  const refreshCodingHandoffText = useCallback(async () => {
+    const text = getCodingHandoffClipboardText(
+      await ensureCodingHandoff({ refresh: true }),
+    );
+    if (!text) toast.error(t("designEditor.toasts.codingHandoffError"));
+    return text;
+  }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+
   const handleCopyCodingHandoff = useCallback(async () => {
-    const result = await ensureCodingHandoff({ refresh: true });
-    const text = getCodingHandoffClipboardText(result);
-    if (!text) {
-      toast.error(t("designEditor.toasts.codingHandoffError"));
-      return;
-    }
+    const text = await refreshCodingHandoffText();
+    if (!text) return;
     try {
       if (!(await writeClipboardText(text))) {
         toast.error(t("designEditor.toasts.clipboardBlocked"));
@@ -317,7 +328,16 @@ export function useEditorExportAndHandoff({
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
-  }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+  }, [refreshCodingHandoffText, t]);
+
+  const handleSendCodingHandoff = useCallback(
+    async (destination: AgentShareDestination) => {
+      const text = await refreshCodingHandoffText();
+      if (text)
+        window.location.assign(buildAgentShareDeepLink(destination, text));
+    },
+    [refreshCodingHandoffText],
+  );
   const pendingVisualStyleScreenSourceTypes = useMemo(
     () =>
       new Map<string, unknown>(
@@ -894,26 +914,24 @@ export function useEditorExportAndHandoff({
       settings?: Partial<ExportSettingsValue>,
       format: "png" | "jpg" | "webp" = "png",
       scope: PngCaptureScope = "document",
-    ) => {
-      if (pngExportingRef.current) return;
-      pngExportingRef.current = true;
-      setPngExporting(true);
-      try {
-        const blob = await renderPngBlob({
-          scope,
-          settings,
-          format,
-        });
-        triggerBlobDownload(blob, fallbackExportName(format, settings?.suffix));
-        toast.success(t("designEditor.toasts.pngDownloaded"));
-      } catch (error) {
-        showRasterCaptureError(error);
-      } finally {
-        pngExportingRef.current = false;
-        setPngExporting(false);
-      }
-    },
+    ) =>
+      runDownloadPng(
+        {
+          exportTracking,
+          fallbackExportName,
+          pngExportingRef,
+          renderPngBlob,
+          setPngExporting,
+          showRasterCaptureError,
+          t,
+          triggerBlobDownload,
+        },
+        settings,
+        format,
+        scope,
+      ),
     [
+      exportTracking,
       fallbackExportName,
       renderPngBlob,
       showRasterCaptureError,
@@ -929,6 +947,7 @@ export function useEditorExportAndHandoff({
     ) =>
       runDownloadPdf(
         {
+          exportTracking,
           fallbackExportName,
           pngExportingRef,
           renderPngBlob,
@@ -944,6 +963,7 @@ export function useEditorExportAndHandoff({
         scope,
       ),
     [
+      exportTracking,
       fallbackExportName,
       renderPngBlob,
       resolveSelectedScreensBounds,
@@ -960,6 +980,7 @@ export function useEditorExportAndHandoff({
         activeCanvasSourceType,
         canEditDesign,
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
+        exportTracking,
         fallbackExportName,
         overviewScreens,
         prepareScreenForExport: markScreenForExport,
@@ -975,6 +996,7 @@ export function useEditorExportAndHandoff({
       activeCanvasSourceType,
       canEditDesign,
       exportCanvasFrameGeometryById,
+      exportTracking,
       fallbackExportName,
       overviewScreens,
       markScreenForExport,
@@ -986,36 +1008,32 @@ export function useEditorExportAndHandoff({
     ],
   );
 
-  const handleCopyAsPng = useCallback(async () => {
-    if (pngExportingRef.current) return;
-    if (!canCopyPngToClipboard()) {
-      toast.error(t("designEditor.toasts.pngClipboardUnsupported"));
-      return;
-    }
+  const inspectorRasterScope: PngCaptureScope =
+    pngSelectedElements.length > 0
+      ? "element"
+      : viewMode === "overview" && overviewSelectedScreenIds.length > 0
+        ? "screens"
+        : "document";
 
-    pngExportingRef.current = true;
-    setPngExporting(true);
-    try {
-      const pngBlob = renderPngBlob({ scope: "screens" });
-      await copyPngPromiseToClipboard(pngBlob);
-      toast.success(t("designEditor.toasts.pngCopied"));
-    } catch (error) {
-      if (error instanceof PngClipboardError) {
-        const key =
-          error.code === "blocked"
-            ? "designEditor.toasts.pngClipboardBlocked"
-            : error.code === "unsupported"
-              ? "designEditor.toasts.pngClipboardUnsupported"
-              : "designEditor.toasts.pngClipboardWriteError";
-        toast.error(t(key));
-      } else {
-        showRasterCaptureError(error);
-      }
-    } finally {
-      pngExportingRef.current = false;
-      setPngExporting(false);
-    }
-  }, [renderPngBlob, showRasterCaptureError, t]);
+  const handleCopyAsPng = useCallback(
+    async () =>
+      runCopyAsPng({
+        exportTracking,
+        pngExportingRef,
+        renderPngBlob,
+        scope: inspectorRasterScope,
+        setPngExporting,
+        showRasterCaptureError,
+        t,
+      }),
+    [
+      exportTracking,
+      inspectorRasterScope,
+      renderPngBlob,
+      showRasterCaptureError,
+      t,
+    ],
+  );
 
   const resolveLiveFigmaSvgSource = useCallback(
     (targetFileId: string | undefined): LiveFigmaSvgSource | null => {
@@ -1105,6 +1123,7 @@ export function useEditorExportAndHandoff({
     async () =>
       runCopyAsFigmaSvg({
         activeFile,
+        exportTracking,
         figmaSvgExportingRef,
         id,
         resolveLiveFigmaSvgSnapshot,
@@ -1116,6 +1135,7 @@ export function useEditorExportAndHandoff({
       }),
     [
       activeFile?.id,
+      exportTracking,
       id,
       resolveLiveFigmaSvgSource,
       resolveLiveFigmaSvgSnapshot,
@@ -1125,53 +1145,35 @@ export function useEditorExportAndHandoff({
     ],
   );
 
-  const handleDownloadFigmaSvg = useCallback(async () => {
-    if (figmaSvgExportingRef.current) return;
-    const targetFileId = activeFile?.id ?? selectedScreenIds[0] ?? undefined;
-    if (!targetFileId) {
-      toast.error(t("designEditor.toasts.openScreenSvg"));
-      return;
-    }
-    figmaSvgExportingRef.current = true;
-    setFigmaSvgExporting(true);
-    try {
-      const result = await exportDesignAsFigmaSvg(
-        {
-          designId: id,
-          fileId: targetFileId,
-          nodeId: selectedElementLayerId ?? undefined,
-        },
-        {
-          liveSource: resolveLiveFigmaSvgSource(targetFileId),
-          liveSnapshot: resolveLiveFigmaSvgSnapshot(targetFileId),
-        },
-      );
-      triggerBlobDownload(
-        new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" }),
-        result.filename || fallbackExportName("svg", "figma"),
-      );
-      toast.success(t("designEditor.toasts.figmaSvgDownloaded"));
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("designEditor.toasts.figmaSvgExportError"),
-      );
-    } finally {
-      figmaSvgExportingRef.current = false;
-      setFigmaSvgExporting(false);
-    }
-  }, [
-    activeFile?.id,
-    fallbackExportName,
-    id,
-    resolveLiveFigmaSvgSource,
-    resolveLiveFigmaSvgSnapshot,
-    selectedElementLayerId,
-    selectedScreenIds,
-    t,
-    triggerBlobDownload,
-  ]);
+  const handleDownloadFigmaSvg = useCallback(
+    async () =>
+      runDownloadFigmaSvg({
+        activeFile,
+        exportTracking,
+        fallbackExportName,
+        figmaSvgExportingRef,
+        id,
+        resolveLiveFigmaSvgSnapshot,
+        resolveLiveFigmaSvgSource,
+        selectedElementLayerId,
+        selectedScreenIds,
+        setFigmaSvgExporting,
+        t,
+        triggerBlobDownload,
+      }),
+    [
+      activeFile?.id,
+      exportTracking,
+      fallbackExportName,
+      id,
+      resolveLiveFigmaSvgSource,
+      resolveLiveFigmaSvgSnapshot,
+      selectedElementLayerId,
+      selectedScreenIds,
+      t,
+      triggerBlobDownload,
+    ],
+  );
 
   const handleDownloadSvg = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
@@ -1192,6 +1194,7 @@ export function useEditorExportAndHandoff({
         {
           activePreviewFrameId,
           design,
+          exportTracking,
           fallbackExportName,
           selectedElement,
           setSvgExporting,
@@ -1205,6 +1208,7 @@ export function useEditorExportAndHandoff({
       activeBreakpointWidthState,
       activeOverviewScreenId,
       design?.title,
+      exportTracking,
       fallbackExportName,
       overviewScreens,
       overviewSelectedScreenIds,
@@ -1214,13 +1218,6 @@ export function useEditorExportAndHandoff({
       viewMode,
     ],
   );
-
-  const inspectorRasterScope: PngCaptureScope =
-    pngSelectedElements.length > 0
-      ? "element"
-      : viewMode === "overview" && overviewSelectedScreenIds.length > 0
-        ? "screens"
-        : "document";
 
   const handleRenderExportPreview = useCallback(
     () =>
@@ -1271,6 +1268,7 @@ export function useEditorExportAndHandoff({
     handleFindLayers,
     getCodingHandoffClipboardText,
     handleCopyCodingHandoff,
+    handleSendCodingHandoff,
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
     visualEditPromptResult,

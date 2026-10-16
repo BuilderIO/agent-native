@@ -147,6 +147,7 @@ describe("local-plan-files", () => {
     expect(local.folder).toBe(path.join(tmpDir, "local-sync-flow"));
     expect(local.mdx["plan.mdx"]).toContain("Local sync flow");
     expect(local.content.title).toBe("Local sync flow");
+    expect(local.hasSalvagedInvalidBlocks).toBe(false);
   });
 
   it("keeps valid local-folder blocks visible when authored MDX contains malformed blocks", async () => {
@@ -170,6 +171,7 @@ This valid introduction stays visible.
 
     const local = await readPlanLocalFolder("partially-valid-plan");
 
+    expect(local.hasSalvagedInvalidBlocks).toBe(true);
     expect(local.content.blocks).toHaveLength(3);
     expect(local.content.blocks[0]).toMatchObject({
       type: "rich-text",

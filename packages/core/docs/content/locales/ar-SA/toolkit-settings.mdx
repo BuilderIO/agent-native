@@ -84,7 +84,7 @@ export default function SettingsRoute() {
 تبدأ صفحة التطبيق عادةً بعنصر `extraTabs` الذي يصبح صفحة مستقلة ضمن مجموعة التطبيق. لمزيد من التحكم، سجّل `SettingsPageDefinition` (`id` و`group` و`order` و`label` و`icon` و`component`، واختياريًا `visible` و`subpages` و`searchEntries`) باستخدام `registerSettingsPages` على مستوى الوحدة. يحل التعريف الذي يحمل المعرّف نفسه محل الصفحة الموجودة؛ وبهذه الطريقة يستبدل التطبيق إحدى صفحات الحزمة الأساسية بنسخته. يستخدم Dispatch هذه الطريقة لإضافة عمود أدوار التطبيق إلى صفحة الأعضاء:
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,

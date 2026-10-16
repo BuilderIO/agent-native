@@ -1,5 +1,42 @@
 # @agent-native/recap-cli
 
+## 0.5.74
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.73
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.72
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.71
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.70
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.69
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 6b63993: Publish fresh PR recap snapshots with run-scoped idempotency keys.
+
 ## 0.5.68
 
 ### Patch Changes

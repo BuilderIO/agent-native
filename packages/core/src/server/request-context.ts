@@ -1,6 +1,7 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import type { ContextStatus } from "../shared/context-status.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -76,6 +77,8 @@ export interface RequestRunContext {
   systemPrompt?: string;
   engine?: import("../agent/engine/types.js").AgentEngine;
   model?: string;
+  /** The run's resolved thinking effort; unset when the model takes none. */
+  reasoningEffort?: ReasoningEffort;
   allowedActionNames?: readonly string[];
   actionScope?: Readonly<AgentActionScope>;
   appAuthorization?: {
@@ -106,6 +109,8 @@ export interface RequestContext {
   userEmail?: string;
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
+  /** Storage-only org selection; null prevents an active-org fallback. */
+  builderStorageCredentialOrgId?: string | null;
   /** Provenance set only after a stored org service token is verified. */
   verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
@@ -117,6 +122,8 @@ export interface RequestContext {
   userName?: string;
   orgId?: string;
   orgScope?: "personal";
+  /** Explicitly selects deployment-wide agent defaults for shared no-org jobs. */
+  defaultAgentEngineScope?: "deployment";
   /**
    * Narrow authorization capability verified from an embed session. This is
    * deliberately separate from user identity: capability-only sessions must
@@ -153,6 +160,8 @@ export interface RequestContext {
    * radius (a resource that is itself local-only, NODE_ENV, etc.).
    */
   isLoopbackRequest?: boolean;
+  /** True only when this server received the request directly on 127.0.0.1. */
+  isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
   integration?: {
     taskId: string;
@@ -538,6 +547,17 @@ export function getRequestOrgId(): string | undefined {
     return store.orgId;
   }
   return processEnv("AGENT_ORG_ID");
+}
+
+export function getRequestBuilderStorageCredentialOrgId():
+  | string
+  | null
+  | undefined {
+  const store = als.getStore();
+  if (store?.builderStorageCredentialOrgId !== undefined) {
+    markAuthContextAccess(store);
+  }
+  return store?.builderStorageCredentialOrgId;
 }
 
 export function getRequestAuthCapability(): string | undefined {

@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 ベア `@agent-native/core` パッケージから UI コンポーネントをインポートすることは避けてください。使用
@@ -616,7 +616,7 @@ const collab = useCollaborativeDoc({
 完成したパネルには小道具は必要ありません:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -628,6 +628,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -666,16 +668,16 @@ function WorkspaceResources() {
 
 ## その他の公開 UI {#other-ui}
 
-| エリア           | APIs                                                              | インポートパス                            |
-| ---------------- | ----------------------------------------------------------------- | ----------------------------------------- |
-| 共有             | `<ShareButton>`, `<ShareDialog>`                                  | `@agent-native/core/client/sharing`       |
-| Sharing UI       | `<VisibilityBadge>`                                               | `@agent-native/toolkit/sharing`           |
-| 通知             | `<NotificationsBell>`                                             | `@agent-native/core/client/notifications` |
-| 進捗状況         | `<RunsTray>`、進行フックとタイプ                                  | `@agent-native/core/client/progress`      |
-| オンボーディング | `useOnboarding()`、オンボーディング パネル フック                 | `@agent-native/core/client/onboarding`    |
-| 可観測性         | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                    | `@agent-native/toolkit/app/observability` |
-| リソース         | `<ResourcesPanel>`、`<ResourceTree>`、リソースフック              | `@agent-native/core/client/resources`     |
-| リッチエディタ   | `<SharedRichEditor>`、スラッシュ コマンド、ブロック ノード フック | `@agent-native/toolkit/editor`            |
+| エリア           | APIs                                                              | インポートパス                                                              |
+| ---------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 共有             | `<ShareButton>`, `<ShareDialog>`                                  | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI       | `<VisibilityBadge>`                                               | `@agent-native/toolkit/sharing`                                             |
+| 通知             | `<NotificationsBell>`                                             | `@agent-native/toolkit/app/notifications`                                   |
+| 実行レジストリ   | `<RunsTray>`、実行の型とサーバー側レジストリ関数                  | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| オンボーディング | `useOnboarding()`、オンボーディング パネル フック                 | `@agent-native/core/client/onboarding`                                      |
+| 可観測性         | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                    | `@agent-native/toolkit/app/observability`                                   |
+| リソース         | `<ResourcesPanel>`、`<ResourceTree>`、リソースフック              | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| リッチエディタ   | `<SharedRichEditor>`、スラッシュ コマンド、ブロック ノード フック | `@agent-native/toolkit/editor`                                              |
 
 ## 一回限りのテキスト補完 {#one-off-text-completion}
 

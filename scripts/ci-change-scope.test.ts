@@ -67,8 +67,10 @@ function runFastTestsSummary(
       DOCS_RESULT: "skipped",
       TEST_REST_RESULT: "skipped",
       TEST_TARGETED_RESULT: "success",
-      DESIGN_CANVAS_E2E: "false",
-      DESIGN_CANVAS_RESULT: "skipped",
+      DESIGN_CORE_REGRESSION: "false",
+      DESIGN_CORE_RESULT: "skipped",
+      DESIGN_BROAD_WORKFLOWS: "false",
+      DESIGN_BROAD_RESULT: "skipped",
       PRE_AUTH_REPLAY_E2E: "false",
       PRE_AUTH_REPLAY_RESULT: "skipped",
       ...overrides,
@@ -93,6 +95,17 @@ test("recognizes documentation surfaces and package metadata", () => {
     isDocsPath("scripts/i18n-localized-doc-coverage-baseline.txt"),
     true,
   );
+});
+
+test("treats prototypes as docs-only", () => {
+  assert.equal(isDocsPath("prototypes/chat/source.html"), true);
+  assert.equal(isDocsPath("prototypes/kit/build.ts"), true);
+  const scope = classifyChangedPaths([
+    "prototypes/slides/source.html",
+    "prototypes/kit/ui.css",
+  ]);
+  assert.equal(scope.docsOnly, true);
+  assert.equal(scope.full, false);
 });
 
 test("does not treat implementation and instruction paths as docs-only", () => {
@@ -173,6 +186,14 @@ test("passes the pull request title to the change-scope guard", () => {
     workflow,
     /CI_PR_TITLE:\s*\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/u,
   );
+});
+
+test("runs CI for pull requests into any base branch", () => {
+  const triggers = readFileSync(".github/workflows/ci.yml", "utf8").split(
+    /^jobs:/mu,
+  )[0];
+  assert.match(triggers, /^ {2}pull_request:\s*$/mu);
+  assert.doesNotMatch(triggers, /^\s*branches(?:-ignore)?:/mu);
 });
 
 test("selects Slides caret CI for exact package roots and Creative Context", () => {
@@ -586,7 +607,7 @@ test("does not select Design dependencies for test or typecheck", () => {
   ]);
 });
 
-test("selects focused Design canvas interaction acceptance for its runtime dependencies", () => {
+test("selects focused Design core regression for its runtime dependencies", () => {
   for (const path of [
     "templates/design/app/components/MultiScreenCanvas.tsx",
     "templates/design/shared/canvas-math.ts",
@@ -624,7 +645,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "packages/creative-context/src/index.ts",
   ]) {
     assert.equal(
-      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      classifyChangedPaths([path]).checks.design_canvas_core_regression,
       true,
       path,
     );
@@ -643,7 +664,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/public/favicon.svg",
   ]) {
     assert.equal(
-      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      classifyChangedPaths([path]).checks.design_canvas_core_regression,
       false,
       path,
     );
@@ -660,7 +681,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "packages/agentkit/src/protocol/agui.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
-    assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
   }
 
   assert.deepEqual(
@@ -697,7 +718,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     ...fourDesignSpecs,
     "templates/design/e2e/interaction-pan-zoom-mouse.spec.ts",
   ]);
-  assert.equal(broadDesignScope.checks.design_canvas_interaction_e2e, true);
+  assert.equal(broadDesignScope.checks.design_canvas_core_regression, true);
   assert.equal(broadDesignScope.designCanvasE2eSpecCount, 5);
   assert.deepEqual(
     broadDesignScope.designCanvasE2eSpecs,
@@ -720,14 +741,49 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
 
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
-      .design_canvas_interaction_e2e,
+      .design_canvas_core_regression,
     true,
   );
   assert.equal(
     classifyChangedPaths(["docs/guide.md"]).checks
-      .design_canvas_interaction_e2e,
+      .design_canvas_core_regression,
     false,
   );
+});
+
+test("Design core and broad selectors cover the same on/off/full inputs", () => {
+  const cases = [
+    {
+      name: "selected Design runtime",
+      paths: ["templates/design/shared/canvas-math.ts"],
+      expected: true,
+    },
+    {
+      name: "unrelated workspace",
+      paths: ["templates/calendar/app/routes/index.tsx"],
+      expected: false,
+    },
+    { name: "full run", paths: [], expected: true },
+    {
+      name: "CI tooling-only full run",
+      paths: ["scripts/ci-change-scope.ts"],
+      expected: true,
+    },
+  ];
+
+  for (const { name, paths, expected } of cases) {
+    const scope = classifyChangedPaths(paths);
+    assert.equal(
+      scope.checks.design_canvas_core_regression,
+      expected,
+      `${name}: core`,
+    );
+    assert.equal(
+      scope.checks.design_canvas_broad_workflows,
+      expected,
+      `${name}: broad`,
+    );
+  }
 });
 
 test("the Design interaction gate runs the bounded regression acceptance cases", () => {
@@ -744,14 +800,25 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const aiSidebarLoopback = step("Run AI sidebar loopback image regressions");
   const musicAppWorkflow = step("Run long music-app workflow regression");
   const musicAppDiagnostics = step("Upload music-app workflow diagnostics");
+  const broadRetryDiagnostics = step("Detect retried Design test failures");
+  const broadWorkflowArtifacts = step("Upload Design E2E artifacts");
+  const landingPageWorkflow = step(
+    "Run landing-page build workflow regression",
+  );
+  const homeSystemSelection = step(
+    "Run Home design-system selection regressions",
+  );
+  const verticalAutoLayoutWorkflow = step(
+    "Run vertical auto-layout held-guide regression",
+  );
   const changedSpecRegressions = step("Run changed Design E2E specs");
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
   );
   assert.match(
     changedSpecRegressions,
-    /^        timeout-minutes: 7$/m,
-    "the changed-spec diagnostic step must fit inside its 9-minute job after setup",
+    /^        timeout-minutes: 15$/m,
+    "the changed-spec diagnostic step must fit inside its 19-minute job after setup",
   );
   assert.match(
     changedSpecRegressions,
@@ -760,9 +827,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      "--grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'",
+      "--grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'",
     ),
-    "the long music-app workflow must run only in its dedicated interaction shard",
+    "the long music-app and vertical auto-layout tests must run only in dedicated lanes",
   );
   assert.match(
     musicAppWorkflow,
@@ -772,7 +839,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.match(
     musicAppWorkflow,
     /^        timeout-minutes: 23$/m,
-    "the complete desktop/mobile music workflow needs a bounded dedicated step",
+    "the long music-app tests need a bounded dedicated step",
   );
   assert.ok(
     musicAppWorkflow.includes(
@@ -792,7 +859,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     musicAppWorkflow.includes(
-      "pnpm exec playwright test \"$music_app_spec\" \\\n            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \\\n            --workers=1 --retries=0 --trace on",
+      "pnpm exec playwright test \"$music_app_spec\" \\\n            --grep '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$' \\\n            --workers=1 --retries=0 --trace on",
     ),
     "the dedicated shard must run only the long test once and retain a failure trace",
   );
@@ -808,14 +875,136 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "the failure artifact must retain the dedicated Playwright trace output",
   );
   assert.match(
+    landingPageWorkflow,
+    /^        if: \$\{\{ matrix\.shard == 'landing-page-build' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/interaction-landing-page-build\.spec\.ts'\) \}\}$/m,
+    "the landing-page workflow must use an exact changed-spec selector gate",
+  );
+  assert.match(
+    landingPageWorkflow,
+    /^        timeout-minutes: 23$/m,
+    "the complete landing-page workflow needs a bounded dedicated step",
+  );
+  assert.ok(
+    landingPageWorkflow.includes(
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
+    ) &&
+      landingPageWorkflow.includes('DESIGN_CANVAS_LANDING_PAGE_WORKFLOW: "1"'),
+    "the landing-page workflow must resolve the same exact changed-path selector",
+  );
+  assert.ok(
+    landingPageWorkflow.includes(
+      "landing_page_spec='e2e/interaction-landing-page-build.spec.ts'",
+    ) &&
+      landingPageWorkflow.includes(
+        'if [[ ! -f "$landing_page_spec" ]]; then',
+      ) &&
+      landingPageWorkflow.includes(
+        'printf \'%s\\n\' "${existing_changed_specs[@]}" | grep -Fqx "$landing_page_spec"',
+      ),
+    "the landing-page lane must preflight that the selected full-file spec exists and resolves",
+  );
+  assert.ok(
+    landingPageWorkflow.includes(
+      'pnpm exec playwright test "$landing_page_spec" --workers=1 --retries=0 --trace on',
+    ) && !landingPageWorkflow.includes("--grep"),
+    "the dedicated lane must run the complete serial file once with traces",
+  );
+  assert.match(
+    broadWorkflowArtifacts,
+    /^        if: \$\{\{ always\(\) && matrix\.shard != 'music-app-workflow' && \(failure\(\) \|\| cancelled\(\) \|\| steps\.retry-artifacts\.outputs\.found == 'true'\) \}\}$/m,
+    "the broad workflow artifacts must upload on failure, cancellation, or a retried test",
+  );
+  assert.ok(
+    broadWorkflowArtifacts.includes(
+      "templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**",
+    ),
+    "the landing-page matrix cell must retain its Design E2E traces and results",
+  );
+  assert.equal(
+    homeSystemSelection.match(/^        if: (.+)$/m)?.[1],
+    "matrix.shard == 'home-system-selection'",
+  );
+  assert.match(
+    homeSystemSelection,
+    /^        timeout-minutes: 6$/m,
+    "Home system-selection coverage needs a bounded six-minute step",
+  );
+  assert.ok(
+    homeSystemSelection.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+    "the Home lane must use the broad Design run ID for retry detection and artifacts",
+  );
+  assert.ok(
+    homeSystemSelection.includes('E2E_AI_SIDEBAR_LOOPBACK: "1"'),
+    "the Home composer tests must opt in to the deterministic loopback provider",
+  );
+  assert.ok(
+    homeSystemSelection.includes(
+      "pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on",
+    ),
+    "the Home lane must run the dedicated Home project serially with traces",
+  );
+  assert.doesNotMatch(
+    homeSystemSelection,
+    /vertical auto-layout|autolayout-drag/,
+    "Home selection must not carry the slow auto-layout regression",
+  );
+  assert.match(
+    verticalAutoLayoutWorkflow,
+    /^        if: \$\{\{ matrix\.shard == 'autolayout-vertical-center-trailing' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/autolayout-drag-drop-matrix\.spec\.ts'\) \}\}$/m,
+    "the vertical auto-layout test must run only when its exact changed spec is selected",
+  );
+  assert.match(
+    verticalAutoLayoutWorkflow,
+    /^        timeout-minutes: 7$/m,
+    "the vertical auto-layout test must retain the seven-minute diagnostic cap",
+  );
+  assert.ok(
+    verticalAutoLayoutWorkflow.includes(
+      "vertical_test='vertical center and trailing insertion keep held guides and exact reload geometry'",
+    ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'if [[ ! -f "$vertical_spec" ]]; then',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'printf \'%s\\n\' "${existing_changed_specs[@]}" | grep -Fqx "$vertical_spec"',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --list --reporter=list',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'if [[ "$matching_tests" != "1" ]]; then',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --workers=1 --trace on',
+      ),
+    "the dedicated lane must fail closed on a missing or duplicate title and run only that test",
+  );
+  assert.ok(
+    verticalAutoLayoutWorkflow.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+    "the dedicated vertical auto-layout lane must keep its artifacts and database isolated",
+  );
+  assert.ok(
+    broadRetryDiagnostics.includes(
+      "test-results/$run_id/retry-failure.marker",
+    ) &&
+      broadWorkflowArtifacts.includes(
+        "templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**",
+      ),
+    "the dedicated lane must use the standard matrix run ID for retry detection and artifacts",
+  );
+  assert.match(
     screenSelectionRegressions,
     /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
     "Screen-selection regressions must run only on their dedicated shards",
   );
   assert.match(
     regressionCases,
-    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) && matrix\.shard != 'ai-sidebar-loopback' && matrix\.shard != 'music-app-workflow' \}\}$/m,
-    "fixed Design regressions must not run on Screen-history, AI sidebar, or long music-app shards",
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
+    "fixed Design regressions must not run on Screen-history shards",
   );
   assert.equal(
     aiSidebarLoopback.match(/^        if: (.+)$/m)?.[1],
@@ -852,9 +1041,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ["screen-history-1", "screen-history-2", "screen-history-3"],
     "Screen-history regressions must stay split across three shards",
   );
-  assert.deepEqual(
-    screenHistoryShardSelectors.map(({ selectors }) => selectors.length),
-    [5, 5, 5],
+  const screenHistoryCounts = screenHistoryShardSelectors.map(
+    ({ selectors }) => selectors.length,
+  );
+  assert.ok(
+    Math.max(...screenHistoryCounts) - Math.min(...screenHistoryCounts) <= 1,
     "Screen-history regressions must stay balanced across the three shards",
   );
   const screenHistoryCases = [
@@ -866,10 +1057,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "failed Screen deletion keeps the explicit Screen target for retry",
     "a newer layer selection survives failed Screen deletion settlement",
     "Shift-picking a Screen extends the Delete selection in All screens",
+    "Shift-marquee adds a hit Screen to the existing Delete selection",
     "a newer Screen pick survives failed Screen deletion settlement",
     "a newer sidebar Screen selection survives failed Screen deletion settlement",
     "Select All Screens survives failed Screen deletion settlement",
     "marquee selection persists and deletes Screens after a prior layer selection",
+    "deleting two selected Screens is one undo step that restores both with their content, position and order",
     "deep-select marquee over a Screen deletes only the child",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
@@ -903,39 +1096,40 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     [1],
   );
-  const designJobStart = workflow.indexOf(
-    "  design-canvas-interaction-acceptance:\n",
-  );
-  assert.notEqual(designJobStart, -1);
-  const designJobEnd = workflow.indexOf(
-    "\n  design-canvas-changed-spec-diagnostics:",
-    designJobStart,
-  );
-  const designJob = workflow.slice(
-    designJobStart,
-    designJobEnd === -1 ? undefined : designJobEnd,
-  );
-  assert.ok(designJob.includes("needs: change-scope"));
-  assert.ok(
-    designJob.includes(
-      "if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
-    ),
-  );
-  assert.equal(
-    designJob.match(/^    if: (.+)$/m)?.[1],
-    "needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
-    "matrix filtering must stay out of the job-level condition",
-  );
-  const designJobWithoutMusicWorkflow = designJob.replace(musicAppWorkflow, "");
-  assert.doesNotMatch(
-    designJobWithoutMusicWorkflow,
-    /changed-\d+|design_canvas_e2e_specs/,
-    "only the dedicated long shard may depend on the changed-spec selector",
-  );
+  const coreJobStart = workflow.indexOf("  design-canvas-core-regression:\n");
+  assert.notEqual(coreJobStart, -1);
+  const broadJobStart = workflow.indexOf("  design-canvas-broad-workflows:\n");
+  assert.notEqual(broadJobStart, -1);
   const diagnosticJobStart = workflow.indexOf(
     "  design-canvas-changed-spec-diagnostics:\n",
   );
   assert.notEqual(diagnosticJobStart, -1);
+  const coreJob = workflow.slice(coreJobStart, broadJobStart);
+  const broadJob = workflow.slice(broadJobStart, diagnosticJobStart);
+  const designJob = coreJob;
+
+  assert.ok(coreJob.includes("needs: change-scope"));
+  assert.equal(
+    coreJob.match(/^    if: (.+)$/m)?.[1],
+    "needs.change-scope.outputs.design_canvas_core_regression == 'true'",
+    "core regression must have its own exact selector",
+  );
+  assert.ok(broadJob.includes("needs: change-scope"));
+  assert.equal(
+    broadJob.match(/^    if: (.+)$/m)?.[1],
+    "needs.change-scope.outputs.design_canvas_broad_workflows == 'true'",
+    "broad workflows must have their own exact selector",
+  );
+  assert.doesNotMatch(
+    coreJob,
+    /design_canvas_e2e_specs/,
+    "the core regression job must not depend on the changed-spec selector",
+  );
+  assert.doesNotMatch(
+    broadJob,
+    /design_canvas_e2e_specs_overflow/,
+    "broad workflow selectors must not suppress selected tests",
+  );
   const diagnosticJobEnd = workflow.indexOf(
     "\n  pre-auth-session-replay-smoke:",
     diagnosticJobStart,
@@ -965,11 +1159,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
     "Design shards must reuse the runner's browser libraries",
   );
-  const jobTimeout = 9;
+  const jobTimeout = Number(
+    designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
   assert.match(
-    designJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 25 \|\| matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| \(matrix\.shard == 'screen-history-1' \|\| matrix\.shard == 'screen-history-2' \|\| matrix\.shard == 'screen-history-3'\) && 13 \|\| 9 \}\}$/m,
-    "only Screen-history shards get the thirteen-minute job cap",
+    broadJob,
+    /^    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 25 \|\| matrix\.shard == 'autolayout-vertical-center-trailing' && 9 \|\| 20 \}\}$/m,
+    "the broad job must give the auto-layout lane nine minutes and preserve other caps",
   );
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
@@ -983,46 +1179,62 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const diagnosticJobTimeout = Number(
     diagnosticJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
   );
-  const screenHistoryJobTimeout = 13;
+  assert.match(
+    designJob,
+    /^    timeout-minutes: 9$/m,
+    "all Design core shards keep the exact nine-minute cap",
+  );
+  const screenHistoryJobTimeout = 9;
   assert.ok(
     Number.isInteger(jobTimeout) && jobTimeout === 9,
     `regular Design acceptance shards must keep the exact nine-minute cap (got ${jobTimeout})`,
   );
   assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
   assert.ok(
-    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 9,
-    `changed-spec diagnostics must have the exact nine-minute cap (got ${diagnosticJobTimeout})`,
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 19,
+    `changed-spec diagnostics must have the exact nineteen-minute cap (got ${diagnosticJobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 4 &&
-      jobTimeout >= stepTimeout + 5,
-    `focused Design tests need the exact four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 6 &&
+      jobTimeout >= stepTimeout + 3,
+    `focused Design tests need the exact six-minute cap and three minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
-      screenHistoryStepTimeout === 8 &&
-      screenHistoryJobTimeout >= screenHistoryStepTimeout + 5,
-    `Screen-history tests need the exact eight-minute cap and five minutes for setup (job ${screenHistoryJobTimeout}, step ${screenHistoryStepTimeout})`,
+      screenHistoryStepTimeout === 5 &&
+      screenHistoryJobTimeout >= screenHistoryStepTimeout + 4,
+    `Screen-history tests need the exact five-minute cap and four minutes for setup (job ${screenHistoryJobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 7 &&
-      diagnosticJobTimeout >= changedSpecStepTimeout + 2,
-    `changed-spec diagnostics need the exact seven-minute cap and two minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
+      changedSpecStepTimeout === 15 &&
+      diagnosticJobTimeout >= changedSpecStepTimeout + 4,
+    `changed-spec diagnostics need the exact fifteen-minute cap and four minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
-  const shardEntries = [
-    ...designJob.matchAll(
-      /^\s{12}((?:(?:inspector|drag|position|screen-history)-[^,\s)]+|ai-sidebar-loopback|music-app-workflow)),?\s*$/gm,
+  const coreShardEntries = [
+    ...coreJob.matchAll(
+      /^\s{12}((?:(?:inspector|drag|position|screen-history)-[^,\s)]+)),?\s*$/gm,
     ),
   ].map(([, shard]) => shard);
-  assert.deepEqual(shardEntries, [
+  assert.deepEqual(coreShardEntries, [
     ...DESIGN_E2E_REGRESSION_SHARDS,
     "screen-history-1",
     "screen-history-2",
     "screen-history-3",
+  ]);
+  const broadMatrix = broadJob.match(/shard:\s*\[([^\]]+)\]/)?.[1];
+  assert.ok(broadMatrix, "broad workflow matrix must declare its shard list");
+  const broadShardEntries = broadMatrix
+    .split(",")
+    .map((shard) => shard.trim())
+    .filter(Boolean);
+  assert.deepEqual(broadShardEntries, [
     "ai-sidebar-loopback",
     "music-app-workflow",
+    "home-system-selection",
+    "autolayout-vertical-center-trailing",
+    "landing-page-build",
   ]);
   assert.doesNotMatch(
     regressionCases,
@@ -1048,7 +1260,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
       resolveDesignE2ERegressionPinsForShard(shard),
     ).length,
-    47,
+    86,
     "the title manifest must retain every fixed regression pin",
   );
 });
@@ -1137,7 +1349,12 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.ok(
     workflow.includes(
-      "    name: Design canvas interaction acceptance (${{ matrix.shard }})\n",
+      "    name: Design core regression (${{ matrix.shard }})\n",
+    ),
+  );
+  assert.ok(
+    workflow.includes(
+      "    name: Design broad workflows (${{ matrix.shard }})\n",
     ),
   );
   assert.ok(workflow.includes("    name: Pre-auth session replay smoke\n"));
@@ -1155,13 +1372,29 @@ test("fast-tests gates the selected browser checks on their actual job results",
       "docs",
       "test-rest",
       "test-targeted",
-      "design-canvas-interaction-acceptance",
+      "design-canvas-core-regression",
+      "design-canvas-broad-workflows",
       "pre-auth-session-replay-smoke",
     ],
   );
   assert.ok(
     fastTestsJob.includes(
-      "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
+      "DESIGN_CORE_REGRESSION: ${{ needs.change-scope.outputs.design_canvas_core_regression }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_CORE_RESULT: ${{ needs.design-canvas-core-regression.result }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_BROAD_WORKFLOWS: ${{ needs.change-scope.outputs.design_canvas_broad_workflows }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_BROAD_RESULT: ${{ needs.design-canvas-broad-workflows.result }}",
     ),
   );
   assert.match(
@@ -1189,12 +1422,32 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.ok(
     fastTestsJob.includes(
-      'require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"',
+      'require_skipped "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT" "ran outside its selected paths"',
     ),
   );
   assert.ok(
     fastTestsJob.includes(
-      'record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"',
+      'require_skipped "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT" "ran outside its selected paths"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'require_success "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'require_success "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'record_failure "Determine change scope" "Design core regression selection was missing or invalid ($DESIGN_CORE_REGRESSION)"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'record_failure "Determine change scope" "Design broad workflows selection was missing or invalid ($DESIGN_BROAD_WORKFLOWS)"',
     ),
   );
   assert.ok(
@@ -1239,8 +1492,10 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     {
       name: "selected Design lanes pass",
       overrides: {
-        DESIGN_CANVAS_E2E: "true",
-        DESIGN_CANVAS_RESULT: "success",
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "success",
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "success",
       },
       status: 0,
     },
@@ -1275,23 +1530,23 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: {
         DOCS_ONLY: "true",
         DOCS_RESULT: "success",
-        DESIGN_CANVAS_RESULT: "success",
+        DESIGN_CORE_RESULT: "success",
       },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received success)",
+        "Design core regression (matrix jobs): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "docs-only changes still require selected Design lanes to succeed",
       overrides: {
         DOCS_ONLY: "true",
         DOCS_RESULT: "success",
-        DESIGN_CANVAS_E2E: "true",
-        DESIGN_CANVAS_RESULT: "failure",
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "failure",
       },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): did not succeed (expected success, received failure)",
+        "Design core regression (matrix jobs): did not succeed (expected success, received failure)",
     },
     {
       name: "non-docs changes require the docs job to skip",
@@ -1307,10 +1562,10 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     },
     {
       name: "an unselected Design lane cannot run successfully",
-      overrides: { DESIGN_CANVAS_RESULT: "success" },
+      overrides: { DESIGN_CORE_RESULT: "success" },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received success)",
+        "Design core regression (matrix jobs): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "a selected pre-auth lane must succeed",
@@ -1331,20 +1586,87 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     },
     {
       name: "an unselected Design lane cannot fail",
-      overrides: { DESIGN_CANVAS_RESULT: "failure" },
+      overrides: { DESIGN_CORE_RESULT: "failure" },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received failure)",
+        "Design core regression (matrix jobs): ran outside its selected paths (expected skipped, received failure)",
     },
     {
-      name: "selected Design lanes cannot be skipped",
+      name: "selected core regression cannot be skipped",
       overrides: {
-        DESIGN_CANVAS_E2E: "true",
-        DESIGN_CANVAS_RESULT: "skipped",
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "skipped",
       },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
+        "Design core regression (matrix jobs): was unexpectedly skipped",
+    },
+    {
+      name: "selected core regression cannot be cancelled",
+      overrides: {
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "cancelled",
+      },
+      status: 1,
+      outputIncludes:
+        "Design core regression (matrix jobs): did not succeed (expected success, received cancelled)",
+    },
+    {
+      name: "selected core regression requires a result",
+      overrides: {
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "",
+      },
+      status: 1,
+      outputIncludes:
+        "Design core regression (matrix jobs): did not succeed (expected success, received )",
+    },
+    {
+      name: "selected broad workflows cannot fail",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "failure",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): did not succeed (expected success, received failure)",
+    },
+    {
+      name: "selected broad workflows cannot be skipped",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): was unexpectedly skipped (expected success)",
+    },
+    {
+      name: "selected broad workflows cannot be cancelled",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "cancelled",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): did not succeed (expected success, received cancelled)",
+    },
+    {
+      name: "selected broad workflows require a result",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): did not succeed (expected success, received )",
+    },
+    {
+      name: "unselected broad workflows must skip",
+      overrides: { DESIGN_BROAD_RESULT: "success" },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "unselected targeted lanes must skip",
@@ -1505,17 +1827,31 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     },
     {
       name: "a missing Design selection fails closed",
-      overrides: { DESIGN_CANVAS_E2E: "" },
+      overrides: { DESIGN_CORE_REGRESSION: "" },
       status: 1,
       outputIncludes:
-        "Determine change scope: Design canvas selection was missing or invalid ()",
+        "Determine change scope: Design core regression selection was missing or invalid ()",
     },
     {
       name: "an invalid Design selection fails closed",
-      overrides: { DESIGN_CANVAS_E2E: "invalid" },
+      overrides: { DESIGN_CORE_REGRESSION: "invalid" },
       status: 1,
       outputIncludes:
-        "Determine change scope: Design canvas selection was missing or invalid (invalid)",
+        "Determine change scope: Design core regression selection was missing or invalid (invalid)",
+    },
+    {
+      name: "a missing broad-workflow selection fails closed",
+      overrides: { DESIGN_BROAD_WORKFLOWS: "" },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Design broad workflows selection was missing or invalid ()",
+    },
+    {
+      name: "an invalid broad-workflow selection fails closed",
+      overrides: { DESIGN_BROAD_WORKFLOWS: "invalid" },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Design broad workflows selection was missing or invalid (invalid)",
     },
   ];
 
@@ -1533,8 +1869,10 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
 
 test("fast-tests summary reports every prerequisite failure with the Actions URL", () => {
   const result = runFastTestsSummary(fastTestsSummaryScript(), {
-    DESIGN_CANVAS_E2E: "true",
-    DESIGN_CANVAS_RESULT: "skipped",
+    DESIGN_CORE_REGRESSION: "true",
+    DESIGN_CORE_RESULT: "skipped",
+    DESIGN_BROAD_WORKFLOWS: "true",
+    DESIGN_BROAD_RESULT: "failure",
     PRE_AUTH_REPLAY_E2E: "true",
     PRE_AUTH_REPLAY_RESULT: "failure",
     DOCS_RESULT: "failure",
@@ -1545,10 +1883,11 @@ test("fast-tests summary reports every prerequisite failure with the Actions URL
   assert.equal(result.status, 1);
   assert.match(
     result.output,
-    /found 5 failing or unexpectedly skipped prerequisite\(s\)/,
+    /found 6 failing or unexpectedly skipped prerequisite\(s\)/,
   );
   for (const job of [
-    "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
+    "Design core regression (matrix jobs): was unexpectedly skipped",
+    "Design broad workflows (matrix jobs): did not succeed",
     "Pre-auth session replay smoke: did not succeed",
     "Docs checks: ran outside its selected paths (expected skipped, received failure)",
     "Fast tests targeted (test-targeted matrix): did not succeed",
@@ -1560,7 +1899,7 @@ test("fast-tests summary reports every prerequisite failure with the Actions URL
     result.output.match(
       /Actions run: https:\/\/github\.com\/BuilderIO\/agent-native\/actions\/runs\/123/g,
     )?.length,
-    5,
+    6,
   );
 });
 
@@ -1604,7 +1943,7 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
     "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
   ]);
   assert.deepEqual(smokeOnly.designCanvasE2eSpecs, []);
-  assert.equal(smokeOnly.checks.design_canvas_interaction_e2e, false);
+  assert.equal(smokeOnly.checks.design_canvas_core_regression, false);
   assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, true);
 });
 
@@ -1613,7 +1952,7 @@ test("a deleted Design E2E path runs the focused interaction suite", () => {
     "templates/design/e2e/removed-by-this-change.spec.ts",
   ]);
 
-  assert.equal(scope.checks.design_canvas_interaction_e2e, true);
+  assert.equal(scope.checks.design_canvas_core_regression, true);
 });
 
 test("a non-empty selector with only deleted specs resolves to a no-op", () => {
@@ -1624,8 +1963,35 @@ test("a non-empty selector with only deleted specs resolves to a no-op", () => {
     {
       existingSpecs: [],
       removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
+      filteredSpecs: [],
     },
   );
+});
+
+test("filters loopback-only Home specs from default changed-spec selection", () => {
+  const home = "templates/design/e2e/home-system-selection.spec.ts";
+  const regular = "templates/design/e2e/interaction-selection.spec.ts";
+  const selector = JSON.stringify([home, regular]);
+  const resolve = (includeLoopbackOnlySpecs: boolean) =>
+    resolveDesignE2ESpecs(selector, {
+      isFile: () => true,
+      readFile: () => "",
+      includeLoopbackOnlySpecs,
+    });
+
+  assert.deepEqual(resolve(false), {
+    existingSpecs: ["e2e/interaction-selection.spec.ts"],
+    removedSpecs: [],
+    filteredSpecs: ["e2e/home-system-selection.spec.ts"],
+  });
+  assert.deepEqual(resolve(true), {
+    existingSpecs: [
+      "e2e/home-system-selection.spec.ts",
+      "e2e/interaction-selection.spec.ts",
+    ],
+    removedSpecs: [],
+    filteredSpecs: [],
+  });
 });
 
 test("keeps runnable specs while excluding deleted paths from the same selector", () => {
@@ -1654,7 +2020,111 @@ test("keeps runnable specs while excluding deleted paths from the same selector"
         "e2e/interaction-support.spec.tsx",
       ],
       removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
+      filteredSpecs: [],
     },
+  );
+});
+
+test("routes the serial landing-page workflow from its exact changed spec path", () => {
+  const landingPagePath =
+    "templates/design/e2e/interaction-landing-page-build.spec.ts";
+  const landingPageTitles = [
+    "Shift+A wraps four selected nav links into a horizontal auto-layout frame inside Navbar without moving them",
+    "Cmd+G groups two layers selected in the Layers panel and one Cmd+Z restores the ungrouped document",
+    "Cmd+D on a screen creates an independent sibling screen: deleting a layer in the copy leaves the original untouched",
+  ];
+  const landingPageSource = landingPageTitles
+    .map((title) => "test(" + JSON.stringify(title) + ", async () => {});")
+    .join("\n");
+  const changedPathScope = classifyChangedPaths([landingPagePath]);
+  assert.deepEqual(changedPathScope.designCanvasE2eSpecs, [landingPagePath]);
+  assert.equal(changedPathScope.checks.design_canvas_broad_workflows, true);
+
+  const isLandingPageSpec = (specPath: string) =>
+    specPath === "e2e/interaction-landing-page-build.spec.ts";
+  const genericSelection = resolveDesignE2ESpecs(
+    JSON.stringify([landingPagePath]),
+    {
+      isFile: isLandingPageSpec,
+      readFile: () => landingPageSource,
+      includeLandingPageWorkflowSpec: false,
+    },
+  );
+  assert.deepEqual(genericSelection, {
+    existingSpecs: [],
+    removedSpecs: [],
+    filteredSpecs: ["e2e/interaction-landing-page-build.spec.ts"],
+  });
+  assert.deepEqual(
+    resolveDesignE2ESpecs(
+      JSON.stringify([
+        landingPagePath,
+        "templates/design/e2e/interaction-selection.spec.ts",
+      ]),
+      {
+        isFile: (specPath) =>
+          specPath === "e2e/interaction-landing-page-build.spec.ts" ||
+          specPath === "e2e/interaction-selection.spec.ts",
+        readFile: (specPath) =>
+          specPath === "e2e/interaction-landing-page-build.spec.ts"
+            ? landingPageSource
+            : "",
+        includeLandingPageWorkflowSpec: false,
+      },
+    ),
+    {
+      existingSpecs: ["e2e/interaction-selection.spec.ts"],
+      removedSpecs: [],
+      filteredSpecs: ["e2e/interaction-landing-page-build.spec.ts"],
+    },
+    "filtering the serial suite must leave unrelated changed specs in the generic shards",
+  );
+
+  const dedicatedSelection = resolveDesignE2ESpecs(
+    JSON.stringify([landingPagePath]),
+    {
+      isFile: isLandingPageSpec,
+      readFile: () => landingPageSource,
+      includeLandingPageWorkflowSpec: true,
+    },
+  );
+  assert.deepEqual(dedicatedSelection, {
+    existingSpecs: ["e2e/interaction-landing-page-build.spec.ts"],
+    removedSpecs: [],
+    filteredSpecs: [],
+  });
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([landingPagePath]), {
+        isFile: () => false,
+      }),
+    /selected landing-page workflow spec is missing/,
+  );
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(
+        JSON.stringify([
+          "templates/design/e2e/interaction-landing-page-build-renamed.spec.ts",
+        ]),
+        { isFile: () => true, readFile: () => landingPageSource },
+      ),
+    /long landing-page workflow tests must remain in e2e\/interaction-landing-page-build\.spec\.ts/,
+  );
+
+  const incompleteSource = landingPageSource.replace(
+    "test(" + JSON.stringify(landingPageTitles[2]) + ", async () => {});",
+    "",
+  );
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([landingPagePath]), {
+        isFile: isLandingPageSpec,
+        readFile: () => incompleteSource,
+        includeLandingPageWorkflowSpec: true,
+      }),
+    /long landing-page workflow tests are missing from e2e\/interaction-landing-page-build\.spec\.ts: Cmd\+D on a screen creates an independent sibling screen: deleting a layer in the copy leaves the original untouched/,
   );
 });
 
@@ -1663,7 +2133,7 @@ test("routes the long music-app workflow from its exact changed spec path", () =
     "templates/design/e2e/interaction-responsive-music-app.spec.ts";
   const musicAppScope = classifyChangedPaths([musicAppPath]);
   assert.deepEqual(musicAppScope.designCanvasE2eSpecs, [musicAppPath]);
-  assert.equal(musicAppScope.checks.design_canvas_interaction_e2e, true);
+  assert.equal(musicAppScope.checks.design_canvas_core_regression, true);
 
   const selectedMusicApp = resolveDesignE2ESpecs(
     JSON.stringify([musicAppPath]),
@@ -1671,13 +2141,15 @@ test("routes the long music-app workflow from its exact changed spec path", () =
       isFile: (specPath) =>
         specPath === "e2e/interaction-responsive-music-app.spec.ts",
       readFile: () =>
-        'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
+        'test("a drawn empty Frame refreshes its inspector after auto layout", async () => {});\n' +
+        'test("sizing mode actions survive the selected layer route update", async () => {});\n' +
         'test("keeps the short music-app regression", async () => {});',
     },
   );
   assert.deepEqual(selectedMusicApp, {
     existingSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
     removedSpecs: [],
+    filteredSpecs: [],
   });
 
   const unrelatedSelection = resolveDesignE2ESpecs(
@@ -1687,6 +2159,7 @@ test("routes the long music-app workflow from its exact changed spec path", () =
   assert.deepEqual(unrelatedSelection, {
     existingSpecs: ["e2e/interaction-selection.spec.ts"],
     removedSpecs: [],
+    filteredSpecs: [],
   });
   assert.ok(
     !unrelatedSelection.existingSpecs.includes(
@@ -1711,7 +2184,8 @@ test("fails closed if the long music-app title moves away from its routed spec",
   const renamedPath =
     "templates/design/e2e/interaction-responsive-music-app-renamed.spec.ts";
   const sourceWithLongAndShortCases =
-    'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
+    'test("a drawn empty Frame refreshes its inspector after auto layout", async () => {});\n' +
+    'test("sizing mode actions survive the selected layer route update", async () => {});\n' +
     'test("keeps the short music-app regression", async () => {});';
 
   assert.deepEqual(
@@ -1722,6 +2196,7 @@ test("fails closed if the long music-app title moves away from its routed spec",
     {
       existingSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
       removedSpecs: [],
+      filteredSpecs: [],
     },
     "the selector must keep the canonical spec selected so its short cases remain in changed-spec coverage",
   );
@@ -1743,8 +2218,35 @@ test("fails closed if the long music-app title moves away from its routed spec",
         readFile: () =>
           'test("keeps the short music-app regression", async () => {});',
       }),
-    /long music-app workflow test is missing from e2e\/interaction-responsive-music-app\.spec\.ts/,
-    "the dedicated old-path route must fail when the long test was removed from that file",
+    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: a drawn empty Frame refreshes its inspector after auto layout, sizing mode actions survive the selected layer route update/,
+    "the dedicated old-path route must fail when both long tests were removed from that file",
+  );
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
+        isFile: () => true,
+        readFile: () =>
+          'test("a drawn empty Frame refreshes its inspector after auto layout", async () => {});',
+      }),
+    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: sizing mode actions survive the selected layer route update/,
+    "the canonical route must fail if the sizing-mode test is missing",
+  );
+});
+
+test("fails closed if the sizing-mode music-app test moves away from its routed spec", () => {
+  const renamedPath =
+    "templates/design/e2e/interaction-responsive-music-app-renamed.spec.ts";
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([renamedPath]), {
+        isFile: () => true,
+        readFile: () =>
+          'test("sizing mode actions survive the selected layer route update", async () => {});',
+      }),
+    /long music-app workflow test must remain in e2e\/interaction-responsive-music-app\.spec\.ts/,
+    "a renamed file containing the sizing-mode test must fail instead of silently skipping it",
   );
 });
 
@@ -1917,6 +2419,75 @@ test("fails closed to AgentKit acceptance for unknown and empty scopes", () => {
   );
 });
 
+test("selects the deploy-path check for what a standalone Chat app installs", () => {
+  for (const path of [
+    "packages/core/src/server/auth.ts",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/agentkit/src/index.ts",
+    "packages/shared-app-config/templates.ts",
+    "packages/otel/src/index.ts",
+    "packages/recap-cli/src/index.ts",
+    "templates/chat/app/routes/_index.tsx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      true,
+      `${path} must select the deploy-path check`,
+    );
+  }
+
+  for (const path of [
+    "templates/calendar/app/routes/index.tsx",
+    "packages/dispatch/src/index.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      false,
+      `${path} cannot change a standalone Chat deploy`,
+    );
+  }
+});
+
+test("runs the deploy-path check for an edit to a guide it runs, even docs-only", () => {
+  for (const path of [
+    "packages/core/docs/content/node-js.mdx",
+    "packages/core/docs/content/docker.mdx",
+    "packages/core/docs/content/netlify.mdx",
+    "packages/core/docs/content/vercel.mdx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.docsOnly, true);
+    assert.equal(
+      scope.checks.deploy_paths,
+      true,
+      `${path} must select the deploy-path check`,
+    );
+  }
+
+  for (const path of [
+    "packages/core/docs/content/getting-started.mdx",
+    "packages/core/docs/content/locales/de-DE/docker.mdx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.deploy_paths,
+      false,
+      `${path} is not a guide the check runs`,
+    );
+  }
+});
+
+test("fails closed to the deploy-path check for unknown and empty scopes", () => {
+  assert.equal(classifyChangedPaths([]).checks.deploy_paths, true);
+  assert.equal(
+    classifyChangedPaths(["unknown-root-config.ts"]).checks.deploy_paths,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths(["scripts/qa-deploy-paths.ts"]).checks.deploy_paths,
+    true,
+  );
+});
+
 test("keeps package metadata targeted but runs the guards that scan it", () => {
   const scope = classifyChangedPaths(["templates/calendar/package.json"]);
 
@@ -2058,6 +2629,14 @@ test("still runs changed root script tests when the change set is full", () => {
   assert.deepEqual(scope.scriptTests, [
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
+  ]);
+});
+
+test("selects deploy alert regression when the canary workflow changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/deploy-canary.yml"]);
+
+  assert.deepEqual(scope.scriptTests, [
+    "scripts/deploy-alerts-workflow.test.ts",
   ]);
 });
 

@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 type ViewportChoice = "desktop" | "mobile";
@@ -82,7 +83,11 @@ export function AddLocalhostScreenDialog({
     connectionId ?? "",
   );
 
-  const { data: connectionResult } = useActionQuery<{
+  const {
+    data: connectionResult,
+    error: connectionError,
+    isFetching: connectionsFetching,
+  } = useActionQuery<{
     connections?: Array<{
       id: string;
       name?: string | null;
@@ -109,19 +114,25 @@ export function AddLocalhostScreenDialog({
 
   const effectiveConnectionId = connectionId || selectedConnectionId;
   const availableConnections = connectionResult?.connections ?? [];
+  const selectedConnection = availableConnections.find(
+    (connection) => connection.id === effectiveConnectionId,
+  );
+  const canAddRoutes =
+    !connectionsFetching && !connectionError && Boolean(selectedConnection);
 
   const routes = useMemo<LocalhostRouteOption[]>(() => {
-    const manifestRoutes = connectionResult?.connections?.find(
-      (connection) => connection.id === effectiveConnectionId,
-    )?.routes;
+    if (!canAddRoutes || !selectedConnection) return [];
+    const manifestRoutes = selectedConnection?.routes;
     if (manifestRoutes && manifestRoutes.length > 0) {
       return manifestRoutes.map((route) => ({
         path: route.path,
         title: route.title,
       }));
     }
-    return (fallbackPaths ?? []).map((path) => ({ path }));
-  }, [connectionResult, effectiveConnectionId, fallbackPaths]);
+    return selectedConnection
+      ? (fallbackPaths ?? []).map((path) => ({ path }))
+      : [];
+  }, [canAddRoutes, fallbackPaths, selectedConnection]);
 
   const filteredRoutes = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -135,12 +146,26 @@ export function AddLocalhostScreenDialog({
 
   const customPath = normalizeCustomPath(search.trim());
   const showCustomPathOption =
-    customPath.length > 0 && !routes.some((route) => route.path === customPath);
+    canAddRoutes &&
+    customPath.length > 0 &&
+    !routes.some((route) => route.path === customPath);
+  const showNoRoutes =
+    !connectionsFetching &&
+    !connectionError &&
+    filteredRoutes.length === 0 &&
+    !showCustomPathOption &&
+    (availableConnections.length === 0 || Boolean(selectedConnection));
 
   const addScreensMutation = useActionMutation("add-localhost-screens");
 
   const handleAdd = (path: string) => {
-    if (addScreensMutation.isPending || !effectiveConnectionId) return;
+    if (
+      !canAddRoutes ||
+      addScreensMutation.isPending ||
+      !effectiveConnectionId
+    ) {
+      return;
+    }
     const { width, height } = VIEWPORT_SIZES[viewport];
     addScreensMutation.mutate(
       {
@@ -243,7 +268,22 @@ export function AddLocalhostScreenDialog({
             placeholder={t("designEditor.addLocalhostScreen.searchPlaceholder")}
           />
           <CommandList>
-            {filteredRoutes.length === 0 && !showCustomPathOption ? (
+            {connectionsFetching ? (
+              <CommandGroup aria-hidden="true" className="space-y-3 py-3">
+                {[0, 1, 2].map((row) => (
+                  <div key={row} className="space-y-2 px-2">
+                    <Skeleton className="h-3.5 w-28" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                ))}
+              </CommandGroup>
+            ) : null}
+            {connectionError ? (
+              <CommandEmpty role="alert">
+                {t("common.genericError")}
+              </CommandEmpty>
+            ) : null}
+            {showNoRoutes ? (
               <CommandEmpty>
                 {t("designEditor.addLocalhostScreen.noRoutes")}
               </CommandEmpty>

@@ -104,8 +104,15 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
           e.preventDefault();
           player.toggleCaptions();
           break;
-        case ">":
-        case ".": {
+        case ",":
+          e.preventDefault();
+          player.stepFrame(-1, e.repeat);
+          break;
+        case ".":
+          e.preventDefault();
+          player.stepFrame(1, e.repeat);
+          break;
+        case ">": {
           e.preventDefault();
           const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
@@ -118,8 +125,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
           player.setSpeed(next);
           break;
         }
-        case "<":
-        case ",": {
+        case "<": {
           e.preventDefault();
           const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);

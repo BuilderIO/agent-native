@@ -17,7 +17,11 @@ import {
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import { parseBase64DataUrl } from "../shared/data-url.js";
+import {
+  base64ByteLength,
+  isBase64,
+  parseBase64DataUrl,
+} from "../shared/data-url.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
@@ -42,7 +46,7 @@ import {
   isAllowedOAuthRedirectUri,
   isConfiguredAppOrigin,
 } from "./google-oauth.js";
-import { isLoopbackOrigin } from "./origin-allowlist.js";
+import { getAppDeclaredOrigins, isLoopbackOrigin } from "./origin-allowlist.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -1388,7 +1392,7 @@ function getBuilderConnectCallbackOrigin(
   if (isBuilderCloudRequestHost(headerHost)) {
     return getBuilderBrowserOriginForEvent(event);
   }
-  const configuredOrigin = getOrigin(event, { useForwardedHost: false });
+  const configuredOrigin = getBuilderAppOrigin(event);
   if (!isLoopbackOrigin(configuredOrigin)) return configuredOrigin;
   if (
     !isLoopbackBuilderRequestHost(headerHost) &&
@@ -1398,6 +1402,22 @@ function getBuilderConnectCallbackOrigin(
     if (previewOrigin && !isLoopbackOrigin(previewOrigin)) return previewOrigin;
   }
   return configuredOrigin;
+}
+
+/**
+ * A proxy that rewrites `Host` (Builder Cloud -> `*.netlify.app`) hands us an
+ * origin the browser never visited, and the origin lock 404s it. When the
+ * inbound origin is not one the app declared, send the browser to the first
+ * declared origin instead.
+ */
+function getBuilderAppOrigin(event: H3Event): string {
+  const inbound = getOrigin(event, { useForwardedHost: false });
+  if (process.env.NODE_ENV !== "production") return inbound;
+  const declared = getAppDeclaredOrigins().filter(
+    (origin) => !isLoopbackOrigin(origin),
+  );
+  if (declared.length === 0 || declared.includes(inbound)) return inbound;
+  return declared[0];
 }
 
 function isAllowedBuilderConnectOrigin(origin: string): boolean {
@@ -1563,7 +1583,7 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
     return getConfiguredBuilderFallbackOrigin(event) ?? "";
   }
   if (!isTrustedBuilderRequestHost(headerHost)) {
-    return getOrigin(event, { useForwardedHost: false });
+    return getBuilderAppOrigin(event);
   }
   if (isLoopbackBuilderRequestHost(headerHost)) {
     const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
@@ -2081,7 +2101,6 @@ export interface BuilderAgentUploadAttachment {
   name: string;
   dataUrl: string;
   text?: string;
-  size: number;
   id: string;
 }
 
@@ -2092,6 +2111,10 @@ export interface BuilderAgentUrlAttachment {
 
 export type BuilderAgentAttachment =
   | BuilderAgentUploadAttachment
+  | BuilderAgentUrlAttachment;
+
+export type BuilderAgentWireAttachment =
+  | (BuilderAgentUploadAttachment & { size: number })
   | BuilderAgentUrlAttachment;
 
 export interface RunBuilderAgentArgs {
@@ -2118,63 +2141,72 @@ const BUILDER_AGENT_UPLOAD_CONTENT_TYPES = new Set<
   "text/plain",
 ]);
 
+function invalidAttachment(message: string): ActionContractError {
+  return new ActionContractError(message, {
+    errorCode: "invalid_attachment",
+    statusCode: 400,
+  });
+}
+
 export function normalizeBuilderAgentAttachments(
   attachments: BuilderAgentAttachment[] | undefined,
-): BuilderAgentAttachment[] | undefined {
+): BuilderAgentWireAttachment[] | undefined {
   if (!attachments || attachments.length === 0) return undefined;
 
-  const normalized = attachments.map((attachment) => {
+  return attachments.map((attachment): BuilderAgentWireAttachment => {
     if (attachment.type === "url") {
       let url: URL;
       try {
         url = new URL(attachment.value);
       } catch {
-        throw new Error("Builder attachment URL is malformed");
+        throw invalidAttachment("Builder attachment URL is malformed");
       }
       if (url.protocol !== "https:" && url.protocol !== "http:") {
-        throw new Error("Builder attachment URL must use http or https");
+        throw invalidAttachment(
+          "Builder attachment URL must use http or https",
+        );
       }
       return attachment;
     }
 
     if (!BUILDER_AGENT_UPLOAD_CONTENT_TYPES.has(attachment.contentType)) {
-      throw new Error(
+      throw invalidAttachment(
         `Unsupported Builder attachment content type: ${attachment.contentType}`,
       );
     }
     if (!attachment.name.trim() || !attachment.id.trim()) {
-      throw new Error("Builder upload attachments require a name and id");
+      throw invalidAttachment(
+        "Builder upload attachments require a name and id",
+      );
     }
-    if (!Number.isInteger(attachment.size) || attachment.size < 0) {
-      throw new Error("Builder attachment size must be a non-negative integer");
-    }
+
+    let size: number;
     if (
       attachment.contentType === "text/plain" ||
       attachment.contentType === "application/json"
     ) {
       if (attachment.text === undefined || attachment.dataUrl !== "") {
-        throw new Error(
+        throw invalidAttachment(
           "Text and JSON Builder attachments require text and an empty dataUrl",
         );
       }
-      if (Buffer.byteLength(attachment.text, "utf8") !== attachment.size) {
-        throw new Error(
-          "Builder attachment size does not match its text content",
-        );
-      }
+      size = Buffer.byteLength(attachment.text, "utf8");
     } else {
       const dataUrl = parseBase64DataUrl(attachment.dataUrl);
       if (!dataUrl || dataUrl.mediaType !== attachment.contentType) {
-        throw new Error(
+        throw invalidAttachment(
           "Image and PDF Builder attachments require a matching base64 dataUrl",
         );
       }
+      if (!isBase64(dataUrl.data)) {
+        throw invalidAttachment(
+          "Image and PDF Builder attachments require valid base64 data",
+        );
+      }
+      size = base64ByteLength(dataUrl.data);
     }
-
-    return attachment;
+    return { ...attachment, size };
   });
-
-  return normalized;
 }
 
 export function normalizeBuilderAgentContext(

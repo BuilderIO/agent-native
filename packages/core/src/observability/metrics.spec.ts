@@ -224,6 +224,48 @@ describe("GenAI and agent metrics", () => {
     ]);
   });
 
+  it("bounds a failed chat call's error code before using it as error.type", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    for (const errorCode of [
+      "http_429",
+      "HTTP_529",
+      "provider_network_error",
+      "builder_gateway_rate_limited",
+      "http_200",
+      "Prompt from user@example.com",
+      undefined,
+    ]) {
+      recordGenAiChat({
+        requestModel: "m",
+        supportedModels: ["m"],
+        durationMs: 10,
+        failed: true,
+        errorCode,
+      });
+    }
+    recordGenAiChat({
+      requestModel: "m",
+      supportedModels: ["m"],
+      durationMs: 10,
+      errorCode: "http_429",
+    });
+
+    expect(
+      meterProvider.recorded.map((entry) => entry.attributes?.["error.type"]),
+    ).toEqual([
+      "http_429",
+      "http_529",
+      "provider_error",
+      "rate_limit",
+      "_OTHER",
+      "_OTHER",
+      "_OTHER",
+      undefined,
+    ]);
+  });
+
   it("collapses models outside the engine's supported list to _OTHER", () => {
     const meterProvider = createTestMeterProvider();
     register({ meterProvider });

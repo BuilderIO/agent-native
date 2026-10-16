@@ -25,6 +25,10 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(() => ({})),
   inArray: vi.fn(),
   isNull: vi.fn(),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 
 vi.mock("./db/index.js", () => ({
@@ -49,6 +53,7 @@ import {
   readLiveSourceFile,
   resolveSourceWorkspace,
   SourceWorkspaceEditConflictError,
+  withDesignSourceMutationTransaction,
 } from "./source-workspace.js";
 
 const sourceFiles = [
@@ -120,6 +125,43 @@ describe("resolveSourceWorkspace", () => {
       content: currentContent,
       expectedVersionHash: sourceContentHash(persistedContent),
     });
+  });
+
+  it("accepts a lagging editor revision when its content matches the live source", async () => {
+    const currentContent = "<main>Latest saved source</main>";
+    const file = {
+      ...sourceFiles[1],
+      content: currentContent,
+      updatedAt: "revision-2",
+    };
+
+    const prepared = await prepareInlineSourceEdit({
+      file,
+      currentContent,
+      revision: "revision-1",
+    });
+
+    expect(prepared).toEqual({
+      content: currentContent,
+      expectedVersionHash: sourceContentHash(currentContent),
+    });
+  });
+
+  it("rejects a lagging editor revision when its working content is stale", async () => {
+    const currentContent = "<main>Older editor source</main>";
+    const file = {
+      ...sourceFiles[1],
+      content: "<main>Newer saved source</main>",
+      updatedAt: "revision-2",
+    };
+
+    await expect(
+      prepareInlineSourceEdit({
+        file,
+        currentContent,
+        revision: "revision-1",
+      }),
+    ).rejects.toBeInstanceOf(SourceWorkspaceEditConflictError);
   });
 
   it("rejects unsaved editor content when live content has a third version", async () => {
@@ -208,5 +250,100 @@ describe("resolveSourceWorkspace", () => {
       "screen-file",
     ]);
     expect(linkedEditWorkspace.boardFileId).toBe("board-file");
+  });
+});
+
+describe("withDesignSourceMutationTransaction rollback outcomes", () => {
+  beforeEach(() => {
+    mocks.getDb.mockReset();
+  });
+
+  it("confirms rollback only when the callback error survives transaction rollback", async () => {
+    const callbackError = new Error("checkpoint persisted before failure");
+    const tx = { execute: vi.fn(async () => ({ rows: [] })) };
+    mocks.getDb.mockReturnValue({
+      transaction: async (
+        callback: (transaction: typeof tx) => Promise<unknown>,
+      ) => {
+        try {
+          return await callback(tx);
+        } catch (error) {
+          throw error;
+        }
+      },
+    });
+    const outcome = { callbackCompleted: false, rollbackConfirmed: false };
+
+    await expect(
+      withDesignSourceMutationTransaction(
+        "design-1",
+        async () => {
+          throw callbackError;
+        },
+        outcome,
+      ),
+    ).rejects.toBe(callbackError);
+
+    expect(outcome).toEqual({
+      callbackCompleted: false,
+      rollbackConfirmed: true,
+    });
+  });
+
+  it("keeps commit and rollback failures uncertain", async () => {
+    const tx = { execute: vi.fn(async () => ({ rows: [] })) };
+    const outcome = { callbackCompleted: false, rollbackConfirmed: false };
+    mocks.getDb.mockReturnValue({
+      transaction: async (
+        callback: (transaction: typeof tx) => Promise<unknown>,
+      ) => {
+        await callback(tx);
+        throw new Error("commit outcome unknown");
+      },
+    });
+
+    await expect(
+      withDesignSourceMutationTransaction(
+        "design-1",
+        async () => "done",
+        outcome,
+      ),
+    ).rejects.toThrow("commit outcome unknown");
+    expect(outcome).toEqual({
+      callbackCompleted: true,
+      rollbackConfirmed: false,
+    });
+
+    const callbackError = new Error("callback failed");
+    const rollbackError = new Error("connection lost during rollback");
+    const rollbackOutcome = {
+      callbackCompleted: false,
+      rollbackConfirmed: false,
+    };
+    mocks.getDb.mockReturnValue({
+      transaction: async (
+        callback: (transaction: typeof tx) => Promise<unknown>,
+      ) => {
+        try {
+          return await callback(tx);
+        } catch {
+          throw rollbackError;
+        }
+      },
+    });
+
+    await expect(
+      withDesignSourceMutationTransaction(
+        "design-1",
+        async () => {
+          throw callbackError;
+        },
+        rollbackOutcome,
+      ),
+    ).rejects.toBe(rollbackError);
+    expect(rollbackOutcome).toEqual({
+      callbackCompleted: false,
+      rollbackConfirmed: false,
+    });
   });
 });

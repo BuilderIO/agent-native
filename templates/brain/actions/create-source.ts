@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
 import {
   createSource,
   nanoid,
@@ -14,6 +15,11 @@ import {
 } from "../server/lib/source-credentials.js";
 import { withSourceAnswerPolicy } from "../server/lib/source-policy.js";
 import {
+  assertBrainAdmin,
+  recordZoomAuditEvent,
+  zoomAllowlistChange,
+} from "../server/lib/zoom-governance.js";
+import {
   jsonRecordSchema,
   sourceAnswerPolicySchema,
   sourceProviderSchema,
@@ -24,9 +30,15 @@ import {
   sourceConfigJsonSchema,
 } from "./_source-config.js";
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export default defineAction({
   description:
-    "Create a Brain source for manual imports, generic captures, Slack, Granola, GitHub, or Zoom.",
+    "Create a Brain source for manual imports, generic captures, Clips, Slack, Granola, GitHub, or Zoom. Only organization owners and admins can create Zoom sources.",
   schema: z.object({
     id: z.string().optional().describe("Optional optimistic source ID"),
     title: z.string().min(1).describe("Human-readable source name"),
@@ -53,6 +65,8 @@ export default defineAction({
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
     assertValidSourceConfig(args.provider, config, { creating: true });
+    const zoomAdmin =
+      args.provider === "zoom" ? await assertBrainAdmin() : undefined;
     if (args.policy !== undefined || config.answerPolicy !== undefined) {
       config = withSourceAnswerPolicy(
         config,
@@ -83,13 +97,33 @@ export default defineAction({
       config.sourceKey = args.sourceKey;
       config.ingestTokenHash = await sha256Hex(ingestToken);
     }
-    const source = await createSource({
+    const values = {
       id: args.id,
       title: args.title,
       provider: args.provider,
       config,
       visibility: args.visibility,
-    });
+    };
+    const source = zoomAdmin
+      ? await getDb().transaction(async (tx) => {
+          const db = tx as unknown as ReturnType<typeof getDb>;
+          const created = await createSource(values, db);
+          await recordZoomAuditEvent(
+            {
+              orgId: created.orgId ?? zoomAdmin.orgId,
+              sourceId: created.id,
+              actorEmail: zoomAdmin.email,
+              event: "allowlist-changed",
+              detail: {
+                created: true,
+                ...zoomAllowlistChange({}, objectRecord(config.zoom)),
+              },
+            },
+            db,
+          );
+          return created;
+        })
+      : await createSource(values);
     return { source: serializeSource(source), ingestToken };
   },
 });

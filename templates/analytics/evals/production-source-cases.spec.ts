@@ -22,28 +22,85 @@ function outputFor(
 ): AgentRunOutput {
   const relationClaims = [
     ...contract.relationGrains,
-    ...contract.relationGrainAlternatives.map(
-      (group) => group.alternatives[0]!,
+    ...contract.relationGrainAlternatives.flatMap(
+      (group) => group.alternatives,
     ),
   ];
+  const metadataCandidates = relationClaims.map((claim) => {
+    const meaningClaim = contract.relationMeanings?.find(
+      (candidate) => candidate.relation === claim.relation,
+    );
+    const fields = [
+      ...(contract.relationFields ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .flatMap((candidate) => candidate.fields),
+      ...(contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => candidate.field),
+    ];
+    const definitions = [
+      ...(meaningClaim?.meanings ?? []),
+      ...(meaningClaim?.requiredMeaningGroups?.flat() ?? []),
+      ...(contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .flatMap((candidate) => [
+          ...candidate.meanings,
+          ...(candidate.requiredDisclaimers ?? []),
+        ]),
+    ];
+    const fieldDefinitions = Object.fromEntries(
+      (contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => [
+          candidate.field,
+          [
+            ...candidate.meanings,
+            ...(candidate.requiredDisclaimers ?? []),
+          ].join("; "),
+        ]),
+    );
+    return {
+      table: claim.relation,
+      grain: claim.grains.join("; "),
+      columnsUsed: fields.join(", "),
+      fieldDefinitions,
+      definition: definitions.join("; "),
+    };
+  });
   const expectedText = [
     ...relationClaims.map((claim) => {
-      const meaning = contract.relationMeanings?.find(
+      const meaningClaim = contract.relationMeanings?.find(
         (candidate) => candidate.relation === claim.relation,
-      )?.meanings[0];
-      return `${claim.relation}: ${[meaning, claim.grains[0]].filter(Boolean).join("; ")}`;
+      );
+      const meanings = [
+        meaningClaim?.meanings[0],
+        ...(meaningClaim?.requiredMeaningGroups?.map((group) => group[0]) ??
+          []),
+        claim.grains[0],
+      ];
+      return `${claim.relation}: ${meanings.filter(Boolean).join("; ")}`;
     }),
     ...(contract.relationFields ?? []).map(
       (claim) => `${claim.relation}: fields ${claim.fields.join(", ")}`,
     ),
     ...(contract.fieldMeanings ?? []).map(
-      (claim) => `${claim.relation}.${claim.field}: ${claim.meanings[0]}`,
+      (claim) =>
+        `${claim.relation}.${claim.field}: ${claim.meanings[0]}${claim.requiredDisclaimers?.map((disclaimer) => `; ${disclaimer}`).join("") ?? ""}`,
     ),
     ...contract.concepts,
   ].join("\n");
   return {
     text: expectedText,
-    toolCalls: ["search-bigquery-schema"],
+    toolCalls: ["find-data"],
+    toolCallDetails: [
+      {
+        name: "find-data",
+        input: { question: "synthetic metadata contract" },
+        completed: true,
+        isError: false,
+        result: JSON.stringify({ results: metadataCandidates }),
+      },
+    ],
     ok: true,
     runId: "eval:synthetic-fixture",
     durationMs: 0,
@@ -55,7 +112,20 @@ function runnerFor(output: AgentRunOutput): AgentRunner {
   return {
     engine: {} as AgentRunner["engine"],
     model: "synthetic-fixture",
-    runAgent: async () => output,
+    runAgent: async (input) => {
+      if (output.toolCallDetails !== undefined) return output;
+      const caseIndex = cases.findIndex(
+        (evalCase) => evalCase.input.prompt === input.prompt,
+      );
+      const contract = Object.values(sourceContracts)[caseIndex];
+      if (!contract) return output;
+      const evidence = outputFor(contract).toolCallDetails ?? [];
+      return {
+        ...output,
+        toolCalls: [...new Set([...output.toolCalls, "find-data"])],
+        toolCallDetails: evidence,
+      };
+    },
     analyzeContext: () => ({}) as ReturnType<AgentRunner["analyzeContext"]>,
   };
 }
@@ -86,6 +156,82 @@ describe("Analytics synthetic production source evals", () => {
     ).not.toMatch(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
   });
 
+  it("requires retrieved find-data metadata to support the relation and grain claims", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const noEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(outputFor(contract, { toolCallDetails: [] })),
+      { persist: false },
+    );
+    const mismatchedEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          toolCallDetails: [
+            {
+              name: "find-data",
+              input: { question: "synthetic metadata contract" },
+              completed: true,
+              isError: false,
+              result: JSON.stringify({
+                results: [
+                  {
+                    table: "dbt_mart.other_user_table",
+                    grain: "one row per user",
+                  },
+                ],
+              }),
+            },
+          ],
+        }),
+      ),
+      { persist: false },
+    );
+    const unboundEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          toolCallDetails: [
+            {
+              name: "find-data",
+              input: { question: "synthetic metadata contract" },
+              completed: true,
+              isError: false,
+              result: JSON.stringify({
+                results: [
+                  {
+                    table: "dbt_mart.other_user_table",
+                    grain: "one row per account",
+                    definition:
+                      "dbt_mart.dim_users_core has a user grain and one row per user.",
+                  },
+                ],
+              }),
+            },
+          ],
+        }),
+      ),
+      { persist: false },
+    );
+
+    expect(noEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(noEvidence.results[0]?.scores[0]?.reason).toContain(
+      "no successful find-data metadata evidence was retrieved",
+    );
+    expect(mismatchedEvidence).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+    });
+    expect(mismatchedEvidence.results[0]?.scores[0]?.reason).toContain(
+      "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
+    );
+    expect(unboundEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(unboundEvidence.results[0]?.scores[0]?.reason).toContain(
+      "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
+    );
+  });
+
   it("accepts the expected source and grain contracts using metadata tools only", async () => {
     const contracts = Object.values(sourceContracts);
     let contractIndex = 0;
@@ -107,6 +253,25 @@ describe("Analytics synthetic production source evals", () => {
     expect(report).toMatchObject({ total: 7, passed: 7, failed: 0 });
   });
 
+  it("rejects row counts and identifiers in metadata-only answers", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const valid = outputFor(contract);
+    for (const unsafeValue of ["42 users", "user_id: usr_1234"]) {
+      const report = await runEvals(
+        [cases[0]!],
+        runnerFor(
+          outputFor(contract, { text: `${valid.text}\n${unsafeValue}` }),
+        ),
+        { persist: false },
+      );
+
+      expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+      expect(report.results[0]?.scores[0]?.reason).toMatch(
+        /output included (?:a count-like data value|a row identifier value)/,
+      );
+    }
+  });
+
   it("rejects current and historical count relations assigned to the opposite time scopes", async () => {
     const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
     const report = await runEvals(
@@ -114,7 +279,7 @@ describe("Analytics synthetic production source evals", () => {
       runnerFor({
         text: [
           "dbt_mart.organization_user_count: historical month-end; one row per organization per date",
-          "dbt_mart.aggregate_monthly_users_per_org: current daily; one row per organization per month",
+          "dbt_mart.aggregate_monthly_users_per_org: current daily; completed months use month-end; in-progress month is a partial snapshot as of today; one row per organization per month",
           ...contract.concepts,
         ].join("\n"),
         toolCalls: ["search-bigquery-schema"],
@@ -145,7 +310,7 @@ describe("Analytics synthetic production source evals", () => {
                 (scope) =>
                   `${relation}: ${scope}; one row per organization per date`,
               ),
-              `${monthlyRelation}: historical month-end monthly trend; one row per organization per month`,
+              `${monthlyRelation}: historical month-end monthly trend; completed months use month-end; in-progress month is a partial snapshot as of today; one row per organization per month`,
               ...contract.concepts,
             ].join("\n"),
           }),
@@ -210,6 +375,36 @@ describe("Analytics synthetic production source evals", () => {
     );
   });
 
+  it("requires completed-month and in-progress-month cutoff semantics", async () => {
+    const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
+    const valid = outputFor(contract);
+    const monthlyRelation = "dbt_mart.aggregate_monthly_users_per_org";
+    const missingPartialMonth = valid.text.replace(
+      "; in-progress month is a partial snapshot as of today",
+      "",
+    );
+    const reportFor = (text: string) =>
+      runEvals([cases[1]!], runnerFor(outputFor(contract, { text })), {
+        persist: false,
+      });
+
+    const accepted = await reportFor(valid.text);
+    const missing = await reportFor(missingPartialMonth);
+    const wrong = await reportFor(
+      valid.text.replace(
+        "in-progress month is a partial snapshot as of today",
+        "in-progress month is a complete month-end snapshot as of today",
+      ),
+    );
+
+    expect(accepted).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(missing).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(wrong).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(missing.results[0]?.scores[0]?.reason).toContain(
+      `${monthlyRelation} omitted required semantic detail: in-progress month is a partial snapshot as of today`,
+    );
+  });
+
   it("rejects reversed external and internal user-count field meanings", async () => {
     const contract = sourceContracts.builderExternalAndInternalUserCounts;
     const relation = "dbt_mart.aggregate_monthly_users_per_org";
@@ -242,17 +437,20 @@ describe("Analytics synthetic production source evals", () => {
   it("rejects negated and conflicting population fields while accepting clear mappings", async () => {
     const contract = sourceContracts.builderExternalAndInternalUserCounts;
     const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const monthlyMeaning = contract.relationMeanings?.find(
+      (claim) => claim.relation === relation,
+    );
     const reportForAssignments = (userCountAssignments: string[]) =>
       runEvals(
         [cases[2]!],
         runnerFor(
           outputFor(contract, {
             text: [
-              `${relation}: one row per organization per month`,
+              `${relation}: historical; ${monthlyMeaning?.requiredMeaningGroups?.map((group) => group[0]).join("; ")}; one row per organization per month`,
               ...userCountAssignments.map(
                 (meaning) => `${relation}.user_count: ${meaning}`,
               ),
-              `${relation}.internal_user_count: internal Builder.io staff users`,
+              `${relation}.internal_user_count: @builder.io email-address memberships; not an employee/staff roster`,
               ...contract.concepts,
             ].join("\n"),
           }),
@@ -262,19 +460,21 @@ describe("Analytics synthetic production source evals", () => {
     const reportFor = (userCountMeaning: string) =>
       reportForAssignments([userCountMeaning]);
 
-    const affirmative = await reportFor("external Builder.io product users");
+    const affirmative = await reportFor(
+      "members whose email does not end in @builder.io",
+    );
     const withoutExternal = await reportFor(
-      "without external Builder.io product users; internal Builder.io staff users",
+      "without members whose email does not end in @builder.io; members with @builder.io email addresses",
     );
     const negated = await reportFor(
-      "not external Builder.io product users; internal Builder.io staff users",
+      "not members whose email does not end in @builder.io; members with @builder.io email addresses",
     );
     const conflicting = await reportFor(
-      "external Builder.io product users and internal Builder.io staff users",
+      "members whose email does not end in @builder.io and members with @builder.io email addresses",
     );
     const repeatedConflict = await reportForAssignments([
-      "external Builder.io product users",
-      "internal Builder.io staff users",
+      "members whose email does not end in @builder.io",
+      "members with @builder.io email addresses",
     ]);
 
     expect(affirmative).toMatchObject({ total: 1, passed: 1, failed: 0 });
@@ -295,6 +495,34 @@ describe("Analytics synthetic production source evals", () => {
     );
     expect(conflicting.results[0]?.scores[0]?.reason).toContain(
       `${relation}.user_count was not mapped to its expected population`,
+    );
+  });
+
+  it("requires the @builder.io email split to disclaim employee roster meaning", async () => {
+    const contract = sourceContracts.builderExternalAndInternalUserCounts;
+    const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const valid = outputFor(contract);
+    const reportFor = (text: string) =>
+      runEvals([cases[2]!], runnerFor(outputFor(contract, { text })), {
+        persist: false,
+      });
+
+    const accepted = await reportFor(valid.text);
+    const missingDisclaimer = await reportFor(
+      valid.text.replace("; not an employee/staff roster", ""),
+    );
+    const employeeOverclaim = await reportFor(
+      valid.text.replace(
+        `${relation}.internal_user_count: @builder.io email-address memberships; not an employee/staff roster`,
+        `${relation}.internal_user_count: @builder.io email-address memberships; employee count; not an employee/staff roster`,
+      ),
+    );
+
+    expect(accepted).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(missingDisclaimer).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(employeeOverclaim).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(missingDisclaimer.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.internal_user_count was not mapped to its expected population`,
     );
   });
 
@@ -422,6 +650,42 @@ describe("Analytics synthetic production source evals", () => {
     );
 
     expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+  });
+
+  it("rejects contradictory role field presence claims", async () => {
+    const contract = sourceContracts.builderUserOrganizationIdMapping;
+    for (const contradiction of [
+      "does not include organization_role",
+      "lacks organization_role",
+      "includes organization_role, but lacks it",
+      "includes organization_role, but does not include it",
+      "includes organization_role, but doesn't contain it",
+      "includes organization_role, but does not exist",
+      "includes organization_role, but does not expose it",
+      "includes organization_role, but isn't present",
+      "includes organization_role, but is excluded",
+    ]) {
+      const report = await runEvals(
+        [cases[6]!],
+        runnerFor({
+          text: [
+            "dbt_mapping.user_id_to_org_id: maps user_id to organization_id; one row per user-organization membership; fields user_id, organization_id, is_root_org; lacks organization_role",
+            `dbt_intermediate.user_organization_role: includes organization_role; ${contradiction}; one row per user-organization membership; field organization_role`,
+            ...contract.concepts,
+          ].join("\n"),
+          toolCalls: ["search-bigquery-schema"],
+          ok: true,
+          runId: `eval:contradictory-role-field-${contradiction.replaceAll(" ", "-")}`,
+          durationMs: 0,
+        }),
+        { persist: false },
+      );
+
+      expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+      expect(report.results[0]?.scores[0]?.reason).toContain(
+        "dbt_intermediate.user_organization_role did not attribute its expected fields: organization_role",
+      );
+    }
   });
 
   it("fails closed on an aborted or failed production run, even with matching text", async () => {

@@ -14,6 +14,8 @@ export interface ContrastAuditRequest {
   /** Deck-level inputs that recolor slides without changing their HTML. */
   renderKey: string;
   slides: ContrastAuditSlideTarget[];
+  /** Deck positions, since `slides` may be a subset of the deck. */
+  slideNumbers: Record<string, number>;
 }
 
 export interface ContrastFailure {
@@ -66,7 +68,10 @@ export interface ContrastAuditReport {
   failures: Array<ContrastFailure & { slideNumber: number }>;
   unverified: Array<ContrastUnverified & { slideNumber: number }>;
   skipped: Array<ContrastSkipped & { slideNumber: number }>;
+  /** True only when the whole deck was audited and came back clean. */
   canClaimContrastPasses: boolean;
+  /** True when the requested subset came back clean; says nothing about other slides. */
+  canClaimRequestedSlidesPass: boolean;
 }
 
 export function deckContrastRenderKey(deck: {
@@ -110,6 +115,14 @@ export function contrastSlideRenderFingerprint(
   );
 }
 
+function deckSlideNumbers(slides: ContrastAuditSlideInput[]) {
+  const numbers: Record<string, number> = {};
+  slides.forEach((slide, index) => {
+    numbers[slide.id] = index + 1;
+  });
+  return numbers;
+}
+
 export function buildContrastAuditRequest(
   deckId: string,
   deck: {
@@ -119,14 +132,18 @@ export function buildContrastAuditRequest(
     aspectRatio?: string | null;
     slides: ContrastAuditSlideInput[];
   },
+  includeSlide: (slideId: string) => boolean = () => true,
 ): ContrastAuditRequest {
   return {
     deckId,
     renderKey: deckContrastRenderKey(deck),
-    slides: deck.slides.map((slide) => ({
-      id: slide.id,
-      contentHash: contrastSlideRenderFingerprint(slide),
-    })),
+    slideNumbers: deckSlideNumbers(deck.slides),
+    slides: deck.slides
+      .filter((slide) => includeSlide(slide.id))
+      .map((slide) => ({
+        id: slide.id,
+        contentHash: contrastSlideRenderFingerprint(slide),
+      })),
   };
 }
 
@@ -162,9 +179,7 @@ export function finalizeContrastAudit(
     );
   }
 
-  const slideNumbers = new Map(
-    request.slides.map((slide, index) => [slide.id, index + 1]),
-  );
+  const slideNumbers = new Map(Object.entries(request.slideNumbers));
   const expectedHashes = new Map(
     request.slides.map((slide) => [slide.id, slide.contentHash]),
   );
@@ -220,6 +235,13 @@ export function finalizeContrastAudit(
       withNumber({ slideId: slide.id, reason: skipped.get(slide.id)! }),
     );
 
+  const clean =
+    failures.length === 0 &&
+    unverified.length === 0 &&
+    skippedList.length === 0;
+  const coversWholeDeck =
+    request.slides.length === Object.keys(request.slideNumbers).length;
+
   return {
     deckId: request.deckId,
     slideCount: request.slides.length,
@@ -227,9 +249,7 @@ export function finalizeContrastAudit(
     failures,
     unverified,
     skipped: skippedList,
-    canClaimContrastPasses:
-      failures.length === 0 &&
-      unverified.length === 0 &&
-      skippedList.length === 0,
+    canClaimContrastPasses: clean && coversWholeDeck,
+    canClaimRequestedSlidesPass: clean,
   };
 }

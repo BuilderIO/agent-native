@@ -1,8 +1,6 @@
 import {
-  BUILDER_CLAUDE_SONNET_MODEL_ID,
   BUILDER_MODEL_ALIASES,
   BUILDER_MODEL_CONFIG,
-  CLAUDE_SONNET_MODEL_ID,
   getClaudeModelOptionLabel,
 } from "./model-config.js";
 
@@ -16,6 +14,18 @@ const UPGRADEABLE_GPT_TIERS = new Set(["-sol", "-terra", "-luna"]);
 const OPENROUTER_MODEL_ALIASES: Record<string, string> = {
   "x-ai/grok-code-fast-1": "x-ai/grok-build-0.1",
 };
+// Endpoint-backed OpenAI engines preserve custom ids and skip the GPT tier
+// upgrade, so their outdated dotted ids need explicit aliases.
+const OPENAI_MODEL_ALIASES: Record<string, string> = {
+  "gpt-5.6-luna": "gpt-6-luna",
+  "gpt-5.6-sol": "gpt-6.1-sol",
+  "gpt-6-sol": "gpt-6.1-sol",
+};
+const MODEL_ALIAS_TABLES: readonly Readonly<Record<string, string>>[] = [
+  BUILDER_MODEL_ALIASES,
+  OPENAI_MODEL_ALIASES,
+  OPENROUTER_MODEL_ALIASES,
+];
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
   "anthropic/claude-opus-4.8": "Claude Opus 4.8",
@@ -118,27 +128,23 @@ export function upgradeBuilderModelAlias(
   return latest && supportedModels.includes(latest) ? latest : undefined;
 }
 
-function upgradeOpenRouterModelAlias(
-  candidate: string,
-  supportedModels: readonly string[],
-  provider: string,
-): string | undefined {
-  if (provider !== "ai-sdk:openrouter") return undefined;
-  const latest = OPENROUTER_MODEL_ALIASES[candidate];
-  return latest && supportedModels.includes(latest) ? latest : undefined;
-}
-
 function upgradeProviderModelAlias(
   candidate: string,
   supportedModels: readonly string[],
   provider: string,
 ): string | undefined {
-  return (
-    (provider === "builder"
-      ? upgradeBuilderModelAlias(candidate, supportedModels)
-      : undefined) ??
-    upgradeOpenRouterModelAlias(candidate, supportedModels, provider)
-  );
+  // Builder retires catalog entries it still routes; a BYOK provider still
+  // serving an id (e.g. claude-opus-4-8) must keep receiving it.
+  if (provider !== "builder" && supportedModels.includes(candidate)) {
+    return undefined;
+  }
+  for (const aliases of MODEL_ALIAS_TABLES) {
+    const latest = Object.hasOwn(aliases, candidate)
+      ? aliases[candidate]
+      : undefined;
+    if (latest && supportedModels.includes(latest)) return latest;
+  }
+  return undefined;
 }
 
 export function isNewerVersionedModel(
@@ -205,10 +211,9 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
-  const upgradedModel = upgradeModelForProvider(
+  const upgradedModel = upgradeModelToLatestSupportedVersion(
     candidate,
     engine.supportedModels,
-    engine.name,
   );
   if (upgradedModel) return upgradedModel;
 
@@ -221,10 +226,7 @@ export function normalizeModelForEngine(
   }
 
   if (engine.acceptsCustomModels || options.acceptsCustomModels) {
-    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
-      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
-      ? CLAUDE_SONNET_MODEL_ID
-      : candidate;
+    return candidate;
   }
 
   const versionMatch = findLatestSupportedVersionMatch(

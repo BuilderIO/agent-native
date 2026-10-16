@@ -28,6 +28,7 @@ const CredentialStoreUnavailableErrorMock = vi.hoisted(
 );
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
+const getRequestBuilderStorageCredentialOrgIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./builder-oauth.js", () => ({
   getBuilderOAuthSession: getBuilderOAuthSessionMock,
@@ -48,6 +49,8 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
+  getRequestBuilderStorageCredentialOrgId:
+    getRequestBuilderStorageCredentialOrgIdMock,
 }));
 
 const ASSETS_WRITE = "builder:assets:write";
@@ -77,6 +80,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getRequestUserEmailMock.mockReturnValue("user@example.com");
   getRequestOrgIdMock.mockReturnValue(undefined);
+  getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue(undefined);
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
   resolveBuilderCredentialMock.mockResolvedValue(null);
@@ -504,6 +508,67 @@ describe("canAuthorizeBuilderApiRequest", () => {
 
     await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
       true,
+    );
+  });
+
+  it("uses only the explicit storage grant org for OAuth asset access", async () => {
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue("storage-org");
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: [ASSETS_WRITE],
+    });
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      true,
+    );
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "storage-org",
+      ASSETS_WRITE,
+      { orgOnly: true },
+    );
+    expect(hasBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "storage-org",
+      { orgOnly: true },
+    );
+  });
+
+  it("does not use a personal OAuth grant when storage scope has no selected org", async () => {
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue(null);
+    hasBuilderOAuthSessionMock.mockResolvedValue(false);
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      false,
+    );
+    expect(hasBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      { orgOnly: true },
+    );
+    expect(getBuilderOAuthSessionMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).toHaveBeenCalledWith(
+      "BUILDER_PRIVATE_KEY",
+    );
+  });
+
+  it("keeps the request org ahead of the storage-only grant org", async () => {
+    getRequestOrgIdMock.mockReturnValue("request-org");
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue("storage-org");
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: [ASSETS_WRITE],
+    });
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      true,
+    );
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "request-org",
+      ASSETS_WRITE,
     );
   });
 });
