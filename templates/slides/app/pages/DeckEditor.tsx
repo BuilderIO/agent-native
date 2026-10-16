@@ -301,7 +301,19 @@ const OUTPUT_VIEW_LEGACY_CLEANUP_KEY = "slides:output-viewed-cleanup-v1";
 const OUTPUT_VIEW_DECK_LIMIT = 512;
 const ACCESS_REQUEST_CHECK_INTERVAL_MS = 60_000;
 const ACCESS_REQUEST_MAX_CHECKS = 10;
-const UNKNOWN_SNAPSHOT_REFRESH_RETRY_DELAYS_MS = [250, 500] as const;
+const UNKNOWN_SNAPSHOT_REFRESH_RETRY_BASE_DELAY_MS = 1_000;
+const UNKNOWN_SNAPSHOT_REFRESH_RETRY_MAX_DELAY_MS = 30_000;
+
+function unknownSnapshotRefreshRetryDelay(retryIndex: number): number {
+  return Math.min(
+    UNKNOWN_SNAPSHOT_REFRESH_RETRY_MAX_DELAY_MS,
+    UNKNOWN_SNAPSHOT_REFRESH_RETRY_BASE_DELAY_MS * 2 ** Math.min(retryIndex, 5),
+  );
+}
+
+function isDocumentHidden(): boolean {
+  return document.visibilityState === "hidden";
+}
 
 async function claimOutputView(
   sessionId: string,
@@ -2601,15 +2613,23 @@ export default function DeckEditor() {
     if (!id || !unresolvedFailureSnapshotUnknown) return;
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | undefined;
-    const refreshAndEstablishBaseline = async (retryIndex = 0) => {
+    let retryIndex = 0;
+    let refreshInFlight = false;
+    const refreshAndEstablishBaseline = async () => {
+      if (cancelled || refreshInFlight || isDocumentHidden()) {
+        return;
+      }
+      refreshInFlight = true;
       const result = await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
+      refreshInFlight = false;
       if (cancelled) return;
       if (result.status !== "ready") {
-        const retryDelay = UNKNOWN_SNAPSHOT_REFRESH_RETRY_DELAYS_MS[retryIndex];
-        if (retryDelay !== undefined) {
+        if (!isDocumentHidden()) {
           retryTimeout = setTimeout(() => {
-            void refreshAndEstablishBaseline(retryIndex + 1);
-          }, retryDelay);
+            retryTimeout = undefined;
+            void refreshAndEstablishBaseline();
+          }, unknownSnapshotRefreshRetryDelay(retryIndex));
+          retryIndex += 1;
         }
         return;
       }
@@ -2640,10 +2660,29 @@ export default function DeckEditor() {
         );
       });
     };
+    const refreshOnVisibilityChange = () => {
+      if (isDocumentHidden()) {
+        if (retryTimeout !== undefined) {
+          clearTimeout(retryTimeout);
+          retryTimeout = undefined;
+        }
+        return;
+      }
+      if (retryTimeout !== undefined) {
+        clearTimeout(retryTimeout);
+        retryTimeout = undefined;
+      }
+      void refreshAndEstablishBaseline();
+    };
+    document.addEventListener("visibilitychange", refreshOnVisibilityChange);
     void refreshAndEstablishBaseline();
     return () => {
       cancelled = true;
       if (retryTimeout !== undefined) clearTimeout(retryTimeout);
+      document.removeEventListener(
+        "visibilitychange",
+        refreshOnVisibilityChange,
+      );
     };
   }, [
     flushDeckSave,
