@@ -151,6 +151,35 @@ export function fail(message: string, options: FailOptions = {}): never {
 }
 
 /**
+ * PostgreSQL breaks a deadlock (40P01) or a serializable conflict (40001) by
+ * rolling back one whole transaction. Drivers and Drizzle surface that as an
+ * untyped "Failed query", which reads as a bug and hides that nothing was
+ * written, so an action reports it as a conflict the caller can retry.
+ */
+const TRANSACTION_CONFLICT_SQLSTATES = new Set(["40P01", "40001"]);
+
+function transactionConflictError(error: unknown): ActionContractError | null {
+  if (isActionContractError(error)) return null;
+  let cause = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!cause || typeof cause !== "object") return null;
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === "string" && TRANSACTION_CONFLICT_SQLSTATES.has(code)) {
+      return new ActionContractError(
+        "Another write to the same records ran at the same time, and the database rolled this one back. Nothing was saved; retry it.",
+        {
+          errorCode: "transaction_conflict",
+          statusCode: 409,
+          details: { sqlState: code },
+        },
+      );
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/**
  * What a write action verified about its own effect. An action opts in by
  * returning a plain-object result with a reserved `_receipt: WriteReceipt`.
  * The agent loop reads it before the result is stringified and truncated, so
@@ -661,7 +690,11 @@ export function defineAction(options: any) {
           parent.descendantWriteEntered = true;
       }
     }
-    return options.run(args, ctx);
+    try {
+      return await options.run(args, ctx);
+    } catch (error) {
+      throw transactionConflictError(error) ?? error;
+    }
   };
   const guardedRun =
     typeof options.authorize === "function" || options.access

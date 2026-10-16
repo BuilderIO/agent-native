@@ -439,6 +439,52 @@ describe("defineAction", () => {
   });
 });
 
+describe("defineAction — PostgreSQL transaction conflicts", () => {
+  function failingAction(error: unknown) {
+    return defineAction({
+      description: "Writes a row",
+      run: async () => {
+        throw error;
+      },
+    });
+  }
+
+  it.each(["40P01", "40001"])(
+    "reports a transaction PostgreSQL rolled back with %s as a typed conflict",
+    async (sqlState) => {
+      // Drizzle wraps the driver error, so the SQLSTATE sits on the cause.
+      const driverError = Object.assign(new Error("deadlock detected"), {
+        code: sqlState,
+      });
+      const queryError = new Error(
+        'Failed query: update "documents" set "content" = $1',
+        { cause: driverError },
+      );
+      await expect(failingAction(queryError).run({})).rejects.toMatchObject({
+        errorCode: "transaction_conflict",
+        statusCode: 409,
+        details: { sqlState },
+        message: expect.stringContaining("Nothing was saved"),
+      });
+    },
+  );
+
+  it("leaves other database errors and contract errors as they were", async () => {
+    const uniqueViolation = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+    });
+    await expect(failingAction(uniqueViolation).run({})).rejects.toBe(
+      uniqueViolation,
+    );
+    const contractError = new ActionContractError("Stale revision", {
+      errorCode: "REVISION_CONFLICT",
+    });
+    await expect(failingAction(contractError).run({})).rejects.toBe(
+      contractError,
+    );
+  });
+});
+
 describe("defineAction schema mode — tool parameter JSON Schema", () => {
   it("converts a zod object into a JSON Schema with required vs optional fields", () => {
     const action = defineAction({
