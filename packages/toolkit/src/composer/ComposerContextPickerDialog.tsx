@@ -148,7 +148,7 @@ export function ComposerContextPickerDialog({
                     }))}
                     loading={loading}
                     error={error}
-                    disabled={selecting}
+                    disabled={selecting || loading}
                     labels={{
                       loading: t("agentChat.composer.contextPending", {
                         defaultValue: "Loading context…",

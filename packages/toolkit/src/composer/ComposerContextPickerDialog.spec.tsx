@@ -241,6 +241,57 @@ describe("shared context URL dialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("disables stale gallery results while a search is loading", async () => {
+    const nextResults = deferred<{
+      items: Array<{ id: string; title: string }>;
+      hasMore: boolean;
+    }>();
+    const load = vi.fn(({ search }: { search: string }) =>
+      search
+        ? nextResults.promise
+        : Promise.resolve({
+            items: [{ id: "old", title: "Old result" }],
+            hasMore: false,
+          }),
+    );
+    const onSelect = vi.fn();
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search decks",
+      load,
+      onSelect,
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config);
+    await tick();
+
+    const primaryCard = () =>
+      dialog()!.querySelector<HTMLElement>(".agent-template-library-primary")!;
+    expect(primaryCard().getAttribute("aria-disabled")).toBeNull();
+
+    await type("replacement", 'input[type="search"]');
+    await tick();
+
+    expect(primaryCard().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => primaryCard().click());
+    expect(onSelect).not.toHaveBeenCalled();
+
+    await act(async () =>
+      nextResults.resolve({
+        items: [{ id: "new", title: "Replacement result" }],
+        hasMore: false,
+      }),
+    );
+    await tick();
+
+    expect(primaryCard().getAttribute("aria-disabled")).toBeNull();
+    expect(primaryCard().textContent).toContain("Replacement result");
+  });
+
   it("shows distinct preview cards for duplicate titles and retains selections through search", async () => {
     const onAttach = vi.fn().mockResolvedValue(undefined);
     const items = [
