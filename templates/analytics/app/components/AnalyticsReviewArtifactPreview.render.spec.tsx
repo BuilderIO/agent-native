@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   sqlChartProps: null as Record<string, unknown> | null,
   chartEvents: undefined as unknown,
   chartNotes: undefined as unknown,
+  listedNotes: undefined as unknown,
   markdownContent: null as string | null,
   queries: [] as Array<{
     action: string;
@@ -67,11 +68,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@/components/dashboard/SqlChart", async () => {
   const { usePanelDataNotes, usePanelEvents } =
     await import("@/components/dashboard/dashboard-annotations-context");
+  const { useDataNoteLayout } =
+    await import("@/components/dashboard/data-note-bands");
   return {
     SqlChart: (props: { panel: SqlPanel }) => {
       mocks.sqlChartProps = props;
       mocks.chartEvents = usePanelEvents(props.panel);
       mocks.chartNotes = usePanelDataNotes(props.panel);
+      mocks.listedNotes = useDataNoteLayout(
+        mocks.chartNotes as DataNote[],
+        [{ total: 42 }],
+        "total",
+      ).unplaced;
       return null;
     },
   };
@@ -93,6 +101,7 @@ import {
   CONNECT_UNDERCOUNT,
   SETUP_INCIDENT,
 } from "@shared/annotation-fixtures";
+import type { DataNote } from "@shared/data-notes";
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -111,6 +120,7 @@ describe("Analytics review artifact preview rendering", () => {
     mocks.sqlChartProps = null;
     mocks.chartEvents = undefined;
     mocks.chartNotes = undefined;
+    mocks.listedNotes = undefined;
     mocks.markdownContent = null;
     mocks.queries = [];
     mocks.query.data = {
@@ -249,6 +259,48 @@ describe("Analytics review artifact preview rendering", () => {
     });
 
     expect(mocks.chartNotes).toEqual([shown]);
+  });
+
+  it("lists a note under a chart without a date axis when it falls in the dashboard's time range", async () => {
+    const pinned = { dashboardId: "dashboard-1", panelId: "ga4-chart" };
+    const longAgo = {
+      ...SETUP_INCIDENT,
+      startDate: "2020-01-06",
+      endDate: "2020-01-10",
+      panels: [pinned],
+    };
+    const panel = (sql: string) => ({
+      id: "ga4-chart",
+      title: "Signups",
+      sql,
+      width: 12,
+      source: "ga4",
+      chartType: "metric",
+    });
+    const render = async (sql: string) => {
+      mocks.query.data = {
+        variables: { timeRange: "all" },
+        filters: [],
+        panels: [panel(sql)],
+        keyDates: [],
+        dataNotes: [longAgo],
+      };
+      await act(async () => {
+        root.render(
+          <AnalyticsReviewArtifactPreview
+            artifactId="dashboard-1"
+            compact={false}
+            reviewOrgId="customer-org"
+          />,
+        );
+      });
+      return mocks.listedNotes;
+    };
+
+    expect(
+      await render("SELECT COUNT(*) AS total WHERE '{{timeRange}}' <> ''"),
+    ).toEqual([longAgo]);
+    expect(await render("SELECT COUNT(*) AS total")).toEqual([]);
   });
 
   it.each(["keyDates", "dataNotes"])(

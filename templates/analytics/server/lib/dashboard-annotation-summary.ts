@@ -241,7 +241,7 @@ export function dataNotePlacement(
     hiddenOn.length > 0 &&
       "This dashboard hides the note on the charts that would draw it (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own.",
     belongs.length > reached.length &&
-      `Its charts here show a note only when its dates overlap their time range (the dashboard's default here), so a range that covers them shows it; a chart other than line, area, bar or combo whose SQL has no time range lists it only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`,
+      `Its charts here show a note only when its dates overlap their time range (the dashboard's default here), so a range that covers them shows it; a chart other than line, area, bar or combo whose SQL has no time range, or one the app can't read such as a quarter its SQL works out, lists it only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`,
   ].filter((reason): reason is string => typeof reason === "string");
   const hint =
     shownOn.length > 0

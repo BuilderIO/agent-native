@@ -329,8 +329,8 @@ its owner organization's. Read them with `list-data-notes`, passing
   Other charts, and a time chart whose x values aren't dates, flag the note by
   the title and write it under the chart when its dates overlap the chart's
   time range: the panel's own range if it overrides the dashboard's. A chart
-  whose SQL has no time range does so while the note is ongoing or ended in the
-  last 30 days.
+  whose SQL has no time range, or one the app can't read such as a quarter its
+  SQL works out, does so while the note is ongoing or ended in the last 30 days.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   listing the notes already hidden that stay hidden; `hiddenKeyDateSets` is kept.
