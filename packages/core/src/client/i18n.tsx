@@ -40,6 +40,7 @@ import {
 } from "../localization/shared.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { setClientAppState } from "./application-state.js";
+import { hasBrowserEventTarget } from "./browser-runtime.js";
 import { callAction } from "./use-action.js";
 import { useSession } from "./use-session.js";
 
@@ -603,7 +604,7 @@ function I18nRuntime({
   }, [persistPreference, sessionAuthenticated, supportedLocales]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!hasBrowserEventTarget()) return;
     const onStorage = (event: StorageEvent) => {
       if (event.key !== LOCALE_STORAGE_KEY || event.newValue == null) return;
       setPreferenceState(

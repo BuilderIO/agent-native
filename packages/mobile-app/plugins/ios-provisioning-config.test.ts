@@ -3,6 +3,8 @@ import { createRequire } from "node:module";
 
 import { describe, expect, it } from "vitest";
 
+import configureApp from "../app.config";
+
 const require = createRequire(import.meta.url);
 const packageRoot = new URL("..", import.meta.url);
 
@@ -36,6 +38,7 @@ function readPublicExpoConfig({
     },
   );
   return JSON.parse(output) as {
+    plugins?: unknown[];
     extra?: {
       eas?: {
         build?: {
@@ -53,6 +56,24 @@ function readPublicExpoConfig({
 }
 
 describe("iOS EAS provisioning metadata", () => {
+  it("uses the current static config when Expo reloads it in the same process", () => {
+    const config = {
+      name: "Config reload fixture",
+      slug: "config-reload-fixture",
+      plugins: ["./plugins/removed-plugin"],
+    };
+    const context = {
+      projectRoot: packageRoot.pathname,
+      staticConfigPath: new URL("../app.json", import.meta.url).pathname,
+      packageJsonPath: new URL("../package.json", import.meta.url).pathname,
+      config,
+    };
+    expect(configureApp(context).plugins).toContain("./plugins/removed-plugin");
+    expect(
+      configureApp({ ...context, config: { ...config, plugins: [] } }).plugins,
+    ).toEqual([]);
+  });
+
   it("keeps the public config contributor-neutral and declares every Apple target", () => {
     const config = readPublicExpoConfig();
     const appExtensions =
@@ -62,6 +83,10 @@ describe("iOS EAS provisioning metadata", () => {
     );
 
     expect(config.ios?.appleTeamId).toBeUndefined();
+    expect(config.plugins).toContainEqual([
+      "expo-build-properties",
+      expect.objectContaining({ ios: { enableSceneSupport: true } }),
+    ]);
     expect(appExtensions).toHaveLength(4);
     expect(extensionsByBundleId).toMatchObject({
       "com.agentnative.mobile.broadcast": {

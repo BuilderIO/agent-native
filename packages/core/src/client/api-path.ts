@@ -1,32 +1,14 @@
 import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   matchesPathPrefix,
-  normalizeFrameworkRoutePrefix,
   SERVER_ROUTE_PREFIXES,
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-import { injectedAgentNativeConfig } from "./app-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
+import { frameworkRoutePrefix } from "./framework-route-prefix.js";
 
-export function frameworkRoutePrefix(): string {
-  const configured = injectedAgentNativeConfig().runtime?.frameworkRoutePrefix;
-  if (configured !== undefined) {
-    return normalizeFrameworkRoutePrefix(configured);
-  }
-  const projected =
-    typeof window === "undefined"
-      ? undefined
-      : (
-          window as Window & {
-            __AGENT_NATIVE_CONFIG__?: { frameworkRoutePrefix?: unknown };
-          }
-        ).__AGENT_NATIVE_CONFIG__?.frameworkRoutePrefix;
-  return normalizeFrameworkRoutePrefix(
-    projected,
-    "window.__AGENT_NATIVE_CONFIG__.frameworkRoutePrefix",
-  );
-}
+export { frameworkRoutePrefix } from "./framework-route-prefix.js";
 
 export function isFrameworkRoutePath(pathname: string): boolean {
   return (
