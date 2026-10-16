@@ -148,11 +148,27 @@ async function replaceDocumentFromExternal(args: {
   });
 }
 
+// Baselines hashed before this canonical form have no prefix. One that no
+// longer matches may differ only because the parse changed, so it cannot say
+// whether the content did.
+const CONTENT_HASH_PREFIX = "v2:";
+
 function hashContent(content: string | null | undefined): string {
-  return crypto
+  return `${CONTENT_HASH_PREFIX}${crypto
     .createHash("sha256")
     .update(canonicalizeNotionNfm(content ?? ""))
-    .digest("hex");
+    .digest("hex")}`;
+}
+
+/** Whether content differs from the sync baseline; null when the baseline cannot say. */
+function changedSinceSync(
+  content: string | null | undefined,
+  baseline: string | null | undefined,
+): boolean | null {
+  if (!baseline) return null;
+  const hash = hashContent(content);
+  if (baseline.startsWith(CONTENT_HASH_PREFIX)) return hash !== baseline;
+  return hash.slice(CONTENT_HASH_PREFIX.length) === baseline ? false : null;
 }
 
 function parseWarnings(link: Pick<LinkRow, "warningsJson"> | null): string[] {
@@ -256,9 +272,10 @@ function buildStatus(args: {
     remoteKnown > link.lastPulledRemoteUpdatedAt,
   );
   const localChanged =
-    args.documentContent != null && link?.lastSyncedContentHash
-      ? hashContent(args.documentContent) !== link.lastSyncedContentHash
-      : Boolean(localUpdatedAt && lastPushed && localUpdatedAt > lastPushed);
+    (args.documentContent != null
+      ? changedSinceSync(args.documentContent, link?.lastSyncedContentHash)
+      : null) ??
+    Boolean(localUpdatedAt && lastPushed && localUpdatedAt > lastPushed);
 
   return {
     provider: "notion",
@@ -902,19 +919,19 @@ async function pullDocumentFromNotionInner(
 
   const freshDocument = await getDocument(documentId, owner);
 
-  const localChanged = link.lastSyncedContentHash
-    ? hashContent(freshDocument.content) !== link.lastSyncedContentHash
-    : Boolean(
-        link.lastPushedLocalUpdatedAt &&
-        freshDocument.updatedAt > link.lastPushedLocalUpdatedAt,
-      );
-  const remoteChanged = link.lastSyncedContentHash
-    ? hashContent(pageContent.content) !== link.lastSyncedContentHash
-    : Boolean(
-        link.lastPulledRemoteUpdatedAt &&
-        pageContent.lastEditedTime &&
-        pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
-      );
+  const localChanged =
+    changedSinceSync(freshDocument.content, link.lastSyncedContentHash) ??
+    Boolean(
+      link.lastPushedLocalUpdatedAt &&
+      freshDocument.updatedAt > link.lastPushedLocalUpdatedAt,
+    );
+  const remoteChanged =
+    changedSinceSync(pageContent.content, link.lastSyncedContentHash) ??
+    Boolean(
+      link.lastPulledRemoteUpdatedAt &&
+      pageContent.lastEditedTime &&
+      pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
+    );
 
   if (
     localChanged &&
@@ -1132,14 +1149,15 @@ async function pushDocumentToNotionInner(
       link.remotePageId,
     );
     remoteChanged =
-      hashContent(remotePageContent.content) !== link.lastSyncedContentHash;
+      changedSinceSync(remotePageContent.content, link.lastSyncedContentHash) ??
+      timestampBumped;
   }
-  const localChanged = link.lastSyncedContentHash
-    ? hashContent(document.content) !== link.lastSyncedContentHash
-    : Boolean(
-        !link.lastPushedLocalUpdatedAt ||
-        document.updatedAt > link.lastPushedLocalUpdatedAt,
-      );
+  const localChanged =
+    changedSinceSync(document.content, link.lastSyncedContentHash) ??
+    Boolean(
+      !link.lastPushedLocalUpdatedAt ||
+      document.updatedAt > link.lastPushedLocalUpdatedAt,
+    );
 
   if (
     remotePageContent &&
@@ -1361,8 +1379,20 @@ export async function refreshDocumentSyncStatus(
             const baselineHash = link.lastSyncedContentHash;
             const localHash = hashContent(verifiedDocument.content);
             const remoteHash = hashContent(remotePageContent.content);
-            const localHashChanged = localHash !== baselineHash;
-            const remoteHashChanged = remoteHash !== baselineHash;
+            const localHashChanged =
+              changedSinceSync(verifiedDocument.content, baselineHash) ??
+              Boolean(
+                link.lastPushedLocalUpdatedAt &&
+                verifiedDocument.updatedAt > link.lastPushedLocalUpdatedAt,
+              );
+            const remoteHashChanged =
+              changedSinceSync(remotePageContent.content, baselineHash) ??
+              Boolean(
+                link.lastPulledRemoteUpdatedAt &&
+                remotePageContent.lastEditedTime &&
+                remotePageContent.lastEditedTime >
+                  link.lastPulledRemoteUpdatedAt,
+              );
 
             if (localHash === remoteHash) {
               await upsertSyncLink({
