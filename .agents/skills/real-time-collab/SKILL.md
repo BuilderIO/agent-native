@@ -298,7 +298,8 @@ already committing. Then:
   `readLiveCopy`. Do not work around either. All three throw `not_live_copy`
   for a document the binding does not cover, and for a binding that was
   released or replaced; call them with the binding `defineLiveCopy` returned
-  last. Call these writers, and `applyUpdate` on a live copy, outside any
+  last. Only the first means the document left its live copy; the second has
+  reason `binding_inactive`, and retrying with the same handle cannot succeed. Call these writers, and `applyUpdate` on a live copy, outside any
   transaction; they refuse a caller's, including a persist hook's, so a hook
   reads its own document with `getState` or `readLiveCopy` but never writes
   it. Rows that must commit with one edit
