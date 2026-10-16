@@ -883,7 +883,11 @@ async function mutateLiveCopyDocumentBody(input: {
       input.initializeContent,
       baseContent,
     ));
-    rebase = { base: baseContent, candidate: resolved.content };
+    rebase = {
+      base: baseContent,
+      candidate: resolved.content,
+      authored: resolved.ranges,
+    };
   } else {
     // A typing interval can move past a base before History records it.
     // The edit is then made on the recorded bodies either side of it.
@@ -912,7 +916,12 @@ async function mutateLiveCopyDocumentBody(input: {
     rebase = {
       base: after!,
       candidate: onAfter.content,
-      earlier: { base: between!.before, candidate: onBefore.content },
+      authored: onAfter.ranges,
+      earlier: {
+        base: between!.before,
+        candidate: onBefore.content,
+        authored: onBefore.ranges,
+      },
     };
   }
   const creativeContext = await input.resolveCreativeContext();

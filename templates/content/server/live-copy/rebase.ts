@@ -128,6 +128,40 @@ function rangesOverlap(left: SlidRange, right: SlidRange): boolean {
   return left.from < right.to && right.from < left.to;
 }
 
+/** A range of a body's Markdown text. */
+export type BodyTextRange = { start: number; end: number };
+
+// The base blocks a range touches are the ones that change when its text
+// becomes a word the body doesn't hold.
+function touchedBlocks(
+  base: string,
+  baseKeys: readonly string[],
+  ranges: readonly BodyTextRange[],
+  codes: Map<string, string>,
+): SlidRange[] | null {
+  let word = "authoredrange";
+  while (base.includes(word)) word += "x";
+  let probe = base;
+  for (const range of [...ranges].sort(
+    (left, right) => right.start - left.start,
+  ))
+    probe = probe.slice(0, range.start) + word + probe.slice(range.end);
+  const blocks = nfmToDoc(probe).content;
+  const hunks = blockHunks(
+    baseKeys,
+    blocks.map((block) => JSON.stringify(block)),
+    blocks,
+    codes,
+  );
+  return (
+    hunks?.map((hunk) => ({
+      from: hunk.from,
+      to: hunk.to,
+      insertion: hunk.from === hunk.to,
+    })) ?? null
+  );
+}
+
 /**
  * Applies the blocks `candidate` changed from `base` to `current`, which
  * other writers moved on from `base`. Null unless that is unambiguous:
@@ -136,8 +170,12 @@ function rangesOverlap(left: SlidRange, right: SlidRange): boolean {
  *   the edit meant would depend on how the diff aligned the bodies;
  * - no change another writer made overlaps the edit's changes, or borders
  *   its insertions, at any position either could slide to;
- * - no block either side removes or adds reads the same as one the other
- *   side removes or adds, since a move and a delete-and-retype read alike.
+ * - no change another writer made touches a block the `authored` ranges of
+ *   `base` touch, such as the text an edit's find replaced, though the diff
+ *   may read some of those blocks as kept;
+ * - no block of `base` either side removes or adds reads the same as one the
+ *   other side removes or adds, since a move and a delete-and-retype read
+ *   alike. A new block both add in different places is added twice.
  * A change both made at the same place is taken once, unless it could slide,
  * since they may have made it at different places.
  */
@@ -145,6 +183,7 @@ export function rebaseBodyEdit(
   base: string,
   candidate: string,
   current: string,
+  authored: readonly BodyTextRange[] = [],
 ): string | null {
   const baseBlocks = nfmToDoc(base).content;
   const candidateBlocks = nfmToDoc(candidate).content;
@@ -201,7 +240,7 @@ export function rebaseBodyEdit(
       if (!all && shared.has(hunk)) continue;
       for (let index = hunk.from; index < hunk.to; index += 1)
         keys.add(baseKeys[index]);
-      for (const key of hunk.keys) keys.add(key);
+      for (const key of hunk.keys) if (counts.has(key)) keys.add(key);
     }
     return keys;
   };
@@ -217,6 +256,17 @@ export function rebaseBodyEdit(
         continue;
       if (rangesOverlap(editRanges[index], otherRanges[other])) return null;
     }
+  }
+  if (authored.length) {
+    const touched = touchedBlocks(base, baseKeys, authored, codes);
+    if (!touched) return null;
+    for (const range of touched)
+      for (let other = 0; other < others.length; other += 1)
+        if (
+          !shared.has(others[other]) &&
+          rangesOverlap(range, otherRanges[other])
+        )
+          return null;
   }
   const merged = [...baseBlocks];
   for (const hunk of [
