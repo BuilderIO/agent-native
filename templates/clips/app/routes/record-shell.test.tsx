@@ -702,6 +702,32 @@ describe("record route lifecycle shell", () => {
     });
   });
 
+  it("keeps app-frame screen toast guidance out of macOS settings", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const options = buildRecordingErrorToastOptions(
+      "Screen capture is blocked by this app frame.",
+      { mode: "screen", micDeviceId: null },
+      (key) => key,
+      vi.fn(() => true),
+      vi.fn(),
+    );
+
+    expect(options.action?.label).toBe("recordRoute.openRecorderInTab");
+    expect(options.description).toContain(
+      "The web client is running Clips inside a frame.",
+    );
+    expect(options.description).not.toContain("System Settings");
+  });
+
   it("wires toast tab recovery to the selected recorder URL", () => {
     const originalUrl = window.location.href;
     try {
@@ -768,6 +794,52 @@ describe("record route lifecycle shell", () => {
     } finally {
       window.history.replaceState({}, "", originalUrl);
     }
+  });
+
+  it("keeps app-frame screen denials away from macOS guidance and settings", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Screen capture is blocked by this app frame."
+          mode="screen+camera"
+          micDeviceId="default"
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "This recorder is embedded somewhere that blocks capture permissions.",
+    );
+    expect(container.textContent).toContain(
+      "The web client is running Clips inside a frame.",
+    );
+    expect(container.textContent).not.toContain("System Settings");
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(true);
+    expect(
+      buttons.some((button) =>
+        ["Screen", "Camera", "Mic"].includes(button.textContent?.trim() ?? ""),
+      ),
+    ).toBe(false);
   });
 
   it("keeps the embedded error route in place when tab recovery is blocked", () => {
