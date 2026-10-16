@@ -53,6 +53,7 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
+import { parse as parseCss } from "postcss";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -195,33 +196,44 @@ export function mergeComponentSwapOverrides(
 
 const INSTANCE_PLACEMENT_PROPERTIES = [
   "position",
+  "inset",
   "left",
   "top",
   "right",
   "bottom",
 ] as const;
 
+function decodeAttributeText(value: string): string {
+  return value
+    .replace(/&quot;|&#34;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 export function keepInstancePlacement(
   markup: string,
   instanceStyle: CodeLayerNode["style"],
 ): string {
   const openTag = markup.slice(0, findOpenTagEnd(markup));
-  const authoredStyle =
-    /\sstyle\s*=\s*(["'])([\s\S]*?)\1/i.exec(openTag)?.[2] ?? "";
+  const authoredStyle = decodeAttributeText(
+    /\sstyle\s*=\s*(["'])([\s\S]*?)\1/i.exec(openTag)?.[2] ?? "",
+  );
   const placement = INSTANCE_PLACEMENT_PROPERTIES.flatMap((property) => {
     const value = instanceStyle[property];
     return value ? [`${property}:${value}`] : [];
   });
-  const rest = authoredStyle
-    .split(";")
-    .filter((declaration) => {
-      const property = declaration.split(":")[0]!.trim().toLowerCase();
-      return (
-        property !== "" &&
-        !(INSTANCE_PLACEMENT_PROPERTIES as readonly string[]).includes(property)
-      );
-    })
-    .map((declaration) => declaration.trim());
+  const rest: string[] = [];
+  parseCss(authoredStyle).walkDecls((declaration) => {
+    if (
+      !(INSTANCE_PLACEMENT_PROPERTIES as readonly string[]).includes(
+        declaration.prop.toLowerCase(),
+      )
+    ) {
+      rest.push(declaration.toString());
+    }
+  });
   const style = [...placement, ...rest].join(";");
   if (style === authoredStyle) return markup;
   return setAttributeOnMarkup(markup, "style", style);

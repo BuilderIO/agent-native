@@ -211,6 +211,27 @@ describe("keepInstancePlacement", () => {
     );
   });
 
+  it("replaces the target's inset with the instance's placement", () => {
+    const target = `<div style="position:absolute;inset:0;width:10px">x</div>`;
+    expect(
+      keepInstancePlacement(target, {
+        position: "absolute",
+        inset: "12px auto auto 24px",
+      }),
+    ).toBe(
+      `<div style="position:absolute;inset:12px auto auto 24px;width:10px">x</div>`,
+    );
+  });
+
+  it("keeps an escaped url() with a semicolon intact", () => {
+    const target = `<div style="position:absolute;left:4px;background-image:url(&quot;data:image/svg+xml;utf8,x&quot;)">x</div>`;
+    expect(
+      keepInstancePlacement(target, { position: "absolute", left: "9px" }),
+    ).toBe(
+      `<div style="position:absolute;left:9px;background-image:url(&quot;data:image/svg+xml;utf8,x&quot;)">x</div>`,
+    );
+  });
+
   it("drops the target's placement when the instance flowed in its parent", () => {
     const target = `<div style="position:absolute;left:4px;top:8px;width:10px">x</div>`;
     expect(keepInstancePlacement(target, {})).toBe(
