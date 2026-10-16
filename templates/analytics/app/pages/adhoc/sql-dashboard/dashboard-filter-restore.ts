@@ -83,7 +83,6 @@ export interface DashboardFilterPreference {
 
 export type DashboardFilterPreferenceUpdate =
   | { status: "unread" }
-  | { status: "failed" }
   | { status: "saved" }
   | { status: "changed"; update: DashboardFilterPreference };
 
@@ -92,18 +91,11 @@ export function dashboardFilterPreferenceUpdate({
   savedState,
   viewsState,
   searchParams,
-  failed,
 }: {
   saved: { filters?: Record<string, string>; viewId?: string };
   savedState: "loading" | "error" | "success";
   viewsState: "loading" | "error" | "success";
   searchParams: URLSearchParams;
-  // The last write, if it failed. A failed write rereads the old preference,
-  // and resending it on every reread would retry forever while saving is
-  // down, so it reads as `failed` until the filters or the open view move off
-  // it. The caller must forget it on any other status: coming back to it
-  // later, even through the saved preference, is a new change to write.
-  failed: DashboardFilterPreference | null;
 }): DashboardFilterPreferenceUpdate {
   // An unread preference (still loading, or failed) is not an empty one: skip
   // the write rather than compare against the `{}` the hook returns meanwhile.
@@ -115,12 +107,6 @@ export function dashboardFilterPreferenceUpdate({
   const viewId =
     searchParams.get("view") ??
     (viewsState === "success" ? undefined : saved.viewId);
-  if (
-    failed &&
-    sameDashboardFilterMap(failed.filters, filters) &&
-    failed.viewId === viewId
-  )
-    return { status: "failed" };
   if (sameDashboardFilterMap(saved.filters, filters) && saved.viewId === viewId)
     return { status: "saved" };
   return {

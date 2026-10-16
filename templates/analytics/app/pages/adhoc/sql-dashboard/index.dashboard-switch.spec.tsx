@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
     data: undefined as unknown,
     isSuccess: true,
     isError: false,
+    isFetching: false,
     save: (() => {}) as (
       value: unknown,
       options?: { onError?: () => void },
@@ -334,6 +335,7 @@ describe("SqlDashboardPage dashboard switch", () => {
       data: undefined,
       isSuccess: true,
       isError: false,
+      isFetching: false,
       save: () => {},
     };
     mocks.dashboards = {
@@ -500,13 +502,14 @@ describe("SqlDashboardPage dashboard switch", () => {
     for (const render of dashBRenders) expect(render.widths).toEqual({});
   });
 
-  it("saves filters again after a failed write when they come back through the saved ones", async () => {
+  it("saves filters again after a failed write once they come back, even while the preference rereads", async () => {
     const writes: unknown[] = [];
     let failNextWrite = true;
     mocks.userPref = {
       data: { filters: { f_region: "eu" } },
       isSuccess: true,
       isError: false,
+      isFetching: false,
       save: (value, options) => {
         writes.push(value);
         if (failNextWrite) {
@@ -535,8 +538,11 @@ describe("SqlDashboardPage dashboard switch", () => {
     await afterSaveDelay();
     expect(writes).toHaveLength(1);
 
+    // Leaving them counts while the preference is still being reread.
+    mocks.userPref = { ...mocks.userPref, isFetching: true };
     await goTo("/dashboards/dash-a?f_region=eu");
     await afterSaveDelay();
+    mocks.userPref = { ...mocks.userPref, isFetching: false };
     await goTo("/dashboards/dash-a?f_region=us");
     await afterSaveDelay();
     expect(writes).toEqual([

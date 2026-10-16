@@ -1040,10 +1040,10 @@ function SqlDashboardPageContent({
   });
   const skipFilterPreferenceSave =
     useRef<DashboardFilterPreferenceSaveGuard | null>(null);
-  const failedFilterPreference = useRef<{
-    dashboardId: string;
-    update: DashboardFilterPreference;
-  } | null>(null);
+  // The address bar's filters and view when a write for them failed.
+  const failedFilterPreference = useRef<
+    ({ dashboardId: string } & DashboardFilterPreference) | null
+  >(null);
 
   // Edit mode, unfinished edits and open dialogs belong to the dashboard,
   // account and organization they were opened in; kept, they would reappear
@@ -1299,21 +1299,33 @@ function SqlDashboardPageContent({
       if (filterPreferenceSaveState === "changed") {
         skipFilterPreferenceSave.current = null;
       }
+      const filters = dashboardFilterParams(searchParams);
+      const viewId = searchParams.get("view") ?? undefined;
+      // A failed write rereads the old preference; resending it on each reread
+      // would retry forever while saving is down. It is held only while the
+      // address bar still shows what it was for, whatever the read is doing:
+      // coming back to that later is a new change to write.
       const failed = failedFilterPreference.current;
+      if (
+        failed?.dashboardId === dashboardId &&
+        matchesDashboardFilterRestoreState(
+          searchParams,
+          failed.filters,
+          failed.viewId,
+        )
+      )
+        return;
+      failedFilterPreference.current = null;
       const result = dashboardFilterPreferenceUpdate({
         saved: savedFilters,
         savedState: savedFiltersState,
         viewsState: dashboardViewsState,
         searchParams,
-        failed: failed?.dashboardId === dashboardId ? failed.update : null,
       });
-      if (result.status === "unread" || result.status === "failed") return;
-      failedFilterPreference.current = null;
-      if (result.status === "saved") return;
-      const { update } = result;
-      saveFilterPref(update, {
+      if (result.status !== "changed") return;
+      saveFilterPref(result.update, {
         onError: () => {
-          failedFilterPreference.current = { dashboardId, update };
+          failedFilterPreference.current = { dashboardId, filters, viewId };
         },
       });
     }, 1500);

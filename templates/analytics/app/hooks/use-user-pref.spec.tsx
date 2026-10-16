@@ -161,18 +161,19 @@ describe("useUserPref", () => {
       fail: () => void;
     }>;
     let reads: number;
-    let failReads: boolean;
+    let nextReads: "succeed" | "fail" | "hang";
     let save: (value: { step: number }) => void;
 
-    async function renderProbe() {
+    async function renderProbe(firstRead: typeof nextReads = "succeed") {
       writes = [];
       reads = 0;
-      failReads = false;
+      nextReads = firstRead;
       callAction.mockImplementation(
         (action: string, args: { value?: unknown }) => {
           if (action === "get-user-pref") {
             reads += 1;
-            return failReads
+            if (nextReads === "hang") return new Promise(() => {});
+            return nextReads === "fail"
               ? Promise.reject(new Error("read failed"))
               : Promise.resolve({ step: 0 });
           }
@@ -255,21 +256,56 @@ describe("useUserPref", () => {
       expect(container.textContent).toBe("0");
     });
 
-    it("reads as unavailable when the reread after a failed write fails too", async () => {
+    it("keeps showing the saved value while it rereads", async () => {
       await renderProbe();
+      await act(async () => {
+        save({ step: 1 });
+      });
+      await settle();
+
+      nextReads = "hang";
+      await act(async () => {
+        writes[0].fail();
+      });
+      await settle();
+      expect(container.textContent).toBe("0");
+    });
+
+    it("rolls back past a failed queued value to the last saved one", async () => {
+      await renderProbe();
+      await act(async () => {
+        save({ step: 1 });
+        save({ step: 2 });
+      });
+      await settle();
+
+      nextReads = "fail";
+      await act(async () => {
+        writes[0].fail();
+      });
+      await settle();
+      await act(async () => {
+        writes[1].fail();
+      });
+      await settle();
+      // Neither unsaved value is shown beside the failed read.
+      expect(container.textContent).toBe("unavailable:0");
+    });
+
+    it("shows no value when a write fails before anything was saved or read", async () => {
+      await renderProbe("hang");
       await act(async () => {
         save({ step: 1 });
       });
       await settle();
       expect(container.textContent).toBe("1");
 
-      failReads = true;
       await act(async () => {
         writes[0].fail();
       });
       await settle();
-      // The unsaved 1 is gone, not shown beside the failed read.
-      expect(container.textContent).toBe("unavailable:");
+      expect(container.textContent).toBe("");
+      expect(reads).toBe(2);
     });
   });
 });

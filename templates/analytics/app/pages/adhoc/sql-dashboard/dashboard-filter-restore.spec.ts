@@ -319,14 +319,12 @@ describe("dashboardFilterPreferenceUpdate", () => {
     search: string,
     savedState: "loading" | "error" | "success" = "success",
     viewsState: "loading" | "error" | "success" = "success",
-    failed: { filters: Record<string, string>; viewId?: string } | null = null,
   ) {
     return dashboardFilterPreferenceUpdate({
       saved,
       savedState,
       viewsState,
       searchParams: new URLSearchParams(search),
-      failed,
     });
   }
 
@@ -385,45 +383,6 @@ describe("dashboardFilterPreferenceUpdate", () => {
         "f_timeRange=7d&f_emailFilter=all",
         "success",
         "error",
-      ),
-    ).toEqual(saved);
-  });
-
-  it("doesn't resend a write that just failed until the filters or view change", () => {
-    const failed = { filters: { f_timeRange: "30d" }, viewId: "q3" };
-    const savedPref = { filters: personalFilters, viewId: "q3" };
-    expect(
-      update(
-        savedPref,
-        "view=q3&f_timeRange=30d",
-        "success",
-        "success",
-        failed,
-      ),
-    ).toEqual({ status: "failed" });
-    expect(
-      update(
-        savedPref,
-        "view=q3&f_timeRange=90d",
-        "success",
-        "success",
-        failed,
-      ),
-    ).toEqual(changed({ filters: { f_timeRange: "90d" }, viewId: "q3" }));
-    expect(
-      update(savedPref, "f_timeRange=30d", "success", "success", failed),
-    ).toEqual(changed({ filters: { f_timeRange: "30d" } }));
-  });
-
-  it("tells a move back to the saved preference apart from the failed write", () => {
-    const failed = { filters: { f_timeRange: "30d" }, viewId: "q3" };
-    expect(
-      update(
-        { filters: personalFilters, viewId: "q3" },
-        "view=q3&f_timeRange=7d&f_emailFilter=all",
-        "success",
-        "success",
-        failed,
       ),
     ).toEqual(saved);
   });

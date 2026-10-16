@@ -1,9 +1,28 @@
 import { callAction } from "@agent-native/core/client/hooks";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
+
+// What the server last confirmed for each preference, by a read or a write.
+// The cache can't say: a queued write puts its unsaved value there at once.
+const confirmedPrefs = new WeakMap<QueryClient, Map<string, unknown>>();
+
+function confirmedFor(queryClient: QueryClient) {
+  let confirmed = confirmedPrefs.get(queryClient);
+  if (!confirmed) {
+    confirmed = new Map();
+    confirmedPrefs.set(queryClient, confirmed);
+  }
+  return confirmed;
+}
 
 export function useUserPref<T extends Record<string, unknown>>(key: string) {
   const queryClient = useQueryClient();
+  const confirmed = confirmedFor(queryClient);
   const queryKey = ["user-pref", key];
   // One write per key at a time: overlapping autosaves could otherwise commit
   // an older value after a newer one.
@@ -11,13 +30,17 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
 
   const { data, isLoading, isError, isSuccess, isFetching } = useQuery({
     queryKey,
-    queryFn: async (): Promise<T> => {
+    queryFn: async ({ signal }): Promise<T> => {
       const result = await callAction(
         "get-user-pref",
         { key },
         { method: "GET" },
       );
-      return (result ?? {}) as T;
+      const value = (result ?? {}) as T;
+      // A write cancels the read in flight, which may still return the value
+      // from before that write.
+      if (!signal.aborted) confirmed.set(key, value);
+      return value;
     },
     staleTime: 30_000,
   });
@@ -32,14 +55,22 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
       await queryClient.cancelQueries({ queryKey });
       queryClient.setQueryData(queryKey, value);
     },
+    onSuccess: (_result, value) => {
+      confirmed.set(key, value);
+    },
     onError: () => {
       // Rolling back to this write's snapshot would hide a newer queued value
-      // that is still to be saved. Only the last pending write drops the
-      // unsaved value and rereads the server, which by then holds every
-      // earlier write; if that read fails too, the preference reads as
-      // unavailable, not as a value that was never saved.
+      // that is still to be saved, and the snapshot can itself be an unsaved
+      // queued value. Only the last pending write rolls back, to what the
+      // server last confirmed, and rereads behind it. With nothing confirmed
+      // yet there is no value to show, so the preference reads as loading.
       if (queryClient.isMutating({ mutationKey: queryKey }) <= 1) {
-        void queryClient.resetQueries({ queryKey });
+        if (confirmed.has(key)) {
+          queryClient.setQueryData(queryKey, confirmed.get(key));
+          void queryClient.invalidateQueries({ queryKey });
+        } else {
+          void queryClient.resetQueries({ queryKey });
+        }
       }
       toast.error("Failed to save preference");
     },
@@ -50,6 +81,9 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
     mutationKey: queryKey,
     mutationFn: () =>
       callAction("delete-user-pref", { key }, { method: "DELETE" }),
+    onSuccess: () => {
+      confirmed.set(key, {});
+    },
     onError: () => {
       toast.error("Failed to reset preference");
     },
