@@ -10,6 +10,10 @@ import {
   setResponseStatus,
 } from "h3";
 
+import {
+  BUILTIN_DASHBOARD_HIDDEN_BY,
+  builtinDashboardIdFor,
+} from "../../../shared/builtin-dashboard-ids.js";
 import { normalizeDashboardConfig } from "../../../shared/dashboard-config-normalization";
 import { ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND } from "../../../shared/resource-agent-access.js";
 import { getDb, schema } from "../../db/index.js";
@@ -17,8 +21,8 @@ import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
 } from "../../lib/agent-readable-resource-context.js";
+import { buildBuiltinDashboard } from "../../lib/builtin-dashboards.js";
 import { repairKnownFirstPartyDashboardQueries } from "../../lib/canonical-first-party-dashboard-repair.js";
-import { loadDashboardSeed } from "../../lib/dashboard-seeds.js";
 import type { DashboardRecord } from "../../lib/dashboards-store.js";
 
 function queryString(value: unknown): string {
@@ -89,14 +93,20 @@ export default defineEventHandler(async (event) => {
     .where(eq(schema.dashboards.id, id))
     .limit(1);
 
-  const seed = row ? null : loadDashboardSeed(id);
-  if (!row && seed) {
+  // A token carries no org, so only built-ins that take no install inputs open here.
+  const builtinId =
+    !row || row.hiddenBy === BUILTIN_DASHBOARD_HIDDEN_BY
+      ? builtinDashboardIdFor(id)
+      : null;
+  const builtin = builtinId ? buildBuiltinDashboard(builtinId) : null;
+  if (builtin) {
     if (!tokenAccess) {
       setResponseStatus(event, 403);
       return { error: "Invalid or expired agent access token" };
     }
-    const config = repairKnownFirstPartyDashboardQueries(id, seed).config;
-    return buildDashboardSeedAgentContext(id, config, { includeConfig: true });
+    return buildDashboardSeedAgentContext(builtin.id, builtin.config, {
+      includeConfig: true,
+    });
   }
 
   if (!row) {

@@ -8,8 +8,7 @@ import { getDb, schema } from "../db/index.js";
 import type { AnnotationScope } from "./annotation-scope";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { storedDashboardAnnotationScope } from "./dashboard-annotation-scope";
-import { loadDashboardSeed } from "./dashboard-seeds";
-import { getDashboard } from "./dashboards-store";
+import { openDashboard } from "./open-dashboard";
 
 export interface ReportSubscriptionInput {
   id?: string;
@@ -73,7 +72,8 @@ export async function getReportDashboard(
   dashboardId: string,
   ctx: AccessCtx,
 ): Promise<ReportDashboard | null> {
-  const dashboard = await getDashboard(dashboardId, ctx);
+  const opened = await openDashboard(dashboardId, ctx);
+  const dashboard = opened?.saved;
   if (dashboard?.kind === "sql") {
     const config = repairKnownFirstPartyDashboardQueries(
       dashboardId,
@@ -87,15 +87,11 @@ export async function getReportDashboard(
     };
   }
 
-  const seed = loadDashboardSeed(dashboardId);
-  if (!seed) return null;
+  if (!opened?.builtin) return null;
   return {
-    id: dashboardId,
-    title:
-      typeof seed.name === "string" && seed.name.trim()
-        ? seed.name.trim()
-        : dashboardId,
-    config: seed,
+    id: opened.builtin.id,
+    title: opened.builtin.title,
+    config: opened.builtin.config,
     annotationScope: ctx,
   };
 }
