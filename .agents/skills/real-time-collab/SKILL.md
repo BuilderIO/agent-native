@@ -274,7 +274,8 @@ the server derives its text on every commit. Declare one with `defineLiveCopy`
 from `@agent-native/core/collab` and pass it to `createCollabPlugin({ liveCopy,
 autoSeed: false })`. Its `name` is its identity: defining the same name again
 replaces the old binding, so a dev reload never leaves a stale one in front;
-work the old binding started commits nothing. Then:
+work the old binding started commits nothing unless its transaction was
+already committing. Then:
 
 - A live copy's Yjs work (merge, derive, seed, edits) runs only in the
   binding's `createBoundedTaskRunner`, never on the request thread. Writes to

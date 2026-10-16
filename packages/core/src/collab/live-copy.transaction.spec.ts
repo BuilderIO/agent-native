@@ -9,10 +9,12 @@ import type { BoundedTaskRunner } from "./bounded-tasks.js";
 import { defineLiveCopy, releaseLiveCopy } from "./live-copy.js";
 import { applyUpdate, mutateLiveCopy, seedLiveCopy } from "./ydoc-manager.js";
 
+let tasks = 0;
 const runner: BoundedTaskRunner = {
-  name: "unreached",
+  name: "counting",
   run: async () => {
-    throw new Error("A refused write ran a task");
+    tasks += 1;
+    throw new Error("No task runs in this spec");
   },
   stats: () => ({ workers: 0, running: 0, queued: 0 }),
   close: async () => {},
@@ -75,6 +77,27 @@ describe("live copies inside a caller's getDbExec().transaction()", () => {
         }),
       ]);
     }
+    expect(tasks).toBe(0);
     expect(insideDbTransactionCallback()).toBe(false);
+  });
+
+  it("lets work a transaction left running write once it commits", async () => {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let detached!: Promise<[boolean, unknown]>;
+    await getDbExec().transaction!(async () => {
+      detached = gate.then(async () => [
+        insideDbTransactionCallback(),
+        await seedLiveCopy(binding, "live:doc", { source: "base" }).catch(
+          (error) => error,
+        ),
+      ]);
+    });
+    open();
+    const [inside, error] = await detached;
+    expect(inside).toBe(false);
+    expect(error).not.toMatchObject({ reason: "caller_transaction" });
   });
 });

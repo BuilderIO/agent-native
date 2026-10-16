@@ -704,9 +704,6 @@ export async function commitLiveCopy(
         if (!sameStamp(current, base)) throw new CommitVersionConflict();
         await runCallPersist(commit.docId, tx, callPersist);
       }
-      // After every hook: a binding released or replaced while its work or
-      // its persist ran rolls back with what that persist wrote.
-      assertActiveLiveCopy(binding, commit.docId);
       const saved = await trySaveYDocStateWithClient(
         tx,
         commit.docId,
@@ -716,6 +713,9 @@ export async function commitLiveCopy(
         base?.digest,
       );
       if (!saved) throw new CommitVersionConflict();
+      // After the last statement: a binding released or replaced while its
+      // work, its persist or its save ran rolls back with all of them.
+      assertActiveLiveCopy(binding, commit.docId);
     });
     return outcome;
   } catch (error) {
@@ -739,13 +739,14 @@ export async function persistLiveCopyCall(
   try {
     await runLiveCopyTransaction(docId, async (tx) => {
       await runCallPersist(docId, tx, callPersist);
-      assertActiveLiveCopy(binding, docId);
       // Locked after the app's rows, as a commit locks them, and held to the
       // end so no commit can slip in before this one lands.
       const current = await loadYDocStampWithClient(tx, docId, {
         forShare: true,
       });
       if (!sameStamp(current, base)) throw new CommitVersionConflict();
+      // After the last statement, as in commitLiveCopy.
+      assertActiveLiveCopy(binding, docId);
     });
     return true;
   } catch (error) {

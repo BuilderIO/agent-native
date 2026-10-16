@@ -1403,6 +1403,82 @@ describe("mutateLiveCopy", () => {
     ).toEqual({ body: "base", version: 0 });
   });
 
+  it("rolls back the work of a binding replaced during its last statement", async () => {
+    const binding = define({
+      persist: async (tx, commit) => {
+        await tx.execute({
+          sql: "INSERT INTO bodies (doc_id, body, version) VALUES (?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET body = excluded.body, version = excluded.version",
+          args: [commit.docId, commit.text, commit.version],
+        });
+      },
+    });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+    // Replaces the binding while the matching statement runs, after the
+    // persist hooks are done.
+    let replaceDuring: RegExp | undefined;
+    const plain = exec;
+    exec = {
+      ...plain,
+      transaction: (fn) =>
+        plain.transaction!((tx) =>
+          fn({
+            execute: async (input) => {
+              const result = await tx.execute(input);
+              const sql = typeof input === "string" ? input : input.sql;
+              if (replaceDuring?.test(sql)) {
+                replaceDuring = undefined;
+                define();
+              }
+              return result;
+            },
+          }),
+        ),
+    };
+
+    replaceDuring = /^\s*UPDATE _collab_docs/;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(binding, "live:doc", {
+          edit: "append",
+          input: { text: "late" },
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+
+    const current = define({
+      persist: async (tx, commit) => {
+        await tx.execute({
+          sql: "INSERT INTO bodies (doc_id, body, version) VALUES (?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET body = excluded.body, version = excluded.version",
+          args: [commit.docId, commit.text, commit.version],
+        });
+      },
+    });
+    replaceDuring = /FOR SHARE/;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(current, "live:doc", {
+          edit: "unchanged",
+          persist: async (tx) => {
+            await tx.execute({
+              sql: "UPDATE bodies SET body = ? WHERE doc_id = ?",
+              args: ["claimed", "live:doc"],
+            });
+          },
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "base",
+      version: 0,
+    });
+    expect(
+      await pglite
+        .prepare("SELECT body, version FROM bodies WHERE doc_id = ?")
+        .get("live:doc"),
+    ).toEqual({ body: "base", version: 0 });
+  });
+
   it("loads a cold copy once for a burst of readers, with its text", async () => {
     let reads = 0;
     const binding = define({
