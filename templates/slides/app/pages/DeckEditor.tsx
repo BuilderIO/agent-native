@@ -247,6 +247,9 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 import {
   shouldActivateRectangleTool,
+  shouldActivateScaleTool,
+  shouldActivateHandTool,
+  shouldActivateMoveTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
 import {
@@ -885,6 +888,8 @@ export default function DeckEditor() {
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
+  const [handMode, setHandMode] = useState(false);
+  const [scaleMode, setScaleMode] = useState(false);
   const [shapeType, setShapeType] = useState<SlideShapeType | null>(null);
   const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<
     string | null
@@ -932,6 +937,32 @@ export default function DeckEditor() {
     setAnimationTarget(null);
     setLayersOpen((open) => !open);
   }, [layersOpen]);
+
+  // Move, Hand and Scale are one family: arming any of them drops the
+  // placement and annotation tools, and arming one releases the others.
+  const selectMoveTool = useCallback((tool: "move" | "hand" | "scale") => {
+    setDrawMode(false);
+    setPinMode(false);
+    setTextBoxMode(false);
+    setShapeType(null);
+    setHandMode(tool === "hand");
+    setScaleMode(tool === "scale");
+  }, []);
+  const changeHandMode = useCallback(
+    (active: boolean) => selectMoveTool(active ? "hand" : "move"),
+    [selectMoveTool],
+  );
+  const changeScaleMode = useCallback(
+    (active: boolean) => selectMoveTool(active ? "scale" : "move"),
+    [selectMoveTool],
+  );
+  // Any other tool taking over releases Hand and Scale, whichever path armed it.
+  useEffect(() => {
+    if (drawMode || pinMode || textBoxMode || shapeType) {
+      setHandMode(false);
+      setScaleMode(false);
+    }
+  }, [drawMode, pinMode, textBoxMode, shapeType]);
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
@@ -981,6 +1012,10 @@ export default function DeckEditor() {
     }
     setTextBoxMode(next);
   }, [textBoxMode]);
+
+  const armTextBox = useCallback(() => {
+    if (!textBoxMode) toggleTextBoxMode();
+  }, [textBoxMode, toggleTextBoxMode]);
 
   const selectShape = useCallback((type: SlideShapeType) => {
     trackEvent("slide_tool_selected", {
@@ -3685,6 +3720,19 @@ export default function DeckEditor() {
         return;
       }
 
+      const moveTool = shouldActivateScaleTool(event, options)
+        ? "scale"
+        : shouldActivateHandTool(event, options)
+          ? "hand"
+          : shouldActivateMoveTool(event, options)
+            ? "move"
+            : null;
+      if (moveTool) {
+        event.preventDefault();
+        selectMoveTool(moveTool);
+        return;
+      }
+
       if (!shouldActivateRectangleTool(event, options)) return;
       event.preventDefault();
       selectShape("rectangle");
@@ -3693,7 +3741,7 @@ export default function DeckEditor() {
     document.addEventListener("keydown", handleSlideToolShortcut);
     return () =>
       document.removeEventListener("keydown", handleSlideToolShortcut);
-  }, [canEdit, selectShape]);
+  }, [canEdit, selectMoveTool, selectShape]);
 
   useEffect(() => {
     const handleCommentShortcut = (event: KeyboardEvent) => {
@@ -5408,6 +5456,12 @@ export default function DeckEditor() {
             }
             recentEdits={deckRecentEdits}
             onComment={openCommentComposer}
+            handMode={handMode}
+            onHandModeChange={changeHandMode}
+            scaleMode={scaleMode}
+            onScaleModeChange={changeScaleMode}
+            onArmTextBox={armTextBox}
+            onArmShape={selectShape}
             drawMode={drawMode}
             onExitDrawMode={() => setDrawMode(false)}
             pinMode={pinMode}
@@ -5420,6 +5474,11 @@ export default function DeckEditor() {
             layersOpen={layersOpen}
             onCloseLayers={() => setLayersOpen(false)}
             onOpenAnimations={openAnimationsForTarget}
+            onToggleAnimations={toggleAnimations}
+            commentsOpen={commentsOpen}
+            onToggleComments={toggleComments}
+            onTogglePinMode={togglePinMode}
+            onToggleDrawMode={toggleDrawMode}
             onSelectedAnimationTargetChange={setAnimationTarget}
             slideId={currentSlide.id}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}

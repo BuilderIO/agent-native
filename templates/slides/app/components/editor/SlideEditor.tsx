@@ -26,6 +26,7 @@ import {
   useRef,
   useEffect,
   useLayoutEffect,
+  useMemo,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -74,6 +75,7 @@ import {
   type Slide,
   type UpdateSlideOptions,
 } from "@/context/DeckContext";
+import { useForwardCanvasZoom } from "@/hooks/use-forward-canvas-zoom";
 import type { CommentThread } from "@/hooks/use-slide-comments";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import {
@@ -94,10 +96,16 @@ import {
 import { revealsAfterDelete } from "@/lib/reveal-after-delete";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
+  animationElementKey,
   getElementPreview,
   storedPathOfRenderedElement,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
+import {
+  animationOfTarget,
+  planElementAnimation,
+  REVEAL_REASON_LABEL_KEY,
+} from "@/lib/slide-animation-quick-pick";
 import {
   slideCommentAnchorAtPoint,
   slideCommentAnchorFromRange,
@@ -145,12 +153,20 @@ import {
   resolveSlidesCanvasTargetIntent,
   SLIDES_CANVAS_DRAG_THRESHOLD,
   slidesCanvasInteractionCore,
+  type SlidesCanvasGestureAdapter,
 } from "./canvas-interactions";
 import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
 import { hasInlineHeight } from "./fit-text-object";
+import {
+  FloatingToolbar,
+  type FloatingToolbarInsertTool,
+  type FloatingToolbarMoveTool,
+  type FloatingToolbarTransition,
+} from "./FloatingToolbar";
+import { HandPanLayer } from "./HandPanLayer";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
 } from "./ImageCropOverlay";
@@ -260,7 +276,9 @@ import {
   resolveSlideObjectMoveRoots,
   resizeSlideObjectMembers,
   resizeTransformedSlideObject,
+  resolveProportionalScale,
   scaleSlideObjectGroupMembers,
+  scaleTransformedSlideObject,
   rotateSlideObjectMembers,
   screenDeltaToLocal,
   resolveSlideClipboardElement,
@@ -305,6 +323,14 @@ import {
   resolveSlidePointerTarget,
 } from "./slide-pointer-target";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
+import {
+  applyScaleContent,
+  captureScaleContent,
+  createLatestFrame,
+  minScaleContentFactor,
+  restoreScaleContent,
+  type ScaleContentSnapshot,
+} from "./slide-scale-content";
 import {
   haveSameSlideStyleControls,
   mergeSlideStyleSnapshots,
@@ -406,6 +432,28 @@ function isPersistedFreeformObject(element: HTMLElement): boolean {
     window.getComputedStyle(element).position === "absolute"
   );
 }
+
+type SlidesPreview = NonNullable<SlidesCanvasGestureAdapter["preview"]>;
+type SlidesPreviewGesture = Parameters<SlidesPreview>[0];
+type SlidesPreviewResult = ReturnType<SlidesPreview>;
+
+// Insert menu rows that arm an existing shape; "Shape" arms the triangle.
+const SHAPE_INSERT_PAIRS = [
+  ["line", "line"],
+  ["arrow", "arrow"],
+  ["square", "rectangle"],
+  ["ellipse", "circle"],
+  ["shape", "triangle"],
+] as const satisfies readonly (readonly [
+  FloatingToolbarInsertTool,
+  SlideShapeType,
+])[];
+const SHAPE_BY_INSERT = new Map<FloatingToolbarInsertTool, SlideShapeType>(
+  SHAPE_INSERT_PAIRS,
+);
+const INSERT_BY_SHAPE = new Map<SlideShapeType, FloatingToolbarInsertTool>(
+  SHAPE_INSERT_PAIRS.map(([insert, shape]) => [shape, insert]),
+);
 
 /** Longest a cancelled gesture's release may take before its click is real. */
 const CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS = 2000;
@@ -1183,6 +1231,18 @@ interface SlideEditorProps {
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** Whether the Hand tool is armed: drags pan the canvas, nothing selects. */
+  handMode?: boolean;
+  /** Arms or releases the Hand tool. */
+  onHandModeChange?: (active: boolean) => void;
+  /** Whether the Scale tool is armed: corner drags scale content too. */
+  scaleMode?: boolean;
+  /** Arms or releases the Scale tool. */
+  onScaleModeChange?: (active: boolean) => void;
+  /** Arms the text-box placement tool. */
+  onArmTextBox?: () => void;
+  /** Arms a shape for drag-to-place. */
+  onArmShape?: (type: SlideShapeType) => void;
   /** Whether the draw-to-prompt overlay is visible */
   drawMode?: boolean;
   /** Called when the draw overlay should exit (Esc, Send, close button) */
@@ -1210,6 +1270,16 @@ interface SlideEditorProps {
   layersOpen?: boolean;
   /** Close the document layers panel. */
   onCloseLayers?: () => void;
+  /** Whether the comments panel is open. */
+  commentsOpen?: boolean;
+  /** Toggles the comments panel. */
+  onToggleComments?: () => void;
+  /** Toggles the pin-comment tool. */
+  onTogglePinMode?: () => void;
+  /** Toggles the draw-on-slide annotation overlay. */
+  onToggleDrawMode?: () => void;
+  /** Toggle the transitions panel without a target. */
+  onToggleAnimations?: () => void;
   /** Open transitions for the currently selected canvas element. */
   onOpenAnimations?: (target: SelectedAnimationTarget) => void;
   /** Keep the parent in sync with the current canvas selection. */
@@ -1394,6 +1464,7 @@ function ElementSelectionOutline({
   onRotateStart,
   parent = false,
   resizable = true,
+  cornersOnly = false,
 }: {
   rect: DOMRect;
   frame?: SelectionOverlayMeasurement["frame"];
@@ -1406,6 +1477,8 @@ function ElementSelectionOutline({
   parent?: boolean;
   /** False for a table cell or row: it is styled in place, never resized. */
   resizable?: boolean;
+  /** Scale gestures are proportional, so only the corner handles show. */
+  cornersOnly?: boolean;
 }) {
   const pad = 2;
   const left = frame?.left ?? rect.left;
@@ -1531,66 +1604,70 @@ function ElementSelectionOutline({
                 zIndex: 2,
               }}
             />
-            <span
-              data-slide-resize-handle="n"
-              onPointerDown={(e) => onResizeStart?.("n", e)}
-              className={edgeHandleClass}
-              style={{
-                pointerEvents: "auto",
-                cursor: "ns-resize",
-                zIndex: 1,
-              }}
-            >
-              <span
-                data-slide-resize-handle-bar="true"
-                className={edgeBarClass}
-              />
-            </span>
-            <span
-              data-slide-resize-handle="e"
-              onPointerDown={(e) => onResizeStart?.("e", e)}
-              className={edgeHandleClass}
-              style={{
-                pointerEvents: "auto",
-                cursor: "ew-resize",
-                zIndex: 1,
-              }}
-            >
-              <span
-                data-slide-resize-handle-bar="true"
-                className={edgeBarClass}
-              />
-            </span>
-            <span
-              data-slide-resize-handle="s"
-              onPointerDown={(e) => onResizeStart?.("s", e)}
-              className={edgeHandleClass}
-              style={{
-                pointerEvents: "auto",
-                cursor: "ns-resize",
-                zIndex: 1,
-              }}
-            >
-              <span
-                data-slide-resize-handle-bar="true"
-                className={edgeBarClass}
-              />
-            </span>
-            <span
-              data-slide-resize-handle="w"
-              onPointerDown={(e) => onResizeStart?.("w", e)}
-              className={edgeHandleClass}
-              style={{
-                pointerEvents: "auto",
-                cursor: "ew-resize",
-                zIndex: 1,
-              }}
-            >
-              <span
-                data-slide-resize-handle-bar="true"
-                className={edgeBarClass}
-              />
-            </span>
+            {!cornersOnly && (
+              <>
+                <span
+                  data-slide-resize-handle="n"
+                  onPointerDown={(e) => onResizeStart?.("n", e)}
+                  className={edgeHandleClass}
+                  style={{
+                    pointerEvents: "auto",
+                    cursor: "ns-resize",
+                    zIndex: 1,
+                  }}
+                >
+                  <span
+                    data-slide-resize-handle-bar="true"
+                    className={edgeBarClass}
+                  />
+                </span>
+                <span
+                  data-slide-resize-handle="e"
+                  onPointerDown={(e) => onResizeStart?.("e", e)}
+                  className={edgeHandleClass}
+                  style={{
+                    pointerEvents: "auto",
+                    cursor: "ew-resize",
+                    zIndex: 1,
+                  }}
+                >
+                  <span
+                    data-slide-resize-handle-bar="true"
+                    className={edgeBarClass}
+                  />
+                </span>
+                <span
+                  data-slide-resize-handle="s"
+                  onPointerDown={(e) => onResizeStart?.("s", e)}
+                  className={edgeHandleClass}
+                  style={{
+                    pointerEvents: "auto",
+                    cursor: "ns-resize",
+                    zIndex: 1,
+                  }}
+                >
+                  <span
+                    data-slide-resize-handle-bar="true"
+                    className={edgeBarClass}
+                  />
+                </span>
+                <span
+                  data-slide-resize-handle="w"
+                  onPointerDown={(e) => onResizeStart?.("w", e)}
+                  className={edgeHandleClass}
+                  style={{
+                    pointerEvents: "auto",
+                    cursor: "ew-resize",
+                    zIndex: 1,
+                  }}
+                >
+                  <span
+                    data-slide-resize-handle-bar="true"
+                    className={edgeBarClass}
+                  />
+                </span>
+              </>
+            )}
           </>
         )}
       </div>
@@ -1783,6 +1860,12 @@ export default function SlideEditor({
   slideIndex = 0,
   designSystem,
   aspectRatio,
+  handMode,
+  onHandModeChange,
+  scaleMode,
+  onScaleModeChange,
+  onArmTextBox,
+  onArmShape,
   drawMode,
   onExitDrawMode,
   pinMode,
@@ -1797,6 +1880,11 @@ export default function SlideEditor({
   layersOpen = false,
   onCloseLayers,
   onOpenAnimations,
+  onToggleAnimations,
+  commentsOpen,
+  onToggleComments,
+  onTogglePinMode,
+  onToggleDrawMode,
   onSelectedAnimationTargetChange,
   slideId,
   comments = [],
@@ -2069,6 +2157,7 @@ export default function SlideEditor({
     setManualCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
   }, [canvasZoom, setManualCanvasZoom]);
 
+  useForwardCanvasZoom(scrollContainerRef);
   usePinchZoom({
     containerRef: scrollContainerRef,
     zoom: canvasZoom,
@@ -3049,9 +3138,130 @@ export default function SlideEditor({
     onComment("", anchor);
   }, [ensureCommentObjectId, onComment, resolveSelectedElement, selectedImg]);
 
+  const [animationTarget, setAnimationTarget] =
+    useState<SelectedAnimationTarget | null>(null);
   useEffect(() => {
-    onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
+    const target = getSelectedAnimationTarget();
+    setAnimationTarget((previous) =>
+      previous &&
+      target &&
+      animationElementKey(previous.elementPath) ===
+        animationElementKey(target.elementPath)
+        ? previous
+        : target,
+    );
+    onSelectedAnimationTargetChange?.(target);
   }, [getSelectedAnimationTarget, onSelectedAnimationTargetChange]);
+
+  const selectedElementAnimation = useMemo(
+    () =>
+      animationTarget
+        ? animationOfTarget(
+            slide.content,
+            slide.animations ?? [],
+            animationTarget,
+          )
+        : null,
+    [animationTarget, slide.animations, slide.content],
+  );
+
+  const floatingMoveTool =
+    handMode || scaleMode || drawMode || pinMode || textBoxMode || shapeType
+      ? handMode
+        ? "hand"
+        : scaleMode
+          ? "scale"
+          : null
+      : "move";
+
+  const selectFloatingMoveTool = useCallback(
+    (tool: FloatingToolbarMoveTool) => {
+      if (tool === "hand") {
+        onHandModeChange?.(true);
+        return;
+      }
+      if (tool === "scale") {
+        onScaleModeChange?.(true);
+        return;
+      }
+      onHandModeChange?.(false);
+      onScaleModeChange?.(false);
+      onExitDrawMode?.();
+      onExitPinMode?.();
+      onExitTextBoxMode?.();
+      onExitShapeMode?.();
+    },
+    [
+      onExitDrawMode,
+      onExitPinMode,
+      onExitShapeMode,
+      onExitTextBoxMode,
+      onHandModeChange,
+      onScaleModeChange,
+    ],
+  );
+
+  const insertFloatingTool = useCallback(
+    (tool: FloatingToolbarInsertTool) => {
+      if (tool === "text") {
+        onArmTextBox?.();
+        return;
+      }
+      const shape = SHAPE_BY_INSERT.get(tool);
+      if (shape) onArmShape?.(shape);
+    },
+    [onArmShape, onArmTextBox],
+  );
+
+  const disabledCommentActions = useMemo(
+    () => [
+      ...(canComment ? [] : (["pin"] as const)),
+      ...(readOnly ? (["annotate"] as const) : []),
+    ],
+    [canComment, readOnly],
+  );
+
+  const runCommentAction = useCallback(
+    (action: "comments" | "annotate" | "pin") => {
+      if (action === "comments") onToggleComments?.();
+      else if (action === "pin") onTogglePinMode?.();
+      else onToggleDrawMode?.();
+    },
+    [onToggleComments, onTogglePinMode, onToggleDrawMode],
+  );
+
+  const openTransitionsPanel = useCallback(() => {
+    if (!animationsOpen && animationTarget) onOpenAnimations?.(animationTarget);
+    else onToggleAnimations?.();
+  }, [animationTarget, animationsOpen, onOpenAnimations, onToggleAnimations]);
+
+  const applyTransitionQuickPick = useCallback(
+    (pick: FloatingToolbarTransition) => {
+      if (readOnly || !animationTarget) return;
+      const plan = planElementAnimation({
+        content: slide.content,
+        animations: slide.animations ?? [],
+        target: animationTarget,
+        type: pick,
+      });
+      if (!plan.ok) {
+        toast.error(t(REVEAL_REASON_LABEL_KEY[plan.reason]));
+        return;
+      }
+      onUpdateSlide({ animations: plan.animations });
+      if (!animationsOpen) onOpenAnimations?.(animationTarget);
+    },
+    [
+      animationTarget,
+      animationsOpen,
+      onOpenAnimations,
+      onUpdateSlide,
+      readOnly,
+      slide.animations,
+      slide.content,
+      t,
+    ],
+  );
 
   const buildSelectionState = useCallback(
     (
@@ -3069,9 +3279,21 @@ export default function SlideEditor({
         pinMode: Boolean(pinMode),
         textBoxMode: Boolean(textBoxMode),
         shapeMode: Boolean(shapeType),
+        handMode: Boolean(handMode),
+        scaleMode: Boolean(scaleMode),
         activeTool,
       }),
-    [deckId, drawMode, pinMode, shapeType, slide.id, slideIndex, textBoxMode],
+    [
+      deckId,
+      drawMode,
+      handMode,
+      scaleMode,
+      pinMode,
+      shapeType,
+      slide.id,
+      slideIndex,
+      textBoxMode,
+    ],
   );
 
   const clearSelectedElement = useCallback(() => {
@@ -4445,7 +4667,14 @@ export default function SlideEditor({
       const action = decideSlideEscape({
         editing: Boolean(editing),
         activeGesture: held !== null,
-        activeMode: Boolean(drawMode || pinMode || textBoxMode || shapeType),
+        activeMode: Boolean(
+          handMode ||
+          scaleMode ||
+          drawMode ||
+          pinMode ||
+          textBoxMode ||
+          shapeType,
+        ),
         multiSelection: multiSelection.size > 0,
         singleSelection: Boolean(selectedElementSelector),
         targetOwnsEscape,
@@ -4468,7 +4697,9 @@ export default function SlideEditor({
         pointerPressRef.current = null;
         holdCancelledPress(held.pointerId);
       } else if (action === "mode") {
-        if (drawMode) onExitDrawMode?.();
+        if (scaleMode) onScaleModeChange?.(false);
+        else if (handMode) onHandModeChange?.(false);
+        else if (drawMode) onExitDrawMode?.();
         else if (pinMode) onExitPinMode?.();
         else if (shapeType) onExitShapeMode?.();
         else onExitTextBoxMode?.();
@@ -4487,9 +4718,13 @@ export default function SlideEditor({
     drawMode,
     exitInlineEdit,
     finishImageCrop,
+    handMode,
     holdCancelledPress,
     multiSelection.size,
     onExitDrawMode,
+    onHandModeChange,
+    onScaleModeChange,
+    scaleMode,
     onExitPinMode,
     onExitShapeMode,
     onExitTextBoxMode,
@@ -6578,6 +6813,9 @@ export default function SlideEditor({
       const viewport = readGestureViewport(element, slideCanvas);
       if (!viewport) return;
 
+      const scaling = Boolean(scaleMode);
+      let scaleSnapshots: ScaleContentSnapshot[] = [];
+      let minScaleFactor = 0;
       const originalObjectId = element.getAttribute("data-slide-object-id");
       const originalClassName = element.className;
       const originalStyle = element.getAttribute("style");
@@ -6591,6 +6829,7 @@ export default function SlideEditor({
       let promotedToFreeform = false;
 
       const restorePromotedElement = () => {
+        restoreScaleContent(scaleSnapshots);
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
         removeSlideObjectLayoutSpacer(element);
@@ -6704,7 +6943,14 @@ export default function SlideEditor({
           }
         }
 
-        fitResize = transform.transform === "none" && isFitTextObject(element);
+        if (scaling) {
+          scaleSnapshots = captureScaleContent([element]);
+          minScaleFactor = minScaleContentFactor(scaleSnapshots);
+        }
+        fitResize =
+          !scaling &&
+          transform.transform === "none" &&
+          isFitTextObject(element);
         // A legacy `contain: size` would pin the box at its stale height, so
         // the resize would change nothing the user can see.
         if (fitResize) stripFreeformReservation(element);
@@ -6738,107 +6984,127 @@ export default function SlideEditor({
         }
       };
 
-      const controller = createSlidesCanvasGestureController({
-        toLocalDelta: viewport.toLocalDelta,
-        preview: (gesture) => {
-          if (gesture.kind !== "resize" || !beginResize()) {
-            return { handled: false, reason: "unhandled" };
-          }
-          if (fitResize) {
-            // A fit text box never gets a height: only its width and top
-            // edge move, or `min-height` when it carries one.
-            const next = resolveFitTextBoxResize({
-              handle: gesture.handle,
-              start: resizeOrigin,
-              delta: { dx: gesture.canvasDelta.x, dy: gesture.canvasDelta.y },
-              minWidth: MIN_SLIDE_OBJECT_SIZE,
-              hasMinHeight: hasFitTextMinHeight(element),
-              shift: Boolean(gesture.pointer.shiftKey),
-              alt: Boolean(gesture.pointer.altKey),
-              floorHeight: fitFloorHeight,
-            });
-            ensureSlideObjectId(element);
-            applyObjectGeometry(
-              element,
-              { x: next.x, y: next.y, width: next.width },
-              { overrideSizeCaps: true },
-            );
-            if (next.minHeight !== undefined) {
-              element.style.minHeight = `${next.minHeight}px`;
-            }
-            const currentSelector = getBuilderSelector(element);
-            if (currentSelector) {
-              selectElementForStyling(element, currentSelector, "resizing");
-            }
-            return { handled: true };
-          }
-          const nextRect = resizeTransformedSlideObject(
-            resizeOrigin,
-            resizeTransform,
-            {
-              handle: gesture.handle,
-              dx: gesture.canvasDelta.x,
-              dy: gesture.canvasDelta.y,
-              altKey: Boolean(gesture.pointer.altKey),
-              preserveAspectRatio: Boolean(gesture.pointer.shiftKey),
-              fitText: isFitTextObject(element),
-            },
-          );
-          if (!nextRect) return { handled: false, reason: "unhandled" };
-          const memberPlans =
-            groupResizeMembers.length > 0
-              ? scaleSlideObjectGroupMembers(
-                  groupResizeMembers,
-                  resizeOrigin,
-                  nextRect,
-                )
-              : null;
-          if (memberPlans && memberPlans.size !== groupResizeMembers.length) {
-            return { handled: false, reason: "unhandled" };
-          }
+      const applyPreview = (
+        gesture: SlidesPreviewGesture,
+      ): SlidesPreviewResult => {
+        if (gesture.kind !== "resize" || !beginResize()) {
+          return { handled: false, reason: "unhandled" };
+        }
+        if (fitResize) {
+          // A fit text box never gets a height: only its width and top
+          // edge move, or `min-height` when it carries one.
+          const next = resolveFitTextBoxResize({
+            handle: gesture.handle,
+            start: resizeOrigin,
+            delta: { dx: gesture.canvasDelta.x, dy: gesture.canvasDelta.y },
+            minWidth: MIN_SLIDE_OBJECT_SIZE,
+            hasMinHeight: hasFitTextMinHeight(element),
+            shift: Boolean(gesture.pointer.shiftKey),
+            alt: Boolean(gesture.pointer.altKey),
+            floorHeight: fitFloorHeight,
+          });
           ensureSlideObjectId(element);
           applyObjectGeometry(
             element,
-            planSlideObjectGeometry(element, nextRect),
-            {
-              overrideSizeCaps: true,
-              startHeight: resizeOrigin.height,
-              autoHeight:
-                isAutoHeightTextResize(
-                  element,
-                  gesture.handle,
-                  Boolean(gesture.pointer.shiftKey),
-                ) && resizeTransform.transform === "none",
-            },
+            { x: next.x, y: next.y, width: next.width },
+            { overrideSizeCaps: true },
           );
-          if (memberPlans) {
-            for (const member of groupResizeMembers) {
-              const plan = memberPlans.get(member.element);
-              if (plan) {
-                applyObjectGeometry(member.element, plan.geometry, {
-                  overrideSizeCaps: true,
-                  startHeight: member.start.height,
-                });
-                if (plan.transform !== undefined) {
-                  member.element.style.setProperty(
-                    "transform",
-                    plan.transform,
-                    member.element.style.getPropertyPriority("transform"),
-                  );
-                }
-                if (plan.transformOrigin !== undefined) {
-                  member.element.style.transformOrigin = plan.transformOrigin;
-                }
-              }
-            }
+          if (next.minHeight !== undefined) {
+            element.style.minHeight = `${next.minHeight}px`;
           }
           const currentSelector = getBuilderSelector(element);
           if (currentSelector) {
             selectElementForStyling(element, currentSelector, "resizing");
           }
           return { handled: true };
+        }
+        const resizeInput = {
+          handle: gesture.handle,
+          dx: gesture.canvasDelta.x,
+          dy: gesture.canvasDelta.y,
+          altKey: Boolean(gesture.pointer.altKey),
+          fitText: isFitTextObject(element),
+        };
+        const nextRect = scaling
+          ? scaleTransformedSlideObject(
+              resizeOrigin,
+              resizeTransform,
+              resizeInput,
+            )
+          : resizeTransformedSlideObject(resizeOrigin, resizeTransform, {
+              ...resizeInput,
+              preserveAspectRatio: Boolean(gesture.pointer.shiftKey),
+            });
+        if (!nextRect) return { handled: false, reason: "unhandled" };
+        if (scaling) {
+          const factor = nextRect.width / resizeOrigin.width;
+          // Below the font floor the gesture holds its last valid frame.
+          if (factor < minScaleFactor) return { handled: true };
+          applyScaleContent(scaleSnapshots, factor);
+        }
+        const memberPlans =
+          groupResizeMembers.length > 0
+            ? scaleSlideObjectGroupMembers(
+                groupResizeMembers,
+                resizeOrigin,
+                nextRect,
+              )
+            : null;
+        if (memberPlans && memberPlans.size !== groupResizeMembers.length) {
+          return { handled: false, reason: "unhandled" };
+        }
+        ensureSlideObjectId(element);
+        applyObjectGeometry(
+          element,
+          planSlideObjectGeometry(element, nextRect),
+          {
+            overrideSizeCaps: true,
+            startHeight: resizeOrigin.height,
+            autoHeight:
+              isAutoHeightTextResize(
+                element,
+                gesture.handle,
+                scaling || Boolean(gesture.pointer.shiftKey),
+              ) && resizeTransform.transform === "none",
+          },
+        );
+        if (memberPlans) {
+          for (const member of groupResizeMembers) {
+            const plan = memberPlans.get(member.element);
+            if (plan) {
+              applyObjectGeometry(member.element, plan.geometry, {
+                overrideSizeCaps: true,
+                startHeight: member.start.height,
+              });
+              if (plan.transform !== undefined) {
+                member.element.style.setProperty(
+                  "transform",
+                  plan.transform,
+                  member.element.style.getPropertyPriority("transform"),
+                );
+              }
+              if (plan.transformOrigin !== undefined) {
+                member.element.style.transformOrigin = plan.transformOrigin;
+              }
+            }
+          }
+        }
+        const currentSelector = getBuilderSelector(element);
+        if (currentSelector) {
+          selectElementForStyling(element, currentSelector, "resizing");
+        }
+        return { handled: true };
+      };
+      const previewFrame = createLatestFrame(applyPreview);
+      const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
+        preview: (gesture) => {
+          if (!scaling) return applyPreview(gesture);
+          previewFrame.push(gesture);
+          return { handled: true };
         },
         commit: () => {
+          previewFrame.flush();
           if (began !== "ready") return { handled: false, reason: "unhandled" };
           const currentSelector = getBuilderSelector(element);
           if (currentSelector)
@@ -6859,9 +7125,11 @@ export default function SlideEditor({
           return { handled: true };
         },
         cancel: () => {
+          previewFrame.cancel();
           if (began !== "ready") return { handled: false, reason: "unhandled" };
           if (promotedToFreeform) restorePromotedElement();
           else {
+            restoreScaleContent(scaleSnapshots);
             restoreSlideObjectStyle(element, originalStyle);
             for (const [member, style] of groupResizeOriginalStyles) {
               restoreSlideObjectStyle(member, style);
@@ -6945,6 +7213,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       resolveSelectedElement,
+      scaleMode,
       selectElementForStyling,
     ],
   );
@@ -6988,6 +7257,11 @@ export default function SlideEditor({
           member.element.getAttribute("style"),
         ]),
       );
+      const scaling = Boolean(scaleMode);
+      const scaleSnapshots = scaling
+        ? captureScaleContent(members.map((member) => member.element))
+        : [];
+      const minScaleFactor = minScaleContentFactor(scaleSnapshots);
       const applyPlan = (plan: Map<string, SlideObjectGeometryPlan>) => {
         for (const member of members) {
           const geometry = plan.get(member.objectId);
@@ -7009,25 +7283,51 @@ export default function SlideEditor({
         }
       };
 
+      const applyPreview = (
+        gesture: SlidesPreviewGesture,
+      ): SlidesPreviewResult => {
+        if (gesture.kind !== "resize") {
+          return { handled: false, reason: "unhandled" };
+        }
+        suppressNextClickRef.current = true;
+        const scaleDelta = scaling
+          ? resolveProportionalScale(groupOrigin, gesture.canvasDelta, {
+              handle,
+            })
+          : null;
+        if (scaling && !scaleDelta) {
+          return { handled: false, reason: "unhandled" };
+        }
+        const plan = resizeSlideObjectMembers(members, {
+          handle,
+          dx: scaleDelta ? scaleDelta.delta.x : gesture.canvasDelta.x,
+          dy: scaleDelta ? scaleDelta.delta.y : gesture.canvasDelta.y,
+          preserveAspectRatio: scaling || gesture.pointer.shiftKey,
+        });
+        if (scaling) {
+          const first = members[0];
+          const scaledWidth = first ? plan.get(first.objectId)?.width : null;
+          if (!first || scaledWidth === undefined || scaledWidth === null) {
+            return { handled: false, reason: "unhandled" };
+          }
+          const factor = scaledWidth / first.start.width;
+          if (factor < minScaleFactor) return { handled: true };
+          applyScaleContent(scaleSnapshots, factor);
+        }
+        applyPlan(plan);
+        scheduleMultiSelectionRects(selectedIds);
+        return { handled: true };
+      };
+      const previewFrame = createLatestFrame(applyPreview);
       const controller = createSlidesCanvasGestureController({
         toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
-          if (gesture.kind !== "resize") {
-            return { handled: false, reason: "unhandled" };
-          }
-          suppressNextClickRef.current = true;
-          applyPlan(
-            resizeSlideObjectMembers(members, {
-              handle,
-              dx: gesture.canvasDelta.x,
-              dy: gesture.canvasDelta.y,
-              preserveAspectRatio: gesture.pointer.shiftKey,
-            }),
-          );
-          scheduleMultiSelectionRects(selectedIds);
+          if (!scaling) return applyPreview(gesture);
+          previewFrame.push(gesture);
           return { handled: true };
         },
         commit: () => {
+          previewFrame.flush();
           const html = readCurrentSlideContentHtml();
           if (html !== null) {
             pendingMultiSelectionResyncRef.current = {
@@ -7042,6 +7342,8 @@ export default function SlideEditor({
           return { handled: true };
         },
         cancel: () => {
+          previewFrame.cancel();
+          restoreScaleContent(scaleSnapshots);
           applyPlan(
             new Map(members.map((member) => [member.objectId, member.start])),
           );
@@ -7117,6 +7419,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       refreshMultiSelectionRects,
+      scaleMode,
       scheduleMultiSelectionRects,
     ],
   );
@@ -8420,6 +8723,7 @@ export default function SlideEditor({
         textBoxMode ||
         pinMode ||
         drawMode ||
+        handMode ||
         imageCropRef.current ||
         !slideContent
       ) {
@@ -8436,6 +8740,7 @@ export default function SlideEditor({
     [
       clearCanvasHover,
       drawMode,
+      handMode,
       editingEl,
       getSlideContent,
       pinMode,
@@ -9268,6 +9573,17 @@ export default function SlideEditor({
     exitInlineEdit,
     multiSelection.size,
   ]);
+
+  // Arming Hand drops the selection; the tool-state sync above ran first, so
+  // republish the canvas state with the new tool after clearing.
+  const armHandSelectionRef = useRef(() => {});
+  armHandSelectionRef.current = () => {
+    clearCanvasSelection();
+    syncSelectionToAppState(buildSelectionState("canvas", []));
+  };
+  useEffect(() => {
+    if (handMode) armHandSelectionRef.current();
+  }, [handMode]);
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
@@ -10600,6 +10916,40 @@ export default function SlideEditor({
             </div>
           ) : (
             <div className="relative h-full bg-[var(--slides-editor-surface)]">
+              {!readOnly && (
+                <FloatingToolbar
+                  className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2"
+                  moveTool={floatingMoveTool}
+                  onSelectMoveTool={selectFloatingMoveTool}
+                  insertValue={
+                    textBoxMode
+                      ? "text"
+                      : shapeType
+                        ? (INSERT_BY_SHAPE.get(shapeType) ?? null)
+                        : null
+                  }
+                  onInsert={insertFloatingTool}
+                  transitionsOpen={animationsOpen}
+                  transitionValue={
+                    animationTarget
+                      ? (selectedElementAnimation?.type ?? "none")
+                      : null
+                  }
+                  transitionsDisabled={readOnly || !animationTarget}
+                  onOpenTransitions={openTransitionsPanel}
+                  onSelectTransition={applyTransitionQuickPick}
+                  commentsOpen={Boolean(commentsOpen)}
+                  commentToolValue={
+                    pinMode ? "pin" : drawMode ? "annotate" : null
+                  }
+                  disabledCommentActions={disabledCommentActions}
+                  onOpenComments={onToggleComments}
+                  onCommentAction={runCommentAction}
+                />
+              )}
+              {handMode && !readOnly ? (
+                <HandPanLayer scrollRef={scrollContainerRef} />
+              ) : null}
               <div
                 ref={scrollContainerRef}
                 className={`h-full overflow-auto ${
@@ -10884,6 +11234,7 @@ export default function SlideEditor({
           resizable={
             !selectedIsTableStructure && selectedElementMeasurementIsCurrent
           }
+          cornersOnly={Boolean(scaleMode)}
           onResizeStart={
             !readOnly &&
             selectedElementMeasurementIsCurrent &&
@@ -10908,6 +11259,7 @@ export default function SlideEditor({
           rect={multiSelectionBounds}
           viewportRect={selectionViewportRect}
           allowBodyMove={false}
+          cornersOnly={Boolean(scaleMode)}
           onResizeStart={
             !readOnly && objectOperationSelection ? startGroupResize : undefined
           }
