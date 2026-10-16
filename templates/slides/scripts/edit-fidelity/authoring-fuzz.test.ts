@@ -41,6 +41,8 @@ import {
   isExpectedSaveReloadRetiredBrowserSessionCorsError,
   isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
+  isRecoveredSaveReloadActionAbort,
+  isRecoverableSaveReloadActionAbortCandidate,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
@@ -1438,6 +1440,87 @@ it("does not suppress cross-origin request aborts", () => {
       false,
       false,
     ),
+  ).toBe(false);
+});
+
+it("only recovers a quick deck-status abort after the same reload request succeeds", () => {
+  const aborted = {
+    pathname: "/_agent-native/actions/get-deck-access-status",
+    method: "GET",
+    errorText: "net::ERR_ABORTED",
+    activePhase: "save/reload",
+    requestStartedAt: 1_943,
+    failedAt: 1_955,
+    reloadStartedAt: 0,
+    sameOrigin: true,
+  };
+  expect(isRecoverableSaveReloadActionAbortCandidate(aborted)).toBe(true);
+  expect(
+    isRecoverableSaveReloadActionAbortCandidate({
+      ...aborted,
+      errorText: "Failed to fetch",
+    }),
+  ).toBe(false);
+  expect(
+    isRecoverableSaveReloadActionAbortCandidate({
+      ...aborted,
+      failedAt: aborted.requestStartedAt + 251,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoverableSaveReloadActionAbortCandidate({
+      ...aborted,
+      requestStartedAt: 9_000,
+    }),
+  ).toBe(false);
+
+  const url =
+    "http://localhost:50868/_agent-native/actions/get-deck-access-status?deckId=deck-1";
+  const pendingAbort = { url, failedAt: aborted.failedAt };
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 1_968,
+      status: 200,
+    }),
+  ).toBe(true);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url: `${url}&another=1`,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 1_968,
+      status: 200,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_954,
+      responseAt: 1_968,
+      status: 200,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 1_968,
+      status: 500,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 2_956,
+      status: 200,
+    }),
   ).toBe(false);
 });
 
