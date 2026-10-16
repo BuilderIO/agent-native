@@ -26,8 +26,8 @@ status reply, and reaction decision before you claim another batch.
 Output is fixes. At sweep end, reconcile every workflow-owned `👀` in scope,
 including inherited eyes. Give each a current disposition and matching status
 reply; continuing work gets a concrete update, terminal work a final reply
-after verification. Add `✅` only for verified **Fixed** scope and `🎫` only for
-an unfinished human handoff; an eye alone earns neither. Follow
+after verification. Never remove `👀`: verified fixed scope also gets `✅`, and
+distinct unfinished human handoffs get `🎫`. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels

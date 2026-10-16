@@ -75,17 +75,17 @@ End every new or edited Slack reply with the exact sentence
 `this was sent from a bot.`. A connector-added `Sent using ChatGPT` footer is
 not a substitute.
 
-Keep `👀` as claim history while any scope is active, waiting, or unverified.
-Reconcile each report as one unit: send or verify its current same-thread
-status reply, then immediately add and read back the applicable reactions
-before advancing to the next report. Add `✅` as soon as any reported scope is
-verified **Fixed** under the Phase 2 bar, including a partial fix; use
-**Partially fixed** for the overall disposition when another scope remains,
-and describe both scopes separately in the reply. Do not wait for an entire
-multi-symptom report to be resolved before checking off its verified scope.
-An open PR can earn `✅` when a focused test or equivalent proof verifies the
-source fix. Say that merge or rollout is still pending; the checkmark does not
-claim the change is shipped or live.
+Keep `👀` as permanent claim history, including after a fix; verified fixed
+scope shows `👀` beside `✅`. Reconcile each report as one unit: send or verify
+its current same-thread status reply, then immediately add and read back the
+applicable reactions before advancing to the next report. Add `✅` as soon as
+any reported scope is verified **Fixed** under the Phase 2 bar, including a
+partial fix; use **Partially fixed** for the overall disposition when another
+scope remains, and describe both scopes separately in the reply. Do not wait
+for an entire multi-symptom report to be resolved before checking off its
+verified scope. An open PR can earn `✅` when a focused test or equivalent
+proof verifies the source fix. Say that merge or rollout is still pending; the
+checkmark does not claim the change is shipped or live.
 Add `🎫` only for each distinct unfinished scope that needs a human to take
 ownership or act; name the owner and action, and link a real ticket when one
 exists. A partial fix with a separate human handoff can have both `✅` and
