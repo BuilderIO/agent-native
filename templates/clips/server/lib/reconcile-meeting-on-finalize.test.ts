@@ -52,7 +52,10 @@ vi.mock("./post-finalize-dispatch.js", () => ({
     mockDispatchPostFinalizeJob(...args),
 }));
 
-import { reconcileMeetingOnRecordingReady } from "./reconcile-meeting-on-finalize";
+import {
+  reconcileMeetingOnRecordingFailed,
+  reconcileMeetingOnRecordingReady,
+} from "./reconcile-meeting-on-finalize";
 
 describe("reconcileMeetingOnRecordingReady", () => {
   beforeEach(() => {
@@ -123,6 +126,38 @@ describe("reconcileMeetingOnRecordingReady", () => {
       recordingId: "rec_2",
       ownerEmail: "owner@example.com",
       endedAtIso: "2026-07-06T08:45:00.000Z",
+    });
+
+    expect(state.updateSets).toEqual([]);
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("dispatches an already-ended meeting when its recording fails", async () => {
+    state.foundMeeting = {
+      id: "meeting_1",
+      actualEnd: "2026-07-06T08:40:00.000Z",
+      summaryMd: "",
+    };
+
+    await reconcileMeetingOnRecordingFailed({
+      recordingId: "rec_1",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(state.updateSets).toEqual([]);
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    });
+  });
+
+  it("does not end an active meeting when its recording upload fails", async () => {
+    state.foundMeeting = { id: "meeting_1", actualEnd: null, summaryMd: "" };
+
+    await reconcileMeetingOnRecordingFailed({
+      recordingId: "rec_1",
+      ownerEmail: "owner@example.com",
     });
 
     expect(state.updateSets).toEqual([]);

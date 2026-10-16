@@ -29,6 +29,7 @@ import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   hostedStorageAuthFailure,
   recordingTrackingSource,
@@ -779,13 +780,14 @@ export async function handleRecordingChunk(
       failureCode: "storage_setup_required" | "recording_too_large",
       failureReason: string,
     ) => {
+      const failedAt = new Date().toISOString();
       const failed = await db
         .update(schema.recordings)
         .set({
           status: "failed",
           failureCode,
           failureReason,
-          updatedAt: new Date().toISOString(),
+          updatedAt: failedAt,
         })
         .where(
           and(
@@ -801,6 +803,12 @@ export async function handleRecordingChunk(
           ),
         )
         .returning({ id: schema.recordings.id });
+      if (failed.length === 1) {
+        await reconcileMeetingOnRecordingFailed({
+          recordingId,
+          ownerEmail,
+        });
+      }
       return failed.length === 1;
     };
 
@@ -1375,6 +1383,10 @@ export async function handleRecordingChunk(
         if (failed.length !== 1) {
           throw err;
         }
+        await reconcileMeetingOnRecordingFailed({
+          recordingId,
+          ownerEmail,
+        });
         const failedUploadSnapshot = await readUploadStateForRepair({
           recordingId,
           mode: "buffered",
@@ -2236,6 +2248,10 @@ async function handleResumableChunk(
         recordingPlatform: schema.recordings.recordingPlatform,
       });
     if (failed.length !== 1) throw err;
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
     const failedUploadSnapshot = await readUploadStateForRepair({
       recordingId,
       mode: "resumable",

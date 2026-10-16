@@ -7,6 +7,7 @@ import {
   releaseHostedClipAllowanceAfterCleanup,
   writeHostedCleanupConfirmedMarker,
 } from "./hosted-clip-allowance.js";
+import { reconcileMeetingOnRecordingFailed } from "./reconcile-meeting-on-finalize.js";
 import {
   normalizeRecordingPlatform,
   trackRecordingFailure,
@@ -568,6 +569,10 @@ export async function reapExpiredUploads(
       if (typeof row.owner_email !== "string") {
         throw new Error("Upload timeout row is missing owner email");
       }
+      await reconcileMeetingOnRecordingFailed({
+        recordingId: String(row.id),
+        ownerEmail: row.owner_email,
+      });
       trackRecordingFailure({
         recordingId: String(row.id),
         userId: row.owner_email,

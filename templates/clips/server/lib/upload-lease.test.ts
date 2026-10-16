@@ -39,6 +39,7 @@ const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
 const mockReleaseHostedClipAllowanceAfterCleanup = vi.hoisted(() => vi.fn());
+const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
@@ -57,6 +58,10 @@ vi.mock("./hosted-clip-allowance.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./hosted-clip-allowance.js")>()),
   releaseHostedClipAllowanceAfterCleanup: (...args: unknown[]) =>
     mockReleaseHostedClipAllowanceAfterCleanup(...args),
+}));
+vi.mock("./reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingFailed: (...args: unknown[]) =>
+    mockReconcileMeetingOnRecordingFailed(...args),
 }));
 
 vi.mock("./resumable-upload-cleanup.js", () => ({
@@ -147,6 +152,8 @@ describe("upload lease", () => {
     mockDeleteS3ObjectByUrl.mockClear();
     mockReleaseHostedClipRecording.mockClear();
     mockReleaseHostedClipAllowanceAfterCleanup.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
     await execute(
       client,
       `CREATE TABLE recordings (
@@ -434,6 +441,10 @@ describe("upload lease", () => {
       failure_code: "upload_timed_out",
     });
     expect(await chunkKeys()).toEqual([]);
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
+      recordingId: "dead",
+      ownerEmail: "owner@example.com",
+    });
   });
 
   it("releases a hosted reservation after an expired upload's multipart session is confirmed aborted", async () => {

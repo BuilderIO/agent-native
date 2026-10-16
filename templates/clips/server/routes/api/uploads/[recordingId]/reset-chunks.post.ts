@@ -19,6 +19,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
 import { snapshotUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
@@ -547,6 +548,10 @@ export async function handleResetRecordingChunks(
                 )
                 .returning({ id: schema.recordings.id });
               if (failed.length === 1) {
+                await reconcileMeetingOnRecordingFailed({
+                  recordingId,
+                  ownerEmail,
+                });
                 trackRecordingFailure({
                   recordingId,
                   userId: ownerEmail,

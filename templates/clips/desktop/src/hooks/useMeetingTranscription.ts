@@ -230,6 +230,7 @@ export function useMeetingTranscription({
         }
         unlistenAll(session.unlisten.splice(0));
         await invoke("silence_detector_stop").catch(() => {});
+        let terminalStopError: ClipsActionError | undefined;
         try {
           let stopConfirmed = false;
           const result = await stopMeetingBeforeTranscriptFlush({
@@ -271,12 +272,7 @@ export function useMeetingTranscription({
             },
           });
           if (result.status === "terminal") {
-            session.stopRecovery = {
-              status: "terminal",
-              source: "stop",
-              error: result.error,
-            };
-            throw result.error;
+            terminalStopError = result.error;
           }
           session.stopRecovery = null;
         } catch (err) {
@@ -353,6 +349,13 @@ export function useMeetingTranscription({
           meetingId: session.meetingId,
           reason: stopReason,
         }).catch(() => {});
+        if (terminalStopError) {
+          emit("meetings:transcription-error", {
+            meetingId: session.meetingId,
+            error: terminalStopError.message,
+            terminal: true,
+          }).catch(() => {});
+        }
       })();
       stopInFlightRef.current = run;
       try {

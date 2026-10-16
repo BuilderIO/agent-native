@@ -16,6 +16,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
@@ -524,6 +525,11 @@ export async function handleAbortRecordingUpload(
         staleAttempt: true,
       };
     }
+
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     if (
       transitionExisting.status !== "failed" ||

@@ -3,13 +3,12 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import { dispatchPostFinalizeJob } from "./post-finalize-dispatch.js";
 
-export async function reconcileMeetingOnRecordingReady(params: {
+async function findLinkedMeetings(params: {
   recordingId: string;
   ownerEmail: string;
-  endedAtIso: string;
-}): Promise<void> {
+}) {
   const db = getDb();
-  const meetings = await db
+  return db
     .select({
       id: schema.meetings.id,
       actualEnd: schema.meetings.actualEnd,
@@ -23,6 +22,37 @@ export async function reconcileMeetingOnRecordingReady(params: {
         isNull(schema.meetings.trashedAt),
       ),
     );
+}
+
+async function dispatchMeetingFinalizationIfPending(
+  recordingId: string,
+  meetings: Array<{ actualEnd: string | null; summaryMd: string }>,
+  includeUnendedMeetings = false,
+) {
+  if (
+    !meetings.some(
+      (meeting) =>
+        (includeUnendedMeetings || meeting.actualEnd !== null) &&
+        meeting.summaryMd === "",
+    )
+  ) {
+    return;
+  }
+
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "meeting-finalize",
+    requireAccepted: true,
+  });
+}
+
+export async function reconcileMeetingOnRecordingReady(params: {
+  recordingId: string;
+  ownerEmail: string;
+  endedAtIso: string;
+}): Promise<void> {
+  const db = getDb();
+  const meetings = await findLinkedMeetings(params);
   if (meetings.length === 0) return;
 
   for (const meeting of meetings) {
@@ -36,16 +66,23 @@ export async function reconcileMeetingOnRecordingReady(params: {
       .where(
         and(
           eq(schema.meetings.id, meeting.id),
+          eq(schema.meetings.ownerEmail, params.ownerEmail),
           isNull(schema.meetings.actualEnd),
         ),
       );
   }
 
-  if (!meetings.some((meeting) => meeting.summaryMd === "")) return;
+  await dispatchMeetingFinalizationIfPending(
+    params.recordingId,
+    meetings,
+    true,
+  );
+}
 
-  await dispatchPostFinalizeJob({
-    recordingId: params.recordingId,
-    kind: "meeting-finalize",
-    requireAccepted: true,
-  });
+export async function reconcileMeetingOnRecordingFailed(params: {
+  recordingId: string;
+  ownerEmail: string;
+}): Promise<void> {
+  const meetings = await findLinkedMeetings(params);
+  await dispatchMeetingFinalizationIfPending(params.recordingId, meetings);
 }
