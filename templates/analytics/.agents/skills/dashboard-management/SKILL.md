@@ -63,8 +63,9 @@ Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
 Dashboards open in View mode. An editor switches the header toggle to Edit
-before drags, renames, and column edits on the page save for everyone; the chat
-context reports the current mode. A table column width dragged in View mode is
+before drags, renames, column edits, and showing or hiding key-date sets and
+data notes on the page save for everyone; the chat context reports the current
+mode. A table column width dragged in View mode is
 stored only in that person's browser, so "widen this column for me" is a drag
 in View mode, not a dashboard change. `config.columns[].width` is the shared
 width everyone sees; set it only when asked to change the dashboard itself.

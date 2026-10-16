@@ -2013,7 +2013,7 @@ function SqlDashboardPageContent({
   const annotationEditing = useAnnotationEditing({
     dashboardId,
     dashboard,
-    canEdit,
+    editing,
     persist,
   });
 

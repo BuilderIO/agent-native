@@ -12,17 +12,18 @@ import type { DashboardAnnotations, SqlDashboardConfig } from "./types";
 /**
  * The Annotations header menu, its dialogs, and the actions a chart's
  * data-note card offers. Key dates and notes belong to the organization;
- * only which ones a dashboard hides is saved with the dashboard.
+ * only which ones a dashboard hides is saved with the dashboard. Hiding or
+ * showing one saves for everyone in a click, so it waits for Edit mode.
  */
 export function useAnnotationEditing({
   dashboardId,
   dashboard,
-  canEdit,
+  editing,
   persist,
 }: {
   dashboardId: string | undefined;
   dashboard: SqlDashboardConfig | null;
-  canEdit: boolean;
+  editing: boolean;
   persist: (updated: SqlDashboardConfig) => void;
 }): {
   menu: ReactNode;
@@ -53,7 +54,7 @@ export function useAnnotationEditing({
     },
     [dashboard, persist],
   );
-  const onAnnotationsChange = canEdit ? updateAnnotations : undefined;
+  const onAnnotationsChange = editing ? updateAnnotations : undefined;
 
   const dataNoteActions = useMemo<DataNoteActions>(
     () => ({
@@ -63,7 +64,7 @@ export function useAnnotationEditing({
       },
       edit: (note) => setNoteDraft({ note }),
       markFixed: (note) => setNoteDraft({ note, markFixed: true }),
-      hide: canEdit
+      hide: editing
         ? (noteId, panelId) =>
             updateAnnotations({
               ...annotations,
@@ -74,7 +75,7 @@ export function useAnnotationEditing({
             })
         : undefined,
     }),
-    [annotations, canEdit, dashboardId, updateAnnotations],
+    [annotations, dashboardId, editing, updateAnnotations],
   );
 
   if (!dashboardId || !dashboard) {

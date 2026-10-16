@@ -19,13 +19,16 @@ const dashboard: SqlDashboardConfig = { name: "Setup", panels: [] };
 let container: HTMLDivElement;
 let root: Root;
 
-function render(persist: (updated: SqlDashboardConfig) => void) {
+function render(
+  persist: (updated: SqlDashboardConfig) => void,
+  editing = true,
+) {
   let actions!: DataNoteActions;
   function Editor() {
     actions = useAnnotationEditing({
       dashboardId: "dash",
       dashboard,
-      canEdit: true,
+      editing,
       persist,
     }).dataNoteActions;
     return null;
@@ -64,5 +67,14 @@ describe("useAnnotationEditing", () => {
         ],
       },
     });
+  });
+
+  it("offers no hide in View mode, where notes are still added and edited", () => {
+    const actions = render(vi.fn(), false);
+
+    expect(actions.hide).toBeUndefined();
+    expect(actions.add).toBeTypeOf("function");
+    expect(actions.edit).toBeTypeOf("function");
+    expect(actions.markFixed).toBeTypeOf("function");
   });
 });
