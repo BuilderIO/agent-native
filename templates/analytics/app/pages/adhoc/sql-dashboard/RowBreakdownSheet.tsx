@@ -1,4 +1,7 @@
-import { setClientAppState } from "@agent-native/core/client/hooks";
+import {
+  deleteClientAppState,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BREAKDOWN_OVER_BYTE_CAP_ERROR,
@@ -46,6 +49,11 @@ import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel, TableColumnConfig } from "./types";
 
 export const ROW_BREAKDOWN_STATE_KEY = "row-breakdown";
+
+// A reload skips unmount cleanup, so a breakdown open before it would outlive
+// the page in app state. The first sheet to mount clears it once; writes to one
+// key run in order, so a row opened right after still lands.
+let clearedSincePageLoad = false;
 
 export interface RowBreakdownSelection {
   row: Record<string, unknown>;
@@ -148,8 +156,18 @@ export function RowBreakdownSheet({
   const published = useRef(false);
   const open = selection !== null;
   useEffect(() => {
+    if (clearedSincePageLoad) return;
+    clearedSincePageLoad = true;
+    deleteClientAppState(ROW_BREAKDOWN_STATE_KEY).catch((error) => {
+      console.warn(
+        "[row-breakdown] Could not clear a breakdown left by the last page",
+        error,
+      );
+    });
+  }, []);
+  useEffect(() => {
     // Every table panel mounts this sheet closed; only one that was open
-    // clears the state, so a dashboard load writes nothing.
+    // clears the state on close.
     if (!open && !published.current) return;
     published.current = open;
     const state = open
