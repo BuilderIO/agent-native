@@ -8,6 +8,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandGithub,
   IconCheck,
+  IconChevronDown,
   IconDownload,
   IconDots,
   IconFolder,
@@ -26,6 +27,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
   Card,
   CardContent,
@@ -314,19 +316,35 @@ export default function DashboardOverview() {
           />
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
-          <NewDashboardDialog triggerClassName="w-auto flex-1 justify-center rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90 sm:flex-none" />
-          {sigmaMigrationFlag.status === "ready" &&
-          sigmaMigrationFlag.enabled ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1 sm:flex-none"
-              onClick={() => setSigmaMigrationOpen(true)}
-            >
-              <IconDownload />
-              {t("dashboardOverview.previewSigma")}
-            </Button>
-          ) : null}
+          <ButtonGroup className="shrink-0 [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9 [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)]:border-primary-foreground/20">
+            <NewDashboardDialog triggerClassName="h-9 w-auto min-w-fit flex-none justify-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground hover:bg-primary/90" />
+            {sigmaMigrationFlag.status === "ready" &&
+            sigmaMigrationFlag.enabled ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    aria-label={t("explorerDashboard.moreActions")}
+                    className="h-9 w-9 px-0 shadow-none"
+                  >
+                    <IconChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setTimeout(() => setSigmaMigrationOpen(true), 0);
+                    }}
+                  >
+                    <IconDownload />
+                    {t("dashboardOverview.importFromSigma")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </ButtonGroup>
           <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="flex-1 sm:flex-none">

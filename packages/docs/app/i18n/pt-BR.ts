@@ -2640,6 +2640,7 @@ const ptBR = {
     auditLog: "Log de auditoria",
     doctorCodeChecks: "Doctor (verificações de código)",
     observability: "Observabilidade",
+    recorder: "Gravador",
     observationalMemory: "Memória observacional",
     ciEvalGate: "Gate de evals no CI",
     usingYourAgentOverview: "Visão geral",

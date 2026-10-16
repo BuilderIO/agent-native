@@ -2705,31 +2705,115 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
+.countdown-numbers {
+  display: grid;
+  place-items: center;
+}
+
 .countdown-number {
   font-size: 240px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  animation: cd-pop 1s ease-out forwards;
+  grid-area: 1 / 1;
   line-height: 1;
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.countdown-numbers:not(.is-running) .countdown-number-3 {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.countdown-numbers.is-running .countdown-number {
+  animation: cd-pop 1s ease-out forwards;
+}
+
+.countdown-numbers.is-running .countdown-number-2 {
+  animation-delay: 1s;
+}
+
+.countdown-numbers.is-running .countdown-number-1 {
+  animation-name: cd-last-pop;
+  animation-delay: 2s;
+}
+
+.countdown-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 @keyframes cd-pop {
   0% {
-    transform: scale(0.6);
-    opacity: 0;
+    opacity: 1;
+    transform: scale(1);
   }
   25% {
-    transform: scale(1.1);
     opacity: 1;
+    transform: scale(1.1);
   }
   80% {
-    transform: scale(1);
     opacity: 1;
+    transform: scale(1);
   }
   100% {
+    opacity: 0;
     transform: scale(1);
+  }
+}
+
+@keyframes cd-last-pop {
+  0% {
     opacity: 1;
+    transform: scale(0.6);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  80%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes cd-static {
+  0%,
+  99% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .countdown-numbers.is-running .countdown-number {
+    animation-name: cd-static;
+    animation-timing-function: steps(1, end);
+  }
+
+  .countdown-numbers.is-running .countdown-number-1 {
+    animation-name: cd-last-static;
+  }
+}
+
+@keyframes cd-last-static {
+  from,
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

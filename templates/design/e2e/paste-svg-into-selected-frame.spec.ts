@@ -13,8 +13,7 @@ const FRAME_WITH_CHILD = `<!doctype html><html><head><meta charset="utf-8"></hea
 const SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 
-// fixme: product bug: The paste lands on top in the Layers panel but is drawn underneath 'Existing child' on the canvas: stripRootPosition saves it with no
-test.fixme("Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it", async ({
+test("Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it", async ({
   app,
   page,
 }) => {

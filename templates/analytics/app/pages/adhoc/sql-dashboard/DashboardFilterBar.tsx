@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
@@ -46,49 +47,65 @@ import {
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
+  usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterPreset } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
-export interface DashboardDefaultView {
+export interface DashboardSavedView {
   id: string;
   filters: Record<string, string>;
+  isDefault?: boolean;
 }
 
+// Reset returns to the saved view open in the URL (filter edits keep `view`), so
+// editing a view and resetting lands back on it. With no view open it goes where
+// a fresh load does: the default view, otherwise each filter's own default.
+export function resetTargetView(
+  views: readonly DashboardSavedView[],
+  searchParams: URLSearchParams,
+): DashboardSavedView | undefined {
+  const viewId = searchParams.get("view");
+  return (
+    views.find((view) => view.id === viewId) ??
+    views.find((view) => view.isDefault)
+  );
+}
+
+const NO_VIEWS: readonly DashboardSavedView[] = [];
+
 // Compare resolved values, not param presence: a URL that spells out a default
-// (f_timeRange=30d) is still at the defaults.
-export function filtersAtDefaults(
+// (f_timeRange=30d) still matches.
+export function filtersMatchView(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
-  defaultView: DashboardDefaultView | undefined,
+  view: DashboardSavedView | undefined,
 ): boolean {
   const current = resolveFilterVars(
     filters,
     (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
   );
-  const defaults = resolveFilterVars(
+  const target = resolveFilterVars(
     filters,
-    (key) => defaultView?.filters[FILTER_PARAM_PREFIX + key] ?? "",
+    (key) => view?.filters[FILTER_PARAM_PREFIX + key] ?? "",
   );
-  return Object.keys(defaults).every((key) => current[key] === defaults[key]);
+  return Object.keys(target).every((key) => current[key] === target[key]);
 }
 
-// A fresh load lands on the default view when the dashboard has one, so a
-// reset goes there too; otherwise every filter falls back to its own default.
 export function resetFilterParams(
   prev: URLSearchParams,
-  defaultView: DashboardDefaultView | undefined,
+  view: DashboardSavedView | undefined,
 ): URLSearchParams {
   const next = new URLSearchParams(prev);
   for (const key of Array.from(next.keys())) {
     if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
   }
-  if (defaultView) {
-    for (const [key, value] of Object.entries(defaultView.filters)) {
+  if (view) {
+    for (const [key, value] of Object.entries(view.filters)) {
       if (value) next.set(key, value);
     }
-    next.set("view", defaultView.id);
+    next.set("view", view.id);
   } else {
     next.delete("view");
   }
@@ -124,7 +141,8 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
-  defaultView?: DashboardDefaultView;
+  // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
+  views?: readonly DashboardSavedView[] | null;
   onSaveView?: (
     name: string,
     filters: Record<string, string>,
@@ -134,7 +152,7 @@ interface DashboardFilterBarProps {
 
 export function DashboardFilterBar({
   filters,
-  defaultView,
+  views = NO_VIEWS,
   onSaveView,
 }: DashboardFilterBarProps) {
   const t = useT();
@@ -186,8 +204,11 @@ export function DashboardFilterBar({
   );
 
   const resetFilters = useCallback(() => {
-    setSearchParams((prev) => resetFilterParams(prev, defaultView));
-  }, [defaultView, setSearchParams]);
+    if (!views) return;
+    setSearchParams((prev) =>
+      resetFilterParams(prev, resetTargetView(views, prev)),
+    );
+  }, [views, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
     if (!viewName.trim() || !onSaveView || savingView) return;
@@ -225,10 +246,17 @@ export function DashboardFilterBar({
     [uniqueFilters, getParam],
   );
 
-  const filtersChanged = !filtersAtDefaults(
+  const canReset =
+    views !== null &&
+    !filtersMatchView(
+      uniqueFilters,
+      searchParams,
+      resetTargetView(views, searchParams),
+    );
+  const filtersChanged = !filtersMatchView(
     uniqueFilters,
     searchParams,
-    defaultView,
+    views?.find((view) => view.isDefault),
   );
 
   return (
@@ -294,7 +322,7 @@ export function DashboardFilterBar({
               </CollapsibleTrigger>
             </div>
             {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
-            {filtersChanged && (
+            {canReset && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -445,6 +473,11 @@ function MultiSelectFilter({
       options.find((option) => option.value === selectedValue)?.label ??
       selectedValue,
   );
+  const presets = usableFilterPresets(filter.presets, seenOptionValues);
+  const presetSelected = (preset: FilterPreset) =>
+    new Set(preset.values).size === selectedSet.size &&
+    preset.values.every((presetValue) => selectedSet.has(presetValue));
+  const selectedPreset = presets.find(presetSelected);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = normalizedQuery
     ? options.filter(
@@ -471,6 +504,11 @@ function MultiSelectFilter({
         ]),
       ),
     );
+  const applyPreset = (preset: FilterPreset) => {
+    setSelected(Array.from(new Set(preset.values)));
+    setOpen(false);
+    setQuery("");
+  };
   const toggle = (optionValue: string, checked: boolean) =>
     setSelected(
       checked
@@ -501,13 +539,19 @@ function MultiSelectFilter({
             <span className="min-w-0 truncate">
               {allOptionsSelected
                 ? t("sqlDashboard.allValues")
-                : selectedLabels.length > 0
-                  ? selectedLabels.join(", ")
-                  : t("sqlDashboard.allValues")}
+                : selectedPreset
+                  ? selectedPreset.label
+                  : selectedLabels.length > 0
+                    ? selectedLabels.join(", ")
+                    : t("sqlDashboard.allValues")}
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-64">
+        <PopoverContent
+          align="start"
+          // Room for Select all, a preset and Clear all on one row.
+          className={presets.length > 0 ? "w-72" : "w-64"}
+        >
           <MenuSearchInput
             aria-controls={optionsListId}
             aria-label={t("sqlDashboard.searchValues")}
@@ -515,7 +559,7 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1.5">
             <Button
               type="button"
               variant="ghost"
@@ -525,12 +569,39 @@ function MultiSelectFilter({
             >
               {t("sqlDashboard.selectAll")}
             </Button>
+            {presets.length > 0 && !normalizedQuery && (
+              <div
+                role="group"
+                aria-label={t("sqlDashboard.presets")}
+                className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1"
+              >
+                {presets.map((preset) => {
+                  const active = presetSelected(preset);
+                  return (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      aria-pressed={active}
+                      className={cn(
+                        "min-w-0 max-w-full",
+                        active && "bg-accent",
+                      )}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      {active && <IconCheck />}
+                      <span className="min-w-0 truncate">{preset.label}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
             {selected.length > 0 && (
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="w-full justify-start"
                 onClick={() => setSelected([])}
               >
                 {t("sqlDashboard.clearAll")}

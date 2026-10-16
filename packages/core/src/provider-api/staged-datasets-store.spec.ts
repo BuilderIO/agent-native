@@ -8,6 +8,7 @@ type MetaRow = {
   columns: string;
   row_count: number;
   byte_size: number;
+  byte_size_utf8_updated_at: number | null;
   created_at: number;
   updated_at: number;
 };
@@ -15,6 +16,8 @@ type MetaRow = {
 const _metaStore = new Map<string, MetaRow>();
 const _rowStore = new Map<string, string[]>();
 const _log: { tx: number | null; sql: string; args: unknown[] }[] = [];
+let _hiddenStagedDatasetLookupId: string | null = null;
+let _legacyByteSizeBackfillCount = 0;
 let _txCounter = 0;
 
 function makeExec(tx: number | null) {
@@ -38,6 +41,29 @@ function makeExec(tx: number | null) {
       }
       if (/pg_advisory_xact_lock/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
+      }
+      if (
+        /UPDATE staged_datasets AS dataset SET byte_size = legacy\.byte_size, byte_size_utf8_updated_at = dataset\.updated_at FROM/i.test(
+          sql,
+        )
+      ) {
+        let rowsAffected = 0;
+        for (const [id, entry] of _metaStore) {
+          if (
+            entry.app_id !== args[0] ||
+            entry.byte_size_utf8_updated_at === entry.updated_at
+          ) {
+            continue;
+          }
+          entry.byte_size = (_rowStore.get(id) ?? []).reduce(
+            (sum, row) => sum + Buffer.byteLength(row, "utf8"),
+            0,
+          );
+          entry.byte_size_utf8_updated_at = entry.updated_at;
+          _legacyByteSizeBackfillCount++;
+          rowsAffected++;
+        }
+        return { rows: [], rowsAffected };
       }
       if (
         /DELETE FROM staged_datasets WHERE id = \? AND app_id = \? AND owner_email = \?$/i.test(
@@ -87,8 +113,30 @@ function makeExec(tx: number | null) {
         /INSERT INTO staged_datasets/i.test(sql) &&
         /ON CONFLICT/i.test(sql)
       ) {
-        const [id, appId, owner, name, columns, rowCount, byteSize, c, u] =
-          args;
+        const [
+          id,
+          appId,
+          owner,
+          name,
+          columns,
+          rowCount,
+          byteSize,
+          byteSizeUpdatedAt,
+          c,
+          u,
+        ] = args;
+        const previous = _metaStore.get(id as string);
+        const hasOwnershipGuard =
+          /WHERE staged_datasets\.app_id = EXCLUDED\.app_id AND staged_datasets\.owner_email = EXCLUDED\.owner_email/i.test(
+            sql,
+          );
+        if (
+          previous &&
+          (previous.app_id !== appId || previous.owner_email !== owner) &&
+          hasOwnershipGuard
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
         _metaStore.set(id as string, {
           id: id as string,
           app_id: appId as string,
@@ -97,6 +145,7 @@ function makeExec(tx: number | null) {
           columns: columns as string,
           row_count: rowCount as number,
           byte_size: byteSize as number,
+          byte_size_utf8_updated_at: byteSizeUpdatedAt as number,
           created_at: c as number,
           updated_at: u as number,
         });
@@ -129,7 +178,7 @@ function makeExec(tx: number | null) {
         )
       ) {
         const rows = Array.from(_metaStore.values()).filter(
-          (e) => e.app_id === args[0] && e.id !== args[1],
+          (e) => e.app_id === args[0] && e.id !== args[1] && e.id !== args[2],
         );
         return { rows, rowsAffected: 0 };
       }
@@ -138,7 +187,10 @@ function makeExec(tx: number | null) {
           sql,
         )
       ) {
-        const entry = _metaStore.get(args[0] as string);
+        const id = args[0] as string;
+        const hidden = _hiddenStagedDatasetLookupId === id;
+        if (hidden) _hiddenStagedDatasetLookupId = null;
+        const entry = hidden ? undefined : _metaStore.get(id);
         return {
           rows: entry
             ? [
@@ -158,7 +210,7 @@ function makeExec(tx: number | null) {
         )
       ) {
         const others = Array.from(_metaStore.values()).filter(
-          (e) => e.app_id === args[0] && e.id !== args[1],
+          (e) => e.app_id === args[0] && e.id !== args[1] && e.id !== args[2],
         );
         return {
           rows: [
@@ -199,8 +251,23 @@ vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => ({
     ...makeExec(null),
-    transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn(makeExec(++_txCounter)),
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const metadataBefore = new Map(
+        Array.from(_metaStore, ([id, row]) => [id, { ...row }]),
+      );
+      const rowsBefore = new Map(
+        Array.from(_rowStore, ([id, rows]) => [id, [...rows]]),
+      );
+      try {
+        return await fn(makeExec(++_txCounter));
+      } catch (error) {
+        _metaStore.clear();
+        for (const [id, row] of metadataBefore) _metaStore.set(id, row);
+        _rowStore.clear();
+        for (const [id, rows] of rowsBefore) _rowStore.set(id, rows);
+        throw error;
+      }
+    },
   }),
 }));
 
@@ -241,6 +308,7 @@ function seed(
     name: id,
     columns: "[]",
     row_count: 0,
+    byte_size_utf8_updated_at: fields.updated_at,
     created_at: fields.updated_at,
     ...fields,
   });
@@ -349,6 +417,8 @@ describe("upsertStagedDataset eviction", () => {
     _metaStore.clear();
     _rowStore.clear();
     _log.length = 0;
+    _hiddenStagedDatasetLookupId = null;
+    _legacyByteSizeBackfillCount = 0;
     _txCounter = 0;
     _resetInitPromiseForTests();
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -531,6 +601,131 @@ describe("upsertStagedDataset eviction", () => {
     );
     expect(_metaStore.get("ds_shared")?.owner_email).toBe("ada@example.com");
     expect(_rowStore.get("ds_shared")).toEqual(['{"seed":true}']);
+  });
+
+  it("rolls back rows when the guarded upsert catches an ownership race", async () => {
+    seed("ds_race", {
+      owner_email: "ada@example.com",
+      byte_size: 1,
+      updated_at: NOW - DAY,
+    });
+    _hiddenStagedDatasetLookupId = "ds_race";
+
+    await expect(
+      upsertStagedDataset({
+        id: "ds_race",
+        appId: "analytics",
+        ownerEmail: "grace@example.com",
+        name: "ds_race",
+        rows: [{ value: "replacement" }],
+        columns: [],
+      }),
+    ).rejects.toThrow(/already exists/i);
+
+    expect(_metaStore.get("ds_race")?.owner_email).toBe("ada@example.com");
+    expect(_rowStore.get("ds_race")).toEqual(['{"seed":true}']);
+    expect(
+      _log.some(
+        (entry) =>
+          /INSERT INTO staged_datasets/i.test(entry.sql) &&
+          /WHERE staged_datasets\.app_id = EXCLUDED\.app_id AND staged_datasets\.owner_email = EXCLUDED\.owner_email/i.test(
+            entry.sql,
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("normalizes old UTF-8 byte sizes and keeps the normalized value in metadata", async () => {
+    const legacyRow = JSON.stringify({ label: "café 😀" });
+    seed("ds_legacy_bytes", {
+      byte_size: legacyRow.length,
+      byte_size_utf8_updated_at: null,
+      updated_at: NOW - DAY,
+    });
+    _rowStore.set("ds_legacy_bytes", [legacyRow]);
+
+    await write("ds_first_write", [{ id: 1 }]);
+
+    expect(_metaStore.get("ds_legacy_bytes")).toMatchObject({
+      byte_size: Buffer.byteLength(legacyRow, "utf8"),
+      byte_size_utf8_updated_at: NOW - DAY,
+    });
+    expect(_legacyByteSizeBackfillCount).toBe(1);
+
+    await write("ds_second_write", [{ id: 2 }]);
+    expect(_legacyByteSizeBackfillCount).toBe(1);
+  });
+
+  it("keeps legacy byte normalization when a dataset write exceeds the quota", async () => {
+    const legacyRow = JSON.stringify({ label: "café 😀" });
+    seed("ds_legacy_reject", {
+      byte_size: legacyRow.length,
+      byte_size_utf8_updated_at: null,
+      updated_at: NOW - DAY,
+    });
+    _rowStore.set("ds_legacy_reject", [legacyRow]);
+    const oversized = { value: "x".repeat(MAX_BYTES_PER_APP + 1) };
+
+    await expect(write("ds_rejected", [oversized])).rejects.toThrow(
+      /this dataset alone/,
+    );
+
+    expect(_metaStore.get("ds_legacy_reject")).toMatchObject({
+      byte_size: Buffer.byteLength(legacyRow, "utf8"),
+      byte_size_utf8_updated_at: NOW - DAY,
+    });
+    expect(_rowStore.get("ds_legacy_reject")).toEqual([legacyRow]);
+    expect(_metaStore.has("ds_rejected")).toBe(false);
+    expect(_legacyByteSizeBackfillCount).toBe(1);
+
+    await write("ds_after_rejection", [{ id: 2 }]);
+    expect(_legacyByteSizeBackfillCount).toBe(1);
+  });
+
+  it("uses exact UTF-8 bytes and excludes the replaced payload from quota totals", async () => {
+    const previousRow = JSON.stringify({ blob: "x".repeat(30 * MB) });
+    seed("ds_replace_bytes", {
+      byte_size: previousRow.length,
+      byte_size_utf8_updated_at: null,
+      updated_at: NOW - DAY,
+    });
+    _rowStore.set("ds_replace_bytes", [previousRow]);
+    seed("ds_peer_bytes", {
+      byte_size: 24 * MB,
+      updated_at: NOW - 2 * DAY,
+    });
+    const replacement = { blob: "y".repeat(25 * MB) };
+
+    const result = await upsertStagedDataset({
+      id: "ds_replace_bytes",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "ds_replace_bytes",
+      rows: [replacement],
+      columns: [],
+    });
+
+    expect(result.byteSize).toBe(
+      Buffer.byteLength(JSON.stringify(replacement), "utf8"),
+    );
+    expect(result.byteSize).toBeLessThan(MAX_BYTES_PER_APP);
+    expect(_metaStore.get("ds_replace_bytes")?.byte_size).toBe(result.byteSize);
+    expect(_metaStore.has("ds_peer_bytes")).toBe(true);
+    expect(_rowStore.get("ds_replace_bytes")).toEqual([
+      JSON.stringify(replacement),
+    ]);
+  });
+
+  it("enforces the byte quota using UTF-8 size", async () => {
+    const oversized = {
+      label: "😀".repeat(Math.floor(MAX_BYTES_PER_APP / 4) + 1),
+    };
+    expect(JSON.stringify(oversized).length).toBeLessThan(MAX_BYTES_PER_APP);
+
+    await expect(write("ds_unicode_oversized", [oversized])).rejects.toThrow(
+      /this dataset alone/,
+    );
+    expect(_metaStore.has("ds_unicode_oversized")).toBe(false);
   });
 
   it("moves updated_at on every replacement, even inside one millisecond", async () => {

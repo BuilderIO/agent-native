@@ -71,6 +71,10 @@ vi.mock("../db/client.js", () => ({
   isLocalDatabase: mocks.isLocalDatabase,
   getDatabaseUrl: mocks.getDatabaseUrl,
 }));
+vi.mock("../db/store-registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/store-registry.js")>()),
+  withStoreMigrationLock: (run: () => Promise<unknown>) => run(),
+}));
 vi.mock("../db/migrations.js", () => ({
   runMigrations: mocks.runMigrations,
 }));

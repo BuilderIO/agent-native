@@ -1346,6 +1346,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
   "errorMessages.requestTooLarge":
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
+  "errorMessages.capabilityUnavailable":
+    "Deine Nachricht konnte gerade nicht gesendet werden. Bitte versuche es gleich noch einmal.",
+  "errorMessages.capabilityUnsupported":
+    "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
   "errorMessages.runUnverified":
@@ -3257,6 +3261,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Schließen",
   "observability.insights.rawTrace":
     "Rohdaten-Trace (alle Spans mit Ein- und Ausgaben)",
+  "reportProblem.menuItem": "Problem melden",
+  "reportProblem.title_one":
+    "Anhängen, was die App in der letzten {{count}} Sekunde getan hat?",
+  "reportProblem.title_other":
+    "Anhängen, was die App in den letzten {{count}} Sekunden getan hat?",
+  "reportProblem.noEvents": "Noch nichts aufgezeichnet.",
+  "reportProblem.send": "An Agent senden",
+  "reportProblem.copy": "Problembericht kopieren",
+  "reportProblem.attaching": "Wird angehängt…",
+  "reportProblem.notAttached": "Der Bericht wurde nicht angehängt.",
+  "reportProblem.agentMessage":
+    "In der App ist etwas schiefgelaufen. Erkläre anhand des angehängten Problemberichts, was passiert ist.",
 };
 
 export default messages;

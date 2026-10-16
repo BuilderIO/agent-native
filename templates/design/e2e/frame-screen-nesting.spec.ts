@@ -290,8 +290,7 @@ test("Frame mode inside a screen adds a frame to that screen at the dragged box,
   expectOnlyChanged(before, after, [frame.id]);
 });
 
-// fixme: product bug: Drop into a container with content lands at (0,0): the frame is saved with position:relative and no left/top, and renders at the screen's
-test.fixme("a board frame dragged onto a screen moves into it with its centre at the release point, and stays there after reload", async ({
+test("a board frame dragged onto a screen moves into it with its centre at the release point, and stays there after reload", async ({
   app,
 }) => {
   const { id } = await openScreenOnBoard(app);

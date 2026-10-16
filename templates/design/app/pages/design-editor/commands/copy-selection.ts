@@ -104,7 +104,12 @@ export async function runCopySelection({
 }: CopySelectionArgs) {
   const snapshots = getSelectedLayerSnapshots();
   const entries: CanvasLayerClipboardEntry[] = snapshots.map((snapshot) => ({
-    html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
+    html: preserveClipboardLayerName(
+      snapshot.html,
+      snapshot.node.layerNameSource === "text"
+        ? undefined
+        : snapshot.node.layerName,
+    ),
     rootNodeId: snapshot.rootNodeId,
     sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,

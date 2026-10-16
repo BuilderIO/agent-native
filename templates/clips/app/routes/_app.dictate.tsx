@@ -1009,7 +1009,7 @@ export default function DictateRoute() {
           <PageBreadcrumb items={[{ label: t("navigation.dictate") }]} />
         </div>
         <div className="ms-auto flex shrink-0 items-center gap-2">
-          <VocabularyManager />
+          <VocabularyManager disabled={listening} />
           {(dictations.length > 0 || hasCaptureActivity) && (
             <PageHeaderPrimaryAction
               type="button"

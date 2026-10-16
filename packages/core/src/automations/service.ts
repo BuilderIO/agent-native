@@ -695,6 +695,8 @@ export async function deleteAutomation(
 export interface AutomationExecutionIdentity {
   userEmail: string;
   orgId?: string;
+  orgScope?: "personal";
+  defaultAgentEngineScope?: "deployment";
   eventOwner: string;
 }
 
@@ -750,7 +752,10 @@ export async function resolveAutomationExecutionIdentity(
         code: "config_invalid",
       };
     }
-    return { ok: true, identity: { userEmail, eventOwner: userEmail } };
+    return {
+      ok: true,
+      identity: { userEmail, orgScope: "personal", eventOwner: userEmail },
+    };
   }
 
   const userEmail = meta.createdBy?.trim().toLowerCase();
