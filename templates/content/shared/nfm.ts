@@ -156,19 +156,69 @@ function serializeAttrs(
     );
   return parts.length ? " " + parts.join(" ") : "";
 }
+const ATTR_NAME_CHAR = /[\w:-]/;
+const ATTR_NAME_START = /[a-zA-Z_:]/;
+const SPACE_CHAR = /\s/;
+
+// Each `name="value"` in `raw`, as /([a-zA-Z_:][\w:-]*)\s*=\s*"([^"]*)"/g
+// finds them. Found by hand: that pattern tries a name from every offset of a
+// word, and rescans the rest of a long word from each one.
+function attrMatches(
+  raw: string,
+): Array<{ from: number; to: number; name: string; value: string }> {
+  const found: Array<{
+    from: number;
+    to: number;
+    name: string;
+    value: string;
+  }> = [];
+  let i = 0;
+  while (i < raw.length) {
+    if (!ATTR_NAME_CHAR.test(raw[i])) {
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < raw.length && ATTR_NAME_CHAR.test(raw[end])) end++;
+    // A name from any later offset of the word ends where this one does.
+    let from = i;
+    while (from < end && !ATTR_NAME_START.test(raw[from])) from++;
+    let at = end;
+    while (at < raw.length && SPACE_CHAR.test(raw[at])) at++;
+    if (from < end && raw[at] === "=") {
+      at++;
+      while (at < raw.length && SPACE_CHAR.test(raw[at])) at++;
+      const close = raw[at] === '"' ? raw.indexOf('"', at + 1) : -1;
+      if (close !== -1) {
+        found.push({
+          from,
+          to: close + 1,
+          name: raw.slice(from, end),
+          value: raw.slice(at + 1, close),
+        });
+        i = close + 1;
+        continue;
+      }
+    }
+    i = end;
+  }
+  return found;
+}
 function parseAttrs(raw: string): Record<string, string> {
   const attrs: Record<string, string> = {};
-  const re = /([a-zA-Z_:][\w:-]*)\s*=\s*"([^"]*)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw))) attrs[m[1]] = unescapeAttr(m[2]);
+  for (const { name, value } of attrMatches(raw))
+    attrs[name] = unescapeAttr(value);
   return attrs;
 }
 /** Attribute source `parseAttrs` skips: unquoted, single-quoted or bare. */
 function unparsedAttrSource(raw: string): string {
-  return raw
-    .replace(/([a-zA-Z_:][\w:-]*)\s*=\s*"([^"]*)"/g, "")
-    .replace(/\/\s*$/, "")
-    .trim();
+  let rest = "";
+  let last = 0;
+  for (const { from, to } of attrMatches(raw)) {
+    rest += raw.slice(last, from);
+    last = to;
+  }
+  return (rest + raw.slice(last)).replace(/\/\s*$/, "").trim();
 }
 
 /**
@@ -208,20 +258,41 @@ function blockAttrSuffix(opts: {
   if (isColor(opts.color)) parts.push(`color="${opts.color}"`);
   return parts.length ? ` {${parts.join(" ")}}` : "";
 }
+// Counted by hand: /\\+$/ retries from every backslash of a run that does
+// not end the string.
+function trailingBackslashes(s: string): number {
+  let run = 0;
+  while (run < s.length && s[s.length - 1 - run] === "\\") run++;
+  return run;
+}
+
 function oddTrailingBackslashes(s: string): boolean {
-  return (s.match(/\\+$/)?.[0].length ?? 0) % 2 === 1;
+  return trailingBackslashes(s) % 2 === 1;
 }
 
 function escapeTrailingBackslashRun(s: string): string {
-  const run = s.match(/\\+$/)?.[0];
-  if (!run) return s;
-  return s.slice(0, -run.length) + run + run;
+  return s + "\\".repeat(trailingBackslashes(s));
 }
 
 function unescapeTrailingBackslashRun(s: string): string {
-  const run = s.match(/\\+$/)?.[0];
+  const run = trailingBackslashes(s);
   if (!run) return s;
-  return s.slice(0, -run.length) + "\\".repeat(run.length / 2);
+  return s.slice(0, -run) + "\\".repeat(run / 2);
+}
+
+// /^(.*?)\s*\{([^{}]*)\}\s*$/, found by hand: that pattern retries the spaces
+// before the brace from every offset of a long run of them.
+function matchBlockAttrSuffix(
+  line: string,
+): { text: string; body: string } | null {
+  const brace = /\{([^{}]*)\}\s*$/.exec(line);
+  if (!brace) return null;
+  let end = brace.index;
+  while (end > 0 && SPACE_CHAR.test(line[end - 1])) end--;
+  const text = line.slice(0, end);
+  // The pattern's `.` stops at a line terminator.
+  if (/[\n\r\u2028\u2029]/.test(text)) return null;
+  return { text, body: brace[1] };
 }
 
 function splitBlockAttrs(
@@ -232,10 +303,10 @@ function splitBlockAttrs(
   toggle: boolean;
   color: string | null;
 } {
-  const m = line.match(/^(.*?)\s*\{([^{}]*)\}\s*$/);
+  const m = matchBlockAttrSuffix(line);
   if (!m) return { text: line, toggle: false, color: null };
-  const body = m[2];
-  if (oddTrailingBackslashes(m[1]) || oddTrailingBackslashes(body)) {
+  const body = m.body;
+  if (oddTrailingBackslashes(m.text) || oddTrailingBackslashes(body)) {
     return { text: line, toggle: false, color: null };
   }
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
@@ -250,7 +321,7 @@ function splitBlockAttrs(
     .trim();
   if (rest || (colorMatch && !color))
     reportLoss("dropped-attribute", `{${body}}`);
-  return { text: m[1], toggle, color };
+  return { text: m.text, toggle, color };
 }
 
 function markOf(node: PMNode, type: string): PMMark | undefined {
@@ -737,10 +808,9 @@ function parseInline(input: string): PMNode[] {
   let i = 0;
   const codeRuns = indexCodeRuns(input);
   const underscoreMisses: number[] = [];
-  const linkCloses = {
-    brackets: new Map<number, number>(),
-    parens: new Map<number, number>(),
-  };
+  let linkCloses: LinkCloses | null = null;
+  let nextIndex: ((needle: string, from: number) => number) | null = null;
+  let mentionCloses: MentionCloseTrie | null = null;
   const flush = () => {
     if (buf) {
       out.push(textNode(buf, []));
@@ -815,8 +885,9 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (input.startsWith("<span", i)) {
-      const open = input.indexOf(">", i);
-      const close = input.indexOf("</span>", open);
+      nextIndex ??= nextIndexFinder(input);
+      const open = nextIndex(">", i);
+      const close = open === -1 ? -1 : nextIndex("</span>", open);
       if (open !== -1 && close !== -1) {
         flush();
         const rawAttrs = input.slice(i + 5, open);
@@ -829,8 +900,9 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (input.startsWith("<mention-", i)) {
-      const selfClose = input.indexOf("/>", i);
-      const open = input.indexOf(">", i);
+      nextIndex ??= nextIndexFinder(input);
+      const selfClose = nextIndex("/>", i);
+      const open = nextIndex(">", i);
       if (selfClose !== -1 && (open === -1 || selfClose <= open)) {
         flush();
         const tagMatch = input.slice(i).match(/^<(mention-[\w-]+)([^>]*?)\/>/);
@@ -840,13 +912,19 @@ function parseInline(input: string): PMNode[] {
           continue;
         }
       }
-      const tagMatch = input
-        .slice(i)
-        .match(/^<(mention-[\w-]+)([^>]*)>([\s\S]*?)<\/\1>/);
-      if (tagMatch) {
+      const tag =
+        open === -1
+          ? null
+          : matchMentionTag(
+              input,
+              i,
+              open,
+              (mentionCloses ??= indexMentionCloses(input)),
+            );
+      if (tag) {
         flush();
-        out.push(makeInlineAtom(tagMatch[1], tagMatch[2], tagMatch[3]));
-        i += tagMatch[0].length;
+        out.push(makeInlineAtom(tag.name, tag.attrs, tag.label));
+        i = tag.end;
         continue;
       }
     }
@@ -924,6 +1002,10 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (ch === "[") {
+      linkCloses ??= {
+        brackets: new Int32Array(input.length),
+        parens: new Int32Array(input.length),
+      };
       const link = matchLink(input, i, linkCloses, codeRuns);
       if (link) {
         flush();
@@ -940,6 +1022,86 @@ function parseInline(input: string): PMNode[] {
   }
   flush();
   return mergeAdjacentText(out);
+}
+
+// The next `needle` at or after `from`. The parse asks with growing offsets,
+// so the last answer for each needle usually still holds, and a line of
+// unclosed tags is searched once rather than once per tag.
+function nextIndexFinder(s: string): (needle: string, from: number) => number {
+  const last = new Map<string, { from: number; at: number }>();
+  return (needle, from) => {
+    const hit = last.get(needle);
+    if (hit && from >= hit.from && (hit.at === -1 || from <= hit.at))
+      return hit.at;
+    const at = s.indexOf(needle, from);
+    last.set(needle, { from, at });
+    return at;
+  };
+}
+
+const MENTION_NAME_CHAR = /[\w-]/;
+
+// The names of a source's `</mention-name>` close tags, as a trie of their
+// characters holding each name's tag offsets.
+type MentionCloseTrie = { next: Map<string, MentionCloseTrie>; at: number[] };
+
+function indexMentionCloses(s: string): MentionCloseTrie {
+  const root: MentionCloseTrie = { next: new Map(), at: [] };
+  const prefix = "</mention-";
+  for (
+    let tag = s.indexOf(prefix);
+    tag !== -1;
+    tag = s.indexOf(prefix, tag + 1)
+  ) {
+    let node = root;
+    let end = tag + prefix.length;
+    for (; end < s.length && MENTION_NAME_CHAR.test(s[end]); end++) {
+      let child = node.next.get(s[end]);
+      if (!child) node.next.set(s[end], (child = { next: new Map(), at: [] }));
+      node = child;
+    }
+    if (node !== root && s[end] === ">") node.at.push(tag);
+  }
+  return root;
+}
+
+// The mention at `at` whose open tag ends at `gt`, as
+// /^<(mention-[\w-]+)([^>]*)>([\s\S]*?)<\/\1>/ reads it: the longest name
+// with a close tag after the open tag, up to that tag's first occurrence. By
+// hand, since the pattern searches the rest of the source again for each
+// shorter name it backs off to.
+function matchMentionTag(
+  s: string,
+  at: number,
+  gt: number,
+  closes: MentionCloseTrie,
+): { name: string; attrs: string; label: string; end: number } | null {
+  const closable: Array<{ node: MentionCloseTrie; end: number }> = [];
+  let node: MentionCloseTrie | undefined = closes;
+  let end = at + "<mention-".length;
+  while (node && end < s.length && MENTION_NAME_CHAR.test(s[end])) {
+    node = node.next.get(s[end++]);
+    if (node?.at.length) closable.push({ node, end });
+  }
+  for (let k = closable.length - 1; k >= 0; k--) {
+    const tags = closable[k].node.at;
+    let low = 0;
+    let high = tags.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (tags[mid] <= gt) low = mid + 1;
+      else high = mid;
+    }
+    if (low === tags.length) continue;
+    const name = s.slice(at + 1, closable[k].end);
+    return {
+      name,
+      attrs: s.slice(closable[k].end, gt),
+      label: s.slice(gt + 1, tags[low]),
+      end: tags[low] + name.length + 3,
+    };
+  }
+  return null;
 }
 
 function makeInlineAtom(
@@ -964,16 +1126,19 @@ function makeInlineAtom(
 }
 
 // A scan from one opener passes the same steps a scan from any opener inside
-// it would, so it records their closers too (-1 for none) in `closes`, and a
-// line of unmatched openers is scanned once instead of once per opener.
+// it would, so it records their closers too in `closes`, and a line of
+// unmatched openers is scanned once instead of once per opener. Each is kept
+// at its opener's offset as the closer + 2, so 0 is unknown and 1 is none: a
+// Map of every opener in a long line slows faster than the line grows.
+type LinkCloses = { brackets: Int32Array; parens: Int32Array };
+
 function findMatchingBracketClose(
   s: string,
   start: number,
-  closes = new Map<number, number>(),
+  closes: Int32Array = new Int32Array(s.length),
   codeRuns = indexCodeRuns(s),
 ): number {
-  const known = closes.get(start);
-  if (known !== undefined) return known;
+  if (closes[start]) return closes[start] - 2;
   const openers: number[] = [];
   for (let i = start; i < s.length; i++) {
     if (s[i] === "\\") {
@@ -987,21 +1152,20 @@ function findMatchingBracketClose(
     }
     if (s[i] === "[") openers.push(i);
     else if (s[i] === "]") {
-      closes.set(openers.pop()!, i);
+      closes[openers.pop()!] = i + 2;
       if (openers.length === 0) return i;
     }
   }
-  for (const opener of openers) closes.set(opener, -1);
+  for (const opener of openers) closes[opener] = 1;
   return -1;
 }
 
 function findMatchingParenClose(
   s: string,
   openParenIdx: number,
-  closes = new Map<number, number>(),
+  closes: Int32Array = new Int32Array(s.length),
 ): number {
-  const known = closes.get(openParenIdx);
-  if (known !== undefined) return known;
+  if (closes[openParenIdx]) return closes[openParenIdx] - 2;
   const openers: number[] = [];
   for (let i = openParenIdx; i < s.length; i++) {
     if (s[i] === "\\") {
@@ -1010,11 +1174,11 @@ function findMatchingParenClose(
     }
     if (s[i] === "(") openers.push(i);
     else if (s[i] === ")") {
-      closes.set(openers.pop()!, i);
+      closes[openers.pop()!] = i + 2;
       if (openers.length === 0) return i;
     }
   }
-  for (const opener of openers) closes.set(opener, -1);
+  for (const opener of openers) closes[opener] = 1;
   return -1;
 }
 
@@ -1042,7 +1206,7 @@ function unescapeUrlParens(url: string): string {
 function matchLink(
   s: string,
   start: number,
-  closes: { brackets: Map<number, number>; parens: Map<number, number> },
+  closes: LinkCloses,
   codeRuns: CodeRuns,
 ): { text: string; href: string; end: number } | null {
   const closeBracket = findMatchingBracketClose(
@@ -1758,23 +1922,23 @@ function endsWithUnescapedPipe(value: string): boolean {
   return backslashes % 2 === 0;
 }
 
-function hasMatchingBacktickRun(
-  value: string,
-  start: number,
-  expectedLength: number,
-): boolean {
-  for (let i = start; i < value.length; i++) {
+// Where a pipe row's last backtick run of each length starts, read as the row
+// is: a backslash takes the next character with it. A run opens code when a
+// later run of its length closes it, and searching the rest of the row from
+// every run is quadratic in a row of runs of many lengths.
+function lastBacktickRuns(value: string): Map<number, number> {
+  const last = new Map<number, number>();
+  for (let i = 0; i < value.length; i++) {
     if (value[i] === "\\") {
       i++;
       continue;
     }
     if (value[i] !== "`") continue;
-    let runLength = 1;
-    while (value[i + runLength] === "`") runLength++;
-    if (runLength === expectedLength) return true;
-    i += runLength - 1;
+    const run = delimiterRunLength(value, i, "`");
+    last.set(run, i);
+    i += run - 1;
   }
-  return false;
+  return last;
 }
 
 export function splitGfmPipeRow(line: string): string[] | null {
@@ -1785,6 +1949,7 @@ export function splitGfmPipeRow(line: string): string[] | null {
   let cell = "";
   let codeFenceLength = 0;
   let sawSeparator = false;
+  const lastRuns = lastBacktickRuns(value);
 
   for (let i = 0; i < value.length; i++) {
     const char = value[i];
@@ -1795,10 +1960,7 @@ export function splitGfmPipeRow(line: string): string[] | null {
     if (char === "`") {
       let runLength = 1;
       while (value[i + runLength] === "`") runLength++;
-      if (
-        codeFenceLength === 0 &&
-        hasMatchingBacktickRun(value, i + runLength, runLength)
-      )
+      if (codeFenceLength === 0 && (lastRuns.get(runLength) ?? -1) > i)
         codeFenceLength = runLength;
       else if (codeFenceLength === runLength) codeFenceLength = 0;
       cell += "`".repeat(runLength);
@@ -2922,9 +3084,13 @@ function parseTable(
       enterGroups(ld);
       continue;
     }
-    const colMatch = ld.match(/^<col(\s[^>]*?)?\s*\/?>$/);
+    // Not /^<col(\s[^>]*?)?\s*\/?>$/: its lazy group retries the spaces
+    // before `>` from each offset of a long run of them. The attributes read
+    // the same with the spaces, but not with the slash.
+    const colMatch = ld.match(/^<col(\s[^>]*)?\/?>$/);
     if (colMatch) {
-      const a = readAttrs("col", colMatch[1] ?? "", COL_ATTRS);
+      const attrSource = (colMatch[1] ?? "").replace(/\/$/, "");
+      const a = readAttrs("col", attrSource, COL_ATTRS);
       colMeta.push({ color: a.color, width: a.width });
       continue;
     }
@@ -2955,13 +3121,11 @@ function parseTable(
           !CELL_OPEN.test(lineAt(end))
         ) {
           for (; i <= end; i++) cd += ` ${lineAt(i)}`;
-          cd = cd
-            .replace(/^(<t[dh][^>]*>)\s+/, "$1")
-            .replace(/\s+(<\/t[dh]>)(?=(?:\s*<\/tr>)?$)/, "$1");
+          cd = trimJoinedCell(cd);
         }
       }
       rowClosed = /<\/t[dh]>\s*<\/tr>$/.test(cd);
-      if (rowClosed) cd = cd.replace(/\s*<\/tr>$/, "");
+      if (rowClosed) cd = cd.slice(0, -"</tr>".length).trimEnd();
       // The writer puts one cell on a line and escapes `<` outside code and
       // math, so a close tag outside those before the line's end is an
       // agent's `<td>a</td><td>b</td>`.
@@ -3052,6 +3216,24 @@ const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 const ROW_BREAK =
   /^(?:<\/tr>\s*)?(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
 const ROW_GROUP_TAG = /<(\/?)(thead|tbody|tfoot)>/g;
+
+// Drops the spaces just inside a joined cell's tags, which HTML ignores. By
+// hand, since a pattern for the spaces before the close tag retries them from
+// each offset of a long run.
+function trimJoinedCell(cell: string): string {
+  const open = /^<t[dh][^>]*>/.exec(cell);
+  let text = cell;
+  if (open) {
+    let from = open[0].length;
+    while (from < text.length && SPACE_CHAR.test(text[from])) from++;
+    text = open[0] + text.slice(from);
+  }
+  const close = CELL_LINE_END.exec(text);
+  if (!close) return text;
+  let to = close.index;
+  while (to > 0 && SPACE_CHAR.test(text[to - 1])) to--;
+  return text.slice(0, to) + text.slice(close.index);
+}
 
 // A cell's source, or where the next row opens.
 type TableLinePart = string | { rowAttrs: string; gap: string };
