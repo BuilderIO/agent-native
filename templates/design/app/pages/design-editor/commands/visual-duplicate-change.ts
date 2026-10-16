@@ -24,6 +24,7 @@ import {
 import {
   captureYjsUndoStackTop,
   stampYjsUndoSelection,
+  stampYjsUndoSelectionAfter,
   type YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
 import type { GeometryHistorySelection } from "@/pages/design-editor/history";
@@ -236,15 +237,29 @@ export function runVisualDuplicateChange(
   const nextNode = elementInfo
     ? resolveCodeLayerNodeFromElementInfo(nextProjection, elementInfo)
     : null;
+  let selectionAfterDuplicate: YjsUndoSelectionSnapshot = {
+    selectedElement: elementInfo ?? selectedElement,
+    selectedLayerIds: selectedLayerIdsState,
+  };
   if (nextNode) {
-    setSelectedLayerIdsState([nextNode.id]);
-    setSelectedElement({
+    const nextSelectedElement = {
       ...(elementInfo ?? elementInfoFromCodeLayerNode(nextNode)),
       sourceId: bridgeSourceIdForCodeLayerNode(nextNode),
       selector: preferredCodeLayerSelector(nextNode),
-    });
+    };
+    selectionAfterDuplicate = {
+      selectedElement: nextSelectedElement,
+      selectedLayerIds: [nextNode.id],
+    };
+    setSelectedLayerIdsState([nextNode.id]);
+    setSelectedElement(nextSelectedElement);
   } else if (elementInfo) {
     setSelectedElement(elementInfo);
   }
+  stampYjsUndoSelectionAfter(
+    undoManagerRef.current,
+    undoStackTopBeforeDuplicate,
+    selectionAfterDuplicate,
+  );
   return true;
 }

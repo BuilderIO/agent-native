@@ -95,6 +95,88 @@ it("stamps the selection established by primitive creation into content and Yjs 
   expect(previousLocalEntry.selectionAfter).toBeUndefined();
 });
 
+it("keeps the first undo selection and advances redo selection when creations coalesce", () => {
+  const originalSelection = {
+    selectedElement: null,
+    selectedLayerIds: ["original"],
+  };
+  const firstSelection = {
+    selectedElement: null,
+    selectedLayerIds: ["first-frame"],
+  };
+  const secondSelection = {
+    selectedElement: null,
+    selectedLayerIds: ["second-frame"],
+  };
+  const previousItem = { meta: new Map<unknown, unknown>() };
+  const createdItem = { meta: new Map<unknown, unknown>() };
+  const undoManagerRef = {
+    current: { undoStack: [previousItem, createdItem] } as any,
+  };
+  const previousEntry: ContentHistoryEntry = {
+    fileId: "board",
+    before: "<main />",
+    after: "<main><rect /></main>",
+  };
+  const createdEntry: ContentHistoryEntry = {
+    fileId: "board",
+    before: "<main><rect /></main>",
+    after: '<main><rect /><frame id="first-frame" /></main>',
+  };
+  const contentUndoStackRef = { current: [previousEntry, createdEntry] };
+  const contentHistorySelectionAfterRef = {
+    current: new WeakMap(),
+  } as { current: ContentHistorySelectionAfterMap };
+  const createHistorySelection = (
+    nodeId: string,
+    undoStackTopBefore: typeof previousItem | typeof createdItem,
+    selectionBefore: typeof originalSelection | typeof firstSelection,
+    contentUndoStackTopBefore: ContentHistoryEntry,
+  ) => ({
+    contentUndoStackRef,
+    contentHistorySelectionAfterRef,
+    contentUndoStackTopBefore,
+    captureCurrentSelection: () => ({
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [nodeId],
+      activeFileId: "board",
+    }),
+    yjsUndoSelection: {
+      undoManagerRef,
+      undoStackTopBefore,
+      selectionBefore,
+    },
+  });
+
+  runPrimitiveCreated(
+    primitiveCreatedArgs(),
+    "board",
+    "first-frame",
+    undefined,
+    createHistorySelection(
+      "first-frame",
+      previousItem,
+      originalSelection,
+      previousEntry,
+    ),
+  );
+  runPrimitiveCreated(
+    primitiveCreatedArgs(),
+    "board",
+    "second-frame",
+    undefined,
+    createHistorySelection(
+      "second-frame",
+      createdItem,
+      firstSelection,
+      createdEntry,
+    ),
+  );
+
+  expect(readYjsUndoSelection(createdItem)).toEqual(originalSelection);
+  expect(readYjsRedoSelection(createdItem)).toEqual(secondSelection);
+});
+
 function primitiveCreatedArgs(): PrimitiveCreatedArgs {
   const noop = vi.fn();
 

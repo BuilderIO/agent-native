@@ -382,6 +382,17 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "pastes a multi-selection across screens with each layer and child id regenerated",
   },
   {
+    shard: "position-1a",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title:
+      "cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size",
+  },
+  {
+    shard: "position-1b",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title: "with a container selected, paste goes inside that container",
+  },
+  {
     shard: "position-2a",
     file: "editor-keyboard-layers.spec.ts",
     title:

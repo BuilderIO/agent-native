@@ -619,11 +619,11 @@ export function captureContentUndoStackTop(
 
 export function stampLocalContentHistorySelectionAfter(
   stack: ContentHistoryChange[],
-  previousTop: ContentHistoryChange | undefined,
+  _previousTop: ContentHistoryChange | undefined,
   snapshot: YjsUndoSelectionSnapshot,
 ): void {
   const top = stack[stack.length - 1];
-  if (!top || top === previousTop) return;
+  if (!top) return;
   top.selectionAfter = snapshot;
 }
 

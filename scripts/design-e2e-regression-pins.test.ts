@@ -178,6 +178,17 @@ const REQUIRED_CORE_COVERAGE = [
       "pastes a multi-selection across screens with each layer and child id regenerated",
   },
   {
+    shard: "position-1a",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title:
+      "cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size",
+  },
+  {
+    shard: "position-1b",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title: "with a container selected, paste goes inside that container",
+  },
+  {
     shard: "position-2a",
     file: "editor-keyboard-layers.spec.ts",
     title:
@@ -351,7 +362,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 94);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 96);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,
