@@ -57,7 +57,9 @@ export function hitMaskCellSize(
  * Opaque cells are dilated by one cell so the edge of the person, where the
  * downsampled alpha fades, stays grabbable. When nobody is in frame,
  * `emptyFallback` keeps an area interactive so the bubble can still be
- * hovered and dragged.
+ * hovered and dragged; with `emptyFallbackShape: "ellipse"` only the cells
+ * whose centre lies in the ellipse inscribed in it count, so a round bubble
+ * leaves its corners click-through.
  */
 export function buildHitMask({
   cols,
@@ -65,6 +67,7 @@ export function buildHitMask({
   rgba,
   rects = [],
   emptyFallback,
+  emptyFallbackShape = "rect",
   cellPx = HIT_MASK_CELL_PX,
   cellWidth = cellPx,
   cellHeight = cellPx,
@@ -75,6 +78,7 @@ export function buildHitMask({
   rgba: ArrayLike<number> | null;
   rects?: HitRect[];
   emptyFallback?: HitRect;
+  emptyFallbackShape?: "rect" | "ellipse";
   cellPx?: number;
   /** Cell size per axis; pass `hitMaskCellSize` so cells match the lookup. */
   cellWidth?: number;
@@ -108,16 +112,30 @@ export function buildHitMask({
     }
   }
 
-  const interactive =
-    solidCount === 0 && emptyFallback ? [...rects, emptyFallback] : rects;
-  for (const rect of interactive) {
+  const fillRect = (rect: HitRect, ellipse: boolean) => {
     const x0 = Math.max(0, Math.floor(rect.left / cellWidth));
     const y0 = Math.max(0, Math.floor(rect.top / cellHeight));
     const x1 = Math.min(cols, Math.ceil(rect.right / cellWidth));
     const y1 = Math.min(rows, Math.ceil(rect.bottom / cellHeight));
+    const cx = (rect.left + rect.right) / 2;
+    const cy = (rect.top + rect.bottom) / 2;
+    const rx = (rect.right - rect.left) / 2;
+    const ry = (rect.bottom - rect.top) / 2;
     for (let y = y0; y < y1; y++) {
-      for (let x = x0; x < x1; x++) hit[y * cols + x] = 1;
+      for (let x = x0; x < x1; x++) {
+        if (ellipse) {
+          if (!(rx > 0 && ry > 0)) continue;
+          const nx = ((x + 0.5) * cellWidth - cx) / rx;
+          const ny = ((y + 0.5) * cellHeight - cy) / ry;
+          if (nx * nx + ny * ny > 1) continue;
+        }
+        hit[y * cols + x] = 1;
+      }
     }
+  };
+  for (const rect of rects) fillRect(rect, false);
+  if (solidCount === 0 && emptyFallback) {
+    fillRect(emptyFallback, emptyFallbackShape === "ellipse");
   }
 
   const bits = new Array<number>(Math.ceil((cols * rows) / 8)).fill(0);

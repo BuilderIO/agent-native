@@ -84,6 +84,19 @@ describe("buildHitMask fallback", () => {
     expect(cellsOf(mask)).toEqual([0, 1]);
   });
 
+  it("limits an ellipse fallback to the inscribed circle", () => {
+    const mask = buildHitMask({
+      cols: 4,
+      rows: 4,
+      rgba: rgbaWithAlpha(4, 4, []),
+      cellPx: 10,
+      emptyFallback: { left: 0, top: 0, right: 40, bottom: 40 },
+      emptyFallbackShape: "ellipse",
+    });
+    // The four corner cells sit outside the circle and stay click-through.
+    expect(cellsOf(mask)).toEqual([1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14]);
+  });
+
   it("drops the fallback once the person is visible", () => {
     const mask = buildHitMask({
       cols: 4,

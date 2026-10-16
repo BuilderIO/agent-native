@@ -125,6 +125,11 @@ export function Bubble() {
     hitMaskSentRef.current = mask;
     invoke("set_bubble_hit_mask", { mask }).catch((err) => {
       console.warn("[bubble] set_bubble_hit_mask failed", err);
+      // Forget it so the next tick resends instead of skipping it as sent.
+      if (hitMaskSentRef.current === mask) {
+        hitMaskSentRef.current = null;
+        hitMaskDirtyRef.current = true;
+      }
     });
   };
 
@@ -178,7 +183,9 @@ export function Bubble() {
       rows,
       rgba,
       rects,
+      // The bubble is clipped to a circle, so keep the corners click-through.
       emptyFallback: toHitRect(cutoutCanvas),
+      emptyFallbackShape: "ellipse",
       cellWidth,
       cellHeight,
     });
