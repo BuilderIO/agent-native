@@ -32,6 +32,7 @@ import {
   formatAuthoringFuzzUnavailable,
   browserSessionNavigationRequestIdentity,
   cleanupNavigationSessionRequestKeys,
+  isCleanupNavigationCompetitionPage,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   isFirefoxBrowserSessionConsoleError,
@@ -5689,7 +5690,14 @@ async function runAuthoringFuzzQa(
             cleanupClaimSequence,
           );
         }
-        if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
+        if (
+          isCleanupNavigationCompetitionPage(
+            target,
+            cleanupNavigationPage,
+            cleanupNavigationStarted,
+          ) &&
+          isBrowserSessionRequest(request)
+        ) {
           cleanupNavigationCompetingRequestUrls.add(request.url());
           if (sessionIdentity) {
             for (const key of cleanupSessionRequestKeys(sessionIdentity)) {

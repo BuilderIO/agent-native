@@ -643,6 +643,14 @@ export function cleanupNavigationSessionRequestKeys(identity: {
   return keys;
 }
 
+export function isCleanupNavigationCompetitionPage<T>(
+  requestPage: T,
+  cleanupNavigationPage: T | null,
+  cleanupNavigationStarted: boolean,
+) {
+  return cleanupNavigationStarted && requestPage === cleanupNavigationPage;
+}
+
 type IdentifiedBrowserSessionRequest = Extract<
   NonNullable<ReturnType<typeof browserSessionNavigationRequestIdentity>>,
   { status: "identified" }
@@ -810,7 +818,8 @@ export function isExpectedOutgoingBrowserSessionNavigationAbort(
     candidate.requestSequence < candidate.mainFrameNavigationRequestSequence &&
     candidate.requestStartedDuringNavigation &&
     candidate.requestStartedBeforeReloadCommit &&
-    failureAfterNavigationStartMs >= 0 &&
+    // Playwright may deliver this failure before its main-frame request event.
+    failureAfterNavigationStartMs > -outgoingBrowserSessionAbortWindowMs &&
     failureAfterNavigationStartMs < outgoingBrowserSessionAbortWindowMs;
   const requestStartedAfterNavigationRequest =
     candidate.mainFrameNavigationRequestSequence !== null &&

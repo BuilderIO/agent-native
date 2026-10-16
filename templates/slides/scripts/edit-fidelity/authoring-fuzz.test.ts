@@ -18,6 +18,7 @@ import {
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   cleanupNavigationSessionRequestKeys,
+  isCleanupNavigationCompetitionPage,
   browserSessionIdAfterRequest,
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
@@ -2485,6 +2486,14 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       registrationCanceledAfterNavigationStarted,
     ),
   ).toBe(true);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...registrationAwaitingNavigationRequest,
+      mainFrameNavigationStartedAt: 100,
+      mainFrameNavigationRequestSequence: 11,
+      requestFailedAt: 98,
+    }),
+  ).toBe(true);
   for (const override of [
     { requestStartedDuringNavigation: false },
     { requestStartedBeforeReloadCommit: false },
@@ -2505,7 +2514,7 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
     ).toBe(false);
   }
   for (const override of [
-    { requestFailedAt: 99 },
+    { mainFrameNavigationStartedAt: 1118 },
     { requestStartedDuringNavigation: false },
     { requestStartedBeforeReloadCommit: false },
     { requestSessionId: "new-session-id" },
@@ -2679,6 +2688,38 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       failedClaim,
     ]),
   ).toBe(false);
+});
+
+it("scopes cleanup competition to the page being navigated", () => {
+  const cleanupNavigationPage = {};
+  const unrelatedTrackedPage = {};
+  expect(
+    isCleanupNavigationCompetitionPage(
+      cleanupNavigationPage,
+      cleanupNavigationPage,
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    isCleanupNavigationCompetitionPage(
+      unrelatedTrackedPage,
+      cleanupNavigationPage,
+      true,
+    ),
+  ).toBe(false);
+  expect(
+    isCleanupNavigationCompetitionPage(
+      cleanupNavigationPage,
+      cleanupNavigationPage,
+      false,
+    ),
+  ).toBe(false);
+  const registrationKeys = cleanupNavigationSessionRequestKeys({
+    kind: "heartbeat",
+    sessionId: "new-session-id",
+    pathname: "/_agent-native/browser-sessions",
+  });
+  expect(registrationKeys).toContain("heartbeat:registration");
 });
 
 it("correlates cleanup registrations by endpoint and session", () => {
