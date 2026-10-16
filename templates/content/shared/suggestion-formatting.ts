@@ -1,7 +1,10 @@
 import {
   canonicalizeNfm,
   docToNfm,
+  longestRun,
+  nfmContextualSpellings,
   nfmToDoc,
+  pushAll,
   serializeInlineTextNodeWithOffsets,
   type PMNode,
 } from "./nfm";
@@ -19,6 +22,10 @@ type TextRun = {
   nonTextBefore: boolean;
   verbatim?: boolean;
   emptyCell?: boolean;
+  /** The writer puts a `\` before this run, which belongs to the syntax gap. */
+  escapedBlockMarker?: boolean;
+  /** Its placeholder starts with a digit, as the run's bytes do. */
+  digitLead?: boolean;
 };
 type TextRange = { from: number; to: number };
 
@@ -55,7 +62,7 @@ function withoutMarks(node: PMNode): PMNode {
 }
 
 function longestBacktickRun(text: string): number {
-  return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  return longestRun(text, /`+/g);
 }
 
 function formattingRuns(
@@ -69,6 +76,7 @@ function formattingRuns(
   emptyCells: Array<{ sourceOffset: number; textOffset: number }>;
 } | null {
   const doc = nfmToDoc(source);
+  const spellings = nfmContextualSpellings(doc);
   let markerPrefix = "suggestiontextboundary";
   while (source.includes(markerPrefix)) markerPrefix += "z";
   const runs: TextRun[] = [];
@@ -138,12 +146,18 @@ function formattingRuns(
     }
     if (node.type === "text" && node.text) {
       const index = runs.length;
-      const marker = `${markerPrefix}${index}x`;
-      const serialized = serializeInlineTextNodeWithOffsets(node);
+      const serialized = serializeInlineTextNodeWithOffsets(
+        node,
+        spellings.escapedUnderscores.has(node),
+      );
       if (!serialized) {
         nonTextPending = true;
         return node;
       }
+      // Inline math before a digit is written in another form, so the
+      // placeholder after it must start with a digit too.
+      const digitLead = /^\d/.test(serialized.source);
+      const marker = `${digitLead ? "0" : ""}${markerPrefix}${index}x`;
       runs.push({
         text: node.text,
         marks: JSON.stringify(node.marks ?? []),
@@ -155,6 +169,8 @@ function formattingRuns(
         sourceFrom: -1,
         sourceTo: -1,
         nonTextBefore: nonTextPending,
+        escapedBlockMarker: spellings.escapedBlockMarker.has(node),
+        digitLead,
       });
       nonTextPending = false;
       offset += node.text.length;
@@ -178,17 +194,19 @@ function formattingRuns(
   let delta = 0;
   const markers: string[] = [];
   const restored = withPlaceholders.replace(
-    new RegExp(`${markerPrefix}(\\d+)\`*x`, "g"),
-    (token, rawIndex: string, position: number) => {
+    new RegExp(`(0?)${markerPrefix}(\\d+)\`*x`, "g"),
+    (token, lead: string, rawIndex: string, position: number) => {
       const index = Number(rawIndex);
       const run = runs[index]!;
       markers[index] = token;
+      if (Boolean(lead) !== Boolean(run.digitLead)) unmappable = true;
       if (run.verbatim && !resolveVerbatimRun(run, withPlaceholders, position))
         unmappable = true;
-      run.sourceFrom = position + delta;
+      const escape = run.escapedBlockMarker ? "\\" : "";
+      run.sourceFrom = position + delta + escape.length;
       run.sourceTo = run.sourceFrom + run.serialized.length;
-      delta += run.serialized.length - token.length;
-      return run.serialized;
+      delta += escape.length + run.serialized.length - token.length;
+      return escape + run.serialized;
     },
   );
   if (unmappable || runs.some((run) => run.sourceFrom < 0)) return null;
@@ -590,7 +608,7 @@ export function suggestionFormattingSourceSlice(
   const appendStructuralGap = (gapFrom: number, gapTo: number) => {
     const gapParts = structuralGapParts(source, gapFrom, gapTo);
     if (!gapParts) return false;
-    parts.push(...gapParts);
+    pushAll(parts, gapParts);
     return true;
   };
   for (const run of mapped.runs) {

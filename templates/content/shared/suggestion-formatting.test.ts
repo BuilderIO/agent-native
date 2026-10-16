@@ -6,6 +6,7 @@ import {
   suggestionFormattingSourceSlice,
   suggestionFormattingSourceRange,
   suggestionMarkedSourceRanges,
+  suggestionSourceAlignment,
 } from "./suggestion-formatting";
 
 const L = (...lines: string[]) => lines.join("\n");
@@ -46,6 +47,13 @@ describe("formatting source ranges", () => {
         marks: [{ type: "bold" }],
       },
     ]);
+  });
+
+  it("slices across more hard breaks than a call takes arguments", () => {
+    const source = `a${"<br>".repeat(130_000)}b`;
+    const slice = suggestionFormattingSourceSlice(source, 0, source.length);
+    expect(slice).toHaveLength(130_002);
+    expect(slice?.[130_001]).toEqual({ type: "text", text: "b", marks: [] });
   });
 
   it("preserves paragraph boundaries and rejects markup or invalid ranges", () => {
@@ -468,6 +476,56 @@ describe("code fences stay mappable", () => {
     expect(mappable(L(bold, "```", "", "```"))).toEqual([{ from: 6, to: 14 }]);
   });
 });
+describe("text the writer spells in context stays suggestable", () => {
+  // The editor escapes underscores on a line that would read as emphasis,
+  // and writes math before a digit in its other form.
+  it.each([
+    ["\\_x\\_ **b**", ["**b**"]],
+    ["\\_\\_init\\_\\_ **b**", ["**b**"]],
+    ["$`x`$1 **b**", ["**b**"]],
+  ])("maps the formatting in %j", (source, marked) => {
+    expect(
+      suggestionMarkedSourceRanges(source)?.map((range) =>
+        source.slice(range.from, range.to),
+      ),
+    ).toEqual(marked);
+  });
+});
+
+// The parse reads these stored spellings, which the writer never writes.
+// Without the L7 bridge in the source mapper, suggestions on them fail.
+describe("stored spellings the L7 bridge maps", () => {
+  it.fails.each([
+    // Agents write emphasis with underscores and escape what needs none.
+    ["Some _x_ text and **b**.", ["_x_", "**b**"]],
+    ["Call __init__ then **b**.", ["__init__", "**b**"]],
+    ["Call snake\\_case then **b**.", ["**b**"]],
+    // Adjacent runs with the same formatting read as one run.
+    ["**a****b** c", ["**a****b**"]],
+    ["[a](u)[b](u) c", ["[a](u)[b](u)"]],
+  ])("maps the formatting in %j", (source, marked) => {
+    expect(
+      suggestionMarkedSourceRanges(source)?.map((range) =>
+        source.slice(range.from, range.to),
+      ),
+    ).toEqual(marked);
+  });
+
+  it.fails("maps a place after delimiters the stored source reopens", () => {
+    const source = "**a****b**";
+    const b = source.indexOf("b");
+    expect(suggestionSourceAlignment(source)?.map(b, "stored")).toBe(3);
+    expect(suggestionFormattingSourceRange(source, b, b + 1)).toMatchObject({
+      text: "ab",
+      from: 1,
+      to: 2,
+    });
+    expect(suggestionFormattingSourceSlice(source, b, b + 1)).toEqual([
+      { type: "text", text: "b", marks: [{ type: "bold" }] },
+    ]);
+  });
+});
+
 describe("page shapes stay suggestable", () => {
   const bold = "Intro **bold** text";
   const mappable = (source: string) => {
