@@ -275,6 +275,8 @@ class CollabDocConnection {
   private updateHandlerAttached = false;
 
   private syncActive = false;
+  // A poll still awaiting its fetch when sync restarts must not schedule a second chain.
+  private syncGeneration = 0;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
   private pollCycleCount = 0;
@@ -834,6 +836,7 @@ class CollabDocConnection {
       return;
     }
     this.syncActive = true;
+    this.syncGeneration += 1;
 
     this.subscribeCollabEvents();
 
@@ -1028,6 +1031,7 @@ class CollabDocConnection {
 
   private async poll(): Promise<void> {
     if (!this.syncActive || this.disposed) return;
+    const generation = this.syncGeneration;
 
     this.flushPendingUpdates();
 
@@ -1150,7 +1154,11 @@ class CollabDocConnection {
     } catch {
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
-      if (this.syncActive && !this.disposed) {
+      if (
+        this.syncActive &&
+        !this.disposed &&
+        generation === this.syncGeneration
+      ) {
         this.pollTimer = setTimeout(() => {
           this.pollTimer = null;
           void this.poll();
@@ -1159,7 +1167,7 @@ class CollabDocConnection {
       return;
     }
 
-    this.schedulePoll();
+    if (generation === this.syncGeneration) this.schedulePoll();
   }
 
   private pollNow(): void {
