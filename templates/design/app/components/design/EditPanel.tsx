@@ -2400,6 +2400,8 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !shaderFileId || selectedCount > 1) return undefined;
+    // A screen deleted while selected is gone; reading it would 404.
+    if (!files?.some((file) => file.id === shaderFileId)) return undefined;
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
     const base = {
@@ -2468,6 +2470,7 @@ export const EditPanel = memo(function EditPanel({
       const screenFileId = selectedScreenGeometry?.id;
       const nodeId = selectedScreenElement?.sourceId;
       if (!designId || !screenFileId || !nodeId) return undefined;
+      if (!files?.some((file) => file.id === screenFileId)) return undefined;
       return {
         designId,
         fileId: screenFileId,
@@ -2478,6 +2481,7 @@ export const EditPanel = memo(function EditPanel({
       };
     }, [
       designId,
+      files,
       selectedScreenGeometry?.id,
       selectedScreenElement?.sourceId,
       selectedScreenElement?.selector,
