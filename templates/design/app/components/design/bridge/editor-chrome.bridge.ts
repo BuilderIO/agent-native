@@ -3889,6 +3889,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return target;
   }
 
+  function modifierClickSelectionTarget(hit: Element | null): Element | null {
+    var entersSelectedContainer = Boolean(
+      selectedEl && selectedEl.contains && hit && selectedEl.contains(hit),
+    );
+    return selectionTargetForHit(hit, entersSelectedContainer);
+  }
+
   // Climbs from `el` to the ancestor that is a direct child of `scope`
   // (inclusive: returns `el` itself when `el === scope`). Bounded at
   // document.body/documentElement even if `scope` is never reached, so a
@@ -14327,7 +14334,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     hoveredSpacingHandleKey = "";
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
-        ? selectionTargetForHit(target)
+        ? modifierClickSelectionTarget(target)
         : selectedContainerForPlainClick(target, e) ||
           plainClickSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
@@ -26995,7 +27002,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           : null;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
-          ? selectionTargetForHit(hit)
+          ? modifierClickSelectionTarget(hit)
           : !designCanvasBoardSurface
             ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
               plainClickSelectionTarget(hit)
@@ -27003,8 +27010,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
                 ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
                   clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
-      if (cycledEl) {
-        selectTarget(cycledEl, ev, true);
+      var cycleTarget =
+        cycledEl && !(cycledEl.contains && cycledEl.contains(hit))
+          ? cycledEl
+          : null;
+      if (cycleTarget) {
+        selectTarget(cycleTarget, ev, true);
       } else {
         selectTarget(primaryClickTarget || dragTarget, ev, true);
       }

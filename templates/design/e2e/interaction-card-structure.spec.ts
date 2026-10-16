@@ -59,16 +59,43 @@ async function selectCardRow(app: App) {
 
 /** Every node under `rootId` in document order, without ids, so a copy can be compared to its source. */
 function subtreeShape(nodes: Map<string, SavedNode>, rootId: string) {
-  const shape: { tag: string; attrs: Record<string, string>; text: string }[] =
-    [];
+  const shape: {
+    tag: string;
+    attrs: Record<string, string>;
+    style: Record<string, string>;
+    text: string;
+  }[] = [];
   const visit = (id: string) => {
     const node = nodes.get(id)!;
-    const { "data-agent-native-node-id": _id, ...attrs } = node.attrs;
-    shape.push({ tag: node.tag, attrs, text: node.text });
+    const {
+      "data-agent-native-node-id": _id,
+      style: _style,
+      ...attrs
+    } = node.attrs;
+    const style = Object.fromEntries(
+      Object.entries(styleOf(node)).map(([property, value]) => [
+        property,
+        normalizeCssColor(value),
+      ]),
+    );
+    shape.push({ tag: node.tag, attrs, style, text: node.text });
     for (const child of childrenOf(nodes, id)) visit(child);
   };
   visit(rootId);
   return shape;
+}
+
+function normalizeCssColor(value: string) {
+  const match = /^#([a-f\d]{3}|[a-f\d]{6})$/i.exec(value.trim());
+  if (!match) return value;
+  const hex =
+    match[1]!.length === 3
+      ? [...match[1]!].map((digit) => digit + digit).join("")
+      : match[1]!;
+  const channels = [0, 2, 4].map((index) =>
+    Number.parseInt(hex.slice(index, index + 2), 16),
+  );
+  return `rgb(${channels.join(", ")})`;
 }
 
 function attrsBesidesStyle(node: SavedNode | undefined) {
