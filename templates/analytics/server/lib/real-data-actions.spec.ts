@@ -1701,7 +1701,7 @@ describe("incomplete evidence detection", () => {
     const truncatedResult = {
       name: "bigquery",
       content:
-        '{"rows":[{"value":"large synthetic row"}],"partial":true\n\n...[truncated — full result was 200,000 chars; only first 50,000 shown]',
+        '{"rows":[{"value":"large synthetic row"}],"partial":true\n\n...[truncated — full result was 200\u202f000 chars; only first 50\u202f000 shown]',
     };
     expect(hasPartialBigQueryResult([truncatedResult])).toBe(true);
     expect(

@@ -1128,9 +1128,7 @@ function tryParseJsonContent(content: string): unknown {
 }
 
 function hasAgentToolResultTruncationMarker(content: string): boolean {
-  return /\n\n\.\.\.\[truncated — full result was [\d,]+ chars; only first [\d,]+ shown\]/.test(
-    content,
-  );
+  return /\n\n\.\.\.\[truncated — full result was [^\r\n]+\]/.test(content);
 }
 
 const DBT_METRIC_STATUS_RECOVERY: Record<string, string> = {

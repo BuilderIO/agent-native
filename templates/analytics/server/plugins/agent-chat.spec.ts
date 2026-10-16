@@ -3427,7 +3427,7 @@ describe("realDataFinalGuard", () => {
         name: "bigquery",
         isError: false,
         content:
-          '{"rows":[{"signups":42}],"partial":true\n\n...[truncated — full result was 200,000 chars; only first 50,000 shown]',
+          '{"rows":[{"signups":42}],"partial":true\n\n...[truncated — full result was 200\u202f000 chars; only first 50\u202f000 shown]',
       },
     ];
     const undisclosed = realDataFinalGuard(
