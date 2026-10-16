@@ -161,16 +161,20 @@ describe("useUserPref", () => {
       fail: () => void;
     }>;
     let reads: number;
+    let failReads: boolean;
     let save: (value: { step: number }) => void;
 
     async function renderProbe() {
       writes = [];
       reads = 0;
+      failReads = false;
       callAction.mockImplementation(
         (action: string, args: { value?: unknown }) => {
           if (action === "get-user-pref") {
             reads += 1;
-            return Promise.resolve({ step: 0 });
+            return failReads
+              ? Promise.reject(new Error("read failed"))
+              : Promise.resolve({ step: 0 });
           }
           return new Promise((resolve, reject) => {
             writes.push({
@@ -185,7 +189,12 @@ describe("useUserPref", () => {
       function Probe() {
         const pref = useUserPref<{ step: number }>("filters");
         save = pref.save;
-        return <div>{pref.data.step}</div>;
+        return (
+          <div>
+            {pref.isError ? "unavailable:" : ""}
+            {pref.data.step}
+          </div>
+        );
       }
 
       const queryClient = new QueryClient({
@@ -244,6 +253,23 @@ describe("useUserPref", () => {
       await settle();
       expect(reads).toBe(readsBefore + 1);
       expect(container.textContent).toBe("0");
+    });
+
+    it("reads as unavailable when the reread after a failed write fails too", async () => {
+      await renderProbe();
+      await act(async () => {
+        save({ step: 1 });
+      });
+      await settle();
+      expect(container.textContent).toBe("1");
+
+      failReads = true;
+      await act(async () => {
+        writes[0].fail();
+      });
+      await settle();
+      // The unsaved 1 is gone, not shown beside the failed read.
+      expect(container.textContent).toBe("unavailable:");
     });
   });
 });

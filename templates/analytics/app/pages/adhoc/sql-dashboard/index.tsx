@@ -148,6 +148,7 @@ import {
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
   serverReadState,
+  type DashboardFilterPreference,
   type DashboardFilterPreferenceSaveGuard,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
@@ -999,6 +1000,10 @@ function SqlDashboardPageContent({
   });
   const skipFilterPreferenceSave =
     useRef<DashboardFilterPreferenceSaveGuard | null>(null);
+  const failedFilterPreference = useRef<{
+    dashboardId: string;
+    update: DashboardFilterPreference;
+  } | null>(null);
 
   useEffect(() => {
     filterRestoreProgress.current = { status: "pending" };
@@ -1240,13 +1245,24 @@ function SqlDashboardPageContent({
       if (filterPreferenceSaveState === "changed") {
         skipFilterPreferenceSave.current = null;
       }
+      const failed = failedFilterPreference.current;
       const update = dashboardFilterPreferenceUpdate({
         saved: savedFilters,
         savedState: savedFiltersState,
         viewsState: dashboardViewsState,
         searchParams,
+        failed: failed?.dashboardId === dashboardId ? failed.update : null,
       });
-      if (update) saveFilterPref(update);
+      if (update) {
+        saveFilterPref(update, {
+          onSuccess: () => {
+            failedFilterPreference.current = null;
+          },
+          onError: () => {
+            failedFilterPreference.current = { dashboardId, update };
+          },
+        });
+      }
     }, 1500);
     return () => clearTimeout(saveTimer.current);
   }, [

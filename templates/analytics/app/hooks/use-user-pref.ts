@@ -34,10 +34,12 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
     },
     onError: () => {
       // Rolling back to this write's snapshot would hide a newer queued value
-      // that is still to be saved. Only the last pending write rereads the
-      // server, which by then holds every earlier write.
+      // that is still to be saved. Only the last pending write drops the
+      // unsaved value and rereads the server, which by then holds every
+      // earlier write; if that read fails too, the preference reads as
+      // unavailable, not as a value that was never saved.
       if (queryClient.isMutating({ mutationKey: queryKey }) <= 1) {
-        void queryClient.invalidateQueries({ queryKey });
+        void queryClient.resetQueries({ queryKey });
       }
       toast.error("Failed to save preference");
     },
