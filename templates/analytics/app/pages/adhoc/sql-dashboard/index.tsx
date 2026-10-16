@@ -323,7 +323,7 @@ const PanelCell = memo(function PanelCell({
   selectPanelForChat,
   onRemovePanel,
   onEditPanel,
-  onSavePanel,
+  onSaveSql,
   onResizePanel,
   onSaveColumns,
   hasPendingDashboardSave,
@@ -346,7 +346,7 @@ const PanelCell = memo(function PanelCell({
   ) => void;
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
-  onSavePanel: (panel: SqlPanel) => Promise<void>;
+  onSaveSql: (panelId: string, sql: string) => Promise<void>;
   onResizePanel: (
     panelId: string,
     axis: "width" | "height",
@@ -477,6 +477,7 @@ const PanelCell = memo(function PanelCell({
     );
 
   const saveResize = (axis: "width" | "height", value: number) => {
+    if (axis === "height" && panel.chartType === "section") return;
     const current =
       resizeValuesRef.current.panelId === panel.id
         ? resizeValuesRef.current
@@ -529,7 +530,6 @@ const PanelCell = memo(function PanelCell({
           if (axis === "width") setPreviewWidth(savedValues.width);
           else setPreviewHeight(savedValues.height ?? null);
         }
-        if (sequence !== resizeSaveSequenceRef.current) return;
         toast.error(
           err instanceof DashboardSaveQueueConflictError ||
             (err instanceof Error &&
@@ -673,8 +673,10 @@ const PanelCell = memo(function PanelCell({
   const renderedWidth =
     previewWidth ?? clampPanelWidth(panel.width, gridColumns);
   const renderedHeight =
-    previewHeight ??
-    (panel.height === undefined ? null : clampPanelHeight(panel.height));
+    panel.chartType === "section"
+      ? null
+      : (previewHeight ??
+        (panel.height === undefined ? null : clampPanelHeight(panel.height)));
 
   return (
     <div
@@ -711,7 +713,7 @@ const PanelCell = memo(function PanelCell({
         resolvedSql={resolvedSql}
         onRemove={() => onRemovePanel(panel.id)}
         onEdit={() => onEditPanel(panel)}
-        onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
+        onSaveSql={(sql) => onSaveSql(panel.id, sql)}
         onSaveColumns={(columns) => onSaveColumns(panel.id, columns)}
         editable={editable}
         eagerLoad={eagerLoad}
@@ -767,24 +769,28 @@ const PanelCell = memo(function PanelCell({
           >
             <IconGripVertical className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            role="slider"
-            aria-label={t("sqlDashboard.resizePanelHeight")}
-            aria-valuemin={1}
-            aria-valuemax={MAX_PANEL_HEIGHT}
-            aria-valuenow={renderedHeight ?? measuredHeight()}
-            aria-orientation="vertical"
-            title={t("sqlDashboard.resizePanelHeight")}
-            className="dashboard-panel-resize-handle dashboard-panel-resize-height"
-            onKeyDown={(event) => handleResizeKeyDown("height", event)}
-            onPointerDown={(event) => handleResizePointerDown("height", event)}
-            onPointerMove={handleResizePointerMove}
-            onPointerUp={finishResize}
-            onPointerCancel={cancelResize}
-          >
-            <IconGripVertical className="h-4 w-4 rotate-90" />
-          </button>
+          {panel.chartType !== "section" ? (
+            <button
+              type="button"
+              role="slider"
+              aria-label={t("sqlDashboard.resizePanelHeight")}
+              aria-valuemin={1}
+              aria-valuemax={MAX_PANEL_HEIGHT}
+              aria-valuenow={renderedHeight ?? measuredHeight()}
+              aria-orientation="vertical"
+              title={t("sqlDashboard.resizePanelHeight")}
+              className="dashboard-panel-resize-handle dashboard-panel-resize-height"
+              onKeyDown={(event) => handleResizeKeyDown("height", event)}
+              onPointerDown={(event) =>
+                handleResizePointerDown("height", event)
+              }
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={finishResize}
+              onPointerCancel={cancelResize}
+            >
+              <IconGripVertical className="h-4 w-4 rotate-90" />
+            </button>
+          ) : null}
         </>
       ) : null}
     </div>
@@ -1686,11 +1692,8 @@ function SqlDashboardPageContent({
           });
         })
         .catch((err) => {
-          // A newer queued save owns the optimistic state and reports its own
-          // outcome, so this one no longer says what the dashboard holds.
-          if (!rollbackFailedDashboardSave(dashboardId, updated, queue, hold)) {
-            return;
-          }
+          // A later save may own the optimistic state, but this save still failed.
+          rollbackFailedDashboardSave(dashboardId, updated, queue, hold);
           toast.error(
             err instanceof DashboardSaveQueueConflictError
               ? t("sqlDashboard.saveFailed")
@@ -2007,6 +2010,22 @@ function SqlDashboardPageContent({
             ? current.panels.map((p, i) => (i === idx ? nextPanel : p))
             : [...current.panels, nextPanel];
         return { ...current, panels: nextPanels };
+      });
+    },
+    [persistThrow],
+  );
+  const handleSaveSql = useCallback(
+    async (panelId: string, sql: string) => {
+      await persistThrow((current) => {
+        if (!current.panels.some((panel) => panel.id === panelId)) {
+          return current;
+        }
+        return {
+          ...current,
+          panels: current.panels.map((panel) =>
+            panel.id === panelId ? { ...panel, sql } : panel,
+          ),
+        };
       });
     },
     [persistThrow],
@@ -3335,7 +3354,7 @@ function SqlDashboardPageContent({
                                 selectPanelForChat={selectPanelForChat}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
-                                onSavePanel={handleSavePanel}
+                                onSaveSql={handleSaveSql}
                                 onResizePanel={handleResizePanel}
                                 onSaveColumns={handleSaveColumns}
                                 hasPendingDashboardSave={
