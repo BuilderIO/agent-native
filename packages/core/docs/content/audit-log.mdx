@@ -111,13 +111,13 @@ No wiring needed — the capture hooks into `defineAction` transparently. Read-o
           name: "reported_client_name",
           type: "text",
           nullable: true,
-          note: "The name an MCP client sent as its clientInfo. Self-reported.",
+          note: "The name an MCP client sent in clientInfo with this tools/call request. Self-reported.",
         },
         {
           name: "reported_client_version",
           type: "text",
           nullable: true,
-          note: "The version an MCP client sent as its clientInfo. Self-reported.",
+          note: "The version an MCP client sent in clientInfo with this tools/call request. Self-reported.",
         },
         {
           name: "oauth_client_id",
@@ -142,7 +142,7 @@ An agent call records four separate facts. None of them stands in for another.
 
 - **Principal**: `actor_email` is the account the call runs as. It is not evidence that anyone approved the call.
 - **Execution source**: `caller` names the surface. A call over `mcp`, `webmcp`, or `a2a` has `actor_kind` `agent`, or `service` for the organization's own service principals.
-- **Client**: for an `mcp` call, `reported_client_name` and `reported_client_version` hold what the client sent as its MCP `clientInfo`. The client chooses these values, so treat them as self-reported. `oauth_client_id` is the OAuth client the credential was issued to, when it has one. A client that sends `clientInfo` only when it connects leaves the name and version empty.
+- **Client**: for an `mcp` call, `reported_client_name` and `reported_client_version` hold what the client sent in MCP `clientInfo` with that individual `tools/call` request. The client chooses these values, so treat them as self-reported. `oauth_client_id` is the OAuth client the credential was issued to, when it has one. Values sent only in the earlier `initialize` message are not carried forward.
 - **Approval**: `approval` is set only when a person approved that exact call before it ran. `agent-chat` means the approval came from the agent chat. `mcp-elicitation` means the MCP client accepted the approval prompt. The server does not verify who answered that prompt inside the client. A call that needed no approval leaves `approval` empty.
 
 Older rows are never rewritten. Rows written before these columns existed have empty client and approval fields, even when the call was approved. Older `mcp`, `webmcp`, and `a2a` rows stored as `human` or `system` are read back as `agent`, so filters and exports treat them like newer rows.

@@ -80,8 +80,9 @@ minimum useful addition is `target: () => ({ type, id })`.
 - **Client and approval** — keep four facts in four fields. `actorEmail` is
   the principal the call runs as, never evidence of approval. `caller` and
   `actorKind` are the execution source. `reportedClientName` /
-  `reportedClientVersion` are the MCP client's self-reported `clientInfo`, and
-  `oauthClientId` is the OAuth client its credential was issued to.
+  `reportedClientVersion` are the MCP client's self-reported `clientInfo` for
+  that individual `tools/call`; `initialize`-only values are not carried
+  forward. `oauthClientId` is the OAuth client its credential was issued to.
   `approval` (`agent-chat` or `mcp-elicitation`) is set only when a person
   approved that exact call; the recorder reads it from
   `ctx.approvedToolCallKey` or `ctx.mcpApproved`. Never infer approval from

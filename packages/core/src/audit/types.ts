@@ -79,8 +79,9 @@ export interface AuditEvent {
    *  written before the column existed or by an app with no identity. */
   app?: string | null;
   /**
-   * The name and version an MCP client sent as its `clientInfo`. Self-reported:
-   * any client can send any value. Null when the call carried none.
+   * The name and version an MCP client sent as its `clientInfo` for this
+   * `tools/call`. Self-reported: any client can send any value. Null when the
+   * call carried none.
    */
   reportedClientName?: string | null;
   reportedClientVersion?: string | null;
