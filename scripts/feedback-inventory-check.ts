@@ -155,11 +155,12 @@ function normalizeReplyPhrase(phrase: string): string {
 }
 
 function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
-  const reply = normalizeReplyPhrase(text);
+  const reply = ` ${normalizeReplyPhrase(text)} `;
   return handoffs.every((handoff) =>
-    [handoff.owner, handoff.action].every((phrase) =>
-      reply.includes(normalizeReplyPhrase(phrase)),
-    ),
+    [handoff.owner, handoff.action].every((phrase) => {
+      const normalizedPhrase = normalizeReplyPhrase(phrase);
+      return normalizedPhrase !== "" && reply.includes(` ${normalizedPhrase} `);
+    }),
   );
 }
 
@@ -1085,6 +1086,12 @@ if (args[0] === "--self-test" && args.length === 1) {
       name: "handoff reply must name the recorded action",
       inventory: withHandoffReply(
         "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product owner will follow up.",
+      ),
+    },
+    {
+      name: "handoff reply must match owner word boundaries",
+      inventory: withHandoffReply(
+        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product ownership will choose the remaining behavior.",
       ),
     },
     {
