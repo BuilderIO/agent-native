@@ -1,6 +1,6 @@
 # Synthetic Analytics query-path eval
 
-This suite runs ten invented questions through Analytics' real production chat
+This suite runs twelve invented questions through Analytics' real production chat
 adapter, prompt builder, read-only action allowlist, shared agent loop, and final
 response guard. A deterministic engine supplies the model steps. Provider
 actions return bounded synthetic fixtures, so the suite does not connect to
@@ -13,11 +13,13 @@ campaign metric by product category, event-taxonomy discovery, monthly AI-credit
 usage by workspace, BigQuery rows returned with a warning, schema discovery
 followed by a corrected BigQuery query, and Content API request counts kept
 separate from related Visual Views metrics.
+The latest wave adds organization-grain validation when dimension descriptions
+contain unrelated hierarchy language, plus safe first-party DIV recovery.
 Each runs twice. No copied conversation, customer identity, production row,
 query, credential, or secret is used.
 
-A separate production-path regression also scripts one unsupported first-party
-SQL error followed by a corrected conditional aggregate. It checks that the
+A separate production-path regression also scripts one unsupported FILTER
+error followed by a corrected conditional aggregate. It checks that the
 safe recovery instruction reaches the agent, the final response guard accepts
 the later complete result, and backend details stay hidden. Its scripted model
 steps make it a recovery-contract check, not an independent model-quality
@@ -29,7 +31,7 @@ benchmark, so it is not included in the paired CSV comparison below.
 pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
 ```
 
-To regenerate the privacy-safe v2 result CSV from the same test run:
+To write a privacy-safe per-phase CSV from the same test run:
 
 ```sh
 ANALYTICS_QUERY_EVAL_WRITE_CSV=1 pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
@@ -52,7 +54,71 @@ cursor, then checks that the requested date range and grouping survive the
 query and final-response guard. First-page cursor creation and signature
 validation remain covered by the focused dbt action tests.
 
-## Latest-wave comparison
+## Current latest-wave comparison
+
+[`SYNTHETIC-analytics-query-quality-v4-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v4-main-vs-pr7639.csv)
+contains twelve synthetic questions run twice through the production path on
+baseline `3215556c9c955b5e37ff359708f4ef527d019c4e` and candidate
+`1646381a68280c05739656706a8d9fd8b3d4289f`. The baseline passed 10/24 runs;
+the candidate passed 24/24. Seven cases failed both baseline repetitions:
+Content API requests versus Visual Views, disconnected dbt abstention,
+paginated MetricFlow grouping, rolling-window MetricFlow grouping, monthly AI
+credits routing, organization-grain validation, and first-party DIV recovery.
+Every baseline failure still has production-path, final-guard, owner/org-context,
+and usage receipts; failures are scored as `contract_failed`, not missing
+production-path evidence.
+
+Every candidate row has production-path, final-guard, owner/org-context, and
+usage receipts. The scorer checks the synthetic owner and org identity, while
+the CSV records only a boolean and omits those identifiers. The organization
+case also verifies `metric_time` with `WEEK` in both the captured action input
+and returned query specification. Both phases use the same harness SHA-256,
+`71a2f83b90ab627a755f57eeb3d50e6af63310fb32aadf84a404e2157669f997`, and every
+case/replicate pair matches.
+
+The baseline is the Analytics code from `3215556`; current `origin/main` is
+`ec46c1d`. The commits since the baseline change Clips, Slides, and core store
+registry/release files, with no Analytics source or shared production-path
+changes. This is a deterministic scripted-engine contract comparison with
+mocked provider responses. It does not measure independent model source
+selection, live warehouse accuracy, real user outcomes, or provider latency.
+
+### Previous v3 harness snapshot
+
+[`SYNTHETIC-analytics-query-quality-v3-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v3-main-vs-pr7639.csv)
+contains twelve synthetic questions run twice through the production path on
+baseline `3215556c9c955b5e37ff359708f4ef527d019c4e` and candidate
+`23a7fbcb06a1aae7ad3a2dbbec6dbda84bf3bbfb`. The baseline passed 10/24 runs;
+the candidate passed 24/24. Seven cases failed in both baseline repetitions:
+Content API requests versus Visual Views, disconnected dbt abstention,
+paginated MetricFlow grouping, rolling-window MetricFlow grouping, monthly AI
+credits routing, organization-grain validation, and first-party DIV recovery.
+The two baseline DIV rows could not produce a production-path receipt because
+the baseline lacks the typed error used by the recovery case; they are recorded
+as `production_path_failed` with score 0, not as answer results.
+
+Every candidate row has production-path, final-guard, and usage receipts. The
+scorer also requires the synthetic owner and org identity to match, but the CSV
+intentionally omits those identifiers. Both phases use the same harness
+SHA-256, `1b88238acd5ddd2746183ef831a776e17fcbd24758f17ffbb7cfff37f938059e`,
+and every case/replicate pair matches. The baseline was captured from
+`origin/main` at `3215556`; at that checkpoint, main had advanced to `8e39342`
+with only Slides files changed. The Analytics and shared production paths
+under test were unchanged by that advance. The PR head now contains the
+evaluated production change plus later test-harness-only updates.
+
+This is a deterministic scripted-engine contract comparison with mocked
+provider responses. It does not measure independent model source selection,
+live warehouse accuracy, real user outcomes, or provider latency.
+
+This snapshot is retained for audit history. Its earlier harness did not supply
+a typed unsupported-SQL error on baseline for the DIV recovery case, so its two
+baseline DIV rows were recorded as `production_path_failed`. Use the v4 CSV above
+for the current comparison; v4 supplies the baseline's existing typed
+unsupported-SQL error and includes the full privacy-safe owner/org-context
+receipt.
+
+### Previous v2 comparison
 
 [`SYNTHETIC-analytics-query-quality-v2.csv`](./SYNTHETIC-analytics-query-quality-v2.csv)
 records ten cases twice against identical harness bytes on
