@@ -627,6 +627,8 @@
 }
 
 .dashboard-panel-freshness {
+  display: flex;
+  align-items: center;
   height: 1.5rem;
 }
 
