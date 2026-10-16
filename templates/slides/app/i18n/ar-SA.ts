@@ -840,6 +840,9 @@ const messages = {
     leaveWithoutSaving: "الخروج دون حفظ",
     editorMarkupNotSaved:
       "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
+    historyStepConflict:
+      "تم تخطي خطوة السجل هذه لتعارضها مع العرض التقديمي الحالي.",
+    historyStepFailed: "تم تخطي هذه الخطوة من السجل لتعذر تطبيقها.",
     textEditConflictNotSaved:
       "لم يتم حفظ تعديل النص لأن النص نفسه تم تغييره في مكان آخر في الوقت نفسه.",
   },

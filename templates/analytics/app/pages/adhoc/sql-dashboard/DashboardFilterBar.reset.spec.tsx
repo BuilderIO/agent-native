@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { i18nCatalog } from "../../../i18n";
 import {
   DashboardFilterBar,
@@ -64,6 +66,8 @@ function render(
   options: {
     list?: DashboardFilter[];
     views?: DashboardSavedView[] | null;
+    viewsRefreshing?: boolean;
+    canSaveViews?: boolean;
   } = {},
 ) {
   act(() => {
@@ -73,13 +77,17 @@ function render(
         initialLocale="en-US"
         persistPreference={false}
       >
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <DashboardFilterBar
-            filters={options.list ?? filters}
-            views={options.views}
-          />
-          <SearchProbe />
-        </MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <DashboardFilterBar
+              filters={options.list ?? filters}
+              views={options.views}
+              viewsRefreshing={options.viewsRefreshing}
+              onSaveView={options.canSaveViews ? () => {} : undefined}
+            />
+            <SearchProbe />
+          </MemoryRouter>
+        </TooltipProvider>
       </AgentNativeI18nProvider>,
     );
   });
@@ -88,6 +96,18 @@ function render(
 function resetButton(): HTMLButtonElement | undefined {
   return [...container.querySelectorAll("button")].find(
     (button) => button.textContent?.trim() === "Reset filters",
+  );
+}
+
+function saveViewButton(): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === "Save view",
+  );
+}
+
+function onlyYouLabel(): HTMLElement | undefined {
+  return [...container.querySelectorAll<HTMLElement>("[tabindex]")].find(
+    (el) => el.textContent?.trim() === "Only you see these filters",
   );
 }
 
@@ -113,6 +133,7 @@ describe("resetting dashboard filters", () => {
   it("hides the reset when no filter is set", () => {
     render("/dashboards/v3");
     expect(resetButton()).toBeUndefined();
+    expect(onlyYouLabel()).toBeUndefined();
   });
 
   it("hides the reset when the URL spells out the defaults", () => {
@@ -127,6 +148,30 @@ describe("resetting dashboard filters", () => {
     const button = resetButton();
     expect(button).toBeDefined();
     expect(button?.closest(".opacity-0")).toBeNull();
+  });
+
+  it("says only you see the changed filters, next to the reset", () => {
+    render("/dashboards/v3?f_emailFilter=all");
+    const label = onlyYouLabel();
+    expect(label).toBeDefined();
+    expect(label?.closest(".opacity-0")).toBeNull();
+
+    act(() => resetButton()!.click());
+    expect(onlyYouLabel()).toBeUndefined();
+  });
+
+  it("names saving a view as a way to share only to people who can save views", () => {
+    const hint = () => {
+      act(() => onlyYouLabel()!.focus());
+      return document.body.querySelector('[role="tooltip"]')?.textContent;
+    };
+    render("/dashboards/v3?f_emailFilter=all", { canSaveViews: true });
+    expect(hint()).toContain("save a view or send the link");
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    render("/dashboards/v3?f_emailFilter=all");
+    expect(hint()).toContain("To share them, send the link.");
   });
 
   it("returns every filter to its default and keeps unrelated params", () => {
@@ -208,6 +253,24 @@ describe("resetting dashboard filters", () => {
       expect(resetButton()).toBeUndefined();
     });
 
+    it("offers Save view with the only-you label after an open view is edited to match the default view", () => {
+      render(
+        "/dashboards/v3?view=enterprise&f_timeRange=7d&f_emailFilter=all",
+        { views, canSaveViews: true },
+      );
+      expect(onlyYouLabel()).toBeDefined();
+      expect(saveViewButton()).toBeDefined();
+    });
+
+    it("hides Save view while the filters match the open view", () => {
+      render(
+        "/dashboards/v3?view=enterprise&f_timeRange=90d&f_plan=enterprise",
+        { views, canSaveViews: true },
+      );
+      expect(onlyYouLabel()).toBeUndefined();
+      expect(saveViewButton()).toBeUndefined();
+    });
+
     it("falls back to the default view when the URL names a view that no longer exists", () => {
       render("/dashboards/v3?view=deleted&f_timeRange=90d", { views });
       act(() => resetButton()!.click());
@@ -219,6 +282,27 @@ describe("resetting dashboard filters", () => {
     it("hides the reset until the saved views load, since its target is unknown", () => {
       render("/dashboards/v3?view=enterprise&f_timeRange=7d", { views: null });
       expect(resetButton()).toBeUndefined();
+    });
+
+    it("keeps a cached view out of the URL while the views refetch, then resets normally", () => {
+      // The cached list still has the default view; the refetch shows it deleted.
+      render("/dashboards/v3?f_timeRange=90d&f_plan=free", {
+        views,
+        viewsRefreshing: true,
+      });
+      expect(resetButton()?.disabled).toBe(true);
+      act(() => resetButton()!.click());
+      expect(Object.fromEntries(params())).toEqual({
+        f_timeRange: "90d",
+        f_plan: "free",
+      });
+
+      render("/dashboards/v3?f_timeRange=90d&f_plan=free", {
+        views: [enterprise],
+        viewsRefreshing: false,
+      });
+      act(() => resetButton()!.click());
+      expect(Object.fromEntries(params())).toEqual({});
     });
   });
 });

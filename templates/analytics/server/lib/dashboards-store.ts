@@ -27,6 +27,13 @@ import {
   sql,
 } from "drizzle-orm";
 
+import {
+  describeDashboardChanges,
+  parseDashboardChangeSummary,
+  summarizeDashboardChanges,
+  type DashboardChange,
+  type DashboardChangeSummary,
+} from "../../shared/dashboard-change-summary";
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -123,12 +130,20 @@ export interface DashboardRevisionRecord {
   chatContext: AnalyticsRevisionChatContext | null;
 }
 
+export type RevisionChangeSummaryMetadata =
+  | { changesStatus: "absent" | "unreadable" }
+  | {
+      changesStatus: "valid";
+      changes: DashboardChange[];
+      omittedChanges: number;
+    };
+
 export type DashboardRevisionMetadata = Omit<
   DashboardRevisionRecord,
   "config"
 > & {
   chatContextStatus: RevisionChatContextStatus;
-};
+} & RevisionChangeSummaryMetadata;
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
 export type DashboardHiddenFilter = "visible" | "hidden" | "all";
@@ -366,6 +381,19 @@ export function parseRevisionChatContextMetadata(raw: unknown): {
   } catch {
     return { chatContext: null, chatContextStatus: "unreadable" };
   }
+}
+
+export function parseRevisionChangeSummaryMetadata(
+  raw: unknown,
+): RevisionChangeSummaryMetadata {
+  const parsed = parseDashboardChangeSummary(raw);
+  return parsed.status === "valid"
+    ? {
+        changesStatus: "valid",
+        changes: parsed.summary.changes,
+        omittedChanges: parsed.summary.omitted,
+      }
+    : { changesStatus: parsed.status };
 }
 
 function escapeLikeLiteral(value: string): string {
@@ -676,6 +704,7 @@ function rowToDashboardRevisionMetadata(row: any): DashboardRevisionMetadata {
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
     ...parseRevisionChatContextMetadata(row.chatContext),
+    ...parseRevisionChangeSummaryMetadata(row.changeSummary),
   };
 }
 
@@ -1632,11 +1661,19 @@ async function pruneDashboardRevisions(
   }
 }
 
+/**
+ * Records `dashboard` as a restore point. For a save, that is the state the
+ * save replaces, and `changeSummary` is what the save changes. A save whose
+ * prior state is already the newest revision (the agent's end-of-turn
+ * snapshot, say) adds no row and records the save on that one: what it
+ * changed, who saved, and when.
+ */
 async function snapshotDashboardRevision(
   db: any,
   dashboard: DashboardRecord,
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
+  changeSummary: DashboardChangeSummary | null = null,
 ): Promise<string> {
   const config = stableStringify(dashboard.config);
   const [latest] = await db
@@ -1659,6 +1696,18 @@ async function snapshotDashboardRevision(
     latest.title === dashboard.title &&
     comparableJson(latest.config) === config
   ) {
+    if (changeSummary) {
+      // The chat context stays: it ties this state to the agent turn that
+      // produced it, and chat's "restore to this turn" still needs that link.
+      await db
+        .update(schema.dashboardRevisions)
+        .set({
+          changeSummary: JSON.stringify(changeSummary),
+          createdAt: nextRevisionTimestamp(latest.createdAt),
+          createdBy: ctx.email,
+        })
+        .where(eq(schema.dashboardRevisions.id, latest.id));
+    }
     return latest.id;
   }
   const id = revisionId("dashrev", dashboard.id, latest?.id, {
@@ -1677,6 +1726,9 @@ async function snapshotDashboardRevision(
       createdAt: nextRevisionTimestamp(latest?.createdAt),
       createdBy: ctx.email,
       ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
+      ...(changeSummary
+        ? { changeSummary: JSON.stringify(changeSummary) }
+        : {}),
       ownerEmail: dashboard.ownerEmail,
       orgId: dashboard.orgId,
     })
@@ -1742,6 +1794,8 @@ export interface DashboardUpsertOutcome {
    * the dashboard.
    */
   revisionId?: string;
+  /** What the write changed, as recorded on `revisionId`. */
+  changeSummary?: DashboardChangeSummary;
 }
 
 async function upsertDashboardWithOutcome(
@@ -1786,6 +1840,11 @@ async function upsertDashboardWithOutcome(
   if (nameChanged) {
     await assertDashboardNameIsAvailable(title, ctx, existing?.id);
   }
+  const changeSummary = existing
+    ? summarizeDashboardChanges(
+        describeDashboardChanges(existing.config, config),
+      )
+    : null;
   const persist = async (writeDb: any): Promise<void> => {
     if (existing) {
       const setValues = {
@@ -1819,6 +1878,7 @@ async function upsertDashboardWithOutcome(
             existing,
             ctx,
             requestRevisionChatContext(),
+            changeSummary,
           );
       } else {
         if (changed)
@@ -1827,6 +1887,7 @@ async function upsertDashboardWithOutcome(
             existing,
             ctx,
             requestRevisionChatContext(),
+            changeSummary,
           );
         const [row] = await writeDb
           .update(schema.dashboards)
@@ -1861,18 +1922,19 @@ async function upsertDashboardWithOutcome(
       persistedDashboard = rowToDashboard(row);
     }
   };
-  if (nameChanged) {
-    await db.transaction(async (tx: any) => {
+  // The update and the history entry it leaves commit together; otherwise a
+  // peer can save on top of this write before its entry lands, and the newest
+  // entry ends up describing the older save.
+  await db.transaction(async (tx: any) => {
+    if (nameChanged) {
       await lockDashboardNames(tx, [
         title,
         ...(existing ? [existing.title] : []),
       ]);
       await assertDashboardNameIsAvailable(title, ctx, existing?.id, tx);
-      await persist(tx);
-    });
-  } else {
-    await persist(db);
-  }
+    }
+    await persist(tx);
+  });
   if (!persistedDashboard) {
     throw new Error(`Dashboard "${id}" write returned no persisted row.`);
   }
@@ -1885,7 +1947,12 @@ async function upsertDashboardWithOutcome(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return { dashboard, didWrite: true, revisionId };
+  return {
+    dashboard,
+    didWrite: true,
+    revisionId,
+    ...(revisionId && changeSummary ? { changeSummary } : {}),
+  };
 }
 
 export async function upsertDashboardOutcome(
@@ -1925,17 +1992,24 @@ async function upsertDashboardLastWriteWins(
   body: Record<string, unknown>,
   ctx: AccessCtx,
 ): Promise<DashboardUpsertOutcome> {
+  return retryDashboardConflicts(id, async () => {
+    const existing = await getDashboard(id, ctx);
+    return upsertDashboardWithOutcome(id, kind, body, ctx, existing?.updatedAt);
+  });
+}
+
+/**
+ * Runs a write fenced on the version it reads, again against the latest one
+ * when a concurrent write gets there first.
+ */
+async function retryDashboardConflicts<T>(
+  id: string,
+  write: () => Promise<T>,
+): Promise<T> {
   let lastConflict: unknown;
   for (let attempt = 0; attempt < DASHBOARD_SAVE_MAX_ATTEMPTS; attempt++) {
-    const existing = await getDashboard(id, ctx);
     try {
-      return await upsertDashboardWithOutcome(
-        id,
-        kind,
-        body,
-        ctx,
-        existing?.updatedAt,
-      );
+      return await write();
     } catch (err) {
       if (err instanceof DashboardConflictError) {
         lastConflict = err;
@@ -2179,6 +2253,7 @@ export async function listDashboardRevisionMetadata(
       createdAt: schema.dashboardRevisions.createdAt,
       createdBy: schema.dashboardRevisions.createdBy,
       chatContext: schema.dashboardRevisions.chatContext,
+      changeSummary: schema.dashboardRevisions.changeSummary,
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
@@ -2199,16 +2274,37 @@ export async function restoreDashboardRevision(
   dashboard: DashboardRecord;
   snapshotRevisionId: string;
 } | null> {
+  return expectedUpdatedAt === undefined
+    ? await retryDashboardConflicts(dashboardId, () =>
+        restoreDashboardRevisionAt(dashboardId, revisionId, ctx),
+      )
+    : await restoreDashboardRevisionAt(
+        dashboardId,
+        revisionId,
+        ctx,
+        expectedUpdatedAt,
+      );
+}
+
+async function restoreDashboardRevisionAt(
+  dashboardId: string,
+  revisionId: string,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<{
+  dashboard: DashboardRecord;
+  snapshotRevisionId: string;
+} | null> {
   const existing = await getDashboard(dashboardId, ctx);
   if (!existing) return null;
   await assertAccess("dashboard", dashboardId, "editor", {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
-  if (
-    expectedUpdatedAt !== undefined &&
-    existing.updatedAt !== expectedUpdatedAt
-  ) {
+  // Fenced even when the caller passed no version: the history entry this
+  // leaves records `existing`, so it must be the version the restore replaces.
+  const observedUpdatedAt = expectedUpdatedAt ?? existing.updatedAt;
+  if (existing.updatedAt !== observedUpdatedAt) {
     throw new DashboardConflictError(dashboardId);
   }
   const db = getDb() as any;
@@ -2224,7 +2320,7 @@ export async function restoreDashboardRevision(
     .limit(1);
   if (!revisionRow) return null;
   const revision = rowToDashboardRevision(revisionRow);
-  const updatedAt = nowIso();
+  const updatedAt = nextDashboardVersion(existing.updatedAt);
   const nameChanged =
     normalizeDashboardName(existing.title) !==
     normalizeDashboardName(revision.title);
@@ -2252,28 +2348,28 @@ export async function restoreDashboardRevision(
         updatedBy: ctx.email,
       })
       .where(
-        expectedUpdatedAt === undefined
-          ? eq(schema.dashboards.id, dashboardId)
-          : and(
-              eq(schema.dashboards.id, dashboardId),
-              eq(schema.dashboards.updatedAt, expectedUpdatedAt),
-            ),
+        and(
+          eq(schema.dashboards.id, dashboardId),
+          eq(schema.dashboards.updatedAt, observedUpdatedAt),
+        ),
       );
-    if (expectedUpdatedAt !== undefined) {
-      const affected = affectedRowCount(updateResult);
-      if (affected === undefined) {
-        throw new Error(
-          "The Postgres update did not report an affected-row count for the fenced dashboard restore.",
-        );
-      }
-      if (affected === 0) throw new DashboardConflictError(dashboardId);
+    const affected = affectedRowCount(updateResult);
+    if (affected === undefined) {
+      throw new Error(
+        "The Postgres update did not report an affected-row count for the fenced dashboard restore.",
+      );
     }
+    if (affected === 0) throw new DashboardConflictError(dashboardId);
 
     const snapshotRevisionId = await snapshotDashboardRevision(
       tx,
       existing,
       ctx,
       requestRevisionChatContext(),
+      summarizeDashboardChanges([
+        { kind: "version-restored" },
+        ...describeDashboardChanges(existing.config, revision.config),
+      ]),
     );
     const [row] = await tx
       .select()

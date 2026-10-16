@@ -144,9 +144,11 @@ import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
   dashboardFilterPreferenceSaveState,
+  dashboardFilterPreferenceUpdate,
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
-  sameDashboardFilterMap,
+  serverReadState,
+  type DashboardFilterPreference,
   type DashboardFilterPreferenceSaveGuard,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
@@ -200,6 +202,7 @@ import {
   DEFAULT_DASHBOARD_COLUMNS,
   type DashboardCertification,
   type DashboardFilter,
+  type FilterPreset,
   type SqlDashboardConfig,
   type SqlPanel,
   type TableColumnConfig,
@@ -1016,26 +1019,31 @@ function SqlDashboardPageContent({
   ]);
 
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
-  const {
-    data: savedFilters,
-    isSuccess: filtersLoaded,
-    isError: filtersError,
-    save: saveFilterPref,
-  } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
+  const filterPref = useUserPref<{
+    filters: Record<string, string>;
+    viewId?: string;
+  }>(filterPrefKey);
+  const { data: savedFilters, save: saveFilterPref } = filterPref;
+  const savedFiltersState = serverReadState(filterPref);
 
-  const {
-    views,
-    isSuccess: dashboardViewsLoaded,
-    isSettled: dashboardViewsSettled,
-    saveView,
-  } = useDashboardViews(dashboardId ?? undefined);
+  const dashboardViews = useDashboardViews(dashboardId ?? undefined);
+  const { views, isSuccess: dashboardViewsLoaded, saveView } = dashboardViews;
+  const dashboardViewsState = serverReadState(dashboardViews);
   const defaultView = views.find((view) => view.isDefault);
+  // A deleted view must not come back as a dangling `view` param.
+  const savedViewId = views.some((view) => view.id === savedFilters?.viewId)
+    ? savedFilters?.viewId
+    : undefined;
 
   const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
     status: "pending",
   });
   const skipFilterPreferenceSave =
     useRef<DashboardFilterPreferenceSaveGuard | null>(null);
+  // The address bar's filters and view when a write for them failed.
+  const failedFilterPreference = useRef<
+    ({ dashboardId: string } & DashboardFilterPreference) | null
+  >(null);
 
   // Edit mode, unfinished edits and open dialogs belong to the dashboard,
   // account and organization they were opened in; kept, they would reappear
@@ -1182,16 +1190,9 @@ function SqlDashboardPageContent({
       searchParams,
       defaultView,
       savedFilters: savedFilters?.filters,
-      viewsState: dashboardViewsLoaded
-        ? "success"
-        : dashboardViewsSettled
-          ? "error"
-          : "loading",
-      savedFiltersState: filtersLoaded
-        ? "success"
-        : filtersError
-          ? "error"
-          : "loading",
+      savedViewId,
+      viewsState: dashboardViewsState,
+      savedFiltersState,
       progress: previousProgress,
     });
     filterRestoreProgress.current = restoreStep.progress;
@@ -1256,25 +1257,25 @@ function SqlDashboardPageContent({
       { replace: true },
     );
   }, [
-    filtersLoaded,
-    filtersError,
-    dashboardViewsLoaded,
-    dashboardViewsSettled,
+    savedFiltersState,
+    dashboardViewsState,
     loaded,
     dashboard,
     defaultView,
     savedFilters,
+    savedViewId,
     reportScreenshot,
     searchParams,
     setSearchParams,
   ]);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Not gated on filter definitions: the pref also holds the open view, and a
+  // dashboard without filters can still have one open.
   useEffect(() => {
     if (
       reportScreenshot ||
       !loaded ||
-      !dashboard?.filters?.length ||
       !dashboardId ||
       !canPersistDashboardFilterPreference(
         filterRestoreProgress.current,
@@ -1285,15 +1286,9 @@ function SqlDashboardPageContent({
       return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const currentFilters: Record<string, string> = {};
-      searchParams.forEach((v, k) => {
-        if (k.startsWith(FILTER_PARAM_PREFIX)) {
-          currentFilters[k] = v;
-        }
-      });
       const filterPreferenceSaveState = dashboardFilterPreferenceSaveState(
         skipFilterPreferenceSave.current,
-        currentFilters,
+        dashboardFilterParams(searchParams),
         searchParams.get("view") ?? undefined,
       );
       if (filterPreferenceSaveState === "applied") {
@@ -1304,22 +1299,46 @@ function SqlDashboardPageContent({
       if (filterPreferenceSaveState === "changed") {
         skipFilterPreferenceSave.current = null;
       }
-      if (sameDashboardFilterMap(savedFilters?.filters, currentFilters)) return;
-      saveFilterPref({ filters: currentFilters });
+      const filters = dashboardFilterParams(searchParams);
+      const viewId = searchParams.get("view") ?? undefined;
+      // A failed write rereads the old preference; resending it on each reread
+      // would retry forever while saving is down. It is held only while the
+      // address bar still shows what it was for, whatever the read is doing:
+      // coming back to that later is a new change to write.
+      const failed = failedFilterPreference.current;
+      if (
+        failed?.dashboardId === dashboardId &&
+        matchesDashboardFilterRestoreState(
+          searchParams,
+          failed.filters,
+          failed.viewId,
+        )
+      )
+        return;
+      failedFilterPreference.current = null;
+      const result = dashboardFilterPreferenceUpdate({
+        saved: savedFilters,
+        savedState: savedFiltersState,
+        viewsState: dashboardViewsState,
+        searchParams,
+      });
+      if (result.status !== "changed") return;
+      saveFilterPref(result.update, {
+        onError: () => {
+          failedFilterPreference.current = { dashboardId, filters, viewId };
+        },
+      });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
   }, [
     searchParams,
     loaded,
-    dashboard?.filters,
     dashboardId,
     savedFilters,
     saveFilterPref,
     reportScreenshot,
-    filtersLoaded,
-    filtersError,
-    dashboardViewsLoaded,
-    dashboardViewsSettled,
+    savedFiltersState,
+    dashboardViewsState,
   ]);
 
   const dashboardSaveQueue = useCallback((id: string) => {
@@ -1343,6 +1362,8 @@ function SqlDashboardPageContent({
           changed: result.changed,
           updatedAt: result.updatedAt,
           revisionId: result.revisionId,
+          changes: result.changes,
+          omittedChanges: result.omittedChanges,
         };
       },
     );
@@ -1768,6 +1789,33 @@ function SqlDashboardPageContent({
     persist({ ...dashboard, name });
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
+
+  const handleSaveFilterPreset = useCallback(
+    (filterId: string, preset: FilterPreset) => {
+      if (!dashboard?.filters) return;
+      persist({
+        ...dashboard,
+        filters: dashboard.filters.map((filter) =>
+          filter.id === filterId
+            ? {
+                ...filter,
+                // The page reads config unvalidated, and the filter bar already
+                // skips a hand-edited `presets` that isn't a list.
+                presets: Array.isArray(filter.presets)
+                  ? [...filter.presets, preset]
+                  : [preset],
+              }
+            : filter,
+        ),
+      });
+      trackEvent("dashboard_filter_preset_saved", {
+        app_name: "analytics",
+        template_name: "analytics",
+        value_count: preset.values.length,
+      });
+    },
+    [dashboard, persist],
+  );
 
   const handleSaveDescription = useCallback(() => {
     if (!dashboard) return;
@@ -2788,7 +2836,10 @@ function SqlDashboardPageContent({
           <DashboardFilterBar
             filters={dashboard.filters}
             views={dashboardViewsLoaded ? views : null}
+            viewsRefreshing={dashboardViewsState === "loading"}
             onSaveView={canEdit ? handleSaveView : undefined}
+            onSavePreset={editing ? handleSaveFilterPreset : undefined}
+            shared={dashboardShared}
           />
         )}
 

@@ -1002,8 +1002,15 @@ export default defineAction({
           verdict,
           agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
         ),
-        // The page's save toast undoes this save by restoring this revision.
+        // The page's save toast undoes this save by restoring this revision,
+        // and names the change history records on it.
         ...(outcome.revisionId ? { revisionId: outcome.revisionId } : {}),
+        ...(outcome.changeSummary
+          ? {
+              changes: outcome.changeSummary.changes,
+              omittedChanges: outcome.changeSummary.omitted,
+            }
+          : {}),
       };
     }
 

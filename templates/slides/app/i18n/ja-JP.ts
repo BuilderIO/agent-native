@@ -825,6 +825,10 @@ const messages = {
     leaveWithoutSaving: "保存せずに終了",
     editorMarkupNotSaved:
       "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    historyStepConflict:
+      "現在のプレゼンテーションと競合するため、この履歴ステップはスキップされました。",
+    historyStepFailed:
+      "この履歴操作は適用できなかったため、スキップされました。",
     textEditConflictNotSaved:
       "同じテキストが同時に別の場所で変更されたため、テキストの編集は保存されませんでした。",
   },
