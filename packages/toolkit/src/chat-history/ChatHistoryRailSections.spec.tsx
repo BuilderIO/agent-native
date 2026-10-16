@@ -214,6 +214,65 @@ describe("ChatHistoryRail sections", () => {
     expect(container.textContent).not.toContain("No chats yet");
   });
 
+  it("shows the global empty state when every section is empty and has no state", () => {
+    renderRail(
+      [
+        { id: "mine", label: "My chats", items: [] },
+        { id: "shared", label: "Shared with you", items: [] },
+      ],
+      { emptyLabel: "No chats yet" },
+    );
+
+    expect(
+      container.querySelector(".an-chat-history__state")?.textContent,
+    ).toBe("No chats yet");
+    expect(
+      container.querySelectorAll(".an-chat-history__section-label"),
+    ).toHaveLength(0);
+  });
+
+  it("shows a section empty message instead of the global empty state", () => {
+    renderRail(
+      [
+        {
+          id: "shared",
+          label: "Shared",
+          items: [],
+          emptyLabel: "No shared chats",
+        },
+      ],
+      {
+        emptyLabel: "No chats yet",
+      },
+    );
+
+    expect(container.textContent).toContain("No shared chats");
+    expect(container.textContent).not.toContain("No chats yet");
+  });
+
+  it("keeps zero-row server paging controls reachable", () => {
+    const onLoadMore = vi.fn();
+    renderRail([
+      {
+        id: "mine",
+        label: "My chats",
+        items: [],
+        hasMore: true,
+        onLoadMore,
+      },
+    ]);
+
+    const mineSection = section("mine");
+    const showAll = buttonByText(mineSection, "Show all shared")!;
+    expect(showAll).toBeDefined();
+    act(() => showAll.click());
+
+    const loadMore = buttonByText(mineSection, "Load more shared")!;
+    expect(loadMore).toBeDefined();
+    act(() => loadMore.click());
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
+
   it("renders owner and access basis on a shared row", () => {
     renderRail([
       {

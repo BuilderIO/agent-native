@@ -171,7 +171,7 @@ function toListSection(
       </>
     ) : undefined,
     emptyLabel: section.emptyLabel,
-    footer: <SectionFooter {...state} />,
+    footer: controller.canExpand ? <SectionFooter {...state} /> : undefined,
   };
 }
 

@@ -70,6 +70,24 @@ describe("ChatHistoryRail", () => {
     expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
   });
 
+  it("keeps the flat rail's list-level empty state", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={[]}
+          onSelect={() => {}}
+          onNewChat={() => {}}
+          railLabels={railLabels}
+          emptyLabel="No chats yet"
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".an-chat-history__state")?.textContent,
+    ).toBe("No chats yet");
+  });
+
   it("changes the disclosure glyph with its state, even when both labels match", () => {
     act(() => {
       root.render(

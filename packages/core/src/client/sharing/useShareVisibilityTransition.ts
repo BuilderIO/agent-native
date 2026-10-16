@@ -111,17 +111,16 @@ export function useShareVisibilityTransition(
   const [submitting, setSubmittingState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef<PendingState | null>(null);
-  const submittingRef = useRef(false);
+  // Closing the surface drops its UI state, but cannot cancel a server write.
+  const confirmingRef = useRef(new Map<string, PendingState>());
   // Bumped whenever the pending request is dropped, so a save that finishes
   // afterwards cannot touch the next request's state.
   const generationRef = useRef(0);
-  // The newest save still running. A request for the value that save is
+  // The newest save still running per resource. A request for the value it is
   // already writing joins it instead of reporting that value as persisted.
-  const inflightRef = useRef<{
-    resourceKey: string;
-    target: ShareVisibility;
-    promise: Promise<void>;
-  } | null>(null);
+  const inflightRef = useRef(
+    new Map<string, { target: ShareVisibility; promise: Promise<void> }>(),
+  );
   const latestRef = useRef({ ...options, resourceKey });
   latestRef.current = { ...options, resourceKey };
 
@@ -131,13 +130,11 @@ export function useShareVisibilityTransition(
   const reset = useCallback(() => {
     generationRef.current += 1;
     // A save that is already running settles the request itself.
-    if (!submittingRef.current) {
-      pendingRef.current?.settle.reject(
-        new ShareVisibilityNotSavedError("dropped"),
-      );
+    const state = pendingRef.current;
+    if (state && confirmingRef.current.get(state.resourceKey) !== state) {
+      state.settle.reject(new ShareVisibilityNotSavedError("dropped"));
     }
     pendingRef.current = null;
-    submittingRef.current = false;
     setPendingState(null);
     setSubmittingState(false);
     setError(null);
@@ -159,10 +156,11 @@ export function useShareVisibilityTransition(
 
   const track = useCallback(
     (key: string, target: ShareVisibility, promise: Promise<void>) => {
-      const entry = { resourceKey: key, target, promise };
-      inflightRef.current = entry;
+      const entry = { target, promise };
+      inflightRef.current.set(key, entry);
       const clear = () => {
-        if (inflightRef.current === entry) inflightRef.current = null;
+        if (inflightRef.current.get(key) === entry)
+          inflightRef.current.delete(key);
       };
       promise.then(clear, clear);
     },
@@ -172,15 +170,15 @@ export function useShareVisibilityTransition(
   const request = useCallback(
     (next: ShareVisibility): Promise<void> => {
       const latest = latestRef.current;
-      if (next === latest.current) {
-        const inflight = inflightRef.current;
-        return inflight &&
-          inflight.resourceKey === latest.resourceKey &&
-          inflight.target === next
-          ? inflight.promise
-          : Promise.resolve();
+      const inflight = inflightRef.current.get(latest.resourceKey);
+      if (inflight?.target === next) return inflight.promise;
+      if (confirmingRef.current.has(latest.resourceKey)) {
+        return notSaved("ignored");
       }
-      if (!latest.canManage || !latest.active || submittingRef.current) {
+      if (next === latest.current) {
+        return Promise.resolve();
+      }
+      if (!latest.canManage || !latest.active) {
         return notSaved("ignored");
       }
       if (!visibilityNeedsConfirmation(latest.current, next)) {
@@ -224,7 +222,7 @@ export function useShareVisibilityTransition(
 
   const confirm = useCallback(async () => {
     const state = pendingRef.current;
-    if (!state || submittingRef.current) return;
+    if (!state || confirmingRef.current.has(state.resourceKey)) return;
     const latest = latestRef.current;
     // The effects that drop a stale request run after render; a click can
     // land before them, so the request is checked against the live values.
@@ -238,7 +236,7 @@ export function useShareVisibilityTransition(
       return;
     }
     const generation = generationRef.current;
-    submittingRef.current = true;
+    confirmingRef.current.set(state.resourceKey, state);
     setSubmittingState(true);
     setError(null);
     try {
@@ -251,20 +249,21 @@ export function useShareVisibilityTransition(
       setPendingState(null);
     } catch (failure) {
       if (generation !== generationRef.current) {
-        state.settle.reject(failure);
+        state.settle.reject(new ShareVisibilityNotSavedError("dropped"));
         return;
       }
       setError(extractShareErrorMessage(failure));
     } finally {
+      confirmingRef.current.delete(state.resourceKey);
       if (generation === generationRef.current) {
-        submittingRef.current = false;
         setSubmittingState(false);
       }
     }
   }, [reset, track]);
 
   const cancel = useCallback(() => {
-    if (submittingRef.current) return;
+    const state = pendingRef.current;
+    if (state && confirmingRef.current.has(state.resourceKey)) return;
     reset();
   }, [reset]);
 

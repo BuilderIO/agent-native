@@ -457,39 +457,14 @@ function SharePanel(
   const t = useT();
   const { controller } = props;
   const {
-    inviteEmail,
-    setInviteEmail: onInviteEmailChange,
     activeShareTab,
     handleShareTabChange,
     data,
-    policy,
     visibility,
     canManage,
-    role,
-    setRole,
-    notifyPeople,
-    setNotifyPeople,
-    shareMessage,
-    setShareMessage,
-    messageOpen,
-    setMessageOpen,
     shareError,
-    setShareError,
-    suggestionsOpen,
-    setSuggestionsOpen,
-    inFlight,
-    memberSearch,
-    memberSuggestions,
-    groupSuggestions,
-    selectGroup,
-    knownMembers,
-    shares,
     handleHideInSearch,
-    handleAdd,
-    handleChangeRole,
-    handleRemove,
   } = controller;
-  const hasInviteEmail = inviteEmail.trim().length > 0;
 
   const loadFailed = controller.sharesQuery.isError && data === undefined;
   const isLoading = !loadFailed && data === undefined;

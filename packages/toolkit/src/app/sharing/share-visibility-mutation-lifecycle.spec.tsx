@@ -11,7 +11,7 @@ import {
 } from "@agent-native/core/client/sharing/useShareDialogController";
 import { ShareVisibilityNotSavedError } from "@agent-native/core/client/sharing/useShareVisibilityTransition";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { act } from "react";
+import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -127,7 +127,10 @@ interface Surface {
   unmount: () => void;
   /** The Promise API under test for this controller. */
   request: (next: ShareVisibility) => Promise<void>;
+  requestFromUi: (next: ShareVisibility) => void;
+  setOpen: (open: boolean) => void;
   confirm: () => Promise<void>;
+  cancel: () => void;
   value: () => ShareVisibility;
   /** The error the UI shows for the share surface; null when clean. */
   error: () => unknown;
@@ -394,8 +397,123 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     await tick();
 
     expect(held.status).toBe("rejected");
-    expect(held.reason).toBe(failure);
+    expect(held.reason).toBeInstanceOf(ShareVisibilityNotSavedError);
+    expect(held.reason).toMatchObject({ reason: "dropped" });
     expect(confirmed.status).toBe("resolved");
+  });
+
+  it.each(["API", "UI"])(
+    "keeps the resource locked across close/reopen for a conflicting %s choice",
+    async (caller) => {
+      const held = await start(() => surface.request("org"));
+      const confirmed = await start(() => surface.confirm());
+      await until(() => transport.writes.length === 1, "the confirmed write");
+
+      await drive(() => surface.setOpen(false));
+      await drive(() => surface.setOpen(true));
+      let newer: Outcome | undefined;
+      if (caller === "API") {
+        newer = await start(() => surface.request("private"));
+        expect(newer.status).toBe("rejected");
+        expect(newer.reason).toMatchObject({
+          name: "ShareVisibilityNotSavedError",
+          reason: "ignored",
+        });
+      } else {
+        await drive(() => surface.requestFromUi("private"));
+      }
+      await tick();
+      expect(transport.writes.map((write) => write.visibility)).toEqual([
+        "org",
+      ]);
+      expect(transport.server.visibility).toBe("private");
+      expect(held.status).toBe("pending");
+      expect(confirmed.status).toBe("pending");
+      expect(surface.error()).toBeNull();
+
+      await drive(() => transport.writes[0].resolve());
+      await tick();
+      expect(held.status).toBe("resolved");
+      expect(confirmed.status).toBe("resolved");
+      expect(transport.server.visibility).toBe("org");
+      expect(transport.writes).toHaveLength(1);
+
+      if (caller === "API") {
+        newer = await start(() => surface.request("private"));
+        expect(newer.status).toBe("pending");
+      } else {
+        await drive(() => surface.requestFromUi("private"));
+      }
+      await until(() => transport.writes.length === 2, "the newer write");
+      expect(transport.writes.map((write) => write.visibility)).toEqual([
+        "org",
+        "private",
+      ]);
+      expect(transport.server.visibility).toBe("org");
+      await drive(() => transport.writes[1].resolve());
+      await tick();
+      if (caller === "API") expect(newer?.status).toBe("resolved");
+      expect(transport.server.visibility).toBe("private");
+      expect(surface.value()).toBe("private");
+    },
+  );
+
+  it("reuses the confirmed target after close/reopen until it persists", async () => {
+    const held = await start(() => surface.request("org"));
+    const confirmed = await start(() => surface.confirm());
+    await until(() => transport.writes.length === 1, "the confirmed write");
+    await drive(() => surface.setOpen(false));
+    await drive(() => surface.setOpen(true));
+    const repeated = await start(() => surface.request("org"));
+    expect(repeated.status).toBe("pending");
+    expect(transport.writes).toHaveLength(1);
+    await drive(() => transport.writes[0].resolve());
+    await tick();
+    expect(held.status).toBe("resolved");
+    expect(confirmed.status).toBe("resolved");
+    expect(repeated.status).toBe("resolved");
+  });
+
+  it("types an invalidated confirmed failure and releases its resource lock", async () => {
+    const held = await start(() => surface.request("org"));
+    const confirmed = await start(() => surface.confirm());
+    await until(() => transport.writes.length === 1, "the confirmed write");
+    await drive(() => surface.setOpen(false));
+    await drive(() => surface.setOpen(true));
+    await drive(() =>
+      transport.writes[0].reject(new Error("obsolete failure")),
+    );
+    await tick();
+    expect(held.status).toBe("rejected");
+    expect(held.reason).toBeInstanceOf(ShareVisibilityNotSavedError);
+    expect(held.reason).toMatchObject({ reason: "dropped" });
+    expect(confirmed.status).toBe("resolved");
+    expect(surface.error()).toBeNull();
+
+    const newer = await start(() => surface.request("public"));
+    await until(() => transport.writes.length === 2, "the retry write");
+    expect(newer.status).toBe("pending");
+    await drive(() => transport.writes[1].resolve());
+    await tick();
+    expect(newer.status).toBe("resolved");
+    expect(transport.server.visibility).toBe("public");
+  });
+
+  it("reports an unawaited UI save failure without an unhandled rejection", async () => {
+    await drive(() => surface.requestFromUi("public"));
+    await until(() => transport.writes.length === 1, "the UI write");
+    await drive(() => transport.writes[0].reject(new Error("UI save failed")));
+    await tick();
+    expect(surface.error()).toBe("UI save failed");
+    expect(surface.value()).toBe("private");
+  });
+
+  it("cancels an unawaited UI confirmation without reporting a save failure", async () => {
+    await drive(() => surface.requestFromUi("org"));
+    await drive(() => surface.cancel());
+    await tick();
+    expect(transport.writes).toHaveLength(0);
+    expect(surface.error()).toBeNull();
   });
 
   it("rejects a request made while a confirmed save runs instead of leaving it hanging", async () => {
@@ -451,7 +569,10 @@ function buttonSurface(env: Env): Surface {
     },
     unmount: () => env.root().unmount(),
     request: (next) => live().handleVisibilityChange(next),
+    requestFromUi: (next) => live().handleVisibility(next),
+    setOpen: (open) => live().handleOpenChange(open),
     confirm: () => live().visibilityTransition.confirm(),
+    cancel: () => live().visibilityTransition.cancel(),
     value: () => live().visibility,
     error: () => live().shareError,
   };
@@ -459,10 +580,13 @@ function buttonSurface(env: Env): Surface {
 
 function dialogSurface(env: Env): Surface {
   let controller: ShareDialogController | undefined;
+  let setOpen!: (open: boolean) => void;
   const live = () => controller as ShareDialogController;
   function Harness() {
+    const [open, updateOpen] = useState(true);
+    setOpen = updateOpen;
     controller = useShareDialogController({
-      open: true,
+      open,
       onClose: () => undefined,
       resourceType: "document",
       resourceId: "doc-1",
@@ -483,7 +607,10 @@ function dialogSurface(env: Env): Surface {
     },
     unmount: () => env.root().unmount(),
     request: (next) => live().visibility.transition.request(next),
+    requestFromUi: (next) => live().visibility.set(next),
+    setOpen: (open) => setOpen(open),
     confirm: () => live().visibility.transition.confirm(),
+    cancel: () => live().visibility.transition.cancel(),
     value: () => live().visibility.value,
     error: () => live().error,
   };
