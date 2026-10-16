@@ -1317,6 +1317,8 @@ export default {
     drilldownHideSql: "SQL छिपाएँ",
     drilldownDownloadCsv: "CSV डाउनलोड करें",
     drilldownShowing: "{{total}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं",
+    drilldownCsvTruncated:
+      "अधूरा निर्यात: क्वेरी में {{total}} रिकॉर्ड मिले, लेकिन केवल पहले {{loaded}} लोड किए गए; फ़िल्टर के बाद इस फ़ाइल में {{exported}} शामिल हैं।",
     drilldownCountMismatch:
       "चार्ट {{chart}} दिखाता है, लेकिन {{total}} रिकॉर्ड मेल खाते हैं",
     drilldownAggregateOnly:

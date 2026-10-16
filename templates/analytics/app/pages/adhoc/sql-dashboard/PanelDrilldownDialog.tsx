@@ -1,5 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { IconDownload } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
@@ -50,8 +50,16 @@ function downloadCsv(
   name: string,
   columns: string[],
   rows: Record<string, unknown>[],
+  truncationMessage?: string,
 ) {
   const lines = [
+    ...(truncationMessage
+      ? [
+          [csvCell(truncationMessage), ...columns.slice(1).map(() => "")].join(
+            ",",
+          ),
+        ]
+      : []),
     columns.map((column) => csvCell(column)).join(","),
     ...rows.map((row) =>
       columns.map((column) => csvCell(row[column])).join(","),
@@ -76,6 +84,7 @@ export function PanelDrilldownDialog({
   onClose,
 }: PanelDrilldownDialogProps) {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const open = datum !== null;
   const [filterText, setFilterText] = useState("");
   const [showSql, setShowSql] = useState(false);
@@ -160,6 +169,14 @@ export function PanelDrilldownDialog({
       ),
     );
   }, [allRows, columns, filterText]);
+  const csvTruncationMessage =
+    totalMatching > allRows.length
+      ? t("sqlDashboard.drilldownCsvTruncated", {
+          total: formatNumber(totalMatching),
+          loaded: formatNumber(allRows.length),
+          exported: formatNumber(rows.length),
+        })
+      : undefined;
 
   const isHighlighted = (row: Record<string, unknown>) =>
     !hasRecordQuery &&
@@ -221,13 +238,20 @@ export function PanelDrilldownDialog({
               variant="ghost"
               size="sm"
               disabled={rows.length === 0}
-              onClick={() => downloadCsv(title, columns, rows)}
+              onClick={() =>
+                downloadCsv(title, columns, rows, csvTruncationMessage)
+              }
             >
               <IconDownload className="mr-1 h-4 w-4" />
               {t("sqlDashboard.drilldownDownloadCsv")}
             </Button>
           </div>
         </div>
+        {csvTruncationMessage ? (
+          <p className="shrink-0 text-xs text-muted-foreground" role="status">
+            {csvTruncationMessage}
+          </p>
+        ) : null}
         {showMismatch ? (
           <p className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
             {t("sqlDashboard.drilldownCountMismatch", {

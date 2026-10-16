@@ -1387,6 +1387,8 @@ export default {
     drilldownHideSql: "SQL ausblenden",
     drilldownDownloadCsv: "CSV herunterladen",
     drilldownShowing: "{{shown}} von {{total}} Datensätzen werden angezeigt",
+    drilldownCsvTruncated:
+      "Unvollständiger Export: Die Abfrage ergab {{total}} Datensätze, aber nur die ersten {{loaded}} wurden geladen; diese Datei enthält nach dem Filtern {{exported}}.",
     drilldownCountMismatch:
       "Das Diagramm zeigt {{chart}}, aber {{total}} Datensätze passen",
     drilldownAggregateOnly:

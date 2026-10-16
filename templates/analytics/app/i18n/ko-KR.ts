@@ -1332,6 +1332,8 @@ export default {
     drilldownHideSql: "SQL 숨기기",
     drilldownDownloadCsv: "CSV 다운로드",
     drilldownShowing: "{{total}}개 레코드 중 {{shown}}개 표시",
+    drilldownCsvTruncated:
+      "불완전한 내보내기: 쿼리 결과 {{total}}개 중 처음 {{loaded}}개만 불러왔으며, 이 파일에는 필터 적용 후 {{exported}}개가 포함되어 있습니다.",
     drilldownCountMismatch:
       "차트에는 {{chart}}이(가) 표시되지만 {{total}}개 레코드가 일치했습니다",
     drilldownAggregateOnly:

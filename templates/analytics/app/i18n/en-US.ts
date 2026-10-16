@@ -977,6 +977,8 @@ export default {
     drilldownHideSql: "Hide SQL",
     drilldownDownloadCsv: "Download CSV",
     drilldownShowing: "Showing {{shown}} of {{total}} records",
+    drilldownCsvTruncated:
+      "Incomplete export: the query matched {{total}} records, but only the first {{loaded}} were loaded; this file includes {{exported}} after filtering.",
     drilldownCountMismatch:
       "The chart shows {{chart}}, but {{total}} records matched",
     drilldownAggregateOnly:

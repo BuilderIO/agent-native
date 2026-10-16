@@ -1329,6 +1329,8 @@ export default {
     drilldownHideSql: "إخفاء SQL",
     drilldownDownloadCsv: "تنزيل CSV",
     drilldownShowing: "عرض {{shown}} من {{total}} سجل",
+    drilldownCsvTruncated:
+      "تصدير غير مكتمل: عثر الاستعلام على {{total}} سجلًا، لكن تم تحميل أول {{loaded}} فقط؛ يحتوي هذا الملف على {{exported}} بعد التصفية.",
     drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
     drilldownAggregateOnly:
       "تحتوي هذه اللوحة على صفوف مجمّعة فقط. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",

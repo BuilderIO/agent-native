@@ -1353,6 +1353,8 @@ export default {
     drilldownHideSql: "SQLを非表示",
     drilldownDownloadCsv: "CSVをダウンロード",
     drilldownShowing: "{{total}} 件中 {{shown}} 件を表示",
+    drilldownCsvTruncated:
+      "不完全なエクスポート: クエリに一致した {{total}} 件のうち、最初の {{loaded}} 件のみ読み込まれました。フィルター適用後、このファイルには {{exported}} 件が含まれます。",
     drilldownCountMismatch:
       "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
     drilldownAggregateOnly:

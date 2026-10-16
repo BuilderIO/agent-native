@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   actionQuery: {} as Record<string, unknown>,
   sqlQueries: [] as Array<{ enabled: boolean; key: unknown; sql: string }>,
+  sqlRows: [{ record: "aggregate fallback" }] as Record<string, unknown>[],
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -20,7 +21,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, string>) =>
+    values ? `${key} ${JSON.stringify(values)}` : key,
+  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
 }));
 
 vi.mock("@/lib/sql-query", () => ({
@@ -32,7 +35,7 @@ vi.mock("@/lib/sql-query", () => ({
   ) => {
     mocks.sqlQueries.push({ enabled: options.enabled, key, sql });
     return {
-      data: { rows: [{ record: "aggregate fallback" }] },
+      data: { rows: mocks.sqlRows },
       isLoading: false,
       isFetching: false,
       error: null,
@@ -130,6 +133,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mocks.sqlQueries.length = 0;
+    mocks.sqlRows = [{ record: "aggregate fallback" }];
   });
 
   afterEach(() => {
@@ -182,5 +186,46 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(container.textContent).toContain(
       "sqlDashboard.drilldownAggregateOnly",
     );
+  });
+
+  it("labels a capped CSV export as incomplete", async () => {
+    mocks.actionQuery = {
+      data: {
+        drilldown: { sql: "SELECT record, total_matching FROM signups" },
+      },
+      isError: false,
+      isLoading: false,
+      isSuccess: true,
+    };
+    mocks.sqlRows = [
+      { record: "first", total_matching: 501 },
+      { record: "second", total_matching: 501 },
+    ];
+    const createObjectURL = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:drilldown-csv");
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    await render();
+
+    expect(container.textContent).toContain(
+      "sqlDashboard.drilldownCsvTruncated",
+    );
+    const downloadButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("sqlDashboard.drilldownDownloadCsv"),
+    );
+    expect(downloadButton).toBeDefined();
+    await act(async () => downloadButton!.click());
+
+    const csv = await (createObjectURL.mock.calls[0]?.[0] as Blob).text();
+    expect(csv).toContain("sqlDashboard.drilldownCsvTruncated");
+    expect(csv).toContain("record");
+    expect(click).toHaveBeenCalledTimes(1);
+    createObjectURL.mockRestore();
+    click.mockRestore();
   });
 });

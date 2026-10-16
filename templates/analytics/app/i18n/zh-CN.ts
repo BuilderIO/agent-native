@@ -1281,6 +1281,8 @@ export default {
     drilldownHideSql: "隐藏 SQL",
     drilldownDownloadCsv: "下载 CSV",
     drilldownShowing: "显示 {{total}} 条记录中的 {{shown}} 条",
+    drilldownCsvTruncated:
+      "导出不完整：查询匹配 {{total}} 条记录，但仅加载了前 {{loaded}} 条；筛选后此文件包含 {{exported}} 条。",
     drilldownCountMismatch: "图表显示 {{chart}}，但匹配到 {{total}} 条记录",
     drilldownAggregateOnly:
       "此面板只有聚合行。与所点击数据点匹配的行已高亮显示。",

@@ -1371,6 +1371,8 @@ export default {
     drilldownHideSql: "Ocultar SQL",
     drilldownDownloadCsv: "Baixar CSV",
     drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
     drilldownCountMismatch:
       "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
     drilldownAggregateOnly:

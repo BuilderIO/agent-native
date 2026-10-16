@@ -1364,6 +1364,8 @@ export default {
     drilldownHideSql: "隱藏 SQL",
     drilldownDownloadCsv: "下載 CSV",
     drilldownShowing: "顯示 {{total}} 筆記錄中的 {{shown}} 筆",
+    drilldownCsvTruncated:
+      "匯出不完整：查詢符合 {{total}} 筆記錄，但僅載入前 {{loaded}} 筆；篩選後此檔案包含 {{exported}} 筆。",
     drilldownCountMismatch: "圖表顯示 {{chart}}，但符合的記錄有 {{total}} 筆",
     drilldownAggregateOnly: "此面板只有彙總列。與所點選資料點相符的列已標示。",
     drilldownNoRecords: "沒有相符的記錄",
