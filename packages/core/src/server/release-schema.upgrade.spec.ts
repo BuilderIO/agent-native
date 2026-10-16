@@ -30,6 +30,13 @@ const FIXTURES = ["release-schema-main-2026-10-15.sql"];
  */
 const KNOWN_DRIFT: string[] = [];
 
+/**
+ * `runMigrations` bookkeeping for lists folded into stores. Older databases
+ * keep these tables (nothing is dropped); fresh ones never create them.
+ */
+const RETIRED_BOOKKEEPING =
+  /: _(?!an_store_)[a-z_]+_migrations(?:_named)?(?:[ .]|$)/;
+
 const previousUrl = process.env.DATABASE_URL;
 const dirs: string[] = [];
 
@@ -54,7 +61,10 @@ function drift(a: SchemaFingerprint, b: SchemaFingerprint): string[] {
     for (const item of right)
       if (!left.has(item)) out.push(`upgraded only: ${item}`);
   }
-  return out.filter((entry) => !KNOWN_DRIFT.includes(entry)).sort();
+  return out
+    .filter((entry) => !KNOWN_DRIFT.includes(entry))
+    .filter((entry) => !RETIRED_BOOKKEEPING.test(entry))
+    .sort();
 }
 
 afterAll(async () => {
@@ -79,6 +89,12 @@ describe("release schema upgrade convergence", () => {
       });
 
       expect(drift(fresh, upgraded)).toEqual([]);
+      // Entries the old database applied through versioned lists are imported
+      // into the ledger, not run again.
+      const { rows } = await getDbExec().execute(
+        "SELECT count(*)::int AS n FROM _an_store_migrations WHERE source = 'legacy'",
+      );
+      expect(Number(rows[0]?.n)).toBeGreaterThanOrEqual(57);
     },
     300_000,
   );

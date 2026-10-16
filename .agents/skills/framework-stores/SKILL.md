@@ -40,8 +40,15 @@ Drizzle (see `storing-data`).
   baseline into today's `CREATE TABLE`.
 - **Idempotent and additive.** First runs can race and old functions keep
   serving during a release. New columns are nullable or defaulted.
-- **One store's tables only.** Stores apply in registry order, which is by id,
-  so a migration must not depend on another store's tables.
+- **One store's tables only, or say so.** Stores apply in registry order (by
+  id). A migration that reads or alters another store's tables needs
+  `after: ["other_store_id"]` on its store; the release pass fails on an
+  unknown id or a cycle.
+- **Folding a `runMigrations` list.** Append it whole with
+  `...fromMigrationEntries(TABLE, LIST, { data: [...] })` to the store that
+  owns its tables. Each entry keeps its old identity, so databases that
+  applied it import it instead of re-running it, and it runs only in the
+  release step. Never rename or reorder the entries.
 - **Mark data migrations.** Backfills and seeds get `kind: "data"`; a schema
   snapshot cannot replace them.
 - **Never swallow a failure inside a migration.** The ledger would record it as

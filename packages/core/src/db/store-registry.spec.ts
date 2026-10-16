@@ -16,6 +16,7 @@ import {
   __resetStoreLedgerSnapshotForTests,
   defineStore,
   findUnappliedStoreMigrations,
+  orderStoresForRelease,
   withStoreMigrationLock,
 } from "./store-registry.js";
 
@@ -399,5 +400,142 @@ describe("local and self-hosted runtimes", () => {
     await store.ready();
 
     expect(await tableExists(table)).toBe(true);
+  });
+});
+
+describe("stores folded from versioned migration lists", () => {
+  async function legacyList(
+    table: string,
+    versions: number[],
+    names: string[],
+  ) {
+    await getDbExec().execute(
+      `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
+    );
+    await getDbExec().execute(
+      `CREATE TABLE IF NOT EXISTS ${table}_named (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
+    );
+    for (const version of versions) {
+      await getDbExec().execute({
+        sql: `INSERT INTO ${table} (version) VALUES (?)`,
+        args: [version],
+      });
+    }
+    for (const name of names) {
+      await getDbExec().execute({
+        sql: `INSERT INTO ${table}_named (name) VALUES (?)`,
+        args: [name],
+      });
+    }
+  }
+
+  it("imports entries the old list applied instead of running them again", async () => {
+    const table = `widgets_${++seq}`;
+    const oldList = `_${table}_migrations`;
+    await legacyList(oldList, [2], ["named-one"]);
+    const ran: string[] = [];
+    const entry = (name: string, version: number, named: boolean) => ({
+      name: named ? name : `v${version}`,
+      run: async () => void ran.push(name),
+      legacy: { table: oldList, version, name: named ? name : undefined },
+    });
+    const store = defineStore({
+      id: table,
+      migrations: [
+        entry("named-one", 5, true),
+        entry("unnamed-two", 2, false),
+        // Named entries are gated by name only, whatever their version.
+        entry("named-later", 1, true),
+        entry("unnamed-three", 3, false),
+      ],
+    });
+
+    await withMigrationRuntime(() => store.ready());
+
+    expect(ran).toEqual(["named-later", "unnamed-three"]);
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT name, source FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ? ORDER BY name`,
+      args: [table],
+    });
+    expect(rows).toEqual([
+      { name: "named-later", source: "step" },
+      { name: "named-one", source: "legacy" },
+      { name: "v2", source: "legacy" },
+      { name: "v3", source: "step" },
+    ]);
+  });
+
+  it("runs every entry when the old list never ran on this database", async () => {
+    const table = `widgets_${++seq}`;
+    const ran: string[] = [];
+    const store = defineStore({
+      id: table,
+      migrations: [
+        {
+          name: "v1",
+          run: async () => void ran.push("v1"),
+          legacy: { table: `_${table}_migrations`, version: 1 },
+        },
+      ],
+    });
+
+    // Local runtimes never ran the release-only list; the release step does.
+    await store.ready();
+    expect(ran).toEqual([]);
+    await withMigrationRuntime(() => store.ready());
+    expect(ran).toEqual(["v1"]);
+  });
+
+  it("never runs list or data migrations from a hosted request", async () => {
+    const table = `widgets_${++seq}`;
+    const ran: string[] = [];
+    const store = defineStore({
+      id: table,
+      migrations: [
+        {
+          name: "baseline",
+          sql: `CREATE TABLE IF NOT EXISTS ${table} (id TEXT)`,
+        },
+        {
+          name: "backfill",
+          kind: "data",
+          run: async () => void ran.push("backfill"),
+        },
+        {
+          name: "v1",
+          run: async () => void ran.push("v1"),
+          legacy: { table: `_${table}_migrations`, version: 1 },
+        },
+      ],
+    });
+    simulateHostedFunction({ releaseMigrations: false });
+
+    await store.ready();
+
+    expect(await tableExists(table)).toBe(true);
+    expect(ran).toEqual([]);
+  });
+});
+
+describe("release order", () => {
+  const store = (id: string, after?: string[]) =>
+    defineStore({ id, after, migrations: [{ name: "a", sql: "SELECT 1" }] });
+
+  it("runs a store's dependencies first, otherwise in registry order", () => {
+    const ordered = orderStoresForRelease([
+      store("observability", ["chat_threads"]),
+      store("alpha"),
+      store("chat_threads"),
+    ]).map((s) => s.id);
+    expect(ordered).toEqual(["chat_threads", "observability", "alpha"]);
+  });
+
+  it("fails on a cycle or an unknown dependency", () => {
+    expect(() =>
+      orderStoresForRelease([store("a", ["b"]), store("b", ["a"])]),
+    ).toThrow(/cycle: a -> b -> a/);
+    expect(() => orderStoresForRelease([store("a", ["missing"])])).toThrow(
+      /unknown store "missing"/,
+    );
   });
 });
