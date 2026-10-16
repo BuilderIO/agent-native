@@ -1421,7 +1421,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
   ).toBe(false);
 });
 
-it("ignores only known aborts for requests pending at reload navigation", () => {
+it("defers status probes to strict navigation evidence in the reload abort matcher", () => {
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-lab-states",
@@ -1431,7 +1431,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       true,
       100,
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-deck-access-status",
@@ -1441,7 +1441,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       true,
       100,
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/claim",
@@ -1617,7 +1617,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       true,
       100,
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-deck-access-status",
@@ -1627,7 +1627,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       true,
       100,
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-deck-access-status",
@@ -1791,7 +1791,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
         },
       ],
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "step 12", [
       candidate,
@@ -2160,10 +2160,12 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
+    sessionId: "session-id",
     requestAgeMs: 100,
     failureAgeMs: 20,
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
+    competingClaimPendingAtFailure: false,
     requestWasPendingAtNavigation: true,
   };
 
@@ -2238,6 +2240,11 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
   ).toBe(false);
   expect(
     isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, competingClaimPendingAtFailure: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
       { ...candidate, failureAgeMs: 251 },
     ]),
   ).toBe(false);
@@ -2256,6 +2263,18 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
     isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
       candidate,
       { ...candidate, requestAgeMs: 110 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      candidate,
+      {
+        ...candidate,
+        url: "http://localhost:45715/_agent-native/browser-sessions/other-session/requests/claim",
+        pathname:
+          "/_agent-native/browser-sessions/other-session/requests/claim",
+        sessionId: "other-session",
+      },
     ]),
   ).toBe(false);
 });

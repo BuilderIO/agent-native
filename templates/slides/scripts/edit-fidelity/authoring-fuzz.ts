@@ -569,14 +569,6 @@ const cleanupPollRequestRule: SaveReloadRequestAbortRule = {
 };
 
 const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
-  {
-    path: "/_agent-native/actions/get-lab-states",
-    errorTexts: navigationAbortErrors,
-  },
-  {
-    path: "/_agent-native/actions/get-deck-access-status",
-    errorTexts: navigationAbortErrors,
-  },
   browserSessionRegistrationRequestRule,
   browserSessionClaimRequestRule,
   browserSessionHeartbeatRequestRule,
@@ -1628,10 +1620,12 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
     url: string;
     pathname: string;
     method: string;
+    sessionId: string;
     requestAgeMs: number;
     failureAgeMs: number;
     sameOrigin: boolean;
     competingClaimStartedAfterFailure: boolean;
+    competingClaimPendingAtFailure: boolean;
     requestWasPendingAtNavigation: boolean;
   }>,
 ) {
@@ -1647,26 +1641,26 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
   const taggedPoll =
     message ===
     "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  if (candidates.length !== 1) return false;
+  const [candidate] = candidates;
+  if (!candidate) return false;
 
   return (
-    candidates.filter(
-      (candidate) =>
-        candidate.method === "POST" &&
-        /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
-          candidate.pathname,
-        ) &&
-        candidate.requestWasPendingAtNavigation &&
-        (candidate.sameOrigin ||
-          taggedPoll ||
-          (corsUrl !== null && candidate.url === corsUrl)) &&
-        !candidate.competingClaimStartedAfterFailure &&
-        candidate.requestAgeMs >= 0 &&
-        candidate.requestAgeMs <
-          cleanupNavigationBrowserSessionMaxRequestAgeMs &&
-        candidate.failureAgeMs >= 0 &&
-        candidate.failureAgeMs <= retiredBrowserSessionPollConsoleGraceMs &&
-        (corsUrl === null || candidate.url === corsUrl),
-    ).length === 1
+    candidate.method === "POST" &&
+    /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+      candidate.pathname,
+    ) &&
+    candidate.requestWasPendingAtNavigation &&
+    (candidate.sameOrigin ||
+      taggedPoll ||
+      (corsUrl !== null && candidate.url === corsUrl)) &&
+    !candidate.competingClaimStartedAfterFailure &&
+    !candidate.competingClaimPendingAtFailure &&
+    candidate.requestAgeMs >= 0 &&
+    candidate.requestAgeMs < cleanupNavigationBrowserSessionMaxRequestAgeMs &&
+    candidate.failureAgeMs >= 0 &&
+    candidate.failureAgeMs <= retiredBrowserSessionPollConsoleGraceMs &&
+    (corsUrl === null || candidate.url === corsUrl)
   );
 }
 

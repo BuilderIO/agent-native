@@ -5604,7 +5604,8 @@ async function runAuthoringFuzzQa(
     >();
     const cleanupRequestFinishedAt = new WeakMap<any, number>();
     const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
-    const cleanupClaimSequenceBySession = new Map<string, number>();
+    const cleanupClaimSequenceByPage = new Map<Page, number>();
+    const cleanupPendingClaimRequestsByPage = new Map<Page, Set<any>>();
     const cleanupSessionIdsByPage = new Map<Page, Set<string>>();
     const cleanupMainFrameNavigationStartsByPage = new Map<Page, number[]>();
     const cleanupNavigationRetiredSessionIdByPage = new Map<
@@ -5621,6 +5622,7 @@ async function runAuthoringFuzzQa(
       failedAt: number;
       sameOrigin: boolean;
       sequence: number;
+      competingClaimPendingAtFailure: boolean;
       requestWasPendingAtNavigation: boolean;
     }> = [];
     let cleanupClaimSequence = 0;
@@ -5631,6 +5633,14 @@ async function runAuthoringFuzzQa(
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
     const cleanupNavigationCompetingSessionRequests = new Set<string>();
     const cleanupSessionRequestKeys = cleanupNavigationSessionRequestKeys;
+    const removePendingCleanupClaim = (target: Page, request: any) => {
+      const pendingClaims = cleanupPendingClaimRequestsByPage.get(target);
+      if (!pendingClaims) return;
+      pendingClaims.delete(request);
+      if (pendingClaims.size === 0) {
+        cleanupPendingClaimRequestsByPage.delete(target);
+      }
+    };
     const cleanupSessionIdentityFor = (
       request: any,
     ): CleanupSessionIdentity | null => {
@@ -5712,10 +5722,11 @@ async function runAuthoringFuzzQa(
         if (sessionIdentity?.kind === "poll") {
           cleanupClaimSequence += 1;
           cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
-          cleanupClaimSequenceBySession.set(
-            sessionIdentity.sessionId,
-            cleanupClaimSequence,
-          );
+          cleanupClaimSequenceByPage.set(target, cleanupClaimSequence);
+          const pendingClaims =
+            cleanupPendingClaimRequestsByPage.get(target) ?? new Set();
+          pendingClaims.add(request);
+          cleanupPendingClaimRequestsByPage.set(target, pendingClaims);
           const sessionIds = cleanupSessionIdsByPage.get(target) ?? new Set();
           sessionIds.add(sessionIdentity.sessionId);
           cleanupSessionIdsByPage.set(target, sessionIds);
@@ -5765,6 +5776,7 @@ async function runAuthoringFuzzQa(
           "finished",
           Date.now(),
         );
+        removePendingCleanupClaim(target, request);
         cleanupRequestStartTimes.delete(request);
       };
       const onRequestFailed = (request: any) => {
@@ -5782,6 +5794,9 @@ async function runAuthoringFuzzQa(
             failedAt,
             sameOrigin: requestUrl.origin === new URL(base).origin,
             sequence: cleanupClaimSequenceByRequest.get(request) ?? 0,
+            competingClaimPendingAtFailure: [
+              ...(cleanupPendingClaimRequestsByPage.get(target) ?? []),
+            ].some((pendingRequest) => pendingRequest !== request),
             requestWasPendingAtNavigation: (
               cleanupMainFrameNavigationStartsByPage.get(target) ?? []
             ).some(
@@ -5797,6 +5812,7 @@ async function runAuthoringFuzzQa(
           "failed",
           Date.now(),
         );
+        removePendingCleanupClaim(target, request);
         cleanupRequestStartTimes.delete(request);
       };
       target.on("request", onRequest);
@@ -6093,8 +6109,10 @@ async function runAuthoringFuzzQa(
             failureAgeMs: now - candidate.failedAt,
             sameOrigin: candidate.sameOrigin,
             competingClaimStartedAfterFailure:
-              (cleanupClaimSequenceBySession.get(candidate.sessionId) ??
-                candidate.sequence) > candidate.sequence,
+              (cleanupClaimSequenceByPage.get(target) ?? candidate.sequence) >
+              candidate.sequence,
+            competingClaimPendingAtFailure:
+              candidate.competingClaimPendingAtFailure,
             requestWasPendingAtNavigation:
               candidate.requestWasPendingAtNavigation,
           }));
