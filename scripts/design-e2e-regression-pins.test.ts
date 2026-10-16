@@ -878,6 +878,151 @@ test("runtime skip, fixme, and fail annotations reject a pinned test body", () =
   );
 });
 
+test("named test callbacks stay registered and retain runtime suppression", () => {
+  const source = [
+    "function sharedBody() {",
+    '  test.fixme(true, "shared callback is quarantined");',
+    "}",
+    'test("active unrelated behavior", () => {});',
+    'test("pinned behavior", sharedBody);',
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(source);
+  const registration = registrations[1];
+
+  assert.deepEqual(registration, {
+    file: "",
+    title: "pinned behavior",
+    dynamic: false,
+    line: 5,
+    suppressionKind: "runtime",
+    suppressionReason: "test.fixme suppresses this test at line 2",
+  });
+  assert.deepEqual(registrations[0], {
+    file: "",
+    title: "active unrelated behavior",
+    dynamic: false,
+    line: 4,
+    suppressionKind: null,
+  });
+  assert.throws(
+    () => findDesignE2ETestLine(source, "pinned behavior"),
+    /must run without test modifiers or suite\/file suppression/,
+  );
+
+  const directlyQuarantined = [
+    "function sharedBody() {}",
+    'test.fixme("quarantined behavior", sharedBody);',
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestRegistrations(directlyQuarantined)[0]?.suppressionKind,
+    "direct",
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(directlyQuarantined, "quarantined behavior"),
+    /must run without test modifiers or suite\/file suppression/,
+  );
+});
+
+test("uninvoked function registrations fail closed without leaking runtime skips", () => {
+  const source = [
+    "function unusedHelper() {",
+    '  test("pinned behavior", () => {});',
+    '  test.skip(true, "unused helper skip");',
+    "}",
+    'test("active unrelated behavior", () => {});',
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(source);
+
+  assert.deepEqual(registrations[0], {
+    file: "",
+    title: "pinned behavior",
+    dynamic: false,
+    line: 2,
+    suppressionKind: "runtime",
+    suppressionReason:
+      "Unable to inspect test registration in an uninvoked function body",
+  });
+  assert.deepEqual(registrations[1], {
+    file: "",
+    title: "active unrelated behavior",
+    dynamic: false,
+    line: 5,
+    suppressionKind: null,
+  });
+  assert.throws(
+    () => findDesignE2ETestLine(source, "pinned behavior"),
+    /Unable to inspect test registration in an uninvoked function body/,
+  );
+
+  const suiteSource = [
+    'test.describe("active suite", () => {',
+    "  function unusedHelper() {",
+    '    test.skip(true, "unused helper skip");',
+    "  }",
+    '  test("active suite sibling", () => {});',
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestRegistrations(suiteSource)[0]?.suppressionKind,
+    null,
+  );
+});
+
+test("named describe callbacks preserve suite scope and fail closed when unresolved", () => {
+  const activeSuite = [
+    "function suiteBody() {",
+    '  test("pinned behavior", () => {});',
+    "}",
+    'test.describe.serial("active suite", suiteBody);',
+  ].join("\n");
+  assert.deepEqual(findDesignE2ETestRegistrations(activeSuite)[0], {
+    file: "",
+    title: "pinned behavior",
+    dynamic: false,
+    line: 2,
+    suppressionKind: null,
+  });
+
+  const skippedSuite = [
+    "function suiteBody() {",
+    '  test("pinned behavior", () => {});',
+    "}",
+    'test.describe.skip("skipped suite", suiteBody);',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(skippedSuite)[0]?.suppressionKind,
+    "suite",
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(skippedSuite, "pinned behavior"),
+    /must run without test modifiers or suite\/file suppression/,
+  );
+
+  assert.throws(
+    () =>
+      findDesignE2ETestRegistrations(
+        'test.describe.skip("unknown suite", buildSuite());',
+      ),
+    /Unable to inspect the test\.describe callback body/,
+  );
+});
+
+test("unresolved named test callbacks fail closed for runtime suppression", () => {
+  const source = [
+    'import { sharedBody } from "./shared-callback.ts";',
+    'test("pinned behavior", sharedBody);',
+  ].join("\n");
+
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(source)[0]?.suppressionKind,
+    "runtime",
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(source, "pinned behavior"),
+    /Unable to inspect the test callback body/,
+  );
+});
+
 test("describe details overloads preserve enclosing and unrelated suite scope", () => {
   const nestedDetails = [
     'test.describe("outer", { tag: "@outer" }, () => {',

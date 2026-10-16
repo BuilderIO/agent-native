@@ -95,7 +95,47 @@ test("new quarantine exceptions fail when review metadata is missing", () => {
   assert.match(violations.join("\n"), /reason\/evidence\/owner/);
 });
 
-test("an explicit file and title mapping preserves a renamed quarantine", () => {
+test("renamed quarantines need a separate addition receipt for suppressed targets", () => {
+  const renamed = {
+    file: "renamed.spec.ts",
+    title: "clarified behavior",
+    modifier: "fixme",
+  };
+  const rename = {
+    action: "rename",
+    from: { file: baseFixme.file, title: baseFixme.title },
+    to: { file: renamed.file, title: renamed.title },
+    reason: "The test file and title were clarified.",
+    evidence: "issue-123",
+  };
+
+  assert.match(
+    compareQuarantineSnapshots([baseFixme], [renamed], [rename]).join("\n"),
+    /new test suppression needs an explicit exception/,
+  );
+  assert.match(
+    compareQuarantineSnapshots(
+      [baseFixme],
+      [renamed],
+      [
+        rename,
+        {
+          action: "add",
+          file: renamed.file,
+          title: renamed.title,
+          reason: "A reproducible failure remains.",
+          evidence: "issue-123",
+          owner: "",
+          expires: "2026-10-16",
+        },
+      ],
+      "2026-10-16",
+    ).join("\n"),
+    /new suppression exception needs non-empty reason\/evidence\/owner and a future YYYY-MM-DD expiry/,
+  );
+});
+
+test("a renamed quarantine with a paired addition receipt is accepted", () => {
   const renamed = {
     file: "renamed.spec.ts",
     title: "clarified behavior",
@@ -113,7 +153,17 @@ test("an explicit file and title mapping preserves a renamed quarantine", () => 
           reason: "The test file and title were clarified.",
           evidence: "issue-123",
         },
+        {
+          action: "add",
+          file: renamed.file,
+          title: renamed.title,
+          reason: "The renamed test remains blocked.",
+          evidence: "issue-456",
+          owner: "design-e2e",
+          expires: "2026-11-16",
+        },
       ],
+      "2026-10-16",
     ),
     [],
   );
@@ -227,6 +277,29 @@ test("AST comparison catches quarantines hidden by enclosing or runtime suppress
       [],
     ).join("\n"),
     /suppressed test changed to broad suite suppression/,
+  );
+});
+
+test("generated callback quarantines are recorded and require an exception", () => {
+  const generated = findDesignE2ETestRegistrations(
+    '["one"].forEach((name) => { test.fixme(name, () => {}); });',
+    baseFixme.file,
+  );
+
+  assert.deepEqual(generated, [
+    {
+      file: baseFixme.file,
+      title: "expression:name",
+      dynamic: true,
+      line: 1,
+      modifier: "fixme",
+      suppressionKind: "direct",
+      suppressionReason: "Unable to inspect conditional test.fixme at line 1",
+    },
+  ]);
+  assert.match(
+    compareQuarantineSnapshots([], generated, []).join("\n"),
+    /new test suppression needs an explicit exception/,
   );
 });
 
@@ -354,6 +427,16 @@ test("unchanged removal and rename receipts persist without authorizing new chan
     title: "renamed behavior",
     modifier: "fixme",
   };
+  const addition = {
+    action: "add",
+    file: renamedHead.file,
+    title: renamedHead.title,
+    reason: "The renamed test still reproduces the browser failure.",
+    evidence: "issue-790",
+    owner: "design-e2e",
+    expires: "2026-11-16",
+  };
+  const renamedReceipts = [rename, addition];
 
   assert.deepEqual(
     compareQuarantineSnapshots([], [], [removal], "2026-10-16", [removal]),
@@ -363,9 +446,9 @@ test("unchanged removal and rename receipts persist without authorizing new chan
     compareQuarantineSnapshots(
       [renamedHead],
       [renamedHead],
-      [rename],
+      renamedReceipts,
       "2026-10-16",
-      [rename],
+      renamedReceipts,
     ),
     [],
   );
@@ -374,6 +457,42 @@ test("unchanged removal and rename receipts persist without authorizing new chan
       removal,
     ]).join("\n"),
     /disappeared without a removal or rename exception/,
+  );
+});
+
+test("an active renamed quarantine still checks its historical addition expiry", () => {
+  const renamedHead = {
+    file: "renamed.spec.ts",
+    title: "renamed behavior",
+    modifier: "fixme",
+  };
+  const rename = {
+    action: "rename",
+    from: { file: baseFixme.file, title: baseFixme.title },
+    to: { file: renamedHead.file, title: renamedHead.title },
+    reason: "The test file and title were clarified.",
+    evidence: "issue-789",
+  };
+  const addition = {
+    action: "add",
+    file: renamedHead.file,
+    title: renamedHead.title,
+    reason: "The renamed test still reproduces the browser failure.",
+    evidence: "issue-790",
+    owner: "design-e2e",
+    expires: "2026-11-16",
+  };
+  const receipts = [rename, addition];
+
+  assert.match(
+    compareQuarantineSnapshots(
+      [renamedHead],
+      [renamedHead],
+      receipts,
+      "2026-11-17",
+      receipts,
+    ).join("\n"),
+    /active quarantine exception needs a non-empty owner and a future YYYY-MM-DD expiry/,
   );
 });
 

@@ -1,8 +1,19 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import ts from "typescript";
+import type * as TypeScript from "typescript";
+
+const require = createRequire(import.meta.url);
+let loadedTypeScript: typeof TypeScript | undefined;
+
+function loadTypeScript(): typeof TypeScript {
+  if (!loadedTypeScript) {
+    loadedTypeScript = require("typescript") as typeof TypeScript;
+  }
+  return loadedTypeScript;
+}
 
 export const DESIGN_E2E_REGRESSION_SHARDS = [
   "inspector-1a",
@@ -527,6 +538,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
 export function parseDesignE2ERegressionPins(
   source: string,
 ): DesignE2ERegressionPin[] {
+  const ts = loadTypeScript();
   const sourceFile = ts.createSourceFile(
     "design-e2e-regression-pins.ts",
     source,
@@ -645,12 +657,17 @@ type RegistrationWalkContext = {
   currentTest?: MutableRegistration;
   testInfoNames: Set<string>;
   suiteRuntimeScopes: string[][];
+  unknownExecutionContext: boolean;
 };
 
-function propertyPath(expression: ts.Expression): string[] {
+function propertyPath(
+  expression: TypeScript.Expression,
+  ts: typeof TypeScript,
+): string[] {
   if (ts.isIdentifier(expression)) return [expression.text];
   if (ts.isPropertyAccessExpression(expression)) {
-    return [...propertyPath(expression.expression), expression.name.text];
+    const parentPath = propertyPath(expression.expression, ts);
+    return parentPath.length ? [...parentPath, expression.name.text] : [];
   }
   if (
     ts.isElementAccessExpression(expression) &&
@@ -658,15 +675,15 @@ function propertyPath(expression: ts.Expression): string[] {
     (ts.isStringLiteral(expression.argumentExpression) ||
       ts.isNoSubstitutionTemplateLiteral(expression.argumentExpression))
   ) {
-    return [
-      ...propertyPath(expression.expression),
-      expression.argumentExpression.text,
-    ];
+    const parentPath = propertyPath(expression.expression, ts);
+    return parentPath.length
+      ? [...parentPath, expression.argumentExpression.text]
+      : [];
   }
   return [];
 }
 
-function testImports(sourceFile: ts.SourceFile) {
+function testImports(sourceFile: TypeScript.SourceFile, ts: typeof TypeScript) {
   const bindings = new Set(["test"]);
   const namespaces = new Set<string>();
   for (const statement of sourceFile.statements) {
@@ -691,11 +708,12 @@ function testImports(sourceFile: ts.SourceFile) {
 }
 
 function normalizedTestPath(
-  expression: ts.Expression,
+  expression: TypeScript.Expression,
   bindings: Set<string>,
   namespaces: Set<string>,
+  ts: typeof TypeScript,
 ) {
-  const segments = propertyPath(expression);
+  const segments = propertyPath(expression, ts);
   if (bindings.has(segments[0] ?? "")) return segments;
   if (namespaces.has(segments[0] ?? "") && segments[1] === "test") {
     return segments.slice(1);
@@ -704,18 +722,31 @@ function normalizedTestPath(
 }
 
 function testCallKind(
-  call: ts.CallExpression,
+  call: TypeScript.CallExpression,
   bindings: Set<string>,
   namespaces: Set<string>,
   testInfoNames: Set<string>,
+  ts: typeof TypeScript,
 ): { kind: "test" | "describe" | "runtime"; modifier?: string } | undefined {
-  const segments = propertyPath(call.expression);
-  const testPath = normalizedTestPath(call.expression, bindings, namespaces);
+  const segments = propertyPath(call.expression, ts);
+  const testPath = normalizedTestPath(
+    call.expression,
+    bindings,
+    namespaces,
+    ts,
+  );
   if (testPath.length === 1) return { kind: "test" };
   if (testPath.length === 2 && TEST_MODIFIERS.has(testPath[1]!)) {
     return { kind: "test", modifier: testPath[1] };
   }
   if (testPath.length === 2 && testPath[1] === "describe") {
+    return { kind: "describe" };
+  }
+  if (
+    testPath.length === 3 &&
+    testPath[1] === "describe" &&
+    (testPath[2] === "serial" || testPath[2] === "parallel")
+  ) {
     return { kind: "describe" };
   }
   if (
@@ -736,6 +767,7 @@ function testCallKind(
       expression.expression.expression,
       bindings,
       namespaces,
+      ts,
     );
     if (receiverPath.length === 2 && receiverPath[1] === "info") {
       return { kind: "runtime", modifier: expression.name.text };
@@ -752,15 +784,41 @@ function testCallKind(
 }
 
 function isCallback(
-  node: ts.Node,
-): node is ts.ArrowFunction | ts.FunctionExpression {
+  node: TypeScript.Node,
+  ts: typeof TypeScript,
+): node is TypeScript.ArrowFunction | TypeScript.FunctionExpression {
   return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
+function isTestCallbackArgument(
+  expression: TypeScript.Expression,
+  ts: typeof TypeScript,
+): boolean {
+  let candidate = expression;
+  while (
+    ts.isParenthesizedExpression(candidate) ||
+    ts.isAsExpression(candidate) ||
+    ts.isSatisfiesExpression(candidate) ||
+    ts.isTypeAssertionExpression(candidate) ||
+    ts.isNonNullExpression(candidate)
+  ) {
+    candidate = candidate.expression;
+  }
+  return (
+    isCallback(candidate, ts) ||
+    ts.isIdentifier(candidate) ||
+    ts.isCallExpression(candidate) ||
+    ts.isPropertyAccessExpression(candidate) ||
+    ts.isElementAccessExpression(candidate) ||
+    ts.isConditionalExpression(candidate)
+  );
+}
+
 function modifierSuppression(
-  call: ts.CallExpression,
-  sourceFile: ts.SourceFile,
+  call: TypeScript.CallExpression,
+  sourceFile: TypeScript.SourceFile,
   modifier: string,
+  ts: typeof TypeScript,
 ): string | undefined {
   if (modifier === "only") return "focus";
   if (["fixme", "skip", "fail"].includes(modifier)) {
@@ -778,8 +836,9 @@ function modifierSuppression(
 }
 
 function parseTestTitle(
-  argument: ts.Expression,
-  sourceFile: ts.SourceFile,
+  argument: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  ts: typeof TypeScript,
 ): { title: string; dynamic: boolean } {
   if (
     ts.isStringLiteral(argument) ||
@@ -796,10 +855,77 @@ function parseTestTitle(
   };
 }
 
+type TestCallback =
+  | TypeScript.ArrowFunction
+  | TypeScript.FunctionExpression
+  | TypeScript.FunctionDeclaration;
+
+type NamedTestCallback = TypeScript.Expression | TypeScript.FunctionDeclaration;
+
+function namedTestCallbacks(
+  sourceFile: TypeScript.SourceFile,
+  ts: typeof TypeScript,
+): Map<string, NamedTestCallback | undefined> {
+  const callbacks = new Map<string, NamedTestCallback | undefined>();
+  const register = (name: string, callback: NamedTestCallback) => {
+    if (callbacks.has(name)) {
+      callbacks.set(name, undefined);
+    } else {
+      callbacks.set(name, callback);
+    }
+  };
+  const visit = (node: TypeScript.Node) => {
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      register(node.name.text, node);
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer
+    ) {
+      register(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return callbacks;
+}
+
+function resolveTestCallback(
+  expression: TypeScript.Expression,
+  callbacks: Map<string, NamedTestCallback | undefined>,
+  ts: typeof TypeScript,
+  resolving = new Set<string>(),
+): TestCallback | undefined {
+  let candidate = expression;
+  while (
+    ts.isParenthesizedExpression(candidate) ||
+    ts.isAsExpression(candidate) ||
+    ts.isSatisfiesExpression(candidate) ||
+    ts.isTypeAssertionExpression(candidate) ||
+    ts.isNonNullExpression(candidate)
+  ) {
+    candidate = candidate.expression;
+  }
+  if (ts.isArrowFunction(candidate) || ts.isFunctionExpression(candidate)) {
+    return candidate;
+  }
+  if (ts.isFunctionDeclaration(candidate) && candidate.body) return candidate;
+  if (!ts.isIdentifier(candidate) || resolving.has(candidate.text)) {
+    return undefined;
+  }
+
+  const callback = callbacks.get(candidate.text);
+  if (!callback) return undefined;
+  resolving.add(candidate.text);
+  if (ts.isFunctionDeclaration(callback) && callback.body) return callback;
+  return resolveTestCallback(callback, callbacks, ts, resolving);
+}
+
 export function findDesignE2ETestRegistrations(
   source: string,
   file = "",
 ): DesignE2ETestRegistration[] {
+  const ts = loadTypeScript();
   const sourceFile = ts.createSourceFile(
     file || "design.spec.ts",
     source,
@@ -816,53 +942,130 @@ export function findDesignE2ETestRegistrations(
     );
   }
 
-  const { bindings, namespaces } = testImports(sourceFile);
+  const { bindings, namespaces } = testImports(sourceFile, ts);
+  const namedCallbacks = namedTestCallbacks(sourceFile, ts);
+  const resolvedCallbacks = new Set<TypeScript.Node>();
+  const collectResolvedCallbacks = (node: TypeScript.Node) => {
+    if (ts.isCallExpression(node)) {
+      const classification = testCallKind(
+        node,
+        bindings,
+        namespaces,
+        new Set(["testInfo"]),
+        ts,
+      );
+      if (
+        classification?.kind === "test" ||
+        classification?.kind === "describe"
+      ) {
+        const callbackArgument = node.arguments.at(-1);
+        const callback = callbackArgument
+          ? resolveTestCallback(callbackArgument, namedCallbacks, ts)
+          : undefined;
+        if (callback) resolvedCallbacks.add(callback);
+      }
+    }
+    ts.forEachChild(node, collectResolvedCallbacks);
+  };
+  collectResolvedCallbacks(sourceFile);
   const registrations: MutableRegistration[] = [];
   const fileSuppressions: string[] = [];
   let hasFocus = false;
-  const visit = (node: ts.Node, context: RegistrationWalkContext) => {
+  const visit = (
+    node: TypeScript.Node,
+    context: RegistrationWalkContext,
+    visitFunctionBody = false,
+  ) => {
+    if (
+      !visitFunctionBody &&
+      (ts.isArrowFunction(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isConstructorDeclaration(node) ||
+        ts.isGetAccessorDeclaration(node) ||
+        ts.isSetAccessorDeclaration(node))
+    ) {
+      if (resolvedCallbacks.has(node)) return;
+      visit(
+        node,
+        {
+          ...context,
+          currentTest: undefined,
+          unknownExecutionContext: true,
+        },
+        true,
+      );
+      return;
+    }
+
     if (ts.isCallExpression(node)) {
       const classification = testCallKind(
         node,
         bindings,
         namespaces,
         context.testInfoNames,
+        ts,
       );
       if (classification?.kind === "describe") {
+        const callbackArgument = node.arguments.at(-1);
+        const callback = callbackArgument
+          ? resolveTestCallback(callbackArgument, namedCallbacks, ts)
+          : undefined;
+        if (!callback || !callbackArgument) {
+          const line =
+            sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+              .line + 1;
+          throw new PinInspectionUnavailableError(
+            `${file || "Design E2E source"}:${line}: Unable to inspect the test.describe callback body`,
+          );
+        }
         const suiteSuppressions = [...context.suiteSuppressions];
         if (classification.modifier) {
           if (classification.modifier !== "only") {
             suiteSuppressions.push(classification.modifier);
           }
-          if (classification.modifier === "only") hasFocus = true;
+          if (
+            classification.modifier === "only" &&
+            !context.unknownExecutionContext
+          ) {
+            hasFocus = true;
+          }
         }
+        const suiteContext: RegistrationWalkContext = {
+          ...context,
+          suiteSuppressions,
+          suiteRuntimeScopes: [...context.suiteRuntimeScopes, []],
+        };
         for (const argument of node.arguments) {
-          visit(
-            argument,
-            isCallback(argument)
-              ? {
-                  ...context,
-                  suiteSuppressions,
-                  suiteRuntimeScopes: [...context.suiteRuntimeScopes, []],
-                }
-              : context,
-          );
+          if (argument === callbackArgument) {
+            visit(callback, suiteContext, true);
+          } else {
+            visit(argument, context);
+          }
         }
         return;
       }
 
       if (classification?.kind === "test") {
-        const callback = node.arguments.find(isCallback);
-        if (!context.currentTest && callback) {
+        const callbackArgument = node.arguments.at(-1);
+        const hasCallbackArgument =
+          callbackArgument !== undefined &&
+          isTestCallbackArgument(callbackArgument, ts);
+        const callback =
+          hasCallbackArgument && callbackArgument
+            ? resolveTestCallback(callbackArgument, namedCallbacks, ts)
+            : undefined;
+        if (!context.currentTest && hasCallbackArgument && callbackArgument) {
           const titleArgument = node.arguments[0];
           if (!titleArgument) {
             throw new Error(
               `${file}:${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}: test registration has no title`,
             );
           }
-          const identity = parseTestTitle(titleArgument, sourceFile);
+          const identity = parseTestTitle(titleArgument, sourceFile, ts);
           const directReason = classification.modifier
-            ? modifierSuppression(node, sourceFile, classification.modifier)
+            ? modifierSuppression(node, sourceFile, classification.modifier, ts)
             : undefined;
           const suiteModifier = context.suiteSuppressions.find(
             (modifier) => modifier !== "only",
@@ -870,6 +1073,14 @@ export function findDesignE2ETestRegistrations(
           const suiteReason = suiteModifier
             ? `enclosing test.describe.${suiteModifier} can suppress this test`
             : undefined;
+          const callbackInspectionReason = callback
+            ? undefined
+            : "Unable to inspect the test callback body";
+          const executionInspectionReason = context.unknownExecutionContext
+            ? "Unable to inspect test registration in an uninvoked function body"
+            : undefined;
+          const inspectionReason =
+            callbackInspectionReason ?? executionInspectionReason;
           const line =
             sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
               .line + 1;
@@ -884,27 +1095,44 @@ export function findDesignE2ETestRegistrations(
               ? "direct"
               : suiteReason
                 ? "suite"
-                : null,
-            ...((directReason ?? suiteReason)
-              ? { suppressionReason: directReason ?? suiteReason }
+                : inspectionReason
+                  ? "runtime"
+                  : null,
+            ...((directReason ?? suiteReason ?? inspectionReason)
+              ? {
+                  suppressionReason:
+                    directReason ?? suiteReason ?? inspectionReason,
+                }
               : {}),
             suiteRuntimeScopes: context.suiteRuntimeScopes,
           };
-          if (classification.modifier === "only") hasFocus = true;
+          if (
+            classification.modifier === "only" &&
+            !context.unknownExecutionContext
+          ) {
+            hasFocus = true;
+          }
           registrations.push(item);
 
           const testInfoNames = new Set(context.testInfoNames);
-          const testInfoParameter = callback.parameters[1]?.name;
+          const testInfoParameter = callback?.parameters[1]?.name;
           if (testInfoParameter && ts.isIdentifier(testInfoParameter)) {
             testInfoNames.add(testInfoParameter.text);
           }
           for (const argument of node.arguments) {
-            visit(
-              argument,
-              isCallback(argument)
-                ? { ...context, currentTest: item, testInfoNames }
-                : context,
-            );
+            if (argument === callbackArgument && callback) {
+              visit(
+                callback,
+                {
+                  ...context,
+                  currentTest: item,
+                  testInfoNames,
+                },
+                true,
+              );
+            } else {
+              visit(argument, context);
+            }
           }
           return;
         }
@@ -914,6 +1142,7 @@ export function findDesignE2ETestRegistrations(
             node,
             sourceFile,
             classification.modifier,
+            ts,
           );
           if (reason) {
             if (context.currentTest) {
@@ -921,7 +1150,7 @@ export function findDesignE2ETestRegistrations(
                 context.currentTest.suppressionKind = "runtime";
                 context.currentTest.suppressionReason = reason;
               }
-            } else {
+            } else if (!context.unknownExecutionContext) {
               const suiteScope = context.suiteRuntimeScopes.at(-1);
               if (suiteScope) suiteScope.push(reason);
               else fileSuppressions.push(reason);
@@ -933,6 +1162,7 @@ export function findDesignE2ETestRegistrations(
           node,
           sourceFile,
           classification.modifier!,
+          ts,
         );
         if (reason) {
           if (context.currentTest) {
@@ -940,7 +1170,7 @@ export function findDesignE2ETestRegistrations(
               context.currentTest.suppressionKind = "runtime";
               context.currentTest.suppressionReason = reason;
             }
-          } else {
+          } else if (!context.unknownExecutionContext) {
             const suiteScope = context.suiteRuntimeScopes.at(-1);
             if (suiteScope) suiteScope.push(reason);
             else fileSuppressions.push(reason);
@@ -954,6 +1184,7 @@ export function findDesignE2ETestRegistrations(
     suiteSuppressions: [],
     testInfoNames: new Set(["testInfo"]),
     suiteRuntimeScopes: [],
+    unknownExecutionContext: false,
   });
 
   for (const item of registrations) {
@@ -999,7 +1230,7 @@ export function findDesignE2ETestLine(source: string, title: string): number {
     rejectDisabledPin(title, "the pinned test declaration has a modifier");
   }
   if (match.suppressionKind) {
-    if (match.suppressionReason?.startsWith("Unable to inspect conditional")) {
+    if (match.suppressionReason?.startsWith("Unable to inspect")) {
       throw new PinInspectionUnavailableError(match.suppressionReason);
     }
     rejectDisabledPin(title, match.suppressionReason ?? "test is suppressed");

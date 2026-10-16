@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   QUERY_BUDGET_APPS,
@@ -18,8 +29,8 @@ import {
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
 import {
+  DESIGN_E2E_REGRESSION_PINS,
   DESIGN_E2E_REGRESSION_SHARDS,
-  resolveDesignE2ERegressionPinsForShard,
 } from "./design-e2e-regression-pins.ts";
 import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.ts";
 
@@ -1249,9 +1260,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "resolved fixed regression selectors must run serially",
   );
   assert.equal(
-    DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
-      resolveDesignE2ERegressionPinsForShard(shard),
-    ).length,
+    DESIGN_E2E_REGRESSION_PINS.length,
     84,
     "the title manifest must retain every fixed regression pin",
   );
@@ -2771,3 +2780,89 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
     assert.equal(scope.checks.guards, true, paths.join(", "));
   }
 });
+
+test(
+  "pre-install scope tests pass without workspace dependencies",
+  { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
+  () => {
+    const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+    const fixtureRoot = mkdtempSync(
+      join(tmpdir(), "ci-change-scope-no-dependencies-"),
+    );
+    const copy = (path: string) => {
+      const destination = join(fixtureRoot, path);
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(join(repositoryRoot, path), destination);
+    };
+
+    try {
+      for (const path of [
+        "package.json",
+        "scripts/ci-change-scope.test.ts",
+        "scripts/ci-change-scope.ts",
+        "scripts/ci-build-workspaces.test.ts",
+        "scripts/ci-build-workspaces.ts",
+        "scripts/guard-no-unbounded-table-reads.test.ts",
+        "scripts/package-release-workflow.test.ts",
+        "scripts/qa-deploy-paths-lib.ts",
+        "scripts/design-e2e-regression-pins.ts",
+        "scripts/design-e2e-spec-selection.ts",
+        ".github/workflows/ci.yml",
+        ".github/workflows/slides-authoring-fuzz-soak.yml",
+        "templates/design/e2e/interaction-selection-history-delete-screen.spec.ts",
+        "community-templates/package.json",
+        "templates/clips/desktop/package.json",
+      ]) {
+        copy(path);
+      }
+      for (const entry of readdirSync(
+        join(repositoryRoot, "community-templates"),
+        { withFileTypes: true },
+      )) {
+        if (
+          entry.isDirectory() &&
+          existsSync(
+            join(
+              repositoryRoot,
+              "community-templates",
+              entry.name,
+              "package.json",
+            ),
+          )
+        ) {
+          copy(`community-templates/${entry.name}/package.json`);
+        }
+      }
+
+      assert.equal(existsSync(join(fixtureRoot, "node_modules")), false);
+      const childEnv = {
+        ...process.env,
+        CI_CHANGE_SCOPE_COLD_FIXTURE: "1",
+        NODE_PATH: "",
+      };
+      delete childEnv.NODE_TEST_CONTEXT;
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          "--test",
+          "scripts/ci-change-scope.test.ts",
+          "scripts/ci-build-workspaces.test.ts",
+        ],
+        {
+          cwd: fixtureRoot,
+          encoding: "utf8",
+          env: childEnv,
+        },
+      );
+      assert.equal(result.error, undefined, result.error?.message);
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+      assert.match(
+        `${result.stdout}\n${result.stderr}`,
+        /pre-install scope tests pass without workspace dependencies/u,
+      );
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  },
+);

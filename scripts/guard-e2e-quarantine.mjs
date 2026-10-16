@@ -242,7 +242,6 @@ export function compareQuarantineSnapshots(
   }
 
   const used = new Set();
-  const renameTargets = new Map();
   const newRenameTargetSources = new Map();
   for (const [index, exception] of exceptions.entries()) {
     if (
@@ -354,8 +353,6 @@ export function compareQuarantineSnapshots(
         violations.push(
           `invalid quarantine rename exception: ${describe(item)}`,
         );
-      } else {
-        renameTargets.set(key(exception.to.file, exception.to.title), item);
       }
       continue;
     }
@@ -420,13 +417,6 @@ export function compareQuarantineSnapshots(
       continue;
     }
     const baseItem = baseByKey.get(id);
-    const renamedFrom = renameTargets.get(id);
-    if (
-      renamedFrom &&
-      suppressionIdentity(renamedFrom) === suppressionIdentity(item)
-    ) {
-      continue;
-    }
     if (!baseItem || !isSuppressed(baseItem)) {
       newSuppressions.set(id, item);
       continue;
@@ -445,7 +435,7 @@ export function compareQuarantineSnapshots(
   }
   for (const item of headRegistrations) {
     const id = key(item.file, item.title);
-    if (baseByKey.has(id) || renameTargets.has(id)) continue;
+    if (baseByKey.has(id)) continue;
     if (item.modifier !== undefined || !isSuppressed(item)) continue;
     if (["suite", "file", "focus"].includes(item.suppressionKind)) {
       violations.push(
