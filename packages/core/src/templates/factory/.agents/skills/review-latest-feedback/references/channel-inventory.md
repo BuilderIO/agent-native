@@ -76,7 +76,7 @@ place of Slack source messages.
   actor's `✅` to the root and read it back before moving to another scope or
   report. Do not wait for every scope to close. A verified fixed scope
   requires this actor's `✅` even when the overall disposition is `Partially
-  fixed`; a distinct human handoff requires this actor's `🎫`. Keep `👀` for
+fixed`; a distinct human handoff requires this actor's `🎫`. Keep `👀` for
   every open scope. The same-thread status reply must name the fixed scope(s),
   the remaining open scope(s), each open scope's blocker and next action, and
   why `✅` or `🎫` is absent when it does not apply. A reply does not replace a
@@ -116,11 +116,11 @@ those roots separately; list in-scope reply-row marks and pre-cutoff boundary
 audits apart from report totals. Never include older cutoff-overlap rows in
 current report counts. Account for every owned eye as a verified fixed scope,
 an accepted human handoff, or an explicit waiting, unresolved, or skipped
-  reason. An eye-only row is still pending. If most roots are eye-only, inspect
-  each one again for a fix that can be verified now, and preserve the concrete
-  proof gap or next action for every remaining eye-only row. Slack thread
-  replies appear under the root's reply count, not as separate channel posts;
-  do not broadcast routine status replies.
+reason. An eye-only row is still pending. If most roots are eye-only, inspect
+each one again for a fix that can be verified now, and preserve the concrete
+proof gap or next action for every remaining eye-only row. Slack thread
+replies appear under the root's reply count, not as separate channel posts;
+do not broadcast routine status replies.
 
 After any long investigation, CI/deploy wait, or handoff, record the latest
 fully read message timestamp for each channel. Immediately before recap, read
