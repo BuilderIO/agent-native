@@ -5,13 +5,22 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  getSlideClipboardNativeMarker,
+  getSlideClipboardNativeMarkerHtml,
+  hasClipboardPayloadBeyondSlideMarker,
   getSlideClipboardStorageKey,
+  hasImageClipboardPayload,
+  isSlideClipboardPasteSurface,
   normalizeSlideClipboard,
   normalizeSlideClipboards,
   readSlideClipboard,
   readSlideClipboards,
+  readSlideClipboardNativeMarker,
   resolveSlideClipboardForPaste,
   resolveSlideClipboardsForPaste,
+  shouldHandleSlideClipboardPaste,
+  shouldHandleSlideClipboardShortcut,
+  writeSlideClipboardMarkerToEvent,
   writeSlideClipboard,
   writeSlideClipboards,
 } from "../lib/slide-clipboard";
@@ -64,96 +73,183 @@ describe("isSlideClipboardStillArmed", () => {
   });
 });
 
-describe("slide paste fallback", () => {
-  it("cancels for HTML-only native paste events", () => {
-    const pasteStart = deckEditorSource.indexOf("const handlePaste = () =>");
-    const pasteEnd = deckEditorSource.indexOf(
-      "// Resolve the active slide from URL/deck state.",
-      pasteStart,
-    );
-    const pasteBody = deckEditorSource.slice(pasteStart, pasteEnd);
-
-    expect(pasteBody).toContain(
-      "window.clearTimeout(slidePasteFallbackRef.current)",
-    );
-    expect(pasteBody).toContain("slidePasteFallbackRef.current = null");
-    expect(pasteBody).not.toContain("hasText");
-    expect(pasteBody).not.toContain("hasImage");
-  });
-
-  it("owns fallback cleanup by slide lifecycle, not ordinary rerenders", () => {
-    expect(deckEditorSource).toContain(`
-  useEffect(() => {
-    return () => {
-      if (slidePasteFallbackRef.current !== null) {
-        window.clearTimeout(slidePasteFallbackRef.current);
-        slidePasteFallbackRef.current = null;
-      }
-    };
-  }, [activeSlideId, id]);`);
-  });
-});
-
 describe("slide thumbnail shortcuts", () => {
-  it("routes slide clipboard shortcuts through the focused thumbnail", () => {
-    expect(deckEditorSource).toContain(
-      'if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;',
-    );
-    expect(deckEditorSource).toContain(
-      "selectedSlideIds.includes(activeSlideId)",
-    );
-    expect(deckEditorSource).toContain("selectedSlideIds : [activeSlideId]");
-    expect(deckEditorSource).toContain(
-      "handleDuplicateSlideFromRail(slideIds);",
-    );
+  it("limits rail shortcuts to focused thumbnails and leaves paste native", () => {
+    expect(shouldHandleSlideClipboardShortcut("v", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("v", true)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("c", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("x", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("d", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("x", true)).toBe(true);
+    expect(shouldHandleSlideClipboardShortcut("d", true)).toBe(true);
+    expect(shouldHandleSlideClipboardShortcut("c", true)).toBe(true);
   });
 
-  it("cuts the focused slide selection without removing every slide", () => {
-    const shortcutStart = deckEditorSource.indexOf(
-      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
-    );
-    const shortcutEnd = deckEditorSource.indexOf(
-      'document.addEventListener("keydown", handleKeyDown)',
-      shortcutStart,
-    );
-    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
+  it("keeps cut slides when the native clipboard marker cannot be written", () => {
+    const cutStart = deckEditorSource.indexOf("const cutSlides = useCallback(");
+    const cutEnd = deckEditorSource.indexOf("const pasteSlideAfter", cutStart);
+    const cutBody = deckEditorSource.slice(cutStart, cutEnd);
 
-    expect(shortcutBody).toContain("if (!activeSlideId) return;");
-    expect(shortcutBody).toContain(
-      "selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId]",
-    );
-    expect(shortcutBody).toContain(
-      "if (slideIds.length >= deck.slides.length) return;",
-    );
-    expect(shortcutBody).toContain("cutSlides(slideIds);");
-  });
-
-  it("lets focused thumbnails own shortcuts while canvas selection remains visible", () => {
-    const shortcutStart = deckEditorSource.indexOf(
-      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
-    );
-    const shortcutEnd = deckEditorSource.indexOf(
-      'document.addEventListener("keydown", handleKeyDown)',
-      shortcutStart,
-    );
-    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
-
-    expect(shortcutBody).toContain(
-      'document.activeElement?.closest("[data-slide-thumbnail-id]")',
-    );
-    expect(shortcutBody).toContain(
-      "!focusedThumbnail &&\n        document.querySelector(\"[data-slide-element-selected='true']\")",
+    expect(cutBody).toContain("if (!saveSlidesToClipboard(slides)) return;");
+    expect(cutBody.indexOf("saveSlidesToClipboard(slides)")).toBeLessThan(
+      cutBody.indexOf("deleteSlideIds(slideIds)"),
     );
   });
 
   it("persists multi-slide copies for another deck tab to paste", () => {
-    expect(deckEditorSource).toContain("saveSlidesToClipboard(slides);");
+    expect(deckEditorSource).toContain(
+      "if (!saveSlidesToClipboard(slides)) return;",
+    );
     expect(deckEditorSource).toContain(
       "readSlideClipboards(slideClipboardStorageKey)",
     );
-    expect(deckEditorSource).toContain(
-      "const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();",
+  });
+});
+
+describe("slide paste event decision", () => {
+  const copiedSlides = [{ id: "source-slide-1" }, { id: "source-slide-2" }];
+  const marker = getSlideClipboardNativeMarker(copiedSlides, 1_000);
+  const canvasPaste = {
+    hasMatchingSlideClipboardMarker: true,
+    hasImage: false,
+    hasNonMarkerPayload: false,
+    isTextEntrySurface: false,
+    hasSelectedCanvasElement: false,
+    hasBlockingOverlay: false,
+    isSlideToolActive: false,
+  };
+
+  it("pastes only when the native clipboard proves the slide copy is current", () => {
+    expect(shouldHandleSlideClipboardPaste(canvasPaste)).toBe(true);
+    expect(
+      shouldHandleSlideClipboardPaste({
+        ...canvasPaste,
+        hasMatchingSlideClipboardMarker: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("preserves object paste when a canvas element is selected", () => {
+    expect(
+      shouldHandleSlideClipboardPaste({
+        ...canvasPaste,
+        hasSelectedCanvasElement: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("round-trips a native marker without adding visible clipboard text", () => {
+    const html = getSlideClipboardNativeMarkerHtml(marker);
+    expect(readSlideClipboardNativeMarker(html)).toBe(marker);
+    expect(readSlideClipboardNativeMarker("<p>newer native text</p>")).toBe(
+      null,
     );
+  });
+
+  it("distinguishes a marker-only clipboard from newer native text", () => {
+    const html = getSlideClipboardNativeMarkerHtml(marker);
+    expect(
+      hasClipboardPayloadBeyondSlideMarker({
+        types: ["text/html", "text/plain"],
+        itemTypes: ["text/html", "text/plain"],
+        fileTypes: [],
+        html,
+        plainText: "",
+        marker,
+      }),
+    ).toBe(false);
+    expect(
+      hasClipboardPayloadBeyondSlideMarker({
+        types: ["text/html", "text/plain"],
+        itemTypes: ["text/html", "text/plain"],
+        fileTypes: [],
+        html,
+        plainText: "newer text",
+        marker,
+      }),
+    ).toBe(true);
+    expect(
+      hasClipboardPayloadBeyondSlideMarker({
+        types: ["text/html"],
+        itemTypes: ["text/html"],
+        fileTypes: [],
+        html: `${html}<p>newer text</p>`,
+        plainText: "",
+        marker,
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["image paste", { hasImage: true }],
+    ["newer native text with a stale marker", { hasNonMarkerPayload: true }],
+    [
+      "HTML-only image paste",
+      {
+        hasImage: hasImageClipboardPayload({
+          types: ["text/html"],
+          itemTypes: [],
+          fileTypes: [],
+          html: '<img src="data:image/png;base64,AA==">',
+        }),
+      },
+    ],
+    ["text entry", { isTextEntrySurface: true }],
+    ["blocking overlay", { hasBlockingOverlay: true }],
+    ["pin or draw mode", { isSlideToolActive: true }],
+  ])("preserves %s", (_name, context) => {
+    expect(
+      shouldHandleSlideClipboardPaste({ ...canvasPaste, ...context }),
+    ).toBe(false);
+  });
+});
+
+describe("slide paste event target", () => {
+  it("only handles paste events from the slide rail or editor canvas", () => {
+    const toolbarButton = { closest: () => null } as unknown as Element;
+    const thumbnail = { closest: () => ({}) } as unknown as Element;
+    const canvas = { closest: () => ({}) } as unknown as Element;
+
+    expect(isSlideClipboardPasteSurface(toolbarButton, toolbarButton)).toBe(
+      false,
+    );
+    expect(isSlideClipboardPasteSurface(thumbnail, null)).toBe(true);
+    expect(isSlideClipboardPasteSurface(null, canvas)).toBe(true);
+  });
+});
+
+describe("native slide clipboard marker writes", () => {
+  it("writes an HTML marker and clears plain text", () => {
+    const values = new Map<string, string>();
+    const event = {
+      clipboardData: {
+        setData: (type: string, value: string) => values.set(type, value),
+      },
+    } as unknown as ClipboardEvent;
+    const marker = getSlideClipboardNativeMarker([{ id: "slide-1" }], 1_000);
+
+    expect(writeSlideClipboardMarkerToEvent(event, marker)).toBe(true);
+    expect(values.get("text/html")).toBe(
+      getSlideClipboardNativeMarkerHtml(marker),
+    );
+    expect(values.get("text/plain")).toBe("");
+  });
+
+  it("reports when the browser rejects the HTML marker write", () => {
+    const event = {
+      clipboardData: {
+        setData: () => {
+          throw new Error("clipboard denied");
+        },
+      },
+    } as unknown as ClipboardEvent;
+
+    expect(
+      writeSlideClipboardMarkerToEvent(
+        event,
+        getSlideClipboardNativeMarker([{ id: "slide-1" }], 1_000),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -324,6 +420,12 @@ describe("slide clipboard storage", () => {
       slide: { ...slide, notes: "", layout: "content" },
       copiedAt: 2_000,
     });
+  });
+
+  it("normalizes the deck's null transition default", () => {
+    expect(normalizeSlideClipboard({ ...slide, transition: null })).toEqual(
+      slide,
+    );
   });
 
   it("keeps only validated optional fields and drops transient data", () => {

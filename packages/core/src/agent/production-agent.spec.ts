@@ -52,7 +52,10 @@ import * as settingsStore from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
 import { approvalKeyForHistory } from "./approval-key.js";
-import { AGENT_CHAT_BACKGROUND_RUN_FIELD } from "./durable-background.js";
+import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "./durable-background.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
@@ -3907,6 +3910,151 @@ describe("createProductionAgentHandler", () => {
     },
   );
 
+  it("continues the foreground model with the completed approved tool result", async () => {
+    const approvalId = "ask-foreground-approval";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-foreground-approval");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    mockPersistRunEventsInMemory.enabled = true;
+    const runAction = vi.fn(async () => "sent");
+    let completedRun: ActiveRun | undefined;
+    const modelMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelMessages.push(options.messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Email sent." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      runSoftTimeoutMs: 20_000,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete: (run) => {
+        completedRun = run;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Continue.",
+          threadId: "thread-foreground-approval",
+          turnId: "turn-foreground-approval",
+          approvedToolCalls: [approvalKey],
+          approvedToolCallAskIds: [approvalId],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-foreground-approval",
+                  name: "send-email",
+                  input,
+                  approvalKey,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-foreground-approval",
+                  toolName: "send-email",
+                  toolInput: JSON.stringify(input),
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+      await vi.waitFor(() => expect(completedRun).toBeDefined());
+
+      expect(resolveApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestedTurnId: "turn-foreground-approval",
+          approvalId,
+        }),
+      );
+      expect(consumeApproval).toHaveBeenCalledOnce();
+      expect(runAction).toHaveBeenCalledOnce();
+      const continuedMessages = modelMessages.find((messages) =>
+        messages.some(
+          (message) =>
+            message.role === "user" &&
+            message.content.some(
+              (part) =>
+                part.type === "tool-result" &&
+                part.toolCallId === "call-foreground-approval" &&
+                part.content === "sent" &&
+                part.approvalPause === undefined &&
+                part.approvalAskId === undefined,
+            ),
+        ),
+      );
+      expect(continuedMessages).toBeDefined();
+      expect(completedRun?.status).toBe("completed");
+      expect(completedRun?.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "text",
+              text: "Email sent.",
+            }),
+          }),
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "tool_done",
+              result: "sent",
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      mockPersistRunEventsInMemory.enabled = false;
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      isTurnAborted.mockRestore();
+    }
+  });
+
   it("executes an approved call in a durable background worker without continuing the outer model", async () => {
     const approvalId = "ask-background-approval";
     const input = { to: "a@b.com" };
@@ -5114,6 +5262,9 @@ describe("createProductionAgentHandler", () => {
         {
           userEmail: "alice@example.com",
           browserSessionId: "origin-session",
+          requestOrigin: "http://127.0.0.1:8080",
+          isLoopbackRequest: true,
+          isDirectLoopbackRequest: true,
           run: {},
         },
         () => handler(event),
@@ -5134,6 +5285,13 @@ describe("createProductionAgentHandler", () => {
       expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
         "origin-session",
       );
+      expect(
+        JSON.parse(dispatchPayload)[AGENT_CHAT_REQUEST_CONTEXT_FIELD],
+      ).toEqual({
+        requestOrigin: "http://127.0.0.1:8080",
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+      });
     } finally {
       preUpload.mockRestore();
       if (previousDurableFlag === undefined) {

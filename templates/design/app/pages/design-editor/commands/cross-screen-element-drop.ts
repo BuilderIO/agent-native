@@ -78,12 +78,12 @@ export function shouldAbsolutePlaceOnEmptyScreen({
 
 function absoluteDropPoint(
   targetLocalPoint: { x: number; y: number },
-  targetAnchorRect?: { left: number; top: number } | null,
+  targetAbsoluteOrigin?: { left: number; top: number } | null,
 ): { x: number; y: number } {
-  if (!targetAnchorRect) return targetLocalPoint;
+  if (!targetAbsoluteOrigin) return targetLocalPoint;
   return {
-    x: targetLocalPoint.x - targetAnchorRect.left,
-    y: targetLocalPoint.y - targetAnchorRect.top,
+    x: targetLocalPoint.x - targetAbsoluteOrigin.left,
+    y: targetLocalPoint.y - targetAbsoluteOrigin.top,
   };
 }
 
@@ -115,11 +115,11 @@ function applyGridPlacementToHtml(
 
 export function absolutePlacePointForDrop(args: {
   placeAbsoluteOnEmptyScreen: boolean;
-  targetAnchorRect?: { left: number; top: number } | null;
+  targetAbsoluteOrigin?: { left: number; top: number } | null;
   targetLocalPoint: { x: number; y: number };
 }): { x: number; y: number } {
   if (args.placeAbsoluteOnEmptyScreen) return args.targetLocalPoint;
-  return absoluteDropPoint(args.targetLocalPoint, args.targetAnchorRect);
+  return absoluteDropPoint(args.targetLocalPoint, args.targetAbsoluteOrigin);
 }
 
 export function authoredTargetPointForDrop(args: {
@@ -376,7 +376,7 @@ export function runCrossScreenElementDrop(
     targetAnchorPlacement,
     targetDropMode,
     targetGridPlacement,
-    targetAnchorRect,
+    targetAbsoluteOrigin,
     targetCanvasPoint,
     targetOutsideBoardContentBounds,
     targetLocalPoint,
@@ -406,12 +406,7 @@ export function runCrossScreenElementDrop(
       row: number;
       rowEnd: number;
     };
-    targetAnchorRect?: {
-      left: number;
-      top: number;
-      width: number;
-      height: number;
-    };
+    targetAbsoluteOrigin?: { left: number; top: number };
     targetCanvasPoint?: { x: number; y: number };
     targetOutsideBoardContentBounds?: boolean;
     targetLocalPoint?: { x: number; y: number };
@@ -623,7 +618,7 @@ export function runCrossScreenElementDrop(
       placeAbsolute && targetPositionPoint
         ? absolutePlacePointForDrop({
             placeAbsoluteOnEmptyScreen: false,
-            targetAnchorRect,
+            targetAbsoluteOrigin,
             targetLocalPoint: targetPositionPoint,
           })
         : undefined;
@@ -715,7 +710,7 @@ export function runCrossScreenElementDrop(
         placeAbsolute && targetPositionPoint
           ? absolutePlacePointForDrop({
               placeAbsoluteOnEmptyScreen: false,
-              targetAnchorRect,
+              targetAbsoluteOrigin,
               targetLocalPoint: targetPositionPoint,
             })
           : undefined;
@@ -834,7 +829,7 @@ export function runCrossScreenElementDrop(
       placeAbsolute && targetPositionPoint
         ? absolutePlacePointForDrop({
             placeAbsoluteOnEmptyScreen: false,
-            targetAnchorRect,
+            targetAbsoluteOrigin,
             targetLocalPoint: targetPositionPoint,
           })
         : undefined;
@@ -992,13 +987,13 @@ export function runCrossScreenElementDrop(
           const positioned =
             targetPositionPoint &&
             (placeAbsoluteOnEmptyScreen ||
-              (targetDropMode === "absolute-container" && targetAnchorRect))
+              (targetDropMode === "absolute-container" && targetAbsoluteOrigin))
               ? setAbsolutePositioningForNodeInHtml(
                   styled,
                   subjectNodeId,
                   absolutePlacePointForDrop({
                     placeAbsoluteOnEmptyScreen,
-                    targetAnchorRect,
+                    targetAbsoluteOrigin,
                     targetLocalPoint: targetPositionPoint,
                   }),
                   sourcePointerOffset,
@@ -1258,7 +1253,7 @@ export function runCrossScreenElementDrop(
       return absolute(targetPositionPoint, "rooted-absolute");
     }
     if (targetDropMode === "absolute-container") {
-      if (!targetAnchorRect) {
+      if (!targetAbsoluteOrigin) {
         return {
           content: stylePreservedDest,
           branch: "anchored-absolute-missing-geometry",
@@ -1267,7 +1262,7 @@ export function runCrossScreenElementDrop(
       return absolute(
         absolutePlacePointForDrop({
           placeAbsoluteOnEmptyScreen,
-          targetAnchorRect,
+          targetAbsoluteOrigin,
           targetLocalPoint: targetPositionPoint,
         }),
         "anchored-absolute",
@@ -1284,7 +1279,7 @@ export function runCrossScreenElementDrop(
       ` anchor=${targetAnchorAttrId ?? "none"} mode=${targetDropMode ?? "none"}` +
       ` local=${point(targetLocalPoint)}` +
       ` authored=${point(targetPositionPoint)}` +
-      ` anchorRect=${targetAnchorRect ? `${Math.round(targetAnchorRect.left)},${Math.round(targetAnchorRect.top)}` : "none"}` +
+      ` origin=${targetAbsoluteOrigin ? `${Math.round(targetAbsoluteOrigin.left)},${Math.round(targetAbsoluteOrigin.top)}` : "none"}` +
       ` grab=${point(sourcePointerOffset)}`,
   );
   const nextDestContent = applyGridPlacementToHtml(

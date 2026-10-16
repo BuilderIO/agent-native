@@ -5,13 +5,15 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import {
+  captureError,
   readBrowserSessionIdHeader,
+  getAppConfig,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -28,6 +30,7 @@ import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import {
+  hostedStorageAuthFailure,
   recordingTrackingSource,
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
@@ -45,23 +48,30 @@ import {
 } from "../../../../lib/recordings.js";
 import {
   compareAndSetResumableSession,
+  deleteResumableSession,
   getResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
+  markHostedCleanupConfirmed,
   renewUploadLease,
   type UploadLeaseResult,
 } from "../../../../lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
+  HOSTED_STORAGE_UNAVAILABLE_REASON,
+  releaseHostedClipRecording,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
   VideoStorageStatusUnavailableError,
 } from "../../../../lib/video-storage.js";
 
-const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECORDING_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
+function recordingTooLargeReason(maxBytes: number): string {
+  return `Recording exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
+}
 
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const RETRY_OWNERSHIP_HEARTBEAT_MS = 10 * 1000;
@@ -394,12 +404,15 @@ function terminalFinalizeFailureResponse(
   error: string,
   details: Record<string, unknown> = {},
 ) {
-  setResponseStatus(event, 500);
+  const hostedStorageUnavailable =
+    details.errorCode === "hosted_storage_unavailable";
+  setResponseStatus(event, hostedStorageUnavailable ? 503 : 500);
   return {
     ok: false,
     finalized: false,
     status: "failed" as const,
     error,
+    ...(hostedStorageUnavailable ? { retryable: true } : {}),
     ...details,
   };
 }
@@ -592,6 +605,8 @@ export async function handleRecordingChunk(
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        storageMode: schema.recordings.storageMode,
+        videoUrl: schema.recordings.videoUrl,
         uploadGenerationId: schema.recordings.uploadGenerationId,
         recordingPlatform: schema.recordings.recordingPlatform,
       })
@@ -611,16 +626,19 @@ export async function handleRecordingChunk(
       throw createError({ statusCode: 404, message: "Recording not found" });
     }
 
+    const maxUploadBytes =
+      existing.storageMode === "hosted"
+        ? getAppConfig().clips.hostedStorage.maxClipBytes
+        : MAX_RECORDING_UPLOAD_BYTES;
+    const tooLargeReason = recordingTooLargeReason(maxUploadBytes);
+
     const failedUploadResponse = (reason: string, bytes?: number) => {
-      setResponseStatus(
-        event,
-        reason === RECORDING_TOO_LARGE_REASON ? 413 : 409,
-      );
+      setResponseStatus(event, reason === tooLargeReason ? 413 : 409);
       return {
         ok: false,
         error: reason,
         bytesReceived: bytes,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
       };
     };
 
@@ -658,7 +676,9 @@ export async function handleRecordingChunk(
     let storageStatusUnavailable = false;
     if (activeUpload && !pendingProcessingState && !resumableSession) {
       try {
-        rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage();
+        rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage({
+          storageMode: existing.storageMode,
+        });
       } catch (error) {
         if (!(error instanceof VideoStorageStatusUnavailableError)) throw error;
         storageStatusUnavailable = true;
@@ -836,6 +856,10 @@ export async function handleRecordingChunk(
         uploadGenerationId,
         existing.recordingPlatform,
         browserSessionId,
+        maxUploadBytes,
+        existing.storageMode ?? null,
+        authUserId,
+        failCurrentUpload,
       );
     }
 
@@ -907,6 +931,14 @@ export async function handleRecordingChunk(
           },
         );
       }
+      if (existing.storageMode === "hosted" && !existing.videoUrl) {
+        await markHostedCleanupConfirmed(recordingId);
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+          ownerEmail,
+        });
+      }
       setResponseStatus(event, 409);
       return {
         ok: false,
@@ -963,12 +995,7 @@ export async function handleRecordingChunk(
     const failRecordingTooLarge = async (nextBytes: number) => {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
-      if (
-        !(await failCurrentUpload(
-          "recording_too_large",
-          RECORDING_TOO_LARGE_REASON,
-        ))
-      ) {
+      if (!(await failCurrentUpload("recording_too_large", tooLargeReason))) {
         setResponseStatus(event, 409);
         return {
           ok: false,
@@ -991,11 +1018,23 @@ export async function handleRecordingChunk(
         uploadAttemptId: attemptId,
         uploadGenerationId,
         status: "failed",
-        failureReason: RECORDING_TOO_LARGE_REASON,
+        failureReason: tooLargeReason,
         bytesReceived: nextBytes,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         updatedAt: now,
       });
+      if (existing.storageMode === "hosted") {
+        if (!authUserId) {
+          throw new Error(
+            "Hosted Clips reservation is missing its authenticated user id.",
+          );
+        }
+        await markHostedCleanupConfirmed(recordingId);
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+        });
+      }
       await deleteRecordingChunks(
         ownerEmail,
         recordingId,
@@ -1009,9 +1048,9 @@ export async function handleRecordingChunk(
       setResponseStatus(event, 413);
       return {
         ok: false,
-        error: RECORDING_TOO_LARGE_REASON,
+        error: tooLargeReason,
         bytesReceived: nextBytes,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
       };
     };
 
@@ -1028,7 +1067,7 @@ export async function handleRecordingChunk(
       const nextBytes =
         Math.max(0, persistedBytesBefore - previousBytes) + bytes.byteLength;
 
-      if (nextBytes > MAX_RECORDING_UPLOAD_BYTES) {
+      if (nextBytes > maxUploadBytes) {
         return failRecordingTooLarge(nextBytes);
       }
 
@@ -1047,7 +1086,7 @@ export async function handleRecordingChunk(
         recordingId,
         uploadGenerationId,
       );
-      if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
+      if (bytesReceived > maxUploadBytes) {
         return failRecordingTooLarge(bytesReceived);
       }
     }
@@ -1080,7 +1119,7 @@ export async function handleRecordingChunk(
             }
           : {}),
         bytesReceived,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         mimeType,
         updatedAt: new Date().toISOString(),
       });
@@ -1105,7 +1144,7 @@ export async function handleRecordingChunk(
             }
           : {}),
         bytesReceived,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         mimeType,
         updatedAt: new Date().toISOString(),
       });
@@ -1119,7 +1158,7 @@ export async function handleRecordingChunk(
         recordingId,
         uploadGenerationId,
       );
-      if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
+      if (bytesReceived > maxUploadBytes) {
         return failRecordingTooLarge(bytesReceived);
       }
       const finalLease = await rejectIfLeaseLost();
@@ -1299,13 +1338,23 @@ export async function handleRecordingChunk(
             return acceptedProcessingResponse(event, recordingId, pendingState);
           }
         }
-        const failureReason =
-          err instanceof Error ? err.message : "Finalize failed";
+        const hostedAuthFailure =
+          existing.storageMode === "hosted"
+            ? hostedStorageAuthFailure(err)
+            : null;
+        const failureCode = hostedAuthFailure
+          ? "hosted_storage_unavailable"
+          : "finalize_failed";
+        const failureReason = hostedAuthFailure
+          ? HOSTED_STORAGE_UNAVAILABLE_REASON
+          : err instanceof Error
+            ? err.message
+            : "Finalize failed";
         const failed = await db
           .update(schema.recordings)
           .set({
             status: "failed",
-            failureCode: "finalize_failed",
+            failureCode,
             failureReason,
             updatedAt: new Date().toISOString(),
           })
@@ -1354,7 +1403,7 @@ export async function handleRecordingChunk(
           userId: ownerEmail,
           uploadAttemptId: attemptId,
           platform: existing.recordingPlatform,
-          failureCode: "finalize_failed",
+          failureCode,
           browserSessionId: failureSessionId,
         });
         const repairResult = await repairUploadState({
@@ -1368,8 +1417,8 @@ export async function handleRecordingChunk(
             status: "failed",
             uploadAttemptId: attemptId,
             uploadGenerationId,
-            failureReason:
-              err instanceof Error ? err.message : "Finalize failed",
+            failureCode,
+            failureReason,
             updatedAt: new Date().toISOString(),
           },
         });
@@ -1378,17 +1427,25 @@ export async function handleRecordingChunk(
           repairResult.outcome === "contention" ||
           repairResult.outcome === "write_failed"
         ) {
-          return terminalFinalizeFailureResponse(event, failureReason);
+          return terminalFinalizeFailureResponse(event, failureReason, {
+            ...(hostedAuthFailure
+              ? { errorCode: "hosted_storage_unavailable" }
+              : {}),
+          });
         }
         const repairFailure = uploadStateRepairFailureResponse(
           event,
           repairResult,
         );
         if (repairFailure !== null) return repairFailure;
-        setResponseStatus(event, 500);
+        setResponseStatus(event, hostedAuthFailure ? 503 : 500);
         return {
           ok: false,
-          error: err instanceof Error ? err.message : "Finalize failed",
+          error: failureReason,
+          ...(hostedAuthFailure ? { retryable: true } : {}),
+          ...(hostedAuthFailure
+            ? { errorCode: "hosted_storage_unavailable" }
+            : {}),
         };
       }
     }
@@ -1439,6 +1496,14 @@ async function handleResumableChunk(
   uploadGenerationId: string | null,
   recordingPlatform: string | null,
   browserSessionId?: string,
+  maxUploadBytes = MAX_RECORDING_UPLOAD_BYTES,
+  storageMode: "own" | "hosted" | null = null,
+  authUserId?: string,
+  failCurrentUpload?: (
+    failureCode: "storage_setup_required" | "recording_too_large",
+    failureReason: string,
+  ) => Promise<boolean>,
+  uploadStateAttribution?: Record<string, unknown> | null,
 ) {
   const uploadProvider = await resolveResumableUploadProvider(
     session.providerId,
@@ -1447,6 +1512,87 @@ async function handleResumableChunk(
     setResponseStatus(event, 502);
     return { ok: false, error: "Upload storage is not configured" };
   }
+
+  const hostedStorageFailureResponse = async (
+    error: unknown,
+    status?: number,
+  ) => {
+    if (storageMode !== "hosted") return null;
+    const authFailure = hostedStorageAuthFailure(
+      status ? { statusCode: status, cause: error } : error,
+    );
+    if (!authFailure) return null;
+
+    try {
+      const [persisted] = await getDb()
+        .update(schema.recordings)
+        .set({
+          failureCode: "hosted_storage_unavailable",
+          failureReason: HOSTED_STORAGE_UNAVAILABLE_REASON,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            inArray(schema.recordings.status, ["uploading", "processing"]),
+            attemptId === null
+              ? isNull(schema.recordings.uploadAttemptId)
+              : eq(schema.recordings.uploadAttemptId, attemptId),
+            uploadGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!persisted) return null;
+    } catch (persistError) {
+      console.error("[chunk] hosted storage failure could not be saved", {
+        recordingId,
+        error:
+          persistError instanceof Error
+            ? persistError.message
+            : String(persistError),
+      });
+      return null;
+    }
+
+    const reportableError =
+      error instanceof Error
+        ? error
+        : Object.assign(new Error("Hosted storage authorization failed"), {
+            cause: error,
+            ...(status ? { statusCode: status } : {}),
+          });
+    try {
+      captureError(reportableError, {
+        route: "/api/uploads/:recordingId/chunk",
+        errorMessagePolicy: "omit",
+        tags: {
+          area: "clips-storage",
+          source: "clips-hosted-storage",
+          storageMode: "hosted",
+          errorCode: "hosted_storage_unavailable",
+          reportExpected: "true",
+          ...(authFailure.status
+            ? { providerStatus: String(authFailure.status) }
+            : {}),
+        },
+        extra: { recordingId },
+      });
+    } catch {
+      console.warn("[chunk] could not report hosted storage failure");
+    }
+
+    setResponseStatus(event, 503);
+    return {
+      ok: false,
+      error: HOSTED_STORAGE_UNAVAILABLE_REASON,
+      errorCode: "hosted_storage_unavailable",
+      retryable: true,
+    };
+  };
+
   console.log(
     `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
   );
@@ -1505,6 +1651,111 @@ async function handleResumableChunk(
   const raw = await readRawBody(event, false);
   const bytes: Uint8Array = raw ?? new Uint8Array(0);
   let finalizedSourceSizeBytes = session.bytesUploaded;
+  const isCommittedReplay = index <= (session.lastCommittedIndex ?? -1);
+  const nextBytesUploaded = isCommittedReplay
+    ? session.bytesUploaded
+    : session.bytesUploaded + bytes.byteLength;
+
+  if (nextBytesUploaded > maxUploadBytes) {
+    const lease = await renewUploadLease(recordingId, {
+      attemptId,
+      generationId: uploadGenerationId,
+    });
+    if (!lease.held) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error: lease.failureReason ?? "Recording upload has already failed.",
+      };
+    }
+    if (
+      !failCurrentUpload ||
+      !(await failCurrentUpload(
+        "recording_too_large",
+        recordingTooLargeReason(maxUploadBytes),
+      ))
+    ) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
+    const cleaned = await abortResumableUploadSession(session, {
+      provider: uploadProvider,
+      label: "resumable-chunk-" + recordingId,
+    });
+    if (cleaned) {
+      await deleteResumableSession(recordingId, uploadGenerationId).catch(
+        (error: unknown) => {
+          console.warn("[chunk] could not clear aborted hosted upload state", {
+            recordingId,
+            err: error instanceof Error ? error.message : String(error),
+          });
+        },
+      );
+      if (storageMode === "hosted") {
+        if (!authUserId) {
+          throw new Error(
+            "Hosted Clips reservation is missing its authenticated user id.",
+          );
+        }
+        await markHostedCleanupConfirmed(recordingId);
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+        });
+      }
+    } else if (storageMode === "hosted") {
+      console.error(
+        "[chunk] hosted oversized upload cleanup was not confirmed",
+        {
+          recordingId,
+        },
+      );
+    }
+
+    const failureReason = recordingTooLargeReason(maxUploadBytes);
+    const now = new Date().toISOString();
+    trackRecordingFailure({
+      recordingId,
+      userId: ownerEmail,
+      uploadAttemptId: attemptId,
+      platform: recordingPlatform,
+      failureCode: "recording_too_large",
+      browserSessionId,
+    });
+    await writeAppState("recording-upload-" + recordingId, {
+      ...(uploadStateAttribution ?? {}),
+      recordingId,
+      uploadAttemptId: attemptId,
+      uploadGenerationId,
+      status: "failed",
+      failureReason,
+      bytesReceived: session.bytesUploaded,
+      maxBytes: maxUploadBytes,
+      updatedAt: now,
+    });
+    await deleteRecordingChunks(
+      ownerEmail,
+      recordingId,
+      uploadGenerationId,
+    ).catch((error: unknown) => {
+      console.warn("[chunk] oversized resumable chunk cleanup failed:", {
+        recordingId,
+        err: error instanceof Error ? error.message : String(error),
+      });
+    });
+    setResponseStatus(event, 413);
+    return {
+      ok: false,
+      error: failureReason,
+      bytesReceived: session.bytesUploaded,
+      maxBytes: maxUploadBytes,
+    };
+  }
 
   if (!isFinal && bytes.byteLength === 0) {
     throw createError({ statusCode: 400, message: "Empty chunk body" });
@@ -1580,6 +1831,8 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse(error);
+        if (hostedStorageFailure) return hostedStorageFailure;
         const detail = error instanceof Error ? error.message : String(error);
         console.error(
           `[resumable-chunk-${recordingId}] session close threw:`,
@@ -1606,6 +1859,10 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse({
+          statusCode: closeRes.status,
+        });
+        if (hostedStorageFailure) return hostedStorageFailure;
         console.error(
           `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
         );
@@ -1717,6 +1974,8 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse(error);
+        if (hostedStorageFailure) return hostedStorageFailure;
         const detail = error instanceof Error ? error.message : String(error);
         console.error(
           `[resumable-chunk-${recordingId}] provider response was ambiguous:`,
@@ -1750,6 +2009,10 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse({
+          statusCode: putResult.status,
+        });
+        if (hostedStorageFailure) return hostedStorageFailure;
         const restartRequired =
           putResult.status === 404 || putResult.status === 410;
         setResponseStatus(event, restartRequired ? 409 : 502);
@@ -1935,14 +2198,22 @@ async function handleResumableChunk(
       }
     }
 
-    const failureReason =
-      err instanceof Error ? err.message : "Finalize failed";
+    const hostedAuthFailure =
+      storageMode === "hosted" ? hostedStorageAuthFailure(err) : null;
+    const failureCode = hostedAuthFailure
+      ? "hosted_storage_unavailable"
+      : "finalize_failed";
+    const failureReason = hostedAuthFailure
+      ? HOSTED_STORAGE_UNAVAILABLE_REASON
+      : err instanceof Error
+        ? err.message
+        : "Finalize failed";
     const failedAt = new Date().toISOString();
     const failed = await db
       .update(schema.recordings)
       .set({
         status: "failed",
-        failureCode: "finalize_failed",
+        failureCode,
         failureReason,
         updatedAt: failedAt,
       })
@@ -1996,7 +2267,7 @@ async function handleResumableChunk(
       userId: ownerEmail,
       uploadAttemptId: failed[0]?.uploadAttemptId,
       platform: failed[0]?.recordingPlatform,
-      failureCode: "finalize_failed",
+      failureCode,
       browserSessionId: failureSessionId,
     });
     const repairResult = await repairUploadState({
@@ -2014,6 +2285,7 @@ async function handleResumableChunk(
         status: "failed",
         uploadAttemptId: attemptId,
         uploadGenerationId,
+        failureCode,
         failureReason,
         updatedAt: failedAt,
       },
@@ -2023,14 +2295,20 @@ async function handleResumableChunk(
       repairResult.outcome === "contention" ||
       repairResult.outcome === "write_failed"
     ) {
-      return terminalFinalizeFailureResponse(event, failureReason);
+      return terminalFinalizeFailureResponse(event, failureReason, {
+        ...(hostedAuthFailure
+          ? { errorCode: "hosted_storage_unavailable" }
+          : {}),
+      });
     }
     const repairFailure = uploadStateRepairFailureResponse(event, repairResult);
     if (repairFailure !== null) return repairFailure;
-    setResponseStatus(event, 500);
+    setResponseStatus(event, hostedAuthFailure ? 503 : 500);
     return {
       ok: false,
       error: failureReason,
+      ...(hostedAuthFailure ? { retryable: true } : {}),
+      ...(hostedAuthFailure ? { errorCode: "hosted_storage_unavailable" } : {}),
     };
   }
 }

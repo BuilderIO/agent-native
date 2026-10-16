@@ -50,13 +50,10 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import {
-  getSession,
-  isLoopbackRequest,
-  redirectWithStagedCookies,
-} from "./auth.js";
+import { getSession, redirectWithStagedCookies } from "./auth.js";
 import { oauthErrorPage } from "./google-oauth.js";
-import { getRequestContext } from "./request-context.js";
+import { isDirectLoopbackRequest } from "./loopback.js";
+import { getRequestContext, getRequestRunContext } from "./request-context.js";
 
 export const CHATGPT_SUBSCRIPTION_OAUTH_PROVIDER =
   CHATGPT_SUBSCRIPTION_PROVIDER;
@@ -311,28 +308,9 @@ export function isChatGPTSubscriptionLoopbackCallbackUri(
   );
 }
 
-function exactLoopbackSocketAddress(
-  address: string | null | undefined,
-): boolean {
-  return address === "127.0.0.1" || address === "::ffff:127.0.0.1";
-}
-
 function callbackUriForEvent(event: H3Event): string | null {
   const host = getRequestHeader(event, "host");
-  const request = event.node?.req;
-  const socket = request?.socket;
-  if (
-    !host ||
-    host.trim() !== host ||
-    getRequestHeader(event, "x-forwarded-host") ||
-    getRequestHeader(event, "x-forwarded-proto") ||
-    !isLoopbackRequest(event) ||
-    !socket ||
-    ("encrypted" in socket && socket.encrypted) ||
-    !exactLoopbackSocketAddress(socket.localAddress)
-  ) {
-    return null;
-  }
+  if (!host || !isDirectLoopbackRequest(event)) return null;
   const originValue = `http://${host}`;
   if (!URL.canParse(originValue)) return null;
   const origin = new URL(originValue);
@@ -353,8 +331,17 @@ function callbackUriForEvent(event: H3Event): string | null {
 }
 
 function currentRequestIsLocalLoopback(): boolean {
+  if (getRequestRunContext()?.isBackgroundWorker === true) return false;
   const context = getRequestContext();
-  if (!context?.isLoopbackRequest || !context.requestOrigin) return false;
+  if (
+    !context?.isLoopbackRequest ||
+    !context.isDirectLoopbackRequest ||
+    !context.requestOrigin ||
+    context.orgId ||
+    context.orgScope !== "personal"
+  ) {
+    return false;
+  }
   if (!URL.canParse(context.requestOrigin)) return false;
   const origin = new URL(context.requestOrigin);
   return (

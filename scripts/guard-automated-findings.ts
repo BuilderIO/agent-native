@@ -15,6 +15,8 @@ export const reporterWorkflows = [
   ".github/workflows/keep-neon-warm.yml",
   ".github/workflows/signup-e2e-scheduled.yml",
   ".github/workflows/signup-agent-scheduled.yml",
+  ".github/workflows/deploy-canary.yml",
+  ".github/workflows/deploy-paths-reaper.yml",
 ] as const;
 
 const fullReportArtifactNames: Record<
@@ -27,6 +29,8 @@ const fullReportArtifactNames: Record<
   ".github/workflows/signup-e2e-scheduled.yml": "signup-e2e-report-",
   ".github/workflows/signup-agent-scheduled.yml":
     "signup-agent-${{ github.run_id }}",
+  ".github/workflows/deploy-canary.yml": "deploy-canary-report-",
+  ".github/workflows/deploy-paths-reaper.yml": "deploy-paths-reaper-report-",
 };
 
 export const supportingWorkflows = [

@@ -86,6 +86,10 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
   the left axis; if `rightYKeys` names every series, or names a column the
   query never returned, the chart falls back to a single axis and the panel
   shows a config warning.
+- `events` — `line`, `area`, `bar`, and `combo` with a date x-axis: an array of
+  `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }` drawn as
+  key-date badges on the x-axis (hover for the label and time). Same-day events
+  share a badge. Snaps to the nearest x value; hidden outside the range.
 - `columns` — `table` chartType only: `{ key, label?, format?, linkKey?, hidden? }[]`.
 - `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `description` — see
   `SqlPanelConfig` in `types.ts` for the full list.

@@ -1979,7 +1979,11 @@ export function realDataFinalGuard(
   const stableRequestText = (
     context as AgentLoopFinalResponseGuardContext & { requestText?: string }
   ).requestText;
-  const userText = stableRequestText ?? latestUserText(context.messages ?? []);
+  // Every check below judges what the message asks, not the page context it
+  // carries: a dashboard named "Warehouse KPIs" asks nothing of the warehouse.
+  const userText = stripInjectedAnalyticsGuardContext(
+    stableRequestText ?? latestUserText(context.messages ?? []),
+  );
   const dashboardConstructionRequest =
     looksLikeDashboardConstructionRequest(userText);
   // A turn that already ran catalog discovery is a data turn whatever the

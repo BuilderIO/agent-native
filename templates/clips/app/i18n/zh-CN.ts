@@ -599,6 +599,31 @@ const messages = {
     waiting: "等待…",
     nativeSpeechPrimary: "原生语音仍然是主要的转录来源。",
   },
+  transcriptImport: {
+    addFile: "添加文字记录文件",
+    imported: "已导入",
+    replaceTitle: "替换文字记录？",
+    replaceDescription: "{{fileName}} 将替换当前的文字记录。",
+    replace: "替换",
+    regenerateOverImportTitle: "替换导入的文字记录？",
+    regenerateOverImportDescription:
+      "根据录制音频生成的新文字记录将替换从文件导入的文字记录。",
+    added: "已添加文字记录",
+    replaced: "已替换文字记录",
+    failed: "无法添加文字记录",
+    invalidFile: "无法读取 {{fileName}}",
+    errorEmpty: "文件中没有文字记录内容。",
+    errorTooLarge: "文件太大，无法导入。",
+    errorNotUtf8: "文件不是 UTF-8 文本。请另存为 UTF-8 后重试。",
+    errorMissingTiming:
+      "第 {{line}} 行：应为字幕时间行，例如 00:00:01.000 --> 00:00:04.000。",
+    errorBadTiming: "第 {{line}} 行：无法读取字幕时间。",
+    errorBadRange: "第 {{line}} 行：字幕的结束时间早于开始时间。",
+    errorMissingTimestamp:
+      "第 {{line}} 行：应为开始时间，例如 0:21 或 [0:21]。",
+    errorOutOfOrder: "第 {{line}} 行：此时间早于上一个时间。",
+    errorPastEnd: "第 {{line}} 行：此时间晚于视频结束时间。",
+  },
   thumbnailPicker: {
     failedCapture: "捕捉帧失败",
     failedGif: "无法生成 GIF — 尝试更短的范围",
@@ -1492,6 +1517,8 @@ const messages = {
     builderGrantAskAdmin:
       "请所有者或管理员连接具有剪辑上传权限的 Builder.io 账户。",
     statusUnavailable: "无法检查视频存储是否已就绪。",
+    hostedStorageUnavailable:
+      "Clips 托管存储暂时不可用。您的免费剪辑额度不变，请稍后重试上传。",
     checkingBuilderConnection: "正在检查 Builder 连接…",
     builderTimeout: "无法确认 Builder.io 存储已就绪，请重试。",
     builderConnected: "Builder.io 已连接",
@@ -1782,6 +1809,14 @@ const messages = {
     validWebUrl: "请输入有效的 http:// 或 https:// 地址。",
   },
   recordRoute: {
+    freeClipsLeft_one: "还剩 {{count}} 个免费片段",
+    freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
+    hostedClipsExhaustedDescription:
+      "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
+    clipExceedsSizeLimit: "此片段超出当前上传大小限制。",
+    clipExceedsMaxDuration: "此片段超出当前录制时长限制。",
+    maxClipDurationReached: "已达到片段时长上限。正在保存录制内容。",
     pageTitle: "New recording — Clips (已本地化)",
     uploadFailed: "Upload failed (已本地化)",
     uploadFailedAtChunk:
@@ -2005,6 +2040,9 @@ const messages = {
     vocabularyRemoveFailed: "无法移除词条",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 托管存储空间已满。请连接 Builder.io 存储以继续保存片段。",
+    hostedRecordingTakenDown: "此录制已从 Clips 托管存储中移除。",
     splitAtPlayhead: "在播放头处分割 (S)",
     selectedCount: "已选择 {{count}} 项",
     selectAll: "全选",
@@ -2032,6 +2070,7 @@ const messages = {
     viewsCount: "{{count}} 次观看",
     recordingMenu: "录制菜单",
     moveToFolder: "移动到文件夹",
+    moveHere: "移到此处",
     unarchive: "取消归档",
     shareNamedMeeting: "分享“{{title}}”",
     shareMeeting: "分享会议",

@@ -623,6 +623,33 @@ const messages = {
     waiting: "इंतज़ार में…",
     nativeSpeechPrimary: "नेटिव स्पीच मुख्य प्रतिलेखन स्रोत बनी रहती है।",
   },
+  transcriptImport: {
+    addFile: "प्रतिलेख फ़ाइल जोड़ें",
+    imported: "आयातित",
+    replaceTitle: "प्रतिलेख बदलें?",
+    replaceDescription: "{{fileName}} मौजूदा प्रतिलेख की जगह ले लेगी।",
+    replace: "बदलें",
+    regenerateOverImportTitle: "आयात किया गया प्रतिलेख बदलें?",
+    regenerateOverImportDescription:
+      "रिकॉर्डिंग के ऑडियो से बना नया प्रतिलेख फ़ाइल से आयात किए गए प्रतिलेख की जगह ले लेगा।",
+    added: "प्रतिलेख जोड़ा गया",
+    replaced: "प्रतिलेख बदला गया",
+    failed: "प्रतिलेख नहीं जोड़ा जा सका",
+    invalidFile: "{{fileName}} को पढ़ा नहीं जा सका",
+    errorEmpty: "फ़ाइल में कोई प्रतिलेख टेक्स्ट नहीं है।",
+    errorTooLarge: "फ़ाइल आयात करने के लिए बहुत बड़ी है।",
+    errorNotUtf8:
+      "फ़ाइल UTF-8 टेक्स्ट नहीं है। इसे UTF-8 के रूप में सेव करें और फिर से कोशिश करें।",
+    errorMissingTiming:
+      "पंक्ति {{line}}: 00:00:01.000 --> 00:00:04.000 जैसी उपशीर्षक समय-पंक्ति अपेक्षित थी।",
+    errorBadTiming: "पंक्ति {{line}}: उपशीर्षक का समय पढ़ा नहीं जा सका।",
+    errorBadRange:
+      "पंक्ति {{line}}: उपशीर्षक अपने शुरू होने से पहले ही समाप्त हो जाता है।",
+    errorMissingTimestamp:
+      "पंक्ति {{line}}: 0:21 या [0:21] जैसा शुरुआती समय अपेक्षित था।",
+    errorOutOfOrder: "पंक्ति {{line}}: यह समय पिछले समय से पहले का है।",
+    errorPastEnd: "पंक्ति {{line}}: यह समय वीडियो के समाप्त होने के बाद का है।",
+  },
   thumbnailPicker: {
     failedCapture: "फ़्रेम कैप्चर करने में विफल",
     failedGif: "GIF उत्पन्न करने में विफल - छोटी रेंज का प्रयास करें",
@@ -1542,6 +1569,8 @@ const messages = {
     builderGrantAskAdmin:
       "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
     statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
+    hostedStorageUnavailable:
+      "Clips का होस्टेड स्टोरेज अभी उपलब्ध नहीं है। आपके मुफ़्त क्लिप की सीमा नहीं बदली है; बाद में अपलोड फिर से करें।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
@@ -1833,6 +1862,16 @@ const messages = {
     validWebUrl: "मान्य http:// या https:// पता दर्ज करें।",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
+    freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    hostedClipsExhaustedTitle:
+      "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
+    hostedClipsExhaustedDescription:
+      "आपके मुफ़्त होस्ट किए गए क्लिप इस्तेमाल हो चुके हैं। अपनी लाइब्रेरी में क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    clipExceedsSizeLimit: "यह क्लिप मौजूदा अपलोड आकार सीमा से बड़ी है।",
+    clipExceedsMaxDuration: "यह क्लिप मौजूदा रिकॉर्डिंग अवधि सीमा से लंबी है।",
+    maxClipDurationReached:
+      "क्लिप की अधिकतम अवधि पूरी हो गई है। रिकॉर्डिंग सेव हो रही है।",
     pageTitle: "New recording — Clips (स्थानीयकृत)",
     uploadFailed: "Upload failed (स्थानीयकृत)",
     uploadFailedAtChunk:
@@ -2066,6 +2105,10 @@ const messages = {
     vocabularyRemoveFailed: "शब्द नहीं हटाया जा सका",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips का होस्ट किया गया स्टोरेज भर गया है। क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    hostedRecordingTakenDown:
+      "यह रिकॉर्डिंग Clips के होस्ट किए गए स्टोरेज से हटा दी गई।",
     splitAtPlayhead: "प्लेहेड पर विभाजित करें (S)",
     selectedCount: "{{count}} चुने गए",
     selectAll: "सभी चुनें",
@@ -2096,6 +2139,7 @@ const messages = {
     viewsCount: "{{count}} बार देखा गया",
     recordingMenu: "रिकॉर्डिंग मेनू",
     moveToFolder: "फ़ोल्डर में ले जाएं",
+    moveHere: "यहाँ ले जाएँ",
     unarchive: "आर्काइव से हटाएं",
     shareNamedMeeting: '"{{title}}" साझा करें',
     shareMeeting: "मीटिंग साझा करें",

@@ -1686,6 +1686,8 @@ export default {
     tweaksPlaceholder: "एक्सेंट विकल्प, घनत्व, रेडियस, डार्क मोड...",
     designExport: "Design निर्यात",
     designPreview: "Design पूर्वावलोकन",
+    preview: "पूर्वावलोकन",
+    publish: "प्रकाशित करें",
     presentMode: "वर्तमान मोड",
     useThisDirection: "इस दिशा का प्रयोग करें",
     variantHandoffHelp: "जारी रखने के लिए इस सारांश को अपने कोडिंग एजेंट में चिपकाएँ।",
