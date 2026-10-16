@@ -193,6 +193,9 @@ async function lockMoveBetweenSpaces(args: {
       "DOCUMENT_MOVE_SCOPE_CHANGED",
     );
   }
+  // The move gives every page to the mover and drops its shares, which a
+  // revoke's own access check reads, so access is read again under the locks.
+  for (const id of ids) await assertDocumentMutationAccess(id, "editor", "id");
   if (!parentId) return null;
   const [parent] = await tx
     .select({
