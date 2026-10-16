@@ -535,6 +535,10 @@ function exhaustedDraftPrefixFor({
 const DBT_FALLBACK_DISCLOSURE =
   "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
 const DBT_FALLBACK_SOURCE = /\bwarehouse[-\s]derived\b|\bfrom\s+BigQuery\b/i;
+// A draft that also presents the number as approved is not a disclosure, even
+// when it contains the disclaimer. Negated forms are excluded by the lookbehind.
+const DBT_FALLBACK_CLAIMS_APPROVAL =
+  /(?<!(?:\bnot|n't)\s+)\b(?:is|are|matches?|equals?|reflects?|comes?\s+from)\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:owner[-\s]approved|approved)\b|\b(?:owner[-\s]approved|approved)\s+(?:value|number|figure|result|definition|metric|answer)\s+(?:is|was|shows|reads|equals)\b(?!\s+not\b)/i;
 const DBT_FALLBACK_NOT_APPROVED =
   /\bnot\s+(?:the\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?definition\b/i;
 
@@ -574,7 +578,8 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   if (!warehouseAnswered) return null;
   const disclosed =
     DBT_FALLBACK_SOURCE.test(context.text) &&
-    DBT_FALLBACK_NOT_APPROVED.test(context.text);
+    DBT_FALLBACK_NOT_APPROVED.test(context.text) &&
+    !DBT_FALLBACK_CLAIMS_APPROVAL.test(context.text);
   if (disclosed) return null;
   return {
     retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer.`,
