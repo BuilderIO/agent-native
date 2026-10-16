@@ -1481,7 +1481,7 @@ describe("Analytics synthetic production-path query quality", () => {
     if (process.env.ANALYTICS_QUERY_EVAL_WRITE_CSV === "1") {
       const target = path.join(
         path.dirname(fileURLToPath(import.meta.url)),
-        "SYNTHETIC-analytics-query-quality.csv",
+        "SYNTHETIC-analytics-query-quality-v2.csv",
       );
       await writeFile(target, renderSafeCsv(csvRows), { mode: 0o600 });
     }
