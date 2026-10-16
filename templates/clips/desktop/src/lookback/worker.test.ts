@@ -16,6 +16,7 @@ function item(
   return {
     id: "ctx1",
     recordingId: "rec1",
+    capturedDeviceId: null,
     kind: "screen_history",
     label: null,
     requestedSeconds: 30,
@@ -52,6 +53,7 @@ function fakeDeps(
     updates,
     trashed,
     created,
+    deviceId: "device-local",
     originFor: vi.fn(() => ({
       includeMicrophone: true,
       includeSystemAudio: false,
@@ -90,9 +92,16 @@ describe("processRecordingContextItem", () => {
   it("skips items whose footage was captured on another device", async () => {
     const deps = fakeDeps({ originFor: vi.fn(() => null) });
 
-    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
-      "skipped",
-    );
+    await expect(
+      processRecordingContextItem(
+        item({
+          capturedDeviceId: "device-other",
+          includeMicrophone: false,
+          includeSystemAudio: true,
+        }),
+        deps,
+      ),
+    ).resolves.toBe("skipped");
     expect(deps.update).not.toHaveBeenCalled();
     expect(deps.createRecording).not.toHaveBeenCalled();
   });
@@ -163,6 +172,27 @@ describe("processRecordingContextItem", () => {
     expect(retryable.forgetOrigin).not.toHaveBeenCalled();
   });
 
+  it("clears a durable origin after a failed export can be retried from saved metadata", async () => {
+    const contextItem = item({
+      capturedDeviceId: "device-local",
+      includeMicrophone: true,
+      includeSystemAudio: false,
+    });
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      createRecording: vi.fn(async () => {
+        throw new Error("disk full");
+      }),
+      currentItem: vi.fn(async () => item({ status: "failed" })),
+    });
+
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "failed",
+    );
+
+    expect(deps.forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+  });
+
   it("forgets an origin after the server confirms the item is gone", async () => {
     const deps = fakeDeps({
       forgetOrigin: vi.fn(),
@@ -175,26 +205,86 @@ describe("processRecordingContextItem", () => {
     expect(deps.forgetOrigin).toHaveBeenCalledWith("rec1");
   });
 
-  it("uses capture audio details saved with the request", async () => {
+  it("does not treat stored audio details as proof of local capture", async () => {
+    const contextItem = item({
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
     const deps = fakeDeps({
       originFor: vi.fn(() => null),
+    });
+
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "skipped",
+    );
+
+    expect(deps.originFor).toHaveBeenCalledOnce();
+    expect(deps.created).toEqual([]);
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+  });
+
+  it("uses local capture settings when server metadata conflicts", async () => {
+    const contextItem = item({
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
+    const deps = fakeDeps({
+      originFor: vi.fn(() => ({
+        includeMicrophone: true,
+        includeSystemAudio: false,
+      })),
+    });
+
+    await processRecordingContextItem(contextItem, deps);
+
+    expect(deps.created).toEqual([
+      { hasAudio: true, startedAt: "2026-10-09T09:59:30.000Z" },
+    ]);
+    expect(deps.uploadWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMic: true, includeSystemAudio: false }),
+    );
+  });
+
+  it("uses saved capture metadata after a same-device origin was cleared", async () => {
+    const contextItem = item({
+      capturedDeviceId: "device-local",
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
+    const deps = fakeDeps({
+      originFor: vi.fn(() => null),
+      forgetOrigin: vi.fn(),
       currentItem: vi.fn(async () =>
         item({ status: "ready", mediaRecordingId: "media-1" }),
       ),
     });
 
-    await processRecordingContextItem(
-      item({ includeMicrophone: false, includeSystemAudio: true }),
-      deps,
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "ready",
     );
 
+    expect(deps.originFor).toHaveBeenCalledOnce();
     expect(deps.created).toEqual([
       { hasAudio: true, startedAt: "2026-10-09T09:59:30.000Z" },
     ]);
-    expect(deps.originFor).not.toHaveBeenCalled();
     expect(deps.uploadWindow).toHaveBeenCalledWith(
       expect.objectContaining({ includeMic: false, includeSystemAudio: true }),
     );
+    expect(deps.forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+  });
+
+  it("keeps a legacy origin after success so the saved item can be trimmed", async () => {
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await processRecordingContextItem(item(), deps);
+
+    expect(deps.forgetOrigin).not.toHaveBeenCalled();
   });
 
   it("creates a silent recording when the original had no audio", async () => {

@@ -17,7 +17,8 @@ export interface LookbackOrigin {
 // The caller wires these to createPrivateAgentRewindRecording and the
 // rewind_agent_handoff_upload command.
 export interface LookbackWorkerDeps {
-  // Null when this device did not capture the recording, so its footage is not here.
+  // Null when this device cannot prove it owns the capture's local footage.
+  deviceId: string;
   originFor(
     recordingId: string,
     item: RecordingContextItem,
@@ -51,9 +52,18 @@ export interface LookbackWorkerDeps {
 
 export function lookbackOriginForItem(
   item: RecordingContextItem,
+  deviceId: string,
   originFor: LookbackWorkerDeps["originFor"],
 ): LookbackOrigin | null {
+  if (item.capturedDeviceId != null && item.capturedDeviceId !== deviceId) {
+    return null;
+  }
+  const localOrigin = originFor(item.recordingId, item);
+  if (localOrigin) return localOrigin;
+  // The device id keeps saved request settings reusable for trims; audio flags
+  // alone never prove which device owns the local screen-history buffer.
   if (
+    item.capturedDeviceId === deviceId &&
     typeof item.includeMicrophone === "boolean" &&
     typeof item.includeSystemAudio === "boolean"
   ) {
@@ -62,7 +72,7 @@ export function lookbackOriginForItem(
       includeSystemAudio: item.includeSystemAudio,
     };
   }
-  return originFor(item.recordingId, item);
+  return null;
 }
 
 export type LookbackWorkerOutcome = "skipped" | "ready" | "failed";
@@ -78,7 +88,14 @@ export async function processRecordingContextItem(
 
   try {
     const current = await deps.currentItem(item.recordingId, item.id);
-    if (!current || current.status === "removed") {
+    // Legacy rows need their local origin for later trims; newer rows can
+    // recover it only when device ownership and audio settings are persisted.
+    if (
+      !current ||
+      current.status === "removed" ||
+      ((current.status === "ready" || current.status === "failed") &&
+        hasPersistedCaptureOrigin(item, deps.deviceId))
+    ) {
       deps.forgetOrigin(item.recordingId);
     }
   } catch (error) {
@@ -95,7 +112,7 @@ async function processRecordingContextItemWithOrigin(
   item: RecordingContextItem,
   deps: LookbackWorkerDeps,
 ): Promise<LookbackWorkerOutcome> {
-  const origin = lookbackOriginForItem(item, deps.originFor);
+  const origin = lookbackOriginForItem(item, deps.deviceId, deps.originFor);
   // Footage only leaves the device that captured it. Another device's item
   // stays pending for that device's worker.
   if (!origin) return "skipped";
@@ -174,6 +191,17 @@ async function processRecordingContextItemWithOrigin(
 
   await trashReplacedFootage(item, recording.id, deps);
   return "ready";
+}
+
+function hasPersistedCaptureOrigin(
+  item: RecordingContextItem,
+  deviceId: string,
+): boolean {
+  return (
+    item.capturedDeviceId === deviceId &&
+    typeof item.includeMicrophone === "boolean" &&
+    typeof item.includeSystemAudio === "boolean"
+  );
 }
 
 // failed is reachable only from processing, so the item is claimed without

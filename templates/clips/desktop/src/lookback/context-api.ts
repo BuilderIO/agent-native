@@ -9,6 +9,7 @@ import {
 export interface RecordingContextItem {
   id: string;
   recordingId: string;
+  capturedDeviceId?: string | null;
   kind: string;
   label: string | null;
   requestedSeconds: number;
@@ -95,23 +96,13 @@ export function settleRecordingContextRequest<
   forgetOrigin: (recordingId: string) => void,
   onError: (error: unknown) => void,
 ): Promise<T | null> {
-  return request
-    .then((result) => {
-      if (
-        typeof result.includeMicrophone === "boolean" &&
-        typeof result.includeSystemAudio === "boolean"
-      ) {
-        forgetOrigin(recordingId);
-      }
-      return result;
-    })
-    .catch((error: unknown) => {
-      if (isTerminalRecordingContextRequestFailure(error)) {
-        forgetOrigin(recordingId);
-      }
-      onError(error);
-      return null;
-    });
+  return request.catch((error: unknown) => {
+    if (isTerminalRecordingContextRequestFailure(error)) {
+      forgetOrigin(recordingId);
+    }
+    onError(error);
+    return null;
+  });
 }
 
 export async function removeRecordingContext(

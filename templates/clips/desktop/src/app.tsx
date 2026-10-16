@@ -2168,6 +2168,7 @@ export function App({
     (item: RecordingContextItem) => {
       const target = { serverUrl, authToken: loadDesktopAuthToken(serverUrl) };
       return processRecordingContextItem(item, {
+        deviceId: clipsDeviceId(),
         originFor: (recordingId) => {
           const origin = getRewindClipOrigin(recordingId);
           return origin
@@ -2307,10 +2308,11 @@ export function App({
             ...skippedLookbackIdsRef.current,
           ]),
         ].slice(0, 100);
+        const deviceId = clipsDeviceId();
         const page = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           {
-            deviceId: clipsDeviceId(),
+            deviceId,
             cursor: pendingLookbackCursorRef.current,
             // Prioritize cleanup IDs in the bounded list; cursor pages pass
             // any remaining cleanup items without starving newer work.
@@ -2333,7 +2335,7 @@ export function App({
             continue;
           }
           if (
-            !lookbackOriginForItem(item, (recordingId) => {
+            !lookbackOriginForItem(item, deviceId, (recordingId) => {
               const origin = getRewindClipOrigin(recordingId);
               return origin
                 ? {

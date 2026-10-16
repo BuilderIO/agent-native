@@ -60,7 +60,7 @@ describe("requestRecordingContext", () => {
 });
 
 describe("settleRecordingContextRequest", () => {
-  it("keeps the origin while a request is pending and forgets it on success", async () => {
+  it("keeps the origin while the request is pending and after it succeeds", async () => {
     let resolve!: (value: {
       includeMicrophone: boolean;
       includeSystemAudio: boolean;
@@ -87,7 +87,7 @@ describe("settleRecordingContextRequest", () => {
       includeMicrophone: true,
       includeSystemAudio: false,
     });
-    expect(forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+    expect(forgetOrigin).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
 
