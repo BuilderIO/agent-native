@@ -1,3 +1,4 @@
+import { expandAllLayers } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -74,6 +75,29 @@ async function clickDesign(
       for (const modifier of modifiers) await app.page.keyboard.up(modifier);
     }
   }
+}
+
+async function selectLayerRow(app: App, name: string) {
+  await expandAllLayers(app.page);
+  const input = app.page.getByPlaceholder("Search layers...");
+  if (!(await input.isVisible().catch(() => false))) {
+    await app.page
+      .getByRole("button", { name: "Search layers...", exact: true })
+      .click();
+    await expect(input).toBeVisible();
+  }
+  await input.fill(name);
+  const button = app.page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: app.page.locator(`span[title="${name}"]`) })
+    .first();
+  await expect(button).toBeVisible();
+  await button.click({ force: true });
+  await expect(
+    button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
+  ).toHaveAttribute("aria-selected", "true");
+  await input.fill("");
 }
 
 function sortedSelection(app: App) {
@@ -225,9 +249,7 @@ test.describe("drag preview", () => {
     app,
   }) => {
     await openFixture(app);
-    await clickDesign(app, 75, 160);
-    await clickDesign(app, 75, 160, [MOD]);
-    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    await selectLayerRow(app, "Box A");
     const start = await app.pagePoint(75, 160);
     const scale = (await app.pagePoint(0, 0)).scale;
     const card = (await app.page

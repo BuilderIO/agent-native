@@ -3283,7 +3283,7 @@ it(
 );
 
 it(
-  "click-through descends from a generated wrapper into its text child on the second click, then edits it on double-click",
+  "plain clicks keep a generated wrapper selected; modifier-click drills into text, then double-click edits it",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -3352,7 +3352,21 @@ it(
         (window as any).__elementSelectPayloads.at(-1),
       );
 
-      expect(repeatedSelection.sourceId).not.toBe("headline");
+      expect(repeatedSelection.sourceId).toBe("headline");
+
+      await page.keyboard.down(PLATFORM_PRIMARY_KEY);
+      try {
+        await page.mouse.click(point.x, point.y);
+      } finally {
+        await page.keyboard.up(PLATFORM_PRIMARY_KEY);
+      }
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 2,
+      );
+      const deepSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(deepSelection.tagName).toBe("span");
 
       await page.mouse.dblclick(point.x, point.y);
       await page.waitForFunction(() =>
@@ -3525,9 +3539,21 @@ it(
       );
       expect(generatedSelection).toBe("generated-group");
 
-      await page.mouse.click(740, 140);
+      await page.waitForTimeout(500);
+      await page.mouse.click(440, 140);
       await page.waitForFunction(
         () => ((window as any).__selectedIds as string[]).length >= 3,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const generatedChildSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(generatedChildSelection).toBe("generated-child");
+
+      await page.mouse.click(740, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 4,
         undefined,
         { timeout: 2_000 },
       );
@@ -3538,7 +3564,7 @@ it(
 
       await page.mouse.click(140, 340);
       await page.waitForFunction(
-        () => ((window as any).__selectedIds as string[]).length >= 4,
+        () => ((window as any).__selectedIds as string[]).length >= 5,
         undefined,
         { timeout: 2_000 },
       );

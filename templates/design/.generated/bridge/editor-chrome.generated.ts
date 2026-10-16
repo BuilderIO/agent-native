@@ -3784,6 +3784,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return target;
     }
+    function modifierClickSelectionTarget(hit) {
+      var entersSelectedContainer = Boolean(
+        selectedEl && selectedEl.contains && hit && selectedEl.contains(hit)
+      );
+      return selectionTargetForHit(hit, entersSelectedContainer);
+    }
     function containerScopeAncestor(el, scope) {
       var node = el;
       while (node !== scope && node.parentElement && node.parentElement !== scope && node.parentElement !== document.body && node.parentElement !== document.documentElement) {
@@ -11403,7 +11409,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
-      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : selectedContainerForPlainClick(target, e) || plainClickSelectionTarget(target);
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? modifierClickSelectionTarget(target) : selectedContainerForPlainClick(target, e) || plainClickSelectionTarget(target);
       var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
       if (toggled !== void 0) {
         postToggledSelection(toggled);
@@ -21025,9 +21031,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev, repeatedClick) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev, repeatedClick) || clickThroughSelectionTarget(hit, ev, repeatedClick) : null) || containerFirstSelectionTarget(hit);
-        if (cycledEl) {
-          selectTarget(cycledEl, ev, true);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev, repeatedClick) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev, repeatedClick) || clickThroughSelectionTarget(hit, ev, repeatedClick) : null) || containerFirstSelectionTarget(hit);
+        var cycleTarget = cycledEl && !(cycledEl.contains && cycledEl.contains(hit)) ? cycledEl : null;
+        if (cycleTarget) {
+          selectTarget(cycleTarget, ev, true);
         } else {
           selectTarget(primaryClickTarget || dragTarget, ev, true);
         }

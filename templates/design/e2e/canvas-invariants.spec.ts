@@ -405,6 +405,7 @@ test.describe("auto layout", () => {
       ...styleOf(before.get("abs-intro")),
       display: "flex",
       "flex-direction": "row",
+      "align-items": "flex-start",
       gap: "10px",
     });
     expect(childrenOf(after, "abs-intro")).toStrictEqual([
