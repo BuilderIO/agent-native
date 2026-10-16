@@ -257,21 +257,29 @@ export async function assertLiveCopy(
   binding: LiveCopyBinding,
   docId: string,
 ): Promise<void> {
-  if (bindings.get(binding.name) !== binding) {
-    throw new LiveCopyError(
-      "not_live_copy",
-      docId,
-      `Live copy binding ${binding.name} was released or replaced; use the binding defineLiveCopy returned last.`,
-      { reason: "binding_inactive" },
-    );
-  }
-  if (!(await binding.appliesTo(docId))) {
+  const covers = await binding.appliesTo(docId);
+  assertActiveLiveCopy(binding, docId);
+  if (!covers) {
     throw new LiveCopyError(
       "not_live_copy",
       docId,
       `Document ${docId} is not a live copy for this binding.`,
     );
   }
+}
+
+/** Throws unless `binding` is still the one registered under its name. */
+export function assertActiveLiveCopy(
+  binding: LiveCopyBinding,
+  docId: string,
+): void {
+  if (bindings.get(binding.name) === binding) return;
+  throw new LiveCopyError(
+    "not_live_copy",
+    docId,
+    `Live copy binding ${binding.name} was released or replaced; use the binding defineLiveCopy returned last.`,
+    { reason: "binding_inactive" },
+  );
 }
 
 /**
@@ -676,6 +684,9 @@ export async function commitLiveCopy(
   let outcome: LiveCopyOutcome = { liveCopy: "derived" };
   try {
     await runLiveCopyTransaction(commit.docId, async (tx) => {
+      // Checked here, after every await of the attempt: a binding released
+      // or replaced while its work ran must not commit it.
+      assertActiveLiveCopy(binding, commit.docId);
       const persist = binding.persist;
       if (persist) {
         // The pool's own transaction does not scope getDbExec(); without
@@ -716,6 +727,7 @@ export async function commitLiveCopy(
  * written, when another writer changed it first.
  */
 export async function persistLiveCopyCall(
+  binding: LiveCopyBinding,
   docId: string,
   base: YDocStamp,
   callPersist: LiveCopyCallPersist,
@@ -723,6 +735,7 @@ export async function persistLiveCopyCall(
   assertOwnTransaction(docId, "persistLiveCopyCall");
   try {
     await runLiveCopyTransaction(docId, async (tx) => {
+      assertActiveLiveCopy(binding, docId);
       await runCallPersist(docId, tx, callPersist);
       // Locked after the app's rows, as a commit locks them, and held to the
       // end so no commit can slip in before this one lands.

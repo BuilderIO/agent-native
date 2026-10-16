@@ -168,6 +168,9 @@ async function withDocWriteLock<T>(
       if (binding && refusePath !== undefined) {
         throw liveCopyWriteRefused(docId, refusePath);
       }
+      // Before waiting: from a binding's persist, which runs in its commit's
+      // transaction, this write would wait on the lock that commit holds.
+      if (binding) assertOwnTransaction(docId, "This write");
       if (binding && ahead > binding.maxWaitingWrites) {
         throw new LiveCopyError(
           "build_failed",
@@ -802,6 +805,7 @@ export async function mutateLiveCopy(
         if (
           callPersist &&
           !(await persistLiveCopyCall(
+            binding,
             docId,
             { version: stored.version, digest: stored.digest },
             (tx) =>

@@ -1342,7 +1342,7 @@ describe("mutateLiveCopy", () => {
     expect(await later).toMatchObject({ code: "not_live_copy" });
   });
 
-  it("lets a binding's persist read its own document without waiting on its lock", async () => {
+  it("answers a binding's persist that reads or writes its own document instead of waiting on its lock", async () => {
     const reads: unknown[] = [];
     const binding = define({
       persist: async (_tx, change) => {
@@ -1350,13 +1350,57 @@ describe("mutateLiveCopy", () => {
           (await manager.getState(change.docId)) instanceof Uint8Array,
         );
         reads.push(await rejection(manager.getText(change.docId)));
+        reads.push(
+          await rejection(
+            manager.applyUpdate(change.docId, new Uint8Array([0, 0])),
+          ),
+        );
       },
     });
     await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
     expect(reads).toEqual([
       true,
       expect.objectContaining({ code: "read_refused" }),
+      expect.objectContaining({
+        code: "write_refused",
+        reason: "caller_transaction",
+      }),
     ]);
+  });
+
+  it("refuses to commit the work of a binding replaced while it ran", async () => {
+    const persisted: string[] = [];
+    let replace = false;
+    const binding = define({
+      persist: async () => {
+        persisted.push("old");
+      },
+      runner: intercepted(async (task) => {
+        if (task !== "liveCopy.edit" || !replace) return;
+        replace = false;
+        define({
+          persist: async () => {
+            persisted.push("new");
+          },
+        });
+      }),
+    });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+    persisted.length = 0;
+    replace = true;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(binding, "live:doc", {
+          edit: "append",
+          input: { text: "late" },
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+    expect(persisted).toEqual([]);
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "base",
+      version: 0,
+    });
   });
 
   it("keeps a row recreated at the same version while an edit runs", async () => {
