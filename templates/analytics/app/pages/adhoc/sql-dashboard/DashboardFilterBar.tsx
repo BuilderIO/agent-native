@@ -252,8 +252,6 @@ export function DashboardFilterBar({
   useEffect(() => {
     if (!filtersBusy) return;
     setSaveDialogOpen(false);
-    setViewName("");
-    setSetAsDefault(false);
   }, [filtersBusy]);
   const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
@@ -469,7 +467,7 @@ export function DashboardFilterBar({
         open={saveDialogOpen && !filtersBusy}
         onOpenChange={(open) => {
           setSaveDialogOpen(open && !filtersBusy);
-          if (!open) {
+          if (!open && !filtersBusy) {
             setViewName("");
             setSetAsDefault(false);
           }

@@ -283,6 +283,182 @@ describe("dashboard filter feedback during navigation", () => {
     vi.unstubAllGlobals();
   });
 
+  function viewNameInput() {
+    return document.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  }
+
+  function enterViewDraft() {
+    act(() => button("Save view").click());
+    const input = viewNameInput();
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, " Launch review ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      option("Set as default for this dashboard").click();
+    });
+    expect(input.value).toBe(" Launch review ");
+    expect(
+      option("Set as default for this dashboard").getAttribute("aria-checked"),
+    ).toBe("true");
+    return input;
+  }
+
+  it.each(["failure", "cancel", "POST"])(
+    "preserves the save-view draft after protected navigation %s until manual reopen and saves current filters once",
+    async (outcome) => {
+      saveView = vi.fn<() => void>();
+      await render("/dashboards/test?id=selected&f_app=chat", undefined, true);
+      const trigger = appTrigger();
+      const input = enterViewDraft();
+      const save = button("Save");
+      act(() => {
+        void router.navigate(
+          outcome === "POST"
+            ? "/dashboards/test?id=selected&f_app=slides#write"
+            : "/dashboards/other?id=foreign&f_app=slides#target",
+          outcome === "POST"
+            ? { formMethod: "POST", formData: new FormData() }
+            : undefined,
+        );
+      });
+      const pending = router.state.navigation.location;
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(button("Save view").disabled).toBe(true);
+      act(() => {
+        save.click();
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+        button("Save view").click();
+      });
+      expect(saveView).not.toHaveBeenCalled();
+      expect(router.state.navigation.location).toBe(pending);
+      if (outcome === "POST") {
+        await act(async () => submission.resolve());
+        expect(submission.signal.aborted).toBe(false);
+        expect(button("Save view").disabled).toBe(true);
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+        await settle();
+      } else if (outcome === "failure") {
+        await act(async () => loads[1].reject(new Error("controlled failure")));
+        expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+          "Navigation failed",
+        );
+      } else {
+        act(() => {
+          void router.navigate("/dashboards/test?id=selected&f_app=chat");
+        });
+        await settle();
+      }
+      expect(appTrigger()).toBe(trigger);
+      expect(filterBarMounts).toBe(1);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() => button("Save view").click());
+      expect(viewNameInput().value).toBe(" Launch review ");
+      expect(
+        option("Set as default for this dashboard").getAttribute(
+          "aria-checked",
+        ),
+      ).toBe("true");
+      // The persistent layout still owns the original config after child failure.
+      // Return there before saving rather than pair it with the failed target id.
+      act(() => {
+        void router.navigate("/dashboards/test?id=selected&f_app=slides", {
+          formMethod: "POST",
+          formData: new FormData(),
+        });
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      await act(async () => submission.resolve());
+      await settle();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() => button("Off").click());
+      await settle();
+      act(() => button("Save view").click());
+      expect(viewNameInput().value).toBe(" Launch review ");
+      expect(
+        option("Set as default for this dashboard").getAttribute(
+          "aria-checked",
+        ),
+      ).toBe("true");
+      await act(async () => button("Save").click());
+      expect(saveView).toHaveBeenCalledExactlyOnceWith(
+        "Launch review",
+        {
+          f_app: "slides",
+          f_staff: "true",
+        },
+        true,
+      );
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() => button("Save view").click());
+      expect(viewNameInput().value).toBe("");
+      expect(
+        option("Set as default for this dashboard").getAttribute(
+          "aria-checked",
+        ),
+      ).toBe("false");
+      expect(button("Save").disabled).toBe(true);
+    },
+  );
+
+  it.each(["Cancel", "Escape"])(
+    "clears a save-view draft on explicit %s",
+    async (dismissal) => {
+      saveView = vi.fn<() => void>();
+      await render("/dashboards/test?f_app=chat");
+      const input = enterViewDraft();
+      act(() => {
+        if (dismissal === "Cancel") button("Cancel").click();
+        else
+          input.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          );
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() => button("Save view").click());
+      expect(viewNameInput().value).toBe("");
+      expect(
+        option("Set as default for this dashboard").getAttribute(
+          "aria-checked",
+        ),
+      ).toBe("false");
+      expect(button("Save").disabled).toBe(true);
+      expect(saveView).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps save-view single-flight and retains the draft after a rejected save", async () => {
+    let rejectSave!: (error: Error) => void;
+    saveView = vi.fn<() => void>().mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        }),
+    );
+    await render("/dashboards/test?f_app=chat");
+    const input = enterViewDraft();
+    act(() => button("Save").click());
+    expect(button("Saving...").disabled).toBe(true);
+    expect(button("Cancel").disabled).toBe(true);
+    act(() => {
+      button("Saving...").click();
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(saveView).toHaveBeenCalledTimes(1);
+    await act(async () => rejectSave(new Error("Controlled save failure")));
+    expect(viewNameInput().value).toBe(" Launch review ");
+    expect(
+      option("Set as default for this dashboard").getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(button("Save").disabled).toBe(false);
+    expect(saveView).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves a mounted basename on a synchronous filter edit", async () => {
     await render(
       "/analytics/dashboards/test?id=selected&tab=activity#details",

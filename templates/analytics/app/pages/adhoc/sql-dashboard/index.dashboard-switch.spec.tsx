@@ -1,13 +1,19 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, useLayoutEffect, type ReactNode } from "react";
+import {
+  act,
+  useLayoutEffect,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   MemoryRouter,
   Route,
   Routes,
   useNavigate,
+  useParams,
   type NavigateFunction,
 } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,6 +43,17 @@ const mocks = vi.hoisted(() => ({
   editableRenders: [] as boolean[],
   editorRenders: [] as { open: boolean; dashboardId: string }[],
   submitEditorOn: null as string | null,
+  submitViewOn: null as string | null,
+  filterBarRenders: [] as {
+    routeId: string;
+    label: string;
+    canSave: boolean;
+  }[],
+  filterBarMounts: 0,
+  transientViewAttempts: 0,
+  transientSaveTriggerVisible: false,
+  saveView:
+    vi.fn<(dashboardId: string | undefined, view: unknown) => Promise<void>>(),
   session: { email: "viewer@example.com" },
   noop: () => {},
   mutation: { mutateAsync: async () => ({}), isPending: false },
@@ -137,8 +154,47 @@ vi.mock("@/hooks/use-dashboard-revisions", () => ({
 }));
 
 vi.mock("@/hooks/use-dashboard-views", () => ({
-  useDashboardViews: () => mocks.views,
+  useDashboardViews: (dashboardId: string | undefined) => ({
+    ...mocks.views,
+    saveView: (view: unknown) => mocks.saveView(dashboardId, view),
+  }),
 }));
+
+vi.mock("./DashboardFilterBar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./DashboardFilterBar")>();
+  return {
+    ...actual,
+    DashboardFilterBar: function ObservedFilterBar(
+      props: ComponentProps<typeof actual.DashboardFilterBar>,
+    ) {
+      const { id: routeId = "" } = useParams();
+      const label = props.filters[0]?.label ?? "";
+      useLayoutEffect(() => {
+        mocks.filterBarMounts++;
+      }, []);
+      useLayoutEffect(() => {
+        mocks.filterBarRenders.push({
+          routeId,
+          label,
+          canSave: !!props.onSaveView,
+        });
+        if (routeId === mocks.submitViewOn && label === "Region A") {
+          mocks.submitViewOn = null;
+          const input = document.querySelector('[role="dialog"] input');
+          expect(input).not.toBeNull();
+          mocks.transientViewAttempts++;
+          mocks.transientSaveTriggerVisible = [
+            ...document.querySelectorAll("button"),
+          ].some((button) => button.textContent === "sqlDashboard.saveView");
+          input!.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+        }
+      });
+      return <actual.DashboardFilterBar {...props} />;
+    },
+  };
+});
 
 vi.mock("@/hooks/use-user-pref", () => ({
   useUserPref: () => mocks.userPref,
@@ -330,6 +386,13 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.editableRenders = [];
     mocks.editorRenders = [];
     mocks.submitEditorOn = null;
+    mocks.submitViewOn = null;
+    mocks.filterBarRenders = [];
+    mocks.filterBarMounts = 0;
+    mocks.transientViewAttempts = 0;
+    mocks.transientSaveTriggerVisible = false;
+    mocks.saveView.mockReset();
+    mocks.saveView.mockResolvedValue(undefined);
     mocks.session = { email: "viewer@example.com" };
     mocks.saveDashboard = async () => ({});
     mocks.userPref = {
@@ -357,6 +420,149 @@ describe("SqlDashboardPage dashboard switch", () => {
     queryClient.clear();
     window.localStorage.clear();
     vi.unstubAllGlobals();
+  });
+
+  function viewButton(text: string) {
+    const button = [
+      ...document.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((element) => element.textContent?.trim() === text);
+    if (!button) throw new Error(`Missing button: ${text}`);
+    return button;
+  }
+
+  function viewNameInput() {
+    return document.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  }
+
+  function viewDefaultCheckbox() {
+    return document.querySelector<HTMLButtonElement>(
+      '[role="dialog"] [role="checkbox"]',
+    )!;
+  }
+
+  function enterViewDraft(name: string) {
+    act(() => viewButton("sqlDashboard.saveView").click());
+    const input = viewNameInput();
+    expect(input).not.toBeNull();
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, name);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      viewDefaultCheckbox().click();
+    });
+    expect(input.value).toBe(name);
+    expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe("true");
+  }
+
+  it("starts an empty save-view draft when a cached loaded dashboard replaces another", async () => {
+    mocks.dashboards["dash-a"].filters = [
+      { id: "region", label: "Region A", type: "text" },
+    ];
+    mocks.dashboards["dash-b"].filters = [
+      { id: "region", label: "Region B", type: "text" },
+    ];
+    await renderAt("/dashboards/dash-b?f_region=west");
+    await goTo("/dashboards/dash-a?f_region=east");
+    enterViewDraft("A draft");
+    const mounts = mocks.filterBarMounts;
+
+    await goTo("/dashboards/dash-b?f_region=west");
+
+    expect(container.textContent).toContain("Region B");
+    expect(mocks.filterBarMounts).toBe(mounts + 1);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(mocks.saveView).not.toHaveBeenCalled();
+    act(() => viewButton("sqlDashboard.saveView").click());
+    expect(viewNameInput().value).toBe("");
+    expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe("false");
+    expect(viewButton("explorer.save").disabled).toBe(true);
+    act(() => viewButton("sidebar.cancel").click());
+    enterViewDraft("B draft");
+    await act(async () => viewButton("explorer.save").click());
+    expect(mocks.saveView.mock.calls).toEqual([
+      [
+        "dash-b",
+        {
+          id: "b-draft",
+          name: "B draft",
+          filters: { f_region: "west" },
+          isDefault: true,
+        },
+      ],
+    ]);
+  });
+
+  it("does not offer or execute save-view with old config in the new route's pre-effect commit", async () => {
+    mocks.dashboards["dash-a"].filters = [
+      { id: "region", label: "Region A", type: "text" },
+    ];
+    mocks.dashboards["dash-b"].filters = [
+      { id: "region", label: "Region B", type: "text" },
+    ];
+    await renderAt("/dashboards/dash-b?f_region=west");
+    await goTo("/dashboards/dash-a?f_region=east");
+    enterViewDraft("A draft");
+    mocks.filterBarRenders = [];
+    mocks.submitViewOn = "dash-b";
+
+    await goTo("/dashboards/dash-b?f_region=west");
+
+    expect(mocks.transientViewAttempts).toBe(1);
+    expect(mocks.saveView).not.toHaveBeenCalled();
+    expect(mocks.transientSaveTriggerVisible).toBe(false);
+    expect(mocks.filterBarRenders).toContainEqual({
+      routeId: "dash-b",
+      label: "Region A",
+      canSave: false,
+    });
+    expect(mocks.filterBarRenders).not.toContainEqual({
+      routeId: "dash-b",
+      label: "Region A",
+      canSave: true,
+    });
+    expect(mocks.saveView).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Region B");
+  });
+
+  it("retains the save-view draft through same-dashboard URL and filter-config replacement", async () => {
+    mocks.dashboards["dash-a"].filters = [
+      { id: "region", label: "Region A", type: "text" },
+    ];
+    await renderAt("/dashboards/dash-a?f_region=east");
+    enterViewDraft("A draft");
+    const input = viewNameInput();
+    const mounts = mocks.filterBarMounts;
+    await goTo("/dashboards/dash-a?f_region=west");
+    mocks.dashboards["dash-a"] = {
+      ...mocks.dashboards["dash-a"],
+      filters: [{ id: "region", label: "Updated region", type: "text" }],
+      updatedAt: "2026-10-02T12:00:00.000Z",
+    };
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", "dash-a"],
+      });
+    });
+    await settle();
+    expect(container.textContent).toContain("Updated region");
+    expect(mocks.filterBarMounts).toBe(mounts);
+    expect(viewNameInput()).toBe(input);
+    expect(input.value).toBe("A draft");
+    expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe("true");
+    await act(async () => viewButton("explorer.save").click());
+    expect(mocks.saveView.mock.calls).toEqual([
+      [
+        "dash-a",
+        {
+          id: "a-draft",
+          name: "A draft",
+          filters: { f_region: "west" },
+          isDefault: true,
+        },
+      ],
+    ]);
   });
 
   it("never shows or saves a panel editor opened on one dashboard on the next", async () => {
