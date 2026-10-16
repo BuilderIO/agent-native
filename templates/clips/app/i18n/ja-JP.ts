@@ -1626,8 +1626,7 @@ const messages = {
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    description:
-      "録画した動画の保存先を選びます。Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
+    description: "録画した動画の保存先を選びます。",
     createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",

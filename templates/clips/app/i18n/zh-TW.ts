@@ -1532,8 +1532,7 @@ const messages = {
     builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
-    description:
-      "選擇錄製影片的儲存位置。Builder.io 免費方案包含影片儲存空間，可一鍵完成設定。",
+    description: "選擇錄製影片的儲存位置。",
     createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
     free: "免費",

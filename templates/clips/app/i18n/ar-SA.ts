@@ -1604,8 +1604,7 @@ const messages = {
     builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    description:
-      "اختر مكان تخزين مقاطع الفيديو المسجّلة. تتضمن الخطة المجانية من Builder.io تخزينًا للفيديو، مع إعداد بنقرة واحدة.",
+    description: "اختر مكان تخزين مقاطع الفيديو المسجّلة.",
     createBuilderAccount: "استخدم Builder.io",
     signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
     free: "مجاني",

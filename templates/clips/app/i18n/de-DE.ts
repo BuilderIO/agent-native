@@ -1652,8 +1652,7 @@ const messages = {
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    description:
-      "Wähle, wo deine aufgenommenen Videos gespeichert werden. Der kostenlose Tarif von Builder.io umfasst Videospeicher, den du mit einem Klick einrichten kannst.",
+    description: "Wähle, wo deine aufgenommenen Videos gespeichert werden.",
     createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",

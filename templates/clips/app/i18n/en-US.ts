@@ -1537,8 +1537,7 @@ const messages = {
       "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    description:
-      "Choose where to store your recorded videos. Builder.io's free tier includes video storage, with one-click setup.",
+    description: "Choose where to store your recorded videos.",
     createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",

@@ -128,6 +128,7 @@ describe("StorageSetupCard", () => {
     onConfigured = vi.fn(),
     onSkip?: () => void,
     description?: string,
+    showBuilderStorageOffer = true,
   ) {
     await act(async () => {
       root.render(
@@ -135,6 +136,7 @@ describe("StorageSetupCard", () => {
           onConfigured={onConfigured}
           onSkip={onSkip}
           description={description}
+          showBuilderStorageOffer={showBuilderStorageOffer}
         />,
       );
     });
@@ -821,6 +823,22 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).toContain("storageSetup.builderStorageOffer");
     expect(container.textContent).not.toContain(
       "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO",
+    );
+  });
+
+  it("keeps an exhausted allowance message separate from the free storage offer", async () => {
+    await renderCard(
+      vi.fn(),
+      undefined,
+      "Your free storage allowance is exhausted.",
+      false,
+    );
+
+    expect(container.textContent).toContain(
+      "Your free storage allowance is exhausted.",
+    );
+    expect(container.textContent).not.toContain(
+      "storageSetup.builderStorageOffer",
     );
   });
 

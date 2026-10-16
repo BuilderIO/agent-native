@@ -1580,8 +1580,7 @@ const messages = {
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    description:
-      "चुनें कि रिकॉर्ड किए गए वीडियो कहाँ सहेजने हैं। Builder.io के मुफ़्त प्लान में वीडियो स्टोरेज शामिल है, जिसे एक क्लिक में सेट अप किया जा सकता है।",
+    description: "चुनें कि रिकॉर्ड किए गए वीडियो कहाँ सहेजने हैं।",
     createBuilderAccount: "Builder.io इस्तेमाल करें",
     signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",

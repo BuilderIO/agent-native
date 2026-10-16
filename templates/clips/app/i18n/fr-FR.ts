@@ -1650,8 +1650,7 @@ const messages = {
       "Impossible de confirmer que le stockage Builder.io est prêt. Réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    description:
-      "Choisissez où stocker vos vidéos enregistrées. L’offre gratuite de Builder.io inclut le stockage vidéo, avec une configuration en un clic.",
+    description: "Choisissez où stocker vos vidéos enregistrées.",
     createBuilderAccount: "Utiliser Builder.io",
     signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
     free: "Gratuit",

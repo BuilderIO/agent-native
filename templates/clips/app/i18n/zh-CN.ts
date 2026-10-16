@@ -1527,8 +1527,7 @@ const messages = {
     builderTimeout: "无法确认 Builder.io 存储已就绪，请重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
-    description:
-      "选择录制视频的存储位置。Builder.io 免费套餐包含视频存储，可一键设置。",
+    description: "选择录制视频的存储位置。",
     createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 账户登录",
     free: "免费",

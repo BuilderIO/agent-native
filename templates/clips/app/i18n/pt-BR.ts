@@ -1637,8 +1637,7 @@ const messages = {
       "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
-    description:
-      "Escolha onde salvar seus vídeos gravados. O plano gratuito do Builder.io inclui armazenamento de vídeo, com configuração em um clique.",
+    description: "Escolha onde salvar seus vídeos gravados.",
     createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
     free: "Grátis",

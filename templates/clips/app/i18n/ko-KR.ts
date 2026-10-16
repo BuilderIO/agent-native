@@ -1602,8 +1602,7 @@ const messages = {
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    description:
-      "녹화한 동영상을 저장할 위치를 선택하세요. Builder.io 무료 요금제에는 동영상 저장 공간이 포함되며 한 번의 클릭으로 설정할 수 있습니다.",
+    description: "녹화한 동영상을 저장할 위치를 선택하세요.",
     createBuilderAccount: "Builder.io 사용",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",

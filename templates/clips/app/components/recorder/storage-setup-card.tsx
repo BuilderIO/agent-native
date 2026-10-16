@@ -55,6 +55,7 @@ export interface StorageSetupCardProps {
   onSkip?: () => void;
   title?: string;
   description?: string;
+  showBuilderStorageOffer?: boolean;
   connectedDescription?: string;
   connectSource?: string;
   connectFlow?: string;
@@ -72,6 +73,7 @@ export function StorageSetupCard({
   onSkip,
   title = "Connect storage",
   description,
+  showBuilderStorageOffer = true,
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
@@ -331,11 +333,16 @@ export function StorageSetupCard({
       <div>
         <h2 className="text-lg font-semibold">{title}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {connected
-            ? connectedDescription
-            : description
-              ? `${description} ${t("storageSetup.builderStorageOffer")}`
-              : t("storageSetup.description")}
+          {connected ? (
+            connectedDescription
+          ) : (
+            <>
+              {description ?? t("storageSetup.description")}
+              {showBuilderStorageOffer
+                ? ` ${t("storageSetup.builderStorageOffer")}`
+                : null}
+            </>
+          )}
         </p>
       </div>
 
