@@ -165,32 +165,90 @@ describe("SqlChartCard freshness clock", () => {
     expect(clock()).toBeNull();
   });
 
-  it.each(["focus", "tap"] as const)(
-    "discloses the full truncated title on %s",
+  it.each(["focus", "mouse", "touch"] as const)(
+    "discloses the full title on first %s without selecting the card",
     async (interaction) => {
       const title =
         "Revenue from international organizations with a long localized name";
-      await render({ panel: { ...panel, title } });
+      const onSelectForChat = vi.fn();
+      await render({ panel: { ...panel, title }, onSelectForChat });
       const heading = container.querySelector<HTMLElement>(
         ".dashboard-panel-title h3",
       )!;
+      const trigger = heading.querySelector<HTMLButtonElement>("button")!;
       expect(heading.textContent).toBe(title);
-      expect(heading.tabIndex).toBe(0);
+      expect(trigger).not.toBeNull();
+      expect(trigger.type).toBe("button");
+      expect(trigger.tabIndex).toBe(0);
       expect(
         document.body.querySelector("[data-agent-native-tooltip]"),
       ).toBeNull();
 
       await act(async () => {
-        if (interaction === "focus") heading.focus();
-        else heading.click();
+        if (interaction !== "focus") {
+          trigger.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              pointerType: interaction,
+              pointerId: 1,
+            }),
+          );
+          if (interaction === "touch") {
+            trigger.dispatchEvent(
+              new PointerEvent("pointerup", {
+                bubbles: true,
+                pointerType: interaction,
+                pointerId: 1,
+              }),
+            );
+          }
+        }
+        trigger.focus();
+      });
+      if (interaction !== "focus") {
+        if (interaction === "mouse") {
+          expect(document.body.querySelector("[role='tooltip']")).toBeNull();
+        }
+        await act(async () => {
+          if (interaction === "mouse") {
+            trigger.dispatchEvent(
+              new PointerEvent("pointerup", {
+                bubbles: true,
+                pointerType: interaction,
+                pointerId: 1,
+              }),
+            );
+          }
+          trigger.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1200);
       });
 
       expect(
         document.body.querySelector("[data-agent-native-tooltip]")?.textContent,
       ).toContain(title);
+      expect(onSelectForChat).not.toHaveBeenCalled();
       expect(container.querySelector(".dashboard-panel-title h3")).toBe(
         heading,
       );
+      expect(heading.querySelector("button")).toBe(trigger);
+      await act(async () => {
+        trigger.blur();
+      });
+      expect(document.body.querySelector("[role='tooltip']")).toBeNull();
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>('[data-testid="chart-body"]')!
+          .click();
+      });
+      expect(onSelectForChat).toHaveBeenCalledWith({ focus: false });
     },
   );
 

@@ -92,18 +92,23 @@ const INHERIT_TIME_RANGE = "__inherit__";
 function PanelTitle({ title }: { title: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <Tooltip open={open} onOpenChange={setOpen}>
-      <TooltipTrigger asChild>
-        <CardTitle
-          tabIndex={0}
-          onClick={() => setOpen(true)}
-          className="min-w-0 truncate rounded text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {title}
-        </CardTitle>
-      </TooltipTrigger>
-      <TooltipContent>{title}</TooltipContent>
-    </Tooltip>
+    <CardTitle className="min-w-0 text-sm font-medium">
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+            className="block max-w-full truncate rounded text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {title}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{title}</TooltipContent>
+      </Tooltip>
+    </CardTitle>
   );
 }
 
