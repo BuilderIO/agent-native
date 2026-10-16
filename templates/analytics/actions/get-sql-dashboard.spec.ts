@@ -606,6 +606,41 @@ describe("get-sql-dashboard seed fallback", () => {
     });
     expect(ordinary).not.toHaveProperty("dataNotes");
     expect(mocks.listDataNotes).not.toHaveBeenCalled();
+
+    // An agent gets the bounded summary, read in the owner's scope, not
+    // every record the preview UI draws.
+    const summary = {
+      keyDateSets: [],
+      dataNotes: [
+        {
+          id: SETUP_INCIDENT.id,
+          kind: SETUP_INCIDENT.kind,
+          title: SETUP_INCIDENT.title,
+          status: SETUP_INCIDENT.status,
+          panelIds: ["failures"],
+        },
+      ],
+    };
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue(summary);
+    const forAgent = await getSqlDashboard.run(
+      {
+        id: "customer-dashboard",
+        includeConfig: true,
+        reviewPreview: true,
+        reviewOrgId: "org-b",
+      },
+      { caller: "tool" } as never,
+    );
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: { email: "customer@example.com", orgId: "org-b" },
+        editable: false,
+      }),
+      "customer-dashboard",
+      expect.anything(),
+    );
+    expect(forAgent).toMatchObject(summary);
+    expect(forAgent).not.toHaveProperty("keyDates");
   });
 });
 
@@ -785,6 +820,7 @@ describe("get-sql-dashboard agent reads", () => {
       omittedDataNoteCount: 5,
       panelDetails: [{ id: "spoofed" }],
       missingPanelIds: ["spoofed"],
+      keyDates: [{ date: "2026-10-14", label: "spoofed" }],
     };
     Object.assign(dashboard.config, spoofed);
     mocks.getDashboard.mockResolvedValue(dashboard);

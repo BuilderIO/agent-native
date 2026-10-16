@@ -163,16 +163,16 @@ export default defineAction({
     const annotationScope = storedDashboardAnnotationScope(dashboard, ctx);
     const context = buildDashboardAgentContext(dashboard, {
       ...detail,
-      annotationSummary:
-        detail.forAgent && !args.reviewPreview
-          ? await loadDashboardAnnotationSummary(
-              annotationScope,
-              args.id,
-              dashboard.config as Record<string, unknown>,
-            )
-          : undefined,
+      annotationSummary: detail.forAgent
+        ? await loadDashboardAnnotationSummary(
+            annotationScope,
+            args.id,
+            dashboard.config as Record<string, unknown>,
+          )
+        : undefined,
     });
-    if (!args.reviewPreview) return context;
+    // The preview UI draws every record; an agent gets the bounded summary.
+    if (!args.reviewPreview || detail.forAgent) return context;
     // The reviewer may be in another organization, so list-key-dates and
     // list-data-notes would return theirs, not the ones this dashboard draws.
     const [sets, notes] = await Promise.all([

@@ -160,6 +160,7 @@ function mergeSavedConfig(
     "certification",
     "certified",
     "keyDateSets",
+    "keyDates",
     "keyDatesHint",
     "dataNotes",
     "editable",
