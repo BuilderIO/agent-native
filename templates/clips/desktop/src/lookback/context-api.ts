@@ -57,15 +57,26 @@ export function requestRecordingContext(
   );
 }
 
-export function removeRecordingContext(
+export async function removeRecordingContext(
   target: ClipsActionTarget,
   id: string,
-): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
-    target,
-    "remove-recording-context",
-    { id },
-  );
+): Promise<RecordingContextItem | null> {
+  try {
+    return await callClipsActionFor<RecordingContextItem>(
+      target,
+      "remove-recording-context",
+      { id },
+    );
+  } catch (error) {
+    if (
+      error instanceof ClipsActionError &&
+      error.status === 404 &&
+      error.code === "recording_context_not_found"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function listRecordingContext(

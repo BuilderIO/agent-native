@@ -65,6 +65,27 @@ describe("removeRecordingContext", () => {
     );
     expect(JSON.parse(String(init?.body))).toEqual({ id: "ctx1" });
   });
+
+  it("treats only the typed missing-context response as already removed", async () => {
+    stubFetch(
+      {
+        error: "This screen history context was not found.",
+        errorCode: "recording_context_not_found",
+      },
+      404,
+    );
+
+    await expect(removeRecordingContext(target, "ctx1")).resolves.toBeNull();
+  });
+
+  it("keeps untyped 404 failures distinguishable from an absent context", async () => {
+    stubFetch({ error: "Not found." }, 404);
+
+    await expect(removeRecordingContext(target, "ctx1")).rejects.toMatchObject({
+      status: 404,
+      code: undefined,
+    });
+  });
 });
 
 describe("listPendingRecordingContext", () => {
