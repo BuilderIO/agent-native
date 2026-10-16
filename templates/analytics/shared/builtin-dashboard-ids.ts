@@ -30,6 +30,7 @@ export const SEED_BUILTIN_DASHBOARD_IDS = [
   "skills-cli-funnel",
   "google-analytics",
   "node-exporter-full",
+  "content-view",
 ] as const;
 
 export function nativeV2BuiltinDashboardId(templateId: string): string {

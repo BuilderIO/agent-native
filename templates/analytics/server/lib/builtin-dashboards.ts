@@ -109,7 +109,11 @@ function builtFromInstall(builtinId: string): boolean {
 
 /** Built-ins the dashboards list shows only once somebody installed them. */
 function listedWhenInstalled(builtinId: string): boolean {
-  return builtFromInstall(builtinId) || builtinId === "google-analytics";
+  return (
+    builtFromInstall(builtinId) ||
+    builtinId === "google-analytics" ||
+    builtinId === "content-view"
+  );
 }
 
 /**
