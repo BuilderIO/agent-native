@@ -54,6 +54,10 @@ function downloadCsv(
   truncationMessage?: string,
 ) {
   const lines = [
+    columns.map((column) => csvCell(column)).join(","),
+    ...rows.map((row) =>
+      columns.map((column) => csvCell(row[column])).join(","),
+    ),
     ...(truncationMessage
       ? [
           [csvCell(truncationMessage), ...columns.slice(1).map(() => "")].join(
@@ -61,10 +65,6 @@ function downloadCsv(
           ),
         ]
       : []),
-    columns.map((column) => csvCell(column)).join(","),
-    ...rows.map((row) =>
-      columns.map((column) => csvCell(row[column])).join(","),
-    ),
   ];
   const url = URL.createObjectURL(
     new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" }),

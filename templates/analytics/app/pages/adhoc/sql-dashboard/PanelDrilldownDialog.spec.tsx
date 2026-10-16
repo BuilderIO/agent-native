@@ -233,8 +233,9 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     await act(async () => downloadButton!.click());
 
     const csv = await (createObjectURL.mock.calls[0]?.[0] as Blob).text();
-    expect(csv).toContain("sqlDashboard.drilldownCsvTruncated");
-    expect(csv).toContain("record");
+    const csvRows = csv.split("\n");
+    expect(csvRows[0]).toBe("record");
+    expect(csvRows.at(-1)).toContain("sqlDashboard.drilldownCsvTruncated");
     expect(click).toHaveBeenCalledTimes(1);
     createObjectURL.mockRestore();
     click.mockRestore();
