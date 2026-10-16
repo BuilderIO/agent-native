@@ -954,6 +954,21 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
+  it("asks for a correction when a 'not approved' clause does not cover a later approval claim", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, but the approved value is 10.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("warehouse-derived"),
+    });
+  });
+
   it("shows the disclosure alone on an exhausted retry when the draft still claims approval", () => {
     const result = realDataFinalGuard(
       guardContext({

@@ -1268,8 +1268,13 @@ export function isBigQueryRowsPayload(content: unknown): boolean {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+// A dbt success with no rows has no figure to support an answer, so it is not
+// grounding evidence.
 export function isSuccessfulDbtMetricResult(content: unknown): boolean {
-  return isSuccessfulPayload(content, "status");
+  if (!isSuccessfulPayload(content, "status")) return false;
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  const rows = (parsed as { rows?: unknown } | null)?.rows;
+  return Array.isArray(rows) && rows.length > 0;
 }
 
 function isFailedDataQueryAttempt(result: {

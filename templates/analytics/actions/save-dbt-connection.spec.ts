@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(() => "owner@example.test"),
   hasAppSecret: vi.fn(async () => true),
   listWorkspaceConnectionsForApp: vi.fn(),
+  listWorkspaceConnections: vi.fn(),
   upsertWorkspaceConnection: vi.fn(),
   requireAnalyticsAdminContext: vi.fn(),
 }));
@@ -26,6 +27,7 @@ vi.mock("@agent-native/core/secrets", () => ({
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
+  listWorkspaceConnections: mocks.listWorkspaceConnections,
   resolveWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
   upsertWorkspaceConnection: mocks.upsertWorkspaceConnection,
 }));
@@ -71,6 +73,7 @@ describe("save-dbt-connection", () => {
     });
     mocks.hasAppSecret.mockResolvedValue(true);
     mocks.listWorkspaceConnectionsForApp.mockResolvedValue([]);
+    mocks.listWorkspaceConnections.mockResolvedValue([]);
     mocks.upsertWorkspaceConnection.mockImplementation(async (input) => ({
       ...input,
       id: input.id ?? "conn_new",
@@ -173,6 +176,21 @@ describe("save-dbt-connection", () => {
     await expect(action.run(validInput, {} as never)).rejects.toMatchObject({
       errorCode: "dbt_connection_ambiguous",
       statusCode: 409,
+    });
+    expect(mocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
+  });
+
+  it("refuses to save when the org has a dbt row this caller cannot see, instead of creating a duplicate", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([]);
+    mocks.listWorkspaceConnections.mockResolvedValueOnce([existingRow]);
+
+    await expect(action.run(validInput, {} as never)).rejects.toMatchObject({
+      errorCode: "dbt_connection_restricted",
+      statusCode: 409,
+    });
+    expect(mocks.listWorkspaceConnections).toHaveBeenCalledWith({
+      provider: "dbt",
+      includeDisabled: true,
     });
     expect(mocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
   });

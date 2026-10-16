@@ -542,7 +542,13 @@ function claimsApproval(text: string): boolean {
   return [...text.matchAll(/\b(?:owner[-\s]approved|approved)\b/gi)].some(
     (match) => {
       const before = text.slice(0, match.index ?? 0);
-      const sentence = before.split(/[.!?;]/).pop() ?? "";
+      // Negation covers only its own clause: a comma or conjunction ends it.
+      const sentence =
+        before
+          .split(
+            /[.!?;:,]|\b(?:but|however|yet|whereas|while|although|though|and)\b/i,
+          )
+          .pop() ?? "";
       return !/\bnot\b|n't\b|\bno\b|\brather\s+than\b|\bnever\b/i.test(
         sentence,
       );

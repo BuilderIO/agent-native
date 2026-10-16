@@ -196,6 +196,27 @@ describe("query-dbt-semantic-metric", () => {
     );
   });
 
+  it("reports connection_unavailable instead of asking for a choice when no listed dbt connection is ready", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      {
+        ...connection,
+        id: "conn_a",
+        label: "Finance dbt",
+        status: "needs_reauth",
+      },
+      { ...connection, id: "conn_b", label: "Staging dbt", status: "disabled" },
+    ]);
+
+    await expect(
+      action.run({ metricName: "active_workspaces", limit: 20 }),
+    ).resolves.toMatchObject({
+      status: "connection_unavailable",
+      metricName: "active_workspaces",
+      connection: { id: "conn_a", label: "Finance dbt" },
+    });
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
+  });
+
   it("returns a clear deployment state when the environment has no successful run", async () => {
     mocks.executeProviderApiRequest.mockResolvedValueOnce(
       providerResult({

@@ -514,6 +514,21 @@ export default defineAction({
       : connections.length === 1
         ? connections[0]
         : null;
+    // Asking for a choice among rows that cannot run a query only sends the user
+    // round in a circle. When none is connected, report that instead.
+    if (
+      !connectionId &&
+      connections.length > 1 &&
+      !connections.some((connection) => connection.status === "connected")
+    ) {
+      return {
+        status: "connection_unavailable",
+        metricName,
+        connection: { id: connections[0].id, label: connections[0].label },
+        message:
+          "None of the dbt workspace connections is ready. Check them in Settings → Integrations.",
+      };
+    }
     if (!selected && connections.length > 1 && !connectionId) {
       return {
         status: "connection_selection_required",

@@ -5,6 +5,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
+  listWorkspaceConnections,
   resolveWorkspaceConnectionsForApp,
   upsertWorkspaceConnection,
 } from "@agent-native/core/workspace-connections";
@@ -79,6 +80,18 @@ export default defineAction({
       provider: DBT_PROVIDER_ID,
       includeDisabled: true,
     });
+    // A dbt row this caller cannot see may still exist for the org. Creating a new
+    // row beside it would duplicate the connection, so refuse instead.
+    const orgRows = await listWorkspaceConnections({
+      provider: DBT_PROVIDER_ID,
+      includeDisabled: true,
+    });
+    if (visible.length === 0 && orgRows.length > 0) {
+      fail(
+        "A dbt connection already exists for this organization that you cannot manage. Ask an organization admin to change it in Settings → Integrations.",
+        { errorCode: "dbt_connection_restricted", statusCode: 409 },
+      );
+    }
     if (visible.length > 1) {
       fail(
         "Several dbt connections are granted to Analytics. Choose one in Settings → Integrations before saving.",

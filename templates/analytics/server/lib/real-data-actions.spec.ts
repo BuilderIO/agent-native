@@ -108,6 +108,29 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "generate-chart" }])).toBe(false);
   });
 
+  it("does not count a dbt success with no rows as evidence", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query-dbt-semantic-metric",
+          content: JSON.stringify({ status: "success", rows: [], rowCount: 0 }),
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query-dbt-semantic-metric",
+          content: JSON.stringify({
+            status: "success",
+            rows: [[42]],
+            rowCount: 1,
+          }),
+        },
+      ]),
+    ).toBe(true);
+  });
+
   it("does not count failed source reads as evidence", () => {
     expect(
       hasDataQueryAttempt([{ name: "hubspot-records", isError: true }]),
