@@ -710,6 +710,17 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
+    voiceNavigation: "音声ナビゲーション",
+    voiceNavigationNextCommand: "次のスライド",
+    voiceNavigationPreviousCommand: "前のスライド",
+    voiceNavigationHint:
+      "「{{next}}」または「{{previous}}」と言うと移動します。",
+    voiceNavigationListening:
+      "「{{next}}」または「{{previous}}」を聞き取っています。",
+    voiceNavigationUnavailable:
+      "このブラウザーでは音声ナビゲーションを利用できません。",
+    voiceNavigationError:
+      "音声ナビゲーションが停止しました。マイクの権限と接続を確認して、もう一度お試しください。",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",

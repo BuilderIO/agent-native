@@ -217,6 +217,7 @@ export function buildDashboardAgentContext(
     filters: config.filters,
     variables: config.variables,
     columns: config.columns,
+    annotations: config.annotations,
     panels: panelSummaries(config),
     layout: dashboardLayoutSummary(config),
     ...audit,
