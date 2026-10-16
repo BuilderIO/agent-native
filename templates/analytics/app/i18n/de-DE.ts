@@ -1696,6 +1696,10 @@ export default {
     catalogOpenSessions: "Sitzungen mit {{event}} anzeigen",
     catalogAutomatic: "Automatisch",
     catalogStoppedFiring: "Nicht mehr gesendet",
+    catalogMadeIt: "Erstellt",
+    catalogUsedIt: "Genutzt",
+    catalogNoUsedIt:
+      "Für {{apps}} ist kein „Genutzt“-Ereignis festgelegt, daher kann „Erstellt, nicht genutzt“ deren Ergebnisse nicht prüfen.",
     catalogPropertyKeys: "Eigenschaftsschlüssel",
     catalogMoreKeys: "+{{count}} weitere",
     catalogTruncated:
@@ -1711,6 +1715,30 @@ export default {
       "Geschwindigkeit wird ab jetzt für Seitenaufrufe gemessen.",
     speedFilterNeedsLab:
       "Dieser Link enthält einen Geschwindigkeitsfilter. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",
+    unusedOutputs: "Erstellt, nicht genutzt",
+    anyOutcome: "Jede Sitzung",
+    unusedSlidesDecks: "Ungenutzte Slides-Decks",
+    unusedSlidesRule:
+      "Decks, die vor mindestens {{days}} Tagen erstellt und innerhalb von {{days}} Tagen weder über die erste Folie hinaus mindestens {{seconds}} s präsentiert noch exportiert wurden. Ein Deck nur zu öffnen zählt nicht.",
+    unusedFilterNeedsLab:
+      "Dieser Link enthält einen Filter „Erstellt, nicht genutzt“. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",
+    outputCoverageSince:
+      "Ergebnisse werden seit {{date}} erfasst; ungenutzte erscheinen {{days}} Tage nach ihrer Erstellung.",
+    outputCoverageStarting:
+      "Ergebnisse werden ab jetzt erfasst; ungenutzte erscheinen {{days}} Tage nach ihrer Erstellung.",
+    openDeck: "Deck öffnen",
+    moreOutputs: "+{{count}} weitere",
+    deckCount: "{{count}} Decks",
+    deckCountSingular: "{{count}} Deck",
+    deckMadeOn: "Deck erstellt am {{date}}",
+    outputPresentedOn: "Präsentiert am {{date}}",
+    outputExportedOn: "Exportiert am {{date}}",
+    outputUsedOn: "Genutzt am {{date}}",
+    outputUnused: "Innerhalb von {{days}} Tagen nicht genutzt",
+    outputOpen: "Noch nicht genutzt; gilt nach dem {{date}} als ungenutzt",
+    outputUnmeasured:
+      "Nicht gemessen: Einige Ereignisse konnten nicht gespeichert werden",
+    outputsUnavailable: "Ergebnisse konnten nicht geladen werden.",
     slowRequestCount: "{{count}} langsame Anfragen",
     slowRequestCountSingular: "{{count}} langsame Anfrage",
     speedIncomplete: "Geschwindigkeitsdaten unvollständig",

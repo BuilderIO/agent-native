@@ -29,7 +29,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 ## Sessions and state
 
-- `list-session-recordings` filters scoped replays. Use `paginated: true` for sorted pages with a real total and app counts. With the Sessions triage Lab, `didEvents` / `didNotEvents` filter tracked events and `slow` filters speed. Get names/counts from `list-session-event-names` and event health from `list-event-catalog`; Analytics' index covers sessions only since its coverage start. Never query BigQuery for these views.
+- `list-session-recordings` filters scoped replays. Use `paginated: true` for sorted pages with a real total and app counts. With the Sessions triage Lab, `didEvents` / `didNotEvents` filter tracked events, `slow` filters speed, and `unused: "slides"` finds sessions whose deck went unused for 7 days (`list-session-outputs` gives a row's outputs). Get names/counts from `list-session-event-names` and event health from `list-event-catalog`; Analytics' index covers sessions only since its coverage start. Never query BigQuery for these views.
 - `navigation` tracks dashboard, analysis, source, chart, and selection. `navigate` opens supported Analytics views, including `sessions`, `event-catalog`, `performance`, `monitoring`, and `agents`. Use `view-screen` when context is unclear.
 - Clicking a panel stages a chat context chip and sets `selected-object` with `type="dashboard-panel"`; read `dashboard-management` for dashboard overview/folder actions.
 

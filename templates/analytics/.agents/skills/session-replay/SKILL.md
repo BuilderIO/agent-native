@@ -302,7 +302,7 @@ agent answers about browser recordings in the Analytics template.
   exist only while the Sessions triage Lab is on.
 - Lab state never holds up the base list. The page waits for it only when the
   URL carries Lab-only conditions (did/didn't events, friction signals or
-  sorts, `slow`), with one wait for all of them, and for at most 5 s; a
+  sorts, `slow`, `unused`), with one wait for all of them, and for at most 5 s; a
   failed or hung read lists sessions without them and says so once, with a
   retry, rather than telling the user to turn on a Lab that may be on.
   Row speed hints load beside the list through `list-session-performance`,
@@ -312,6 +312,49 @@ agent answers about browser recordings in the Analytics template.
   and reads row friction and speed hints beside the base list, reporting
   `labStateError`, `frictionError`, and `performanceError` separately; its
   `fullPageAction` asks for both.
+
+## Made It, Didn't Use It
+
+- `OUTPUT_USE_RULES` in `shared/output-use.ts` is the one definition: per
+  app, the output type, the events that make one, and the events that use it,
+  each with a `qualifies` check on its properties. A use counts only for the
+  same `output_id` the making event carried, within `OUTPUT_USE_WINDOW_DAYS`
+  (7). Opening an output never counts; a use shows it to people or takes it out
+  of the app. Slides: `generation_completed` makes a deck;
+  `presentation_ended` with `slides_advanced` ≥ 1 and `duration_ms` ≥
+  `MIN_PRESENTATION_MS` (30 s), or `deck_exported` with `status: "completed"`
+  and `slide_count` ≥ 1, uses it. A missing or non-numeric property never
+  proves a use.
+- Adding an app means adding a rule whose used events need real use and whose
+  making event carries `output_id`. Until then the event catalog flags it: an
+  app with `makesOutputs` (it sent `generation_completed`) and empty
+  `usedItEvents` is a gap, and entries carry `outputRole`. Known holes:
+  shared-audience presentations carry no `output_id`, and HTML export has no
+  completion event.
+- `recordOutputOutcomes` runs in the ingest transaction under a savepoint in
+  every sink mode, so views never read raw events or BigQuery. Each
+  `analytics_output_outcomes` row keeps the earliest making, its session, and
+  the earliest qualifying use; the upsert merges batches in any order. A failed
+  write records the batch's event-time span per tenant in
+  `analytics_output_outcome_gaps`; an output whose window overlaps one is
+  `unmeasured`, never `unused`, since the lost batch could hold its use.
+  Outputs made before the tenant's coverage start are skipped. Before the
+  migration creates `analytics_output_outcome_coverage` (created last), ingest
+  stores events without outcomes, `unused` matches nothing, and coverage is
+  null.
+- `unused` on `list-session-recordings` matches recordings whose own
+  tenant's session made an output whose window has closed unused; a recording
+  shared from another tenant never matches. It returns the paginated shape
+  with `outputs` by recording id and `outputCoverageStartedAt`. Statuses are
+  `used`, `unused`, `open` (window still open), and `unmeasured`; `url` is
+  the recording's app origin plus the rule's `outputPath`, and the app checks
+  access when it opens. `list-session-outputs` and `outputs` on
+  `get-session-replay-summary` give the same per recording: `[]` is none,
+  null is a recording shared from another tenant, and `outputsError` is a
+  failed read.
+- All of it is behind the Sessions triage Lab (`outputs` in its 403). Rows
+  link the first unused output beside the replay link, never inside it, and
+  the replay header lists every output with its status.
 
 ## Agent Diagnostics Surface
 

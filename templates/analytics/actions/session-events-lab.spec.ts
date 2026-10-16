@@ -6,7 +6,18 @@ const labEnabled = vi.hoisted(() => ({ value: false }));
 const getUserLabEnabled = vi.hoisted(() => vi.fn(async () => labEnabled.value));
 const listSessionRecordings = vi.hoisted(() => vi.fn(async () => []));
 const getSessionReplaySummary = vi.hoisted(() =>
-  vi.fn(async (id: string) => ({ id, sessionId: "s1" })),
+  vi.fn(async (id: string) => ({
+    id,
+    sessionId: "s1",
+    ownerEmail: "user@example.test",
+    orgId: "org-1" as string | null,
+  })),
+);
+const getSessionRecordingOutputs = vi.hoisted(() =>
+  vi.fn(async () => ({
+    outputs: {} as Record<string, unknown[]>,
+    coverageStartedAt: null as string | null,
+  })),
 );
 const listSessionRecordingsPage = vi.hoisted(() =>
   vi.fn(async () => ({ recordings: [], total: 0, appCounts: [] })),
@@ -82,9 +93,15 @@ vi.mock("../server/lib/session-performance.js", () => ({
   listRoutePerformance,
   ROUTE_PERFORMANCE_MAX_LIMIT: 200,
 }));
-vi.mock("../server/lib/session-event-index.js", () => ({
+vi.mock("../server/lib/session-event-index.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/session-event-index.js")
+  >()),
   listSessionEventNames,
   listEventCatalog,
+}));
+vi.mock("../server/lib/output-outcomes.js", () => ({
+  getSessionRecordingOutputs,
 }));
 
 const { default: listRecordings } = await import("./list-session-recordings");
@@ -94,6 +111,14 @@ const { default: listRoutes } = await import("./list-route-performance");
 const { default: listSpeed } = await import("./list-session-performance");
 const { default: listFriction } = await import("./list-session-friction");
 const { default: getSummary } = await import("./get-session-replay-summary");
+const { default: listOutputs } = await import("./list-session-outputs");
+
+const SUMMARY = {
+  id: "r1",
+  sessionId: "s1",
+  ownerEmail: "user@example.test",
+  orgId: "org-1",
+};
 
 describe("Sessions triage Lab guard on event actions", () => {
   beforeEach(() => {
@@ -105,6 +130,7 @@ describe("Sessions triage Lab guard on event actions", () => {
     getSessionRecordingPerformance.mockClear();
     getSessionFrictionDetails.mockClear();
     listRecordingFriction.mockClear();
+    getSessionRecordingOutputs.mockClear();
   });
 
   it("keeps plain session lists working with the Lab off", async () => {
@@ -183,6 +209,51 @@ describe("Sessions triage Lab guard on event actions", () => {
       ReturnType<typeof listEventCatalog>
     >;
     expect(catalog.entries[0].description).toBe("A viewer opened a clip.");
+  });
+
+  it("rejects the unused filter and session outputs with the Lab off", async () => {
+    for (const args of [
+      { paginated: true, unused: "slides" },
+      { unused: "slides" },
+    ]) {
+      await expect(listRecordings.run(args as never)).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    }
+    await expect(
+      listOutputs.run({ recordingIds: ["r1"] } as never),
+    ).rejects.toThrow("Session outputs are part of");
+    expect(listSessionRecordingsPage).not.toHaveBeenCalled();
+    expect(listSessionRecordings).not.toHaveBeenCalled();
+    expect(getSessionRecordingOutputs).not.toHaveBeenCalled();
+
+    labEnabled.value = true;
+    await listOutputs.run({ recordingIds: ["r1"] } as never);
+    expect(getSessionRecordingOutputs).toHaveBeenCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      ["r1"],
+    );
+  });
+
+  it("answers an unused filter with the paginated shape, so coverage can travel with it", async () => {
+    labEnabled.value = true;
+    listSessionRecordingsPage.mockResolvedValueOnce({
+      recordings: [],
+      total: 0,
+      appCounts: [],
+      outputs: {},
+      outputCoverageStartedAt: null,
+    } as never);
+    const result = await listRecordings.run({ unused: "slides" } as never);
+    expect(listSessionRecordings).not.toHaveBeenCalled();
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      expect.objectContaining({ unused: "slides" }),
+    );
+    expect(result).toMatchObject({ outputCoverageStartedAt: null });
+    expect(listRecordings.schema.safeParse({ unused: "design" }).success).toBe(
+      false,
+    );
   });
 
   it("bounds speed lookups to one page of recordings", () => {
@@ -345,19 +416,19 @@ describe("Sessions triage Lab guard on event actions", () => {
       coverageStartedAt: "2026-09-20T00:00:00.000Z",
     } as never);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
-      id: "r1",
-      sessionId: "s1",
+      ...SUMMARY,
     });
     expect(listRecordingFriction).not.toHaveBeenCalled();
     expect(getSessionRecordingPerformance).not.toHaveBeenCalled();
 
     labEnabled.value = true;
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
-      id: "r1",
-      sessionId: "s1",
+      ...SUMMARY,
       friction: { score: 4 },
       performance: speed,
       performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
+      outputs: [],
+      outputCoverageStartedAt: null,
     });
 
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -366,11 +437,12 @@ describe("Sessions triage Lab guard on event actions", () => {
     );
     listRecordingFriction.mockRejectedValueOnce(frictionFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
-      id: "r1",
-      sessionId: "s1",
+      ...SUMMARY,
       frictionError: "Couldn't read session friction.",
       performance: speed,
       performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
+      outputs: [],
+      outputCoverageStartedAt: null,
     });
 
     const speedFailure = new Error(
@@ -378,10 +450,11 @@ describe("Sessions triage Lab guard on event actions", () => {
     );
     getSessionRecordingPerformance.mockRejectedValueOnce(speedFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
-      id: "r1",
-      sessionId: "s1",
+      ...SUMMARY,
       friction: { score: 4 },
       performanceError: "Couldn't read session speed data.",
+      outputs: [],
+      outputCoverageStartedAt: null,
     });
 
     getSessionRecordingPerformance.mockResolvedValueOnce({
@@ -389,18 +462,18 @@ describe("Sessions triage Lab guard on event actions", () => {
       coverageStartedAt: null,
     } as never);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
-      id: "r1",
-      sessionId: "s1",
+      ...SUMMARY,
       friction: { score: 4 },
       performance: null,
       performanceCoverageStartedAt: null,
+      outputs: [],
+      outputCoverageStartedAt: null,
     });
 
     const labFailure = new Error('relation "settings" does not exist');
     getUserLabEnabled.mockRejectedValueOnce(labFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
-      id: "r1",
-      sessionId: "s1",
+      ...SUMMARY,
       labStateError: "Couldn't read the Sessions triage Lab state.",
     });
     expect(log).toHaveBeenCalledWith(
@@ -421,6 +494,43 @@ describe("Sessions triage Lab guard on event actions", () => {
       performance: {},
       coverageStartedAt: null,
     });
+  });
+
+  it("adds outputs to a replay summary, and tells unknown and unreadable apart from none", async () => {
+    labEnabled.value = true;
+    const output = { app: "slides", outputId: "deck-1", status: "unused" };
+    getSessionRecordingOutputs.mockResolvedValueOnce({
+      outputs: { r1: [output] },
+      coverageStartedAt: "2026-10-01T00:00:00.000Z",
+    });
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toMatchObject({
+      outputs: [output],
+      outputCoverageStartedAt: "2026-10-01T00:00:00.000Z",
+    });
+
+    // A share grants the recording, not its tenant's outputs.
+    getSessionReplaySummary.mockResolvedValueOnce({
+      ...SUMMARY,
+      ownerEmail: "other@example.test",
+      orgId: "org-2",
+    });
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toMatchObject({
+      outputs: null,
+    });
+
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error("outputs failed");
+    getSessionRecordingOutputs.mockRejectedValueOnce(failure);
+    const result = await getSummary.run({ recordingId: "r1" });
+    expect(result).toMatchObject({
+      outputsError: "Couldn't read session outputs.",
+    });
+    expect(result).not.toHaveProperty("outputs");
+    expect(log).toHaveBeenCalledWith(
+      "[get-session-replay-summary] Couldn't read session outputs.",
+      failure,
+    );
+    log.mockRestore();
   });
 
   it("rejects event range bounds that are not timestamps", () => {

@@ -54,6 +54,8 @@ export interface EventCatalogEntry {
   description: string | null;
   automatic: boolean;
   stoppedFiring: boolean;
+  /** Whether "made it, didn't use it" reads this event as making or using its app's output. */
+  outputRole: "made" | "used" | null;
 }
 
 export interface EventCatalogApp {
@@ -61,6 +63,10 @@ export interface EventCatalogApp {
   eventCount: number;
   volume: number;
   onlyAutomaticEvents: boolean;
+  /** The app sent `generation_completed` in range, so it makes outputs. */
+  makesOutputs: boolean;
+  /** Events that count as using this app's output; empty for an app that makes outputs is a catalog gap. */
+  usedItEvents: string[];
 }
 
 export interface EventCatalogResult {

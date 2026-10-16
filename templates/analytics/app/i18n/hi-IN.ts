@@ -1617,6 +1617,10 @@ export default {
     catalogOpenSessions: "{{event}} वाले सत्र दिखाएँ",
     catalogAutomatic: "स्वचालित",
     catalogStoppedFiring: "भेजना बंद हुआ",
+    catalogMadeIt: "बनाया",
+    catalogUsedIt: "इस्तेमाल किया",
+    catalogNoUsedIt:
+      "{{apps}} के लिए कोई “इस्तेमाल किया” इवेंट तय नहीं है, इसलिए “बनाया, इस्तेमाल नहीं किया” उनके नतीजे नहीं जाँच सकता।",
     catalogPropertyKeys: "प्रॉपर्टी कुंजियाँ",
     catalogMoreKeys: "+{{count}} और",
     catalogTruncated: "सिर्फ़ हाल ही में देखे गए {{count}} इवेंट दिखाए जा रहे हैं।",
@@ -1630,6 +1634,29 @@ export default {
     speedCoverageStarting: "गति अब से होने वाले पेज व्यू के लिए मापी जाती है।",
     speedFilterNeedsLab:
       "इस लिंक में गति फ़िल्टर है। उसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
+    unusedOutputs: "बनाया, इस्तेमाल नहीं किया",
+    anyOutcome: "कोई भी सत्र",
+    unusedSlidesDecks: "इस्तेमाल न हुए Slides डेक",
+    unusedSlidesRule:
+      "कम से कम {{days}} दिन पहले बने डेक, जिन्हें {{days}} दिनों के भीतर पहली स्लाइड से आगे {{seconds}} सेकंड या ज़्यादा प्रस्तुत या एक्सपोर्ट नहीं किया गया। डेक खोलना नहीं गिना जाता।",
+    unusedFilterNeedsLab:
+      "इस लिंक में “बनाया, इस्तेमाल नहीं किया” फ़िल्टर है। उसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
+    outputCoverageSince:
+      "नतीजे {{date}} से ट्रैक हो रहे हैं; इस्तेमाल न हुए नतीजे बनने के {{days}} दिन बाद दिखते हैं।",
+    outputCoverageStarting:
+      "नतीजे अब से ट्रैक होते हैं; इस्तेमाल न हुए नतीजे बनने के {{days}} दिन बाद दिखते हैं।",
+    openDeck: "डेक खोलें",
+    moreOutputs: "+{{count}} और",
+    deckCount: "{{count}} डेक",
+    deckCountSingular: "{{count}} डेक",
+    deckMadeOn: "डेक {{date}} को बना",
+    outputPresentedOn: "{{date}} को प्रस्तुत किया",
+    outputExportedOn: "{{date}} को एक्सपोर्ट किया",
+    outputUsedOn: "{{date}} को इस्तेमाल किया",
+    outputUnused: "{{days}} दिनों में इस्तेमाल नहीं हुआ",
+    outputOpen: "अभी इस्तेमाल नहीं हुआ; {{date}} के बाद इस्तेमाल न हुआ गिना जाएगा",
+    outputUnmeasured: "मापा नहीं गया: कुछ इवेंट सेव नहीं हो सके",
+    outputsUnavailable: "नतीजे लोड नहीं हो सके।",
     slowRequestCount: "{{count}} धीमे अनुरोध",
     slowRequestCountSingular: "{{count}} धीमा अनुरोध",
     speedIncomplete: "गति डेटा अधूरा है",

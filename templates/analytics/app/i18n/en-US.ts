@@ -1729,6 +1729,10 @@ export default {
     catalogOpenSessions: "Show sessions with {{event}}",
     catalogAutomatic: "Automatic",
     catalogStoppedFiring: "Stopped firing",
+    catalogMadeIt: "Made it",
+    catalogUsedIt: "Used it",
+    catalogNoUsedIt:
+      "No “used it” event is defined for {{apps}}, so “Made it, didn't use it” can't check their outputs.",
     catalogPropertyKeys: "Property keys",
     catalogMoreKeys: "+{{count}} more",
     catalogTruncated: "Showing only the {{count}} most recently seen events.",
@@ -1742,6 +1746,29 @@ export default {
     speedCoverageStarting: "Speed is measured for page views from now on.",
     speedFilterNeedsLab:
       "This link has a speed filter. Turn on the Sessions triage Lab in Settings to apply it.",
+    unusedOutputs: "Made it, didn't use it",
+    anyOutcome: "Any session",
+    unusedSlidesDecks: "Unused Slides decks",
+    unusedSlidesRule:
+      "Decks made at least {{days}} days ago that weren't presented past the first slide for {{seconds}} s or more, or exported, within {{days}} days. Opening a deck doesn't count.",
+    unusedFilterNeedsLab:
+      "This link has a “made it, didn't use it” filter. Turn on the Sessions triage Lab in Settings to apply it.",
+    outputCoverageSince:
+      "Outputs tracked since {{date}}; unused ones show {{days}} days after they're made.",
+    outputCoverageStarting:
+      "Outputs are tracked from now on; unused ones show {{days}} days after they're made.",
+    openDeck: "Open deck",
+    moreOutputs: "+{{count}} more",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck made {{date}}",
+    outputPresentedOn: "Presented {{date}}",
+    outputExportedOn: "Exported {{date}}",
+    outputUsedOn: "Used {{date}}",
+    outputUnused: "Not used within {{days}} days",
+    outputOpen: "Not used yet; counts as unused after {{date}}",
+    outputUnmeasured: "Not measured: some events failed to save",
+    outputsUnavailable: "Couldn't load outputs.",
     slowRequestCount: "{{count}} slow requests",
     slowRequestCountSingular: "{{count}} slow request",
     speedIncomplete: "Speed data incomplete",

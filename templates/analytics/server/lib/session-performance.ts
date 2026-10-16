@@ -1,17 +1,5 @@
 import { fail } from "@agent-native/core/action";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gte,
-  inArray,
-  lt,
-  lte,
-  ne,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import {
@@ -50,7 +38,10 @@ import {
   viewerTenantKeys,
   warnIndexFailure,
 } from "./session-event-index.js";
-import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
+import {
+  listRecordingSessionAssociations,
+  sessionRecordingAssociationsReady,
+} from "./session-recording-associations.js";
 
 /**
  * Performance aggregates.
@@ -69,7 +60,6 @@ const MAX_ROUTE_LENGTH = 200;
 const MAX_APP_LENGTH = 100;
 const MAX_SAMPLE_WEIGHT = 10_000;
 const SESSION_PERFORMANCE_RETENTION_BUFFER_DAYS = 2;
-const ASSOCIATION_READ_PAGE_SIZE = 500;
 // Leave room for tenant and other filters under PostgreSQL's bind limit.
 const SESSION_PERFORMANCE_SESSION_BATCH_SIZE = 25_000;
 export const ROUTE_PERFORMANCE_RETENTION_DAYS = 180;
@@ -700,30 +690,6 @@ export async function getPerformanceCoverageStart(
   return starts.at(-1) ?? null;
 }
 
-async function recordingSessionAssociations(
-  db: any,
-  recordingIds: readonly string[],
-): Promise<Array<{ recordingId: string; sessionId: string }>> {
-  const association = schema.sessionRecordingSessionAssociations;
-  const result: Array<{ recordingId: string; sessionId: string }> = [];
-  let offset = 0;
-  while (true) {
-    const page = await db
-      .select({
-        recordingId: association.recordingId,
-        sessionId: association.sessionId,
-      })
-      .from(association)
-      .where(inArray(association.recordingId, [...recordingIds]))
-      .orderBy(asc(association.recordingId), asc(association.sessionId))
-      .limit(ASSOCIATION_READ_PAGE_SIZE)
-      .offset(offset);
-    result.push(...page);
-    if (page.length < ASSOCIATION_READ_PAGE_SIZE) return result;
-    offset += page.length;
-  }
-}
-
 function mergePerformanceSummaries(
   first: SessionPerformanceSummary,
   second: SessionPerformanceSummary,
@@ -775,7 +741,7 @@ export async function getSessionPerformanceSummaries(
   const db = getDb() as any;
   if (!(await performanceTablesExist(db))) return summaries;
   const associationRows = (await sessionRecordingAssociationsReady(db))
-    ? await recordingSessionAssociations(
+    ? await listRecordingSessionAssociations(
         db,
         recordings.map((recording) => recording.id),
       )

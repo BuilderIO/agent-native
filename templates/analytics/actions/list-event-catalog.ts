@@ -49,7 +49,7 @@ async function dataDictionaryDescriptions(
 
 export default defineAction({
   description:
-    "List the events Analytics has received, with each event's app, volume in the range, last-seen time, sample property keys, and Data Dictionary description. Flags apps that send only automatic events and events that stopped firing. Keeps the 1,000 most recently seen events, sorted by volume, and sets truncated when more exist; app flags still count every event in the range. Reads Analytics' own index. Requires the Sessions triage Lab.",
+    "List the events Analytics has received, with each event's app, volume in the range, last-seen time, sample property keys, and Data Dictionary description. Flags apps that send only automatic events and events that stopped firing. Each app has makesOutputs (it sent generation_completed in the range) and usedItEvents, the events that count as using its output for “made it, didn't use it”; an app that makes outputs with an empty usedItEvents is a catalog gap. Each entry's outputRole says whether that event marks making (made) or using (used) its app's output. Keeps the 1,000 most recently seen events, sorted by volume, and sets truncated when more exist; app flags still count every event in the range. Reads Analytics' own index. Requires the Sessions triage Lab.",
   schema: z.object({
     from: sessionEventBoundSchema
       .optional()

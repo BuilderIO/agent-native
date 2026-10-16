@@ -69,6 +69,7 @@ import {
   boundedIdentity,
   boundedText,
 } from "./indexed-text.js";
+import { recordOutputOutcomes } from "./output-outcomes.js";
 import { parseIngestBody, requestError } from "./request-errors.js";
 import {
   recordEventCatalog,
@@ -198,6 +199,7 @@ async function persistBigQueryRowsWithMigrationFallback(
       );
       await recordSessionEventIndex(tx, rows, receivedAt);
       await recordSessionPerformance(tx, rows, receivedAt);
+      await recordOutputOutcomes(tx, rows, receivedAt);
     });
   } catch (error) {
     if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
@@ -224,6 +226,7 @@ async function persistBigQueryRowsWithMigrationFallback(
       }
       await recordSessionEventIndex(tx, rows, receivedAt);
       await recordSessionPerformance(tx, rows, receivedAt);
+      await recordOutputOutcomes(tx, rows, receivedAt);
     });
     try {
       const result = await runWithRequestContext(
@@ -953,6 +956,7 @@ export async function recordAnalyticsEvents(
           await upsertFirstPartyAnalyticsRollups(rows, tx);
           await recordSessionEventIndex(tx, rows, receivedAt);
           await recordSessionPerformance(tx, rows, receivedAt);
+          await recordOutputOutcomes(tx, rows, receivedAt);
         });
       }
     } catch (error) {

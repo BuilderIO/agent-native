@@ -1815,6 +1815,52 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "dashboard-revisions-change-summary",
       sql: `ALTER TABLE dashboard_revisions ADD COLUMN IF NOT EXISTS change_summary TEXT`,
     },
+    {
+      version: 171,
+      name: "analytics-output-outcomes",
+      sql: {
+        // The coverage table comes last: its existence is how ingest and
+        // reads know the other two exist.
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_output_outcomes (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      app TEXT NOT NULL,
+      output_type TEXT NOT NULL,
+      output_id TEXT NOT NULL,
+      made_at TEXT,
+      use_by TEXT,
+      made_session_id TEXT,
+      first_used_at TEXT,
+      used_event TEXT,
+      last_seen_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_output_outcomes_key_idx
+      ON analytics_output_outcomes (tenant_key, app, output_id);
+    CREATE INDEX IF NOT EXISTS analytics_output_outcomes_made_session_idx
+      ON analytics_output_outcomes (tenant_key, made_session_id);
+    CREATE INDEX IF NOT EXISTS analytics_output_outcomes_last_seen_idx
+      ON analytics_output_outcomes (last_seen_at);
+    CREATE TABLE IF NOT EXISTS analytics_output_outcome_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS analytics_output_outcome_gaps_tenant_idx
+      ON analytics_output_outcome_gaps (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_output_outcome_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -42,6 +42,10 @@ import {
   type AnyColumn,
 } from "drizzle-orm";
 
+import type {
+  OutputUseApp,
+  SessionRecordingOutputs,
+} from "../../shared/output-use.js";
 import { isScreenshotSize } from "../../shared/png.js";
 import {
   isSessionFrictionSort,
@@ -66,6 +70,11 @@ import {
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
 import type { JourneyRecording, RecordingViewport } from "./journey-tree.js";
+import {
+  getSessionRecordingOutputs,
+  pruneOutputOutcomes,
+  unusedOutputConditions,
+} from "./output-outcomes.js";
 import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
@@ -161,6 +170,8 @@ export interface SessionReplayListFilters {
   includePerformance?: boolean;
   /** Measured sessions that showed every one of these friction signals. */
   frictionSignals?: SessionFrictionSignal[];
+  /** Sessions that made an output of this app and never used it in time. */
+  unused?: OutputUseApp;
 }
 
 export interface SessionReplayEventReadOptions {
@@ -2457,6 +2468,12 @@ export interface SessionRecordingPage {
    * performance aggregates began, or null when they have not.
    */
   performanceCoverageStartedAt?: string | null;
+  /**
+   * With an unused-output filter: each row's outputs by recording id, and
+   * when the viewer's output tracking began, or null before it has.
+   */
+  outputs?: SessionRecordingOutputs["outputs"];
+  outputCoverageStartedAt?: string | null;
 }
 
 const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
@@ -2669,6 +2686,7 @@ export async function listSessionRecordingsPage(
       didNotEvents: filters.didNotEvents,
     })),
     ...(await slowSessionConditions(scope, filters.slow)),
+    ...(await unusedOutputConditions(scope, filters.unused)),
     ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];
@@ -2747,17 +2765,30 @@ export async function listSessionRecordingsPage(
   const recordings: SessionRecordingSummary[] = rows.map((row: any) =>
     rowToSessionRecordingSummary(row),
   );
-  const performance =
+  const [performance, outputs] = await Promise.all([
     filters.slow || filters.includePerformance
-      ? await sessionRecordingPerformance(scope, recordings, {
+      ? sessionRecordingPerformance(scope, recordings, {
           summaries: filters.includePerformance === true,
         })
-      : null;
+      : null,
+    filters.unused
+      ? getSessionRecordingOutputs(
+          scope,
+          recordings.map((recording) => recording.id),
+        )
+      : null,
+  ]);
   return {
     recordings,
     total,
     ...(performance
       ? { performanceCoverageStartedAt: performance.coverageStartedAt }
+      : {}),
+    ...(outputs
+      ? {
+          outputs: outputs.outputs,
+          outputCoverageStartedAt: outputs.coverageStartedAt,
+        }
       : {}),
     appCounts: appRows
       .filter((row: { app: string | null }) => row.app)
@@ -3623,6 +3654,11 @@ export async function runSessionReplayRetentionSweep(
     await prunePerformanceAggregates(replayRetentionDays(), now);
   } catch (err) {
     console.warn("[session-replay] Performance aggregate pruning failed:", err);
+  }
+  try {
+    await pruneOutputOutcomes(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Output outcome pruning failed:", err);
   }
   return {
     finalized: finalized.finalized,

@@ -634,6 +634,54 @@ describe("view-screen Sessions context", () => {
     expect(off.sessionReplayPage.performanceCoverageStartedAt).toBeUndefined();
   });
 
+  it("applies the unused filter from the URL only while the Lab is on, with each row's outputs", async () => {
+    const output = { app: "slides", outputId: "deck-1", status: "unused" };
+    listSessionRecordingsPage.mockResolvedValue({
+      recordings: [{ id: "recording-0" }, { id: "recording-1" }],
+      total: 2,
+      appCounts: [],
+      outputs: { "recording-0": [output] },
+      outputCoverageStartedAt: "2026-10-01T00:00:00.000Z",
+    } as never);
+    const url = { pathname: "/sessions", searchParams: { unused: "slides" } };
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen({ view: "sessions" }, url);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ unused: "slides" }),
+    );
+    expect(on.sessionReplays.map((row: any) => row.outputs)).toEqual([
+      [output],
+      [],
+    ]);
+    expect(on.activeFilters).toMatchObject({ unused: "slides" });
+    expect(on.sessionReplayPage.outputCoverageStartedAt).toBe(
+      "2026-10-01T00:00:00.000Z",
+    );
+    expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
+      unused: "slides",
+    });
+    expect(on.sessionReplayPage.unusedFilterNotApplied).toBeUndefined();
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    listSessionRecordingsPage.mockResolvedValue({
+      recordings: [],
+      total: 0,
+      appCounts: [],
+    } as never);
+    const off = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ unused: expect.anything() }),
+    );
+    expect(off.sessionReplayPage.unusedFilterNotApplied).toBe("slides");
+    expect(off.sessionReplayPage.outputCoverageStartedAt).toBeUndefined();
+  });
+
   it("reads each row's speed hints beside the list the way the page shows them while the Lab is on", async () => {
     setScreen(
       { view: "sessions" },

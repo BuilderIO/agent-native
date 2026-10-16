@@ -627,6 +627,73 @@ export const analyticsPerformanceCoverage = table(
   },
 );
 
+// Each output an app reported making, from `shared/output-use.ts`, and its
+// first use. A null madeAt means only uses have arrived so far; useBy is
+// madeAt plus the use window, so "used in time" compares two stored values.
+export const analyticsOutputOutcomes = table(
+  "analytics_output_outcomes",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    app: text("app").notNull(),
+    outputType: text("output_type").notNull(),
+    outputId: text("output_id").notNull(),
+    madeAt: text("made_at"),
+    useBy: text("use_by"),
+    madeSessionId: text("made_session_id"),
+    firstUsedAt: text("first_used_at"),
+    usedEvent: text("used_event"),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+  (t) => ({
+    outputOutcomeUnique: uniqueIndex("analytics_output_outcomes_key_idx").on(
+      t.tenantKey,
+      t.app,
+      t.outputId,
+    ),
+    madeSessionIdx: index("analytics_output_outcomes_made_session_idx").on(
+      t.tenantKey,
+      t.madeSessionId,
+    ),
+    lastSeenIdx: index("analytics_output_outcomes_last_seen_idx").on(
+      t.lastSeenAt,
+    ),
+  }),
+);
+
+// Event-time spans in which a failed write may have dropped an output's use,
+// so no output made in or before one can read as unused.
+export const analyticsOutputOutcomeGaps = table(
+  "analytics_output_outcome_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    outputOutcomeGapTenantIdx: index(
+      "analytics_output_outcome_gaps_tenant_idx",
+    ).on(t.tenantKey, t.lastAt),
+  }),
+);
+
+// When each tenant's output outcomes began.
+export const analyticsOutputOutcomeCoverage = table(
+  "analytics_output_outcome_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
 export const analyticsUserDays = table("analytics_user_days", {
   id: text("id").primaryKey(),
   tenantKey: text("tenant_key").notNull(),

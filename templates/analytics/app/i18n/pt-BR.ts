@@ -1679,6 +1679,10 @@ export default {
     catalogOpenSessions: "Mostrar sessões com {{event}}",
     catalogAutomatic: "Automático",
     catalogStoppedFiring: "Parou de ser enviado",
+    catalogMadeIt: "Criou",
+    catalogUsedIt: "Usou",
+    catalogNoUsedIt:
+      "Nenhum evento de “usou” está definido para {{apps}}, então “Criou, não usou” não consegue verificar o que eles criam.",
     catalogPropertyKeys: "Chaves de propriedades",
     catalogMoreKeys: "+{{count}} mais",
     catalogTruncated:
@@ -1694,6 +1698,29 @@ export default {
       "A velocidade é medida nas visualizações de página a partir de agora.",
     speedFilterNeedsLab:
       "Este link tem um filtro de velocidade. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",
+    unusedOutputs: "Criou, não usou",
+    anyOutcome: "Qualquer sessão",
+    unusedSlidesDecks: "Decks do Slides não usados",
+    unusedSlidesRule:
+      "Decks criados há pelo menos {{days}} dias que, em {{days}} dias, não foram apresentados além do primeiro slide por {{seconds}} s ou mais nem exportados. Abrir um deck não conta.",
+    unusedFilterNeedsLab:
+      "Este link tem um filtro “Criou, não usou”. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",
+    outputCoverageSince:
+      "Resultados rastreados desde {{date}}; os não usados aparecem {{days}} dias depois de criados.",
+    outputCoverageStarting:
+      "Os resultados são rastreados a partir de agora; os não usados aparecem {{days}} dias depois de criados.",
+    openDeck: "Abrir deck",
+    moreOutputs: "+{{count}} mais",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck criado em {{date}}",
+    outputPresentedOn: "Apresentado em {{date}}",
+    outputExportedOn: "Exportado em {{date}}",
+    outputUsedOn: "Usado em {{date}}",
+    outputUnused: "Não usado em {{days}} dias",
+    outputOpen: "Ainda não usado; conta como não usado depois de {{date}}",
+    outputUnmeasured: "Não medido: alguns eventos não puderam ser salvos",
+    outputsUnavailable: "Não foi possível carregar os resultados.",
     slowRequestCount: "{{count}} requisições lentas",
     slowRequestCountSingular: "{{count}} requisição lenta",
     speedIncomplete: "Dados de velocidade incompletos",

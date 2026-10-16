@@ -1,0 +1,150 @@
+/**
+ * "Made it, didn't use it": per app, the output a person makes, the events
+ * that say they made one, and the events that say they used it. Opening an
+ * output never counts as using it; a use shows the output to people or takes
+ * it out of the app.
+ */
+
+/** A use counts only within this many days of the output being made. */
+export const OUTPUT_USE_WINDOW_DAYS = 7;
+export const OUTPUT_USE_WINDOW_MS = OUTPUT_USE_WINDOW_DAYS * 24 * 60 * 60_000;
+/** A presentation shorter than this was a look, not a talk. */
+export const MIN_PRESENTATION_MS = 30_000;
+/** Output ids are skipped past this length, never cut, like session ids. */
+export const MAX_OUTPUT_ID_LENGTH = 256;
+/** The Sessions URL param naming the app whose unused outputs to find. */
+export const UNUSED_OUTPUT_PARAM = "unused";
+/** Every generator sends this when it makes an output, so it marks an app that makes them. */
+export const OUTPUT_MADE_EVENT = "generation_completed";
+
+type EventProperties = Readonly<Record<string, unknown>>;
+
+export interface OutputUseEvent {
+  eventName: string;
+  qualifies: (properties: EventProperties) => boolean;
+}
+
+export interface OutputUseRule {
+  outputType: string;
+  madeEvents: readonly string[];
+  usedEvents: readonly OutputUseEvent[];
+  /** The output's page, relative to its app's origin. */
+  outputPath: (outputId: string) => string;
+}
+
+/** A missing or non-numeric property never proves a use. */
+function atLeast(value: unknown, minimum: number): boolean {
+  return (
+    typeof value === "number" && Number.isFinite(value) && value >= minimum
+  );
+}
+
+export const OUTPUT_USE_RULES = {
+  slides: {
+    outputType: "deck",
+    madeEvents: [OUTPUT_MADE_EVENT],
+    usedEvents: [
+      {
+        // Moving forward at least once means two or more slides were shown,
+        // even when the presentation started mid-deck.
+        eventName: "presentation_ended",
+        qualifies: (properties) =>
+          atLeast(properties.slides_advanced, 1) &&
+          atLeast(properties.duration_ms, MIN_PRESENTATION_MS),
+      },
+      {
+        // `slide_export_started` fires before the export runs, so only a
+        // finished export of a deck with slides counts.
+        eventName: "deck_exported",
+        qualifies: (properties) =>
+          properties.status === "completed" &&
+          atLeast(properties.slide_count, 1),
+      },
+    ],
+    outputPath: (outputId) => `/deck/${encodeURIComponent(outputId)}`,
+  },
+} as const satisfies Record<string, OutputUseRule>;
+
+export type OutputUseApp = keyof typeof OUTPUT_USE_RULES;
+
+export const OUTPUT_USE_APPS = Object.keys(OUTPUT_USE_RULES) as [
+  OutputUseApp,
+  ...OutputUseApp[],
+];
+
+export function isOutputUseApp(value: unknown): value is OutputUseApp {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(OUTPUT_USE_RULES, value)
+  );
+}
+
+export function outputUseRule(
+  app: string | null | undefined,
+): OutputUseRule | null {
+  return isOutputUseApp(app) ? OUTPUT_USE_RULES[app] : null;
+}
+
+/** Every event name any rule reads, for the catalog and for ingest. */
+export const OUTPUT_USE_EVENT_NAMES: ReadonlySet<string> = new Set(
+  Object.values(OUTPUT_USE_RULES).flatMap((rule: OutputUseRule) => [
+    ...rule.madeEvents,
+    ...rule.usedEvents.map((used) => used.eventName),
+  ]),
+);
+
+export function outputIdOf(properties: EventProperties): string | null {
+  const value = properties.output_id;
+  if (typeof value !== "string") return null;
+  const outputId = value.trim();
+  return outputId && outputId.length <= MAX_OUTPUT_ID_LENGTH ? outputId : null;
+}
+
+/**
+ * Where a session's output opens: the app origin the session was recorded on
+ * plus the output's page. The app checks access when it opens.
+ */
+export function outputUrl(
+  app: string,
+  outputId: string,
+  recordingUrl: string | null | undefined,
+): string | null {
+  const rule = outputUseRule(app);
+  if (!rule || !recordingUrl) return null;
+  let origin: string;
+  try {
+    origin = new URL(recordingUrl).origin;
+    // coercion-ok: a recording without a parseable URL has no app to link to; the output id still shows.
+  } catch {
+    return null;
+  }
+  if (origin === "null") return null;
+  return `${origin}${rule.outputPath(outputId)}`;
+}
+
+/**
+ * What became of one output made in a session. `open` means the use window
+ * has not closed yet; `unmeasured` means a failed write may have dropped a
+ * use, so it cannot be called unused.
+ */
+export type SessionOutputStatus = "used" | "unused" | "open" | "unmeasured";
+
+export interface SessionOutput {
+  app: OutputUseApp;
+  outputType: string;
+  outputId: string;
+  madeAt: string;
+  useBy: string;
+  status: SessionOutputStatus;
+  /** The first qualifying use's event name, when it was used in time. */
+  usedEvent: string | null;
+  usedAt: string | null;
+  url: string | null;
+}
+
+export interface SessionRecordingOutputs {
+  /** By recording id; absent when the recording made no measured output. */
+  outputs: Record<string, SessionOutput[]>;
+  /** When the viewer's output tracking began, or null before it has. */
+  coverageStartedAt: string | null;
+}

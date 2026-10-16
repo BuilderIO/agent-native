@@ -1660,6 +1660,10 @@ export default {
     catalogOpenSessions: "{{event}} を含むセッションを表示",
     catalogAutomatic: "自動",
     catalogStoppedFiring: "送信停止",
+    catalogMadeIt: "作成",
+    catalogUsedIt: "使用",
+    catalogNoUsedIt:
+      "{{apps}} には「使用」イベントが定義されていないため、「作成したが未使用」で成果物を確認できません。",
     catalogPropertyKeys: "プロパティキー",
     catalogMoreKeys: "他 {{count}} 件",
     catalogTruncated:
@@ -1674,6 +1678,29 @@ export default {
     speedCoverageStarting: "速度はこれからのページビューで計測されます。",
     speedFilterNeedsLab:
       "このリンクには速度フィルターが含まれています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",
+    unusedOutputs: "作成したが未使用",
+    anyOutcome: "すべてのセッション",
+    unusedSlidesDecks: "未使用の Slides デッキ",
+    unusedSlidesRule:
+      "{{days}} 日以上前に作成され、{{days}} 日以内に最初のスライドより先へ {{seconds}} 秒以上発表されることも、エクスポートされることもなかったデッキ。デッキを開いただけでは数えません。",
+    unusedFilterNeedsLab:
+      "このリンクには「作成したが未使用」フィルターが含まれています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",
+    outputCoverageSince:
+      "{{date}} から成果物を追跡しています。未使用のものは作成から {{days}} 日後に表示されます。",
+    outputCoverageStarting:
+      "成果物はこれから追跡されます。未使用のものは作成から {{days}} 日後に表示されます。",
+    openDeck: "デッキを開く",
+    moreOutputs: "他 {{count}} 件",
+    deckCount: "デッキ {{count}} 件",
+    deckCountSingular: "デッキ {{count}} 件",
+    deckMadeOn: "{{date}} に作成したデッキ",
+    outputPresentedOn: "{{date}} に発表",
+    outputExportedOn: "{{date}} にエクスポート",
+    outputUsedOn: "{{date}} に使用",
+    outputUnused: "{{days}} 日以内に未使用",
+    outputOpen: "まだ未使用。{{date}} 以降は未使用として数えます",
+    outputUnmeasured: "未計測: 一部のイベントを保存できませんでした",
+    outputsUnavailable: "成果物を読み込めませんでした。",
     slowRequestCount: "遅いリクエスト {{count}} 件",
     slowRequestCountSingular: "遅いリクエスト {{count}} 件",
     speedIncomplete: "速度データが不完全です",
