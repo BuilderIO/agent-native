@@ -607,15 +607,7 @@ test.describe("drag reparent interaction", () => {
     app,
     page,
   }) => {
-    // RootGap2 and LaterOverlay sit clear of the screen's centre line, so the
-    // drop is not pulled onto it by snapping.
-    const id = await newTwoScreenDesign(
-      app,
-      SCREEN_ONE.replace(
-        'style="position:absolute;left:400px;top:200px;width:60px;height:20px"',
-        'style="position:absolute;left:150px;top:200px;width:60px;height:20px"',
-      ).replace("left:380px;top:190px", "left:130px;top:190px"),
-    );
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
     const beforeHtml = await fileContent(page, id, "index.html");
@@ -671,7 +663,7 @@ test.describe("drag reparent interaction", () => {
     expectPlacement(savedPlacement(rootHtml, "footer-item"), {
       parent: null,
       position: "absolute",
-      left: 120,
+      left: 370,
       top: 175,
     });
     expectOnlyChanged(savedNodeMap(beforeHtml), savedNodeMap(rootHtml), [

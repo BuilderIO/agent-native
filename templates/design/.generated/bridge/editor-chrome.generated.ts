@@ -18906,6 +18906,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var autoLayoutTargetFrame = 0;
       var pendingAutoLayoutTargetPoint = null;
       var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
+      var snapCandidateContainer = dragEl.parentElement;
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
@@ -19043,6 +19044,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             ignoreAutoLayoutHeld(point)
           );
           currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+          var snapContainer = currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode === "absolute-container" ? currentAutoLayoutTarget.placement === "inside" ? currentAutoLayoutTarget.anchor : currentAutoLayoutTarget.anchor.parentElement : dragEl.parentElement;
+          if (snapContainer !== snapCandidateContainer) {
+            snapCandidateContainer = snapContainer;
+            snapCandidateRects = snapContainer === dragEl.parentElement ? collectSnapCandidateRects(dragEl, groupOthers) : [];
+          }
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
             if (currentAutoLayoutTarget.dropMode !== "absolute-container") {

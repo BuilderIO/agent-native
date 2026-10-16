@@ -24567,6 +24567,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       };
     } | null = null;
     var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
+    var snapCandidateContainer = dragEl.parentElement;
     var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
     var dragElStartWidth = dragElStartRect.width;
     var dragElStartHeight = dragElStartRect.height;
@@ -24744,6 +24745,22 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           ignoreAutoLayoutHeld(point),
         );
         currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+        // The guides belong to the parent the drag started in; a drop into
+        // another container must not be pulled onto them.
+        var snapContainer =
+          currentAutoLayoutTarget &&
+          currentAutoLayoutTarget.dropMode === "absolute-container"
+            ? currentAutoLayoutTarget.placement === "inside"
+              ? currentAutoLayoutTarget.anchor
+              : currentAutoLayoutTarget.anchor.parentElement
+            : dragEl.parentElement;
+        if (snapContainer !== snapCandidateContainer) {
+          snapCandidateContainer = snapContainer;
+          snapCandidateRects =
+            snapContainer === dragEl.parentElement
+              ? collectSnapCandidateRects(dragEl, groupOthers)
+              : [];
+        }
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
           if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
