@@ -1192,10 +1192,15 @@ export function useEditorExportAndHandoff({
           : exportScreenId;
       return runDownloadSvg(
         {
+          activeCanvasSourceType,
           activePreviewFrameId,
           design,
           exportTracking,
+          exportScreenId,
+          exportScreenSourceType: exportScreen?.sourceType,
           fallbackExportName,
+          prepareScreenForExport: markScreenForExport,
+          releaseScreenFromExport,
           selectedElement,
           setSvgExporting,
           t,
@@ -1206,12 +1211,15 @@ export function useEditorExportAndHandoff({
     },
     [
       activeBreakpointWidthState,
+      activeCanvasSourceType,
       activeOverviewScreenId,
       design?.title,
       exportTracking,
       fallbackExportName,
       overviewScreens,
       overviewSelectedScreenIds,
+      markScreenForExport,
+      releaseScreenFromExport,
       selectedElement,
       t,
       triggerBlobDownload,

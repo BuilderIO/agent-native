@@ -1,9 +1,14 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { buildStaticForeignObjectSvg } from "../export-capture";
 import { resolveSvgExportIframe, runDownloadSvg } from "./download-svg";
+
+vi.mock("@/lib/design-export-tracking", () => ({
+  browserDesignExportErrorType: () => "unknown",
+  trackBrowserDesignExported: vi.fn(),
+}));
 
 function previewIframe(screenId?: string) {
   return {
@@ -44,6 +49,101 @@ describe("resolveSvgExportIframe", () => {
 });
 
 describe("runDownloadSvg", () => {
+  it("promotes the requested overview screen and waits for its exact preview", async () => {
+    document.body.replaceChildren();
+    const unrelated = document.createElement("iframe");
+    unrelated.setAttribute("data-screen-iframe-id", "screen-a");
+    document.body.append(unrelated);
+    unrelated.contentDocument!.body.innerHTML = "<main>Wrong screen</main>";
+
+    const events: string[] = [];
+    const downloads: Array<{ blob: Blob; filename: string }> = [];
+    try {
+      await runDownloadSvg({
+        activeCanvasSourceType: "localhost",
+        activePreviewFrameId: "screen-b::bp-390",
+        design: null,
+        exportScreenId: "screen-b",
+        exportScreenSourceType: "localhost",
+        fallbackExportName: (extension) => `design.${extension}`,
+        prepareScreenForExport: (screenId) => {
+          events.push(`promote:${screenId}`);
+          window.setTimeout(() => {
+            const requested = document.createElement("iframe");
+            requested.setAttribute("data-screen-iframe-id", "screen-b::bp-390");
+            document.body.append(requested);
+            requested.contentDocument!.body.innerHTML =
+              "<main>Breakpoint target</main>";
+            events.push("mount");
+          }, 0);
+        },
+        releaseScreenFromExport: () => events.push("release"),
+        selectedElement: null,
+        setSvgExporting: () => undefined,
+        t: (key) => key,
+        triggerBlobDownload: (blob, filename) => {
+          events.push("download");
+          downloads.push({ blob, filename });
+        },
+      });
+
+      expect(events).toEqual([
+        "promote:screen-b",
+        "mount",
+        "download",
+        "release",
+      ]);
+      expect(downloads).toHaveLength(1);
+      const exportedSvg = await downloads[0]!.blob.text();
+      expect(exportedSvg).toContain("Breakpoint target");
+      expect(exportedSvg).not.toContain("Wrong screen");
+    } finally {
+      document.body.replaceChildren();
+    }
+  });
+
+  it("releases the overview screen lease when the download fails", async () => {
+    document.body.replaceChildren();
+    const events: string[] = [];
+    const exportStates: boolean[] = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {
+      // The command reports the failed browser download through its error path.
+    });
+    try {
+      await runDownloadSvg({
+        activeCanvasSourceType: "localhost",
+        activePreviewFrameId: "screen-1",
+        design: null,
+        exportScreenId: "screen-1",
+        exportScreenSourceType: "localhost",
+        fallbackExportName: (extension) => `design.${extension}`,
+        prepareScreenForExport: (screenId) => {
+          events.push(`promote:${screenId}`);
+          const requested = document.createElement("iframe");
+          requested.setAttribute("data-screen-iframe-id", screenId);
+          document.body.append(requested);
+          requested.contentDocument!.body.innerHTML = "<main>Target</main>";
+        },
+        releaseScreenFromExport: () => events.push("release"),
+        selectedElement: null,
+        setSvgExporting: (value) => {
+          exportStates.push(typeof value === "boolean" ? value : value(false));
+        },
+        t: (key) => key,
+        triggerBlobDownload: () => {
+          events.push("download");
+          throw new Error("Download failed");
+        },
+      });
+
+      expect(events).toEqual(["promote:screen-1", "download", "release"]);
+      expect(exportStates).toEqual([true, false]);
+    } finally {
+      consoleError.mockRestore();
+      document.body.replaceChildren();
+    }
+  });
+
   it("downloads parseable XML when the preview contains Alpine directives", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-screen-iframe-id", "screen-1");

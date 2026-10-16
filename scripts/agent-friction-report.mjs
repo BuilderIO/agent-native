@@ -3844,7 +3844,8 @@ const PATTERNS = [
     key: "feedback-status-reactions",
     label:
       "Had to ask for checkmark/ticket reactions matching feedback outcomes",
-    fixedBy: ".agents/skills/review-latest-feedback (2026-09-30)",
+    fixedBy:
+      ".agents/skills/review-latest-feedback + feedback:inventory-check owned-eye reply/reaction assertions (2026-10-16)",
     re: FEEDBACK_STATUS_REACTIONS_RE,
   },
   {
@@ -3879,7 +3880,7 @@ const PATTERNS = [
     key: "feedback-channel-coverage",
     label: "Had to ask for feedback-channel or parent-report coverage",
     fixedBy:
-      "feedback:inventory-check + review-latest-feedback per-parent pagination ledger (2026-10-15)",
+      "feedback:inventory-check per-parent pagination and owned-eye reply/reaction assertions + review-latest-feedback ledger (2026-10-16)",
     re: FEEDBACK_CHANNEL_COVERAGE_RE,
   },
   {

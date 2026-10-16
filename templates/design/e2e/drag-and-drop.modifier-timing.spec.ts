@@ -4,6 +4,7 @@ import {
   childrenOf,
   expect,
   expectOnlyChanged,
+  normalizeStyleAttribute,
   styleOf,
   test,
   type App,
@@ -191,10 +192,15 @@ test("the platform modifier after pointerdown removes a flow child from flow and
 
   const ignored = await app.savedNodes(id);
   expect(ignored.get("control-child")?.parent).toBe("control-target-row");
-  expect(styleOf(ignored.get("control-child"))).toEqual({
+  expect(
+    await normalizeStyleAttribute(
+      app.page,
+      ignored.get("control-child")?.attrs.style,
+    ),
+  ).toMatchObject({
     width: "100px",
     height: "48px",
-    background: "rgb(99, 102, 241)",
+    "background-color": "rgb(99, 102, 241)",
     position: "absolute",
     left: "16px",
     top: "16px",
@@ -256,10 +262,15 @@ test("the platform modifier after pointerdown removes a flow child from flow and
     "control-child",
     "control-target-peer",
   ]);
-  expect(styleOf(returned.get("control-child"))).toEqual({
+  expect(
+    await normalizeStyleAttribute(
+      app.page,
+      returned.get("control-child")?.attrs.style,
+    ),
+  ).toMatchObject({
     width: "100px",
     height: "48px",
-    background: "rgb(99, 102, 241)",
+    "background-color": "rgb(99, 102, 241)",
   });
   expectOnlyChanged(ignored, returned, ["control-child"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Control Child"]);

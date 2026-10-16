@@ -40,6 +40,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         (
           {
             "designEditor.addLocalhostScreen.noRoutes": "No matching routes",
+            "designEditor.import.localDescription":
+              "Connect any running local app with /visual-edit.",
             "common.genericError": "Something went wrong",
           } as Record<string, string>
         )[key] ??
@@ -211,6 +213,26 @@ describe("AddLocalhostScreenDialog localhost route selection", () => {
     );
     expect(container.textContent).not.toContain("No matching routes");
     expect(container.textContent).not.toContain('Add "/login"');
+  });
+
+  it("explains a missing connection before search and waits to show no matches", () => {
+    mocks.connectionResult = {
+      data: { connections: [] },
+      isFetching: false,
+    };
+    renderDialog();
+
+    expect(container.textContent).toContain(
+      "Connect any running local app with /visual-edit.",
+    );
+    expect(container.textContent).not.toContain("No matching routes");
+
+    searchFor("/login");
+
+    expect(container.textContent).toContain("No matching routes");
+    expect(container.textContent).not.toContain(
+      "Connect any running local app with /visual-edit.",
+    );
   });
 
   it("does not use cached routes while the connection request is loading", () => {

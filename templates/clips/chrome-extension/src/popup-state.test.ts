@@ -1,6 +1,57 @@
 import { describe, expect, it } from "vitest";
 
-import { recordFirstUrl, recordingControlVisibility } from "./popup";
+import {
+  classifyAuthProbe,
+  recordFirstUrl,
+  recordingControlVisibility,
+} from "./popup";
+
+describe("popup auth probe", () => {
+  it.each([500, 503, 504, null])(
+    "preserves stored auth when the session service is unavailable (%s)",
+    (status) => {
+      expect(
+        classifyAuthProbe(status, { error: "Session unavailable" }, true),
+      ).toEqual({
+        status: "unavailable",
+        clearStoredAuth: false,
+      });
+    },
+  );
+
+  it("preserves stored auth when the response cannot confirm a session", () => {
+    expect(classifyAuthProbe(404, null, true)).toEqual({
+      status: "unavailable",
+      clearStoredAuth: false,
+    });
+    expect(classifyAuthProbe(200, null, true)).toEqual({
+      status: "unavailable",
+      clearStoredAuth: false,
+    });
+  });
+
+  it("clears stored auth only after the endpoint confirms the session is invalid", () => {
+    expect(
+      classifyAuthProbe(200, { error: "Not authenticated" }, true),
+    ).toEqual({ status: "signed-out", clearStoredAuth: true });
+    expect(classifyAuthProbe(401, { error: "Unauthorized" }, true)).toEqual({
+      status: "signed-out",
+      clearStoredAuth: true,
+    });
+    expect(
+      classifyAuthProbe(200, { error: "Not authenticated" }, false),
+    ).toEqual({ status: "signed-out", clearStoredAuth: false });
+  });
+
+  it("accepts a confirmed session", () => {
+    expect(
+      classifyAuthProbe(200, { email: "person@example.test" }, true),
+    ).toEqual({
+      status: "signed-in",
+      clearStoredAuth: false,
+    });
+  });
+});
 
 describe("record first without storage", () => {
   const base = {
@@ -57,6 +108,10 @@ describe("recording controls", () => {
     expect(recordingControlVisibility(null, "signed-out")).toEqual({
       startHidden: true,
       signInHidden: false,
+    });
+    expect(recordingControlVisibility(null, "unavailable")).toEqual({
+      startHidden: true,
+      signInHidden: true,
     });
   });
 
