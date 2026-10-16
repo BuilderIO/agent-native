@@ -1699,16 +1699,21 @@ describe("the SF-07 bound on Content's derive and build", () => {
     expect(content.split("\n")).toHaveLength(200_003);
   });
 
-  it("stops building a body of 1M [ at the deadline", async () => {
-    await switchedPage("brackets", "Hello there");
+  it("stops building a body of 1,000 unmatched backtick runs at the deadline", async () => {
+    await switchedPage("backticks", "Hello there");
+    // Runs of 1 to 1,000 backticks, none closed. Building it takes over 20 s
+    // with either NFM parser; 1M `[` stopped tripping once the parser got fast.
+    const content = Array.from({ length: 1_000 }, (_, index) =>
+      "`".repeat(index + 1),
+    ).join(" ");
 
     await expectRefused(
-      "brackets",
+      "backticks",
       () =>
         cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
-          collab.mutateLiveCopy(binding.contentLiveCopy, "brackets", {
+          collab.mutateLiveCopy(binding.contentLiveCopy, "backticks", {
             edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-            input: { content: "[".repeat(1_000_000) },
+            input: { content },
           }),
         ),
       { code: "build_failed", reason: "deadline_exceeded" },
