@@ -8,6 +8,9 @@ import { socialStory } from "../../../../templates/design/shared/design-template
 import { AgentNativeExtensionSlot } from "../../../toolkit/src/app/extensions/AgentNativeExtensionFrame.js";
 import { startSessionReplay, stopSessionReplay } from "./session-replay.js";
 
+// A visitor outside the consent region, already known this session.
+sessionStorage.setItem("an_consent_region", "none");
+
 const extension = {
   id: "session-replay-extension",
   name: "Session replay extension",

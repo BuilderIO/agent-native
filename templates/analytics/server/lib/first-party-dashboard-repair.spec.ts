@@ -147,11 +147,13 @@ const ORIGIN_MAIN_PANEL_SQL_PATCHES = {
   },
   activationFunnel: {
     prefixLength: 5,
-    suffixLength: 22996,
+    suffixLength: 22877,
     length: 25336,
     sha256: "ba2e861c2044e2fec669bcb15a878a675eaf426f51bcfe4db32ebd228d2050f0",
     middle:
       "signup_identity AS (\n  SELECT NULLIF(anonymous_id, '') AS anonymous_id,\n    MIN(NULLIF(user_id, '')) AS signup_user_id\n  FROM analytics_events\n  WHERE event_name = 'signup'\n    AND (event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}')))\n    AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))\n    AND ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}'))\n    AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')\n    AND NULLIF(anonymous_id, '') IS NOT NULL\n    AND NULLIF(user_id, '') IS NOT NULL\n  GROUP BY NULLIF(anonymous_id, '')\n), raw_funnel_events AS (\n  SELECT e.*,\n    COALESCE(si.signup_user_id, NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key,\n    COALESCE(si.signup_user_id, NULLIF(e.user_id, '')",
+    middleTail:
+      ") AS funnel_user_email\n  FROM analytics_events e\n  LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous",
   },
   retentionOverTimeSeed: {
     prefixLength: 5,
@@ -958,6 +960,39 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(repaired.changed).toBe(true);
     expect(repaired.panel?.sql).toBe(panel.sql);
     expect(repaired.mocks.update).toHaveBeenCalledOnce();
+  });
+
+  it("repairs the activation-funnel panel saved before the session bridge", async () => {
+    const panel = requiredFirstPartyPanel("activation-funnel");
+    const bridge = panel.sql.slice(
+      panel.sql.indexOf("), signup_session_identity AS ("),
+      panel.sql.indexOf("), raw_funnel_events AS ("),
+    );
+    const previousSql = panel.sql
+      .replace(bridge, "")
+      .replace(
+        "      ss.signup_auth_user_id,\n      ss.signup_user_email,\n",
+        "",
+      )
+      .replace(",\n      ss.signup_user_email\n", "\n")
+      .replace(
+        "\n  LEFT JOIN signup_session_identity ss\n    ON NULLIF(e.anonymous_id, '') IS NULL\n    AND ss.session_id = NULLIF(e.session_id, '')",
+        "",
+      );
+    expect(previousSql).not.toContain("signup_session_identity");
+    expect(
+      createHash("sha256")
+        .update(previousSql.replace(/\s+/g, " ").trim())
+        .digest("hex"),
+    ).toBe("21df6cc1f26862531504c21fb5a558c87b58615118fcd0ad1913a971fa8387a6");
+    const row = legacyRow({
+      config: JSON.stringify({ panels: [{ ...panel, sql: previousSql }] }),
+    });
+
+    const repaired = await repairPersistedPanel(row);
+
+    expect(repaired.changed).toBe(true);
+    expect(repaired.panel?.sql).toBe(panel.sql);
   });
 
   it("repairs the origin/main BigQuery retention panel", async () => {

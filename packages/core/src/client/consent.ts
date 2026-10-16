@@ -179,6 +179,17 @@ function allows(category: ConsentCategory, region: ConsentRegion | null) {
   return region === "none";
 }
 
+/**
+ * Whether `category` is allowed right now, on the time zone's guess until the
+ * server answers. Pair it with `whenConsentAllows` and a `revoke` that undoes
+ * whatever this let through.
+ */
+export function consentAllowsNow(category: ConsentCategory): boolean {
+  if (typeof window === "undefined") return false;
+  if (!state().region) void resolveConsentRegion();
+  return allows(category, regionGuess());
+}
+
 function settle(): void {
   const region = state().region;
   for (const waiter of state().waiters) {

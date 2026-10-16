@@ -1227,6 +1227,36 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("sends first-party events without a visitor id until analytics consent", async () => {
+    const { setTimeZone, localStorage, getCookie } = installBrowser();
+    setTimeZone("Europe/Berlin");
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("before_consent", {});
+    await tick();
+    const before = JSON.parse(String(analyticsCalls.at(-1)![1].body));
+    expect(before.anonymousId).toBeUndefined();
+    expect(before.properties.analytics_consent).toBe("withheld");
+    expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_aid=[^;]/);
+
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    trackEvent("after_consent", {});
+    await tick();
+    const after = JSON.parse(String(analyticsCalls.at(-1)![1].body));
+    expect(after.anonymousId).toEqual(expect.any(String));
+    expect(after.properties.analytics_consent).toBeUndefined();
+    expect(getCookie()).toContain(`an_aid=${after.anonymousId}`);
+
+    setConsentChoice({ performance: false, targeting: false });
+    expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_aid=[^;]/);
+  });
+
   it("mirrors timing browser events to the OTel bridge", async () => {
     installBrowser();
     const { trackEvent } = await freshAnalytics();

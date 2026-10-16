@@ -2613,12 +2613,17 @@ function sendAgentNativeAnalytics(
   );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
+  const anonymousId = getOrCreateAnonymousId();
   const body = JSON.stringify({
     publicKey,
     event: name,
-    properties,
+    // The visitor id waits for analytics consent; mark the event so reports
+    // can tell it from one that lost its id some other way.
+    properties: anonymousId
+      ? properties
+      : { ...properties, analytics_consent: "withheld" },
     userId,
-    anonymousId: getOrCreateAnonymousId(),
+    anonymousId,
     sessionId: getOrCreateSessionId(),
     timestamp: new Date().toISOString(),
   });

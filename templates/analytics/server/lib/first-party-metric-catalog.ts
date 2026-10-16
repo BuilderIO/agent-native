@@ -1020,22 +1020,48 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
     AND NULLIF(e.anonymous_id, '') IS NOT NULL
   GROUP BY NULLIF(e.anonymous_id, '')
   HAVING COUNT(DISTINCT NULLIF(e.properties::jsonb ->> 'auth_user_id', '')) <= 1
+), signup_session_identity AS (
+  -- Visitors in the consent region send no anonymous id until they accept
+  -- analytics cookies, so their pre-signup events reach the signup only
+  -- through the session they share with it.
+  SELECT NULLIF(e.session_id, '') AS session_id,
+    MIN(NULLIF(e.properties::jsonb ->> 'auth_user_id', '')) AS signup_auth_user_id,
+    MIN(
+      CASE
+        WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id
+        WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key
+      END
+    ) AS signup_user_email
+  FROM analytics_events e
+  WHERE e.event_name = 'signup'
+    AND ${DASHBOARD_TIME_RANGE_FILTER}
+    AND ${DASHBOARD_APP_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+    AND NULLIF(e.session_id, '') IS NOT NULL
+  GROUP BY NULLIF(e.session_id, '')
+  HAVING COUNT(DISTINCT NULLIF(e.properties::jsonb ->> 'auth_user_id', '')) <= 1
 ), raw_funnel_events AS (
   SELECT e.*,
     COALESCE(
       NULLIF(e.properties::jsonb ->> 'auth_user_id', ''),
       si.signup_auth_user_id,
       si.signup_user_email,
+      ss.signup_auth_user_id,
+      ss.signup_user_email,
       NULLIF(e.user_id, ''),
       NULLIF(e.anonymous_id, '')
     ) AS funnel_user_key,
     COALESCE(
       CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END,
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
-      si.signup_user_email
+      si.signup_user_email,
+      ss.signup_user_email
     ) AS funnel_user_email
   FROM analytics_events e
   LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous_id, '')
+  LEFT JOIN signup_session_identity ss
+    ON NULLIF(e.anonymous_id, '') IS NULL
+    AND ss.session_id = NULLIF(e.session_id, '')
   WHERE ${DASHBOARD_TIME_RANGE_FILTER}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}

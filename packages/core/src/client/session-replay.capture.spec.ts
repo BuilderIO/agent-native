@@ -91,6 +91,14 @@ function installBrowser(url = "https://app.agent-native.com/inbox") {
   const windowStub: Record<string, unknown> = {
     location,
     history: { pushState: vi.fn(), replaceState: vi.fn() },
+    // A visitor outside the consent region, already known this session.
+    sessionStorage: {
+      getItem: vi.fn((key: string) =>
+        key === "an_consent_region" ? "none" : null,
+      ),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    },
     localStorage: {
       getItem: vi.fn((key: string) => storage.get(key) ?? null),
       setItem: vi.fn((key: string, value: string) => {
@@ -187,6 +195,9 @@ describe("session replay console/network capture", () => {
     vi.restoreAllMocks();
     delete (globalThis as Record<symbol, unknown>)[replayStateKey];
     delete (globalThis as Record<symbol, unknown>)[pageviewStateKey];
+    delete (globalThis as Record<symbol, unknown>)[
+      Symbol.for("agent-native.client.consent")
+    ];
     recordMock.mockReset();
     recordMock.addCustomEvent.mockReset();
   });
@@ -216,6 +227,42 @@ describe("session replay console/network capture", () => {
     expect(events[1]).toMatchObject({ level: "warn" });
     expect(events[2]).toMatchObject({ level: "error" });
     expect(events[3]).toMatchObject({ level: "debug" });
+  });
+
+  it("waits for analytics consent in the consent region, and stops on a reject", async () => {
+    const { windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) =>
+        key === "an_consent_region" ? "consent" : null,
+      ),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const cookies = new Map<string, string>();
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () =>
+        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+      set: (assignment: string) => {
+        const [pair] = assignment.split(";", 1);
+        const eq = pair!.indexOf("=");
+        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+      },
+    });
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+
+    const result = await mod.startSessionReplay({ ...START_OPTIONS });
+    expect(result).toEqual({ started: false, reason: "consent-required" });
+    expect(recordMock).not.toHaveBeenCalled();
+
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+
+    setConsentChoice({ performance: false, targeting: false });
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(false));
   });
 
   it("still invokes the original console method first", async () => {
