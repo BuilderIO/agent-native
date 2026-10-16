@@ -79,6 +79,9 @@ let blockNavigations = false;
 let queryClient: QueryClient;
 let filterBarMounts: number;
 let submission: { resolve: () => void; signal: AbortSignal };
+let barFilters: DashboardFilter[];
+let saveView: ReturnType<typeof vi.fn<() => void>> | undefined;
+let savePreset: ReturnType<typeof vi.fn<() => void>> | undefined;
 
 function TrackedFilterBar() {
   useEffect(() => {
@@ -86,7 +89,9 @@ function TrackedFilterBar() {
   }, []);
   return (
     <DashboardFilterBar
-      filters={filters}
+      filters={barFilters}
+      onSaveView={saveView}
+      onSavePreset={savePreset}
       views={[
         {
           id: "launch",
@@ -252,6 +257,9 @@ async function holdResponseBody(index: number) {
 
 describe("dashboard filter feedback during navigation", () => {
   beforeEach(() => {
+    barFilters = filters;
+    saveView = undefined;
+    savePreset = undefined;
     blockNavigations = false;
     filterBarMounts = 0;
     queryClient = new QueryClient({
@@ -840,6 +848,193 @@ describe("dashboard filter feedback during navigation", () => {
     );
   });
 
+  it("keeps each user edit as a push when superseding an external pending replace, including Back and Forward", async () => {
+    const original = "/dashboards/test?id=selected&tab=activity#original";
+    await render(original, ["/dashboards/test?tab=before", original]);
+    act(() => {
+      void router.navigate(
+        "/dashboards/test?id=selected&tab=other&view=staff&keep=one&keep=two&f_app=slides#target",
+        { replace: true },
+      );
+    });
+    expect(button("Off").disabled).toBe(false);
+    expect(appTrigger().disabled).toBe(false);
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+    act(() => button("Off").click());
+    expect(button("On").disabled).toBe(false);
+    const first =
+      "?id=selected&tab=other&view=staff&keep=one&keep=two&f_app=slides&f_staff=true";
+    expect(router.state.navigation.location?.search).toBe(first);
+    await settle();
+    expect(router.state.historyAction).toBe("PUSH");
+    select(0, "Only .edu");
+    const second = `${first}&f_edu=only`;
+    await settle();
+    expect(router.state.historyAction).toBe("PUSH");
+    for (const [delta, search, hash] of [
+      [-1, first, "#target"],
+      [-1, "?id=selected&tab=activity", "#original"],
+      [-1, "?tab=before", ""],
+      [1, "?id=selected&tab=activity", "#original"],
+      [1, first, "#target"],
+      [1, second, "#target"],
+    ] as const) {
+      act(() => {
+        void router.navigate(delta);
+      });
+      await settle();
+      expect(router.state.location.pathname).toBe("/dashboards/test");
+      expect(router.state.location.search).toBe(search);
+      expect(router.state.location.hash).toBe(hash);
+      expect(router.state.historyAction).toBe("POP");
+    }
+    await act(async () => loads[1].resolve());
+    expect(router.state.location.search).toBe(second);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual([
+      "?id=selected&tab=activity",
+      first,
+      second,
+      "?tab=before",
+    ]);
+    expect(filterBarMounts).toBe(1);
+  });
+
+  it.each([
+    "multi-select",
+    "select",
+    "date",
+    "date-range",
+    "custom range",
+    "toggle-date",
+    "save view",
+  ])(
+    "closes an open %s portal and disables every filter until a foreign navigation fails or is canceled",
+    async (portal) => {
+      saveView = vi.fn<() => void>();
+      savePreset = vi.fn<() => void>();
+      barFilters = [
+        ...filters,
+        { id: "day", label: "Day", type: "date", default: "2026-10-01" },
+        { id: "period", label: "Period", type: "date-range" },
+        {
+          id: "since",
+          label: "Since",
+          type: "toggle-date",
+          default: "2026-10-01",
+        },
+        { id: "name", label: "Name", type: "text" },
+      ];
+      await render(
+        "/dashboards/test?id=selected&f_app=chat,slides&f_since=2026-10-01&f_timeRange=custom&f_timeRangeStart=2026-10-01&f_timeRangeEnd=2026-10-16",
+        undefined,
+        true,
+      );
+      if (portal === "multi-select") act(() => appTrigger().click());
+      else if (portal === "select")
+        act(() =>
+          container
+            .querySelector('[role="combobox"]')!
+            .dispatchEvent(
+              new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+            ),
+        );
+      else if (portal === "save view") act(() => button("Save view").click());
+      else {
+        const scope =
+          portal === "date-range"
+            ? container.querySelector('[role="group"][aria-label="Period"]')!
+            : portal === "custom range"
+              ? container.querySelector(
+                  '[role="group"][aria-label="Custom range"]',
+                )!
+              : container;
+        const dates = [
+          ...scope.querySelectorAll<HTMLButtonElement>(
+            'button[aria-haspopup="dialog"]',
+          ),
+        ];
+        const trigger =
+          portal === "date"
+            ? dates.find((el) => el.textContent === "Oct 1, 2026")!
+            : portal === "toggle-date"
+              ? dates[dates.length - 1]
+              : dates[0];
+        act(() => trigger.click());
+      }
+      expect(
+        document.querySelector('[role="dialog"], [role="listbox"]'),
+      ).not.toBeNull();
+      // Move keyboard focus into the portal, as a keyboard user would.
+      const portalContent = document.querySelector<HTMLElement>(
+        '[role="dialog"], [role="listbox"]',
+      )!;
+      act(() =>
+        (
+          portalContent.querySelector<HTMLElement>(
+            'input, button, [role="option"]',
+          ) ?? portalContent
+        ).focus(),
+      );
+      act(() => {
+        void router.navigate("/dashboards/other?id=foreign#target");
+      });
+      const pending = router.state.navigation.location;
+      expect(
+        document.querySelector('[role="dialog"], [role="listbox"]'),
+      ).toBeNull();
+      const busy = container.querySelector<HTMLElement>('[aria-busy="true"]')!;
+      expect(busy).not.toBeNull();
+      expect(busy.title).toBe("Updating");
+      await vi.waitFor(() => expect(document.activeElement).toBe(busy));
+      for (const control of container.querySelectorAll<
+        HTMLButtonElement | HTMLInputElement
+      >("button, input")) {
+        expect(control.disabled, control.outerHTML).toBe(true);
+        act(() => control.click());
+      }
+      expect(router.state.navigation.location).toBe(pending);
+      expect(loads).toHaveLength(2);
+      expect(saveView).not.toHaveBeenCalled();
+      expect(savePreset).not.toHaveBeenCalled();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      if (portal === "save view") {
+        await act(async () => loads[1].reject(new Error("foreign failed")));
+        expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+          "Navigation failed",
+        );
+      } else {
+        act(() => {
+          void router.navigate(-1);
+        });
+        await settle();
+      }
+      expect(router.state.navigation.state).toBe("idle");
+      expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+      expect(appTrigger().disabled).toBe(false);
+      expect(
+        document.querySelector('[role="dialog"], [role="listbox"]'),
+      ).toBeNull();
+      expect(container.querySelector<HTMLInputElement>("input")?.disabled).toBe(
+        false,
+      );
+      expect(saveView).not.toHaveBeenCalled();
+      expect(savePreset).not.toHaveBeenCalled();
+      act(() => button("Off").click());
+      expect(button("On").disabled).toBe(false);
+      expect(
+        new URLSearchParams(router.state.navigation.location?.search).get(
+          "f_staff",
+        ),
+      ).toBe("true");
+      await settle();
+      expect(router.state.navigation.state).toBe("idle");
+      expect(
+        new URLSearchParams(router.state.location.search).get("f_staff"),
+      ).toBe("true");
+      expect(filterBarMounts).toBe(1);
+    },
+  );
+
   it.each(
     [
       "/dashboards/other?id=selected&tab=other&view=foreign&f_app=slides#target",
@@ -856,12 +1051,20 @@ describe("dashboard filter feedback during navigation", () => {
       await render("/dashboards/test?id=selected&tab=activity");
       act(() => appTrigger().click());
       act(() => option("Chat").click());
+      const oldControl = button(control);
       let navigation!: Promise<void>;
       act(() => {
         navigation = router.navigate(target);
       });
       const pending = router.state.navigation.location;
-      act(() => button(control).click());
+      expect(
+        container.querySelector('[aria-busy="true"]')?.getAttribute("title"),
+      ).toBe("Updating");
+      expect(appTrigger().disabled).toBe(true);
+      expect(button("Off").disabled).toBe(true);
+      expect(button("Reset filters").disabled).toBe(true);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() => oldControl.click());
       expect(router.state.navigation.location).toBe(pending);
       expect(loads).toHaveLength(3);
       expect(appTrigger().textContent).toBe("All");
@@ -900,6 +1103,8 @@ describe("dashboard filter feedback during navigation", () => {
 
   it("preserves an external submission and its revalidation before accepting the next filter edit", async () => {
     await render();
+    act(() => appTrigger().click());
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     let navigation!: Promise<void>;
     act(() => {
       navigation = router.navigate(
@@ -908,7 +1113,11 @@ describe("dashboard filter feedback during navigation", () => {
       );
     });
     expect(router.state.navigation.state).toBe("submitting");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     const pending = router.state.navigation.location;
+    expect(button("Off").disabled).toBe(true);
+    expect(appTrigger().disabled).toBe(true);
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
     act(() => button("Off").click());
     expect(router.state.navigation.location).toBe(pending);
     expect(router.state.navigation.state).toBe("submitting");
@@ -918,6 +1127,21 @@ describe("dashboard filter feedback during navigation", () => {
     await act(async () => submission.resolve());
     expect(router.state.navigation.state).toBe("loading");
     expect(loads).toHaveLength(2);
+    expect(button("Reset filters").disabled).toBe(true);
+    act(() => appTrigger().click());
+    act(() =>
+      container
+        .querySelector('[role="combobox"]')!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        ),
+    );
+    expect(
+      document.querySelector('[role="dialog"], [role="listbox"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[role="combobox"]')?.hasAttribute("disabled"),
+    ).toBe(true);
     act(() => button("Reset filters").click());
     expect(router.state.navigation.location).toBe(pending);
     expect(submission.signal.aborted).toBe(false);

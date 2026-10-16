@@ -181,13 +181,26 @@ export function DashboardFilterBar({
   shared = false,
 }: DashboardFilterBarProps) {
   const t = useT();
-  const [searchParams, setSearchParams] = useFilterSearchParams();
+  const [searchParams, setSearchParams, filtersBusy] = useFilterSearchParams();
+  const barRef = useRef<HTMLDivElement>(null);
+  const restoreBusyFocus = (event: Event) => {
+    // An overlay's unmount callback can retain its pre-navigation render.
+    if (barRef.current?.getAttribute("aria-busy") !== "true") return;
+    event.preventDefault();
+    barRef.current?.focus();
+  };
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
   const [setAsDefault, setSetAsDefault] = useState(false);
   const [savingView, setSavingView] = useState(false);
   const defaultCheckboxId = useId();
   const [filtersOpen, setFiltersOpen] = useState(true);
+  useEffect(() => {
+    if (!filtersBusy) return;
+    setSaveDialogOpen(false);
+    setViewName("");
+    setSetAsDefault(false);
+  }, [filtersBusy]);
   const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
@@ -236,7 +249,7 @@ export function DashboardFilterBar({
   }, [views, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
-    if (!viewName.trim() || !onSaveView || savingView) return;
+    if (filtersBusy || !viewName.trim() || !onSaveView || savingView) return;
     setSavingView(true);
     try {
       const currentFilters = extractFilterParams(uniqueFilters, searchParams);
@@ -257,6 +270,7 @@ export function DashboardFilterBar({
       setSavingView(false);
     }
   }, [
+    filtersBusy,
     viewName,
     onSaveView,
     savingView,
@@ -284,6 +298,12 @@ export function DashboardFilterBar({
   return (
     <>
       <Collapsible
+        ref={barRef}
+        role="group"
+        aria-label={t("sqlDashboard.filters")}
+        aria-busy={filtersBusy}
+        title={filtersBusy ? t("sqlDashboard.updating") : undefined}
+        tabIndex={-1}
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
         className="group @container rounded-lg bg-card px-3 py-2"
@@ -298,6 +318,8 @@ export function DashboardFilterBar({
                 <FilterControl
                   key={f.id}
                   filter={f}
+                  disabled={filtersBusy}
+                  onCloseAutoFocus={restoreBusyFocus}
                   vars={vars}
                   hasParam={(key) =>
                     searchParams.has(FILTER_PARAM_PREFIX + key)
@@ -318,6 +340,7 @@ export function DashboardFilterBar({
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                  disabled={filtersBusy}
                   onClick={() => setSaveDialogOpen(true)}
                 >
                   <IconDeviceFloppy className="h-3 w-3 mr-1" />
@@ -329,6 +352,7 @@ export function DashboardFilterBar({
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  disabled={filtersBusy}
                   aria-label={
                     filtersOpen
                       ? t("sqlDashboard.collapseFilters")
@@ -375,7 +399,7 @@ export function DashboardFilterBar({
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                disabled={viewsRefreshing}
+                disabled={filtersBusy || viewsRefreshing}
                 onClick={resetFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />
@@ -387,21 +411,27 @@ export function DashboardFilterBar({
       </Collapsible>
 
       <Dialog
-        open={saveDialogOpen}
+        open={saveDialogOpen && !filtersBusy}
         onOpenChange={(open) => {
-          setSaveDialogOpen(open);
+          setSaveDialogOpen(open && !filtersBusy);
           if (!open) {
             setViewName("");
             setSetAsDefault(false);
           }
         }}
       >
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent
+          hidden={filtersBusy}
+          inert={filtersBusy}
+          className="sm:max-w-[400px]"
+          onCloseAutoFocus={restoreBusyFocus}
+        >
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Input
+              disabled={filtersBusy}
               placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
@@ -413,6 +443,7 @@ export function DashboardFilterBar({
               className="mt-3 flex cursor-pointer items-center gap-2 text-sm"
             >
               <Checkbox
+                disabled={filtersBusy}
                 id={defaultCheckboxId}
                 checked={setAsDefault}
                 onCheckedChange={(checked) => setSetAsDefault(checked === true)}
@@ -429,14 +460,14 @@ export function DashboardFilterBar({
                 setViewName("");
                 setSetAsDefault(false);
               }}
-              disabled={savingView}
+              disabled={filtersBusy || savingView}
             >
               {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
               onClick={() => void handleSaveView()}
-              disabled={!viewName.trim() || savingView}
+              disabled={filtersBusy || !viewName.trim() || savingView}
             >
               {savingView ? t("sqlDashboard.saving") : t("explorer.save")}
             </Button>
@@ -494,12 +525,16 @@ function MultiSelectFilter({
   setValue,
   onSavePreset,
   shared,
+  disabled,
+  onCloseAutoFocus,
 }: {
   filter: DashboardFilter;
   value: string;
   setValue: (updates: Record<string, string>) => void;
   onSavePreset?: (preset: FilterPreset) => void;
   shared: boolean;
+  disabled: boolean;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   const t = useT();
   const labelId = useId();
@@ -509,6 +544,13 @@ function MultiSelectFilter({
   const [query, setQuery] = useState("");
   const [naming, setNaming] = useState(false);
   const [groupName, setGroupName] = useState("");
+  useEffect(() => {
+    if (!disabled) return;
+    setOpen(false);
+    setQuery("");
+    setNaming(false);
+    setGroupName("");
+  }, [disabled]);
   const saveAsGroupRef = useRef<HTMLButtonElement>(null);
   const refocusSaveAsGroupRef = useRef(false);
   useEffect(() => {
@@ -620,9 +662,9 @@ function MultiSelectFilter({
         {filter.label}
       </label>
       <Popover
-        open={open}
+        open={open && !disabled}
         onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
+          setOpen(nextOpen && !disabled);
           if (nextOpen) return;
           savedPresetLabelRef.current = null;
           setQuery("");
@@ -631,6 +673,7 @@ function MultiSelectFilter({
       >
         <PopoverTrigger asChild>
           <Button
+            disabled={disabled}
             id={triggerId}
             aria-labelledby={`${labelId} ${triggerId}`}
             variant="outline"
@@ -649,6 +692,9 @@ function MultiSelectFilter({
           </Button>
         </PopoverTrigger>
         <PopoverContent
+          hidden={disabled}
+          inert={disabled}
+          onCloseAutoFocus={onCloseAutoFocus}
           align="start"
           // Room for Select all, a preset and Clear all on one row.
           className={presets.length > 0 ? "w-72" : "w-64"}
@@ -829,6 +875,8 @@ interface FilterControlProps {
   setValue: (updates: Record<string, string>) => void;
   onSavePreset?: (preset: FilterPreset) => void;
   shared: boolean;
+  disabled: boolean;
+  onCloseAutoFocus: (event: Event) => void;
 }
 
 function FilterControl({
@@ -838,13 +886,21 @@ function FilterControl({
   setValue,
   onSavePreset,
   shared,
+  disabled,
+  onCloseAutoFocus,
 }: FilterControlProps) {
   const t = useT();
+  const [selectOpen, setSelectOpen] = useState(false);
+  useEffect(() => {
+    if (disabled) setSelectOpen(false);
+  }, [disabled]);
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
     return (
       <DateRangeInput
+        disabled={disabled}
+        onCloseAutoFocus={onCloseAutoFocus}
         label={filter.label}
         startDate={vars[startKey] || ""}
         endDate={vars[endKey] || ""}
@@ -861,6 +917,8 @@ function FilterControl({
           {filter.label}
         </label>
         <DatePicker
+          disabled={disabled}
+          onCloseAutoFocus={onCloseAutoFocus}
           value={vars[filter.id] || ""}
           onChange={(v) => setValue({ [filter.id]: v })}
         />
@@ -880,6 +938,9 @@ function FilterControl({
           {filter.label}
         </label>
         <Select
+          disabled={disabled}
+          open={selectOpen && !disabled}
+          onOpenChange={(open) => setSelectOpen(open && !disabled)}
           value={current}
           onValueChange={(v) =>
             setValue({
@@ -899,7 +960,11 @@ function FilterControl({
           >
             <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent
+            hidden={disabled}
+            inert={disabled}
+            onCloseAutoFocus={onCloseAutoFocus}
+          >
             {filter.options?.map((opt) => (
               <SelectItem key={opt.value} value={opt.value} className="text-xs">
                 {opt.label}
@@ -920,6 +985,8 @@ function FilterControl({
         <div className="flex min-w-0 flex-wrap items-end gap-3">
           {selectControl}
           <DateRangeInput
+            disabled={disabled}
+            onCloseAutoFocus={onCloseAutoFocus}
             label={t("sqlDashboard.customRange")}
             startDate={vars[startKey] || ""}
             endDate={vars[endKey] || ""}
@@ -941,6 +1008,8 @@ function FilterControl({
         setValue={setValue}
         onSavePreset={onSavePreset}
         shared={shared}
+        disabled={disabled}
+        onCloseAutoFocus={onCloseAutoFocus}
       />
     );
   }
@@ -953,6 +1022,7 @@ function FilterControl({
           {filter.label}
         </label>
         <Button
+          disabled={disabled}
           variant={active ? "default" : "outline"}
           size="sm"
           className="text-xs"
@@ -974,6 +1044,7 @@ function FilterControl({
             {filter.label}
           </label>
           <Button
+            disabled={disabled}
             variant={active ? "default" : "outline"}
             size="sm"
             className="text-xs"
@@ -994,6 +1065,8 @@ function FilterControl({
               {t("sqlDashboard.since")}
             </label>
             <DatePicker
+              disabled={disabled}
+              onCloseAutoFocus={onCloseAutoFocus}
               value={current}
               onChange={(v) => setValue({ [filter.id]: v })}
             />
@@ -1009,6 +1082,7 @@ function FilterControl({
         {filter.label}
       </label>
       <Input
+        disabled={disabled}
         size="sm"
         value={vars[filter.id] || ""}
         onChange={(e) => setValue({ [filter.id]: e.target.value })}

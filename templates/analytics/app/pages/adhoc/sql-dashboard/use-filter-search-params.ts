@@ -10,11 +10,26 @@ import {
   UNSAFE_DataRouterContext,
   useLocation,
   useNavigate,
+  type RouterState,
 } from "react-router";
 
 type Draft = { key: string; params: URLSearchParams };
 const subscribeToNothing = () => () => {};
 const noServerNavigation = () => null;
+
+// Only read navigation within this dashboard can compose with this bar's
+// config. Preserve other destinations and in-flight writes.
+function admitsFilterEdits(state: RouterState | null | undefined) {
+  if (!state) return true;
+  const { location: committed, navigation } = state;
+  const target = navigation.location ?? committed;
+  return (
+    (!navigation.formMethod || navigation.formMethod === "GET") &&
+    target.pathname === committed.pathname &&
+    new URLSearchParams(target.search).get("id") ===
+      new URLSearchParams(committed.search).get("id")
+  );
+}
 
 export function useFilterSearchParams() {
   const router = useContext(UNSAFE_DataRouterContext)?.router;
@@ -41,17 +56,7 @@ export function useFilterSearchParams() {
       const current = router?.state;
       const committed = current?.location ?? renderedLocation;
       const location = current?.navigation.location ?? committed;
-      // Only read navigation within this dashboard can compose with this bar's
-      // config. Preserve other destinations and in-flight writes.
-      if (
-        (current?.navigation.formMethod &&
-          current.navigation.formMethod !== "GET") ||
-        location.pathname !== committed.pathname ||
-        new URLSearchParams(location.search).get("id") !==
-          new URLSearchParams(committed.search).get("id")
-      ) {
-        return;
-      }
+      if (!admitsFilterEdits(current)) return;
       const key = current?.navigation.location?.key;
       const params = update(
         new URLSearchParams(
@@ -79,5 +84,5 @@ export function useFilterSearchParams() {
     [router, renderedLocation, navigate],
   );
 
-  return [displayed, updateParams] as const;
+  return [displayed, updateParams, !admitsFilterEdits(state)] as const;
 }
