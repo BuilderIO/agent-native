@@ -29,6 +29,10 @@ import {
 } from "../server/lib/recordings.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import {
+  isEmbedBackedRecording,
+  recordingEmbedProvider,
+} from "../shared/embed-provider.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
@@ -54,7 +58,11 @@ function mapRecording(r: any) {
     visibility: r.visibility,
     ownerEmail: r.ownerEmail,
     sourceAppName: r.sourceAppName,
-    sourceProvider: r.sourceAppName === "Loom" ? "loom" : null,
+    sourceProvider:
+      recordingEmbedProvider(r) ?? (r.sourceAppName === "Loom" ? "loom" : null),
+    // Embed-backed clips play in another service's player; Clips has no
+    // frames for them.
+    framesAvailable: !isEmbedBackedRecording(r),
     folderId: r.folderId,
     spaceIds: parseSpaceIds(r.spaceIds),
     hasAudio: Boolean(r.hasAudio),

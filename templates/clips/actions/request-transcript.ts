@@ -54,7 +54,10 @@ import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
-import { isLoomRecording } from "./lib/native-media.js";
+import {
+  assertTranscribableRecordingMedia,
+  isLoomRecording,
+} from "./lib/native-media.js";
 import { isLikelyMismatchedTranscriptLanguage } from "./lib/provider-transcript.js";
 import { prepareRecordingTranscriptionAudio } from "./lib/recording-audio-source.js";
 import regenerateSummary from "./regenerate-summary.js";
@@ -998,7 +1001,8 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args, context?: ActionRunContext) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    const access = await assertAccess("recording", args.recordingId, "editor");
+    assertTranscribableRecordingMedia(access.resource);
 
     const db = getDb();
 

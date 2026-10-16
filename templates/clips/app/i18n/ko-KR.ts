@@ -1354,6 +1354,16 @@ const messages = {
     playClip: "클립 재생",
     unsupportedFormat:
       "이 브라우저에서는 이 동영상을 재생할 수 없습니다. Chrome, Edge 또는 Firefox에서 링크를 열어 보세요.",
+    youtubeLoading: "YouTube 플레이어를 불러오는 중",
+    youtubeUnavailable: "이 YouTube 동영상은 비공개이거나 삭제되었습니다.",
+    youtubeEmbedBlocked:
+      "이 동영상의 소유자가 YouTube 외부에서의 재생을 허용하지 않습니다.",
+    youtubeInvalid: "이 YouTube 링크는 재생 가능한 동영상을 가리키지 않습니다.",
+    youtubePlaybackFailed:
+      "YouTube에서 이 동영상을 여기서 재생하지 못했습니다.",
+    youtubeApiUnavailable:
+      "YouTube 플레이어를 불러오지 못했습니다. 연결 상태나 콘텐츠 차단기를 확인한 다음 새로고침하세요.",
+    watchOnYouTube: "YouTube에서 보기",
   },
   searchBar: {
     placeholder: "녹화 검색…",
@@ -1911,6 +1921,8 @@ const messages = {
       "Storage needed to finish Loom import (현지화됨)",
     loomImported: "Loom imported (현지화됨)",
     couldNotImportLoom: "이 Loom을 가져오지 못했습니다.",
+    youtubeImported: "YouTube 동영상을 추가했습니다",
+    couldNotImportVideo: "이 동영상을 가져오지 못했습니다.",
     recordingReadyToUpload: "Recording is ready to upload (현지화됨)",
     recordingSaved: "Recording saved (현지화됨)",
     linkCopied: "링크가 복사되었습니다",
@@ -2015,7 +2027,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "가져오기",
     helperText:
-      "Loom과 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
+      "Loom 및 YouTube와 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
     stageFetching: "동영상을 가져오는 중…",
     stageUploading: "원본 영상을 업로드하는 중…",
     stageTranscript:

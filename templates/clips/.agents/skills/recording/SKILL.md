@@ -16,7 +16,7 @@ Reach for this skill any time you touch the recorder: the record button, the in-
 
 ## Data model touched
 
-- **`recordings`** — the row gets created as soon as the user presses Record or imports a source. Native/file recordings transition `uploading` → `processing` → `ready` (or `failed`). `videoUrl`, `durationMs`, `videoSizeBytes`, `width`, `height`, `hasAudio`, `hasCamera` are populated as the upload streams in. Loom imports use `import-loom-recording` and become ready with either a Clips-hosted MP4 or a Loom embed when MP4 export is unavailable.
+- **`recordings`** — the row gets created as soon as the user presses Record or imports a source. Native/file recordings transition `uploading` → `processing` → `ready` (or `failed`). `videoUrl`, `durationMs`, `videoSizeBytes`, `width`, `height`, `hasAudio`, `hasCamera` are populated as the upload streams in. Loom imports use `import-loom-recording` and become ready with either a Clips-hosted MP4 or a Loom embed when MP4 export is unavailable. YouTube imports go through the same action and are always embeds.
 - **`recordings.storage_mode`** — pins each video recording to `own` or `hosted`; null is legacy. Own storage takes precedence when available. Existing hosted recordings keep using the private Clips bucket even if the user connects Builder later.
 - **`application_state.record-intent`** — the agent writes this when it wants to start a recording. The UI reads and clears it, then prompts for permission.
 - **`application_state.navigation`** — set to `{ view: "record" }` while the recorder is active.
@@ -120,7 +120,7 @@ repoints the row only after verified output is stored; any transcode, audio
 verification, upload, or concurrent-update failure leaves the original URL and
 format untouched.
 
-## Loom import
+## Loom and YouTube import
 
 Direct-video and downloadable Loom MP4 imports use the same pinned storage
 resolution, hosted byte limit, and allowance as recorder uploads. A Loom import
@@ -144,6 +144,21 @@ Embed-backed Loom imports render a Loom iframe and hide the native Clips editor.
 Reuploaded Loom imports support Clips-native trimming, exports, frame extraction,
 and upload-based transcription; ask the user to upload the original video file
 when those capabilities are needed for an embed-backed import.
+
+YouTube links (watch, Shorts, youtu.be, embed) also go through
+`import-loom-recording`. Clips never downloads a YouTube video: the action reads
+YouTube's public oEmbed for the title and thumbnail and creates a `ready` clip
+that plays in YouTube's embedded player. Comments, reactions, chapters, and
+transcript highlighting follow YouTube's playback. oEmbed has no duration, so
+the clip starts with `durationMs` 0 and the first editor to open it records the
+length YouTube's player reports (`set-embed-duration`). A YouTube clip has no
+frames, editing, downloads, or transcription; add its transcript with
+`import-transcript`. Private, removed, and embed-disabled videos fail the import
+with a specific error, and a video that becomes unavailable later shows
+YouTube's reason in the player with a Watch on YouTube link. YouTube's player
+policy forbids drawing anything over its player, so the Clips controls sit below
+it and the clip shows no on-video captions or comment bubbles; never add an
+overlay to the YouTube player.
 
 ## Browser diagnostics and recorder install options
 

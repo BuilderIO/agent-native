@@ -1377,6 +1377,15 @@ const messages = {
     playClip: "クリップを再生",
     unsupportedFormat:
       "このブラウザではこの動画を再生できません。Chrome、Edge、Firefoxでリンクを開いてみてください。",
+    youtubeLoading: "YouTube プレーヤーを読み込み中",
+    youtubeUnavailable: "この YouTube 動画は非公開か、削除されています。",
+    youtubeEmbedBlocked:
+      "この動画の所有者は YouTube 以外での再生を許可していません。",
+    youtubeInvalid: "この YouTube リンクは再生できる動画を指していません。",
+    youtubePlaybackFailed: "YouTube はここでこの動画を再生できませんでした。",
+    youtubeApiUnavailable:
+      "YouTube プレーヤーを読み込めませんでした。接続やコンテンツブロッカーを確認してから、再読み込みしてください。",
+    watchOnYouTube: "YouTube で見る",
   },
   searchBar: {
     placeholder: "録画を検索…",
@@ -1941,6 +1950,8 @@ const messages = {
       "Storage needed to finish Loom import (ローカライズ済み)",
     loomImported: "Loom imported (ローカライズ済み)",
     couldNotImportLoom: "この Loom をインポートできませんでした。",
+    youtubeImported: "YouTube 動画を追加しました",
+    couldNotImportVideo: "この動画をインポートできませんでした。",
     recordingReadyToUpload: "Recording is ready to upload (ローカライズ済み)",
     recordingSaved: "Recording saved (ローカライズ済み)",
     linkCopied: "リンクをコピーしました",
@@ -2049,7 +2060,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "インポート",
     helperText:
-      "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
+      "Loom と YouTube で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
     stageFetching: "動画を取り込んでいます…",
     stageUploading: "元の映像をアップロードしています…",
     stageTranscript:

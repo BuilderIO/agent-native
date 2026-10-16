@@ -1387,6 +1387,16 @@ const messages = {
     playClip: "Reproduzir clipe",
     unsupportedFormat:
       "Este navegador não consegue reproduzir este vídeo. Tente abrir o link no Chrome, Edge ou Firefox.",
+    youtubeLoading: "Carregando o player do YouTube",
+    youtubeUnavailable: "Este vídeo do YouTube é privado ou foi removido.",
+    youtubeEmbedBlocked:
+      "O proprietário deste vídeo não permite que ele seja reproduzido fora do YouTube.",
+    youtubeInvalid: "Este link do YouTube não leva a um vídeo reproduzível.",
+    youtubePlaybackFailed:
+      "O YouTube não conseguiu reproduzir este vídeo aqui.",
+    youtubeApiUnavailable:
+      "O player do YouTube não carregou. Verifique sua conexão ou seu bloqueador de conteúdo e recarregue a página.",
+    watchOnYouTube: "Assistir no YouTube",
   },
   searchBar: {
     placeholder: "Pesquisar gravações…",
@@ -1951,6 +1961,8 @@ const messages = {
       "É necessário conectar o armazenamento para concluir a importação do Loom",
     loomImported: "Loom imported",
     couldNotImportLoom: "Não foi possível importar esse Loom.",
+    youtubeImported: "Vídeo do YouTube adicionado",
+    couldNotImportVideo: "Não foi possível importar esse vídeo.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copiado",
@@ -2057,7 +2069,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importar",
     helperText:
-      "Funciona muito bem com o Loom. Você também pode colar um link de outra gravação de tela ou arquivo de vídeo.",
+      "Funciona muito bem com o Loom e o YouTube. Você também pode colar um link de outra gravação de tela ou arquivo de vídeo.",
     stageFetching: "Trazendo seu vídeo…",
     stageUploading: "Enviando o material bruto…",
     stageTranscript: "Tornando a fala e o visual na tela legíveis pelo agente…",

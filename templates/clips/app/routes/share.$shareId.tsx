@@ -148,6 +148,7 @@ import {
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   safeJsonForHtml,
 } from "../../shared/agent-context";
+import { recordingEmbedProvider } from "../../shared/embed-provider";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -1018,7 +1019,8 @@ export default function ShareRoute() {
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
     : "";
-  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const embedProvider = recordingEmbedProvider(recording);
+  const isEmbedBacked = embedProvider !== null;
   const unlockedAgentContextUrl =
     typeof dataQ.data?.data?.agentContextUrl === "string"
       ? dataQ.data.data.agentContextUrl
@@ -1027,7 +1029,7 @@ export default function ShareRoute() {
     <AgentDiscovery
       recording={recording ?? loaderData.recording}
       agentContextUrl={unlockedAgentContextUrl ?? loaderData.agentContextUrl}
-      frameAvailable={Boolean(recording) && !isLoomEmbedBacked}
+      frameAvailable={Boolean(recording) && !isEmbedBacked}
     />
   );
 
@@ -1091,7 +1093,7 @@ export default function ShareRoute() {
     recordingId: shareId ?? "",
     videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
-    trackOpenWithoutVideo: isLoomEmbedBacked,
+    trackOpenWithoutVideo: isEmbedBacked,
   });
 
   const reactToRecording = useCallback(
@@ -1653,10 +1655,10 @@ export default function ShareRoute() {
     (isImage
       ? recording.imageUrl || recording.thumbnailUrl
       : recording.videoUrl) &&
-    !isLoomEmbedBacked,
+    !isEmbedBacked,
   );
   const shareVideoUrl =
-    canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
+    canDownloadRecording || isEmbedBacked ? recording.videoUrl : null;
   const shareControl =
     viewerCanEdit || canReshareLink ? (
       <ShareRecordingPopover
@@ -1668,7 +1670,7 @@ export default function ShareRoute() {
         videoUrl={shareVideoUrl}
         thumbnailUrl={recording.thumbnailUrl}
         animatedThumbnailUrl={recording.animatedThumbnailUrl}
-        isLoomRecording={isLoomEmbedBacked}
+        isLoomRecording={isEmbedBacked}
         hasPassword={Boolean(recording.hasPassword)}
         expiresAt={recording.expiresAt}
         viewerReshareOnly={viewerReshareOnly}
@@ -1764,7 +1766,13 @@ export default function ShareRoute() {
                   className="w-full"
                 />
               ) : (
-                <div className="relative aspect-video w-full">
+                <div
+                  className={cn(
+                    "relative w-full",
+                    // YouTube's controls sit below its player, outside the ratio.
+                    embedProvider !== "youtube" && "aspect-video",
+                  )}
+                >
                   <VideoPlayer
                     ref={playerRef}
                     onVideoElementChange={setTrackedVideoEl}
@@ -1776,7 +1784,7 @@ export default function ShareRoute() {
                       null
                     }
                     videoFormat={recording.videoFormat}
-                    embedProvider={isLoomEmbedBacked ? "loom" : null}
+                    embedProvider={embedProvider}
                     durationMs={recording.durationMs}
                     startMs={resolveStartMs(startMs, recording.durationMs)}
                     persistPlaybackPosition={Boolean(session)}

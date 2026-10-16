@@ -35,12 +35,10 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
+import { recordingEmbedProvider } from "@shared/embed-provider";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
-import {
-  isLoomEmbedBackedRecording,
-  isLoomRecordingSource,
-} from "@shared/loom";
+import { isLoomRecordingSource } from "@shared/loom";
 import {
   isImageRecording,
   screenshotFileExtension,
@@ -1093,7 +1091,7 @@ export default function RecordingPage() {
     recordingId: recording?.id ?? "",
     agentContextUrl: directAgentContextUrl,
     recordingStatus: recording?.status,
-    frameAvailable: !isLoomEmbedBackedRecording(recording),
+    frameAvailable: !recordingEmbedProvider(recording),
   });
   const comments = useMemo(() => {
     const loadedComments: PlayerComment[] = playerDataQ.data?.comments ?? [];
@@ -1497,19 +1495,22 @@ export default function RecordingPage() {
     t,
   ]);
 
-  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const embedProvider = recordingEmbedProvider(recording);
+  const isEmbedBacked = embedProvider !== null;
+  // A YouTube clip has no media to transcribe; its transcript is imported.
+  const canTranscribe = canEdit && embedProvider !== "youtube";
   const isLoomRecording = isLoomRecordingSource(recording);
   // The editor is a timeline: trims, cuts, speed. None of it applies to a
   // still, whose editing story is markup over the image instead.
   const canUseNativeEditor =
-    canEdit && videoEditingLabEnabled && !isLoomEmbedBacked && !isImage;
+    canEdit && videoEditingLabEnabled && !isEmbedBacked && !isImage;
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
     recording?.enableDownloads &&
     (isImage
       ? recording.imageUrl || recording.thumbnailUrl
       : recording.videoUrl) &&
-    !isLoomEmbedBacked,
+    !isEmbedBacked,
   );
   // Mirrors the /share/:shareId reshare restriction (same public/org scope):
   // a plain viewer of a public or org clip must not trigger
@@ -1523,7 +1524,7 @@ export default function RecordingPage() {
     (role === "viewer" || role === "commenter") &&
     recording?.visibility === "private";
   const shareVideoUrl =
-    canDownloadRecording || isLoomEmbedBacked
+    canDownloadRecording || isEmbedBacked
       ? (recording?.videoUrl ?? null)
       : null;
   /**
@@ -1551,7 +1552,7 @@ export default function RecordingPage() {
       videoUrl={shareVideoUrl}
       thumbnailUrl={recording.thumbnailUrl}
       animatedThumbnailUrl={recording.animatedThumbnailUrl}
-      isLoomRecording={isLoomEmbedBacked}
+      isLoomRecording={isEmbedBacked}
       hasPassword={Boolean(recording.hasPassword)}
       expiresAt={recording.expiresAt}
       viewerReshareOnly={viewerReshareOnly}
@@ -1802,6 +1803,30 @@ export default function RecordingPage() {
       });
     },
   });
+  const setEmbedDuration = useActionMutation("set-embed-duration" as any, {
+    onSuccess: () => void playerDataQ.refetch(),
+    onError: (err: Error) => {
+      console.warn("[clips] Could not save the YouTube clip's duration", err);
+    },
+  });
+  // YouTube's metadata has no duration; its player reports one on first load.
+  const recordEmbedDuration = useCallback(
+    (durationMs: number) => {
+      if (
+        !recording ||
+        !canEdit ||
+        embedProvider !== "youtube" ||
+        recording.durationMs > 0
+      ) {
+        return;
+      }
+      setEmbedDuration.mutate({
+        recordingId: recording.id,
+        durationMs,
+      } as any);
+    },
+    [canEdit, embedProvider, recording, setEmbedDuration],
+  );
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
@@ -2549,7 +2574,7 @@ export default function RecordingPage() {
               failureReason={transcriptFailureReason}
               recordingTitle={recording.title}
               onRetry={
-                canEdit
+                canTranscribe
                   ? () =>
                       requestTranscriptWithLifecycle({
                         recordingId: recording.id,
@@ -2558,7 +2583,7 @@ export default function RecordingPage() {
                   : undefined
               }
               onRegenerate={
-                canEdit && transcriptStatus === "ready"
+                canTranscribe && transcriptStatus === "ready"
                   ? () => regenerateTranscript(recording.id)
                   : undefined
               }
@@ -2741,7 +2766,7 @@ export default function RecordingPage() {
                   {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {isLoomEmbedBacked ? null : (
+                {isEmbedBacked ? null : (
                   <>
                     <DropdownMenuItem
                       disabled={backgroundAiBusy}
@@ -3054,7 +3079,13 @@ export default function RecordingPage() {
                       )}
                     </div>
                   ) : (
-                    <div className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
+                    <div
+                      className={cn(
+                        "relative w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl",
+                        // YouTube's controls sit below its player, outside the ratio.
+                        embedProvider !== "youtube" && "aspect-video",
+                      )}
+                    >
                       <VideoPlayer
                         ref={playerRef}
                         onVideoElementChange={setTrackedVideoEl}
@@ -3066,8 +3097,9 @@ export default function RecordingPage() {
                           null
                         }
                         videoFormat={recording.videoFormat}
-                        embedProvider={isLoomEmbedBacked ? "loom" : null}
+                        embedProvider={embedProvider}
                         durationMs={recording.durationMs}
+                        onDurationChange={recordEmbedDuration}
                         editsJson={recording.editsJson}
                         thumbnailUrl={recording.thumbnailUrl}
                         role={role}

@@ -1364,6 +1364,14 @@ const messages = {
     playClip: "تشغيل المقطع",
     unsupportedFormat:
       "لا يمكن لهذا المتصفح تشغيل هذا الفيديو. جرّب فتح الرابط في Chrome أو Edge أو Firefox.",
+    youtubeLoading: "جارٍ تحميل مشغّل YouTube",
+    youtubeUnavailable: "فيديو YouTube هذا خاص أو تمت إزالته.",
+    youtubeEmbedBlocked: "لا يسمح مالك هذا الفيديو بتشغيله خارج YouTube.",
+    youtubeInvalid: "لا يشير رابط YouTube هذا إلى فيديو قابل للتشغيل.",
+    youtubePlaybackFailed: "تعذّر على YouTube تشغيل هذا الفيديو هنا.",
+    youtubeApiUnavailable:
+      "لم يتم تحميل مشغّل YouTube. تحقّق من اتصالك أو من مانع المحتوى، ثم أعد التحميل.",
+    watchOnYouTube: "المشاهدة على YouTube",
   },
   searchBar: {
     placeholder: "البحث في التسجيلات…",
@@ -1915,6 +1923,8 @@ const messages = {
       "Storage needed to finish Loom import (مترجم)",
     loomImported: "Loom imported (مترجم)",
     couldNotImportLoom: "تعذّر استيراد مقطع Loom هذا.",
+    youtubeImported: "تمت إضافة فيديو YouTube",
+    couldNotImportVideo: "تعذّر استيراد هذا الفيديو.",
     recordingReadyToUpload: "Recording is ready to upload (مترجم)",
     recordingSaved: "Recording saved (مترجم)",
     linkCopied: "تم نسخ الرابط",
@@ -2019,7 +2029,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "استيراد",
     helperText:
-      "يعمل بشكل رائع مع Loom. يمكنك أيضًا لصق رابط لأي تسجيل شاشة أو ملف فيديو آخر.",
+      "يعمل بشكل رائع مع Loom وYouTube. يمكنك أيضًا لصق رابط لأي تسجيل شاشة أو ملف فيديو آخر.",
     stageFetching: "جارٍ سحب الفيديو…",
     stageUploading: "جارٍ رفع اللقطات الأصلية…",
     stageTranscript: "جعل الكلام والعناصر المرئية على الشاشة قابلة لفهم الوكيل…",
