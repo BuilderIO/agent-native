@@ -7,9 +7,9 @@ import {
   getRequestHeader,
 } from "h3";
 import type { H3Event } from "h3";
+import * as Y from "yjs";
 
 import { readBody } from "../server/h3-helpers.js";
-import { LiveCopyError } from "./live-copy.js";
 import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
@@ -28,6 +28,22 @@ function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * The client's state vector, or null when it is not one. A vector is a flat
+ * list of clocks, read in one pass and bounded by the URL, so reading it
+ * here is not the document decode live copies keep off this thread.
+ */
+function readStateVector(encoded: string): Uint8Array | null {
+  try {
+    const stateVector = base64ToUint8Array(encoded);
+    Y.decodeStateVector(stateVector);
+    return stateVector;
+    // coercion-ok: null is this reader's typed "not a state vector"; the route answers 400
+  } catch {
+    return null;
+  }
 }
 
 export const getCollabState = defineEventHandler(async (event: H3Event) => {
@@ -58,18 +74,12 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
   }
   let state: Uint8Array;
   if (encodedStateVector) {
-    try {
-      state = await manager.getIncUpdate(
-        docId,
-        base64ToUint8Array(encodedStateVector),
-      );
-    } catch (error) {
-      // A live copy's own failure (malformed state, a busy runner) keeps
-      // its code and status; it says nothing about the state vector.
-      if (error instanceof LiveCopyError) throw error;
+    const stateVector = readStateVector(encodedStateVector);
+    if (!stateVector) {
       setResponseStatus(event, 400);
-      return { error: "stateVector must be base64-encoded" };
+      return { error: "stateVector must be a base64-encoded Yjs state vector" };
     }
+    state = await manager.getIncUpdate(docId, stateVector);
   } else {
     state = await manager.getState(docId);
   }

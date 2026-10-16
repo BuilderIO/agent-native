@@ -84,23 +84,29 @@ describe("getCollabState cache policy", () => {
     expect(ev._headers["Cache-Control"]).toBe("private, no-store");
   });
 
-  it("keeps a live copy's own failure instead of blaming the state vector", async () => {
+  it("blames the state vector only when it cannot be read", async () => {
     const malformed = new LiveCopyError("malformed_state", "doc-1", "bad", {
       reason: "yjs",
     });
-    vi.mocked(manager.getIncUpdate).mockRejectedValueOnce(malformed);
-    const ev = event({ docId: "doc-1" });
-    ev._query = { stateVector: "AAA=" };
-    await expect(getCollabState(ev)).rejects.toBe(malformed);
-    expect(ev._status).toBe(200);
+    for (const failure of [malformed, new Error("database unavailable")]) {
+      vi.mocked(manager.getIncUpdate).mockRejectedValueOnce(failure);
+      const ev = event({ docId: "doc-1" });
+      ev._query = { stateVector: "AAA=" };
+      await expect(getCollabState(ev)).rejects.toBe(failure);
+      expect(ev._status).toBe(200);
+    }
 
-    vi.mocked(manager.getIncUpdate).mockRejectedValueOnce(new Error("vector"));
-    const bad = event({ docId: "doc-1" });
-    bad._query = { stateVector: "AAA=" };
-    expect(await getCollabState(bad)).toEqual({
-      error: "stateVector must be base64-encoded",
-    });
-    expect(bad._status).toBe(400);
+    vi.mocked(manager.getIncUpdate).mockClear();
+    // Base64 for a vector that announces five entries and holds none.
+    for (const stateVector of ["BQ==", "not base64"]) {
+      const bad = event({ docId: "doc-1" });
+      bad._query = { stateVector };
+      expect(await getCollabState(bad)).toEqual({
+        error: "stateVector must be a base64-encoded Yjs state vector",
+      });
+      expect(bad._status).toBe(400);
+    }
+    expect(manager.getIncUpdate).not.toHaveBeenCalled();
   });
 
   it("includes a server activity cursor with the initial state", async () => {

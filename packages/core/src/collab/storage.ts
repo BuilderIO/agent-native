@@ -161,6 +161,41 @@ export async function loadYDocVersion(docId: string): Promise<number | null> {
   return version;
 }
 
+/**
+ * A row's version and a SHA-256 of its stored text. A version alone repeats:
+ * a row deleted and inserted again starts back at 0.
+ */
+export interface YDocStamp {
+  version: number;
+  digest: string;
+}
+
+export async function loadYDocStamp(docId: string): Promise<YDocStamp | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT version, encode(sha256(convert_to(yjs_state, 'UTF8')), 'hex') AS digest FROM _collab_docs WHERE doc_id = ?`,
+    args: [docId],
+  });
+  if (rows.length === 0) return null;
+  const version = Number(rows[0].version);
+  const digest = rows[0].digest;
+  if (!Number.isFinite(version) || typeof digest !== "string") {
+    throw new Error(
+      `_collab_docs row for ${docId} is unreadable: version ${String(rows[0].version)}`,
+    );
+  }
+  return { version, digest };
+}
+
+/** The digest `loadYDocStamp` reports for a row this module wrote `state` to. */
+export async function collabStateDigest(state: Uint8Array): Promise<string> {
+  const text = new TextEncoder().encode(uint8ArrayToBase64(state));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", text);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export async function loadYDocState(docId: string): Promise<Uint8Array | null> {
   const record = await loadYDocRecord(docId);
   return record?.state ?? null;
