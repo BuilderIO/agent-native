@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -461,7 +462,8 @@ describe("record route lifecycle shell", () => {
         },
       }),
     );
-    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    const openedWindow = { opener: window } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(openedWindow);
 
     act(() => {
       root.render(
@@ -498,8 +500,8 @@ describe("record route lifecycle shell", () => {
     expect(open).toHaveBeenCalledWith(
       "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
       "_blank",
-      "noopener,noreferrer",
     );
+    expect(openedWindow.opener).toBeNull();
     open.mockRestore();
   });
 
@@ -706,12 +708,14 @@ describe("record route lifecycle shell", () => {
       const expectedUrl = new URL(window.location.href);
       expectedUrl.searchParams.set("mode", "screen");
       expectedUrl.searchParams.set("surface", "window");
-      const openRecoveryUrl = vi.fn();
+      const openRecoveryUrl = vi.fn(() => true);
+      const onPopupBlocked = vi.fn();
       const options = buildRecordingErrorToastOptions(
         "Screen capture blocked by Permissions-Policy.",
         { mode: "screen", displaySurface: "window", micDeviceId: null },
         (key) => key,
         openRecoveryUrl,
+        onPopupBlocked,
       );
 
       expect(options.action?.label).toBe("recordRoute.openRecorderInTab");
@@ -720,6 +724,7 @@ describe("record route lifecycle shell", () => {
         expectedUrl.toString(),
         false,
       );
+      expect(onPopupBlocked).not.toHaveBeenCalled();
     } finally {
       window.history.replaceState({}, "", originalUrl);
     }
@@ -727,7 +732,8 @@ describe("record route lifecycle shell", () => {
 
   it("preserves the failed mode and surface in card tab recovery", () => {
     const originalUrl = window.location.href;
-    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    const openedWindow = { opener: window } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(openedWindow);
     vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
 
     try {
@@ -754,7 +760,7 @@ describe("record route lifecycle shell", () => {
 
       const openedUrl = new URL(String(open.mock.calls[0]?.[0]));
       expect(open.mock.calls[0]?.[1]).toBe("_blank");
-      expect(open.mock.calls[0]?.[2]).toBe("noopener,noreferrer");
+      expect(openedWindow.opener).toBeNull();
       expect(openedUrl.searchParams.get("mode")).toBe("screen");
       expect(openedUrl.searchParams.get("surface")).toBe("window");
       expect(openedUrl.searchParams.get("spaceId")).toBe("space-1");
@@ -766,6 +772,7 @@ describe("record route lifecycle shell", () => {
   it("keeps the embedded error route in place when tab recovery is blocked", () => {
     const originalUrl = window.location.href;
     const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const popupToast = vi.spyOn(toast, "error");
     vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
 
     try {
@@ -793,9 +800,36 @@ describe("record route lifecycle shell", () => {
       expect(open).toHaveBeenCalledWith(
         expect.stringContaining("mode=screen"),
         "_blank",
-        "noopener,noreferrer",
       );
       expect(window.location.href).toBe(errorUrl);
+      expect(popupToast).toHaveBeenCalledWith("clipsSettings.popupBlocked");
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
+  it("reports a blocked popup from a toast tab action", () => {
+    const originalUrl = window.location.href;
+    const onPopupBlocked = vi.fn();
+    const openRecoveryUrl = vi.fn(() => false);
+
+    try {
+      window.history.replaceState({}, "", "/record?spaceId=space-1");
+      const options = buildRecordingErrorToastOptions(
+        "Screen capture blocked by Permissions-Policy.",
+        { mode: "screen", displaySurface: "window", micDeviceId: null },
+        (key) => key,
+        openRecoveryUrl,
+        onPopupBlocked,
+      );
+
+      options.action?.onClick();
+
+      expect(openRecoveryUrl).toHaveBeenCalledWith(
+        expect.stringContaining("mode=screen"),
+        false,
+      );
+      expect(onPopupBlocked).toHaveBeenCalledTimes(1);
     } finally {
       window.history.replaceState({}, "", originalUrl);
     }

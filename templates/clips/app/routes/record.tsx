@@ -307,10 +307,15 @@ function saveBlobToDisk(blob: Blob, filename: string): void {
 function openUrlFromUserGesture(
   url: string,
   fallbackToCurrentFrame = true,
-): void {
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  // With `noopener`, null does not distinguish a blocked popup from success.
-  if (!opened && fallbackToCurrentFrame) window.location.href = url;
+): boolean {
+  // `noopener` returns null even for a successful popup, so clear opener afterward.
+  const opened = window.open(url, "_blank");
+  if (!opened) {
+    if (fallbackToCurrentFrame) window.location.href = url;
+    return false;
+  }
+  opened.opener = null;
+  return true;
 }
 
 function bugReportDonePath(
@@ -598,7 +603,8 @@ export function buildRecordingErrorToastOptions(
   t: (
     key: "recordRoute.openRecorderInTab" | "recordRoute.openSettings",
   ) => string,
-  openRecoveryUrl: (url: string, fallbackToCurrentFrame?: boolean) => void,
+  openRecoveryUrl: (url: string, fallbackToCurrentFrame: boolean) => boolean,
+  onPopupBlocked: () => void,
 ): {
   description: string;
   duration: number;
@@ -622,11 +628,15 @@ export function buildRecordingErrorToastOptions(
     action: recoveryAction
       ? {
           label: t(recoveryAction.labelKey),
-          onClick: () =>
-            openRecoveryUrl(
+          onClick: () => {
+            const fallbackToCurrentFrame =
+              recoveryAction.labelKey === "recordRoute.openSettings";
+            const opened = openRecoveryUrl(
               recoveryAction.url,
-              recoveryAction.labelKey === "recordRoute.openSettings",
-            ),
+              fallbackToCurrentFrame,
+            );
+            if (!opened && !fallbackToCurrentFrame) onPopupBlocked();
+          },
         }
       : undefined,
   };
@@ -1110,7 +1120,11 @@ export function RecordingErrorCard({
         {openDirectly && (
           <Button
             type="button"
-            onClick={() => openUrlFromUserGesture(directUrl, false)}
+            onClick={() => {
+              if (!openUrlFromUserGesture(directUrl, false)) {
+                toast.error(t("clipsSettings.popupBlocked"));
+              }
+            }}
             className="w-full gap-2"
           >
             <IconExternalLink className="size-4" />
@@ -1652,6 +1666,7 @@ export default function RecordRoute() {
         pendingOpts,
         t,
         openUrlFromUserGesture,
+        () => toast.error(t("clipsSettings.popupBlocked")),
       );
       if (uploadFailure) {
         failUploadToast(t("recordRoute.uploadFailed"), options);
@@ -1677,11 +1692,15 @@ export default function RecordRoute() {
           })
         : null;
       if (blockedFeature) {
-        openUrlFromUserGesture(directRecorderUrl(opts), false);
-        toast.info(t("recordRoute.openedRecorderInNewTab"), {
-          description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
-          duration: 8000,
-        });
+        const opened = openUrlFromUserGesture(directRecorderUrl(opts), false);
+        if (opened) {
+          toast.info(t("recordRoute.openedRecorderInNewTab"), {
+            description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
+            duration: 8000,
+          });
+        } else {
+          toast.error(t("clipsSettings.popupBlocked"));
+        }
         return;
       }
 
