@@ -24,6 +24,7 @@ import {
   readStoredLiveCopy,
   liveCopyWriteRefused,
   refuseLiveCopyWrite,
+  sameStamp,
   seedLiveCopyState,
   type LiveCopyBinding,
   type LiveCopyOutcome,
@@ -563,22 +564,28 @@ function servedState(state: Uint8Array): Uint8Array {
  * The digest matters as much as the version: a row deleted and inserted
  * again, by any instance, starts back at version 0.
  */
-async function cachedLiveCopy(
+function cachedLiveCopy(
   binding: LiveCopyBinding,
   docId: string,
-): Promise<LiveCopyCacheEntry | undefined> {
+  stamp: YDocStamp | null,
+): LiveCopyCacheEntry | undefined {
   const cached = _liveCopyCache.get(docId);
-  if (cached?.binding !== binding) return undefined;
-  const stamp = await loadYDocStamp(docId);
-  if (
-    stamp?.version !== cached.stamp?.version ||
-    stamp?.digest !== cached.stamp?.digest
-  ) {
+  if (cached?.binding !== binding || !sameStamp(cached.stamp, stamp)) {
     return undefined;
   }
   cached.lastAccess = Date.now();
   return cached;
 }
+
+/** Cache misses being filled, shared by readers that saw the same row. */
+const _liveCopyLoads = new Map<
+  string,
+  {
+    binding: LiveCopyBinding;
+    stamp: YDocStamp | null;
+    load: Promise<LiveCopyCacheEntry>;
+  }
+>();
 
 /**
  * The stored copy to change. When this instance cached the stored row, its
@@ -589,7 +596,7 @@ async function loadLiveCopyState(
   binding: LiveCopyBinding,
   docId: string,
 ): Promise<StoredLiveCopy> {
-  const cached = await cachedLiveCopy(binding, docId);
+  const cached = cachedLiveCopy(binding, docId, await loadYDocStamp(docId));
   if (cached) {
     return cached.stamp === null
       ? { kind: "absent" }
@@ -614,8 +621,26 @@ async function liveCopyStateForRead(
   docId: string,
 ): Promise<{ state: Uint8Array; catchUp: LiveCopyCatchUp }> {
   await ensureTable();
-  const cached = await cachedLiveCopy(binding, docId);
+  const stamp = await loadYDocStamp(docId);
+  const cached = cachedLiveCopy(binding, docId, stamp);
   if (cached) return cached;
+  // One runner task per row, however many editors open it at once; the
+  // load reads the row again, so a joiner never gets older bytes than it saw.
+  const pending = _liveCopyLoads.get(docId);
+  if (pending?.binding === binding && sameStamp(pending.stamp, stamp)) {
+    return pending.load;
+  }
+  const load = loadLiveCopyForRead(binding, docId).finally(() => {
+    if (_liveCopyLoads.get(docId)?.load === load) _liveCopyLoads.delete(docId);
+  });
+  _liveCopyLoads.set(docId, { binding, stamp, load });
+  return load;
+}
+
+async function loadLiveCopyForRead(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<LiveCopyCacheEntry> {
   const stored = await readStoredLiveCopy(binding, getDbExec(), docId);
   if (stored.kind === "absent") {
     return cacheLiveCopyState(binding, docId, null, EMPTY_CATCH_UP);

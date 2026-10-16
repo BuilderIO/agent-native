@@ -1368,25 +1368,20 @@ describe("mutateLiveCopy", () => {
     ]);
   });
 
-  it("refuses to commit the work of a binding replaced while it ran", async () => {
-    const persisted: string[] = [];
+  it("rolls back the work of a binding replaced while its persist ran", async () => {
     let replace = false;
     const binding = define({
-      persist: async () => {
-        persisted.push("old");
-      },
-      runner: intercepted(async (task) => {
-        if (task !== "liveCopy.edit" || !replace) return;
-        replace = false;
-        define({
-          persist: async () => {
-            persisted.push("new");
-          },
+      persist: async (tx, commit) => {
+        await tx.execute({
+          sql: "INSERT INTO bodies (doc_id, body, version) VALUES (?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET body = excluded.body, version = excluded.version",
+          args: [commit.docId, commit.text, commit.version],
         });
-      }),
+        if (!replace) return;
+        replace = false;
+        define();
+      },
     });
     await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
-    persisted.length = 0;
     replace = true;
     expect(
       await rejection(
@@ -1396,11 +1391,36 @@ describe("mutateLiveCopy", () => {
         }),
       ),
     ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
-    expect(persisted).toEqual([]);
     expect(await row("live:doc")).toMatchObject({
       text_snapshot: "base",
       version: 0,
     });
+    expect(
+      await pglite
+        .prepare("SELECT body, version FROM bodies WHERE doc_id = ?")
+        .get("live:doc"),
+    ).toEqual({ body: "base", version: 0 });
+  });
+
+  it("loads a cold copy once for a burst of readers", async () => {
+    let reads = 0;
+    const binding = define({
+      runner: intercepted(async (task) => {
+        if (task === "liveCopy.read") reads += 1;
+      }),
+    });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+    // A peer moved the version, so this instance's cached bytes no longer
+    // match the row.
+    await pglite
+      .prepare("UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?")
+      .run("live:doc");
+    reads = 0;
+    const states = await Promise.all(
+      Array.from({ length: 24 }, () => manager.getState("live:doc")),
+    );
+    expect(reads).toBe(1);
+    expect(new Set(states.map(base64)).size).toBe(1);
   });
 
   it("keeps a row recreated at the same version while an edit runs", async () => {
