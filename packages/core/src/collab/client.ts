@@ -275,9 +275,11 @@ class CollabDocConnection {
   private updateHandlerAttached = false;
 
   private syncActive = false;
-  // A poll still awaiting its fetch when sync restarts must not schedule a second chain.
-  private syncGeneration = 0;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  // A poll asked for while one is in flight runs once after it, so focus,
+  // visibility and a sync restart never start a second polling chain.
+  private pollInFlight = false;
+  private pollRequested = false;
   private consecutiveErrors = 0;
   private pollCycleCount = 0;
   private pollVersion = 0;
@@ -836,7 +838,6 @@ class CollabDocConnection {
       return;
     }
     this.syncActive = true;
-    this.syncGeneration += 1;
 
     this.subscribeCollabEvents();
 
@@ -1030,8 +1031,24 @@ class CollabDocConnection {
   }
 
   private async poll(): Promise<void> {
+    if (this.pollInFlight) {
+      this.pollRequested = true;
+      return;
+    }
+    this.pollInFlight = true;
+    try {
+      await this.pollOnce();
+    } finally {
+      this.pollInFlight = false;
+    }
+    if (this.pollRequested) {
+      this.pollRequested = false;
+      this.pollNow();
+    }
+  }
+
+  private async pollOnce(): Promise<void> {
     if (!this.syncActive || this.disposed) return;
-    const generation = this.syncGeneration;
 
     this.flushPendingUpdates();
 
@@ -1154,11 +1171,7 @@ class CollabDocConnection {
     } catch {
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
-      if (
-        this.syncActive &&
-        !this.disposed &&
-        generation === this.syncGeneration
-      ) {
+      if (this.syncActive && !this.disposed) {
         this.pollTimer = setTimeout(() => {
           this.pollTimer = null;
           void this.poll();
@@ -1167,7 +1180,7 @@ class CollabDocConnection {
       return;
     }
 
-    if (generation === this.syncGeneration) this.schedulePoll();
+    this.schedulePoll();
   }
 
   private pollNow(): void {
