@@ -63,8 +63,9 @@ Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
 Dashboards open in View mode. An editor switches the header toggle to Edit
-before drags, renames, and column edits on the page save for everyone; the chat
-context reports the current mode. A table column width dragged in View mode is
+before drags, renames, column edits, and adding, editing, showing or hiding key
+dates and data notes on the page save for everyone; the chat context reports the current
+mode. A table column width dragged in View mode is
 stored only in that person's browser, so "widen this column for me" is a drag
 in View mode, not a dashboard change. `config.columns[].width` is the shared
 width everyone sees; set it only when asked to change the dashboard itself.
@@ -245,7 +246,8 @@ for this. They live in two places:
 A dashboard leaves sets off its charts with `config.annotations`, set through
 `mutate-dashboard`'s `setDashboard({ annotations: { hiddenKeyDateSets: [setId, ...] } })`.
 The patch replaces the whole `annotations` object, so include the sets and
-data notes already hidden.
+data notes already hidden. In Edit mode, people do the same from the dashboard
+header's Annotations menu, which also adds and edits key dates and sets.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
   multiple are allowed. `date` is the calendar date in the event's own zone.
@@ -311,6 +313,12 @@ its owner organization's. Read them with `list-data-notes`, passing
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
+- In Edit mode, people add a note from a chart's menu ("Add data note", pinned
+  to that chart) or the Annotations menu; a note's hover card offers Edit, Mark
+  fixed, and Hide on this chart, and the chart's menu offers Hide for each of
+  its notes.
+  On a dashboard from another organization they can hide its notes and sets
+  but not add or change them.
 - Scheduled email reports shade the same ranges, title each note once in the
   label rows above the plot alongside key dates (a title with no room left is
   counted), and write each note's text under the chart.

@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   keyDatesFailed: false,
   dataNotesFailed: false,
   dataNotesRefetchFailed: false,
+  /** False on a dashboard shared from another organization. */
+  dataNotesEditable: true,
   t: (key: string) => key,
   toastError: vi.fn(),
   /** React Query hands back the same `data` until the list changes. */
@@ -35,7 +37,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         ? mocks.dataNotesFailed
           ? { data: undefined, isError: true }
           : {
-              data: { notes: mocks.dataNotes },
+              data: {
+                notes: mocks.dataNotes,
+                editable: mocks.dataNotesEditable,
+              },
               isError: mocks.dataNotesRefetchFailed,
             }
         : { data: undefined, isError: false },
@@ -83,7 +88,10 @@ import { resolvePanelEvents } from "@shared/panel-events";
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
-import { DashboardAnnotationsProvider } from "./dashboard-annotations-context";
+import {
+  DashboardAnnotationsProvider,
+  type DataNoteActions,
+} from "./dashboard-annotations-context";
 import { layoutDataNoteLabels } from "./data-note-bands";
 import { SqlChart } from "./SqlChart";
 
@@ -156,6 +164,7 @@ describe("SqlChart key-date markers", () => {
     mocks.keyDatesFailed = false;
     mocks.dataNotesFailed = false;
     mocks.dataNotesRefetchFailed = false;
+    mocks.dataNotesEditable = true;
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
@@ -431,12 +440,17 @@ describe("SqlChart key-date markers", () => {
       mocks.dataNotes = [SETUP_INCIDENT];
     });
 
-    const renderInDashboard = async (chart: SqlPanel, annotations = {}) => {
+    const renderInDashboard = async (
+      chart: SqlPanel,
+      annotations = {},
+      dataNoteActions?: DataNoteActions,
+    ) => {
       await act(async () => {
         root.render(
           <DashboardAnnotationsProvider
             dashboardId="dash"
             annotations={annotations}
+            dataNoteActions={dataNoteActions}
           >
             <SqlChart panel={chart} />
           </DashboardAnnotationsProvider>,
@@ -597,6 +611,197 @@ describe("SqlChart key-date markers", () => {
         hiddenDataNotes: [{ noteId: SETUP_INCIDENT.id, panelId: "people" }],
       });
       expect(container.querySelector("[data-data-note-band]")).toBeNull();
+    });
+
+    const openNoteCard = async () => {
+      const label = container.querySelector("[data-data-note-label]")!;
+      await act(async () => {
+        label.dispatchEvent(
+          new PointerEvent("pointerover", {
+            bubbles: true,
+            pointerType: "mouse",
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      return document.querySelector("[data-radix-popper-content-wrapper]");
+    };
+
+    const cardButton = (card: Element | null, text: string) =>
+      [...(card?.querySelectorAll("button") ?? [])].find(
+        (button) => button.textContent === text,
+      );
+
+    it("hides a note on this chart, or marks it fixed, from its card", async () => {
+      const open = { ...SETUP_INCIDENT, status: "open" as const };
+      mocks.dataNotes = [open];
+      const actions = {
+        add: vi.fn(),
+        edit: vi.fn(),
+        markFixed: vi.fn(),
+        hide: vi.fn(),
+      };
+      await renderInDashboard(failures("line"), {}, actions);
+
+      let card = await openNoteCard();
+      await act(async () => cardButton(card, "annotations.hideHere")!.click());
+      expect(actions.hide).toHaveBeenCalledWith(open.id, "people");
+
+      card = await openNoteCard();
+      await act(async () => cardButton(card, "annotations.markFixed")!.click());
+      expect(actions.markFixed).toHaveBeenCalledWith(open);
+    });
+
+    it("offers no hiding to a viewer who can't edit the dashboard", async () => {
+      const actions = { add: vi.fn(), edit: vi.fn(), markFixed: vi.fn() };
+      await renderInDashboard(failures("line"), {}, actions);
+      const card = await openNoteCard();
+      expect(cardButton(card, "annotations.edit")).toBeDefined();
+      expect(cardButton(card, "annotations.hideHere")).toBeUndefined();
+      // A fixed note has nothing left to mark fixed.
+      expect(cardButton(card, "annotations.markFixed")).toBeUndefined();
+    });
+
+    it("lets an editor hide another organization's note here, but not change it", async () => {
+      mocks.dataNotes = [{ ...SETUP_INCIDENT, status: "open" as const }];
+      mocks.dataNotesEditable = false;
+      const actions = {
+        add: vi.fn(),
+        edit: vi.fn(),
+        markFixed: vi.fn(),
+        hide: vi.fn(),
+      };
+      await renderInDashboard(failures("line"), {}, actions);
+      const card = await openNoteCard();
+      expect(cardButton(card, "annotations.hideHere")).toBeDefined();
+      expect(cardButton(card, "annotations.edit")).toBeUndefined();
+      expect(cardButton(card, "annotations.markFixed")).toBeUndefined();
+    });
+
+    it("holds a just-added note's actions until the server confirms it", async () => {
+      mocks.dataNotes = [
+        { ...SETUP_INCIDENT, id: "pending-1", status: "open" as const },
+      ];
+      const actions = {
+        add: vi.fn(),
+        edit: vi.fn(),
+        markFixed: vi.fn(),
+        hide: vi.fn(),
+      };
+      await renderInDashboard(failures("line"), {}, actions);
+      const card = await openNoteCard();
+      for (const text of [
+        "annotations.edit",
+        "annotations.markFixed",
+        "annotations.hideHere",
+      ]) {
+        const button = cardButton(card, text)!;
+        expect(button.disabled).toBe(true);
+        await act(async () => button.click());
+      }
+      expect(actions.edit).not.toHaveBeenCalled();
+      expect(actions.markFixed).not.toHaveBeenCalled();
+      expect(actions.hide).not.toHaveBeenCalled();
+    });
+
+    const chartTooltip = () =>
+      container.querySelector<HTMLElement>(".recharts-tooltip-wrapper")!;
+    const hideNote = (noteId: string) =>
+      renderInDashboard(failures("line"), {
+        hiddenDataNotes: [{ noteId, panelId: "people" }],
+      });
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+
+    it("leaves the chart's tooltip hidden once a note is hidden from its card", async () => {
+      const open = { ...SETUP_INCIDENT, status: "open" as const };
+      mocks.dataNotes = [open];
+      const actions = {
+        add: vi.fn(),
+        edit: vi.fn(),
+        markFixed: vi.fn(),
+        hide: vi.fn(),
+      };
+      await renderInDashboard(failures("line"), {}, actions);
+
+      const hide = cardButton(await openNoteCard(), "annotations.hideHere")!;
+      await act(async () => hide.focus());
+      await act(async () => hide.click());
+      await hideNote(open.id);
+      await settle();
+
+      expect(container.querySelector("[data-data-note-band]")).toBeNull();
+      expect(chartTooltip().style.visibility).toBe("hidden");
+    });
+
+    it("gives the chart its tooltip back when an open card's note goes away", async () => {
+      await renderInDashboard(failures("line"));
+      await openNoteCard();
+      // Hidden from the Annotations menu, say, while the card is still open.
+      await hideNote(SETUP_INCIDENT.id);
+      await settle();
+
+      await act(async () => {
+        container.querySelector(".recharts-wrapper")!.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 400,
+            clientY: 160,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(chartTooltip().style.visibility).toBe("visible");
+    });
+
+    it("opens a band's card down toward the chart, and up only when it can't fit", async () => {
+      await renderInDashboard(failures("line"));
+      const rect = SVGElement.prototype.getBoundingClientRect;
+      // happy-dom's page has no height; the card measures the viewport by it.
+      const html = document.documentElement;
+      Object.defineProperty(html, "clientWidth", {
+        configurable: true,
+        value: window.innerWidth,
+      });
+      Object.defineProperty(html, "clientHeight", {
+        configurable: true,
+        value: window.innerHeight,
+      });
+      const pillAt = (top: number) => {
+        SVGElement.prototype.getBoundingClientRect = () =>
+          ({
+            x: 100,
+            y: top,
+            top,
+            left: 100,
+            width: 80,
+            height: 20,
+            right: 180,
+            bottom: top + 20,
+          }) as DOMRect;
+      };
+      const sideAt = async (top: number) => {
+        pillAt(top);
+        const card = await openNoteCard();
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+        return card?.querySelector("[data-side]")?.getAttribute("data-side");
+      };
+      try {
+        // Room either way: below, clear of the chart card's header.
+        expect(await sideAt(window.innerHeight / 2)).toBe("bottom");
+        // A chart without the note drops the open card, so the next opens anew.
+        await renderInDashboard(panel("line"));
+        await renderInDashboard(failures("line"));
+        expect(await sideAt(window.innerHeight - 30)).toBe("top");
+      } finally {
+        SVGElement.prototype.getBoundingClientRect = rect;
+        delete (html as { clientWidth?: number }).clientWidth;
+        delete (html as { clientHeight?: number }).clientHeight;
+      }
     });
 
     it("writes a note that falls between the rows' dates under the chart, shading none of them", async () => {

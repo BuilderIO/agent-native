@@ -18,11 +18,17 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
   IconLink,
+  IconFlag,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { usePanelDataNotes } from "@/components/dashboard/dashboard-annotations-context";
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
+import {
+  useDataNoteActions,
+  usePanelDataNotes,
+} from "@/components/dashboard/dashboard-annotations-context";
 import {
   DataNoteFlag,
   DataNoteLines,
@@ -167,6 +173,7 @@ export function SqlChartCard({
 }: SqlChartCardProps) {
   const t = useT();
   const panelDataNotes = usePanelDataNotes(panel);
+  const dataNoteActions = useDataNoteActions();
   const timeChart = isKeyDateChartType(panel.chartType);
   // Other charts list the recent notes under the card. A time chart shades
   // notes over its dates and lists, under its plot, the ones it can't place.
@@ -675,7 +682,7 @@ export function SqlChartCard({
             <CardTitle className="text-sm font-medium truncate">
               {panel.title}
             </CardTitle>
-            <DataNoteFlag notes={flaggedDataNotes} />
+            <DataNoteFlag notes={flaggedDataNotes} panelId={panel.id} />
           </div>
           {timeRangeOverrideLabel ? (
             <Badge
@@ -770,6 +777,33 @@ export function SqlChartCard({
                     <IconLink className="h-4 w-4 mr-2" />
                     {t("sidebar.copyLink")}
                   </DropdownMenuItem>
+                  {dataNoteActions?.add ? (
+                    <DropdownMenuItem
+                      onSelect={() => dataNoteActions.add?.(panel.id)}
+                    >
+                      <IconFlag className="h-4 w-4 mr-2" />
+                      {t("annotations.addDataNote")}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {/* The note cards are hover-only, so keyboard users hide a note here. */}
+                  {dataNoteActions?.hide
+                    ? panelDataNotes.map((note) => (
+                        <DropdownMenuItem
+                          key={note.id}
+                          disabled={isPendingAnnotation(note.id)}
+                          onSelect={() =>
+                            dataNoteActions.hide?.(note.id, panel.id)
+                          }
+                        >
+                          <IconEyeOff className="h-4 w-4 mr-2 shrink-0" />
+                          <span className="min-w-0 truncate">
+                            {t("annotations.hideNoteHere", {
+                              title: note.title,
+                            })}
+                          </span>
+                        </DropdownMenuItem>
+                      ))
+                    : null}
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
@@ -857,7 +891,7 @@ export function SqlChartCard({
               extensionContext={extensionContext}
             />
           </UnplacedDataNotesListener>
-          <DataNoteLines notes={listedDataNotes} />
+          <DataNoteLines notes={listedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
 

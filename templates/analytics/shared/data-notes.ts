@@ -48,6 +48,17 @@ export interface DataNote {
   updatedAt: string;
 }
 
+/** How many names `matchEvents` and `unlessEvents` each take, and how long each name may be. */
+export const MAX_DATA_NOTE_EVENTS = 20;
+export const MAX_DATA_NOTE_EVENT_LENGTH = 200;
+
+export function dataNoteEventsFit(events: readonly string[]): boolean {
+  return (
+    events.length <= MAX_DATA_NOTE_EVENTS &&
+    events.every((event) => event.length <= MAX_DATA_NOTE_EVENT_LENGTH)
+  );
+}
+
 /** A chart without a date axis can't place a note, so it flags notes that are ongoing or ended this recently. */
 export const RECENT_DATA_NOTE_DAYS = 30;
 

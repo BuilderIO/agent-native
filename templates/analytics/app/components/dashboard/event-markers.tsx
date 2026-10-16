@@ -5,7 +5,7 @@ import {
   resolvePanelEvents,
   type PanelEventGroup,
 } from "@shared/panel-events";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ReferenceLine } from "recharts";
 
 import {
@@ -13,6 +13,8 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+
+import { useChartHoverCardOpen } from "./chart-hover-card";
 
 const DEFAULT_EVENT_COLOR = "hsl(var(--foreground))";
 /** How far a marker's hover target reaches from its x, the widest part of it. */
@@ -35,11 +37,7 @@ function EventMarkerBadge({
   color: string;
   onHoverChange?: (hovered: boolean) => void;
 }) {
-  const [open, setOpenState] = useState(false);
-  const setOpen = (value: boolean) => {
-    setOpenState(value);
-    onHoverChange?.(value);
-  };
+  const [open, setOpen] = useChartHoverCardOpen(onHoverChange);
   if (viewBox?.x == null || viewBox.y == null || viewBox.height == null) {
     return null;
   }
@@ -78,6 +76,8 @@ function EventMarkerBadge({
           />
         </g>
       </HoverCardTrigger>
+      {/* Markers sit on the x-axis, so the card opens up over the chart, as a
+          data note's opens down from its pill. */}
       <HoverCardContent
         side="top"
         collisionPadding={8}

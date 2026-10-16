@@ -2804,7 +2804,9 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
         <BarChart
@@ -2839,6 +2841,7 @@ function BarRenderer({
             rows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
             onHoverChange: setEventHovered,
             onLabelRows: chartMargin.onLabelRows,
           })}
@@ -2939,7 +2942,9 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
         <ComposedChart data={rows} margin={chartMargin.margin}>
@@ -2970,6 +2975,7 @@ function ComboRenderer({
             rows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
             onHoverChange: setEventHovered,
             onLabelRows: chartMargin.onLabelRows,
           })}
@@ -3092,7 +3098,9 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
-        footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+        footer={
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+        }
       >
         <ChartResponsiveContainer>
           <LineChart data={chartRows} margin={chartMargin.margin}>
@@ -3115,6 +3123,7 @@ function TimeSeriesRenderer({
               rows: chartRows,
               xKey,
               yAxisId: dualAxis.enabled ? "left" : undefined,
+              panelId: panel.id,
               onHoverChange: setEventHovered,
               onLabelRows: chartMargin.onLabelRows,
             })}
@@ -3185,7 +3194,9 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
         <AreaChart
@@ -3237,6 +3248,7 @@ function TimeSeriesRenderer({
             rows: chartRows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
             onHoverChange: setEventHovered,
             onLabelRows: chartMargin.onLabelRows,
           })}

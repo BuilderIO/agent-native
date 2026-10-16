@@ -17,6 +17,15 @@ import type {
   SqlPanel,
 } from "@/pages/adhoc/sql-dashboard/types";
 
+/** What a chart's data-note card offers; absent outside Edit mode. */
+export interface DataNoteActions {
+  /** Starts a note pinned to this chart. Absent, like edit and markFixed, when the notes belong to another organization. */
+  add?(panelId: string): void;
+  edit?(note: DataNote): void;
+  markFixed?(note: DataNote): void;
+  hide?(noteId: string, panelId: string): void;
+}
+
 interface DashboardAnnotationsValue {
   dashboardId: string | null;
   annotations?: DashboardAnnotations;
@@ -26,6 +35,7 @@ interface DashboardAnnotationsValue {
   dataNotes: readonly DataNote[];
   /** The list failed to load, so a chart without notes may still have some. */
   dataNotesFailed: boolean;
+  dataNoteActions?: DataNoteActions;
 }
 
 const NO_KEY_DATES: readonly PanelEvent[] = [];
@@ -49,10 +59,12 @@ const DashboardAnnotationsContext =
 export function DashboardAnnotationsProvider({
   dashboardId,
   annotations,
+  dataNoteActions,
   children,
 }: {
   dashboardId?: string | null;
   annotations?: DashboardAnnotations;
+  dataNoteActions?: DataNoteActions;
   children: ReactNode;
 }) {
   const t = useT();
@@ -82,6 +94,14 @@ export function DashboardAnnotationsProvider({
       });
     }
   }, [dataNotesFailed, t]);
+  // A shared dashboard's notes are its organization's: the viewer may hide
+  // one here, but their own edits would save into their own organization.
+  // Until the list says whose they are, edits wait.
+  const notesEditable = dataNoteData?.editable === true;
+  const noteActions = useMemo<DataNoteActions | undefined>(() => {
+    if (notesEditable || !dataNoteActions) return dataNoteActions;
+    return dataNoteActions.hide ? { hide: dataNoteActions.hide } : undefined;
+  }, [notesEditable, dataNoteActions]);
   // Its own memo: a changed note list must not re-resolve every chart's key dates.
   const keyDates = useMemo(
     () =>
@@ -96,6 +116,7 @@ export function DashboardAnnotationsProvider({
       keyDatesFailed,
       dataNotes: dataNoteData ? dataNoteData.notes : NO_DATA_NOTES,
       dataNotesFailed,
+      dataNoteActions: noteActions,
     }),
     [
       dashboardId,
@@ -104,6 +125,7 @@ export function DashboardAnnotationsProvider({
       keyDatesFailed,
       dataNoteData,
       dataNotesFailed,
+      noteActions,
     ],
   );
   return (
@@ -176,4 +198,8 @@ export function usePanelDataNotes(
         : NO_DATA_NOTES,
     [dashboardId, annotations, dataNotes, id, sql],
   );
+}
+
+export function useDataNoteActions(): DataNoteActions | undefined {
+  return useContext(DashboardAnnotationsContext).dataNoteActions;
 }

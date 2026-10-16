@@ -12,7 +12,12 @@ import {
   type DataNoteBand,
   type DataNoteTone,
 } from "@shared/data-notes";
-import { IconFlagFilled } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconEyeOff,
+  IconFlagFilled,
+  IconPencil,
+} from "@tabler/icons-react";
 import {
   createContext,
   useContext,
@@ -21,14 +26,20 @@ import {
   useMemo,
   useState,
   type ReactNode,
+  type SyntheticEvent,
 } from "react";
 import { ReferenceArea, usePlotArea, useXAxisScale } from "recharts";
 
+import { Button } from "@/components/ui/button";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+
+import { isPendingAnnotation } from "./annotation-mutations";
+import { useChartHoverCardOpen } from "./chart-hover-card";
+import { useDataNoteActions } from "./dashboard-annotations-context";
 
 const TONE_COLORS: Record<DataNoteTone, string> = {
   incident: "hsl(var(--destructive))",
@@ -56,9 +67,23 @@ const LABEL_CLEARANCE = 8;
 /** Recharts' default margin on each side of a chart. */
 const CHART_EDGE = 5;
 
-function DataNoteDetails({ note }: { note: DataNote }) {
+function DataNoteDetails({
+  note,
+  panelId,
+  onAction,
+}: {
+  note: DataNote;
+  panelId?: string;
+  onAction: () => void;
+}) {
   const t = useT();
+  const actions = useDataNoteActions();
   const dates = formatDataNoteDates(note);
+  const pending = isPendingAnnotation(note.id);
+  const act = (run: () => void) => () => {
+    onAction();
+    run();
+  };
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
@@ -96,35 +121,91 @@ function DataNoteDetails({ note }: { note: DataNote }) {
           .filter(Boolean)
           .join(" · ")}
       </div>
+      {actions?.edit || actions?.hide ? (
+        <div className="-mx-2 flex flex-wrap gap-0.5">
+          {actions.edit ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs"
+              disabled={pending}
+              onClick={act(() => actions.edit?.(note))}
+            >
+              <IconPencil className="size-3.5" />
+              {t("annotations.edit")}
+            </Button>
+          ) : null}
+          {note.status === "open" && actions.markFixed ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs"
+              disabled={pending}
+              onClick={act(() => actions.markFixed?.(note))}
+            >
+              <IconCheck className="size-3.5" />
+              {t("annotations.markFixed")}
+            </Button>
+          ) : null}
+          {panelId && actions.hide ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs"
+              disabled={pending}
+              onClick={act(() => actions.hide?.(note.id, panelId))}
+            >
+              <IconEyeOff className="size-3.5" />
+              {t("annotations.hideHere")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
+/**
+ * The card is portaled out of the chart's DOM but not out of its React tree,
+ * so its focus and key events would reach the chart as the chart's own:
+ * clicking a card button would pin the chart's tooltip at its first point.
+ */
+const keepFromChart = (event: SyntheticEvent) => event.stopPropagation();
+
 function DataNoteHoverCard({
   notes,
+  panelId,
+  side,
   children,
   onHoverChange,
 }: {
   notes: readonly DataNote[];
+  panelId?: string;
+  /** Toward the chart, so a card by its top edge doesn't cover the header. */
+  side: "top" | "bottom";
   children: ReactNode;
   onHoverChange?: (hovered: boolean) => void;
 }) {
-  const [open, setOpenState] = useState(false);
-  const setOpen = (value: boolean) => {
-    setOpenState(value);
-    onHoverChange?.(value);
-  };
+  const [open, setOpen] = useChartHoverCardOpen(onHoverChange);
   return (
     // Portaled, so the card is never clipped by the chart or the card edge.
     <HoverCard open={open} onOpenChange={setOpen} openDelay={0} closeDelay={80}>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
       <HoverCardContent
-        side="top"
+        side={side}
         collisionPadding={8}
+        onFocus={keepFromChart}
+        onBlur={keepFromChart}
+        onKeyDown={keepFromChart}
         className="w-80 max-w-[calc(100vw-1rem)] space-y-3 divide-y divide-border p-3 text-xs [&>*+*]:pt-3"
       >
         {notes.map((note) => (
-          <DataNoteDetails key={note.id} note={note} />
+          <DataNoteDetails
+            key={note.id}
+            note={note}
+            panelId={panelId}
+            onAction={() => setOpen(false)}
+          />
         ))}
       </HoverCardContent>
     </HoverCard>
@@ -335,6 +416,7 @@ function BandLabels({
   rows,
   xKey,
   xValues,
+  panelId,
   onHoverChange,
   onLabelRows,
 }: {
@@ -342,6 +424,7 @@ function BandLabels({
   rows: readonly Record<string, unknown>[];
   xKey: string;
   xValues: readonly unknown[];
+  panelId?: string;
   onHoverChange?: (hovered: boolean) => void;
   onLabelRows?: (rows: number) => void;
 }) {
@@ -392,6 +475,8 @@ function BandLabels({
           <DataNoteHoverCard
             key={entry.note.id}
             notes={[entry.note]}
+            panelId={panelId}
+            side="bottom"
             onHoverChange={onHoverChange}
           >
             <g
@@ -432,12 +517,14 @@ export function renderDataNoteBands(
     rows,
     xKey,
     yAxisId,
+    panelId,
     onHoverChange,
     onLabelRows,
   }: {
     rows: readonly Record<string, unknown>[];
     xKey: string;
     yAxisId?: string;
+    panelId: string;
     onHoverChange?: (hovered: boolean) => void;
     /** Hears how many title rows sit above the plot; see `useDataNoteChartMargin`. */
     onLabelRows?: (rows: number) => void;
@@ -486,6 +573,7 @@ export function renderDataNoteBands(
           rows={rows}
           xKey={xKey}
           xValues={xValues}
+          panelId={panelId}
           onHoverChange={onHoverChange}
           onLabelRows={onLabelRows}
         />
@@ -497,7 +585,13 @@ export function renderDataNoteBands(
 const MAX_LINES = 2;
 
 /** One line per note under a chart that can't place it on its dates. */
-export function DataNoteLines({ notes }: { notes: readonly DataNote[] }) {
+export function DataNoteLines({
+  notes,
+  panelId,
+}: {
+  notes: readonly DataNote[];
+  panelId: string;
+}) {
   const t = useT();
   if (notes.length === 0) return null;
   const shown = notes.slice(0, MAX_LINES);
@@ -508,7 +602,7 @@ export function DataNoteLines({ notes }: { notes: readonly DataNote[] }) {
         const dates = formatDataNoteDates(note);
         return (
           <li key={note.id} className="min-w-0">
-            <DataNoteHoverCard notes={[note]}>
+            <DataNoteHoverCard notes={[note]} panelId={panelId} side="top">
               <button
                 type="button"
                 className="flex w-full min-w-0 items-center gap-1.5 rounded text-left text-muted-foreground hover:text-foreground"
@@ -528,7 +622,7 @@ export function DataNoteLines({ notes }: { notes: readonly DataNote[] }) {
       })}
       {rest.length > 0 ? (
         <li>
-          <DataNoteHoverCard notes={rest}>
+          <DataNoteHoverCard notes={rest} panelId={panelId} side="top">
             <button
               type="button"
               className="rounded text-muted-foreground hover:text-foreground"
@@ -543,14 +637,20 @@ export function DataNoteLines({ notes }: { notes: readonly DataNote[] }) {
 }
 
 /** A flag by a chart's title, in the color of its most serious note. */
-export function DataNoteFlag({ notes }: { notes: readonly DataNote[] }) {
+export function DataNoteFlag({
+  notes,
+  panelId,
+}: {
+  notes: readonly DataNote[];
+  panelId: string;
+}) {
   const t = useT();
   if (notes.length === 0) return null;
   const tone = TONE_ORDER.find((candidate) =>
     notes.some((note) => dataNoteTone(note) === candidate),
   )!;
   return (
-    <DataNoteHoverCard notes={notes}>
+    <DataNoteHoverCard notes={notes} panelId={panelId} side="bottom">
       <button
         type="button"
         className="shrink-0 rounded p-0.5"

@@ -6,12 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   dataNotes: [] as unknown[],
+  dataNotesLoaded: true,
   chart: null as null | ((props: { panel: unknown }) => null),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
-    data: name === "list-data-notes" ? { notes: mocks.dataNotes } : undefined,
+    data:
+      name === "list-data-notes" && mocks.dataNotesLoaded
+        ? { notes: mocks.dataNotes, editable: true }
+        : undefined,
   }),
   useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -33,6 +37,7 @@ import { CONNECT_UNDERCOUNT } from "@shared/annotation-fixtures";
 
 import {
   DashboardAnnotationsProvider,
+  type DataNoteActions,
   usePanelDataNotes,
 } from "@/components/dashboard/dashboard-annotations-context";
 import { useDataNoteLayout } from "@/components/dashboard/data-note-bands";
@@ -66,6 +71,7 @@ describe("SqlChartCard data-note flag", () => {
     );
     mocks.dataNotes = [CONNECT_UNDERCOUNT];
     mocks.chart = null;
+    mocks.dataNotesLoaded = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -77,11 +83,18 @@ describe("SqlChartCard data-note flag", () => {
     vi.unstubAllGlobals();
   });
 
-  const renderCard = async (panel: SqlPanel) => {
+  const renderCard = async (
+    panel: SqlPanel,
+    dataNoteActions?: DataNoteActions,
+  ) => {
     await act(async () => {
       root.render(
         <TooltipProvider>
-          <DashboardAnnotationsProvider dashboardId="dash" annotations={{}}>
+          <DashboardAnnotationsProvider
+            dashboardId="dash"
+            annotations={{}}
+            dataNoteActions={dataNoteActions}
+          >
             <SqlChartCard panel={panel} onRemove={() => {}} />
           </DashboardAnnotationsProvider>
         </TooltipProvider>,
@@ -102,6 +115,48 @@ describe("SqlChartCard data-note flag", () => {
       ),
     ).toBeNull();
   });
+
+  const pressEnter = (el: Element) =>
+    act(async () => {
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  const menuItem = (text: string) =>
+    [...document.querySelectorAll('[role="menuitem"]')].find(
+      (el) => el.textContent === text,
+    );
+
+  it("lets a keyboard user hide a note on this chart from the chart's menu", async () => {
+    const hide = vi.fn();
+    await renderCard(clicksByStep, { hide });
+    await pressEnter(
+      container.querySelector('[aria-label="sqlDashboard.panelOptions"]')!,
+    );
+    await pressEnter(menuItem("annotations.hideNoteHere")!);
+    expect(hide).toHaveBeenCalledWith(CONNECT_UNDERCOUNT.id, clicksByStep.id);
+  });
+
+  it("offers no hiding in the chart's menu to a viewer who can't edit the dashboard", async () => {
+    await renderCard(clicksByStep, { edit: vi.fn() });
+    await pressEnter(
+      container.querySelector('[aria-label="sqlDashboard.panelOptions"]')!,
+    );
+    expect(menuItem("annotations.hideNoteHere")).toBeUndefined();
+  });
+
+  it.each([true, false])(
+    "offers adding a note only once the list says the notes are the viewer's (loaded: %s)",
+    async (loaded) => {
+      mocks.dataNotesLoaded = loaded;
+      await renderCard(clicksByStep, { add: vi.fn(), hide: vi.fn() });
+      await pressEnter(
+        container.querySelector('[aria-label="sqlDashboard.panelOptions"]')!,
+      );
+      expect(menuItem("annotations.addDataNote") !== undefined).toBe(loaded);
+    },
+  );
 
   it.each(["stacked-bar", "stacked-area"])(
     "leaves a legacy %s chart's notes to the chart, which draws them on its dates",
