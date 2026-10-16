@@ -20,7 +20,8 @@ export default defineEventHandler(async (event) => {
   }
 
   // A reparent has to hold move-document's page-tree and row locks, or a
-  // concurrent move can close a cycle with it.
+  // concurrent move can close a cycle with it. `position` is move-document's
+  // index among the page's siblings, which it renumbers, not a stored value.
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     () =>

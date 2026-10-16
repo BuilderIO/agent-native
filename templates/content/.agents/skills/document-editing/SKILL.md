@@ -157,7 +157,9 @@ the Markdown bytes exactly, and safely replays an identical retry.
 
 A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
 `get-document` refuses to read it, including a page moved to Trash while the
-edit commits. Restore it before editing.
+edit commits. Restore it before editing. A local-folder sync
+(`import-content-source`) leaves a page in Trash unchanged and lists it in
+`skipped`.
 
 ### update-document
 
