@@ -180,6 +180,23 @@ export function isMediaKeyboardEvent(event: KeyboardEvent): boolean {
   return targetsMedia(document.activeElement);
 }
 
+export function isInteractiveKeyboardEvent(event: KeyboardEvent): boolean {
+  const targetsInteractive = (target: EventTarget | null): boolean =>
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        'button, input, select, textarea, a[href], summary, [role="button"], [role="link"], [contenteditable]:not([contenteditable="false"])',
+      ),
+    );
+  if (targetsInteractive(event.target)) return true;
+  if (
+    typeof event.composedPath === "function" &&
+    event.composedPath().some(targetsInteractive)
+  )
+    return true;
+  return targetsInteractive(document.activeElement);
+}
+
 export function applyVideoPlaybackSettings(
   video: HTMLVideoElement,
   settings: VideoPlaybackSettings,

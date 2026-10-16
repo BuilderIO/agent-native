@@ -183,4 +183,21 @@ describe("useLiveTranscription", () => {
       /service-not-allowed/,
     );
   });
+
+  it("stops reporting active after repeated network errors", () => {
+    vi.useFakeTimers();
+    const apiRef = mount();
+
+    act(() => apiRef.current?.start());
+    for (let attempt = 0; attempt < 4; attempt++) {
+      act(() => {
+        FakeSpeechRecognition.instance?.onerror?.({ error: "network" });
+        FakeSpeechRecognition.instance?.endSession();
+        vi.advanceTimersByTime(30_000);
+      });
+    }
+
+    expect(apiRef.current?.isActive).toBe(false);
+    expect(apiRef.current?.getIncompleteReason()).toMatch(/network errors/);
+  });
 });

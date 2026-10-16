@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const NETWORK_RESTART_BASE_MS = 1_000;
 const NETWORK_RESTART_MAX_MS = 30_000;
+const MAX_CONSECUTIVE_NETWORK_ERRORS = 4;
 const RESTART_RETRY_BASE_MS = 400;
 const MAX_RESTART_ATTEMPTS = 8;
 
@@ -143,6 +144,14 @@ export function useLiveTranscription(
       }
       if (event.error === "network") {
         const retryIndex = networkErrorCountRef.current++;
+        if (networkErrorCountRef.current >= MAX_CONSECUTIVE_NETWORK_ERRORS) {
+          stoppedManuallyRef.current = true;
+          markIncomplete(
+            "Browser speech recognition stopped mid-recording after repeated network errors.",
+          );
+          setIsActive(false);
+          return;
+        }
         restartDelayRef.current = Math.min(
           NETWORK_RESTART_BASE_MS * 2 ** retryIndex,
           NETWORK_RESTART_MAX_MS,

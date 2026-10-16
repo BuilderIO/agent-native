@@ -11,7 +11,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
-import { isMediaKeyboardEvent } from "@/lib/slide-video";
+import {
+  isInteractiveKeyboardEvent,
+  isMediaKeyboardEvent,
+} from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
 import type { SlideTransitionType } from "../../../shared/slide-transitions";
@@ -242,7 +245,9 @@ export default function PresenterView({
     lastTranscriptRef.current = voiceTranscript;
     if (!addition.trim()) return;
 
-    const candidate = pendingVoicePhraseRef.current + addition;
+    const candidate = [pendingVoicePhraseRef.current, addition]
+      .filter(Boolean)
+      .join(" ");
     const match = matchVoiceNavigationPhrase(candidate, {
       next: nextVoiceCommand,
       previous: previousVoiceCommand,
@@ -267,7 +272,7 @@ export default function PresenterView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (isMediaKeyboardEvent(e)) return;
+      if (isMediaKeyboardEvent(e) || isInteractiveKeyboardEvent(e)) return;
       // Same as the audience view: auto-repeat keydowns are not new presses.
       if (e.repeat) return;
       switch (e.key) {

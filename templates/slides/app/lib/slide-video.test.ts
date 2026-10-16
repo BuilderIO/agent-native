@@ -12,6 +12,7 @@ import {
   initialSlideVideoGeometry,
   insertPendingSlideVideoPlaceholder,
   insertDroppedVideoIntoSlideHtml,
+  isInteractiveKeyboardEvent,
   isMediaKeyboardEvent,
   stripPendingSlideVideoPlaceholders,
   videoFileLooksLikeVideo,
@@ -214,5 +215,25 @@ describe("slide video helpers", () => {
       isMediaKeyboardEvent(new KeyboardEvent("keydown", { key: "ArrowRight" })),
     ).toBe(false);
     video.remove();
+  });
+
+  it("preserves keyboard behavior for focused interactive elements", () => {
+    const button = document.createElement("button");
+    document.body.append(button);
+    button.focus();
+
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true }),
+      ),
+    ).toBe(true);
+
+    button.blur();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight" }),
+      ),
+    ).toBe(false);
+    button.remove();
   });
 });

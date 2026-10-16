@@ -383,7 +383,7 @@ describe("PresenterView without an audience", () => {
     ]);
   });
 
-  it("uses localized speech recognition and advances once for a split command", () => {
+  it("keeps word boundaries and advances for split speech with no whitespace", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
     const [presenterChannel] = bus.peers;
 
@@ -396,12 +396,30 @@ describe("PresenterView without an audience", () => {
     expect(transcriptionMock.requestedLanguage).toBe("en-US");
 
     act(() => transcriptionMock.setTranscript?.("Next"));
-    act(() => transcriptionMock.setTranscript?.("Next slide."));
+    act(() => transcriptionMock.setTranscript?.("Nextslide."));
 
     expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
     expect(commandsPosted(presenterChannel!)).toEqual([
       { type: "command", command: "next" },
     ]);
+  });
+
+  it("leaves Space available to activate the focused voice button", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const button = within(presenter.container).getByRole("button", {
+      name: "Start voice navigation",
+    });
+    button.focus();
+
+    const event = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    });
+    button.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
   });
 
   it("ignores narration that only mentions the next slide", () => {
