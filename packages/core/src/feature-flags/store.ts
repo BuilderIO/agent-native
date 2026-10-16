@@ -231,6 +231,8 @@ function storedRulesProblem(stored: unknown): string | null {
   if (!stored || typeof stored !== "object" || Array.isArray(stored))
     return `stored rules are ${stored === null ? "null" : Array.isArray(stored) ? "a list" : typeof stored}, not an object`;
   const value = stored as Record<string, unknown>;
+  if (value.version !== 1)
+    return `stored version ${JSON.stringify(value.version) ?? "undefined"} is not 1`;
   if (value.mode !== "off" && value.mode !== "on" && value.mode !== "rules")
     return `stored mode ${JSON.stringify(value.mode)} is not off, on, or rules`;
   for (const field of ["emails", "orgIds"] as const) {
@@ -267,7 +269,18 @@ export async function getFeatureFlagRulesStrict(
 ): Promise<FeatureFlagRules> {
   if (!getFeatureFlagDefinition(key))
     throw new FeatureFlagRulesError("unregistered", key, "not registered");
-  const stored = await readStoredFeatureFlagRulesEntry(key, scope);
+  let stored: SettingEntry;
+  try {
+    stored = await readStoredFeatureFlagRulesEntry(key, scope);
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw new FeatureFlagRulesError(
+        "malformed",
+        key,
+        "stored rules are not JSON",
+      );
+    throw error;
+  }
   if (!stored.found) return defaultFeatureFlagRules();
   const problem = storedRulesProblem(stored.value);
   if (problem) throw new FeatureFlagRulesError("malformed", key, problem);

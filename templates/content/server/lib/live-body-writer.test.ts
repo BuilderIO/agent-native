@@ -207,14 +207,16 @@ describe("live-body writer gate", () => {
       reason: "not_switched",
     });
 
-    await getDbExec().execute({
-      sql: "UPDATE public.settings SET value = ? WHERE key = ?",
-      args: ["null", WRITER],
-    });
-    await expect(gate.liveBodyWriterGate("switched")).rejects.toMatchObject({
-      name: "FeatureFlagRulesError",
-      code: "malformed",
-    });
+    for (const stored of ["null", "{", JSON.stringify({ mode: "on" })]) {
+      await getDbExec().execute({
+        sql: "UPDATE public.settings SET value = ? WHERE key = ?",
+        args: [stored, WRITER],
+      });
+      await expect(gate.liveBodyWriterGate("switched")).rejects.toMatchObject({
+        name: "FeatureFlagRulesError",
+        code: "malformed",
+      });
+    }
   });
 
   it("reads the flags in the caller's transaction rather than the request's settings snapshot", async () => {
