@@ -418,13 +418,22 @@ export function shouldEscapeToOverview(args: {
   mode: EditorMode;
   pinMode: boolean;
   selectedElement: ElementInfo | null;
+  selectedLayerIds: readonly string[];
   viewMode: "single" | "overview";
 }) {
-  const { activeTool, drawMode, mode, pinMode, selectedElement, viewMode } =
-    args;
+  const {
+    activeTool,
+    drawMode,
+    mode,
+    pinMode,
+    selectedElement,
+    selectedLayerIds,
+    viewMode,
+  } = args;
   return (
     viewMode === "single" &&
     !selectedElement &&
+    selectedLayerIds.length === 0 &&
     !drawMode &&
     !pinMode &&
     mode === "edit" &&

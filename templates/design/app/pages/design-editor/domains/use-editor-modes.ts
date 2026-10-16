@@ -894,7 +894,9 @@ export function useEditorModes({
         overviewAnnotationSending,
         pinMode,
         selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
         setActiveTool,
+        setCreatedOverviewLayerSelection,
         setDrawMode,
         setHoveredElement,
         setMode,
@@ -922,6 +924,7 @@ export function useEditorModes({
     pinMode,
     recordSelectionHistoryAroundChange,
     selectedElement,
+    selectedLayerIdsState,
     viewMode,
   ]);
 

@@ -31,6 +31,8 @@ import { isKeyboardShortcutsDialogTarget } from "@/components/design/KeyboardSho
 import type {
   CanvasPrimitiveInsert,
   MultiScreenCanvasTool,
+  PrimitiveCreateOptions,
+  PrimitiveCreateResult,
   ScreenProjectionNodeIdentity,
   VectorEditOverlayState,
 } from "@/components/design/multi-screen/types";
@@ -52,7 +54,10 @@ import {
   writeBackVectorEditedPenPath,
 } from "../clone-and-pen-edit";
 import { runCreatePrimitive } from "../commands/create-primitive";
-import { runPrimitiveCreated } from "../commands/primitive-created";
+import {
+  runPrimitiveCreated,
+  type PrimitiveCreatedHistorySelectionArgs,
+} from "../commands/primitive-created";
 import { runScaleSelection } from "../commands/scale-selection";
 import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
@@ -68,6 +73,10 @@ import { buildSignInHrefForComment } from "../editor-helpers";
 import { runMirrorSelectionToAgentChat } from "../effects/mirror-selection-to-agent-chat";
 import { runPublishAgentSelectionContext } from "../effects/publish-agent-selection-context";
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
+import {
+  captureContentUndoStackTop,
+  type ContentUndoStackTop,
+} from "../history";
 import { getScreenFrameOriginCanvas } from "../overview-camera";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import {
@@ -163,6 +172,8 @@ export function useEditorToolsAndVectors({
     overviewSelectedScreenIdsRef,
     explicitOverviewScreenSelectionRef,
     prepareTextCreationFinalization,
+    captureCurrentSelection,
+    contentUndoStackRef,
   } = editorHistory;
   const {
     persistedSelectionStateRef,
@@ -229,8 +240,11 @@ export function useEditorToolsAndVectors({
     motionPlaybackMode,
     motionTimelineId,
   } = editorLiveEditsAndPresence;
-  const { applyLocalContentUpdate, applyFileContentUpdate } =
-    editorContentAndComponents;
+  const {
+    applyLocalContentUpdate,
+    applyFileContentUpdate,
+    contentHistorySelectionAfterRef,
+  } = editorContentAndComponents;
 
   const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
   const [vectorEditingState, setVectorEditingState] = useState<{
@@ -258,6 +272,9 @@ export function useEditorToolsAndVectors({
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
+  const overviewPrimitiveHistoryByScreenRef = useRef(
+    new Map<string, { nodeId: string; topBefore: ContentUndoStackTop }>(),
+  );
   const pendingEmptyTextEditRef = useRef<{
     screenId: string | null;
     nodeId: string;
@@ -585,6 +602,7 @@ export function useEditorToolsAndVectors({
         nextTool?: "move" | "pen";
         preserveActiveTool?: boolean;
       },
+      historySelection?: PrimitiveCreatedHistorySelectionArgs,
     ) =>
       runPrimitiveCreated(
         {
@@ -610,12 +628,70 @@ export function useEditorToolsAndVectors({
         screenId,
         nodeId,
         options,
+        historySelection,
       ),
     [
       activeLeftPanel,
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
       removeEmptyTextNodeWithRetry,
+    ],
+  );
+
+  const handleOverviewCreatePrimitive = useCallback(
+    (
+      screenId: string,
+      primitive: CanvasPrimitiveInsert,
+      options?: PrimitiveCreateOptions,
+    ): PrimitiveCreateResult => {
+      const topBefore = captureContentUndoStackTop(contentUndoStackRef.current);
+      const result = handleCreatePrimitive(screenId, primitive, options);
+      if (result && screenId !== boardFileId && screenId !== "__board__") {
+        const nodeId =
+          typeof result === "string"
+            ? result
+            : typeof result === "object"
+              ? result.nodeId
+              : primitive.nodeId;
+        if (nodeId) {
+          overviewPrimitiveHistoryByScreenRef.current.set(screenId, {
+            nodeId,
+            topBefore,
+          });
+        }
+      }
+      return result;
+    },
+    [boardFileId, contentUndoStackRef, handleCreatePrimitive],
+  );
+
+  const handleOverviewPrimitiveCreated = useCallback(
+    (
+      screenId: string,
+      nodeId: string,
+      options?: {
+        nextTool?: "move" | "pen";
+        preserveActiveTool?: boolean;
+      },
+    ) => {
+      const pending = overviewPrimitiveHistoryByScreenRef.current.get(screenId);
+      overviewPrimitiveHistoryByScreenRef.current.delete(screenId);
+      const historySelection =
+        pending?.nodeId === nodeId
+          ? {
+              contentUndoStackRef,
+              contentHistorySelectionAfterRef,
+              contentUndoStackTopBefore: pending.topBefore,
+              captureCurrentSelection,
+            }
+          : undefined;
+      handlePrimitiveCreated(screenId, nodeId, options, historySelection);
+    },
+    [
+      captureCurrentSelection,
+      contentHistorySelectionAfterRef,
+      contentUndoStackRef,
+      handlePrimitiveCreated,
     ],
   );
 
@@ -638,6 +714,9 @@ export function useEditorToolsAndVectors({
       },
     ) => {
       if (!boardFileId || !canEditDesign) return false;
+      const contentUndoStackTopBefore = captureContentUndoStackTop(
+        contentUndoStackRef.current,
+      );
       const result = handleCreatePrimitive(
         boardFileId,
         primitive,
@@ -653,7 +732,12 @@ export function useEditorToolsAndVectors({
             ? result.nodeId
             : primitive.nodeId;
       if (nodeId) {
-        handlePrimitiveCreated(boardFileId, nodeId, options);
+        handlePrimitiveCreated(boardFileId, nodeId, options, {
+          contentUndoStackRef,
+          contentHistorySelectionAfterRef,
+          contentUndoStackTopBefore,
+          captureCurrentSelection,
+        });
       }
 
       return typeof result === "object"
@@ -662,7 +746,15 @@ export function useEditorToolsAndVectors({
           ? result
           : true;
     },
-    [boardFileId, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
+    [
+      boardFileId,
+      canEditDesign,
+      captureCurrentSelection,
+      contentHistorySelectionAfterRef,
+      contentUndoStackRef,
+      handleCreatePrimitive,
+      handlePrimitiveCreated,
+    ],
   );
 
   const handleSingleScreenCreatePrimitive = useCallback(
@@ -671,20 +763,41 @@ export function useEditorToolsAndVectors({
       const nodeId = uniqueLayerId(spec.tool === "pen" ? "path" : spec.tool);
       const primitive = createPrimitiveInsertFromSpec(spec, nodeId);
       if (!primitive) return false;
+      const contentUndoStackTopBefore = captureContentUndoStackTop(
+        contentUndoStackRef.current,
+      );
       const result = handleCreatePrimitive(activeFile.id, primitive);
       if (!result) return false;
       const resultNodeId = typeof result === "string" ? result : nodeId;
-      handlePrimitiveCreated(activeFile.id, resultNodeId, {
-        nextTool:
-          spec.nextTool ??
-          (spec.tool === "pen" && spec.preserveActiveTool !== false
-            ? "pen"
-            : undefined),
-        preserveActiveTool: spec.preserveActiveTool,
-      });
+      handlePrimitiveCreated(
+        activeFile.id,
+        resultNodeId,
+        {
+          nextTool:
+            spec.nextTool ??
+            (spec.tool === "pen" && spec.preserveActiveTool !== false
+              ? "pen"
+              : undefined),
+          preserveActiveTool: spec.preserveActiveTool,
+        },
+        {
+          contentUndoStackRef,
+          contentHistorySelectionAfterRef,
+          contentUndoStackTopBefore,
+          captureCurrentSelection,
+        },
+      );
       return resultNodeId;
     },
-    [activeFile, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
+    [
+      activeFile,
+      canEditDesign,
+      captureCurrentSelection,
+      contentHistorySelectionAfterRef,
+      contentUndoStackRef,
+      handleCreatePrimitive,
+      handlePrimitiveCreated,
+    ],
   );
 
   const handleUpdatePenPath = useCallback(
@@ -1563,6 +1676,8 @@ export function useEditorToolsAndVectors({
     reviewCommentsPanelProps,
     handleCreatePrimitive,
     handlePrimitiveCreated,
+    handleOverviewCreatePrimitive,
+    handleOverviewPrimitiveCreated,
     handleBoardDrawPrimitive,
     handleSingleScreenCreatePrimitive,
     handleUpdatePenPath,

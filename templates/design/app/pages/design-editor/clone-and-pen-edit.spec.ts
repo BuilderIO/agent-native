@@ -1397,6 +1397,67 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     );
   });
 
+  it("keeps nested SVG shape names while re-keying ids and local references", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+      `<svg id="source-icon" data-agent-native-node-id="source-icon" data-an-primitive="pasted-svg" viewBox="0 0 80 40">
+        <defs><linearGradient id="warm-paint"><stop stop-color="#123456" /></linearGradient></defs>
+        <g id="source-group">
+          <path id="first-shape" d="M0 0h30v30z" fill="url(#warm-paint)" />
+          <path id="second-shape" d="M50 0h30v30z" fill="#7c3aed" />
+        </g>
+      </svg>`,
+    ]);
+
+    expect(result).not.toBeNull();
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    const gradient = Array.from(clone.querySelectorAll("[id]")).find(
+      (element) => element.localName.toLowerCase() === "lineargradient",
+    );
+    const paths = Array.from(clone.querySelectorAll("path"));
+    const ids = Array.from(clone.querySelectorAll("[id]"), (element) =>
+      element.getAttribute("id"),
+    );
+
+    expect(clone.id).not.toBe("source-icon");
+    expect(gradient?.id).not.toBe("warm-paint");
+    expect(paths.map((path) => path.id)).not.toEqual([
+      "first-shape",
+      "second-shape",
+    ]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(paths[0]?.getAttribute("fill")).toBe(`url(#${gradient?.id})`);
+    expect(
+      paths.map((path) => path.getAttribute("data-agent-native-layer-name")),
+    ).toEqual(["First Shape", "Second Shape"]);
+    expect(
+      buildCodeLayerProjection(clone.outerHTML)
+        .nodes.filter((node) => node.tag === "path")
+        .map((node) => node.layerName),
+    ).toEqual(["First Shape", "Second Shape"]);
+  });
+
+  it("preserves explicit names on already-scoped SVG ids during clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+      `<svg id="an-pasted-session-source-icon" data-agent-native-node-id="source-icon" data-an-primitive="pasted-svg" data-agent-native-layer-name="Pasted SVG" viewBox="0 0 80 40">
+        <defs><linearGradient id="an-pasted-session-warm-paint"><stop stop-color="#123456" /></linearGradient></defs>
+        <path id="an-pasted-session-first-shape" data-agent-native-layer-name="First Shape" d="M0 0h30v30z" fill="url(#an-pasted-session-warm-paint)" />
+      </svg>`,
+    ]);
+
+    expect(result).not.toBeNull();
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    const gradient = clone.querySelector("linearGradient");
+    const shape = clone.querySelector("path");
+
+    expect(clone.id).not.toBe("an-pasted-session-source-icon");
+    expect(gradient?.id).not.toBe("an-pasted-session-warm-paint");
+    expect(shape?.id).not.toBe("an-pasted-session-first-shape");
+    expect(shape?.getAttribute("data-agent-native-layer-name")).toBe(
+      "First Shape",
+    );
+    expect(shape?.getAttribute("fill")).toBe(`url(#${gradient?.id})`);
+  });
+
   it("keeps clone names stable when authored ids are re-keyed", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
       `<section id="runtime-panel" data-agent-native-node-id="root"><div>Panel</div></section>`,

@@ -651,8 +651,7 @@ test.describe("selection", () => {
     expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: Escape right after drawing clears the canvas selection chrome, but the Layers panel and inspector keep Rectangle selected (selection
-  test.fixme("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
+  test("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
     app,
   }) => {
     const id = await openPage(app, DRAW_FRAME_PAGE);
@@ -718,8 +717,7 @@ test.describe("persistence and history", () => {
     expectOnlyChanged(edited, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: After redo the selection is Rectangle, not the re-created Frame. The saved undo/redo states are exact.
-  test.fixme("drawing two shapes then undo removes only the frame, and redo restores it selected", async ({
+  test("drawing two shapes then undo removes only the frame, and redo restores it selected", async ({
     app,
   }) => {
     const id = await openPage(app, BLANK_PAGE);

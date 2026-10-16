@@ -12,6 +12,12 @@ import {
 import { PENDING_TEXT_EDIT_TIMEOUT_MS } from "@/components/design/design-canvas/pending-text-edit";
 import type { ElementInfo } from "@/components/design/types";
 import {
+  stampContentHistorySelectionAfter,
+  type ContentHistoryEntry,
+  type ContentHistorySelectionAfterMap,
+  type GeometryHistorySelection,
+} from "@/pages/design-editor/history";
+import {
   isTextEditSessionOutcome,
   scheduleBeginTextEditForScreen,
 } from "@/pages/design-editor/text-edit-utils";
@@ -53,6 +59,13 @@ export interface PrimitiveCreatedArgs {
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
 }
 
+export interface PrimitiveCreatedHistorySelectionArgs {
+  contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
+  contentUndoStackTopBefore: ContentHistoryEntry | undefined;
+  captureCurrentSelection: () => GeometryHistorySelection;
+}
+
 export function runPrimitiveCreated(
   {
     activeLeftPanel,
@@ -80,6 +93,7 @@ export function runPrimitiveCreated(
     nextTool?: "move" | "pen";
     preserveActiveTool?: boolean;
   },
+  historySelection?: PrimitiveCreatedHistorySelectionArgs,
 ) {
   const isBoardTarget = Boolean(boardFileId && screenId === boardFileId);
   const revealLayers = shouldRevealLayersOnFirstCreate({
@@ -107,6 +121,15 @@ export function runPrimitiveCreated(
     }
     setMode("edit");
   });
+
+  if (historySelection) {
+    stampContentHistorySelectionAfter(
+      historySelection.contentUndoStackRef.current,
+      historySelection.contentHistorySelectionAfterRef.current,
+      historySelection.contentUndoStackTopBefore,
+      historySelection.captureCurrentSelection(),
+    );
+  }
 
   const textNodeId = pendingTextEditNodeIdRef.current;
   pendingTextEditNodeIdRef.current = null;

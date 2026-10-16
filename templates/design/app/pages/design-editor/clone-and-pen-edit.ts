@@ -1194,6 +1194,14 @@ export function prepareClonedHtmlLayer(
   ) {
     clone.setAttribute("data-agent-native-group-wrapper", "true");
   }
+  const isSvgRoot = source.localName.toLowerCase() === "svg";
+  const sourceHasLayerName = Boolean(
+    resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute)),
+  );
+  const sourceProjection =
+    isSvgRoot || !sourceHasLayerName
+      ? buildCodeLayerProjection(layerHtml)
+      : null;
   if (styleSnapshot) {
     clone.setAttribute("data-agent-native-preserve-styles", "true");
     clone.setAttribute("data-agent-native-clone-root", "true");
@@ -1202,10 +1210,8 @@ export function prepareClonedHtmlLayer(
       if (target) applyPortableStyles(target, node.styles);
     });
   }
-  if (
-    !resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute))
-  ) {
-    const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
+  if (!sourceHasLayerName) {
+    const sourceNode = sourceProjection?.nodes[0];
     if (
       sourceNode &&
       sourceNode.layerNameSource !== "tag" &&
@@ -1245,6 +1251,36 @@ export function prepareClonedHtmlLayer(
     );
   }
   if (!preserveIncomingNodeIds) {
+    if (isSvgRoot && sourceProjection) {
+      const sourceLayerNamesById = new Map<string, string>();
+      for (const node of sourceProjection.nodes) {
+        const sourceId = node.attributes.id;
+        if (
+          node.tag !== "svg" &&
+          node.layerNameSource === "selector" &&
+          typeof sourceId === "string"
+        ) {
+          sourceLayerNamesById.set(sourceId, node.layerName);
+        }
+      }
+      for (const element of [
+        clone,
+        ...Array.from(clone.querySelectorAll("*")),
+      ]) {
+        const sourceId = element.getAttribute("id");
+        const layerName = sourceId
+          ? sourceLayerNamesById.get(sourceId)
+          : undefined;
+        const hasLayerName = Boolean(
+          resolveLayerNameAttribute((attribute) =>
+            element.getAttribute(attribute),
+          ),
+        );
+        if (layerName && !hasLayerName) {
+          element.setAttribute("data-agent-native-layer-name", layerName);
+        }
+      }
+    }
     reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
     reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
   }
