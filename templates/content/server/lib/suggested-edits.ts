@@ -38,6 +38,7 @@ import {
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
 import {
+  applyMarkdownSuggestionOperation,
   applyMarkdownSuggestionWithSiblings,
   markdownPayload,
   parseSuggestionMarkdown,
@@ -764,15 +765,17 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       throw new Error("Externally linked Pages cannot accept suggestions yet");
     }
     const currentContent = String(current.content);
-    const nextContent = applyMarkdownSuggestionWithSiblings(
-      currentContent,
-      operation,
-      await acceptedRangesOnSameText(
-        tx,
-        context.suggestion,
-        markdownPayload(operation.before, "before").markdown,
-      ),
-    );
+    const nextContent =
+      applyMarkdownSuggestionOperation(currentContent, operation) ??
+      applyMarkdownSuggestionWithSiblings(
+        currentContent,
+        operation,
+        await acceptedRangesOnSameText(
+          tx,
+          context.suggestion,
+          markdownPayload(operation.before, "before").markdown,
+        ),
+      );
     if (nextContent === null) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
     const nextDocument = validateSuggestionStructure(
       currentContent,

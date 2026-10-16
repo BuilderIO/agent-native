@@ -120,7 +120,9 @@ export async function acceptedRangesOnSameText(
   return rows.flatMap((row) => {
     const anchor = JSON.parse(
       String(row.anchor_json),
-    ) as Partial<MarkdownRange>;
+    ) as Partial<MarkdownRange> | null;
+    // Saved as a whole before and after, it has no range to excuse.
+    if (anchor === null) return [];
     return Number.isInteger(anchor.from) &&
       Number.isInteger(anchor.to) &&
       anchor.from! >= 0 &&
