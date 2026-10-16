@@ -52,13 +52,11 @@ describe("editor side panels", () => {
     );
   });
 
-  it("rounds the canvas edge consistently for either right-side panel", () => {
-    expect(editorSource).toContain(
-      'animationsOpen || layersOpen ? "rounded-r-lg" : ""',
-    );
+  it("rounds the canvas right edge only for the right-side Transitions panel", () => {
+    expect(editorSource).toContain('animationsOpen ? "rounded-r-lg" : ""');
   });
 
-  it("mounts Layers beside the canvas shell like Transitions", () => {
+  it("mounts Layers beside the Slides rail", () => {
     expect(editorSource).toContain(
       "createPortal(layersPanel, layersPanelSlot)",
     );
@@ -75,7 +73,9 @@ describe("editor side panels", () => {
       "\n      </div>\n\n      {/* Hidden upload input */}",
       workspaceStart,
     );
+    const canvasStart = pageSource.indexOf("<SlideEditor", workspaceStart);
     expect(layersHost).toBeGreaterThan(workspaceStart);
+    expect(layersHost).toBeLessThan(canvasStart);
     expect(layersHost).toBeLessThan(workspaceEnd);
   });
 
