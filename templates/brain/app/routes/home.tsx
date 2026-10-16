@@ -10,6 +10,7 @@ import { TAB_ID } from "@/lib/tab-id";
 const SEO_TITLE = "Brain - Open Source company knowledge base for AI agents";
 const SEO_DESCRIPTION =
   "Open Source company knowledge base that turns Slack, meetings, transcripts, docs, and decisions into cited answers for AI agents.";
+const BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS = ["gong"] as const;
 
 export function meta() {
   return [
@@ -58,6 +59,9 @@ export default function AskRoute() {
       showHeader={false}
       showTabBar={false}
       dynamicSuggestions={false}
+      mcpSuggestionExcludedIntegrationIds={
+        BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS
+      }
       suggestions={[]}
       emptyStateText={t("ask.emptyState")}
       emptyStateDisplay="hidden"

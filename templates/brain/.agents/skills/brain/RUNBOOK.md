@@ -254,7 +254,8 @@ Ownership model:
 - Agents should inspect connection readiness first, then request a grant or
   source configuration instead of asking the user for another provider token.
 
-The Sources page surfaces the same provider catalog. A provider can be:
+The Sources page surfaces the same provider catalog. For reusable workspace
+integrations, a provider can be:
 
 - `connected` when an active workspace connection is already granted to Brain.
 - `granted` when Brain can access the connection but it is not currently active.
@@ -264,9 +265,18 @@ The Sources page surfaces the same provider catalog. A provider can be:
   yet.
 
 The page also shows provider readiness: ready, grant needed, needs repair,
-missing keys, or metadata only. Agents should inspect this same readiness via
-`list-connection-providers` before asking users for duplicate Slack, Granola,
-GitHub, or future provider credentials.
+missing keys, or metadata only. An API-ready provider does not necessarily mean
+it is indexed as a Brain Source. Gong is query-on-demand through
+`provider-api-catalog` / `provider-api-docs` / `provider-api-request` using
+organization-scoped `GONG_ACCESS_KEY` and `GONG_ACCESS_SECRET`; callers do not
+need a personal Gong seat, and Gong calls do not appear in indexed Source
+counts. For weekly customer/prospect reviews, use an explicit date range,
+request Extended CRM context at `TimeOfCall`, finish cursor pagination, and
+classify lifecycle only from CRM evidence or a user-provided mapping. Report
+unclassified calls and incomplete scans separately. If credential status is
+unavailable, do not claim keys are missing or ask users to connect a personal
+Gong account. Agents should inspect readiness via `list-connection-providers`
+before asking for duplicate provider credentials.
 
 ## Scheduled sync internals
 

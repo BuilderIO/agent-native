@@ -33,6 +33,7 @@ import {
 import { isBrainAdmin } from "../server/lib/zoom-governance.js";
 
 const APP_ID = "brain";
+const BRAIN_API_KEYS_HREF = "/settings/api-keys";
 
 const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "generic",
@@ -177,6 +178,7 @@ function providerApiConfigured({
   if (providerApiBaseUrlError) return false;
   if (workspace.hasActiveWorkspaceConnection) return true;
   if (providerApi.auth === "none") return true;
+  if (credentialHealth.status === "unavailable") return null;
 
   const availableKeys = new Set(
     credentialHealth.details
@@ -276,13 +278,13 @@ async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
       available: false,
       requiredKeyCount: requiredKeys.length,
       availableKeyCount: 0,
-      missingCredentialKeys: requiredKeys.map((credential) => credential.key),
-      missingMessages: ["Sign in before checking credential availability."],
+      missingCredentialKeys: [],
+      missingMessages: ["Credential availability could not be verified."],
       details: [],
     };
   }
 
-  const details = await Promise.all(
+  const inspectedDetails = await Promise.all(
     credentialKeys.map((credential) =>
       inspectSourceCredentialAvailability({
         provider: provider.id,
@@ -291,21 +293,50 @@ async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
       }),
     ),
   );
-  const requiredDetails = details.filter((detail) =>
+  const requiredDetails = inspectedDetails.filter((detail) =>
     requiredKeys.some((credential) => credential.key === detail.key),
   );
-  const missingRequired = requiredDetails.filter((detail) => !detail.available);
+  const unavailableRequired = requiredDetails.filter(
+    (detail) => !detail.available && hasCredentialLookupError(detail),
+  );
+  const missingRequired = requiredDetails.filter(
+    (detail) => !detail.available && !hasCredentialLookupError(detail),
+  );
+  const details = inspectedDetails.map((detail) =>
+    hasCredentialLookupError(detail)
+      ? {
+          ...detail,
+          checked: detail.checked.map((check) =>
+            check.status === "error"
+              ? {
+                  ...check,
+                  message: "Credential availability could not be verified.",
+                }
+              : check,
+          ),
+          missingMessage: detail.available
+            ? detail.missingMessage
+            : "Credential availability could not be verified.",
+        }
+      : detail,
+  );
 
   return {
-    status: missingRequired.length ? "missing" : "available",
-    available: missingRequired.length === 0,
+    status: unavailableRequired.length
+      ? "unavailable"
+      : missingRequired.length
+        ? "missing"
+        : "available",
+    available: unavailableRequired.length === 0 && missingRequired.length === 0,
     requiredKeyCount: requiredKeys.length,
     availableKeyCount: requiredDetails.filter((detail) => detail.available)
       .length,
     missingCredentialKeys: missingRequired.map((detail) => detail.key),
-    missingMessages: missingRequired
-      .map((detail) => detail.missingMessage)
-      .filter((message): message is string => !!message),
+    missingMessages: unavailableRequired.length
+      ? ["Credential availability could not be verified."]
+      : missingRequired
+          .map((detail) => detail.missingMessage)
+          .filter((message): message is string => !!message),
     details,
   };
 }
@@ -333,6 +364,28 @@ function providerHealthForProvider({
       message: providerApiBaseUrlError,
     };
   }
+  if (providerApi && providerApiIsConfigured === true) {
+    return {
+      status: "ready" as const,
+      message:
+        "Authenticated provider API access is ready for on-demand Brain queries.",
+    };
+  }
+  if (
+    credentialHealth.status === "unavailable" &&
+    workspace.grantState === "needs_grant"
+  ) {
+    return {
+      status: "needs_grant" as const,
+      message: workspace.grantAvailabilityMessage,
+    };
+  }
+  if (credentialHealth.status === "unavailable") {
+    return {
+      status: "unhealthy" as const,
+      message: "Brain could not verify the required provider credentials.",
+    };
+  }
   if (providerApi && providerApiIsConfigured === false) {
     if (workspace.grantState === "needs_grant") {
       return {
@@ -355,7 +408,7 @@ function providerHealthForProvider({
       message: BRAIN_LOCAL_PROVIDERS.some(
         (localProvider) => localProvider.id === provider.id,
       )
-        ? workspace.grantAvailabilityMessage
+        ? "Required organization credentials are not available."
         : "Connect this provider before Brain makes an on-demand API request.",
     };
   }
@@ -504,9 +557,37 @@ export default defineAction({
           configured:
             providerApiIsConfigured ??
             (sourceProviderSupported ? credentialHealth.available : null),
-          setupLink: catalogProviderIds.has(provider.id)
-            ? dispatchIntegrationsHref(provider.id, dispatchHref)
-            : undefined,
+          usesBrainLocalCredentials: BRAIN_LOCAL_PROVIDERS.some(
+            (localProvider) => localProvider.id === provider.id,
+          ),
+          setupLink: (() => {
+            const isBrainLocal = BRAIN_LOCAL_PROVIDERS.some(
+              (localProvider) => localProvider.id === provider.id,
+            );
+            const shouldGrantExistingConnection =
+              workspaceConnection.grantState === "needs_grant" &&
+              workspaceConnection.hasWorkspaceConnection;
+            if (
+              isBrainLocal &&
+              !shouldGrantExistingConnection &&
+              (credentialHealth.status !== "available" ||
+                providerApiBaseUrlError)
+            ) {
+              const key =
+                providerApiBaseUrlError && providerApi?.baseUrlCredentialKey
+                  ? providerApi.baseUrlCredentialKey
+                  : (credentialHealth.missingCredentialKeys[0] ??
+                    provider.credentialKeys.find((entry) => entry.required)
+                      ?.key ??
+                    provider.credentialKeys[0]?.key);
+              return key
+                ? `${BRAIN_API_KEYS_HREF}#secrets:${encodeURIComponent(key)}`
+                : BRAIN_API_KEYS_HREF;
+            }
+            return catalogProviderIds.has(provider.id)
+              ? dispatchIntegrationsHref(provider.id, dispatchHref)
+              : undefined;
+          })(),
           credentialHealth,
           providerHealth: providerHealthForProvider({
             credentialHealth,

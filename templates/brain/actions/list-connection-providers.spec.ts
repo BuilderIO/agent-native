@@ -330,7 +330,7 @@ describe("list-connection-providers", () => {
       sourceProviderSupported: true,
       hasConfiguredSources: true,
       configured: false,
-      setupLink: undefined,
+      setupLink: "/settings/api-keys#secrets:ZOOM_CLIENT_SECRET",
       credentialKeys: [
         { key: "ZOOM_ACCOUNT_ID", required: true },
         { key: "ZOOM_CLIENT_ID", required: true },
@@ -340,6 +340,7 @@ describe("list-connection-providers", () => {
         status: "missing",
         missingCredentialKeys: ["ZOOM_CLIENT_SECRET"],
       },
+      usesBrainLocalCredentials: true,
       providerHealth: { status: "missing_credentials" },
       rawProviderApi: { available: false },
     });
@@ -371,6 +372,7 @@ describe("list-connection-providers", () => {
     ).toMatchObject({
       configured: true,
       setupLink: undefined,
+      usesBrainLocalCredentials: true,
       sourceProviderSupported: false,
       providerHealth: { status: "ready" },
       rawProviderApi: { available: true },
@@ -413,6 +415,7 @@ describe("list-connection-providers", () => {
     expect(gong).toMatchObject({
       configured: true,
       setupLink: undefined,
+      usesBrainLocalCredentials: true,
       providerHealth: { status: "ready" },
       rawProviderApi: { available: true },
     });
@@ -495,6 +498,7 @@ describe("list-connection-providers", () => {
         message:
           "Brain could not verify the organization Gong API base URL from its credential vault.",
       },
+      setupLink: "/settings/api-keys#secrets:GONG_API_BASE",
     });
     expect(gong?.credentialHealth.missingCredentialKeys).toEqual([]);
     expect(mocks.resolvedCredentialChecks).toEqual([]);
@@ -508,7 +512,8 @@ describe("list-connection-providers", () => {
 
     expect(gong).toMatchObject({
       configured: false,
-      setupLink: undefined,
+      setupLink: "/settings/api-keys#secrets:GONG_ACCESS_SECRET",
+      usesBrainLocalCredentials: true,
       credentialHealth: {
         missingCredentialKeys: ["GONG_ACCESS_SECRET"],
       },
@@ -517,6 +522,27 @@ describe("list-connection-providers", () => {
     expect(gong?.providerHealth.message).not.toMatch(
       /personal seat|individual seat|personal account/i,
     );
+  });
+
+  it("does not treat unreadable Gong organization keys as missing", async () => {
+    mocks.availableKeys.add("GONG_ACCESS_SECRET");
+    mocks.credentialLookupErrors.add("GONG_ACCESS_KEY");
+
+    const result = await action.run({});
+    const gong = result.providers.find((provider) => provider.id === "gong");
+
+    expect(gong).toMatchObject({
+      configured: null,
+      setupLink: "/settings/api-keys#secrets:GONG_ACCESS_KEY",
+      usesBrainLocalCredentials: true,
+      credentialHealth: {
+        status: "unavailable",
+        missingCredentialKeys: [],
+        missingMessages: ["Credential availability could not be verified."],
+      },
+      providerHealth: { status: "unhealthy" },
+    });
+    expect(JSON.stringify(gong)).not.toContain("Vault lookup failed.");
   });
 
   it("lists Zoom only for Brain admins", async () => {

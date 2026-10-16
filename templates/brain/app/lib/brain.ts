@@ -599,6 +599,7 @@ export interface BrainConnectionProvider {
   hasConfiguredSources: boolean;
   sourceProviderSupported: boolean;
   configured?: boolean | null;
+  usesBrainLocalCredentials?: boolean;
   setupLink?: string;
   credentialHealth?: BrainCredentialHealth;
   providerHealth?: BrainProviderHealth;

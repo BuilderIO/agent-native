@@ -866,6 +866,16 @@ function credentialPathReadiness(
     };
   }
 
+  if (health.status === "unavailable") {
+    return {
+      label: t("sources.credentialPath"),
+      value: t("sources.workspaceStatus.error"),
+      detail: t("sources.readiness.providerUnknown"),
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+
   const available = availableCredentialDetails(provider)[0];
   if (available?.provenance?.source === "workspace_connection") {
     return {
@@ -920,7 +930,10 @@ function providerConnectionReadiness(
 ): ProviderReadinessItem {
   const workspace = provider.workspaceConnection;
   const health = provider.providerHealth?.status;
-  if (!provider.sourceProviderSupported) {
+  if (
+    !provider.sourceProviderSupported &&
+    provider.rawProviderApi?.available !== true
+  ) {
     return {
       label: t("sources.providerConnection"),
       value: t("sources.providerHealth.metadataOnly"),
@@ -954,8 +967,15 @@ function providerConnectionReadiness(
   if (health === "unhealthy") {
     return {
       label: t("sources.providerConnection"),
-      value: t("sources.readiness.repair"),
-      detail: t("sources.readiness.reauthorizeProviderConnection"),
+      value: provider.usesBrainLocalCredentials
+        ? t("sources.workspaceStatus.error")
+        : t("sources.readiness.repair"),
+      detail:
+        provider.usesBrainLocalCredentials &&
+        provider.credentialHealth?.status === "unavailable"
+          ? t("sources.readiness.providerUnknown")
+          : (provider.providerHealth?.message ??
+            t("sources.readiness.reauthorizeProviderConnection")),
       tone: "attention",
       icon: IconAlertTriangle,
     };
@@ -982,6 +1002,12 @@ function providerConnectionReadiness(
 }
 
 function providerReadinessItems(provider: BrainConnectionProvider, t: BrainT) {
+  if (provider.usesBrainLocalCredentials) {
+    return [
+      providerConnectionReadiness(provider, t),
+      credentialPathReadiness(provider, t),
+    ];
+  }
   return [
     sharedConnectionReadiness(provider, t),
     appGrantReadiness(provider, t),
@@ -995,10 +1021,44 @@ function providerReadinessCallout(
   t: BrainT,
 ): ProviderReadinessItem & { title: string } {
   const workspace = provider.workspaceConnection;
-  if (!provider.sourceProviderSupported) {
+  if (
+    !provider.sourceProviderSupported &&
+    provider.rawProviderApi?.available !== true
+  ) {
     return {
       ...providerConnectionReadiness(provider, t),
       title: t("sources.connectionMetadataOnly"),
+    };
+  }
+  if (
+    !provider.sourceProviderSupported &&
+    provider.rawProviderApi?.available === true &&
+    provider.providerHealth?.status === "ready"
+  ) {
+    return {
+      label: t("sources.readinessLabel"),
+      value: t("sources.providerHealth.ready"),
+      title: t("sources.scopedCredentialsReady"),
+      detail: t("sources.readiness.scopedCredentialRefsConfigured"),
+      tone: "ready",
+      icon: IconCircleCheck,
+    };
+  }
+  if (
+    provider.usesBrainLocalCredentials &&
+    provider.providerHealth?.status === "unhealthy"
+  ) {
+    return {
+      label: t("sources.readinessLabel"),
+      value: t("sources.workspaceStatus.error"),
+      title: providerHealthLabel(provider, t),
+      detail:
+        provider.credentialHealth?.status === "unavailable"
+          ? t("sources.readiness.providerUnknown")
+          : (provider.providerHealth.message ??
+            t("sources.readiness.providerUnknown")),
+      tone: "attention",
+      icon: IconAlertTriangle,
     };
   }
   if (workspace?.hasActiveWorkspaceConnection) {
@@ -1021,7 +1081,10 @@ function providerReadinessCallout(
       icon: IconAlertTriangle,
     };
   }
-  if (scopedCredentialCount(provider)) {
+  if (
+    provider.providerHealth?.status === "ready" &&
+    scopedCredentialCount(provider)
+  ) {
     return {
       label: t("sources.readinessLabel"),
       value: t("sources.readiness.local"),
@@ -1165,7 +1228,9 @@ function ProviderCatalog({
             const GrantIcon = grantStateIcon(grantState);
             const credentialRefs = providerWorkspaceCredentialRefs(provider);
             const missingCredentialMessage =
-              provider.credentialHealth?.missingMessages[0] ?? null;
+              provider.credentialHealth?.status === "unavailable"
+                ? t("sources.readiness.providerUnknown")
+                : (provider.credentialHealth?.missingMessages[0] ?? null);
             const credentialBadges = credentialRefs.length
               ? credentialRefs.map((ref, index) => ({
                   key: `${refLabel(ref)}-${index}`,
@@ -1209,17 +1274,21 @@ function ProviderCatalog({
                       <p className="mt-1 text-xs text-muted-foreground">
                         {provider.hasConfiguredSources
                           ? `${provider.configuredSourceCount.toLocaleString()} configured`
-                          : t("sources.noBrainSourcesYet")}
+                          : provider.rawProviderApi?.available
+                            ? provider.description
+                            : t("sources.noBrainSourcesYet")}
                       </p>
                     </div>
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={`${grantStateClass(grantState)} w-fit max-w-full`}
-                  >
-                    <GrantIcon className="me-1 size-3" />
-                    {grantStateLabel(grantState, t)}
-                  </Badge>
+                  {!provider.usesBrainLocalCredentials ? (
+                    <Badge
+                      variant="outline"
+                      className={`${grantStateClass(grantState)} w-fit max-w-full`}
+                    >
+                      <GrantIcon className="me-1 size-3" />
+                      {grantStateLabel(grantState, t)}
+                    </Badge>
+                  ) : null}
                   <Badge
                     variant="outline"
                     className={`${providerHealthClass(provider)} w-fit max-w-full`}
@@ -1229,8 +1298,10 @@ function ProviderCatalog({
                 </div>
 
                 <p className="text-xs leading-5 text-muted-foreground">
-                  {provider.providerHealth?.message ??
-                    grantStateDetail(provider, grantState, t)}
+                  {provider.credentialHealth?.status === "unavailable"
+                    ? t("sources.readiness.providerUnknown")
+                    : (provider.providerHealth?.message ??
+                      grantStateDetail(provider, grantState, t))}
                 </p>
 
                 <div className="rounded-md border border-border bg-muted/25 p-3">
@@ -1365,18 +1436,30 @@ function ProviderCatalog({
                                 className={
                                   detail.available
                                     ? readinessToneClass("ready")
-                                    : readinessToneClass("danger")
+                                    : detail.checked.some(
+                                          (check) => check.status === "error",
+                                        )
+                                      ? readinessToneClass("attention")
+                                      : readinessToneClass("danger")
                                 }
                               >
                                 {detail.available
                                   ? t("sources.readiness.available")
-                                  : t("sources.readiness.missing")}
+                                  : detail.checked.some(
+                                        (check) => check.status === "error",
+                                      )
+                                    ? t("sources.workspaceStatus.error")
+                                    : t("sources.readiness.missing")}
                               </Badge>
                             </div>
                             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                              {detail.provenance
-                                ? provenanceLabel(detail.provenance, t)
-                                : detail.missingMessage}
+                              {detail.checked.some(
+                                (check) => check.status === "error",
+                              )
+                                ? t("sources.readiness.providerUnknown")
+                                : detail.provenance
+                                  ? provenanceLabel(detail.provenance, t)
+                                  : detail.missingMessage}
                             </p>
                           </div>
                         ))}
@@ -1452,11 +1535,11 @@ function ProviderCatalog({
                           );
                         })}
                       </div>
-                    ) : (
+                    ) : !provider.usesBrainLocalCredentials ? (
                       <p className="text-xs leading-5 text-muted-foreground">
                         {t("sources.noSharedWorkspaceConnection")}
                       </p>
-                    )}
+                    ) : null}
                     {!provider.sourceProviderSupported &&
                     provider.rawProviderApi?.available !== true ? (
                       <p className="text-xs leading-5 text-muted-foreground">

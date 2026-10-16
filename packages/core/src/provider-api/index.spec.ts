@@ -2666,6 +2666,74 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("documents Brain-compatible Gong account-call queries with complete CRM context", () => {
+    const gong = getProviderApiConfig("gong");
+    const extensiveExample = gong.examples?.find(
+      (example) => example.path === "/calls/extensive",
+    );
+    const accountRecipe = gong.corpusRecipes?.find(
+      (recipe) =>
+        recipe.label === "Find Gong calls for an account with CRM context",
+    );
+
+    expect(extensiveExample?.body).toMatchObject({
+      filter: {
+        fromDateTime: "<start-iso-date-time>",
+        toDateTime: "<end-iso-date-time>",
+      },
+      contentSelector: {
+        context: "Extended",
+        contextTiming: ["TimeOfCall"],
+        exposedFields: {
+          parties: true,
+          content: { brief: true, keyPoints: true },
+        },
+      },
+    });
+    expect(accountRecipe).toMatchObject({
+      request: {
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: {
+            fromDateTime: "<start-iso-date-time>",
+            toDateTime: "<end-iso-date-time>",
+          },
+          contentSelector: {
+            context: "Extended",
+            contextTiming: ["TimeOfCall"],
+            exposedFields: {
+              parties: true,
+              content: { brief: true, keyPoints: true },
+            },
+          },
+        },
+      },
+      pagination: {
+        itemsPath: "calls",
+        nextCursorPath: "records.cursor",
+        cursorBodyPath: "cursor",
+        maxPages: 200,
+      },
+    });
+
+    const guidance = [
+      ...(gong.notes ?? []),
+      ...(accountRecipe?.workflow ?? []),
+    ].join(" ");
+    expect(guidance).toContain("organization's Gong credentials");
+    expect(guidance).toContain("personal Gong seat");
+    expect(accountRecipe?.workflow.join(" ")).toContain("providerFetchAll");
+    expect(guidance).toContain("customer versus prospect");
+    expect(guidance).toContain("unclassified");
+    expect(guidance).toContain("truncated");
+    expect(accountRecipe?.workflow.join(" ")).toContain("hasMore");
+    expect(accountRecipe?.workflow.join(" ")).toContain("stoppedReason");
+    expect(JSON.stringify(gong.corpusRecipes)).not.toContain(
+      "provider-corpus-job",
+    );
+  });
+
   it("refreshes Salesforce OAuth before calling the connection instance", async () => {
     resolveSecret.mockImplementation(async (key: string) =>
       key === "SALESFORCE_CLIENT_ID"
