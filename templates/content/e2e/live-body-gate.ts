@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { knownLossSpec, type KnownLoss } from "../acceptance/known-loss";
 import { ACTION_HEADERS, postAction } from "./helpers";
 
 // Decision D2 of the stored-form rebuild: a page takes the new body paths only
@@ -20,6 +21,16 @@ function readArm(): GateArm {
 
 /** Which side of the D2 gate this run checks: CI runs the lane once per arm. */
 export const GATE_ARM: GateArm = readArm();
+
+/**
+ * Known-loss details for a check main fails differently on each arm. Only this
+ * run's arm entry tags it, so a lane whose fix flips one arm deletes that entry
+ * and the check turns required there while the other arm keeps reporting.
+ */
+export function knownLossOnArm(losses: Partial<Record<GateArm, KnownLoss>>) {
+  const loss = losses[GATE_ARM];
+  return loss ? knownLossSpec(loss) : {};
+}
 
 /** The flag values the signed-in account gets, keyed by registered flag. */
 async function flagValues(page: Page): Promise<Record<string, boolean>> {

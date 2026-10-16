@@ -22,7 +22,7 @@ import {
   TabSet,
   typeAtParagraphEnd,
 } from "../helpers";
-import { enterGateArm } from "../live-body-gate";
+import { enterGateArm, knownLossOnArm } from "../live-body-gate";
 
 // SF-05: comment anchors and pending suggestions survive concurrent edits and
 // the stored-form migration.
@@ -726,13 +726,20 @@ test.describe(
 
     const PRICE = { find: "costs $60", replace: "costs $75" };
 
+    const AGENT_FORM_LOSS =
+      "A pending suggestion on an agent-form page with an escaped underscore before it and a pipe table after it never renders in the editor, and once the first browser save rewrites the page in the stored form, accepting it fails with suggestion_stale.";
+
     test(
       "an agent-form page keeps its comments anchored and its suggestion placeable after the first browser save",
-      knownLossSpec({
-        lane: "L7",
-        outcome: "SF-05",
-        reason:
-          "A pending suggestion on an agent-form page with an escaped underscore before it and a pipe table after it never renders in the editor, and once the first browser save rewrites the page in the stored form, accepting it fails with suggestion_stale.",
+      knownLossOnArm({
+        // SF-11 keeps gate off on main's body path, which stores the agent's
+        // bytes as sent, so no lane flips this arm before the old path goes.
+        off: { lane: "unowned", outcome: "SF-05", reason: AGENT_FORM_LOSS },
+        on: {
+          lane: "L3",
+          outcome: "SF-05",
+          reason: `${AGENT_FORM_LOSS} A switched page stores the agent's body in canonical form once L3's switch and writers land.`,
+        },
       }),
       async ({ page, context }) => {
         const { id } = await agent.createPage("SF-05 agent form", AGENT_FORM);

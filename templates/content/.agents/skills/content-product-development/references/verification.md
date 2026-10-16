@@ -40,7 +40,9 @@ The browser and MCP checks live in `e2e/stored-form/`; the writer checks are
 `acceptance/*.db.test.ts`. CI runs both on each side of the live-body gate, and
 checks tagged known-loss run in steps that report without failing the PR. A
 lane's fix drops the tag from every check it flips, in the same PR, so the
-check blocks every PR after it. Run the browser checks against the production
+check blocks every PR after it. A check main fails differently on each side of
+the gate takes `knownLossOnArm` from `e2e/live-body-gate.ts`; a fix that flips
+one arm deletes only that arm's entry. Run the browser checks against the production
 build, which refuses PGlite: serve `.output/server/index.mjs` on Postgres, then
 from `templates/content` run
 `CONTENT_BASE_URL=<url> CONTENT_LIVE_BODY_GATE=off npx playwright test -c e2e/playwright.config.ts e2e/stored-form/`.
