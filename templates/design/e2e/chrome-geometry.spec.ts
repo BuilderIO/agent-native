@@ -48,7 +48,7 @@ const APP_GEOMETRY_CONTRACT = {
   layerIndentWidth: 24,
   autoLayoutSectionHeaderHeight: 40,
   autoLayoutSectionPadding: 8,
-  autoLayoutPairGutter: 8,
+  autoLayoutPairGutter: 16,
   sizingMenuItemMinHeight: 24,
   sizingMenuItemMaxHeight: 32,
 } as const;
@@ -243,21 +243,14 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
     `${APP_GEOMETRY_CONTRACT.autoLayoutSectionPadding}px`,
   );
 
-  const pair = section
-    .locator('[data-inspector-layout="action-pair"]')
-    .filter({
-      has: page.getByRole("button", { name: "Advanced gap settings" }),
-    })
-    .first();
-  const cells = pair.locator(
-    ':scope > [data-inspector-grid-cell]:not([aria-hidden="true"])',
-  );
-  await expect(cells).toHaveCount(3);
+  const pair = section.locator('[data-inspector-layout="pair-flow"]').first();
+  const cells = pair.locator(":scope > [data-inspector-grid-cell]");
+  await expect(cells).toHaveCount(2);
   const pairGeometry = await readGeometry(pair, ["grid-template-columns"]);
   const pairColumns = pairGeometry.styles["grid-template-columns"]
     .trim()
     .split(/\s+/);
-  expect(pairColumns).toHaveLength(5);
+  expect(pairColumns).toHaveLength(3);
   expect(pairColumns[1]).toBe(
     `${APP_GEOMETRY_CONTRACT.autoLayoutPairGutter}px`,
   );

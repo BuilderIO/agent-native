@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 import {
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
   InspectorGrid,
   InspectorGridCell,
 } from "../edit-panel/inspector-grid";
@@ -659,8 +660,8 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
-          <InspectorGrid className="items-start" layout="action-pair">
-            <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+          <InspectorGrid className="items-start" layout="pair-flow">
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <ControlLabel>
@@ -682,8 +683,8 @@ export function AutoLayoutMatrix({
                 />
               </div>
             </InspectorGridCell>
-            <InspectorGridCell span={1} ariaHidden />
-            <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-1">
@@ -699,12 +700,36 @@ export function AutoLayoutMatrix({
                       />
                     ) : null}
                   </div>
-                  <kbd
-                    aria-hidden="true"
-                    className="rounded border border-border/60 px-1 font-mono text-[9px] text-muted-foreground/70"
-                  >
-                    A
-                  </kbd>
+                  <div className="flex items-center gap-1">
+                    <kbd
+                      aria-hidden="true"
+                      className="rounded border border-border/60 px-1 font-mono text-[9px] text-muted-foreground/70"
+                    >
+                      A
+                    </kbd>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={disabled}
+                          aria-label={
+                            "Advanced gap settings" /* i18n-ignore inspector tooltip */
+                          }
+                          onClick={() => onDistribute?.(value.direction)}
+                          className="size-4 shrink-0 rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                        >
+                          <IconAdjustmentsHorizontal className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {
+                          "Advanced gap settings" /* i18n-ignore inspector tooltip */
+                        }
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
                 <GapField
                   value={value.gap}
@@ -732,29 +757,6 @@ export function AutoLayoutMatrix({
                   </label>
                 ) : null}
               </div>
-            </InspectorGridCell>
-            <InspectorGridCell span={1} ariaHidden />
-            <InspectorGridCell span={4} className="flex justify-center">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={disabled}
-                    aria-label={
-                      "Advanced gap settings" /* i18n-ignore inspector tooltip */
-                    }
-                    onClick={() => onDistribute?.(value.direction)}
-                    className="mt-5 size-6 shrink-0 self-start rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                  >
-                    <IconAdjustmentsHorizontal className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Advanced gap settings" /* i18n-ignore inspector tooltip */}
-                </TooltipContent>
-              </Tooltip>
             </InspectorGridCell>
           </InspectorGrid>
         ) : null}
