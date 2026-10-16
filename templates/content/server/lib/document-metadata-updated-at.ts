@@ -40,24 +40,22 @@ function metadataScopeChanged(): never {
 
 // Lifecycle mutations acquire collection locks before document locks.
 export async function lockDocumentMetadataDatabase(
-  args: DocumentMetadataScope & {
-    /**
-     * Also lock the inline collections the page owns, in one id-ordered pass
-     * with its backing collection. A body save that drops an inline block
-     * soft-deletes its collection after writing the page, and Trash of the
-     * page locks that collection before the page.
-     */
-    includeInlineDatabases?: boolean;
-  },
+  args: DocumentMetadataScope,
 ) {
-  if (!args.includeInlineDatabases) {
-    const databases = await selectDocumentMetadataDatabases(args).for(
-      "update",
-      { of: schema.contentDatabases },
-    );
-    if (databases.length > 1) metadataScopeChanged();
-    return databases[0]?.id ?? null;
-  }
+  const databases = await selectDocumentMetadataDatabases(args).for("update", {
+    of: schema.contentDatabases,
+  });
+  if (databases.length > 1) metadataScopeChanged();
+  return databases[0]?.id ?? null;
+}
+
+/**
+ * Locks the collection the page backs and the inline collections it owns, in
+ * one id-ordered pass. A body save that drops an inline block soft-deletes its
+ * collection after writing the page, and Trash of the page locks that
+ * collection before the page.
+ */
+export async function lockDocumentBodyDatabases(args: DocumentMetadataScope) {
   const databases = await args.db
     .select({
       id: schema.contentDatabases.id,
@@ -87,7 +85,10 @@ export async function lockDocumentMetadataDatabase(
     (database) => database.documentId === args.documentId,
   );
   if (backing.length > 1) metadataScopeChanged();
-  return backing[0]?.id ?? null;
+  return {
+    databaseId: backing[0]?.id ?? null,
+    lockedDatabaseIds: new Set(databases.map((database) => database.id)),
+  };
 }
 
 export async function assertDocumentMetadataDatabaseScope(

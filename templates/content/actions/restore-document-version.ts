@@ -101,7 +101,10 @@ export default defineAction({
       )
       .limit(1);
     const [beforeFlush] = await db
-      .select({ updatedAt: schema.documents.updatedAt })
+      .select({
+        trashedAt: schema.documents.trashedAt,
+        updatedAt: schema.documents.updatedAt,
+      })
       .from(schema.documents)
       .where(
         and(
@@ -110,12 +113,7 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (!beforeFlush) {
-      throw new ActionContractError("Document not found.", {
-        errorCode: "DOCUMENT_NOT_FOUND",
-        statusCode: 404,
-      });
-    }
+    assertEditableDocument(beforeFlush);
     if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
       throw new ActionContractError(
         "The document changed after this restore was prepared.",
@@ -158,10 +156,12 @@ export default defineAction({
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
-      const lockedDatabaseId = await lockDocumentForSave(
-        tx as unknown as ReturnType<typeof getDb>,
-        { documentId, ownerEmail, body: true },
-      );
+      const { databaseId: lockedDatabaseId, lockedDatabaseIds } =
+        await lockDocumentForSave(tx as unknown as ReturnType<typeof getDb>, {
+          documentId,
+          ownerEmail,
+          body: true,
+        });
       const [current] = await tx
         .select()
         .from(schema.documents)
@@ -292,6 +292,7 @@ export default defineAction({
             content: version.content,
             ownerEmail,
             now,
+            lockedDatabaseIds,
           });
       }
       const [restored] = await tx

@@ -935,6 +935,7 @@ const updateDocumentAction = defineAction({
           );
         }
       }
+      if (!favoriteOnly) assertEditableDocument(existing);
 
       const normalizeAuthoredContent = (value: string) => {
         if (args.preserveLeadingTitleHeading) return value;
@@ -1096,10 +1097,11 @@ const updateDocumentAction = defineAction({
           measurement.history_effect = "none";
           const mayWriteBody =
             content !== undefined || authoredCandidateContent !== undefined;
-          const lockedDatabaseId = await lockDocumentForSave(
-            tx as unknown as ReturnType<typeof getDb>,
-            { documentId: id, ownerEmail, body: mayWriteBody },
-          );
+          const { databaseId: lockedDatabaseId, lockedDatabaseIds } =
+            await lockDocumentForSave(
+              tx as unknown as ReturnType<typeof getDb>,
+              { documentId: id, ownerEmail, body: mayWriteBody },
+            );
           access = favoriteOnly
             ? await resolveDocumentAccessForMutation(id, "id")
             : await assertDocumentMutationAccess(id, "editor", "id");
@@ -1670,6 +1672,7 @@ const updateDocumentAction = defineAction({
                 content,
                 ownerEmail,
                 now: updatedAt,
+                lockedDatabaseIds,
               });
           }
           if (

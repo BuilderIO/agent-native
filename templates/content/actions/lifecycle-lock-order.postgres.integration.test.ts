@@ -1711,6 +1711,68 @@ describe.skipIf(!POSTGRES_URL)(
       },
     );
 
+    it.each([
+      {
+        path: "browser save",
+        prepare: async (_key: string, pageId: string) => () => saveBody(pageId),
+      },
+      {
+        path: "version restore",
+        prepare: async (key: string, pageId: string) => {
+          const versionId = await recordVersion(key, pageId);
+          return () => restoreVersion(pageId, versionId);
+        },
+      },
+    ])(
+      "refuses a $path that would drop an inline collection created while it waited",
+      async ({ prepare }) => {
+        const key = fixtureKey();
+        const ids = {
+          collection: `${key}_c`,
+          collectionPage: `${key}_p1`,
+          page: `${key}_p2`,
+        };
+        await getDb()
+          .insert(schema.documents)
+          .values(
+            pageValues(ids.page, null, "Owner", { content: "Owner body" }),
+          );
+        const save = await prepare(key, ids.page);
+        // Created after the save locked its collections, so the save holds the
+        // page but not the collection a Trash of the page would lock first.
+        const { action } = await raceAgainst(async (tx) => {
+          await lockDocumentRows(tx, [ids.page]);
+          await tx
+            .insert(schema.documents)
+            .values(pageValues(ids.collectionPage, ids.page, "Inline"));
+          await tx.insert(schema.contentDatabases).values({
+            id: ids.collection,
+            ownerEmail: OWNER,
+            spaceId: SPACE_ID,
+            documentId: ids.collectionPage,
+            ownerDocumentId: ids.page,
+            ownerBlockId: `${key}_block`,
+            title: "Inline",
+            createdAt: STAMP,
+            updatedAt: STAMP,
+          });
+        }, save);
+        await expect(action).rejects.toMatchObject({
+          errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED",
+          statusCode: 409,
+        });
+        const [collection] = await getDb()
+          .select({ deletedAt: schema.contentDatabases.deletedAt })
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, ids.collection));
+        expect(collection).toEqual({ deletedAt: null });
+        expect(await readPage(ids.page)).toMatchObject({
+          content: "Owner body",
+          bodyRevision: 0,
+        });
+      },
+    );
+
     it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {
       const seed = await seedPageTree();
       await asOwner(() => deleteDocument.run({ id: seed.ids.otherParent }));
