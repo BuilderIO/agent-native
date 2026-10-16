@@ -2310,6 +2310,7 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 }
 
 const scopedDbExec = new AsyncLocalStorage<DbExec>();
+const transactionCallbacks = new AsyncLocalStorage<true>();
 
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
   return scopedDbExec.run(guardSchemaMutations(exec), run);
@@ -2317,6 +2318,19 @@ export function withDbExec<T>(exec: DbExec, run: () => T): T {
 
 export function getScopedDbExec(): DbExec | undefined {
   return scopedDbExec.getStore();
+}
+
+/**
+ * True while a `getDbExec().transaction()` callback runs. That callback leaves
+ * `getScopedDbExec()` unset, so code that must not run inside a caller's
+ * transaction asks this as well.
+ */
+export function insideDbTransactionCallback(): boolean {
+  return transactionCallbacks.getStore() === true;
+}
+
+function inTransactionCallback<T>(run: () => Promise<T>): Promise<T> {
+  return transactionCallbacks.run(true, run);
 }
 
 export function getDbExec(): DbExec {
@@ -2384,13 +2398,15 @@ export function getDbExec(): DbExec {
               throw new Error("This database does not support transactions.");
             }
             return currentExec.transaction((tx) =>
-              fn({
-                execute: (s) => {
-                  assertSchemaMutationAllowed(s);
-                  return tx.execute(sanitize(s));
-                },
-                transaction: tx.transaction?.bind(tx),
-              }),
+              inTransactionCallback(() =>
+                fn({
+                  execute: (s) => {
+                    assertSchemaMutationAllowed(s);
+                    return tx.execute(sanitize(s));
+                  },
+                  transaction: tx.transaction?.bind(tx),
+                }),
+              ),
             );
           }
         : undefined,
@@ -2409,13 +2425,15 @@ export function getDbExec(): DbExec {
       Object.assign(proxy, createInitializedProxy(exec));
       if (exec.transaction) {
         return exec.transaction((tx) =>
-          fn({
-            execute: (s) => {
-              assertSchemaMutationAllowed(s);
-              return tx.execute(sanitize(s));
-            },
-            transaction: tx.transaction?.bind(tx),
-          }),
+          inTransactionCallback(() =>
+            fn({
+              execute: (s) => {
+                assertSchemaMutationAllowed(s);
+                return tx.execute(sanitize(s));
+              },
+              transaction: tx.transaction?.bind(tx),
+            }),
+          ),
         );
       }
       if (exec.atomicBatch) {
@@ -2424,7 +2442,9 @@ export function getDbExec(): DbExec {
         );
       }
       const wrapper = createInitializedProxy(exec);
-      return explicitTransaction(wrapper.execute.bind(wrapper))(fn);
+      return explicitTransaction(wrapper.execute.bind(wrapper))((tx) =>
+        inTransactionCallback(() => fn(tx)),
+      );
     },
     async atomicBatch(statements) {
       for (const statement of statements) {

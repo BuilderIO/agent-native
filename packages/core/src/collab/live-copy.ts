@@ -1,6 +1,7 @@
 import {
   getDbExec,
   getScopedDbExec,
+  insideDbTransactionCallback,
   withDbExec,
   type DbExec,
 } from "../db/client.js";
@@ -288,7 +289,9 @@ export function assertActiveLiveCopy(
  * later rollback would leave editors holding state that was never saved.
  */
 export function assertOwnTransaction(docId: string, path: string): void {
-  if (getScopedDbExec() === undefined) return;
+  if (getScopedDbExec() === undefined && !insideDbTransactionCallback()) {
+    return;
+  }
   throw new LiveCopyError(
     "write_refused",
     docId,
