@@ -127,8 +127,9 @@ export function buildMarkdownSuggestionOperation(args: {
   };
 }
 
-// Text between edge whitespace, in the form a stored body spells it. An edge
-// newline separates blocks, which the stored form spells differently.
+// Text between edge whitespace, as a stored body would spell it on its own:
+// a candidate that resolveOnStoredForm checks in place. An edge newline
+// separates blocks, which the stored form spells differently.
 function inStoredForm(text: string): string | undefined {
   const core = text.trim();
   if (!core) return text;
@@ -139,25 +140,75 @@ function inStoredForm(text: string): string | undefined {
   return `${lead}${canonicalizeNfm(core)}${trail}`;
 }
 
+const ESCAPABLE = /[!-/:-@[-`{-~]/;
+
+/** Whether the backslashes before `index` escape the character there. */
+function escapedAt(text: string, index: number) {
+  let slashes = 0;
+  while (text[index - slashes - 1] === "\\") slashes += 1;
+  return slashes % 2 === 1 && ESCAPABLE.test(text[index] ?? "");
+}
+
 /**
- * A Page written through its live copy stores its body in canonical form, so
- * an agent's find can be its own spelling of stored text, such as `$60` for
- * the stored `\$60`. The edit is matched in that form when the result is
- * still in it; otherwise the exact match's answer stands.
+ * Where an agent's edit lands on a Page written through its live copy. Its
+ * body is stored in canonical form, so the agent's find can be its own
+ * spelling of stored text, such as `$60` for the stored `\$60`. A spelling
+ * means what it means in its place on the page, not on its own: a range
+ * qualifies only when the page with the agent's find put back there still
+ * spells the stored page, and the replacement is the canonical form of the
+ * page with the agent's replace there. A range never splits an escape.
  */
-function resolveInStoredForm(content: string, edit: DocumentTextEdit) {
-  const find = inStoredForm(edit.find);
-  const replace = edit.replace ? inStoredForm(edit.replace) : "";
-  if (find === undefined || replace === undefined) return undefined;
-  if (find === edit.find && replace === edit.replace) return undefined;
-  if (canonicalizeNfm(content) !== content) return undefined;
-  const resolved = resolveDocumentTextEdits(content, [{ find, replace }]);
-  if (!resolved.ok) {
-    return resolved.error.kind === "missing" ? undefined : resolved;
+function resolveOnStoredForm(content: string, edit: DocumentTextEdit) {
+  const exact = resolveDocumentTextEdits(content, [edit]);
+  if (canonicalizeNfm(content) !== content) return exact;
+  const missing = {
+    ok: false as const,
+    error: { kind: "missing" as const, editIndex: 0, find: edit.find },
+  };
+  let found = exact;
+  if (!exact.ok && exact.error.kind === "missing") {
+    const find = inStoredForm(edit.find);
+    if (find === undefined || find === edit.find) return exact;
+    found = resolveDocumentTextEdits(content, [{ find, replace: "" }]);
+    if (!found.ok && found.error.kind === "missing") return exact;
   }
-  return canonicalizeNfm(resolved.content) === resolved.content
-    ? resolved
-    : undefined;
+  if (!found.ok) return found;
+  let { start, end } = found.ranges[0]!;
+  if (escapedAt(content, start)) start -= 1;
+  if (end > start && content[end - 1] === "\\" && escapedAt(content, end))
+    return missing;
+  const placed = (text: string) =>
+    `${content.slice(0, start)}${text}${content.slice(end)}`;
+  if (canonicalizeNfm(placed(edit.find)) !== content) return missing;
+  const after = canonicalizeNfm(placed(edit.replace));
+  // Canonicalizing can respell text next to the replacement, so the range
+  // widens to every byte the change touches.
+  let prefix = 0;
+  while (
+    prefix < Math.min(content.length, after.length) &&
+    content[prefix] === after[prefix]
+  )
+    prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < Math.min(content.length, after.length) - prefix &&
+    content[content.length - 1 - suffix] === after[after.length - 1 - suffix]
+  )
+    suffix += 1;
+  const from = Math.min(start, prefix);
+  const to = Math.max(end, content.length - suffix);
+  return {
+    ok: true as const,
+    content: after,
+    ranges: [
+      {
+        find: content.slice(from, to),
+        replace: after.slice(from, after.length - (content.length - to)),
+        start: from,
+        end: to,
+      },
+    ],
+  };
 }
 
 function rejectedFind(
@@ -369,14 +420,9 @@ export default defineAction({
     }
 
     const edit = { find: args.find, replace: args.replace ?? "" };
-    let resolved = resolveDocumentTextEdits(content, [edit]);
-    if (
-      !resolved.ok &&
-      resolved.error.kind === "missing" &&
-      (await isLiveBodyWriterPage(id))
-    ) {
-      resolved = resolveInStoredForm(content, edit) ?? resolved;
-    }
+    const resolved = (await isLiveBodyWriterPage(id))
+      ? resolveOnStoredForm(content, edit)
+      : resolveDocumentTextEdits(content, [edit]);
     if (!resolved.ok) rejectedFind(resolved.error);
     const range = resolved.ranges[0]!;
 

@@ -1397,6 +1397,74 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
     );
   });
 
+  async function acceptedBody(page: { id: string }, suggestionId: string) {
+    const suggestion = (await getResourceSuggestion.run(
+      { id: suggestionId },
+      ctx,
+    )) as { revision: number; baseRevision: string };
+    await decideResourceSuggestion.run(
+      {
+        id: suggestionId,
+        decision: "accepted",
+        idempotencyKey: `accept-${suggestionId}`,
+        observedBase: suggestion.baseRevision,
+        observedRevision: suggestion.revision,
+      },
+      ctx,
+    );
+    return (
+      (await getDocument.run({ id: page.id }, ctx)) as { content: string }
+    ).content;
+  }
+
+  it("refuses a spelling that reads as other text in its place", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        // On its own `+ x` is a list item, spelled `- x`; mid-line it is text.
+        const page = await switchedPage("Now - x costs $60.");
+        await expect(
+          suggestOwnSpelling(page, "+ x costs $60", "paid"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("reads the replacement in its place on the page", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "costs $60",
+          "+ x",
+        );
+        expect(await acceptedBody(page, suggestionId)).toBe(
+          canonicalizeNfm(AGENT_BODY.replace("costs $60", "+ x")),
+        );
+      },
+    );
+  });
+
+  it("never starts a match inside an escape", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        // `$60 per` is a substring of the stored `\$60 per`.
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "$60 per",
+          "free",
+        );
+        expect(await acceptedBody(page, suggestionId)).toBe(
+          canonicalizeNfm(AGENT_BODY.replace("$60 per", "free")),
+        );
+      },
+    );
+  });
+
   it("keeps the exact match on a Page that isn't switched", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
