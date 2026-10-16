@@ -213,8 +213,12 @@ function documentUpdateResponse(
     source: serializeDocumentSource(doc),
     softDeletedDatabaseIds,
     ...(browserSaveAttempt ? { browserSaveAttempt } : {}),
+    // Only a save the live copy holds keeps a receipt.
     ...(browserSaveAttempt?.bodySave
-      ? { bodySave: browserSaveAttempt.bodySave }
+      ? {
+          bodySave: browserSaveAttempt.bodySave,
+          bodyIntentOutcome: { status: "applied" as const },
+        }
       : {}),
   };
 }
@@ -1255,15 +1259,17 @@ const updateDocumentAction = defineAction({
               // most saves from two open tabs match no stored body. Old
               // editors read an unsettled save as unsaved and send its text
               // to History when the tab reopens.
+              // The live copy keeps a title heading that SQL writes strip, so
+              // compare the editor's own bodies, not the stripped ones.
               const hold =
                 matchesLiveCopy ||
                 !authoredBase ||
-                authoredCandidateContent === undefined
+                args.authoredCandidateContent === undefined
                   ? undefined
                   : await liveCopyHoldsSave({
                       base: args.authoredBaseContent as string,
                       stored: historyBefore.content,
-                      candidate: authoredCandidateContent,
+                      candidate: args.authoredCandidateContent,
                     });
               settlesLiveCopyBody = matchesLiveCopy || hold === "held";
               if (hold) measurement.reason_code = `live_copy_save_${hold}`;

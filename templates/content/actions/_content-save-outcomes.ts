@@ -66,6 +66,7 @@ const reasons = new Set([
   "recovery_base_changed",
   "live_copy_save_held",
   "live_copy_save_unheld",
+  "live_copy_save_noncanonical",
   "live_copy_save_unchecked",
   "title_base_changed",
   "body_base_changed",

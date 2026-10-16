@@ -1183,8 +1183,8 @@ describe("a browser save to a switched page's body", () => {
       .where(eq(schema.documentPreviewDrafts.documentId, id));
   }
 
-  /** Another tab rewrites the page's one paragraph, keeping its structure. */
-  async function typeInOtherTab(id: string, bodies: string[]) {
+  /** A tab synced to the live copy edits its body into each of `bodies`. */
+  async function typeInTab(id: string, bodies: string[]) {
     for (const body of bodies) {
       await asOwner(async () =>
         collab.applyUpdate(id, await editorUpdate(id, markdownBlocks(body))),
@@ -1196,7 +1196,7 @@ describe("a browser save to a switched page's body", () => {
     await switchedPage("two-tabs", "Hello there");
     const loaded = await page("two-tabs");
     // The other tab's commits record no body intents.
-    await typeInOtherTab("two-tabs", ["Hello there B1", "Hello there B2"]);
+    await typeInTab("two-tabs", ["Hello there B1", "Hello there B2"]);
     const before = await page("two-tabs");
     expect(before.bodyRevision).toBe(loaded.bodyRevision + 2);
 
@@ -1285,22 +1285,20 @@ describe("a browser save to a switched page's body", () => {
   it("settles a save the live copy holds, though a peer committed after it", async () => {
     await switchedPage("held", "First\n\nSecond");
     const loaded = await page("held");
-    // Tab A's own updates reach the live copy over collab before its save.
-    await asOwner(async () =>
-      collab.applyUpdate(
-        "held",
-        await editorUpdate("held", markdownBlocks("First A\n\nSecond")),
-      ),
-    );
+    // Tab A's own typing reaches the live copy over collab, then another
+    // tab's commit lands before tab A's save.
+    await typeInTab("held", ["First A\n\nSecond"]);
     const typed = (await page("held")).content;
-    await typeInOtherTab("held", ["First A\n\nSecond B"]);
+    await typeInTab("held", ["First A\n\nSecond B"]);
     await keepDraft("held", typed);
     const before = await page("held");
+    const save = () =>
+      browserSave("held", loaded, typed, {
+        editorSnapshotTitle: "held",
+        editorSnapshotContent: typed,
+      });
 
-    const saved = await browserSave("held", loaded, typed, {
-      editorSnapshotTitle: "held",
-      editorSnapshotContent: typed,
-    });
+    const saved = await save();
 
     expect(await countedReason()).toBe("live_copy_save_held");
     expect(saved).not.toHaveProperty("preservationRequired");
@@ -1314,6 +1312,80 @@ describe("a browser save to a switched page's body", () => {
     expect(await drafts("held")).toEqual([]);
     expect(await receipts("held")).toEqual([{ attemptId: "held-attempt" }]);
     expect(await bodyIntents("held")).toEqual([]);
+
+    // A resend of the same attempt is answered the same way from its receipt.
+    await expect(save()).resolves.toMatchObject({
+      bodyIntentOutcome: { status: "applied" },
+      bodySave: { matchesLiveCopy: false },
+      browserSaveAttempt: { result: "replayed" },
+    });
+  });
+
+  it("compares a save's title heading as the editor wrote it", async () => {
+    await switchedPage("headed", "# headed\n\nFirst\n\nSecond");
+    const loaded = await page("headed");
+    await typeInTab("headed", ["# headed\n\nFirst A\n\nSecond"]);
+    const typed = (await page("headed")).content;
+    await typeInTab("headed", ["# headed\n\nFirst A\n\nSecond B"]);
+    await keepDraft("headed", typed);
+
+    // update-document strips a heading that repeats the title from the body
+    // it writes, and the live copy keeps it.
+    await expect(
+      browserSave("headed", loaded, typed, {
+        editorSnapshotTitle: "headed",
+        editorSnapshotContent: typed,
+      }),
+    ).resolves.toMatchObject({
+      content: expect.stringMatching(/^# headed\n/),
+      bodyIntentOutcome: { status: "applied" },
+    });
+    expect(await countedReason()).toBe("live_copy_save_held");
+    expect(await drafts("headed")).toEqual([]);
+  });
+
+  it("keeps a tab's draft when only part of its typing reached the live copy", async () => {
+    await switchedPage("partial", "Hello");
+    const loaded = await page("partial");
+    await typeInTab("partial", ["Hello w"]);
+    await keepDraft("partial", "Hello world");
+
+    const saved = await browserSave("partial", loaded, "Hello world", {
+      editorSnapshotTitle: "partial",
+      editorSnapshotContent: "Hello world",
+    });
+
+    expect(await countedReason()).toBe("live_copy_save_unheld");
+    expect(saved).toMatchObject({
+      content: "Hello w",
+      bodySave: { matchesLiveCopy: false },
+    });
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
+    expect(await drafts("partial")).toEqual([{ content: "Hello world" }]);
+    expect(await receipts("partial")).toEqual([]);
+  });
+
+  it("keeps a tab's draft when its save is not its own serialization", async () => {
+    await switchedPage("noncanonical", "Hello");
+    const loaded = await page("noncanonical");
+    await typeInTab("noncanonical", ["Hello\n<callout>\n</callout>"]);
+    const stored = (await page("noncanonical")).content;
+    // The parse drops the unindented callout child, so this compares as the
+    // empty callout the live copy holds.
+    const candidate = "Hello\n<callout>\nOnly text\n</callout>";
+    expect(nfm.docToNfm(nfm.nfmToDoc(candidate))).toBe(stored);
+    await keepDraft("noncanonical", candidate);
+
+    const saved = await browserSave("noncanonical", loaded, candidate, {
+      editorSnapshotTitle: "noncanonical",
+      editorSnapshotContent: candidate,
+    });
+
+    expect(await countedReason()).toBe("live_copy_save_noncanonical");
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
+    expect(saved).not.toHaveProperty("browserSaveAttempt");
+    expect(await drafts("noncanonical")).toEqual([{ content: candidate }]);
+    expect(await receipts("noncanonical")).toEqual([]);
   });
 
   it("keeps a tab's draft when the live copy cannot compare its save in time", async () => {
@@ -1475,7 +1547,7 @@ describe("a browser save to a switched page's body", () => {
   it("takes main's path for the same save once the page's flags are off (SF-11)", async () => {
     await switchedPage("flags-off", "Hello there");
     const loaded = await page("flags-off");
-    await typeInOtherTab("flags-off", ["Hello there B1", "Hello there B2"]);
+    await typeInTab("flags-off", ["Hello there B1", "Hello there B2"]);
     await setFlags(false);
 
     // Main's comparator, which L7 saw divert the gate-on save to History.
