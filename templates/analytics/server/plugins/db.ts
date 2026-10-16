@@ -14,6 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import { CONTENT_METRICS_MIGRATION_SQL } from "../lib/content-metrics/migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
 
@@ -1809,6 +1810,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       version: 169,
       name: "analytics-bi-migration-external-dashboards",
       sql: EXTERNAL_DASHBOARD_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 180,
+      name: "analytics-content-metrics-tables",
+      sql: CONTENT_METRICS_MIGRATION_SQL.join(";\n"),
     },
   ],
   { table: "analytics_migrations" },

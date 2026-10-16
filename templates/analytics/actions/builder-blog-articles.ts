@@ -256,9 +256,10 @@ export async function listBuilderBlogArticles(
     ctx: requestContext(context),
   });
   if (!credential) {
-    throw new Error(
-      "Builder Content API is not connected for this Analytics workspace.",
-    );
+    fail("Builder Content API is not connected for this Analytics workspace.", {
+      errorCode: "builder_not_connected",
+      statusCode: 424,
+    });
   }
 
   const requestedHandles = new Set(
