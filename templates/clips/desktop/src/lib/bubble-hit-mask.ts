@@ -114,3 +114,12 @@ export function sameHitMask(a: HitMask | null, b: HitMask | null): boolean {
   }
   return true;
 }
+
+/** Whether a point, as a fraction of the window, falls on a set cell. */
+export function hitMaskContains(mask: HitMask, fx: number, fy: number) {
+  if (!(fx >= 0 && fx < 1 && fy >= 0 && fy < 1)) return false;
+  const col = Math.min(Math.floor(fx * mask.cols), mask.cols - 1);
+  const row = Math.min(Math.floor(fy * mask.rows), mask.rows - 1);
+  const index = row * mask.cols + col;
+  return ((mask.bits[index >> 3] ?? 0) & (1 << (index & 7))) !== 0;
+}

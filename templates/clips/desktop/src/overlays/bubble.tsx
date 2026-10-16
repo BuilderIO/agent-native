@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   buildHitMask,
+  hitMaskContains,
   HIT_MASK_CELL_PX,
   type HitMask,
   type HitRect,
@@ -270,7 +271,21 @@ export function Bubble() {
       return;
     }
     hitMaskDirtyRef.current = true;
-    return () => sendHitMask(null);
+    // Rust polls the cursor, so moving off the person would leave the window
+    // taking clicks until the next poll; ask it to update right away.
+    const onPointerMove = (event: PointerEvent) => {
+      const mask = hitMaskSentRef.current;
+      if (!mask) return;
+      const fx = event.clientX / window.innerWidth;
+      const fy = event.clientY / window.innerHeight;
+      if (hitMaskContains(mask, fx, fy)) return;
+      invoke("recheck_bubble_hit").catch(() => {});
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      sendHitMask(null);
+    };
   }, [showCutout]);
 
   const onClose = async () => {

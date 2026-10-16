@@ -433,9 +433,11 @@ pub fn is_bubble_dragging() -> bool {
 // cut-out is on. The bubble sends a coarse alpha grid over its window; this
 // loop follows the cursor and only accepts mouse events over set cells.
 const BUBBLE_HOVER_EVENT: &str = "clips:bubble-hover";
-const BUBBLE_HIT_TRACK_INTERVAL: Duration = Duration::from_millis(40);
+const BUBBLE_HIT_TRACK_INTERVAL: Duration = Duration::from_millis(16);
 const BUBBLE_HIT_MASK_MAX_CELLS: u32 = 1 << 16;
 static BUBBLE_HIT_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Wakes the tracking loop before its next poll.
+static BUBBLE_HIT_RECHECK: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct BubbleHitMask {
@@ -532,9 +534,20 @@ fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
                     let _ = app.emit_to(BUBBLE_LABEL, BUBBLE_HOVER_EVENT, interactive);
                 }
             }
-            tokio::time::sleep(BUBBLE_HIT_TRACK_INTERVAL).await;
+            tokio::select! {
+                _ = tokio::time::sleep(BUBBLE_HIT_TRACK_INTERVAL) => {}
+                _ = BUBBLE_HIT_RECHECK.notified() => {}
+            }
         }
     });
+}
+
+/// Updates click-through now instead of at the next poll. The bubble calls
+/// this when the pointer moves onto a transparent cell, so a click there
+/// passes through instead of landing on the still-interactive window.
+#[tauri::command]
+pub fn recheck_bubble_hit() {
+    BUBBLE_HIT_RECHECK.notify_one();
 }
 
 /// Sets the cut-out hit mask, or clears it (`None`) to make the whole

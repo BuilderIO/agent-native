@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildHitMask, hitMaskGrid, sameHitMask } from "./bubble-hit-mask";
+import {
+  buildHitMask,
+  hitMaskContains,
+  hitMaskGrid,
+  sameHitMask,
+} from "./bubble-hit-mask";
 
 function rgbaWithAlpha(cols: number, rows: number, opaque: number[]) {
   const rgba = new Uint8ClampedArray(cols * rows * 4);
@@ -111,5 +116,18 @@ describe("sameHitMask", () => {
     expect(sameHitMask(a, c)).toBe(false);
     expect(sameHitMask(a, null)).toBe(false);
     expect(sameHitMask(null, null)).toBe(true);
+  });
+});
+
+describe("hitMaskContains", () => {
+  it("maps window fractions to packed cells like the native check", () => {
+    // 3x2 grid with cells (2,0) and (0,1) set: bits 2 and 3.
+    const mask = { cols: 3, rows: 2, bits: [0b0000_1100] };
+    expect(hitMaskContains(mask, 0.9, 0.1)).toBe(true);
+    expect(hitMaskContains(mask, 0.1, 0.9)).toBe(true);
+    expect(hitMaskContains(mask, 0.1, 0.1)).toBe(false);
+    expect(hitMaskContains(mask, 0.5, 0.9)).toBe(false);
+    expect(hitMaskContains(mask, 1, 0.1)).toBe(false);
+    expect(hitMaskContains(mask, -0.01, 0.1)).toBe(false);
   });
 });

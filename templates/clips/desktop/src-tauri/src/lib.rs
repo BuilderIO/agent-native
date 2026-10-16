@@ -261,6 +261,7 @@ pub fn run() {
             clips::bubble_drag_end,
             clips::set_bubble_size,
             clips::set_bubble_hit_mask,
+            clips::recheck_bubble_hit,
             clips::load_bubble_size,
             config::get_feature_config,
             config::set_feature_config,
