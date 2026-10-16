@@ -536,10 +536,30 @@ export function ImageBlock({
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
-  const [failedSrc, setFailedSrc] = useState(() =>
-    storedBodyImageFailed(src) ? src : null,
+  // A source the stored body on screen failed to load starts failed, so the
+  // block keeps the stored body's height; it still loads the source itself,
+  // since that failure may belong to another block or have passed.
+  const [failure, setFailure] = useState<{
+    src: string;
+    ownLoad: boolean;
+  } | null>(() =>
+    storedBodyImageFailed(src) ? { src, ownLoad: false } : null,
   );
-  const imageLoadFailed = failedSrc === src;
+  if (failure && failure.src !== src) setFailure(null);
+  const imageLoadFailed = failure?.src === src;
+  const awaitingOwnLoad = failure?.src === src && !failure.ownLoad;
+
+  useEffect(() => {
+    if (!awaitingOwnLoad) return;
+    const probe = new Image();
+    probe.onload = () => setFailure(null);
+    probe.onerror = () => setFailure({ src, ownLoad: true });
+    probe.src = src;
+    return () => {
+      probe.onload = null;
+      probe.onerror = null;
+    };
+  }, [awaitingOwnLoad, src]);
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -1060,8 +1080,8 @@ export function ImageBlock({
             alt={alt || ""}
             className="media-block__content"
             draggable={false}
-            onLoad={() => setFailedSrc(null)}
-            onError={() => setFailedSrc(src)}
+            onLoad={() => setFailure(null)}
+            onError={() => setFailure({ src, ownLoad: true })}
             onDoubleClick={(event) => {
               event.preventDefault();
               event.stopPropagation();

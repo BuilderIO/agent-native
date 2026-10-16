@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { getExtensionField, resolveExtensions } from "@tiptap/core";
+import {
+  type Editor,
+  getExtensionField,
+  resolveExtensions,
+} from "@tiptap/core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -268,6 +272,63 @@ describe("the static document body", () => {
 
     expect(container.querySelector(".ProseMirror img")).not.toBeNull();
     expect(container.querySelector(".media-block__broken")).toBeNull();
+  });
+
+  it("still loads an image that starts as the stored body's failure", async () => {
+    const probes: HTMLImageElement[] = [];
+    vi.stubGlobal("Image", function () {
+      const probe = document.createElement("img");
+      probes.push(probe);
+      return probe;
+    });
+    // The editor mounts behind the stored body, which stays up until the
+    // editor's node views draw.
+    const page = (editing: boolean) =>
+      createElement(
+        "div",
+        null,
+        imageStoredBody(),
+        editing ? imageEditor() : null,
+      );
+    await show(page(false));
+    await failImage(container.querySelector("img")!);
+    await show(page(true));
+
+    expect(
+      container.querySelector(".ProseMirror .media-block__broken"),
+    ).not.toBeNull();
+    expect(probes.map((probe) => probe.getAttribute("src"))).toEqual([
+      "https://example.com/missing.png",
+    ]);
+    await act(async () => probes[0].onload?.call(probes[0], new Event("load")));
+    expect(
+      container.querySelector(".ProseMirror .media-block__broken"),
+    ).toBeNull();
+    expect(container.querySelector(".ProseMirror img")).not.toBeNull();
+  });
+
+  it("loads a failed source again when the image changes back to it", async () => {
+    await show(imageEditor());
+    await failImage(container.querySelector("img")!);
+    const editor = (
+      container.querySelector(".ProseMirror") as HTMLElement & {
+        editor: Editor;
+      }
+    ).editor;
+    const setSource = (src: string) =>
+      act(async () => {
+        let at = -1;
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === "image") at = pos;
+        });
+        editor.view.dispatch(editor.state.tr.setNodeAttribute(at, "src", src));
+      });
+    await setSource("https://example.com/other.png");
+    await setSource("https://example.com/missing.png");
+
+    expect(
+      container.querySelector(".ProseMirror img")?.getAttribute("src"),
+    ).toBe("https://example.com/missing.png");
   });
 
   it("redraws a failed image in the reader's new language", async () => {
