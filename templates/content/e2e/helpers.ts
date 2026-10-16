@@ -25,6 +25,7 @@ import {
   captureFixtureInput,
   type FixtureInputSnapshot,
 } from "./editor-input-lineage";
+import { GATE_ARM } from "./gate-arm";
 import {
   SaveLineageCapture,
   type SaveLineageCheckpointName,
@@ -44,6 +45,31 @@ const SAVE_PATH = "/_agent-native/actions/update-document";
 const SESSION_PATH = "/_agent-native/auth/session";
 const EVENTS_PATH = "/_agent-native/events";
 const POLL_PATH = "/_agent-native/poll";
+const COLLAB_UPDATE_PATH = /^\/_agent-native\/collab\/[^/]+\/update$/;
+export const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
+
+/**
+ * The request that saves a tab's typing. A legacy page saves its whole body
+ * through update-document. A page switched to its live copy sends no body
+ * saves: its collab updates are the save, and it keeps the ones the server
+ * has not acknowledged in its outbox. Gate-on tests switch their page before
+ * any tab opens it, so the arm decides.
+ */
+export const BODY_SAVES: "update-document" | "collab-update" =
+  GATE_ARM === "on" ? "collab-update" : "update-document";
+
+function savesBody(pathname: string): boolean {
+  return BODY_SAVES === "collab-update"
+    ? COLLAB_UPDATE_PATH.test(pathname)
+    : pathname === SAVE_PATH;
+}
+
+/** update-document, and on a switched page the collab updates that carry its body. */
+function isSave(request: Request): boolean {
+  if (request.method() !== "POST") return false;
+  const { pathname } = new URL(request.url());
+  return pathname === SAVE_PATH || savesBody(pathname);
+}
 
 // The text a person sees when a save did not go through cleanly. Read from
 // app/i18n-data.ts; a renamed string makes these needles go quiet, so the
@@ -440,6 +466,29 @@ export async function classifySave(response: Response): Promise<{
   return { outcome: "written", bodyState, body };
 }
 
+/**
+ * A collab update's answer on a switched page. The tab drops an update from
+ * its outbox only on a readable acknowledgment, and `not_derived` sends it
+ * back to update-document saves for the rest of the visit.
+ */
+async function classifyCollabUpdate(
+  response: Response,
+): Promise<{ outcome: SaveOutcome; code?: string }> {
+  if (!response.ok())
+    return { outcome: "refused", code: `HTTP ${response.status()}` };
+  let ack: { liveCopy?: unknown } | null;
+  try {
+    ack = (await response.json()) as { liveCopy?: unknown } | null;
+  } catch {
+    // coercion-ok: the tab keeps and resends an update whose acknowledgment it
+    // cannot read, so the tally counts it as refused, under its own code.
+    return { outcome: "refused", code: "collab-update:unreadable-ack" };
+  }
+  if (ack?.liveCopy === "not_derived")
+    return { outcome: "written", code: "live-copy:not_derived" };
+  return { outcome: "written" };
+}
+
 export function isCollabPollQuery(params: URLSearchParams): boolean {
   const since = params.get("since");
   const cursor = params.has("cursor");
@@ -459,6 +508,7 @@ function refuseRealtimeStream(route: Route) {
  * visibility shim and the observer. Unless the server already refuses it, every
  * realtime stream request is answered 204, as a Netlify function answers it,
  * so both tabs fall back to the 12 s poll that beta and production run on.
+ * Saves are counted and timed as `BODY_SAVES` describes.
  */
 export class TabSet {
   readonly tabs = new Map<Page, TabRecord>();
@@ -618,11 +668,15 @@ export class TabSet {
     const url = new URL(request.url());
     const page = pageOf(request);
     const record = (page && this.tabs.get(page)) || this.detached;
-    if (url.pathname === SAVE_PATH && request.method() === "POST") {
+    if (isSave(request)) {
       record.saveRequests++;
       this.savesInFlight++;
-      this.sentAt.set(request, Date.now());
-      const entry = this.saveLineage.captureRequest(record, request.postData());
+      // Only body saves wait out a SaveGate's latency.
+      if (savesBody(url.pathname)) this.sentAt.set(request, Date.now());
+      const entry =
+        url.pathname === SAVE_PATH
+          ? this.saveLineage.captureRequest(record, request.postData())
+          : undefined;
       if (entry) {
         this.lineageByRequest.set(request, { record, entry });
         this.activeSaveLineage.add(entry);
@@ -646,10 +700,18 @@ export class TabSet {
       if (response.status() === 200) record.realtimeStreams++;
       return;
     }
-    if (pathname !== SAVE_PATH || request.method() !== "POST") return;
+    if (!isSave(request)) return;
     this.savesInFlight--;
     const sentAt = this.sentAt.get(request);
     if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
+    if (pathname !== SAVE_PATH) {
+      this.pending.push(
+        classifyCollabUpdate(response).then(({ outcome, code }) =>
+          tallySave(record, outcome, code),
+        ),
+      );
+      return;
+    }
     const lineage = this.lineageByRequest.get(request);
     const lineageResponse = lineage
       ? this.saveLineage.beginResponse(lineage.entry, response.status())
@@ -664,18 +726,13 @@ export class TabSet {
             bodyState,
             bodyState === "valid" ? body : undefined,
           );
-        record.saveOutcomes[outcome] = (record.saveOutcomes[outcome] ?? 0) + 1;
-        if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
+        tallySave(record, outcome, code);
       }),
     );
   }
 
   private onRequestFailed(request: Request) {
-    if (
-      new URL(request.url()).pathname !== SAVE_PATH ||
-      request.method() !== "POST"
-    )
-      return;
+    if (!isSave(request)) return;
     this.savesInFlight--;
     const page = pageOf(request);
     const record = (page && this.tabs.get(page)) || this.detached;
@@ -688,14 +745,19 @@ export class TabSet {
   }
 }
 
+function tallySave(record: TabRecord, outcome: SaveOutcome, code?: string) {
+  record.saveOutcomes[outcome] = (record.saveOutcomes[outcome] ?? 0) + 1;
+  if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
+}
+
 type Held = { release: () => Promise<void> };
 type HeldSave = Held & { cutOff: () => Promise<void> };
 
 /**
- * Controls when one tab's saves reach the server and when their answers
- * reach the tab. Holding at arrival keeps a save unsent; holding the answer
- * lets the server apply it while the tab still thinks it is in flight. Both
- * make a race happen in the same order on every run.
+ * Controls when one tab's body saves (see `BODY_SAVES`) reach the server and
+ * when their answers reach the tab. Holding at arrival keeps a save unsent;
+ * holding the answer lets the server apply it while the tab still thinks it is
+ * in flight. Both make a race happen in the same order on every run.
  */
 export class SaveGate {
   private mode: "pass" | "arrival" | "answer" = "pass";
@@ -708,7 +770,7 @@ export class SaveGate {
   static async install(page: Page): Promise<SaveGate> {
     const gate = new SaveGate(page);
     await page.route(
-      (url) => url.pathname === SAVE_PATH,
+      (url) => savesBody(url.pathname),
       (route) => gate.handle(route),
     );
     return gate;
@@ -846,6 +908,34 @@ async function forward(send: () => Promise<void>): Promise<void> {
     if (!/closed|detached|Route is already handled|cancel/i.test(String(error)))
       throw error;
   }
+}
+
+/**
+ * The outbox keys a switched page holds in this browser: collab updates the
+ * server has not acknowledged, one entry per connection. Tabs of one browser
+ * share it, and an entry leaves once its updates are acknowledged.
+ */
+export async function outboxEntries(
+  page: Page,
+  documentId: string,
+): Promise<string[]> {
+  return page.evaluate(
+    ({ prefix, doc }) => {
+      const keys: string[] = [];
+      for (let index = 0; index < localStorage.length; index++) {
+        const key = localStorage.key(index);
+        if (
+          key?.startsWith(prefix) &&
+          key.includes(doc) &&
+          localStorage.getItem(key)
+        )
+          keys.push(key);
+      }
+      return keys;
+    },
+    // A key names the doc as encodeURIComponent(`${baseUrl}\0${docId}`).
+    { prefix: OUTBOX_PREFIX, doc: `%00${encodeURIComponent(documentId)}:` },
+  );
 }
 
 export function delay(ms: number): Promise<void> {

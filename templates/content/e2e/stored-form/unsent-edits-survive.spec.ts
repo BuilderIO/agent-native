@@ -94,6 +94,28 @@ test.describe("SF-12 unsent edits survive", { tag: "@SF-12" }, () => {
   );
 
   test(
+    "typing offline, closing the tab, then reopening online",
+    UNSENT_LOSS,
+    async ({ page, context }) => {
+      const markers = new Markers();
+      const id = await createPage(page, "SF-12 offline close", EDITOR_BODY);
+      await enterGateArm(page, id);
+      const tab = await context.newPage();
+      await gotoEditor(tab, id);
+      const marker = markers.next("A");
+      await context.setOffline(true);
+      await typeAtParagraphEnd(tab, "Alpha paragraph", ` ${marker}`);
+      const closed = tab.waitForEvent("close");
+      await tab.close({ runBeforeUnload: true });
+      await closed;
+      await context.setOffline(false);
+      const reopened = await context.newPage();
+      await gotoEditor(reopened, id);
+      await expectOnceEverywhere(reopened, page, id, marker);
+    },
+  );
+
+  test(
     "typing offline, then reconnecting",
     UNSENT_LOSS,
     async ({ page, context }) => {

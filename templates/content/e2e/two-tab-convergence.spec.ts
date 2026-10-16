@@ -10,6 +10,7 @@ import { knownLossSpec } from "../acceptance/known-loss";
 import {
   AGENT_MARKDOWN_BODY,
   AgentClient,
+  BODY_SAVES,
   createPage,
   delay,
   deleteEditorText,
@@ -22,6 +23,8 @@ import {
   Markers,
   noiseFailures,
   observeIntegrity,
+  outboxEntries,
+  OUTBOX_PREFIX,
   postAction,
   RequestGate,
   SaveGate,
@@ -133,6 +136,12 @@ async function runScenario(
       working.some((tab) => tab.saveDurationsMs.length),
       "no save was timed under the latency",
     ).toBe(true);
+  if (BODY_SAVES === "collab-update")
+    for (const tab of working)
+      expect(
+        tab.saveCodes["live-copy:not_derived"] ?? 0,
+        `${tab.label} heard the server stopped building the body from the live copy, so it went back to update-document saves`,
+      ).toBe(0);
   expect(
     integrityFailures(record),
     "lost, duplicated or deleted-then-back text",
@@ -173,6 +182,149 @@ async function alternate(s: Scenario) {
       await tab.waitForTimeout(400);
     }
   }
+}
+
+const SWITCHED_HAS_NO_DRAFT =
+  "A switched page keeps unsent edits in its outbox, not a recovery draft, and offers no Keep Mine; the outbox scenarios cover it.";
+const LEGACY_KEEPS_A_DRAFT =
+  "A legacy page keeps a body it could not save in a recovery draft; the Keep Mine and journal scenarios cover it.";
+
+/**
+ * refresh-mid-save on a switched page, which keeps no recovery draft to
+ * compare: the server applies A's update but A never hears so, and its outbox
+ * carries the update through the refresh without doubling it.
+ */
+async function refreshMidUpdate(s: Scenario) {
+  const a = await s.tabs.open("A", s.id);
+  const b = await s.tabs.open("B", s.id);
+  const aSaves = await SaveGate.install(a);
+  await s.tabs.showAll();
+  aSaves.holdAnswers();
+  const aMarker = s.markers.next("A");
+  await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+  await aSaves.waitForHeld();
+  await s.tabs.waitForText(b, aMarker);
+  const bMarker = s.markers.next("B");
+  await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
+  await s.tabs.waitForText(a, bMarker);
+  await aSaves.cutOff();
+  expect(
+    await outboxEntries(a, s.id),
+    "A's cut-off update should wait in its outbox",
+  ).not.toEqual([]);
+  await a.reload({ waitUntil: "domcontentloaded" });
+  await expectEditorReady(a);
+  aSaves.pass();
+  await aSaves.release();
+  await expect
+    .poll(() => outboxEntries(a, s.id), {
+      message: "the reopened tab's outbox should empty once its update lands",
+      timeout: 30_000,
+    })
+    .toEqual([]);
+  expect(
+    await a.getByText("Choose which version to keep").isVisible(),
+    "the reopened tab asked which of two versions to keep",
+  ).toBe(false);
+  await typeAtParagraphEnd(a, "Bravo paragraph", ` ${s.markers.next("A")}`);
+  s.notes.heldSaves = aSaves.heldCount;
+}
+
+/**
+ * The switched-page side of the Keep Mine and journal scenarios: while the
+ * server refuses A's updates, A's text waits in its outbox, B renames the
+ * page, and after a reload A's text lands under B's title with no version to
+ * choose. With `outboxWriteFailsOnce`, the first outbox write throws.
+ */
+async function peerTitleWhileUpdatesFail(
+  s: Scenario,
+  { outboxWriteFailsOnce }: { outboxWriteFailsOnce: boolean },
+) {
+  const { first: a, second: b } = await openPair(s, 0);
+  const aMarker = s.markers.next("A");
+  const peerTitle = `Peer title ${s.id.slice(0, 8)}`;
+  const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
+  const collabUpdateMatcher = (url: URL) => url.pathname === collabUpdatePath;
+  let failedCollabUpdates = 0;
+  await a.route(collabUpdateMatcher, (route) => {
+    failedCollabUpdates++;
+    return route.fulfill({
+      status: 503,
+      body: "Collaboration update refused while another tab renames the page",
+    });
+  });
+  if (outboxWriteFailsOnce)
+    await a.evaluate((prefix) => {
+      const original = Storage.prototype.setItem;
+      (window as any).__outboxOriginalSetItem = original;
+      (window as any).__outboxSetItemFailed = false;
+      Storage.prototype.setItem = function (key: string, value: string) {
+        if (!(window as any).__outboxSetItemFailed && key.startsWith(prefix)) {
+          (window as any).__outboxSetItemFailed = true;
+          throw new DOMException(
+            "Simulated one-time outbox write failure",
+            "QuotaExceededError",
+          );
+        }
+        return original.call(this, key, value);
+      };
+    }, OUTBOX_PREFIX);
+
+  await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+  await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
+  await expect
+    .poll(() => outboxEntries(a, s.id), {
+      message: "A's refused update should wait in its outbox",
+      timeout: 30_000,
+    })
+    .not.toEqual([]);
+  if (outboxWriteFailsOnce)
+    expect(
+      await a.evaluate(() => (window as any).__outboxSetItemFailed),
+      "no outbox write was attempted while A typed",
+    ).toBe(true);
+
+  const titleInput = b.getByLabel("Document title");
+  await titleInput.fill(peerTitle);
+  await titleInput.press("Tab");
+  await expect
+    .poll(async () => (await getDocument(s.reader, s.id)).title, {
+      message: "B's title should reach the canonical page",
+      timeout: 30_000,
+    })
+    .toBe(peerTitle);
+  await expect(a.getByLabel("Document title")).toHaveValue(peerTitle, {
+    timeout: 30_000,
+  });
+  const beforeReload = await getDocument(s.reader, s.id);
+  expect(beforeReload.content).not.toContain(aMarker);
+
+  if (outboxWriteFailsOnce)
+    await a.evaluate(() => {
+      Storage.prototype.setItem = (window as any).__outboxOriginalSetItem;
+    });
+  await a.unroute(collabUpdateMatcher);
+  await a.reload({ waitUntil: "domcontentloaded" });
+  await expectEditorReady(a);
+  await expect
+    .poll(async () => getDocument(s.reader, s.id), {
+      message: "A's kept update should land under B's title",
+      timeout: 30_000,
+    })
+    .toMatchObject({
+      title: peerTitle,
+      content: expect.stringContaining(aMarker),
+    });
+  await expect(
+    a.getByText("Choose which version to keep", { exact: true }),
+  ).toBeHidden();
+  await expect(a.locator(EDITOR)).toContainText(aMarker);
+  s.notes.failedCollabUpdates = failedCollabUpdates;
+  if (outboxWriteFailsOnce)
+    s.expectedNoise = [
+      'A showed "Your latest page edits could not be saved."',
+      'A toasted "Your latest page edits could not be saved. Try again before leaving this page."',
+    ];
 }
 
 test.describe(
@@ -288,9 +440,12 @@ test.describe(
           async (s) => {
             const { first, second, gates } = await openPair(s);
             // B's word reaches A only through the live copy: B's save is held, so
-            // no stored body holds the word when A deletes it.
+            // no stored body holds the word when A deletes it. On a switched page
+            // that live copy is the save, so B's tab instead never hears that the
+            // word landed, and keeps sending it.
             await s.tabs.showOnly(second);
-            gates.second.holdArrivals();
+            if (BODY_SAVES === "collab-update") gates.second.holdAnswers();
+            else gates.second.holdArrivals();
             const fromSecond = s.markers.next("B");
             await typeAtParagraphEnd(
               second,
@@ -392,6 +547,7 @@ test.describe(
       context,
     }, testInfo) => {
       await runScenario("refresh-mid-save", testInfo, context, async (s) => {
+        if (BODY_SAVES === "collab-update") return refreshMidUpdate(s);
         const a = await s.tabs.open("A", s.id);
         const b = await s.tabs.open("B", s.id);
         const aSaves = await SaveGate.install(a);
@@ -503,6 +659,7 @@ test.describe(
     test("Keep Mine retains a peer title adopted while an editor recovery draft is pending", async ({
       context,
     }, testInfo) => {
+      test.skip(BODY_SAVES === "collab-update", SWITCHED_HAS_NO_DRAFT);
       await runScenario(
         "peer-title-retained-recovery",
         testInfo,
@@ -724,6 +881,7 @@ test.describe(
     test("a one-time journal write failure still reopens the retained draft", async ({
       context,
     }, testInfo) => {
+      test.skip(BODY_SAVES === "collab-update", SWITCHED_HAS_NO_DRAFT);
       await runScenario(
         "peer-title-journal-storage-recovery",
         testInfo,
@@ -871,6 +1029,24 @@ test.describe(
             'A toasted "Your latest page edits could not be saved. Try again before leaving this page."',
           ];
         },
+      );
+    });
+
+    test("an update the server refuses lands after a reload, with the title another tab gave the page", async ({
+      context,
+    }, testInfo) => {
+      test.skip(BODY_SAVES === "update-document", LEGACY_KEEPS_A_DRAFT);
+      await runScenario("peer-title-outbox", testInfo, context, (s) =>
+        peerTitleWhileUpdatesFail(s, { outboxWriteFailsOnce: false }),
+      );
+    });
+
+    test("a one-time outbox write failure still lands the update after a reload", async ({
+      context,
+    }, testInfo) => {
+      test.skip(BODY_SAVES === "update-document", LEGACY_KEEPS_A_DRAFT);
+      await runScenario("peer-title-outbox-storage", testInfo, context, (s) =>
+        peerTitleWhileUpdatesFail(s, { outboxWriteFailsOnce: true }),
       );
     });
 

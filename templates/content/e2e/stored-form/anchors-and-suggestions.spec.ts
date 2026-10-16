@@ -578,7 +578,7 @@ test.describe(
         lane: "unowned",
         outcome: "SF-05",
         reason:
-          'A tab opened just after two tabs and an agent finished editing sent a save that went to History and showed "Your edits were saved to Version History", though nothing was typed in it (seen in CI on Linux; 4 of 4 local runs on Windows passed).',
+          'A tab opened just after two tabs and an agent finished editing replays an open tab\'s draft-journal entry as its own save, which goes to History and shows "Your edits were saved to Version History" though nothing was typed in it (intermittent; seen in CI on Linux). #7683 fixes it.',
       }),
       async ({ page, context }) => {
         const scene = await editAround(

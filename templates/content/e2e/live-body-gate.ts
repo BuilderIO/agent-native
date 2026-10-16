@@ -1,26 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { knownLossSpec, type KnownLoss } from "../acceptance/known-loss";
+import { GATE_ARM, type GateArm } from "./gate-arm";
 import { ACTION_HEADERS, postAction, postUiAction } from "./helpers";
+
+export { GATE_ARM, type GateArm };
 
 // Decision D2 of the stored-form rebuild: a page takes the new body paths only
 // when both flags are on for the person and the page itself is switched.
 // Turning the shadow flag on alone measures parity and must not switch anyone.
 export const SHADOW_FLAG = "content.live-body-shadow";
 export const WRITER_FLAG = "content.live-body-writer";
-
-export type GateArm = "off" | "on";
-
-function readArm(): GateArm {
-  const raw = process.env.CONTENT_LIVE_BODY_GATE ?? "off";
-  if (raw === "off" || raw === "on") return raw;
-  throw new Error(
-    `CONTENT_LIVE_BODY_GATE must be "off" or "on", not ${JSON.stringify(raw)}.`,
-  );
-}
-
-/** Which side of the D2 gate this run checks: CI runs the lane once per arm. */
-export const GATE_ARM: GateArm = readArm();
 
 /**
  * Known-loss details for a check main fails differently on each arm. Only this
