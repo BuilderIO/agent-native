@@ -1128,6 +1128,235 @@ describe("runEvalSuite runner creation", () => {
     );
   });
 
+  it("ignores malformed usage callbacks and omits malformed returned usage", async () => {
+    const evalCase = defineEval({
+      name: "malformed-production-adapter-usage-callback",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    const malformedUsage = {
+      inputTokens: "customer@example.com",
+      outputTokens: Number.NaN,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "token=adapter-secret",
+    };
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run({
+        ...args,
+        onUsage: () => {},
+      });
+      args.onUsage(malformedUsage as never);
+      return {
+        ...result,
+        output: { ...result.output, usage: malformedUsage as never },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Production chat eval adapter did not return or report usage.",
+    });
+    expect(suite.report.results[0].usage).toBeUndefined();
+    expect(JSON.stringify(suite.report)).not.toContain("customer@example.com");
+    expect(JSON.stringify(suite.report)).not.toContain("adapter-secret");
+  });
+
+  it("omits malformed usage from failed outputs when no usage callback ran", async () => {
+    const evalCase = defineEval({
+      name: "malformed-production-adapter-usage-without-callback",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run({
+        ...args,
+        onUsage: () => {},
+      });
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          ok: false,
+          error: "token=adapter-secret; customer=example.customer@example.com",
+          usage: {
+            inputTokens: "malformed",
+            outputTokens: 2,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "untrusted-adapter-model",
+          } as never,
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Production agent run failed before usage was captured.",
+    });
+    expect(suite.report.results[0].usage).toBeUndefined();
+    expect(JSON.stringify(suite.report)).not.toContain("adapter-secret");
+    expect(JSON.stringify(suite.report)).not.toContain(
+      "example.customer@example.com",
+    );
+    expect(JSON.stringify(suite.report)).not.toContain(
+      "untrusted-adapter-model",
+    );
+  });
+
+  it("uses observed counts instead of unreported adapter placeholders", async () => {
+    const evalCase = defineEval({
+      name: "unreported-production-adapter-usage",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            usageReported: false,
+            model: "untrusted-placeholder-model",
+          },
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "passed",
+      usage: {
+        inputTokens: 4,
+        outputTokens: 2,
+        usageReported: true,
+        model: "fake-model",
+      },
+    });
+  });
+
+  it("fails closed when an adapter returns a truthy non-boolean ok value", async () => {
+    const evalCase = defineEval({
+      name: "malformed-production-adapter-ok",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          ok: "false" as never,
+          error: "token=adapter-secret",
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Production chat eval adapter returned malformed run output.",
+    });
+    expect(JSON.stringify(suite.report)).not.toContain("adapter-secret");
+  });
+
+  it("uses resolved model identifiers instead of adapter metadata", async () => {
+    const evalCase = defineEval({
+      name: "untrusted-production-adapter-identifiers",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    engineMod.resolveEngine.mockResolvedValue({
+      name: "resolved-engine",
+      defaultModel: "fake-model",
+    } as never);
+    const productionChatPath = testProductionChatPath();
+    const adapterModel = "example.customer@example.com".repeat(20);
+    const adapterEngine = `token=${"x".repeat(300)}`;
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          usage: {
+            ...result.output.usage,
+            model: adapterModel,
+            engineName: adapterEngine,
+          },
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "passed",
+      usage: {
+        model: "fake-model",
+        engineName: "resolved-engine",
+      },
+    });
+    expect(JSON.stringify(suite.report)).not.toContain(adapterModel);
+    expect(JSON.stringify(suite.report)).not.toContain(adapterEngine);
+  });
+
   it("does not expose returned production adapter errors after usage is reported", async () => {
     const evalCase = defineEval({
       name: "returned-production-adapter-error",

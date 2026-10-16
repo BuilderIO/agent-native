@@ -440,7 +440,19 @@ async function runProductionChatPath(args: {
             signal: controller.signal,
             onUsage: (usage) => {
               if (!finished) {
-                partialUsage = mergePartialUsage(partialUsage, usage);
+                const normalizedUsage = normalizeProductionPathUsage(usage, {
+                  model: args.model,
+                  engineName: args.engine.name,
+                });
+                if (
+                  normalizedUsage &&
+                  normalizedUsage.usageReported !== false
+                ) {
+                  partialUsage = mergePartialUsage(
+                    partialUsage,
+                    normalizedUsage,
+                  );
+                }
               }
             },
           }),
@@ -466,7 +478,22 @@ async function runProductionChatPath(args: {
       };
     }
     const output = result.output;
-    const usage = normalizeProductionPathUsage(output.usage) ?? partialUsage;
+    if (typeof output.ok !== "boolean") {
+      return failedProductionPathOutput(
+        output,
+        "Production chat eval adapter returned malformed run output.",
+        Date.now() - started,
+        partialUsage,
+      );
+    }
+    const outputUsage = normalizeProductionPathUsage(output.usage, {
+      model: args.model,
+      engineName: args.engine.name,
+    });
+    const usage =
+      outputUsage?.usageReported === false
+        ? partialUsage
+        : (outputUsage ?? partialUsage);
     if (!usage) {
       return failedProductionPathOutput(
         output,
@@ -478,10 +505,18 @@ async function runProductionChatPath(args: {
     }
     const error =
       receiptError ?? (output.ok ? undefined : "Production chat eval failed.");
+    if (error) {
+      return failedProductionPathOutput(
+        output,
+        error,
+        Date.now() - started,
+        usage,
+      );
+    }
     return {
       ...output,
-      ok: output.ok && !receiptError,
-      error,
+      ok: true,
+      error: undefined,
       runId: output.runId || `eval:${crypto.randomUUID()}`,
       durationMs: Date.now() - started,
       usage,
@@ -560,90 +595,86 @@ function productionAdapterErrorDetails(error: unknown): {
 
 function normalizeProductionPathUsage(
   value: unknown,
+  identifiers: { model: string; engineName?: string },
 ): AgentLoopUsage | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
   }
 
-  try {
-    if (Array.isArray(value)) return undefined;
+  if (Array.isArray(value)) return undefined;
 
-    const usage = value as Record<string, unknown>;
-    const requiredNumberFields = [
-      "inputTokens",
-      "outputTokens",
-      "cacheReadTokens",
-      "cacheWriteTokens",
-    ] as const;
-    const optionalNumberFields = [
-      "builderCreditsUsed",
-      "llmCalls",
-      "followUpMs",
-      "followUpInputTokens",
-      "receiptUnverifiedCount",
-      "receiptChangedFalseCount",
-      "firstEngineEventAtMs",
-    ] as const;
-    const isUsageNumber = (field: string) => {
-      const fieldValue = usage[field];
-      return (
-        typeof fieldValue === "number" &&
-        Number.isFinite(fieldValue) &&
-        fieldValue >= 0
-      );
-    };
+  const usage = value as Record<string, unknown>;
+  const requiredNumberFields = [
+    "inputTokens",
+    "outputTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+  ] as const;
+  const optionalNumberFields = [
+    "builderCreditsUsed",
+    "llmCalls",
+    "followUpMs",
+    "followUpInputTokens",
+    "receiptUnverifiedCount",
+    "receiptChangedFalseCount",
+    "firstEngineEventAtMs",
+  ] as const;
+  const isUsageNumber = (field: string) => {
+    const fieldValue = usage[field];
+    return (
+      typeof fieldValue === "number" &&
+      Number.isFinite(fieldValue) &&
+      fieldValue >= 0
+    );
+  };
 
-    if (
-      !requiredNumberFields.every(isUsageNumber) ||
-      typeof usage.model !== "string" ||
-      (usage.engineName !== undefined &&
-        typeof usage.engineName !== "string") ||
-      (usage.usageReported !== undefined &&
-        typeof usage.usageReported !== "boolean") ||
-      optionalNumberFields.some(
-        (field) => usage[field] !== undefined && !isUsageNumber(field),
-      )
-    ) {
-      return undefined;
-    }
-
-    return {
-      inputTokens: usage.inputTokens as number,
-      outputTokens: usage.outputTokens as number,
-      cacheReadTokens: usage.cacheReadTokens as number,
-      cacheWriteTokens: usage.cacheWriteTokens as number,
-      model: usage.model,
-      ...(usage.builderCreditsUsed !== undefined
-        ? { builderCreditsUsed: usage.builderCreditsUsed as number }
-        : {}),
-      ...(usage.engineName !== undefined
-        ? { engineName: usage.engineName as string }
-        : {}),
-      ...(usage.llmCalls !== undefined
-        ? { llmCalls: usage.llmCalls as number }
-        : {}),
-      ...(usage.followUpMs !== undefined
-        ? { followUpMs: usage.followUpMs as number }
-        : {}),
-      ...(usage.followUpInputTokens !== undefined
-        ? { followUpInputTokens: usage.followUpInputTokens as number }
-        : {}),
-      ...(usage.receiptUnverifiedCount !== undefined
-        ? { receiptUnverifiedCount: usage.receiptUnverifiedCount as number }
-        : {}),
-      ...(usage.receiptChangedFalseCount !== undefined
-        ? { receiptChangedFalseCount: usage.receiptChangedFalseCount as number }
-        : {}),
-      ...(usage.usageReported !== undefined
-        ? { usageReported: usage.usageReported as boolean }
-        : {}),
-      ...(usage.firstEngineEventAtMs !== undefined
-        ? { firstEngineEventAtMs: usage.firstEngineEventAtMs as number }
-        : {}),
-    };
-  } catch {
+  if (
+    !requiredNumberFields.every(isUsageNumber) ||
+    !identifiers.model.trim() ||
+    (usage.usageReported !== undefined &&
+      typeof usage.usageReported !== "boolean") ||
+    optionalNumberFields.some(
+      (field) => usage[field] !== undefined && !isUsageNumber(field),
+    )
+  ) {
     return undefined;
   }
+
+  return {
+    inputTokens: usage.inputTokens as number,
+    outputTokens: usage.outputTokens as number,
+    cacheReadTokens: usage.cacheReadTokens as number,
+    cacheWriteTokens: usage.cacheWriteTokens as number,
+    // These identifiers come from the runner configuration, not adapter output.
+    model: identifiers.model,
+    ...(usage.builderCreditsUsed !== undefined
+      ? { builderCreditsUsed: usage.builderCreditsUsed as number }
+      : {}),
+    ...(identifiers.engineName !== undefined
+      ? { engineName: identifiers.engineName }
+      : {}),
+    ...(usage.llmCalls !== undefined
+      ? { llmCalls: usage.llmCalls as number }
+      : {}),
+    ...(usage.followUpMs !== undefined
+      ? { followUpMs: usage.followUpMs as number }
+      : {}),
+    ...(usage.followUpInputTokens !== undefined
+      ? { followUpInputTokens: usage.followUpInputTokens as number }
+      : {}),
+    ...(usage.receiptUnverifiedCount !== undefined
+      ? { receiptUnverifiedCount: usage.receiptUnverifiedCount as number }
+      : {}),
+    ...(usage.receiptChangedFalseCount !== undefined
+      ? { receiptChangedFalseCount: usage.receiptChangedFalseCount as number }
+      : {}),
+    ...(usage.usageReported !== undefined
+      ? { usageReported: usage.usageReported as boolean }
+      : {}),
+    ...(usage.firstEngineEventAtMs !== undefined
+      ? { firstEngineEventAtMs: usage.firstEngineEventAtMs as number }
+      : {}),
+  };
 }
 
 function validateProductionPathRun(
@@ -734,10 +765,19 @@ function failedProductionPathOutput(
   output: AgentRunOutput,
   error: string,
   durationMs: number,
+  usage?: AgentLoopUsage,
 ): AgentRunOutput {
   // Provider errors can contain request and customer details. Keep this
   // report-facing failure bounded to the known safe message.
-  return { ...output, ok: false, error, durationMs };
+  const safeOutput = { ...output };
+  delete safeOutput.usage;
+  return {
+    ...safeOutput,
+    ok: false,
+    error,
+    durationMs,
+    ...(usage ? { usage } : {}),
+  };
 }
 
 function validateProductionContext(
