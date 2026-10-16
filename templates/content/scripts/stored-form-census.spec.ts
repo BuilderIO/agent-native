@@ -32,10 +32,7 @@ import {
   runStoredFormCensusCli,
   withReadOnlySnapshot,
 } from "./stored-form-census";
-import {
-  CENSUS_STATEMENTS,
-  withinParserLimits,
-} from "./stored-form-census-scan";
+import { CENSUS_STATEMENTS } from "./stored-form-census-scan";
 
 const PRODUCTION_HOST = "ep-prod-endpoint-123456.us-east-2.aws.neon.tech";
 const BRANCH_HOST = "ep-census-branch-654321.us-east-2.aws.neon.tech";
@@ -648,29 +645,6 @@ async function createFixture(db: DbExec) {
   );
 }
 
-describe("stored-form census parser limits", () => {
-  it("counts indentation as nesting, so a list cannot pass one level per line", () => {
-    const staircase = (indent: string, depth: number, item = "- x") =>
-      Array.from(
-        { length: depth },
-        (_, i) => `${indent.repeat(i)}${item}`,
-      ).join("\n");
-    // A list nested a thousand levels this way took 35 seconds to classify.
-    expect(withinParserLimits(staircase("\t", 50))).toBe(true);
-    expect(withinParserLimits(staircase("\t", 51))).toBe(false);
-    expect(withinParserLimits(staircase("  ", 100))).toBe(true);
-    expect(withinParserLimits(staircase("  ", 101))).toBe(false);
-    // An empty item nests as deeply, on the last line as on any other.
-    for (const item of ["*", "1.", "-\r"]) {
-      expect(withinParserLimits(staircase("\t", 50, item)), item).toBe(true);
-      expect(withinParserLimits(staircase("\t", 51, item)), item).toBe(false);
-    }
-    expect(withinParserLimits(`${"> ".repeat(67)}x`)).toBe(true);
-    expect(withinParserLimits(`${"> ".repeat(68)}x`)).toBe(false);
-    expect(withinParserLimits("Plain prose\n\nwith no markers")).toBe(true);
-  });
-});
-
 describe("stored-form census against a local database", () => {
   let db: DbExec;
 
@@ -917,7 +891,7 @@ describe("stored-form census against a local database", () => {
     });
     expect(report.incompleteReasons).toEqual([
       "bodies over 262144 bytes, not classified: 1",
-      "bodies with a line over 32768 characters or nested over 100 levels, not classified: 2",
+      "bodies or their canonical forms over 262144 characters, or with a line over 32768 characters or nested over 100 levels, or bodies with a paragraph of over 8192 emphasis runs, not classified: 2",
       "unreadable live copies: 1",
       "live copies over 262144 characters, or with a line over 32768 characters or nested over 100 levels, not compared: 1",
       "pages with suggestions that could not be read or resolved: 1",

@@ -7,6 +7,8 @@ import {
   classifyBody,
   diffLineHunks,
   explainHunk,
+  withinEmphasisLimit,
+  withinParserLimits,
 } from "./stored-form-census-kinds";
 
 const L = (...lines: string[]) => lines.join("\n");
@@ -194,9 +196,21 @@ describe("body classification", () => {
     // A pattern that let two parts share the blanks after a marker retried
     // every split of every run: twenty markers took over a minute.
     for (const marker of ["-   ", "1.   ", ">  ", "> -  "]) {
-      const line = `${marker.repeat(60)}x`;
-      expect(classifyBody(line).status, marker).not.toBe("failed");
+      const line = `${marker.repeat(28)}x`;
+      expect(["canonical", "non-canonical"], marker).toContain(
+        classifyBody(line).status,
+      );
     }
+  });
+
+  it("refuses a body whose canonical form is past the parser limits", () => {
+    // Canonicalizing escapes each `<`, doubling the line past its cap.
+    expect(classifyBody(`x ${"<".repeat(20_000)}`)).toEqual({
+      status: "pastParserLimits",
+    });
+    expect(classifyBody(`x ${"<".repeat(10_000)}`).status).toBe(
+      "non-canonical",
+    );
   });
 
   it("does not flag Content's own syntax as lost agent text", () => {
@@ -249,5 +263,68 @@ describe("body classification", () => {
   it("fingerprints the canonicalizer deterministically", () => {
     expect(canonicalizerFingerprint()).toMatch(/^[0-9a-f]{16}$/);
     expect(canonicalizerFingerprint()).toBe(canonicalizerFingerprint());
+  });
+});
+
+describe("parser limits", () => {
+  const staircase = (indent: string, depth: number, item = "- x") =>
+    Array.from({ length: depth }, (_, i) => `${indent.repeat(i)}${item}`).join(
+      "\n",
+    );
+
+  it("counts indentation as nesting, so a list cannot pass one level per line", () => {
+    // A list nested a thousand levels this way took 35 seconds to classify.
+    expect(withinParserLimits(staircase("\t", 50))).toBe(true);
+    expect(withinParserLimits(staircase("\t", 51))).toBe(false);
+    expect(withinParserLimits(staircase("  ", 100))).toBe(true);
+    expect(withinParserLimits(staircase("  ", 101))).toBe(false);
+    // An empty item nests as deeply, on the last line as on any other.
+    for (const item of ["*", "1.", "-\r"]) {
+      expect(withinParserLimits(staircase("\t", 50, item)), item).toBe(true);
+      expect(withinParserLimits(staircase("\t", 51, item)), item).toBe(false);
+    }
+    // Content's parser ends a line at a bare CR as well.
+    expect(withinParserLimits(staircase("\t", 51).replace(/\n/g, "\r"))).toBe(
+      false,
+    );
+    expect(withinParserLimits(`${"> ".repeat(67)}x`)).toBe(true);
+    expect(withinParserLimits(`${"> ".repeat(68)}x`)).toBe(false);
+    expect(withinParserLimits("Plain prose\n\nwith no markers")).toBe(true);
+  });
+
+  it("carries the depth of Content's containers from line to line", () => {
+    // 400 nested `<details>` took two and a half minutes to classify.
+    const details = (depth: number) =>
+      L(
+        ...Array<string>(depth).fill("<details>"),
+        "x",
+        ...Array<string>(depth).fill("</details>"),
+      );
+    expect(withinParserLimits(details(100))).toBe(true);
+    expect(withinParserLimits(details(101))).toBe(false);
+    // A closing tag ends the depth its opening tag began.
+    expect(withinParserLimits(L(details(60), details(60)))).toBe(true);
+    expect(
+      withinParserLimits(L('<callout icon="x">', staircase("  ", 100))),
+    ).toBe(false);
+    expect(withinParserLimits(L("<columns>", "<column>", "x"))).toBe(true);
+  });
+
+  it("caps the emphasis runs in one paragraph, however many lines it spans", () => {
+    // A 256 KiB page of `*a` lines took over nine minutes to classify.
+    const runs = (count: number, separator: string) =>
+      Array<string>(count).fill("*a").join(separator);
+    expect(withinEmphasisLimit(runs(8192, "\n"))).toBe(true);
+    expect(withinEmphasisLimit(runs(8193, "\n"))).toBe(false);
+    expect(withinEmphasisLimit(runs(8193, "\r"))).toBe(false);
+    expect(classifyBody(runs(8193, "\n"))).toEqual({
+      status: "pastParserLimits",
+    });
+    // A blank line ends the paragraph; a `_` inside a word is not emphasis.
+    expect(withinEmphasisLimit(L(runs(8000, ""), " \t", runs(8000, "")))).toBe(
+      true,
+    );
+    expect(withinEmphasisLimit("snake_case ".repeat(10_000))).toBe(true);
+    expect(withinEmphasisLimit("_a_ ".repeat(4097))).toBe(false);
   });
 });

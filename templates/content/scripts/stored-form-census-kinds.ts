@@ -10,10 +10,82 @@ import { canonicalizeNfm, nfmToDoc, type PMNode } from "../shared/nfm.js";
 // separates a stored body from `canonicalizeNfm(body)`, and whether
 // canonicalizing would lose anything. Nothing here returns page text.
 
+// Larger bodies and live copies are counted without being parsed. Parsing has
+// no deadline: Content's parser is quadratic in the length of a line that
+// holds a long run of spaces or `[` (about 1.5 seconds per parse at 40 KiB)
+// and roughly cubic in how deeply `<details>` nest, and the GFM reader is
+// quadratic in how deeply a line nests (`- - - …`, `> > > …`, or a list
+// indented one more level per line), overflowing the stack past a few
+// thousand levels, and in how many emphasis delimiters one paragraph holds.
+// These caps are what keep one page inside the snapshot's 10-minute idle
+// limit: the slowest page found under them takes about 16 seconds to
+// classify.
+export const MAX_BODY_BYTES = 256 * 1024;
+export const MAX_LINE_CHARS = 32 * 1024;
+export const MAX_NESTING = 100;
+// Only the GFM reader slows on emphasis (16,384 runs of `*a**` in one
+// paragraph took four and a half seconds), and it reads only stored bodies
+// and the raw blocks Content keeps from them verbatim. Lines without a blank
+// line between them are one paragraph to it, and a Content page writes none.
+// A `_` between letters or digits can neither open nor close emphasis, and
+// costs nothing to read.
+export const MAX_EMPHASIS_RUNS = 8192;
+const EMPHASIS_RUN = /\*+|~+|(?<![\p{L}\p{N}_])_+|_+(?![\p{L}\p{N}_])/gu;
+// Content's parser reads a bare CR as a line break too.
+const LINE_END = /\r\n?|\n/g;
+// Consumes only spaces, tabs and marker characters, so it never runs past the
+// end of a line. A list marker may end its line: an empty item still nests.
+const CONTAINER_MARKER = /([ \t]*)(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t\r\n]|$))/y;
+// The tags of CONTAINER_CLOSE in shared/nfm.ts. They nest by tag, whatever the
+// indentation, so their depth carries from line to line.
+const CONTENT_CONTAINER =
+  /[ \t]*<(\/?)(?:details|callout|columns|column|table|synced_block_reference|synced_block|meeting-notes)[ >]/y;
+
+/**
+ * Whether the census's parsers can read `text` within the caps above. A line
+ * is as deep as the Content containers open around it, plus its container
+ * markers, plus the list levels the indentation before them can continue, at
+ * two columns each and up to four per tab, so nesting cannot pass by adding
+ * one level per line.
+ */
+export function withinParserLimits(text: string): boolean {
+  if (text.length > MAX_BODY_BYTES) return false;
+  let containers = 0;
+  for (let start = 0; start <= text.length; ) {
+    LINE_END.lastIndex = start;
+    const end = LINE_END.exec(text);
+    const stop = end ? end.index : text.length;
+    if (stop - start > MAX_LINE_CHARS) return false;
+    CONTENT_CONTAINER.lastIndex = start;
+    const tag = CONTENT_CONTAINER.exec(text);
+    if (tag) containers = tag[1] ? Math.max(0, containers - 1) : containers + 1;
+    CONTAINER_MARKER.lastIndex = start;
+    let depth = containers;
+    for (let marker; (marker = CONTAINER_MARKER.exec(text)); )
+      depth += 1 + marker[1].replace(/\t/g, "    ").length / 2;
+    if (depth > MAX_NESTING) return false;
+    start = end ? stop + end[0].length : stop + 1;
+  }
+  return true;
+}
+
+/** Whether no paragraph of `text` holds more emphasis runs than the cap. */
+export function withinEmphasisLimit(text: string): boolean {
+  let runs = 0;
+  for (const line of text.split(LINE_END)) {
+    runs = /^[ \t]*$/.test(line)
+      ? 0
+      : runs + (line.match(EMPHASIS_RUN)?.length ?? 0);
+    if (runs > MAX_EMPHASIS_RUNS) return false;
+  }
+  return true;
+}
+
 export type BodyClassification =
   | { status: "canonical"; losses: string[] }
   | { status: "failed" }
   | { status: "readerFailed" }
+  | { status: "pastParserLimits" }
   | {
       status: "non-canonical";
       canonical: string;
@@ -724,12 +796,19 @@ export function canonicalizationLosses(
 }
 
 export function classifyBody(body: string): BodyClassification {
+  if (!withinParserLimits(body) || !withinEmphasisLimit(body))
+    return { status: "pastParserLimits" };
   let canonical: string;
   try {
     canonical = canonicalizeNfm(body);
   } catch {
     return { status: "failed" };
   }
+  // Content's reader parses the canonical form here and in the scan's comment
+  // and suggestion checks, and canonicalizing can make it longer and deeper
+  // than the body: 400 nested `<details>` grow from 16 KiB to 251 KiB.
+  if (canonical !== body && !withinParserLimits(canonical))
+    return { status: "pastParserLimits" };
   // The census's own readers can fail where Content's did not, such as on
   // nesting deep enough to exhaust the stack.
   let losses: string[];
