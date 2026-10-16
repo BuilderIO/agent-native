@@ -4,6 +4,7 @@ import { CLIENTS } from "../cli/mcp-config-writers.js";
 import { mutateSetting } from "../settings/store.js";
 import { normalizeTrackingDimension } from "../shared/analytics-events.js";
 import { resolveMcpConnectHostId } from "../shared/mcp-connect-content.js";
+import { AGENT_NATIVE_ANALYTICS_PROVIDER } from "../tracking/providers.js";
 import {
   isTrackingSuppressed,
   listTrackingProviders,
@@ -39,8 +40,11 @@ export async function trackAgentConnected(input: {
   // Everything runs inside the try: the connection is already committed, so a
   // tracking or configuration failure must not turn it into a failed response.
   try {
+    // The claim is permanent, so take it only when first-party analytics will
+    // receive the event; a vendor-only claim would hide every later reconnect
+    // from first-party analytics once it is enabled.
     if (
-      listTrackingProviders().length === 0 ||
+      !listTrackingProviders().includes(AGENT_NATIVE_ANALYTICS_PROVIDER) ||
       isTrackingSuppressed(input.email)
     )
       return "disabled";
