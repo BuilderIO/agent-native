@@ -11,7 +11,9 @@ look” does not satisfy this update. If an existing reply already names the
 exact canonical disposition label and includes its recorded evidence verbatim,
 read it back and record its timestamp and author ID instead of duplicating it.
 Do not accept a vague or negated substring such as `Not fixed` as the `Fixed`
-label. Use `Partially fixed` while any distinct handoff remains unfinished.
+label; reject the whole reply if a `Fixed` label is later contradicted by a
+claim that the scope remains not fixed, unfixed, or broken. Use `Partially
+fixed` while any distinct handoff remains unfinished.
 This is one current status reply per owned eye, not a reply on every sweep.
 Reuse the existing same-actor reply while its disposition and evidence remain
 current; send an update when either materially changes. For a recent

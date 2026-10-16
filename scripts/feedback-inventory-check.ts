@@ -166,6 +166,15 @@ function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
 
 function replyStatesDisposition(text: string, disposition: string): boolean {
   const visibleText = text.replace(/[*_`]/g, "");
+  if (
+    disposition.toLowerCase() === "fixed" &&
+    (/\b(?:(?:is|was|remains)\s+)?(?:not|never)\s+(?:(?:yet|fully)\s+)*fixed\b|\bunfixed\b/i.test(
+      visibleText,
+    ) ||
+      /\b(?:still|remains)\s+broken\b/i.test(visibleText))
+  ) {
+    return false;
+  }
   const escapedDisposition = disposition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const label = new RegExp(
     `(?:^|[\\n.!?;:]\\s*)${escapedDisposition}(?=$|[\\s:—–.!?;,()-])`,
@@ -1045,6 +1054,30 @@ if (args[0] === "--self-test" && args.length === 1) {
                       ...parent.statusReply!,
                       evidence: "Not fixed — the route is still broken",
                       text: "Not fixed — the route is still broken",
+                    },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "Fixed label cannot contradict a later unfixed claim",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    statusReply: {
+                      ...parent.statusReply!,
+                      evidence: "the route is still not fixed",
+                      text: "Fixed: the route is still not fixed",
                     },
                   }
                 : parent,
