@@ -205,6 +205,25 @@ describe("dashboard extension panel editor values", () => {
     });
   });
 
+  it("keeps an intentional optional-field removal when its value was undefined", () => {
+    const original: SqlPanel = {
+      id: "pipeline-widget",
+      title: "Pipeline Widget",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      height: undefined,
+      sql: "SELECT 1",
+    };
+    const edited = { ...original, title: "Updated title" };
+    delete edited.height;
+    const current = { ...original, height: 4 };
+
+    const merged = mergeUnchangedPanelFields(edited, original, current);
+
+    expect(merged).not.toHaveProperty("height");
+  });
+
   it("keeps a concurrent SQL edit when the editor changes only the title", () => {
     const original: SqlPanel = {
       id: "pipeline-widget",

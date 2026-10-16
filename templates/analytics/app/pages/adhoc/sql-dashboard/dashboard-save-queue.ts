@@ -41,7 +41,45 @@ export type DashboardSaveQueue<T> = {
   pending(): number;
   /** The latest config confirmed by a successful save or authoritative load. */
   confirmed(): T | undefined;
+  /** Whether a config belongs to a save already confirmed or still in flight. */
+  isLocalSnapshot(config: T): boolean;
 };
+
+function sameSnapshot(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameSnapshot(value, right[index]))
+    );
+  }
+  if (
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord).filter(
+    (key) => leftRecord[key] !== undefined,
+  );
+  const rightKeys = Object.keys(rightRecord).filter(
+    (key) => rightRecord[key] !== undefined,
+  );
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        sameSnapshot(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
 
 /**
  * Runs saves one at a time, each fenced to the version its config was edited
@@ -57,7 +95,11 @@ export function createDashboardSaveQueue<T>(
     expectedUpdatedAt: string | undefined,
   ) => Promise<DashboardSaveOutcome>,
 ): DashboardSaveQueue<T> {
-  const waiting = new Set<{ base: string | null; diverged: boolean }>();
+  const waiting = new Set<{
+    base: string | null;
+    diverged: boolean;
+    config: T;
+  }>();
   let tail: Promise<void> = Promise.resolve();
   let confirmedConfig: T | undefined;
   let confirmedVersion: string | null | undefined;
@@ -93,7 +135,11 @@ export function createDashboardSaveQueue<T>(
         confirmedVersion = baseUpdatedAt;
         hasConfirmedConfig = true;
       }
-      const entry = { base: baseUpdatedAt, diverged: queuedChainDiverged };
+      const entry = {
+        base: baseUpdatedAt,
+        diverged: queuedChainDiverged,
+        config,
+      };
       waiting.add(entry);
       latestQueuedConfig = config;
       hasLatestQueuedConfig = true;
@@ -113,6 +159,7 @@ export function createDashboardSaveQueue<T>(
           ) {
             configToSave = update(confirmedConfig as T);
           }
+          entry.config = configToSave;
           outcome = await save(configToSave, entry.base ?? undefined);
           succeeded = true;
         } finally {
@@ -141,5 +188,11 @@ export function createDashboardSaveQueue<T>(
     },
     pending: () => waiting.size,
     confirmed: () => confirmedConfig,
+    isLocalSnapshot(config) {
+      return (
+        (hasConfirmedConfig && sameSnapshot(config, confirmedConfig)) ||
+        [...waiting].some((entry) => sameSnapshot(config, entry.config))
+      );
+    },
   };
 }

@@ -244,4 +244,40 @@ describe("dashboard save queue", () => {
     );
     expect(save).toHaveBeenCalledTimes(1);
   });
+
+  it("recognizes a confirmed snapshot while a later save is pending", async () => {
+    const firstSave = deferred();
+    const secondSave = deferred();
+    const { save, queue } = queueOf(firstSave, secondSave);
+    const base = { panels: ["saved"] };
+    const firstConfig = { panels: ["saved", "first"] };
+    const secondUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "second"],
+    });
+
+    const first = queue.enqueue(
+      firstConfig,
+      "v0",
+      (current) => ({ panels: [...current.panels, "first"] }),
+      base,
+    );
+    const second = queue.enqueue(
+      { panels: [...firstConfig.panels, "second"] },
+      "v0",
+      secondUpdate,
+      firstConfig,
+    );
+
+    expect(queue.isLocalSnapshot({ panels: ["saved", "first"] })).toBe(true);
+    firstSave.resolve({ changed: true, updatedAt: "v1" });
+    await expect(first).resolves.toMatchObject({ isLatest: false });
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+
+    expect(queue.pending()).toBe(1);
+    expect(queue.isLocalSnapshot({ panels: ["saved", "first"] })).toBe(true);
+    expect(queue.isLocalSnapshot({ panels: ["remote"] })).toBe(false);
+
+    secondSave.resolve({ changed: true, updatedAt: "v2" });
+    await expect(second).resolves.toMatchObject({ isLatest: true });
+  });
 });

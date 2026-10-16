@@ -1259,6 +1259,10 @@ function SqlDashboardPageContent({
           JSON.parse(raw) as Record<string, unknown>,
         ) as unknown as SqlDashboardConfig;
         if (parsed && Array.isArray(parsed.panels)) {
+          const saveQueue = dashboardSaveQueuesRef.current.get(dashboardId);
+          if (saveQueue?.pending() && saveQueue.isLocalSnapshot(parsed)) {
+            return;
+          }
           if (!revisionRestoreInFlightRef.current) {
             resetRevisionNavigation();
           }

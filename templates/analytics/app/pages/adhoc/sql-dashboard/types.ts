@@ -311,7 +311,10 @@ export function mergeUnchangedPanelFields(
   ]);
   for (const key of keys) {
     if (key === "config") continue;
+    const hasEdited = Object.prototype.hasOwnProperty.call(editedPanel, key);
+    const hasBaseline = Object.prototype.hasOwnProperty.call(basePanel, key);
     if (
+      hasEdited !== hasBaseline ||
       !samePanelValue(
         editedPanel[key as keyof SqlPanel],
         basePanel[key as keyof SqlPanel],

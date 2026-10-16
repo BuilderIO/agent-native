@@ -485,6 +485,106 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(savedPanels[1].map((panel) => panel.height)).toEqual([2, 2]);
   });
 
+  it("does not adopt a confirmed collaboration echo over later queued edits", async () => {
+    let releaseFirstSave: (() => void) | undefined;
+    let releaseSecondSave: (() => void) | undefined;
+    let signalCollabChange: (() => void) | undefined;
+    let collabContent = "";
+    const savedConfigs: { panels: SqlPanel[] }[] = [];
+    const errorToast = vi.spyOn(toast, "error").mockReturnValue("error-toast");
+    const ytext = {
+      toJSON: () => collabContent,
+      observe: (handler: () => void) => {
+        signalCollabChange = handler;
+      },
+      unobserve: (handler: () => void) => {
+        if (signalCollabChange === handler) signalCollabChange = undefined;
+      },
+    };
+    mocks.collab = {
+      ydoc: { clientID: 1, getText: () => ytext },
+      awareness: null,
+      isSynced: true,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200, "table-a"), height: 2 },
+      { ...tablePanel("Accounts B", 200, "table-b"), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      savedConfigs.push(
+        JSON.parse(JSON.stringify(args.config)) as { panels: SqlPanel[] },
+      );
+      if (savedConfigs.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSave = resolve;
+        });
+        return { updatedAt: "2026-10-01T12:01:00.000Z" };
+      }
+      if (savedConfigs.length === 2) {
+        await new Promise<void>((resolve) => {
+          releaseSecondSave = resolve;
+        });
+        return { updatedAt: "2026-10-01T12:02:00.000Z" };
+      }
+      return { updatedAt: "2026-10-01T12:03:00.000Z" };
+    };
+
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSliders = () =>
+      container.querySelectorAll(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+      );
+    await act(async () => {
+      heightSliders()[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await vi.waitFor(() => expect(savedConfigs).toHaveLength(1));
+    await act(async () => {
+      heightSliders()[1].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await act(async () => {
+      releaseFirstSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(savedConfigs).toHaveLength(2));
+
+    collabContent = JSON.stringify(savedConfigs[0]);
+    await act(async () => {
+      signalCollabChange?.();
+    });
+    await act(async () => {
+      heightSliders()[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+    expect(savedConfigs).toHaveLength(2);
+
+    await act(async () => {
+      releaseSecondSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(savedConfigs).toHaveLength(3));
+    expect(savedConfigs[2].panels.map((panel) => panel.height)).toEqual([4, 3]);
+    expect(errorToast).not.toHaveBeenCalled();
+    await settle();
+  });
+
   it("reports a failed dashboard save while a later queued save succeeds", async () => {
     const savedPanels: SqlPanel[][] = [];
     let rejectFirstSave: ((error: Error) => void) | undefined;
