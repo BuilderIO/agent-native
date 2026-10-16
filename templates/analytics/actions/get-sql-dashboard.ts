@@ -1,29 +1,30 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
-  currentRequestUserIsOrgAdmin,
-  getAppConfig,
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import type { DashboardAnnotations } from "../app/pages/adhoc/sql-dashboard/types";
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
   isAgentContextCaller,
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
+import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
+import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
 import { dataNotesForReader } from "../server/lib/dashboard-data-notes";
+import { getReviewedDashboard } from "../server/lib/dashboard-review-access";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-import {
-  getDashboard,
-  getDashboardForReview,
-} from "../server/lib/dashboards-store";
+import { getDashboard } from "../server/lib/dashboards-store";
 import { listDataNotes } from "../server/lib/data-notes-store";
 import { listKeyDateSets } from "../server/lib/key-dates-store";
-import { keyDateEvents } from "../shared/key-dates";
+import { drawsKeyDates, keyDateEvents } from "../shared/key-dates";
 
 export default defineAction({
   description:
@@ -95,33 +96,12 @@ export default defineAction({
       includeConfig: args.includeConfig === true,
       panelIds: args.panelIds,
       forAgent: isAgentContextCaller(actionContext?.caller),
+      reviewPreview: args.reviewPreview === true,
     };
 
     let dash;
     if (args.reviewPreview) {
-      if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
-        fail(
-          "Only organization owners and admins can preview reviewed dashboards.",
-          { statusCode: 403 },
-        );
-      }
-      const superOrgId = getAppConfig().observability.superOrgId;
-      const isSuperOrg = superOrgId === orgId;
-      const targetOrgId = isSuperOrg ? args.reviewOrgId : orgId;
-      if (!targetOrgId) {
-        fail(
-          "A customer organization is required for this dashboard preview.",
-          {
-            statusCode: 400,
-          },
-        );
-      }
-      dash = await getDashboardForReview(
-        args.id,
-        isSuperOrg
-          ? { kind: "super-organization", orgId: targetOrgId }
-          : { kind: "organization", orgId: targetOrgId },
-      );
+      dash = await getReviewedDashboard(args.id, orgId, args.reviewOrgId);
     } else {
       dash = await getDashboard(args.id, ctx);
     }
@@ -135,7 +115,16 @@ export default defineAction({
           args.id,
           seed,
         ).config;
-        return buildDashboardSeedAgentContext(args.id, config, detail);
+        return buildDashboardSeedAgentContext(args.id, config, {
+          ...detail,
+          annotationSummary: detail.forAgent
+            ? await loadDashboardAnnotationSummary(
+                { scope: ctx, editable: true },
+                args.id,
+                config,
+              )
+            : undefined,
+        });
       }
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
@@ -146,21 +135,34 @@ export default defineAction({
       config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
         .config,
     };
-    const context = buildDashboardAgentContext(dashboard, detail);
-    if (!args.reviewPreview) return context;
+    const annotationScope = storedDashboardAnnotationScope(dashboard, ctx);
+    const context = buildDashboardAgentContext(dashboard, {
+      ...detail,
+      annotationSummary: detail.forAgent
+        ? await loadDashboardAnnotationSummary(
+            annotationScope,
+            args.id,
+            dashboard.config as Record<string, unknown>,
+          )
+        : undefined,
+    });
+    // The preview UI draws every record; an agent gets the bounded summary.
+    if (!args.reviewPreview || detail.forAgent) return context;
     // The reviewer may be in another organization, so list-key-dates and
     // list-data-notes would return theirs, not the ones this dashboard draws.
-    const owner = { email: dashboard.ownerEmail, orgId: dashboard.orgId };
     const [sets, notes] = await Promise.all([
-      listKeyDateSets(owner),
-      listDataNotes(owner),
+      listKeyDateSets(annotationScope.scope),
+      listDataNotes(annotationScope.scope),
     ]);
+    const config = dashboard.config as {
+      panels?: SqlPanel[];
+      annotations?: DashboardAnnotations;
+    };
     return {
       ...context,
-      keyDates: keyDateEvents(
-        sets,
-        dashboard.config.annotations as DashboardAnnotations | undefined,
-      ),
+      keyDates: drawsKeyDates(config.panels ?? [])
+        ? keyDateEvents(sets, config.annotations)
+        : [],
       dataNotes: dataNotesForReader(notes, dashboard),
     };
   },

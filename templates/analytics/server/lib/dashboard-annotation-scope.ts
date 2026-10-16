@@ -1,6 +1,7 @@
 import { fail } from "@agent-native/core/action";
 
 import type { AnnotationScope } from "./annotation-scope.js";
+import { getReviewedDashboard } from "./dashboard-review-access.js";
 import { loadDashboardSeed } from "./dashboard-seeds.js";
 import { getDashboard, type DashboardRecord } from "./dashboards-store.js";
 
@@ -33,11 +34,28 @@ export function storedDashboardAnnotationScope(
     : { scope, editable: false, dashboard };
 }
 
-/** As `storedDashboardAnnotationScope`; a seed dashboard has no owner and draws the caller's. */
+/**
+ * As `storedDashboardAnnotationScope`; a seed dashboard has no owner and draws
+ * the caller's. A Human Review preview reads the dashboard as
+ * `get-sql-dashboard`'s `reviewPreview` does, for a reviewer who may have no
+ * ordinary access to it.
+ */
 export async function dashboardAnnotationScope(
   dashboardId: string,
   caller: AnnotationScope,
+  review?: { reviewOrgId?: string },
 ): Promise<DashboardAnnotationScope> {
+  if (review) {
+    const dashboard = await getReviewedDashboard(
+      dashboardId,
+      caller.orgId,
+      review.reviewOrgId,
+    );
+    if (!dashboard || dashboard.kind !== "sql") {
+      fail(`Dashboard "${dashboardId}" was not found.`, { statusCode: 404 });
+    }
+    return storedDashboardAnnotationScope(dashboard, caller);
+  }
   const dashboard = await getDashboard(dashboardId, caller);
   if (dashboard) return storedDashboardAnnotationScope(dashboard, caller);
   if (loadDashboardSeed(dashboardId)) return { scope: caller, editable: true };
