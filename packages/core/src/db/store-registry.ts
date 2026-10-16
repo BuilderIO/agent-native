@@ -258,6 +258,7 @@ async function applyPending(
   const applied = new Set(recorded);
   const legacy = new LegacyBookkeeping(exec);
   const isRelease = isReleaseStep();
+  let ran = 0;
   for (const migration of store.migrations) {
     if (applied.has(migration.name)) continue;
     // An entry carried over from a `runMigrations` list ran only in the release
@@ -283,8 +284,12 @@ async function applyPending(
     }
     await recordMigration(exec, store, migration, "step");
     applied.add(migration.name);
+    ran++;
   }
   state.snapshot = undefined;
+  if (ran > 0) {
+    console.log(`[db] Applied ${ran} migration(s) to store "${store.id}"`);
+  }
 }
 
 async function recordMigration(
