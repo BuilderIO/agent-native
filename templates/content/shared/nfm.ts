@@ -1043,6 +1043,8 @@ export interface NfmSerializeContext {
     blockId: string,
     node: PMNode,
   ) => string | undefined | null;
+  /** Write the trailing empty paragraph the editor's save drops. */
+  keepTrailingEmptyBlock?: boolean;
 }
 
 /**
@@ -1128,9 +1130,10 @@ function serializeBlocks(
   isTopLevel = false,
 ): string[] {
   const out: string[] = [];
-  const serializableBlocks = isTopLevel
-    ? trimEditorTerminalFiller(blocks)
-    : blocks;
+  const serializableBlocks =
+    isTopLevel && !activeSerializeContext?.keepTrailingEmptyBlock
+      ? trimEditorTerminalFiller(blocks)
+      : blocks;
   for (let i = 0; i < serializableBlocks.length; i++) {
     const block = serializableBlocks[i];
     if (block.type === "bulletList" || block.type === "orderedList") {
@@ -3009,6 +3012,15 @@ function parseLeafTag(
 
 export function canonicalizeNfm(nfm: string | null | undefined): string {
   return docToNfm(nfmToDoc(nfm ?? ""));
+}
+
+/**
+ * Canonical Markdown that keeps a trailing empty block. A Notion page can end
+ * in an empty paragraph its author made, and its pulls, pushes and sync hashes
+ * must not drop it.
+ */
+export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
+  return docToNfm(nfmToDoc(nfm ?? ""), { keepTrailingEmptyBlock: true });
 }
 
 /**
