@@ -1577,12 +1577,16 @@ async function upsertTranscriptRow(
       .where(and(eq(t.recordingId, row.recordingId), replaceable))
       .returning({ recordingId: t.recordingId });
     if (updated.length === 0) return false;
-    // Taking the words from a ready transcript, by replacing them or by hiding
-    // them behind another status, keeps them as a version first. Rewriting
-    // only the cue shapes of the same words replaces nothing.
+    // An explicit regenerate replaces the whole transcript, like an import,
+    // so it always keeps the one it replaces: the same words can still carry
+    // an imported transcript's timings, speakers, language and source. Other
+    // writes keep one only when they take its words away, by replacing them
+    // or hiding them behind another status; rewriting only the cue shapes of
+    // the same words replaces nothing.
     if (
       hasTranscriptContent(current) &&
-      (set.status !== "ready" ||
+      (row.replaceTranscript ||
+        set.status !== "ready" ||
         (set.fullText !== undefined &&
           set.fullText.trim() !== current.fullText.trim()))
     ) {

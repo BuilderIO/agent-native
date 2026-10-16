@@ -1239,6 +1239,43 @@ describe("requestTranscript regeneration", () => {
       expect(result).toMatchObject({ status: "ready", provider: "loom" });
     });
 
+    it("keeps the import a regenerate replaces even when the words match", async () => {
+      const startedFrom = {
+        ...importedRow,
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      };
+      mockFetchLoomTranscript.mockResolvedValueOnce({
+        language: "ja",
+        segments: [{ startMs: 0, endMs: 9000, text: importedRow.fullText }],
+        fullText: importedRow.fullText,
+      });
+      mockSelectRows.queue = [
+        [startedFrom],
+        [
+          {
+            ...recordingRow,
+            videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+            sourceAppName: "Loom",
+            sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          },
+        ],
+        [startedFrom],
+      ];
+
+      await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+      });
+
+      expect(mockSaveTranscriptVersion).toHaveBeenCalledTimes(1);
+      expect(mockSaveTranscriptVersion).toHaveBeenCalledWith(
+        mockDb,
+        startedFrom,
+        { reason: "regenerate", replacedBy: null },
+      );
+    });
+
     it("lets a regenerate replace only the import it started from, not an identical re-import", async () => {
       const startedFrom = {
         ...importedRow,
