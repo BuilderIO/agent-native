@@ -90,7 +90,8 @@
   --highlight-foreground: 0 0% 10%;
 }
 
-.dark .clips-share-control {
+.dark .clips-share-control,
+.dark .clips-share-trigger {
   --primary: 0 0% 100%;
 }
 
