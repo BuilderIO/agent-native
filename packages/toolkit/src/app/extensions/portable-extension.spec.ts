@@ -32,7 +32,7 @@ describe("portable extension runtime", () => {
     expect(html).toContain("agentNative.host.ready");
     expect(html).toContain("link.getAttribute('href')");
     expect(html).toContain("agent-native-extension.hello-link-channel");
-    expect(html).toContain("agent-native-extension.reseed-link-channel");
+    expect(html).not.toContain("agent-native-extension.reseed-link-channel");
     expect(html).toContain("agent-native-extension.open-external-link");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
