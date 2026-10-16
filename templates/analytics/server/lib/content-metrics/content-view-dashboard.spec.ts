@@ -73,6 +73,7 @@ vi.mock("../first-party-analytics-health.js", async (importOriginal) => ({
 }));
 
 import { interpolateDashboardPanelSql } from "../../../app/pages/adhoc/sql-dashboard/interpolate";
+import { planPanelRender } from "../../../shared/panel-render-contract";
 import { getDashboardCatalogEntry } from "../dashboard-catalog";
 import { queryFirstPartyAnalytics } from "../first-party-analytics";
 import { CONTENT_METRICS_MIGRATION_SQL } from "./migration";
@@ -196,10 +197,18 @@ describe("Content view dashboard", () => {
     expect(all.find((row) => row.title === "Post one")?.pageviews).toBe(105);
     expect(all.some((row) => row.title === "Other org post")).toBe(false);
 
-    expect(await runPanel("daily-trend")).toEqual([
-      { date: daysAgo(3), series: "Pageviews", value: 5 },
-      { date: daysAgo(2), series: "Pageviews", value: 0 },
+    // Search Console reported nothing on these days: null, drawn as a gap.
+    const trend = await runPanel("daily-trend");
+    expect(trend).toEqual([
+      { date: daysAgo(3), pageviews: 5, search_clicks: null },
+      { date: daysAgo(2), pageviews: 0, search_clicks: null },
     ]);
+    const trendPanel = contentView().panels.find(
+      (panel) => panel.id === "daily-trend",
+    )!;
+    const plan = planPanelRender(trend, trendPanel, { timeRange: 28 });
+    expect(plan.yKeys).toEqual(["pageviews", "search_clicks"]);
+    expect(plan.rows.map((row) => row.search_clicks)).toEqual([null, null]);
     expect(await runPanel("search-pages")).toEqual([
       {
         page: "https://agent-native.com/docs",

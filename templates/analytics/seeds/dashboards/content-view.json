@@ -121,15 +121,14 @@
       "chartType": "line",
       "source": "first-party",
       "width": 3,
-      "sql": "SELECT s.metric_date AS date, CASE s.metric WHEN 'ga4_pageviews' THEN 'Pageviews' ELSE 'Search clicks' END AS series, SUM(s.value) AS value FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric IN ('ga4_pageviews', 'search_console_clicks') AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY s.metric_date, s.metric ORDER BY s.metric_date",
+      "sql": "SELECT s.metric_date AS date, SUM(s.value) FILTER (WHERE s.metric = 'ga4_pageviews') AS pageviews, SUM(s.value) FILTER (WHERE s.metric = 'search_console_clicks') AS search_clicks FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric IN ('ga4_pageviews', 'search_console_clicks') AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY s.metric_date ORDER BY s.metric_date",
       "config": {
         "timeScope": "dashboard",
         "xKey": "date",
-        "yKey": "value",
-        "pivot": {
-          "xKey": "date",
-          "seriesKey": "series",
-          "valueKey": "value"
+        "yKeys": ["pageviews", "search_clicks"],
+        "seriesLabels": {
+          "pageviews": "Pageviews",
+          "search_clicks": "Search clicks"
         },
         "description": "All blog articles. A day a source hasn't reported is a gap, not a zero."
       }

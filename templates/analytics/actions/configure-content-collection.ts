@@ -9,6 +9,7 @@ import {
   contentCollectionConfigSchema,
   searchConsoleSiteSchema,
 } from "../server/lib/content-metrics/config.js";
+import { ensureContentDashboard } from "../server/lib/content-metrics/dashboard.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
 import {
   readContentCollection,
@@ -19,7 +20,7 @@ import { cliBoolean } from "./schema-helpers.js";
 
 export default defineAction({
   description:
-    "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values.",
+    "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values. Turning collection on also adds the Content dashboard to the organization's Dashboards list if it isn't there yet; the result's contentDashboardId opens it at /dashboards/<id>.",
   schema: z.object({
     enabled: cliBoolean.describe("Whether the daily collection runs."),
     builderBlog: cliBoolean
@@ -64,6 +65,10 @@ export default defineAction({
       },
     });
     await writeContentCollection(scope, { enabled, config });
-    return readContentCollectionStatus(admin.orgId, admin.userEmail);
+    const dashboard = enabled ? await ensureContentDashboard(admin) : null;
+    return {
+      ...(await readContentCollectionStatus(admin.orgId, admin.userEmail)),
+      contentDashboardId: dashboard?.dashboardId ?? null,
+    };
   },
 });

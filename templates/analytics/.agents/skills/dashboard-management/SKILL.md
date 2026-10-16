@@ -131,7 +131,12 @@ panel shows why a metric is missing (`failed`, `not set up`, `still
 arriving`) in a column next to the blank number; keep that pattern. The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
-instead of a scalar subquery inside `CASE`.
+instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
+(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
+source didn't report would draw as a zero instead of a gap. Turning collection
+on with `configure-content-collection` saves the organization's copy
+(`contentDashboardId` in the result) to the Dashboards list; link that id
+rather than the bare `content-view` seed.
 
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
