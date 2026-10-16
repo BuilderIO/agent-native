@@ -2217,6 +2217,7 @@ const messages = {
     viewsCount: "{{count}} visualizaciones",
     recordingMenu: "Menú de grabación",
     moveToFolder: "Mover a carpeta",
+    moveHere: "Mover aquí",
     unarchive: "Desarchivar",
     shareNamedMeeting: 'Compartir "{{title}}"',
     shareMeeting: "Compartir reunión",

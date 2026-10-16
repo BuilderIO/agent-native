@@ -46,7 +46,10 @@ import {
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
 } from "../pending-edits";
-import { overviewSelectionTargetsElement } from "../selection-state";
+import {
+  overviewNudgeTargetsElement,
+  overviewSelectionTargetsElement,
+} from "../selection-state";
 import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -612,18 +615,22 @@ export function useEditorEditCommands({
     [canEditDesign, files, id, performDeleteFiles, queryClient, t],
   );
 
-  const handleOverviewNudgeSelection = useCallback(() => {
-    if (
-      overviewSelectionTargetsElement({
+  const handleOverviewNudgeSelection = useCallback(
+    (targetScreenIds: string[]) =>
+      !overviewNudgeTargetsElement({
+        targetScreenIds,
+        explicitScreenIds: explicitOverviewScreenSelectionRef.current,
         selectedElement,
         selectedLayerIds: selectedLayerIdsState,
         fileIds: files.map((file) => file.id),
-      })
-    ) {
-      return false;
-    }
-    return true;
-  }, [files, selectedElement, selectedLayerIdsState]);
+      }),
+    [
+      explicitOverviewScreenSelectionRef,
+      files,
+      selectedElement,
+      selectedLayerIdsState,
+    ],
+  );
 
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[], explicitScreenDeletion = false) => {

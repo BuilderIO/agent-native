@@ -2163,6 +2163,7 @@ const messages = {
     viewsCount: "{{count}} مشاهدة",
     recordingMenu: "قائمة التسجيل",
     moveToFolder: "نقل إلى مجلد",
+    moveHere: "النقل إلى هنا",
     unarchive: "إلغاء الأرشفة",
     shareNamedMeeting: 'مشاركة "{{title}}"',
     shareMeeting: "مشاركة الاجتماع",

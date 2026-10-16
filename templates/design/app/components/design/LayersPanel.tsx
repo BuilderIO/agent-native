@@ -45,12 +45,10 @@ import {
   type RefObject,
 } from "react";
 
-import { CanvasMenuItem } from "@/components/design/context-menu-item";
 import {
+  CanvasMenuItem,
   MENU_CONTENT_CLASS,
-  MENU_SEPARATOR_CLASS,
-  MENU_SUB_TRIGGER_CLASS,
-} from "@/components/design/context-menu-styles";
+} from "@/components/design/context-menu-item";
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
@@ -2452,7 +2450,7 @@ const LayerRow = memo(function LayerRow({
             onCopyLink ||
             (onRename && node.renamable !== false)) &&
           (lockable || hideable) ? (
-            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
+            <ContextMenuSeparator />
           ) : null}
           {hideable ? (
             <CanvasMenuItem
@@ -2470,13 +2468,11 @@ const LayerRow = memo(function LayerRow({
           ) : null}
 
           {(lockable || hideable) && (onReorderLayer || hasTransformActions) ? (
-            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
+            <ContextMenuSeparator />
           ) : null}
           {onReorderLayer ? (
             <ContextMenuSub>
-              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
-                {labels.arrange}
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>{labels.arrange}</ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
                 <CanvasMenuItem
                   label={labels.bringToFront}
@@ -2497,9 +2493,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           {hasTransformActions ? (
             <ContextMenuSub>
-              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
-                {labels.transform}
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>{labels.transform}</ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
                 {onFlipHorizontal ? (
                   <CanvasMenuItem
