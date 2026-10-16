@@ -158,6 +158,15 @@ export default defineAction({
     const now = new Date().toISOString();
 
     await db.transaction(async (tx) => {
+      // Two applies of the same extension can both pass the checks above.
+      // Locked, the second waits for the first and then finds the combined
+      // video already in place, so it shifts nothing a second time.
+      const [locked] = await tx
+        .select({ videoUrl: schema.recordings.videoUrl })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId))
+        .for("update");
+      if (locked?.videoUrl === args.videoUrl) return;
       await tx
         .update(schema.recordings)
         .set({
