@@ -17,6 +17,7 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { whenConsentAllows } from "./consent.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
@@ -242,7 +243,8 @@ export interface SessionReplayStartResult {
     | "url-blocked"
     | "already-active"
     | "import-failed"
-    | "record-failed";
+    | "record-failed"
+    | "consent-required";
   replayId?: string;
   sessionId?: string;
   sampled?: boolean;
@@ -1866,6 +1868,7 @@ function isFinalFlushReason(reason: string): boolean {
     "url-blocked",
     "max-duration",
     "max-chunks",
+    "consent-revoked",
   ].includes(reason);
 }
 
@@ -3549,6 +3552,41 @@ function installCaptureInterceptors(state: SessionReplayState): void {
   };
 }
 
+let replayConsentWatched = false;
+let replayConsentGranted = false;
+let replayAwaitingConsent: SessionReplayOptions | null = null;
+
+/**
+ * Replay waits for analytics consent where the banner applies, without the
+ * time zone's early guess: a recording that already uploaded can't be undone.
+ * A start asked for before the answer runs once consent arrives.
+ */
+function replayConsentAllows(options: SessionReplayOptions): boolean {
+  if (!replayConsentWatched) {
+    replayConsentWatched = true;
+    whenConsentAllows(
+      "performance",
+      () => {
+        replayConsentGranted = true;
+        const waiting = replayAwaitingConsent;
+        replayAwaitingConsent = null;
+        if (waiting) void startSessionReplay(waiting);
+      },
+      {
+        revoke: () => {
+          const wasGranted = replayConsentGranted;
+          replayConsentGranted = false;
+          replayAwaitingConsent = null;
+          if (wasGranted) void stopSessionReplay("consent-revoked");
+        },
+      },
+    );
+  }
+  if (replayConsentGranted) return true;
+  replayAwaitingConsent = options;
+  return false;
+}
+
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
@@ -3564,6 +3602,9 @@ export async function startSessionReplay(
   }
   const normalized = normalizeOptions(options);
   if (!normalized) return { started: false, reason: "missing-public-key" };
+  if (!replayConsentAllows(options)) {
+    return { started: false, reason: "consent-required" };
+  }
 
   const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return { started: false, reason: "missing-session-id" };

@@ -279,6 +279,16 @@ Everyone else gets no banner and every tag at once.
 - The inline bootstrap in `server/analytics.ts` runs the queue on pages that
   never load the app bundle. It repeats the cookie format and time-zone
   rules of `client/consent.ts`; change both together.
+- First-party analytics keeps counting in the region before consent, but the
+  visitor id `an_aid` waits for `performance`: until then
+  `getOrCreateAnalyticsAnonymousId()` returns `undefined` and stores nothing,
+  and events go out with no `anonymousId` and
+  `properties.analytics_consent: "withheld"`. A reject clears a stored id.
+  Those rows count as events and views but never as people; the Analytics
+  activation funnel joins them to a signup in the same session. Session
+  replay waits for `performance` too, with no time-zone head start, and stops
+  on a reject. Sentry error capture and the session id `an_sid` aren't
+  gated.
 
 ## MCP Server Events
 
@@ -342,7 +352,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 
 Every browser-side `trackEvent()` POST to the Agent-Native Analytics `/track` endpoint includes:
 
-- `anonymousId` — persistent per-browser visitor ID stored in `localStorage` under `agent-native.anonymous_id`. Generated once and reused across sessions. Use this for unique-visitor and returning-visitor metrics.
+- `anonymousId` — persistent per-browser visitor ID stored in `localStorage` under `agent-native.anonymous_id`. Generated once and reused across sessions. Use this for unique-visitor and returning-visitor metrics. In the consent region it's absent until the visitor accepts analytics cookies (see Cookie consent).
 - `sessionId` — rotating per-visit ID stored in `localStorage` under `agent-native.session_id`, with a 30-minute idle timeout (matches GA4 / Mixpanel defaults). Use this for sessions-per-visitor, pages-per-session, and session-duration metrics.
 - `userId` — only set when the calling code passes `properties.userId`. Anonymous traffic leaves this NULL by design; `anonymousId` is the fallback.
 

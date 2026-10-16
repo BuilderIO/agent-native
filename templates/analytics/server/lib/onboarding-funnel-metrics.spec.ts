@@ -71,25 +71,28 @@ describe("onboarding funnel metrics", () => {
     properties: Record<string, unknown>,
     options: {
       email?: string | null;
-      anonymousId?: string;
+      anonymousId?: string | null;
       userKey?: string | null;
       authUserId?: string | null;
       at?: string;
+      sessionId?: string;
     } = {},
   ) {
     const canonicalAuthUserId =
       options.authUserId === undefined ? authUserId : options.authUserId;
     await client.query(
       `INSERT INTO analytics_events
-        (id, event_name, user_id, anonymous_id, user_key, timestamp, event_date, app, template, hostname, properties)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'clips', 'clips', 'clips.agent-native.com', $8)`,
+        (id, event_name, user_id, anonymous_id, user_key, timestamp, event_date, app, template, hostname, properties, session_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'clips', 'clips', 'clips.agent-native.com', $8, $9)`,
       [
         `event-${nextRowId++}`,
         eventName,
         Object.prototype.hasOwnProperty.call(options, "email")
           ? options.email
           : `${authUserId}@example.com`,
-        options.anonymousId ?? `anon-${authUserId}`,
+        options.anonymousId === undefined
+          ? `anon-${authUserId}`
+          : options.anonymousId,
         options.userKey ?? null,
         options.at ?? `${eventDay}T12:00:00.000Z`,
         eventDay,
@@ -97,6 +100,7 @@ describe("onboarding funnel metrics", () => {
           ...properties,
           ...(canonicalAuthUserId ? { auth_user_id: canonicalAuthUserId } : {}),
         }),
+        options.sessionId ?? null,
       ],
     );
   }
@@ -195,6 +199,54 @@ describe("onboarding funnel metrics", () => {
       ["Onboarding completed", 1],
       ["Entered app", 1],
       ["First significant action", 1],
+    ]);
+  }, 20_000);
+
+  it("joins a visitor without analytics consent to their signup in the same session", async () => {
+    await createEventsTable();
+    const unconsented = {
+      email: null,
+      anonymousId: null,
+      authUserId: null,
+      sessionId: "session-1",
+    };
+    await insertEvent("auth.signup_viewed", "anon", {}, unconsented);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      unconsented,
+    );
+    // Another visitor without consent, in another session, never signs up.
+    await insertEvent(
+      "auth.signup_viewed",
+      "anon",
+      {},
+      { ...unconsented, sessionId: "session-2" },
+    );
+    await insertEvent(
+      "signup",
+      "bea",
+      { signup_method: "google" },
+      {
+        email: "bea@example.com",
+        userKey: "bea@example.com",
+        anonymousId: null,
+        authUserId: "auth-bea",
+        sessionId: "session-1",
+      },
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(
+      result.rows.slice(0, 3).map(({ stage, users }) => [stage, users]),
+    ).toEqual([
+      ["Signup page viewed", 1],
+      ["Signup CTA clicked", 1],
+      ["Signed up", 1],
     ]);
   }, 20_000);
 
