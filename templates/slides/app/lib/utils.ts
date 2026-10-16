@@ -14,7 +14,8 @@ export function shortcutModifierLabel(): string {
 export function normalizeLinkHref(value: string): string | null {
   const href = value.trim();
   if (!href) return null;
-  return href.startsWith("http") ? href : `https://${href}`;
+  if (/^(?:(?:https?|mailto|tel|sms):|[/#?.])/i.test(href)) return href;
+  return `https://${href}`;
 }
 
 export function shortcutLabel(shortcut: string): string {

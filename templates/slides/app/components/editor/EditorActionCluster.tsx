@@ -127,6 +127,8 @@ export function EditorActionCluster({
                   type="button"
                   data-toolbar-textbox-button
                   aria-label={t("contextToolbar.insert")}
+                  aria-pressed={textBoxMode}
+                  aria-keyshortcuts="T"
                   className={cn(
                     BUTTON_CLASS,
                     insertMenuOpen || textBoxMode ? ACTIVE_CLASS : IDLE_CLASS,
@@ -140,7 +142,10 @@ export function EditorActionCluster({
             <TooltipContent>{t("contextToolbar.insert")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="start" className="w-44">
-            <DropdownMenuItem onSelect={onToggleTextBoxMode}>
+            <DropdownMenuItem
+              aria-keyshortcuts="T"
+              onSelect={onToggleTextBoxMode}
+            >
               <IconTextSize className="size-4" />
               {t("contextToolbar.insertText")}
               <span className="ml-auto text-xs text-muted-foreground">T</span>

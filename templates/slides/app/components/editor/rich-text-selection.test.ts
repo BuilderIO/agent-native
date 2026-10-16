@@ -9,6 +9,7 @@ import {
   getInlineTextStyleSnapshotForRange,
   normalizeInlineTextSpans,
   normalizeSlideClipboardHtml,
+  selectionClearingPatch,
   restoreEditableTextRange,
   selectAllEditableText,
   setInlineTextLink,
@@ -52,6 +53,34 @@ describe("rich text selection", () => {
     expect(block.innerHTML).toContain("hello ");
     expect(block.querySelector("span")?.textContent).toBe("world");
     expect(block.querySelector("span")?.style.color).toBe("#609ff8");
+  });
+
+  it("clears formatting on only the selected part of a bold run", () => {
+    const block = editable(
+      '<span data-slide-inline-style="true" style="font-weight: 700">hello world</span>',
+    );
+    const text = block.querySelector("span")!.firstChild as Text;
+    rangeFor(text, 6, text, 11);
+
+    applyInlineTextStyle(
+      block,
+      selectionClearingPatch({
+        fontWeight: "",
+        fontStyle: "",
+        textDecoration: "",
+        color: "",
+      }),
+    );
+
+    expect(block.textContent).toBe("hello world");
+    const cleared = Array.from(block.querySelectorAll("span")).find(
+      (span) => span.textContent === "world",
+    );
+    expect(cleared?.style.fontWeight).toBe("400");
+    const kept = Array.from(block.querySelectorAll("span")).find(
+      (span) => span.textContent === "hello ",
+    );
+    expect(kept?.style.fontWeight).not.toBe("400");
   });
 
   it("preserves a backward selection when toggling formatting across inline runs", () => {

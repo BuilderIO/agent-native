@@ -181,6 +181,7 @@ import {
   normalizeSlideClipboardHtml,
   restoreEditableTextRange,
   selectAllEditableText,
+  selectionClearingPatch,
   snapshotEditableTextRange,
   type InlineTextStylePatch,
   type InlineTextStyleSnapshot,
@@ -5369,9 +5370,10 @@ export default function SlideEditor({
       ) {
         // The live session styles its own selection so the change is one
         // undo step inside the edit.
+        const selectionPatch = selectionClearingPatch(inlinePatch);
         const applied = session
-          ? session.commands.textStyle(inlinePatch)
-          : applyInlineTextStyle(element, inlinePatch).scope === "selection";
+          ? session.commands.textStyle(selectionPatch)
+          : applyInlineTextStyle(element, selectionPatch).scope === "selection";
         const selection = window.getSelection();
         if (applied && selection && selection.rangeCount === 1) {
           styledRange = selection.getRangeAt(0).cloneRange();

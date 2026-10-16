@@ -722,10 +722,10 @@ export function SlideContextToolbar({
           </div>
         )}
 
-        {snapshot.isText && (
+        {(snapshot.isText || snapshot.isImage) && (
           <>
             <div className="grid grid-cols-2 gap-2">
-              {opacityControl}
+              {snapshot.isText && opacityControl}
               {radiusControl}
             </div>
             <VisualControlRow label={t("styleInspector.fill")}>
