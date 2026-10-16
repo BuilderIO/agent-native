@@ -843,7 +843,7 @@ test("Shift-picking a Screen extends the Delete selection in All screens", async
   await expect(layerRow(page, "Third")).toHaveCount(1);
 });
 
-test("Shift-marquee adds a hit Screen to the existing Delete selection", async ({
+test("Shift-marquee keeps reselected Screens in the existing Delete selection", async ({
   app,
   page,
 }) => {
@@ -928,18 +928,28 @@ test("Shift-marquee adds a hit Screen to the existing Delete selection", async (
   expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
   expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
 
-  await page.keyboard.down("Shift");
-  try {
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 12 });
-    await page.mouse.up();
-  } finally {
-    await page.keyboard.up("Shift");
-  }
+  const shiftMarqueeSecond = async () => {
+    await page.keyboard.down("Shift");
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up("Shift");
+    }
+  };
+  await shiftMarqueeSecond();
   await expect
     .poll(() => selectedScreenIds(page))
     .toEqual(expect.arrayContaining([homeId, secondId]));
+  await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
+
+  await shiftMarqueeSecond();
+  await expect
+    .poll(() => selectedScreenIds(page))
+    .toEqual(expect.arrayContaining([homeId, secondId]));
+  await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
 
   await page.keyboard.press("Delete");
   await expect(layerRow(page, "Home")).toHaveCount(0);

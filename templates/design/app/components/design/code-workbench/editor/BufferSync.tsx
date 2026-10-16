@@ -50,11 +50,16 @@ function BufferSyncOne({
 }) {
   const { state, api } = useWorkbench();
   const uri = workbenchUri(`inline:${designId}`, path);
-  const { data } = useActionQuery(
+  const { data, refetch } = useActionQuery(
     "read-source-file",
     { designId, path },
     { enabled: active },
   );
+  const wasActiveRef = useRef(false);
+  useEffect(() => {
+    if (active && !wasActiveRef.current && data !== undefined) void refetch();
+    wasActiveRef.current = active;
+  }, [active, data, refetch]);
   const read = data as
     | {
         content: string;

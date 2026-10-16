@@ -531,94 +531,93 @@ test("editing a screen fill changes its body without changing child fills", asyn
   ).toHaveCSS("background-color", "rgb(218, 218, 218)");
 });
 
-// fixme: product bug: After closing the hidden Code workbench the app fires an unrequested preview-source-edit + apply-source-edit; the first nudge saves x=1
-test.fixme("keeps hidden Code source reads quiet during canvas commits", async ({
+test("keeps hidden Code source reads quiet during canvas commits", async ({
   app,
   page,
   request,
 }) => {
   const designId = await createDesign(app, "Hidden Code source reads");
-  const fileId = await createScreen(request, designId, {
-    content: FILL_HTML,
-    metadata: { sourceType: "inline", width: 1280, height: 900 },
-    geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
-  });
-  const screenShell = page.locator(
-    `[data-screen-shell][data-frame-id="${fileId}"]`,
-  );
+  try {
+    const fileId = await createScreen(request, designId, {
+      content: FILL_HTML,
+      metadata: { sourceType: "inline", width: 1280, height: 900 },
+      geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+    });
+    const screenShell = page.locator(
+      `[data-screen-shell][data-frame-id="${fileId}"]`,
+    );
 
-  let sourceReads = 0;
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (
-      url.pathname.endsWith("/_agent-native/actions/read-source-file") &&
-      url.searchParams.has("path")
-    ) {
-      sourceReads += 1;
-    }
-  });
-  const codeWorkbench = page.getByTestId("design-code-workbench");
-  // The dev server can reload the page once to recover optimized deps, which
-  // strands the first navigation on "Loading application"; navigate again.
-  const openCodeWorkbench = async () => {
-    await expect(async () => {
-      await page.goto(appPath(`/design/${designId}?panel=code`), {
-        waitUntil: "domcontentloaded",
+    let sourceReads = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (
+        url.pathname.endsWith("/_agent-native/actions/read-source-file") &&
+        url.searchParams.has("path")
+      ) {
+        sourceReads += 1;
+      }
+    });
+    const codeWorkbench = page.getByTestId("design-code-workbench");
+    // The dev server can reload the page once to recover optimized deps, which
+    // strands the first navigation on "Loading application"; navigate again.
+    const openCodeWorkbench = async () => {
+      await expect(async () => {
+        await page.goto(appPath(`/design/${designId}?panel=code`), {
+          waitUntil: "domcontentloaded",
+        });
+        await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
+      }).toPass({ timeout: 60_000 });
+    };
+    await openCodeWorkbench();
+    await expect(screenShell).toBeVisible();
+    await page.evaluate(async (id) => {
+      const workbench = (window as any).__designCodeWorkbench;
+      const providerKey = "inline:" + id;
+      if (!workbench) throw new Error("Code workbench handle is missing");
+      await workbench.api.openFile(providerKey, "screen.html", {
+        preview: false,
       });
-      await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
-    }).toPass({ timeout: 60_000 });
-  };
-  await openCodeWorkbench();
-  await expect(screenShell).toBeVisible();
-  await page.evaluate(async (id) => {
-    const workbench = (window as any).__designCodeWorkbench;
-    const providerKey = "inline:" + id;
-    if (!workbench) throw new Error("Code workbench handle is missing");
-    await workbench.api.openFile(providerKey, "screen.html", {
-      preview: false,
-    });
-  }, designId);
-  await expect.poll(() => sourceReads).toBeGreaterThan(0);
-  const sourceReadsBeforeEdits = sourceReads;
+    }, designId);
+    await expect.poll(() => sourceReads).toBeGreaterThan(0);
+    const sourceReadsBeforeEdits = sourceReads;
 
-  await page.getByRole("button", { name: "Layers", exact: true }).click();
-  await expect(page.getByTestId("design-code-workbench")).toBeHidden();
-  const frameLabel = screenShell.locator("[data-frame-label]");
-  await expect(frameLabel).toBeVisible();
-  const readFrameX = async () =>
-    designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
-  const initialX = await readFrameX();
-  expect(initialX).toBe(0);
-  // Retry only readiness: the key press is a non-idempotent mutation and must
-  // be sent once per nudge.
-  await expect(async () => {
-    await frameLabel.click();
-    await expect(
-      page
-        .getByRole("tree", { name: "Layers" })
-        .getByRole("treeitem", { selected: true }),
-    ).toHaveCount(1, { timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-  for (let index = 0; index < 20; index += 1) {
-    const writeResponse = page.waitForResponse((response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        pathname.endsWith("/_agent-native/actions/update-design") &&
-        response.request().method() === "POST"
-      );
-    });
-    await page.keyboard.press("ArrowRight");
-    const response = await writeResponse;
-    expect(
-      response.ok(),
-      `canvas commit failed: ${response.status()} ${await response.text()}`,
-    ).toBe(true);
-    await expect.poll(readFrameX).toBe(initialX + index + 1);
+    await page.getByRole("button", { name: "Layers", exact: true }).click();
+    await expect(page.getByTestId("design-code-workbench")).toBeHidden();
+    const allScreensButton = page.getByRole("button", { name: "All screens" });
+    await allScreensButton.click();
+    await expect(allScreensButton).toHaveAttribute("aria-current", "page");
+    await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
+
+    const readFrameX = async () =>
+      designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
+    const initialX = await readFrameX();
+    expect(initialX).toBe(0);
+    // Retry only readiness: each key press is a non-idempotent mutation.
+    for (let index = 0; index < 20; index += 1) {
+      const writeResponse = page.waitForResponse((response) => {
+        const pathname = new URL(response.url()).pathname;
+        return (
+          pathname.endsWith("/_agent-native/actions/update-design") &&
+          response.request().method() === "POST"
+        );
+      });
+      await page.keyboard.press("ArrowRight");
+      const response = await writeResponse;
+      expect(
+        response.ok(),
+        `canvas commit failed: ${response.status()} ${await response.text()}`,
+      ).toBe(true);
+      await expect.poll(readFrameX).toBe(initialX + index + 1);
+    }
+    expect(sourceReads).toBe(sourceReadsBeforeEdits);
+
+    await openCodeWorkbench();
+    await expect
+      .poll(() => sourceReads)
+      .toBeGreaterThan(sourceReadsBeforeEdits);
+  } finally {
+    await action(request, "delete-design", { id: designId });
   }
-  expect(sourceReads).toBe(sourceReadsBeforeEdits);
-
-  await openCodeWorkbench();
-  await expect.poll(() => sourceReads).toBeGreaterThan(sourceReadsBeforeEdits);
 });
 
 test("a screen's east-edge resize keeps its explicit height in the rendered card", async ({
