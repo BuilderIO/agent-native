@@ -19,6 +19,7 @@ import {
   type Route,
   type TestInfo,
 } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 
 import { AUTH_FILES } from "./auth-files";
 import {
@@ -1051,38 +1052,87 @@ export async function typeAtParagraphEnd(
   };
   await capture("before-caret");
   await page.locator(`${EDITOR} > p`, { hasText: anchor }).first().click();
-  // "End" stops at a wrapped visual line; place the caret at the true end.
+  // "End" stops at a wrapped visual line, and a caret set only in the DOM is
+  // lost when a remote update re-renders before ProseMirror reads it: the
+  // keys then land where the click put them. Set it in the editor's state.
   await page.evaluate(
     ({ needle, editor }) => {
-      const paragraph = [...document.querySelectorAll(`${editor} > p`)].find(
-        (element) => element.textContent?.includes(needle),
-      );
-      if (!paragraph) throw new Error(`No paragraph contains ${needle}`);
-      const walker = document.createTreeWalker(
-        paragraph,
-        NodeFilter.SHOW_TEXT,
-        {
-          acceptNode: (node) =>
-            node.parentElement?.closest(
-              "[class*='caret'],[class*='collaboration']",
-            )
-              ? NodeFilter.FILTER_REJECT
-              : NodeFilter.FILTER_ACCEPT,
-        },
-      );
-      let last: Text | null = null;
-      while (walker.nextNode()) last = walker.currentNode as Text;
-      if (!last) throw new Error(`No text in ${needle}`);
-      const range = document.createRange();
-      range.setStart(last, last.length);
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
+      const tiptap = (
+        document.querySelector(editor) as (Element & { editor?: Editor }) | null
+      )?.editor;
+      if (!tiptap) throw new Error(`No TipTap editor on ${editor}`);
+      const { doc } = tiptap.state;
+      for (let index = 0, offset = 0; index < doc.childCount; index++) {
+        const node = doc.child(index);
+        if (
+          node.type.name === "paragraph" &&
+          node.textContent.includes(needle)
+        ) {
+          tiptap.commands.setTextSelection(offset + node.nodeSize - 1);
+          tiptap.view.focus();
+          return;
+        }
+        offset += node.nodeSize;
+      }
+      throw new Error(`No paragraph contains ${needle}`);
     },
     { needle: anchor, editor: EDITOR },
   );
   await page.keyboard.type(text, { delay: delayMs });
   await capture("after-input");
+  await expectTypedAtEnd(page, anchor, text);
+}
+
+/**
+ * Fail as a harness error when the keys typed into a paragraph do not end it,
+ * so a misplaced caret is never reported as the product losing a marker.
+ */
+async function expectTypedAtEnd(
+  page: Page,
+  anchor: string,
+  text: string,
+): Promise<void> {
+  // A space typed at a paragraph's end can arrive as a no-break space.
+  const spaced = (value: string) => value.replace(/\s/g, " ");
+  const typed = spaced(text);
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const read = await page.evaluate(
+      ({ needle, editor }) => {
+        const tiptap = (
+          document.querySelector(editor) as
+            | (Element & { editor?: Editor })
+            | null
+        )?.editor;
+        if (!tiptap) throw new Error(`No TipTap editor on ${editor}`);
+        const { doc } = tiptap.state;
+        let paragraph: string | null = null;
+        for (
+          let index = 0;
+          index < doc.childCount && paragraph === null;
+          index++
+        ) {
+          const node = doc.child(index);
+          if (
+            node.type.name === "paragraph" &&
+            node.textContent.includes(needle)
+          )
+            paragraph = node.textContent;
+        }
+        return { paragraph, body: doc.textContent };
+      },
+      { needle: anchor, editor: EDITOR },
+    );
+    if (read.paragraph !== null && spaced(read.paragraph).endsWith(typed))
+      return;
+    if (Date.now() > deadline)
+      throw new Error(
+        spaced(read.body).includes(typed.trim())
+          ? `Harness error: the keys typed for ${JSON.stringify(typed)} landed in the editor but not at the end of the paragraph containing ${JSON.stringify(anchor)}, which reads ${JSON.stringify(read.paragraph)}.`
+          : `The editor does not hold the keys typed for ${JSON.stringify(typed)} at all; the paragraph containing ${JSON.stringify(anchor)} reads ${JSON.stringify(read.paragraph)}.`,
+      );
+    await delay(50);
+  }
 }
 
 /** Select `text` in the editor and delete it with the keyboard, as a person would. */
