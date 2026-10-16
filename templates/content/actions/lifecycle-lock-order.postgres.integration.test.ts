@@ -41,6 +41,7 @@ let getDb: () => Db;
 let schema: typeof import("../server/db/schema.js");
 let compareRowIds: typeof import("./_row-lock-order.js").compareRowIds;
 let lockDocumentRows: typeof import("./_row-lock-order.js").lockDocumentRows;
+let lockOwnerPageTree: typeof import("./_row-lock-order.js").lockOwnerPageTree;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let lockPrimaryBlocksFields: typeof import("./_blocks-field-identity.js").lockPrimaryBlocksFields;
 let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
@@ -76,7 +77,8 @@ beforeAll(async () => {
   const database = await import("../server/db/index.js");
   getDb = database.getDb;
   schema = database.schema;
-  ({ compareRowIds, lockDocumentRows } = await import("./_row-lock-order.js"));
+  ({ compareRowIds, lockDocumentRows, lockOwnerPageTree } =
+    await import("./_row-lock-order.js"));
   ({ lockContentDatabaseMutation } =
     await import("./_content-database-mutation-lock.js"));
   ({ lockPrimaryBlocksFields } = await import("./_blocks-field-identity.js"));
@@ -1501,6 +1503,35 @@ describe.skipIf(!POSTGRES_URL)(
         });
       },
     );
+
+    it("refuses a move that would close a cycle with a concurrent move of other pages", async () => {
+      const seed = await seedPageTree();
+      // The concurrent move puts parent under otherChild, locking neither page
+      // this move locks. Afterwards otherParent's subtree holds moved.
+      const { action: move } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.parent, seed.ids.otherChild]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: seed.ids.otherChild })
+            .where(eq(schema.documents.id, seed.ids.parent));
+        },
+        () =>
+          asOwner(() =>
+            moveDocument.run({
+              id: seed.ids.otherParent,
+              parentId: seed.ids.moved,
+            }),
+          ),
+      );
+      await expect(move).rejects.toThrow(
+        "A document cannot be moved under one of its children",
+      );
+      expect(await readPage(seed.ids.otherParent)).toMatchObject({
+        parentId: null,
+      });
+    });
 
     it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {
       const seed = await seedPageTree();
