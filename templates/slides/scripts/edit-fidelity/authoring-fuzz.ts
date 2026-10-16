@@ -1632,6 +1632,7 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
     failureAgeMs: number;
     sameOrigin: boolean;
     competingClaimStartedAfterFailure: boolean;
+    requestWasPendingAtNavigation: boolean;
   }>,
 ) {
   const corsUrl =
@@ -1654,6 +1655,7 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
         /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
           candidate.pathname,
         ) &&
+        candidate.requestWasPendingAtNavigation &&
         (candidate.sameOrigin ||
           taggedPoll ||
           (corsUrl !== null && candidate.url === corsUrl)) &&
@@ -1685,6 +1687,7 @@ export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
       false,
       false,
       cleanupNavigationBrowserSessionMaxRequestAgeMs,
+      true,
     )
   );
 }

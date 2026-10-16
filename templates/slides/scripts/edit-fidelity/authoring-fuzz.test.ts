@@ -2105,7 +2105,7 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   ).toBe(false);
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
-      candidate,
+      { ...candidate, competingClaimStartedAfterNavigation: true },
       {
         ...candidate,
         pathname:
@@ -2113,7 +2113,7 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
         competingClaimStartedAfterNavigation: true,
       },
     ]),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
       { ...candidate, requestWasPendingAtNavigation: false },
@@ -2164,6 +2164,7 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
     failureAgeMs: 20,
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
+    requestWasPendingAtNavigation: true,
   };
 
   expect(
@@ -2196,6 +2197,12 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
       [{ ...candidate, sameOrigin: false }],
     ),
   ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [{ ...candidate, requestWasPendingAtNavigation: false }],
+    ),
+  ).toBe(false);
   expect(
     isExpectedCleanupRecoveryPageBrowserSessionError(
       "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
@@ -3970,6 +3977,10 @@ it("ignores cleanup heartbeat failures only for a matching canceled registration
     ageMs: 100,
     sameOrigin: true,
     requestWasPendingAtNavigation: true,
+    requestSessionId: "retired-session",
+    retiredSessionId: "retired-session",
+    competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
   };
   const warning =
     "[Agent-Native browser session] heartbeat failed: TypeError: Load failed";
@@ -3992,6 +4003,20 @@ it("ignores cleanup heartbeat failures only for a matching canceled registration
       { ...candidate, requestFinishedSuccessfully: true },
     ]),
   ).toBe(false);
+  for (const mismatchedRegistration of [
+    { ...candidate, requestSessionId: null },
+    { ...candidate, requestSessionId: "new-session" },
+    { ...candidate, retiredSessionId: null },
+    { ...candidate, retiredSessionId: "new-session" },
+    { ...candidate, competingSameTypeRequest: true },
+    { ...candidate, competingRegistrationStartedAfterNavigation: true },
+  ]) {
+    expect(
+      isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
+        mismatchedRegistration,
+      ]),
+    ).toBe(false);
+  }
   expect(isExpectedCleanupNavigationError(warning, [candidate], true)).toBe(
     true,
   );
