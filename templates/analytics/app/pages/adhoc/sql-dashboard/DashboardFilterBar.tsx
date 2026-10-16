@@ -490,6 +490,9 @@ function MultiSelectOption({
   );
 }
 
+// What the name form is open for: a new group, or the group named label.
+type GroupNaming = { kind: "add" } | { kind: "rename"; label: string };
+
 function MultiSelectFilter({
   filter,
   value,
@@ -509,7 +512,7 @@ function MultiSelectFilter({
   const optionsListId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [naming, setNaming] = useState<"add" | "rename" | null>(null);
+  const [naming, setNaming] = useState<GroupNaming | null>(null);
   const [groupName, setGroupName] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   // Save as group or Rename group, whichever opened the name form.
@@ -604,15 +607,27 @@ function MultiSelectFilter({
     onEditPreset !== undefined &&
     !normalizedQuery &&
     selectedPreset !== undefined;
+  // Rename stays on the group it opened on: a selection that moves to another
+  // group closes the form rather than renaming that group.
   const renaming =
-    naming === "rename" && canEditGroup ? selectedPreset : undefined;
+    naming?.kind === "rename" &&
+    canEditGroup &&
+    selectedPreset?.label === naming.label
+      ? selectedPreset
+      : undefined;
   const nameFormOpen =
-    (naming === "add" && canSaveGroup) || renaming !== undefined;
+    (naming?.kind === "add" && canSaveGroup) || renaming !== undefined;
   const trimmedGroupName = groupName.trim();
   const groupNameTaken = presets.some(
     (preset) => preset !== renaming && preset.label === trimmedGroupName,
   );
   const groupNameUnchanged = renaming?.label === trimmedGroupName;
+  // Each opening sets the name, so text typed into a form that closed unsaved
+  // never carries into the next one.
+  const startNaming = (next: GroupNaming) => {
+    setGroupName(next.kind === "rename" ? next.label : "");
+    setNaming(next);
+  };
   const stopNaming = () => {
     setNaming(null);
     setGroupName("");
@@ -852,7 +867,7 @@ function MultiSelectFilter({
                   variant="ghost"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => setNaming("add")}
+                  onClick={() => startNaming({ kind: "add" })}
                 >
                   <IconPlus />
                   {t("sqlDashboard.saveAsGroup")}
@@ -865,10 +880,13 @@ function MultiSelectFilter({
                     variant="ghost"
                     size="sm"
                     className="w-full justify-start"
-                    onClick={() => {
-                      setGroupName(selectedPreset?.label ?? "");
-                      setNaming("rename");
-                    }}
+                    onClick={() =>
+                      selectedPreset &&
+                      startNaming({
+                        kind: "rename",
+                        label: selectedPreset.label,
+                      })
+                    }
                   >
                     <IconPencil />
                     {t("sqlDashboard.renameGroup")}

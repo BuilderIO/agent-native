@@ -664,6 +664,38 @@ describe("multi-select dashboard filter", () => {
       expect(onEditPreset).not.toHaveBeenCalled();
     });
 
+    it("closes the rename form when the selection moves to another group, rather than renaming that group", () => {
+      const onEditPreset = vi.fn();
+      render(paidUrl, withPresets, { onEditPreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+      typeInto(groupNameInput(), "Premium");
+
+      act(() => optionCheckbox("Enterprise").click());
+      act(() => optionCheckbox("Free").click());
+
+      expect(popoverButton("Starter").getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expect(() => groupNameInput()).toThrow("not rendered");
+      act(() => popoverButton("Rename group…").click());
+      expect(groupNameInput().value).toBe("Starter");
+      expect(onEditPreset).not.toHaveBeenCalled();
+    });
+
+    it("starts Save as group from an empty name after an abandoned rename", () => {
+      render(paidUrl, withPresets, { onEditPreset: vi.fn() });
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+      typeInto(groupNameInput(), "Premium");
+
+      act(() => optionCheckbox("Self-Serve").click());
+      act(() => optionCheckbox("Free").click());
+      act(() => popoverButton("Save as group…").click());
+
+      expect(groupNameInput().value).toBe("");
+    });
+
     it("deletes the group but keeps its values checked, with focus on the search field", () => {
       const onEditPreset = renderWithEdits(paidUrl, withPresets);
       act(() => trigger().click());
