@@ -283,12 +283,85 @@ async function applyPending(
       );
     }
     await recordMigration(exec, store, migration, "step");
+    // Hosted apps without release migrations still replay boot lists against
+    // their old table; without this row they would run this entry again.
+    if (migration.legacy?.ranAtBoot) {
+      await recordLegacyMigrationEntry(exec, migration.legacy.table, {
+        version: migration.legacy.version,
+        name: migration.legacy.name,
+      });
+    }
     applied.add(migration.name);
     ran++;
   }
   state.snapshot = undefined;
   if (ran > 0) {
     console.log(`[db] Applied ${ran} migration(s) to store "${store.id}"`);
+  }
+}
+
+/**
+ * A deployed server with no hosted database refuses every database open, and
+ * its sign-in page explains the fix; rejecting here would keep the auth and org
+ * plugins from mounting that page, as `runMigrations` never did. Every later
+ * query raises the same refusal, so nothing downstream reads as migrated.
+ */
+// By name rather than `instanceof`: this module must not import the class from
+// `client.js`, which nearly every spec mocks, and the runner wraps the error.
+function databaseRefusal(err: unknown): Error | undefined {
+  for (let cause = err; cause; cause = (cause as Error).cause) {
+    if ((cause as Error).name === "HostedRuntimeLocalDatabaseError") {
+      return cause as Error;
+    }
+  }
+  return undefined;
+}
+
+async function tolerateRefusedDatabase(
+  storeId: string,
+  apply: () => Promise<void>,
+): Promise<void> {
+  try {
+    await apply();
+  } catch (err) {
+    const refusal = databaseRefusal(err);
+    if (!refusal || isReleaseStep()) throw err;
+    console.error(`[db] Skipping store "${storeId}". ${refusal.message}`);
+  }
+}
+
+/**
+ * Records an entry in a `runMigrations` list's own bookkeeping as that runner
+ * would after applying it: by name when named, and the version only when it
+ * advances `MAX(version)`, the one value that gates unnamed entries.
+ */
+async function recordLegacyMigrationEntry(
+  exec: DbExec,
+  table: string,
+  entry: { version: number; name?: string },
+): Promise<void> {
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
+    ),
+  );
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table}_named (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
+    ),
+  );
+  if (entry.name) {
+    await exec.execute({
+      sql: `INSERT INTO ${table}_named (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`,
+      args: [entry.name, entry.version],
+    });
+  }
+  const { rows } = await exec.execute(`SELECT MAX(version) AS v FROM ${table}`);
+  if (entry.version > Number(rows[0]?.v ?? 0)) {
+    await exec.execute({
+      sql: `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`,
+      args: [entry.version],
+    });
   }
 }
 
@@ -644,18 +717,20 @@ export function defineStore(definition: StoreDefinition): Store {
       syncWithDatabaseGeneration();
       const mode = readiness();
       if (mode === "apply") {
-        const exec = getDbExec();
-        const memo = isReleaseStep() ? appliedAtRelease : applied;
-        const existing = memo.get(exec);
-        if (existing) return existing;
-        const tracked = retainRequestDbPoolScope(
-          applyWithLedger(store, exec).catch((err) => {
-            if (memo.get(exec) === tracked) memo.delete(exec);
-            throw err;
-          }),
-        );
-        memo.set(exec, tracked);
-        return tracked;
+        return tolerateRefusedDatabase(id, () => {
+          const exec = getDbExec();
+          const memo = isReleaseStep() ? appliedAtRelease : applied;
+          const existing = memo.get(exec);
+          if (existing) return existing;
+          const tracked = retainRequestDbPoolScope(
+            applyWithLedger(store, exec).catch((err) => {
+              if (memo.get(exec) === tracked) memo.delete(exec);
+              throw err;
+            }),
+          );
+          memo.set(exec, tracked);
+          return tracked;
+        });
       }
       const existing = pending.get(mode);
       if (existing) return existing;

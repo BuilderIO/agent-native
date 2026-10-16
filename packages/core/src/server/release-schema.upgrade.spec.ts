@@ -82,12 +82,20 @@ describe("local boot against a database an older release created", () => {
       ),
     );
 
-    const [{ orgStore }, { contextXrayStore }, { observationalMemoryStore }] =
-      await Promise.all([
-        import("../org/schema-store.js"),
-        import("../agent/context-xray/schema-store.js"),
-        import("../agent/observational-memory/store.js"),
-      ]);
+    const [
+      { orgStore },
+      { contextXrayStore },
+      { observationalMemoryStore },
+      { betterAuthStore, BETTER_AUTH_MIGRATIONS },
+    ] = await Promise.all([
+      import("../org/schema-store.js"),
+      import("../agent/context-xray/schema-store.js"),
+      import("../agent/observational-memory/store.js"),
+      import("./better-auth-migrations.js"),
+    ]);
+    // Better Auth first, as the auth plugin boots it; its v4 expires every
+    // signing key, so it must import here, never run.
+    await betterAuthStore.ready();
     await orgStore.ready();
     await contextXrayStore.ready();
     await observationalMemoryStore.ready();
@@ -96,10 +104,15 @@ describe("local boot against a database an older release created", () => {
       `SELECT store_id, count(*) FILTER (WHERE source = 'legacy')::int AS legacy,
               count(*) FILTER (WHERE source = 'step')::int AS step
          FROM _an_store_migrations
-        WHERE store_id IN ('org', 'context_xray')
+        WHERE store_id IN ('better_auth', 'org', 'context_xray')
         GROUP BY store_id ORDER BY store_id`,
     );
     expect(rows).toEqual([
+      {
+        store_id: "better_auth",
+        legacy: BETTER_AUTH_MIGRATIONS.length,
+        step: 0,
+      },
       { store_id: "context_xray", legacy: 3, step: 0 },
       { store_id: "org", legacy: 34, step: 0 },
     ]);
@@ -133,7 +146,7 @@ describe("release schema upgrade convergence", () => {
       const { rows } = await getDbExec().execute(
         "SELECT count(*)::int AS n FROM _an_store_migrations WHERE source = 'legacy'",
       );
-      expect(Number(rows[0]?.n)).toBeGreaterThanOrEqual(102);
+      expect(Number(rows[0]?.n)).toBeGreaterThanOrEqual(112);
     },
     300_000,
   );
