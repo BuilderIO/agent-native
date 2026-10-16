@@ -6,12 +6,6 @@ const mocks = vi.hoisted(() => ({
   hasAppSecret: vi.fn(async () => true),
   listWorkspaceConnectionsForApp: vi.fn(),
   resolveOrgRole: vi.fn(async () => "member" as string | null),
-  resolveWorkspaceConnectionForApp: vi.fn(async () => ({
-    available: true,
-    connection: null,
-    appAccess: null,
-    reason: "",
-  })),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -32,7 +26,7 @@ vi.mock("@agent-native/core/secrets", () => ({
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
-  resolveWorkspaceConnectionForApp: mocks.resolveWorkspaceConnectionForApp,
+  resolveWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
 }));
 
 vi.mock("../server/lib/db-admin-connections.js", () => ({
@@ -195,23 +189,9 @@ describe("get-dbt-connection", () => {
   });
 
   it("drops a connection restricted to another user, so it cannot make this caller look ready", async () => {
-    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
-      connectedRow,
-      { ...connectedRow, id: "conn_dbt_2", label: "dbt Cloud (restricted)" },
-    ]);
-    mocks.resolveWorkspaceConnectionForApp
-      .mockResolvedValueOnce({
-        available: true,
-        connection: connectedRow,
-        appAccess: null,
-        reason: "",
-      } as never)
-      .mockResolvedValueOnce({
-        available: false,
-        connection: null,
-        appAccess: null,
-        reason: "restricted",
-      } as never);
+    // The batch lookup returns only the rows this caller may use; the
+    // restricted row never reaches the action.
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([connectedRow]);
 
     await expect(action.run({}, {} as never)).resolves.toMatchObject({
       connected: true,

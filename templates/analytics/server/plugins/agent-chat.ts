@@ -10,7 +10,7 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
-import { listWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
+import { resolveWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
@@ -23,7 +23,6 @@ import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
 import "../lib/sigma-setup-secret-sweep.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
-import { callerAccessibleDbtConnections } from "../lib/dbt-caller-connections";
 import {
   DBT_CONNECTION_READINESS,
   DBT_PROVIDER_ID,
@@ -350,13 +349,11 @@ const DBT_READINESS_UNKNOWN_LINE =
 async function dbtReadinessLine(event: any): Promise<string | null> {
   try {
     const ctx = await getOrgContext(event);
-    const grantedConnections = await callerAccessibleDbtConnections(
-      await listWorkspaceConnectionsForApp({
-        appId: ANALYTICS_APP_ID,
-        provider: DBT_PROVIDER_ID,
-        includeDisabled: true,
-      }),
-    );
+    const grantedConnections = await resolveWorkspaceConnectionsForApp({
+      appId: ANALYTICS_APP_ID,
+      provider: DBT_PROVIDER_ID,
+      includeDisabled: true,
+    });
     const readiness = await dbtProviderReadiness(
       grantedConnections,
       ctx.orgId ?? null,
@@ -1163,7 +1160,9 @@ function dataSourceStatusSummary(
       const dbtNotReady = isDbt && !isDbtUsable(dbtReadiness);
       // Absent and error readiness both mean the state is unknown, not disconnected.
       const configured = dbtNotReady
-        ? dbtReadiness === undefined || dbtReadiness === "error"
+        ? dbtReadiness === undefined ||
+          dbtReadiness === "error" ||
+          dbtReadiness === "checking"
           ? null
           : false
         : record.configured === true ||

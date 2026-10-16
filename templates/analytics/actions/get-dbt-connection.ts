@@ -4,11 +4,10 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { listWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
+import { resolveWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
 import { resolveOrgRole } from "../server/lib/db-admin-connections.js";
-import { callerAccessibleDbtConnections } from "../server/lib/dbt-caller-connections.js";
 import {
   DBT_BASE_URL_CONFIG_KEY,
   DBT_CONNECTION_READINESS,
@@ -85,7 +84,7 @@ export default defineAction({
     }
 
     const [connections, tokenConfigured, role] = await Promise.all([
-      listWorkspaceConnectionsForApp({
+      resolveWorkspaceConnectionsForApp({
         appId: ANALYTICS_APP_ID,
         provider: DBT_PROVIDER_ID,
         includeDisabled: true,
@@ -97,8 +96,7 @@ export default defineAction({
       }),
       resolveOrgRole(email, orgId),
     ]);
-    const callerConnections = await callerAccessibleDbtConnections(connections);
-    const listed = callerConnections.map((connection) => {
+    const listed = connections.map((connection) => {
       const environmentId = configString(
         connection,
         DBT_ENVIRONMENT_CONFIG_KEY,

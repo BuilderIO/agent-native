@@ -17,6 +17,8 @@ export const DBT_CONNECTION_READINESS = [
   "environment_missing",
   "environment_invalid",
   "connection_selection_required",
+  "checking",
+  "disabled",
   "needs_reauth",
   "error",
 ] as const;
@@ -51,6 +53,9 @@ export function dbtConnectionReadiness({
   if (status === null) return "not_connected";
   if (status === "needs_reauth") return "needs_reauth";
   if (status === "error") return "error";
+  // A row that is present but still being verified is unknown, not absent.
+  if (status === "checking") return "checking";
+  if (status === "disabled") return "disabled";
   if (status !== "connected") return "not_connected";
   if (tokenConfigured === null) return "error";
   if (!tokenConfigured) return "token_missing";
@@ -73,6 +78,10 @@ export function dbtConnectionReadinessReason(
       return "The dbt Semantic Layer token is not saved.";
     case "environment_missing":
       return "The dbt environment ID is not saved.";
+    case "checking":
+      return "The dbt connection is still being verified.";
+    case "disabled":
+      return "The dbt connection is disabled. Re-enable it in Settings → Integrations.";
     case "connection_selection_required":
       return "Several dbt connections are granted. Pass one connectionId from get-dbt-connection's connections list to query-dbt-semantic-metric.";
     case "environment_invalid":

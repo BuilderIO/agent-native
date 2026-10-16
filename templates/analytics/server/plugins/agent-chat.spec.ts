@@ -145,6 +145,7 @@ vi.mock("@agent-native/core/workspace-connections", async (importOriginal) => ({
     typeof import("@agent-native/core/workspace-connections")
   >()),
   listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp: listWorkspaceConnectionsForApp,
 }));
 vi.mock("../lib/dbt-readiness", () => ({ dbtProviderReadiness }));
 

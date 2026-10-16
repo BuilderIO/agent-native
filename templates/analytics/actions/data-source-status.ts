@@ -7,6 +7,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  resolveWorkspaceConnectionsForApp,
   summarizeWorkspaceConnectionProviderForApp,
   type SerializedWorkspaceConnectionGrant,
   type SerializedWorkspaceConnection,
@@ -19,7 +20,6 @@ import {
 } from "../server/lib/credential-keys";
 import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
-import { callerAccessibleDbtConnections } from "../server/lib/dbt-caller-connections";
 import { DBT_PROVIDER_ID, isDbtUsable } from "../server/lib/dbt-connection";
 import { dbtProviderReadiness } from "../server/lib/dbt-readiness";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
@@ -214,15 +214,23 @@ export default defineAction({
         ...workspace.connections.map((connection) => connection.provider),
       ]),
     ];
-    // Only rows this caller may use feed the dbt summary and readiness, so a
-    // connection restricted to someone else is not even listed for them.
-    const dbtConnections = await callerAccessibleDbtConnections(
-      workspaceConnectionsForProviderStatus(
-        DBT_PROVIDER_ID,
-        workspace.connections,
-        ctx.userEmail,
-      ),
-    );
+    // The caller-visible dbt rows come from one batch lookup. A failed lookup is
+    // unknown dbt readiness, not an absent connection, and must not fail the
+    // other providers in this response.
+    let dbtAccessFailed = false;
+    let dbtConnections: SerializedWorkspaceConnection[] = [];
+    try {
+      dbtConnections = await resolveWorkspaceConnectionsForApp({
+        appId: APP_ID,
+        provider: DBT_PROVIDER_ID,
+        includeDisabled: true,
+      });
+    } catch (error) {
+      dbtAccessFailed = true;
+      console.warn("[analytics] dbt connection access lookup failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
     const dbtGrantedIds = new Set(
       summarizeWorkspaceConnections(
         DBT_PROVIDER_ID,
@@ -231,14 +239,15 @@ export default defineAction({
       ).connections.map((connection) => connection.id),
     );
     // A failed workspace listing means the rows are unknown, not absent.
-    const dbtReadiness = workspace.error
-      ? "error"
-      : await dbtProviderReadiness(
-          dbtConnections.filter((connection) =>
-            dbtGrantedIds.has(connection.id),
-          ),
-          ctx.orgId ?? null,
-        );
+    const dbtReadiness =
+      workspace.error || dbtAccessFailed
+        ? "error"
+        : await dbtProviderReadiness(
+            dbtConnections.filter((connection) =>
+              dbtGrantedIds.has(connection.id),
+            ),
+            ctx.orgId ?? null,
+          );
     const workspaceProviderStatuses = workspaceProviderIds.map((providerId) => {
       const catalogProvider =
         workspaceCatalog.find((provider) => provider.id === providerId) ??
@@ -460,7 +469,8 @@ export default defineAction({
       workspaceProviderStatuses.some(
         (provider) =>
           provider.id === DBT_PROVIDER_ID &&
-          provider.dbtReadiness === "error" &&
+          (provider.dbtReadiness === "error" ||
+            provider.dbtReadiness === "checking") &&
           (scopedProviderIds === null ||
             scopedProviderIds.has(DBT_PROVIDER_ID)),
       );

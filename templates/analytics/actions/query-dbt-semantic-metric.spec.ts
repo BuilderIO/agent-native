@@ -44,12 +44,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
-  resolveWorkspaceConnectionForApp: async () => ({
-    available: true,
-    connection: null,
-    appAccess: null,
-    reason: "",
-  }),
+  resolveWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
   resolveWorkspaceConnectionCredentialForApp:
     mocks.resolveWorkspaceConnectionCredentialForApp,
 }));

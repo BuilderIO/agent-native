@@ -38,7 +38,8 @@ function dbtHealthState(
   if (
     readiness === undefined ||
     readiness === "error" ||
-    readiness === "environment_invalid"
+    readiness === "environment_invalid" ||
+    readiness === "checking"
   ) {
     return "error";
   }

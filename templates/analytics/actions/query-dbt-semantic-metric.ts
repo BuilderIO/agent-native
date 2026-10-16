@@ -9,12 +9,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
-  listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp,
   resolveWorkspaceConnectionCredentialForApp,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
-import { callerAccessibleDbtConnections } from "../server/lib/dbt-caller-connections";
 import { executeProviderApiRequest } from "../server/lib/provider-api";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
@@ -505,13 +504,11 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     // Choices come only from connections this caller may use, so a restricted
     // row cannot be listed, selected, or force a selection step.
-    const connections = await callerAccessibleDbtConnections(
-      await listWorkspaceConnectionsForApp({
-        appId: ANALYTICS_APP_ID,
-        provider: "dbt",
-        includeDisabled: true,
-      }),
-    );
+    const connections = await resolveWorkspaceConnectionsForApp({
+      appId: ANALYTICS_APP_ID,
+      provider: "dbt",
+      includeDisabled: true,
+    });
     const selected = connectionId
       ? connections.find((connection) => connection.id === connectionId)
       : connections.length === 1

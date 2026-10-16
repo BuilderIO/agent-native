@@ -60,8 +60,8 @@ describe("dbtConnectionReadiness", () => {
   it.each([
     ["needs_reauth", "needs_reauth"],
     ["error", "error"],
-    ["checking", "not_connected"],
-    ["disabled", "not_connected"],
+    ["checking", "checking"],
+    ["disabled", "disabled"],
   ] as const)("maps %s status to %s", (status, expected) => {
     expect(dbtConnectionReadiness({ ...ready, status })).toBe(expected);
   });

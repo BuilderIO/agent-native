@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   hasAppSecret: vi.fn(async () => true),
+  resolveWorkspaceConnectionsForApp: vi.fn(
+    async (_args: { provider: string }): Promise<unknown[]> => [],
+  ),
   hasCredential: vi.fn(),
   getGitHubAccessToken: vi.fn(),
   tryRequestCredentialContext: vi.fn(),
@@ -54,12 +57,8 @@ vi.mock("@agent-native/core/connections", () => ({
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionGrants: mocks.listWorkspaceConnectionGrants,
-  resolveWorkspaceConnectionForApp: async () => ({
-    available: true,
-    connection: null,
-    appAccess: null,
-    reason: "",
-  }),
+  resolveWorkspaceConnectionsForApp: (args: { provider: string }) =>
+    mocks.resolveWorkspaceConnectionsForApp(args),
   listWorkspaceConnections: mocks.listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderForApp: vi.fn(
     ({
@@ -198,6 +197,14 @@ describe("data-source-status", () => {
     mocks.getGitHubAccessToken.mockResolvedValue({ token: null });
     mocks.hasCredential.mockResolvedValue(false);
     mocks.hasAppSecret.mockResolvedValue(true);
+    // The batch lookup sees the same rows the listing returns, filtered by provider.
+    mocks.resolveWorkspaceConnectionsForApp.mockImplementation(
+      async ({ provider }: { provider: string }) =>
+        (await mocks.listWorkspaceConnections()).filter(
+          (connection: { provider: string }) =>
+            connection.provider === provider,
+        ),
+    );
     mocks.workspaceSummary = {
       ...mocks.workspaceSummary,
       grantState: "not_connected",
@@ -303,6 +310,22 @@ describe("data-source-status", () => {
         }),
       ]),
     );
+  });
+
+  it("keeps other providers when the dbt access lookup fails, and reports dbt as an error", async () => {
+    mockGrantedDbtConnection();
+    mocks.resolveWorkspaceConnectionsForApp.mockRejectedValueOnce(
+      new Error("grant store unavailable"),
+    );
+
+    const result = (await dataSourceStatus.run({})) as any;
+
+    expect(result.workspaceConnections.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "dbt", dbtReadiness: "error" }),
+      ]),
+    );
+    expect(result.hasConnectedExternalDataSources).toBeNull();
   });
 
   it("uses the canonical PostgreSQL source id in focused setup links", async () => {
