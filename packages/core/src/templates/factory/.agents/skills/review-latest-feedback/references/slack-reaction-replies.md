@@ -24,11 +24,12 @@ follow-up. A generic earlier “looking into this” does not count.
 
 Resolve duplicates before claiming. For known non-owner duplicates, list the
 permalink and **Clustered** once in the owner reply; do not react or reply
-separately. If this task already added `👀` to a duplicate, keep it and post
-one concise **Clustered** reply in that thread with the owner permalink. This
-is the duplicate's terminal disposition, including when the owner reply was
-already sent; do not post a second owner-thread update for it. If another task
-owns its `👀`, preserve it, record the source in the ledger, and stop.
+separately. For a late duplicate that already has `👀`, recheck the ownership
+gate. Only if this task still owns it, keep the eye and post one concise
+**Clustered** reply there with the owner permalink. This is its terminal
+disposition, even if the owner reply was sent; do not send a second owner
+update. If another task owns the eye or ownership is unclear, preserve it,
+record the source in the ledger, and stop.
 
 For an open package PR, say publication follows merge without an ETA. If the
 first reply is after merge, link the PR and state verified package availability;
