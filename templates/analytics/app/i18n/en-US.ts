@@ -167,6 +167,16 @@ export default {
     templateCatalog: "Catalog",
     semanticLayer: "Semantic Layer",
   },
+  dashboardMode: {
+    label: "Dashboard mode",
+    view: "View",
+    edit: "Edit",
+    viewHint:
+      "Look without changing anything. Column widths you drag stay yours.",
+    editHint: "Changes save for everyone",
+    columnResizePersonal: "Drag to resize for you only. Double-click to reset.",
+    columnResizeShared: "Drag to resize for everyone",
+  },
   dashboardHeader: {
     updated: "Updated {{date}}",
     created: "Created {{date}}",
@@ -864,6 +874,7 @@ export default {
     selectAll: "Select all",
     selectOnly: "Only",
     selectOnlyValue: "Only {{value}}",
+    presets: "Presets",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

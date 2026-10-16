@@ -2655,6 +2655,7 @@ const deDE = {
     auditLog: "Audit-Log",
     doctorCodeChecks: "Doctor (Code-Prüfungen)",
     observability: "Beobachtbarkeit",
+    recorder: "Rekorder",
     observationalMemory: "Beobachtungsspeicher",
     ciEvalGate: "CI-Eval-Gate",
     usingYourAgentOverview: "Überblick",

@@ -17,7 +17,7 @@ Every framework table in `packages/core/src` is owned by exactly one
 store's migrations once per database and records each in
 `_an_store_migrations`, then verifies the ledger covers every registered store.
 Hosted functions of release-owned apps do no schema work at all. Design and
-rollout: 
+rollout:
 `docs/plans/2026-09-28-store-registry-schema-ownership.md`.
 
 App-owned template tables are not covered here; they use `runMigrations` or

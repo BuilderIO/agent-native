@@ -15,6 +15,7 @@ const ABS_POSITION_PROPS = [
   "top",
   "right",
   "bottom",
+  "inset",
 ] as const;
 
 const FLEX_ITEM_PROPS = [
@@ -38,6 +39,7 @@ function isCodeBackedFrame(element: HTMLElement): boolean {
 function patchNodeStyleInHtml(
   content: string,
   nodeAttrId: string,
+  changedProperties: readonly string[],
   mutate: (element: HTMLElement) => void,
 ): string {
   if (typeof window === "undefined" || !nodeAttrId) return content;
@@ -56,8 +58,34 @@ function patchNodeStyleInHtml(
   if (!element) return content;
 
   const previousStyle = element.getAttribute("style");
+  const previousValues = new Map(
+    changedProperties.map((property) => [
+      property,
+      [
+        element.style.getPropertyValue(property),
+        element.style.getPropertyPriority(property),
+      ] as const,
+    ]),
+  );
   mutate(element);
-  const nextStyle = element.getAttribute("style");
+  const updates = changedProperties.map((property) => ({
+    property,
+    value: element.style.getPropertyValue(property) || null,
+    priority: element.style.getPropertyPriority(property),
+  }));
+  if (
+    updates.every((update) => {
+      const previous = previousValues.get(update.property);
+      return (
+        previous?.[0] === (update.value ?? "") &&
+        previous[1] === update.priority
+      );
+    })
+  ) {
+    return content;
+  }
+
+  const nextStyle = patchInlineStyleDeclarations(previousStyle, updates);
   if (nextStyle === previousStyle) return content;
 
   const patched = patchCodeLayerNodeAttributes(content, [
@@ -71,22 +99,84 @@ function patchNodeStyleInHtml(
   return patched ?? content;
 }
 
+function patchInlineStyleDeclarations(
+  style: string | null,
+  updates: Array<{
+    property: string;
+    value: string | null;
+    priority: string;
+  }>,
+): string | null {
+  const updatesByProperty = new Map(
+    updates.map((update) => [update.property.toLowerCase(), update]),
+  );
+  const updatedProperties = new Set<string>();
+  const declarations: string[] = [];
+
+  for (const declaration of splitStyleDeclarations(style ?? "")) {
+    if (!declaration.trim()) continue;
+    const separator = stylePropertySeparator(declaration);
+    const property =
+      separator < 0
+        ? null
+        : declaration
+            .slice(0, separator)
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .trim()
+            .toLowerCase();
+    const update = property ? updatesByProperty.get(property) : undefined;
+    if (!update) {
+      declarations.push(declaration);
+      continue;
+    }
+
+    updatedProperties.add(update.property.toLowerCase());
+    const rawValue = declaration.slice(separator + 1);
+    const commentStart = trailingCommentStart(rawValue);
+    const trailingComments =
+      commentStart < 0 ? "" : rawValue.slice(commentStart);
+    if (update.value) {
+      declarations.push(
+        `${declaration.slice(0, separator + 1)} ${update.value}${update.priority ? " !important" : ""}${trailingComments}`,
+      );
+    } else if (trailingComments) {
+      declarations.push(trailingComments);
+    }
+  }
+
+  for (const update of updates) {
+    const property = update.property.toLowerCase();
+    if (!update.value || updatedProperties.has(property)) continue;
+    declarations.push(
+      `${update.property}: ${update.value}${update.priority ? " !important" : ""}`,
+    );
+  }
+
+  const nextStyle = declarations.join(";");
+  return nextStyle.trim() ? nextStyle : null;
+}
+
 export function removeAbsolutePositioningFromNodeInHtml(
   content: string,
   nodeAttrId: string,
 ): string {
-  return patchNodeStyleInHtml(content, nodeAttrId, (element) => {
-    const keepsContainingBlock = isCodeBackedFrame(element);
-    for (const prop of ABS_POSITION_PROPS) {
-      element.style.removeProperty(prop);
-    }
-    if (keepsContainingBlock) {
-      element.style.setProperty("position", "relative");
-      for (const prop of ["left", "top", "right", "bottom"] as const) {
-        element.style.setProperty(prop, "auto");
+  return patchNodeStyleInHtml(
+    content,
+    nodeAttrId,
+    ABS_POSITION_PROPS,
+    (element) => {
+      const keepsContainingBlock = isCodeBackedFrame(element);
+      for (const prop of ABS_POSITION_PROPS) {
+        element.style.removeProperty(prop);
       }
-    }
-  });
+      if (keepsContainingBlock) {
+        element.style.setProperty("position", "relative");
+        for (const prop of ["left", "top", "right", "bottom"] as const) {
+          element.style.setProperty(prop, "auto");
+        }
+      }
+    },
+  );
 }
 
 export function authoredDocumentPositionForNode(
@@ -176,22 +266,27 @@ export function setFlowPositioningOverrideForNodeInHtml(
   content: string,
   nodeAttrId: string,
 ): string {
-  return patchNodeStyleInHtml(content, nodeAttrId, (element) => {
-    const keepsContainingBlock = isCodeBackedFrame(element);
-    for (const prop of ABS_POSITION_PROPS) {
-      element.style.removeProperty(prop);
-    }
-    element.style.setProperty(
-      "position",
-      keepsContainingBlock ? "relative" : "static",
-      "important",
-    );
-    if (keepsContainingBlock) {
-      for (const prop of ["left", "top", "right", "bottom"] as const) {
-        element.style.setProperty(prop, "auto", "important");
+  return patchNodeStyleInHtml(
+    content,
+    nodeAttrId,
+    ABS_POSITION_PROPS,
+    (element) => {
+      const keepsContainingBlock = isCodeBackedFrame(element);
+      for (const prop of ABS_POSITION_PROPS) {
+        element.style.removeProperty(prop);
       }
-    }
-  });
+      element.style.setProperty(
+        "position",
+        keepsContainingBlock ? "relative" : "static",
+        "important",
+      );
+      if (keepsContainingBlock) {
+        for (const prop of ["left", "top", "right", "bottom"] as const) {
+          element.style.setProperty(prop, "auto", "important");
+        }
+      }
+    },
+  );
 }
 
 function parseInlinePx(value: string | undefined): number | null {
@@ -242,30 +337,50 @@ export function setAbsolutePositioningForNodeInHtml(
   pointerOffset?: { x: number; y: number },
   computedSize?: { width?: number; height?: number },
 ): string {
-  return patchNodeStyleInHtml(content, nodeAttrId, (element) => {
-    element.style.position = "absolute";
-    element.style.left = `${Math.round(point.x - (pointerOffset?.x ?? 0))}px`;
-    element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
-    element.style.removeProperty("right");
-    element.style.removeProperty("bottom");
-    for (const prop of FLEX_ITEM_PROPS) {
-      element.style.removeProperty(prop);
-    }
-    if (
-      computedSize?.width !== undefined &&
-      Number.isFinite(computedSize.width) &&
-      computedSize.width >= 0
-    ) {
-      element.style.width = `${computedSize.width}px`;
-    }
-    if (
-      computedSize?.height !== undefined &&
-      Number.isFinite(computedSize.height) &&
-      computedSize.height >= 0
-    ) {
-      element.style.height = `${computedSize.height}px`;
-    }
-  });
+  const changedProperties = [
+    ...ABS_POSITION_PROPS,
+    ...FLEX_ITEM_PROPS,
+    ...(computedSize?.width !== undefined &&
+    Number.isFinite(computedSize.width) &&
+    computedSize.width >= 0
+      ? ["width"]
+      : []),
+    ...(computedSize?.height !== undefined &&
+    Number.isFinite(computedSize.height) &&
+    computedSize.height >= 0
+      ? ["height"]
+      : []),
+  ];
+  return patchNodeStyleInHtml(
+    content,
+    nodeAttrId,
+    changedProperties,
+    (element) => {
+      element.style.removeProperty("inset");
+      element.style.position = "absolute";
+      element.style.left = `${Math.round(point.x - (pointerOffset?.x ?? 0))}px`;
+      element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
+      element.style.removeProperty("right");
+      element.style.removeProperty("bottom");
+      for (const prop of FLEX_ITEM_PROPS) {
+        element.style.removeProperty(prop);
+      }
+      if (
+        computedSize?.width !== undefined &&
+        Number.isFinite(computedSize.width) &&
+        computedSize.width >= 0
+      ) {
+        element.style.width = `${computedSize.width}px`;
+      }
+      if (
+        computedSize?.height !== undefined &&
+        Number.isFinite(computedSize.height) &&
+        computedSize.height >= 0
+      ) {
+        element.style.height = `${computedSize.height}px`;
+      }
+    },
+  );
 }
 
 export function getAbsolutePositioningForNodeInHtml(
@@ -380,16 +495,51 @@ function splitStyleDeclarations(style: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let quote: '"' | "'" | null = null;
+  let escaped = false;
+  let comment = false;
   let current = "";
-  for (const char of style) {
+  for (let index = 0; index < style.length; index += 1) {
+    const char = style[index]!;
+    const next = style[index + 1];
+    if (comment) {
+      current += char;
+      if (char === "*" && next === "/") {
+        current += next;
+        index += 1;
+        comment = false;
+      }
+      continue;
+    }
     if (quote) {
       current += char;
-      if (char === quote) quote = null;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      current += "/*";
+      index += 1;
+      comment = true;
       continue;
     }
     if (char === '"' || char === "'") {
       quote = char;
       current += char;
+      continue;
+    }
+    if (char === "\\") {
+      current += char;
+      escaped = true;
       continue;
     }
     if (char === "(") depth += 1;
@@ -403,6 +553,111 @@ function splitStyleDeclarations(style: string): string[] {
   }
   parts.push(current);
   return parts;
+}
+
+function stylePropertySeparator(declaration: string): number {
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  let comment = false;
+  for (let index = 0; index < declaration.length; index += 1) {
+    const char = declaration[index]!;
+    const next = declaration[index + 1];
+    if (comment) {
+      if (char === "*" && next === "/") {
+        index += 1;
+        comment = false;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      index += 1;
+      comment = true;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === ":") return index;
+  }
+  return -1;
+}
+
+function trailingCommentStart(value: string): number {
+  const comments: Array<{ start: number; end: number }> = [];
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  let commentStart = -1;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    const next = value[index + 1];
+    if (commentStart >= 0) {
+      if (char === "*" && next === "/") {
+        comments.push({ start: commentStart, end: index + 2 });
+        commentStart = -1;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      commentStart = index;
+      index += 1;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "\\") escaped = true;
+  }
+
+  let cursor = value.length;
+  while (cursor > 0 && /\s/u.test(value[cursor - 1]!)) cursor -= 1;
+  let previous = comments.find((comment) => comment.end === cursor);
+  if (!previous) return -1;
+  let start = previous.start;
+  cursor = start;
+  while (cursor > 0) {
+    while (cursor > 0 && /\s/u.test(value[cursor - 1]!)) cursor -= 1;
+    previous = comments.find((comment) => comment.end === cursor);
+    if (!previous) break;
+    start = previous.start;
+    cursor = start;
+  }
+  while (start > 0 && /\s/u.test(value[start - 1]!)) start -= 1;
+  return start;
 }
 
 const SHORTHAND_FOR_LONGHAND: Record<string, string> = {
@@ -427,7 +682,7 @@ export function setBodyInlineStyles(
   for (const part of splitStyleDeclarations(
     decodeHtmlAttributeValue(rawStyle),
   )) {
-    const separator = part.indexOf(":");
+    const separator = stylePropertySeparator(part);
     if (separator < 0) continue;
     const property = part.slice(0, separator).trim().toLowerCase();
     if (!property) continue;

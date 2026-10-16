@@ -60,6 +60,7 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
@@ -684,6 +685,7 @@ async function actionFetch<T>(
   const hiddenAtStart =
     typeof document !== "undefined" && document.visibilityState !== "visible";
   const timeoutMs = options?.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
+  const recordActionEnd = recordActionStart(name, method);
   let response: Response | undefined;
   let responseAt: number | undefined;
   let error: unknown;
@@ -702,6 +704,7 @@ async function actionFetch<T>(
     throw caught;
   } finally {
     try {
+      recordActionEnd({ error, response, signal: options?.signal });
       const completedAt = actionTelemetryNow();
       const durationMs = Math.max(0, completedAt - startedAt);
       const sampling = getActionResponseSampling(error, durationMs, response);

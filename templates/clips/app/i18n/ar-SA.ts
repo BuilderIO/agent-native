@@ -20,6 +20,21 @@ const messages = {
     turnOnRewind: "تفعيل Rewind",
     turnOffRewind: "إيقاف",
     turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
+    turnOnRewindFailed: "تعذّر تفعيل Rewind. حاول مرة أخرى.",
+    turnOnRewindPermissionFailed:
+      "اسمح لـ Clips بتسجيل الشاشة من إعدادات النظام > الخصوصية والأمان > تسجيل الشاشة والصوت، ثم أعد تشغيل Clips وحاول مرة أخرى.",
+    turnOnRewindUnsupported: "يتوفر تسجيل الشاشة عبر Rewind على macOS فقط.",
+    turnOnRewindNoSpace:
+      "لا توجد مساحة كافية على القرص لبدء Rewind. أفرغ بعض المساحة ثم حاول مرة أخرى.",
+    turnOnRewindStopClip: "أوقف Clip الحالي قبل تفعيل Rewind.",
+    turnOnRewindStorageFailed:
+      "تعذّر الوصول إلى مساحة تخزين Rewind. تحقّق من مساحة القرص وأذونات المجلد ثم حاول مرة أخرى.",
+    rewindConsentTitle: "تفعيل Rewind؟",
+    rewindConsentBody:
+      "سيسجل Clips شاشتك باستمرار ويحتفظ بالتسجيل على هذا الجهاز. يحصل الوكلاء على مقتطفات نصية، ولا تتم مشاركة الفيديو إلا بعد موافقتك.",
+    rewindConsentCancel: "ليس الآن",
+    rewindConsentConfirm: "تفعيل Rewind",
+    rewindConsentBusy: "جارٍ تفعيل Rewind…",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
       "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",
@@ -1552,6 +1567,8 @@ const messages = {
     builderGrantAskAdmin:
       "اطلب من مالك أو مسؤول ربط Builder.io مع صلاحية رفع المقاطع.",
     statusUnavailable: "تعذر التحقق من جاهزية تخزين الفيديو.",
+    hostedStorageUnavailable:
+      "تخزين Clips المستضاف غير متاح مؤقتًا. لم يتغير رصيد المقاطع المجانية؛ حاول الرفع مرة أخرى لاحقًا.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
     builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
@@ -1843,6 +1860,18 @@ const messages = {
     validWebUrl: "أدخل عنوان http:// أو https:// صالحًا.",
   },
   recordRoute: {
+    freeClipsLeft_zero: "لا توجد مقاطع مجانية متبقية ({{count}})",
+    freeClipsLeft_one: "متبقٍ {{count}} من المقاطع المجانية",
+    freeClipsLeft_two: "متبقيان ({{count}}) من المقاطع المجانية",
+    freeClipsLeft_few: "متبقية {{count}} مقاطع مجانية",
+    freeClipsLeft_many: "متبقٍ {{count}} مقطعًا مجانيًا",
+    freeClipsLeft_other: "متبقٍ {{count}} من المقاطع المجانية",
+    hostedClipsExhaustedTitle: "اربط Builder.io مجانًا لمواصلة التسجيل",
+    hostedClipsExhaustedDescription:
+      "استخدمت كل المقاطع المجانية المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع في مكتبتك.",
+    clipExceedsSizeLimit: "يتجاوز هذا المقطع حد حجم الرفع الحالي.",
+    clipExceedsMaxDuration: "يتجاوز هذا المقطع الحد الحالي لمدة التسجيل.",
+    maxClipDurationReached: "تم بلوغ الحد الأقصى لمدة المقطع. جارٍ حفظ التسجيل.",
     pageTitle: "New recording — Clips (مترجم)",
     uploadFailed: "Upload failed (مترجم)",
     uploadFailedAtChunk:
@@ -2075,6 +2104,9 @@ const messages = {
     vocabularyRemoveFailed: "تعذّرت إزالة المصطلح",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "امتلأت مساحة Clips المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع.",
+    hostedRecordingTakenDown: "تمت إزالة هذا التسجيل من مساحة Clips المستضافة.",
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
     selectAll: "تحديد الكل",
@@ -2253,9 +2285,15 @@ const messages = {
     issues: "المشكلات",
     consoleSource: "وحدة التحكم",
     networkSource: "الشبكة",
+    appSource: "نشاط التطبيق",
+    appEvent: "الحدث",
+    appData: "البيانات",
+    appFailureSummary: "{{count}} إخفاقات في التطبيق",
+    appUnavailable: "تعذّر تحميل نشاط التطبيق.",
     consoleCount: "وحدة التحكم {{count}}",
     networkCount: "الشبكة {{count}}",
     afterRecording: "بعد التسجيل",
+    beforeRecording: "قبل التسجيل",
     seekToTime: "الانتقال إلى {{time}}",
     occurrences: "مرات الحدوث",
     message: "الرسالة",
@@ -2267,6 +2305,7 @@ const messages = {
     noIssuesTitle: "لم يتم اكتشاف مشكلات في المتصفح",
     noConsoleTitle: "لا توجد أحداث في وحدة التحكم",
     noNetworkTitle: "لا توجد طلبات شبكة",
+    noAppTitle: "لا يوجد نشاط للتطبيق",
     capturedDescription: "تم التقاط التشخيصات لهذا التسجيل.",
   },
   timeline: { clipStartedHere: "بدأ المقطع هنا" },

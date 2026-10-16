@@ -1,18 +1,28 @@
-import { buildCodeLayerProjection, applyVisualEdit } from "@shared/code-layer";
+import {
+  applyVisualEdit,
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+} from "@shared/code-layer";
+import { INLINE_TEXT_TAGS } from "@shared/text-layer-rule";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type {
   ElementInfo,
+  PortableStyleSnapshot,
   RuntimeStructureInsertRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
 import {
   insertClonedHtmlLayers,
   prepareClonedHtmlLayersForLiveInsert,
   portableStyleSnapshotForPasteTarget,
 } from "@/pages/design-editor/clone-and-pen-edit";
-import { codeLayerPatchMessage } from "@/pages/design-editor/code-layer-state";
+import {
+  codeLayerPatchMessage,
+  preferredCodeLayerSelector,
+} from "@/pages/design-editor/code-layer-state";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -36,6 +46,19 @@ export interface PasteToReplaceArgs {
   canEditDesign: boolean;
   getCanvasClipboardEntries: () => CanvasLayerClipboardEntry[];
   getFreshActiveContent: () => string;
+  getRenderedElementInfoForSelector?: (
+    selector: string,
+  ) => ElementInfo | null | undefined;
+  getPreparedCloneVisualOffset?: (
+    selector: string,
+    layerHtml: string,
+    styleSnapshot?: PortableStyleSnapshot,
+    managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot,
+    sourceFileId?: string,
+  ) =>
+    | { x: number; y: number; styleSnapshot?: PortableStyleSnapshot }
+    | null
+    | undefined;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   selectInsertedLayers: (
     screenId: string,
@@ -61,6 +84,19 @@ function pixelLength(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function onlyInlineTextDescendants(
+  node: CodeLayerNode,
+  nodesById: ReadonlyMap<string, CodeLayerNode>,
+): boolean {
+  const pending = [...node.children];
+  while (pending.length > 0) {
+    const child = nodesById.get(pending.pop()!);
+    if (!child || !INLINE_TEXT_TAGS.has(child.tag.toLowerCase())) return false;
+    pending.push(...child.children);
+  }
+  return true;
+}
+
 export function runPasteToReplace(
   {
     activeFile,
@@ -68,6 +104,8 @@ export function runPasteToReplace(
     canEditDesign,
     getCanvasClipboardEntries,
     getFreshActiveContent,
+    getRenderedElementInfoForSelector,
+    getPreparedCloneVisualOffset,
     runtimeStructureInsertRevisionRef,
     selectInsertedLayers,
     selectedCanvasSelector,
@@ -96,14 +134,41 @@ export function runPasteToReplace(
   const baseContent = getFreshActiveContent();
   const targetStoredContent = activeFile.content ?? baseContent;
   if (isStandaloneHttpUrl(targetStoredContent)) {
+    const renderedTarget = getRenderedElementInfoForSelector?.(targetSelector);
+    const livePosition =
+      renderedTarget === undefined
+        ? { x: targetPosition.x, y: targetPosition.y }
+        : (renderedTarget?.absoluteSiblingVisualOrigin ?? null);
+    const visualOffset = getPreparedCloneVisualOffset?.(
+      targetSelector,
+      layerHtml,
+      styleSnapshot ?? undefined,
+      entries[0]?.managedStyleSnapshot,
+      entries[0]?.sourceFileId,
+    );
+    if (
+      !livePosition ||
+      (getPreparedCloneVisualOffset !== undefined && visualOffset === null)
+    ) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
     const prepared = prepareClonedHtmlLayersForLiveInsert(
       targetStoredContent,
       [layerHtml],
       {
         positions: [
-          { x: targetPosition.x, y: targetPosition.y, space: "visual" },
+          {
+            ...livePosition,
+            space: "visual",
+            ...(visualOffset
+              ? { visualOffset: { x: visualOffset.x, y: visualOffset.y } }
+              : {}),
+          },
         ],
-        styleSnapshots: [styleSnapshot],
+        styleSnapshots: [visualOffset?.styleSnapshot ?? styleSnapshot],
       },
     );
     const html = prepared?.htmlFragments[0];
@@ -136,37 +201,87 @@ export function runPasteToReplace(
   const projection = buildCodeLayerProjection(baseContent, {
     source: { kind: "design-file", fileId: activeFile.id },
   });
-  const targetNode = projection.nodes.find((node) =>
+  const selectedNode = projection.nodes.find((node) =>
     node.selectors.includes(targetSelector),
   );
   const failed = () =>
     toast.error(t("designEditor.toasts.pasteReplaceFailed"), {
       duration: 4000,
     });
-  if (!targetNode) {
+  if (!selectedNode) {
     failed();
     return;
   }
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  let targetNode = selectedNode;
+  let parentNode = targetNode.parentId
+    ? nodesById.get(targetNode.parentId)
+    : undefined;
+  while (
+    parentNode &&
+    (parentNode.wholeTextStyleRoot === true ||
+      (selectedElement?.wholeTextStyleRoot === true &&
+        parentNode.dataAttributes["data-agent-native-group"] !== "true" &&
+        parentNode.dataAttributes["data-an-primitive"] !== "frame" &&
+        parentNode.textSnippet !== null &&
+        onlyInlineTextDescendants(parentNode, nodesById)))
+  ) {
+    targetNode = parentNode;
+    parentNode = targetNode.parentId
+      ? nodesById.get(targetNode.parentId)
+      : undefined;
+  }
+  const replacementSelector =
+    targetNode.id === selectedNode.id
+      ? targetSelector
+      : preferredCodeLayerSelector(targetNode);
   const authoredLeft = pixelLength(targetNode.style.left);
   const authoredTop = pixelLength(targetNode.style.top);
   const hasAuthoredPosition = authoredLeft !== null && authoredTop !== null;
-  const parentRect = selectedElement?.parentBoundingRect;
-  const position = hasAuthoredPosition
-    ? { x: authoredLeft, y: authoredTop }
-    : {
-        x: targetPosition.x - (parentRect?.x ?? 0),
-        y: targetPosition.y - (parentRect?.y ?? 0),
-      };
+  const targetGeometry =
+    getRenderedElementInfoForSelector?.(replacementSelector);
+  const cloneVisualOffset = getPreparedCloneVisualOffset?.(
+    replacementSelector,
+    layerHtml,
+    styleSnapshot ?? undefined,
+    entries[0]?.managedStyleSnapshot,
+    entries[0]?.sourceFileId,
+  );
+  const useLiveGeometry = getRenderedElementInfoForSelector !== undefined;
+  const useAbsoluteAuthoredPosition =
+    !useLiveGeometry &&
+    targetNode.style.position === "absolute" &&
+    hasAuthoredPosition;
+  const position = useLiveGeometry
+    ? (targetGeometry?.absoluteSiblingVisualOrigin ?? null)
+    : useAbsoluteAuthoredPosition
+      ? { x: authoredLeft, y: authoredTop }
+      : null;
+  if (
+    !position ||
+    (getPreparedCloneVisualOffset !== undefined && cloneVisualOffset === null)
+  ) {
+    failed();
+    return;
+  }
   const inserted = insertClonedHtmlLayers(baseContent, [layerHtml], {
-    anchorSelectors: [targetSelector],
+    anchorSelectors: [replacementSelector],
     placement: "after",
     positions: [
       {
         ...position,
-        space: hasAuthoredPosition ? "layout" : "visual",
+        space: useAbsoluteAuthoredPosition ? "layout" : "visual",
+        ...(cloneVisualOffset
+          ? {
+              visualOffset: {
+                x: cloneVisualOffset.x,
+                y: cloneVisualOffset.y,
+              },
+            }
+          : {}),
       },
     ],
-    styleSnapshots: [styleSnapshot],
+    styleSnapshots: [cloneVisualOffset?.styleSnapshot ?? styleSnapshot],
     managedStyleSnapshots: [entries[0]?.managedStyleSnapshot],
   });
   if (!inserted) {
@@ -177,7 +292,7 @@ export function runPasteToReplace(
     source: projection.source,
   });
   const staleTarget = insertedProjection.nodes.find((node) =>
-    node.selectors.includes(targetSelector),
+    node.selectors.includes(replacementSelector),
   );
   if (!staleTarget) {
     failed();

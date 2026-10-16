@@ -1,6 +1,9 @@
 import type { Page } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
+import { compileMotionCode } from "../shared/motion-code";
+import { injectManagedMotionCss } from "../shared/motion-compiler";
+import type { MotionTimeline } from "../shared/motion-timeline";
 import { appPath, openAppMenuSubmenu } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
@@ -66,6 +69,55 @@ const EXPECTED_ALPHA_OPACITY_CSS = `@keyframes an-motion-alpha--opacity {
   }
 }`;
 
+const UNSUPPORTED_MOTION_CSS = compileMotionCode({
+  id: "unsupported-motion",
+  designId: "unsupported-motion",
+  sourceRef: "unsupported-motion",
+  filePath: null,
+  tracks: [
+    {
+      targetNodeId: "headline",
+      property: "translate",
+      keyframes: [
+        {
+          t: 0,
+          value: "0px 0px",
+          motionPath: {
+            version: 1,
+            type: "cubic",
+            control1: { x: 0, y: 100 },
+            control2: { x: 0, y: 100 },
+          },
+        },
+        { t: 1, value: "100px 0px" },
+      ],
+    },
+  ],
+  durationMs: 840,
+  playbackMode: "ping-pong",
+  defaultEase: "ease",
+  animationStyles: [],
+  compiledHash: null,
+  createdAt: "2026-10-14T00:00:00.000Z",
+  updatedAt: "2026-10-14T00:00:00.000Z",
+} satisfies MotionTimeline)
+  .css.replace(/\/\* agent-native-motion-source:[\s\S]*? \*\//, "")
+  .replace("offset-distance: 100%;", "offset-distance: 99%;");
+
+const UNSUPPORTED_MOTION_HTML = injectManagedMotionCss(
+  `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Unsupported Motion source</title></head>
+  <body style="margin:0;background:#fff">
+    <main data-agent-native-node-id="main" style="padding:40px">
+      <h1 data-agent-native-node-id="headline" data-agent-native-layer-name="Draft headline" style="margin:0;font-size:48px">Draft headline</h1>
+      <p data-agent-native-node-id="untouched" data-agent-native-layer-name="Untouched note" style="margin:24px 0 0">Keep this note unchanged.</p>
+    </main>
+  </body>
+</html>`,
+  UNSUPPORTED_MOTION_CSS,
+);
+
 async function postAction(
   page: Page,
   name: string,
@@ -74,6 +126,21 @@ async function postAction(
   const response = await page.request.post(
     appPath(`/_agent-native/actions/${name}`),
     { data: input },
+  );
+  expect(
+    response.ok(),
+    `${name} ${response.status()} ${await response.text()}`,
+  ).toBe(true);
+  return response.json();
+}
+
+async function getAction(
+  page: Page,
+  name: string,
+  input: Record<string, string>,
+) {
+  const response = await page.request.get(
+    appPath(`/_agent-native/actions/${name}?${new URLSearchParams(input)}`),
   );
   expect(
     response.ok(),
@@ -108,12 +175,14 @@ async function openAndFit(app: App, designId: string) {
 }
 
 async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
-  const rect = await app.designRect(nodeId);
-  const point = await app.pagePoint(
-    rect.x + rect.width / 2,
-    rect.y + rect.height / 2,
-  );
-  await app.page.mouse.click(point.x, point.y);
+  const node = app.node(nodeId);
+  await expect(node).toBeVisible();
+  const rect = await node.boundingBox();
+  if (!rect) throw new Error(`Canvas node ${nodeId} has no rendered bounds`);
+  await app.page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await expect(
+    app.page.getByRole("button", { name: "More", exact: true }),
+  ).not.toBeFocused();
   await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
 }
 
@@ -124,6 +193,9 @@ function motionDock(page: Page) {
 async function openMotionDockFromMenu(page: Page) {
   await openAppMenuSubmenu(page, "View");
   await page.getByRole("menuitem", { name: "Motion", exact: true }).click();
+  await expect(
+    page.getByRole("menu", { name: "More", exact: true }),
+  ).toHaveCount(0);
   await expect(motionDock(page)).toBeVisible();
 }
 
@@ -301,6 +373,94 @@ test("with the Motion lab off the editor shows no Motion dock or Motion menu ent
       page.getByRole("menuitem", { name: "Motion", exact: true }),
     ).toHaveCount(0);
     await expect(motionDock(page)).toHaveCount(0);
+  } finally {
+    await restoreLab();
+  }
+});
+
+test("unsupported managed Motion syntax is visible and does not block canvas text edits", async ({
+  app,
+  page,
+}) => {
+  const restoreLab = await setLab(page, DESIGN_MOTION_LAB.key, true);
+  const motionWrites: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/_agent-native/actions/apply-motion-edit")
+    ) {
+      motionWrites.push(request.url());
+    }
+  });
+  try {
+    const id = await app.seed(UNSUPPORTED_MOTION_HTML);
+    const screenId = (await app.savedRecord(id)).files.find(
+      (file) => file.filename === "index.html",
+    )?.id;
+    if (!screenId) throw new Error("seeded design has no index.html screen");
+    const passiveRead = await getAction(page, "get-motion-timeline", {
+      designId: id,
+      sourceRef: screenId,
+      passiveRead: "true",
+    });
+    expect(passiveRead.sourceReadCapability).toMatchObject({
+      status: "unsupported",
+      sourceRef: screenId,
+      errorCode: "motion_css_source_unreadable",
+      reason: expect.stringMatching(
+        /^Motion CSS for "headline" contains a path animation that cannot be read losslessly\.$/,
+      ),
+    });
+    await openAndFit(app, id);
+    await selectOnCanvas(app, "headline", "Draft headline");
+    await openMotionDockFromMenu(page);
+
+    await expect(
+      motionDock(page).locator("[data-motion-source-read-unavailable]"),
+    ).toContainText(
+      "Motion cannot read this animation without changing its behavior.",
+    );
+    const addMotion = page.getByRole("button", {
+      name: "Add animation",
+      exact: true,
+    });
+    await expect(addMotion).toBeDisabled();
+    await expect(
+      motionDock(page).getByRole("checkbox", {
+        name: "Toggle auto-keyframing",
+        exact: true,
+      }),
+    ).toBeDisabled();
+
+    const before = await app.savedNodes(id);
+    const originalHeadline = before.get("headline");
+    expect(originalHeadline).toBeDefined();
+    await selectOnCanvas(app, "headline", "Draft headline");
+    await page.keyboard.press("Enter");
+    const editable = page
+      .frameLocator("iframe[data-screen-iframe-id]")
+      .locator('[contenteditable="true"]');
+    await expect(editable).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.insertText("Published headline");
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(editable).toHaveCount(0);
+    await expect
+      .poll(async () => (await app.savedNodes(id)).get("headline")?.text)
+      .toBe("Published headline");
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    expect(after.get("headline")).toMatchObject({
+      tag: "h1",
+      parent: "main",
+      text: "Published headline",
+    });
+    expect(after.get("headline")?.attrs).toEqual(originalHeadline!.attrs);
+    expect(after.get("untouched")).toEqual(before.get("untouched"));
+    expectOnlyChanged(before, after, ["headline"]);
+    expect(await app.savedHtml(id)).toContain("offset-distance: 99%;");
+    expect(motionWrites).toEqual([]);
   } finally {
     await restoreLab();
   }

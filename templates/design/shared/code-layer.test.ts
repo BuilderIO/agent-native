@@ -491,6 +491,20 @@ describe("code-layer projection", () => {
     });
   });
 
+  it("projects attribute values decoded, so an image fill's style holds a real quoted url", () => {
+    const projection = buildCodeLayerProjection(
+      '<body><div data-agent-native-node-id="fill" data-note="A &amp; B" style="background-image: url(&quot;/api/qa-import-assets/a.png&quot;)"></div></body>',
+    );
+    const fill = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "fill",
+    );
+
+    expect(fill?.attributes.style).toBe(
+      'background-image: url("/api/qa-import-assets/a.png")',
+    );
+    expect(fill?.dataAttributes["data-note"]).toBe("A & B");
+  });
+
   it("marks component instance nodes with componentInstance metadata", () => {
     const html = `
       <section class="flex gap-4">
@@ -4573,6 +4587,27 @@ describe("design node classification", () => {
     expect(heading?.type).toBe("text");
     expect(heading?.name).toBe("Transform Your Workflow");
     expect(typeOf(html, "span")).toBeUndefined();
+  });
+
+  it("keeps explicitly named inline layers selectable under a text root", () => {
+    const projection = buildCodeLayerProjection(
+      `<div><span data-agent-native-node-id="caption" data-agent-native-layer-name="Caption">Prefix <span data-agent-native-node-id="phrase" data-agent-native-layer-name="Underlined phrase">selected phrase</span><em> suffix</em></span></div>`,
+    );
+    const caption = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "caption",
+    )!;
+    const phrase = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "phrase",
+    )!;
+    const tree = buildCodeLayerTree(projection);
+    const captionRow = tree[0]!.children.find(
+      (node) => node.id === caption.id,
+    )!;
+
+    expect(captionRow.type).toBe("text");
+    expect(captionRow.children.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: phrase.id, name: "Underlined phrase" },
+    ]);
   });
 
   it("classifies painted void leaves by their radius", () => {

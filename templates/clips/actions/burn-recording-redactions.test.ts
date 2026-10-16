@@ -5,6 +5,7 @@ const recording = vi.hoisted(() => ({
   title: "Test recording",
   kind: "video" as string,
   ownerEmail: "owner@example.com",
+  storageMode: null as "own" | "hosted" | null,
   videoUrl: "https://cdn.example.com/media/clips/rec_1.webm",
   videoFormat: "webm" as string,
   durationMs: 10_000,
@@ -32,6 +33,8 @@ const state = vi.hoisted(() => ({
   updated: [] as Array<Record<string, unknown>>,
   updateReturns: [{ id: "rec_1" }] as Array<{ id: string }>,
   deleted: [] as string[],
+  deleteCalls: [] as Array<{ url: string; options?: unknown }>,
+  uploadCalls: [] as Array<Record<string, unknown>>,
   deleteFails: new Set<string>(),
   deletedAppState: [] as string[],
   ffmpegRuns: 0,
@@ -95,8 +98,9 @@ vi.mock("../server/lib/redaction-burn-progress.js", () => ({
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => Promise<unknown>) => fn(),
 }));
-vi.mock("@agent-native/core/file-upload", () => ({
-  uploadFile: vi.fn(async () => {
+vi.mock("../server/lib/upload-recording-media.js", () => ({
+  uploadRecordingMedia: vi.fn(async (input: Record<string, unknown>) => {
+    state.uploadCalls.push(input);
     if (state.uploadError) throw state.uploadError;
     return state.uploadUrl ? { url: state.uploadUrl, provider: "s3" } : null;
   }),
@@ -132,7 +136,8 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
   }),
 }));
 vi.mock("../server/lib/recording-media-cleanup.js", () => ({
-  deleteStoredMediaUrl: async (url: string) => {
+  deleteStoredMediaUrl: async (url: string, options?: unknown) => {
+    state.deleteCalls.push({ url, options });
     if (state.deleteFails.has(url)) return false;
     state.deleted.push(url);
     return true;
@@ -197,6 +202,8 @@ describe("burning redactions into a recording", () => {
     state.updated = [];
     state.updateReturns = [{ id: "rec_1" }];
     state.deleted = [];
+    state.deleteCalls = [];
+    state.uploadCalls = [];
     state.deleteFails = new Set();
     state.deletedAppState = [];
     state.ffmpegRuns = 0;
@@ -219,6 +226,7 @@ describe("burning redactions into a recording", () => {
     state.duringEncode = null;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
+    recording.storageMode = null;
   });
 
   it("returns a typed setup error when storage is not connected", async () => {
@@ -314,6 +322,22 @@ describe("burning redactions into a recording", () => {
     expect(values.videoFormat).toBe("mp4");
     expect(state.deleted).toContain(
       "https://cdn.example.com/media/clips/rec_1.webm",
+    );
+  });
+
+  it("keeps hosted storage pinned for redacted media and cleanup", async () => {
+    recording.storageMode = "hosted";
+
+    await run();
+
+    expect(state.uploadCalls[0]).toMatchObject({ recordingId: "rec_1" });
+    expect(state.deleteCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: "https://cdn.example.com/media/clips/rec_1.webm",
+          options: { storageMode: "hosted", recordingId: "rec_1" },
+        }),
+      ]),
     );
   });
 

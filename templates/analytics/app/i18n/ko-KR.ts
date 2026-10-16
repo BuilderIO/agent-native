@@ -25,6 +25,17 @@ export default {
     templateCatalog: "템플릿 카탈로그",
     semanticLayer: "시맨틱 레이어",
   },
+  dashboardMode: {
+    label: "대시보드 모드",
+    view: "보기",
+    edit: "편집",
+    viewHint:
+      "아무것도 변경하지 않고 봅니다. 드래그한 열 너비는 나에게만 적용됩니다.",
+    editHint: "변경 사항이 모두에게 저장됩니다",
+    columnResizePersonal:
+      "드래그하면 나에게만 크기가 바뀝니다. 더블클릭하면 초기화됩니다.",
+    columnResizeShared: "드래그하면 모두에게 크기가 바뀝니다",
+  },
   dashboardHeader: {
     updated: "{{date}} 업데이트됨",
     created: "{{date}} 생성됨",
@@ -1218,6 +1229,7 @@ export default {
     selectAll: "모두 선택",
     selectOnly: "만",
     selectOnlyValue: "{{value}}만",
+    presets: "프리셋",
     untitledDashboard: "제목 없는 대시보드",
     dashboardFallback: "대시보드",
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",

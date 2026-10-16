@@ -266,6 +266,10 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
   } else {
     while (el.firstChild) textSpan.appendChild(el.firstChild);
   }
+  // The prefix's emptied text node is not content to anchor the caret to.
+  for (const child of Array.from(textSpan.childNodes)) {
+    if (child instanceof Text && !child.data) child.remove();
+  }
   const restFirstChild = textSpan.firstChild;
   let placeholderZws: Text | null = null;
   if (!restFirstChild) {

@@ -1087,6 +1087,8 @@ export default {
         },
       },
       size: "Size",
+      sourceReadUnavailable:
+        "Motion cannot read this animation without changing its behavior.",
       sourceWriteUnavailable:
         "Motion code can currently be written only to inline HTML designs.",
       sourceConflict:
