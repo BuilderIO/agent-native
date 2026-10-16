@@ -48,5 +48,8 @@ describe("Slides content-edit agent guidance", () => {
     expect(agentChatSource).toContain(
       "Then call web-search to find sources and web-request to read the most relevant public pages before writing factual claims to slides.",
     );
+    expect(agentChatSource).toContain(
+      "If tool-search cannot find either tool, or a tool reports a missing backend or an error, tell the user exactly what failed.",
+    );
   });
 });
