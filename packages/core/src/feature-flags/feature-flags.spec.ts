@@ -288,4 +288,45 @@ describe("feature flag evaluator", () => {
       },
     );
   });
+
+  it("reads routing rules strictly: unconfigured is off, malformed or unregistered throws", async () => {
+    registry.registerFeatureFlags([{ key: "write-path" }]);
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", {}),
+    ).resolves.toEqual(store.defaultFeatureFlagRules());
+
+    globalSettings.set("feature-flag:write-path", {
+      mode: "rules",
+      emails: ["Owner@Example.com"],
+    });
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", {}),
+    ).resolves.toMatchObject({ mode: "rules", emails: ["owner@example.com"] });
+
+    for (const malformed of [
+      { mode: "onn" },
+      { emails: ["owner@example.com"] },
+      { mode: "rules", emails: "owner@example.com" },
+      { mode: "rules", orgIds: ["org-1", 7] },
+      { mode: "rules", percentage: 150 },
+    ]) {
+      globalSettings.set("feature-flag:write-path", malformed);
+      await expect(
+        store.getFeatureFlagRules("write-path", {}),
+      ).resolves.toMatchObject({ mode: expect.any(String) });
+      await expect(
+        store.getFeatureFlagRulesStrict("write-path", {}),
+      ).rejects.toMatchObject({ code: "malformed", key: "write-path" });
+    }
+
+    globalSettings.set("feature-flag:write-path", { mode: "on" });
+    orgSettings.set("org-1:feature-flag:write-path", { mode: "onn" });
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", { orgId: "org-1" }),
+    ).rejects.toMatchObject({ code: "malformed" });
+
+    await expect(
+      store.getFeatureFlagRulesStrict("never-registered", {}),
+    ).rejects.toMatchObject({ code: "unregistered", key: "never-registered" });
+  });
 });

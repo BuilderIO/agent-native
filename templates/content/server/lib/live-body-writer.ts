@@ -1,6 +1,7 @@
+import type { DbExec } from "@agent-native/core/db";
 import {
   evaluateFeatureFlagRules,
-  getFeatureFlagRules,
+  getFeatureFlagRulesStrict,
 } from "@agent-native/core/feature-flags";
 import { eq } from "drizzle-orm";
 
@@ -54,11 +55,14 @@ export const liveBodyWriterPageColumns = {
 
 /**
  * Decides the write path for a page row the caller already read, for example
- * under the row lock its write holds. Flag storage errors propagate: reading
- * them as "off" would send a switched page's writes down the legacy path.
+ * under the row lock its write holds; pass that transaction so the flags are
+ * read in it rather than from the request's settings snapshot. Unreadable or
+ * malformed flag state throws: reading it as "off" would send a switched
+ * page's writes down the legacy path.
  */
 export async function liveBodyWriterGateForRow(
   row: LiveBodyWriterPageRow | null | undefined,
+  options: { transaction?: DbExec } = {},
 ): Promise<LiveBodyWriterGate> {
   if (!row) return { writePath: "legacy", reason: "no_page" };
   if (!row.liveBodySwitchedAt)
@@ -70,7 +74,10 @@ export async function liveBodyWriterGateForRow(
     [LIVE_BODY_WRITER_FLAG, LIVE_BODY_SHADOW_FLAG].map(async (flag) =>
       evaluateFeatureFlagRules(
         flag.key,
-        await getFeatureFlagRules(flag.key, scope),
+        await getFeatureFlagRulesStrict(flag.key, {
+          ...scope,
+          transaction: options.transaction,
+        }),
         scope,
       ),
     ),
