@@ -122,7 +122,15 @@ Your first table is a new file. See [Add your first feature](#first-feature).
 
 ## Auth {#auth}
 
-Auth runs on Better Auth: login, signup, sessions, and organizations, configured in `server/plugins/auth.ts` via `createAuthPlugin`. The same flow runs locally and in production, except that development skips email verification so you can sign up and start building immediately. `createAuthPlugin` also takes the login page's marketing copy (app name, tagline, and feature bullets) as plain config in that same file. See [Authentication](/docs/authentication) for the full auth model (sessions, organizations, protected routes).
+Auth runs on Better Auth: login, signup, sessions, and organizations. Chat
+configures it in `server/plugins/auth.ts` with `createToolkitAuthPlugin`. The
+file keeps `/` public, so the sign-in landing can load, and sets
+`marketing: false`, so the sign-in page has no marketing copy. To show an app
+name, tagline, and feature bullets there, pass a `marketing` object instead.
+The same flow runs locally and in production, except that development skips
+email verification so you can sign up and start building immediately. See
+[Authentication](/docs/authentication) for the full auth model (sessions,
+organizations, protected routes).
 
 ## Routes reference {#routes}
 
@@ -171,7 +179,7 @@ adding a route file is enough to mount it.
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions: redirects to /settings/extensions",
+      note: "/extensions: redirects to /settings/extensions, which only exists once Extensions are switched on",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -202,10 +210,12 @@ feedback for every agent run, computed from data already in your own database.
 See [Agent Observability](/docs/observability).
 
 **Extensions** are sandboxed Alpine.js mini-apps. Chat mounts the routes that
-view and run them (`/extensions/:id`) and redirects `/extensions` to the
-Extensions page in Settings. The agent can only create them once you turn on
-`frameworkTools.extensions` in `server/plugins/agent-chat.ts`, which Chat
-leaves off. See [Extensions](/docs/extensions) for what they can and cannot do.
+view and run them (`/extensions/:id`) and redirects `/extensions` to
+`/settings/extensions`. Chat leaves Extensions off in two places. The Settings
+page only appears when `app/routes/settings.tsx` passes `extensionTools: true`
+to `useAgentSettingsTabs()`. The agent can only create extensions once
+`frameworkTools.extensions` is turned on in `server/plugins/agent-chat.ts`. See
+[Extensions](/docs/extensions) for what they can and cannot do.
 
 ## Customizing it {#customizing}
 
@@ -322,7 +332,7 @@ export const noteShares = createSharesTable("note_shares");
 ```
 
 The database client gives your actions `getDb()` and registers notes with the
-sharing system.
+sharing system. Notes have no detail page, so share links point at the list.
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -339,7 +349,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -595,15 +605,37 @@ them with `useT()` instead. See [Internationalization](/docs/internationalizatio
 
 ### 4. Tell the agent about it
 
-Append a short section to `AGENTS.md` so the agent knows notes exist and which
-actions manage them. Keep it brief, because the runtime prompt cuts the file
-off at 6,000 characters.
+`app/hooks/use-navigation-state.ts` reports the current view to the agent and
+maps view names back to paths. Without these two edits, the agent sees the
+Notes page as `chat`, and "open Notes" can't navigate there.
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+Then append a short section to `AGENTS.md` so the agent knows notes exist and
+which actions manage them. Keep it brief, because the runtime prompt cuts the
+file off at 6,000 characters.
 
 ```md filename="AGENTS.md"
 ## Notes
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |

@@ -115,7 +115,7 @@ npx --yes @agent-native/core@latest create my-agent --headless
 
 ## 인증 {#auth}
 
-인증은 Better Auth로 동작합니다. 로그인, 가입, 세션, 조직이 `server/plugins/auth.ts`에서 `createAuthPlugin`을 통해 구성됩니다. 개발 환경에서는 바로 가입하고 만들기 시작할 수 있도록 이메일 인증을 건너뛴다는 점을 제외하면, 로컬과 프로덕션에서 같은 흐름이 실행됩니다. `createAuthPlugin`은 로그인 페이지의 마케팅 문구(앱 이름, 태그라인, 기능 목록)도 같은 파일 안의 일반 설정으로 받습니다. 전체 인증 모델(세션, 조직, 보호된 라우트)은 [인증](/docs/authentication) 문서를 참고하세요.
+인증은 Better Auth로 동작합니다. 로그인, 가입, 세션, 조직이 있습니다. 채팅은 `server/plugins/auth.ts`에서 `createToolkitAuthPlugin`으로 이를 구성합니다. 이 파일은 로그인 랜딩이 로드될 수 있도록 `/`를 공개로 두고 `marketing: false`를 설정하므로, 로그인 페이지에는 마케팅 문구가 없습니다. 앱 이름, 태그라인, 기능 목록을 보여 주려면 대신 `marketing` 객체를 전달하세요. 개발 환경에서는 바로 가입하고 만들기 시작할 수 있도록 이메일 인증을 건너뛴다는 점을 제외하면, 로컬과 프로덕션에서 같은 흐름이 실행됩니다. 전체 인증 모델(세션, 조직, 보호된 라우트)은 [인증](/docs/authentication) 문서를 참고하세요.
 
 ## 라우트 참조 {#routes}
 
@@ -164,7 +164,7 @@ npx --yes @agent-native/core@latest create my-agent --headless
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions: /settings/extensions로 리디렉션",
+      note: "/extensions: /settings/extensions로 리디렉션하며, 이 페이지는 확장을 켠 뒤에만 존재합니다",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -195,11 +195,12 @@ npx --yes @agent-native/core@latest create my-agent --headless
 [에이전트 관측성](/docs/observability)을 참고하세요.
 
 **확장**은 샌드박스된 Alpine.js 미니 앱입니다. 채팅은 이를 보고 실행하는 라우트
-(`/extensions/:id`)를 마운트하고 `/extensions`를 설정의 확장 프로그램 페이지로
-리디렉션합니다. 에이전트는 `server/plugins/agent-chat.ts`에서
-`frameworkTools.extensions`를 켠 뒤에만 이를 만들 수 있으며, 채팅은 이를 꺼진
-상태로 둡니다. 확장이 할 수 있는 일과 할 수 없는 일은 [확장](/docs/extensions)을
-참고하세요.
+(`/extensions/:id`)를 마운트하고 `/extensions`를 `/settings/extensions`로
+리디렉션합니다. 채팅은 두 곳에서 확장을 꺼 둡니다. 설정 페이지는
+`app/routes/settings.tsx`가 `useAgentSettingsTabs()`에 `extensionTools: true`를
+전달할 때만 나타납니다. 에이전트는 `server/plugins/agent-chat.ts`에서
+`frameworkTools.extensions`를 켠 뒤에만 확장을 만들 수 있습니다. 확장이 할 수 있는
+일과 할 수 없는 일은 [확장](/docs/extensions)을 참고하세요.
 
 ## 커스터마이즈하기 {#customizing}
 
@@ -312,7 +313,7 @@ export const noteShares = createSharesTable("note_shares");
 ```
 
 데이터베이스 클라이언트는 액션에 `getDb()`를 제공하고 메모를 공유 시스템에
-등록합니다.
+등록합니다. 메모에는 상세 페이지가 없으므로 공유 링크는 목록을 가리킵니다.
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -329,7 +330,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -584,7 +585,27 @@ function NotesNavLink({ collapsed }: { collapsed: boolean }) {
 
 ### 4. 에이전트에게 알려주기
 
-에이전트가 메모가 있다는 것과 어떤 액션이 이를 관리하는지 알 수 있도록 `AGENTS.md`에
+`app/hooks/use-navigation-state.ts`는 현재 뷰를 에이전트에게 알려 주고 뷰 이름을
+경로로 다시 매핑합니다. 이 두 가지 수정이 없으면 에이전트는 Notes 페이지를 `chat`으로
+인식하고, "Notes 열어 줘"라는 요청으로는 그곳으로 이동할 수 없습니다.
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+그런 다음 에이전트가 메모가 있다는 것과 어떤 액션이 이를 관리하는지 알 수 있도록 `AGENTS.md`에
 짧은 섹션을 추가하세요. 런타임 프롬프트는 파일을 6,000자에서 잘라내므로 간결하게
 유지하세요.
 
@@ -593,6 +614,8 @@ function NotesNavLink({ collapsed }: { collapsed: boolean }) {
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |

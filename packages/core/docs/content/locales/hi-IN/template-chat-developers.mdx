@@ -116,13 +116,14 @@ React Query कैश को invalidate कर देता है। पूर�
 
 ## Auth {#auth}
 
-Auth Better Auth पर चलता है: लॉगिन, साइनअप, सेशन, और organizations, जिन्हें
-`server/plugins/auth.ts` में `createAuthPlugin` से कॉन्फ़िगर किया जाता है। वही फ़्लो
-लोकली और प्रोडक्शन में चलता है, सिवाय इसके कि डेवलपमेंट में ईमेल वेरिफ़िकेशन छोड़ दिया
-जाता है ताकि आप तुरंत साइन अप करके बनाना शुरू कर सकें। `createAuthPlugin` लॉगिन पेज की
-मार्केटिंग कॉपी (ऐप का नाम, टैगलाइन, और फ़ीचर बुलेट्स) को भी उसी फ़ाइल में सादे config के
-रूप में लेता है। पूरे auth मॉडल (सेशन, organizations, प्रोटेक्टेड रूट्स) के लिए
-[प्रमाणीकरण](/docs/authentication) देखें।
+Auth Better Auth पर चलता है: लॉगिन, साइनअप, सेशन, और organizations। चैट इसे
+`server/plugins/auth.ts` में `createToolkitAuthPlugin` से कॉन्फ़िगर करती है। यह फ़ाइल `/`
+को सार्वजनिक रखती है, ताकि साइन-इन लैंडिंग लोड हो सके, और `marketing: false` सेट करती
+है, इसलिए साइन-इन पेज पर कोई मार्केटिंग कॉपी नहीं होती। वहाँ ऐप का नाम, टैगलाइन, और
+फ़ीचर बुलेट्स दिखाने के लिए इसकी जगह `marketing` ऑब्जेक्ट पास करें। वही फ़्लो लोकली और
+प्रोडक्शन में चलता है, सिवाय इसके कि डेवलपमेंट में ईमेल वेरिफ़िकेशन छोड़ दिया जाता है
+ताकि आप तुरंत साइन अप करके बनाना शुरू कर सकें। पूरे auth मॉडल (सेशन, organizations,
+प्रोटेक्टेड रूट्स) के लिए [प्रमाणीकरण](/docs/authentication) देखें।
 
 ## रूट्स रेफ़रेंस {#routes}
 
@@ -171,7 +172,7 @@ Auth Better Auth पर चलता है: लॉगिन, साइनअप
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions: /settings/extensions पर रीडायरेक्ट करता है",
+      note: "/extensions: /settings/extensions पर रीडायरेक्ट करता है, जो तभी मौजूद है जब Extensions चालू हों",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -202,10 +203,12 @@ Auth Better Auth पर चलता है: लॉगिन, साइनअप
 Observability](/docs/observability) देखें।
 
 **एक्सटेंशन** sandboxed Alpine.js मिनी-ऐप्स हैं। चैट उन्हें देखने और चलाने वाले रूट्स
-(`/extensions/:id`) माउंट करती है और `/extensions` को Settings के एक्सटेंशन पेज पर
-रीडायरेक्ट करती है। एजेंट इन्हें तभी बना सकता है जब आप `server/plugins/agent-chat.ts` में
-`frameworkTools.extensions` चालू करें, जिसे चैट बंद रखती है। ये क्या कर सकते हैं और क्या
-नहीं, यह जानने के लिए [Extensions](/docs/extensions) देखें।
+(`/extensions/:id`) माउंट करती है और `/extensions` को `/settings/extensions` पर रीडायरेक्ट
+करती है। चैट एक्सटेंशन को दो जगह बंद रखती है। Settings पेज तभी दिखता है जब
+`app/routes/settings.tsx` `useAgentSettingsTabs()` को `extensionTools: true` पास करे।
+एजेंट एक्सटेंशन तभी बना सकता है जब `server/plugins/agent-chat.ts` में
+`frameworkTools.extensions` चालू हो। ये क्या कर सकते हैं और क्या नहीं, यह जानने के लिए
+[Extensions](/docs/extensions) देखें।
 
 ## इसे कस्टमाइज़ करना {#customizing}
 
@@ -317,7 +320,7 @@ export const noteShares = createSharesTable("note_shares");
 ```
 
 डेटाबेस क्लाइंट आपके actions को `getDb()` देता है और नोट्स को शेयरिंग सिस्टम में रजिस्टर
-करता है।
+करता है। नोट्स का कोई डिटेल पेज नहीं है, इसलिए शेयर लिंक सूची पर ले जाते हैं।
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -334,7 +337,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -589,7 +592,27 @@ localized है, तो इसके बजाय `app/i18n/en-US.ts` में
 
 ### 4. एजेंट को इसके बारे में बताएं
 
-`AGENTS.md` में एक छोटा सेक्शन जोड़ें ताकि एजेंट को पता चले कि नोट्स मौजूद हैं और कौन से
+`app/hooks/use-navigation-state.ts` एजेंट को मौजूदा व्यू बताता है और व्यू के नामों को वापस
+पाथ से जोड़ता है। इन दो बदलावों के बिना एजेंट को Notes पेज `chat` दिखता है, और "open
+Notes" वहाँ नेविगेट नहीं कर पाता।
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+फिर `AGENTS.md` में एक छोटा सेक्शन जोड़ें ताकि एजेंट को पता चले कि नोट्स मौजूद हैं और कौन से
 actions उन्हें मैनेज करते हैं। इसे छोटा रखें, क्योंकि रनटाइम प्रॉम्प्ट फ़ाइल को 6,000 अक्षरों
 पर काट देता है।
 
@@ -598,6 +621,8 @@ actions उन्हें मैनेज करते हैं। इसे �
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |

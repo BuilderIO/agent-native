@@ -108,7 +108,11 @@ action 仍供您的畫面使用，但對代理隱藏。
 
 ## 驗證 {#auth}
 
-驗證以 Better Auth 運作：登入、註冊、工作階段和組織，透過 `createAuthPlugin`，在 `server/plugins/auth.ts` 中設定。相同的流程在本機和生產環境中都一樣運作，唯一的差別是開發環境會略過電子郵件驗證，讓您可以立即註冊並開始建置。`createAuthPlugin` 也接受登入頁面的行銷文案（應用程式名稱、標語和功能重點），作為同一個檔案中的單純設定。完整的驗證模型（工作階段、組織、受保護的路由）請參閱 [驗證](/docs/authentication)。
+驗證以 Better Auth 運作：登入、註冊、工作階段和組織。聊天透過 `createToolkitAuthPlugin`，在
+`server/plugins/auth.ts` 中設定它。該檔案讓 `/` 保持公開，登入落地頁才能載入，並設定了
+`marketing: false`，因此登入頁面沒有行銷文案。若要在登入頁面顯示應用程式名稱、標語和功能重點，請改為傳入
+`marketing` 物件。相同的流程在本機和生產環境中都一樣運作，唯一的差別是開發環境會略過電子郵件驗證，讓您可以立即註冊並開始建置。
+完整的驗證模型（工作階段、組織、受保護的路由）請參閱 [驗證](/docs/authentication)。
 
 ## 路由參考 {#routes}
 
@@ -157,7 +161,7 @@ action 仍供您的畫面使用，但對代理隱藏。
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions：重新導向到 /settings/extensions",
+      note: "/extensions：重新導向到 /settings/extensions，而該頁面只有在開啟擴充功能後才存在",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -187,10 +191,10 @@ action 仍供您的畫面使用，但對代理隱藏。
 [代理可觀察性](/docs/observability)。
 
 **擴充功能**是沙盒化的 Alpine.js 小型應用程式。聊天掛載了檢視和執行它們的路由
-（`/extensions/:id`），並把 `/extensions` 重新導向到 Settings 中的 Extensions
-頁面。只有在您開啟 `server/plugins/agent-chat.ts` 中的
-`frameworkTools.extensions` 時，代理才能建立它們，而聊天預設是關閉的。它們能做
-什麼、不能做什麼，請參閱 [擴充功能](/docs/extensions)。
+（`/extensions/:id`），並把 `/extensions` 重新導向到 `/settings/extensions`。聊天在兩個地方將擴充功能關閉。
+只有在 `app/routes/settings.tsx` 把 `extensionTools: true` 傳給 `useAgentSettingsTabs()` 時，
+Settings 頁面才會出現。只有開啟 `server/plugins/agent-chat.ts` 中的 `frameworkTools.extensions`，
+代理才能建立擴充功能。它們能做什麼、不能做什麼，請參閱 [擴充功能](/docs/extensions)。
 
 ## 自訂它 {#customizing}
 
@@ -299,7 +303,7 @@ export const notes = pgTable("notes", {
 export const noteShares = createSharesTable("note_shares");
 ```
 
-資料庫用戶端提供您的 actions `getDb()`，並向共用系統註冊 notes。
+資料庫用戶端提供您的 actions `getDb()`，並向共用系統註冊 notes。Notes 沒有詳細頁面，因此分享連結會指向清單頁。
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -316,7 +320,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -571,7 +575,26 @@ function NotesNavLink({ collapsed }: { collapsed: boolean }) {
 
 ### 4. 告訴代理這件事
 
-在 `AGENTS.md` 的結尾附加一個簡短的段落，讓代理知道 notes 的存在，以及由哪些
+`app/hooks/use-navigation-state.ts` 會向代理回報目前的檢視，並把檢視名稱對應回路徑。
+如果沒有這兩處修改，代理會把 Notes 頁面視為 `chat`，而「開啟 Notes」也無法導航到那裡。
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+接著在 `AGENTS.md` 的結尾附加一個簡短的段落，讓代理知道 notes 的存在，以及由哪些
 actions 來管理它們。請保持簡短，因為執行階段提示會在 6,000 個字元處截斷這個
 檔案。
 
@@ -580,6 +603,8 @@ actions 來管理它們。請保持簡短，因為執行階段提示會在 6,000
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |

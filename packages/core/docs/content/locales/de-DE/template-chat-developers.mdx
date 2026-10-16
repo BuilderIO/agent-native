@@ -88,7 +88,7 @@ Ihre erste Tabelle ist eine neue Datei. Siehe [Ihre erste Funktion hinzufügen](
 
 ## Authentifizierung {#auth}
 
-Die Authentifizierung läuft über Better Auth: Login, Registrierung, Sitzungen und Organisationen, konfiguriert in `server/plugins/auth.ts` über `createAuthPlugin`. Derselbe Ablauf läuft lokal und in Produktion, nur dass die Entwicklung die E-Mail-Verifizierung überspringt, damit Sie sich sofort registrieren und mit dem Bauen beginnen können. `createAuthPlugin` nimmt auch den Marketingtext der Login-Seite (App-Name, Slogan und Funktionsstichpunkte) als einfache Konfiguration in derselben Datei entgegen. Das vollständige Authentifizierungsmodell (Sitzungen, Organisationen, geschützte Routen) finden Sie unter [Authentifizierung](/docs/authentication).
+Die Authentifizierung läuft über Better Auth: Login, Registrierung, Sitzungen und Organisationen. Chat konfiguriert sie in `server/plugins/auth.ts` mit `createToolkitAuthPlugin`. Die Datei hält `/` öffentlich, damit die Startseite zur Anmeldung laden kann, und setzt `marketing: false`, sodass die Anmeldeseite keinen Marketingtext zeigt. Um dort App-Name, Slogan und Funktionsstichpunkte anzuzeigen, übergeben Sie stattdessen ein `marketing`-Objekt. Derselbe Ablauf läuft lokal und in Produktion, nur dass die Entwicklung die E-Mail-Verifizierung überspringt, damit Sie sich sofort registrieren und mit dem Bauen beginnen können. Das vollständige Authentifizierungsmodell (Sitzungen, Organisationen, geschützte Routen) finden Sie unter [Authentifizierung](/docs/authentication).
 
 ## Routen-Referenz {#routes}
 
@@ -136,7 +136,7 @@ Die App verwendet dateisystembasiertes Routing (`flatRoutes()` in `app/routes.ts
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions: leitet zu /settings/extensions weiter",
+      note: "/extensions: leitet zu /settings/extensions weiter, was erst existiert, wenn Erweiterungen eingeschaltet sind",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -161,7 +161,7 @@ Die App verwendet dateisystembasiertes Routing (`flatRoutes()` in `app/routes.ts
 
 **Beobachtbarkeit** (`/observability`) ist dasselbe konfigurationsfreie `ObservabilityDashboard`, das jede Vorlage erhält. Es zeigt Traces, Kosten, Evals und Feedback für jeden Agentenlauf, berechnet aus Daten, die bereits in Ihrer eigenen Datenbank liegen. Siehe [Agent-Observability](/docs/observability).
 
-**Erweiterungen** sind isolierte Alpine.js-Mini-Apps. Chat bindet die Routen ein, die sie anzeigen und ausführen (`/extensions/:id`), und leitet `/extensions` auf die Seite Erweiterungen in den Einstellungen weiter. Der Agent kann sie erst erstellen, wenn Sie `frameworkTools.extensions` in `server/plugins/agent-chat.ts` aktivieren, was Chat ausgeschaltet lässt. Was sie können und was nicht, erfahren Sie unter [Erweiterungen](/docs/extensions).
+**Erweiterungen** sind isolierte Alpine.js-Mini-Apps. Chat bindet die Routen ein, die sie anzeigen und ausführen (`/extensions/:id`), und leitet `/extensions` auf `/settings/extensions` weiter. Chat lässt Erweiterungen an zwei Stellen ausgeschaltet. Die Einstellungsseite erscheint nur, wenn `app/routes/settings.tsx` `extensionTools: true` an `useAgentSettingsTabs()` übergibt. Der Agent kann Erweiterungen erst erstellen, wenn `frameworkTools.extensions` in `server/plugins/agent-chat.ts` eingeschaltet ist. Was sie können und was nicht, erfahren Sie unter [Erweiterungen](/docs/extensions).
 
 ## Anpassen {#customizing}
 
@@ -255,7 +255,7 @@ export const notes = pgTable("notes", {
 export const noteShares = createSharesTable("note_shares");
 ```
 
-Der Datenbank-Client stellt Ihren Aktionen `getDb()` bereit und registriert Notizen im Freigabesystem.
+Der Datenbank-Client stellt Ihren Aktionen `getDb()` bereit und registriert Notizen im Freigabesystem. Notizen haben keine Detailseite, daher verweisen Freigabelinks auf die Liste.
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -272,7 +272,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -516,13 +516,33 @@ Die eigenen Beschriftungen von Chat stammen aus Übersetzungsdateien, daher ist 
 
 ### 4. Dem Agenten davon erzählen
 
-Hängen Sie einen kurzen Abschnitt an `AGENTS.md` an, damit der Agent weiß, dass es Notizen gibt und welche Aktionen sie verwalten. Halten Sie ihn kurz, denn der Laufzeit-Prompt schneidet die Datei bei 6.000 Zeichen ab.
+`app/hooks/use-navigation-state.ts` meldet dem Agenten die aktuelle Ansicht und ordnet Ansichtsnamen wieder Pfaden zu. Ohne diese beiden Änderungen sieht der Agent die Seite Notes als `chat`, und „open Notes“ kann nicht dorthin navigieren.
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+Hängen Sie dann einen kurzen Abschnitt an `AGENTS.md` an, damit der Agent weiß, dass es Notizen gibt und welche Aktionen sie verwalten. Halten Sie ihn kurz, denn der Laufzeit-Prompt schneidet die Datei bei 6.000 Zeichen ab.
 
 ```md filename="AGENTS.md"
 ## Notes
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |

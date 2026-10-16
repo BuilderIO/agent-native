@@ -128,7 +128,16 @@ funcionalidade](#first-feature).
 
 ## Autenticação {#auth}
 
-A autenticação roda no Better Auth: login, cadastro, sessões e organizações, configurados em `server/plugins/auth.ts` por meio de `createAuthPlugin`. O mesmo fluxo roda localmente e em produção, exceto que o desenvolvimento pula a verificação de e-mail para que você possa se cadastrar e começar a construir imediatamente. O `createAuthPlugin` também recebe o texto de marketing da página de login (nome do aplicativo, slogan e tópicos de funcionalidades) como configuração simples nesse mesmo arquivo. Veja [Autenticação](/docs/authentication) para o modelo completo de autenticação (sessões, organizações, rotas protegidas).
+A autenticação roda no Better Auth: login, cadastro, sessões e organizações. O
+Chat a configura em `server/plugins/auth.ts` com `createToolkitAuthPlugin`. O
+arquivo mantém `/` público, para que a página inicial de login possa carregar, e
+define `marketing: false`, então a página de login não tem texto de marketing.
+Para mostrar ali o nome do aplicativo, o slogan e os tópicos de funcionalidades,
+passe um objeto `marketing`. O mesmo fluxo roda localmente e em produção,
+exceto que o desenvolvimento pula a verificação de e-mail para que você possa se
+cadastrar e começar a construir imediatamente. Veja
+[Autenticação](/docs/authentication) para o modelo completo de autenticação
+(sessões, organizações, rotas protegidas).
 
 ## Referência de rotas {#routes}
 
@@ -178,7 +187,7 @@ montá-la.
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions: redireciona para /settings/extensions",
+      note: "/extensions: redireciona para /settings/extensions, que só existe depois que as Extensões são ligadas",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -211,10 +220,12 @@ dados que já estão no seu próprio banco. Veja
 [Observabilidade do agente](/docs/observability).
 
 **Extensões** são mini-apps Alpine.js isolados. O Chat monta as rotas que
-as exibem e executam (`/extensions/:id`) e redireciona `/extensions` para a
-página Extensões em Configurações. O agente só consegue criá-las depois que
-você ativar `frameworkTools.extensions` em `server/plugins/agent-chat.ts`, o
-que o Chat deixa desligado. Veja [Extensões](/docs/extensions) para saber o
+as exibem e executam (`/extensions/:id`) e redireciona `/extensions` para
+`/settings/extensions`. O Chat deixa as Extensões desligadas em dois lugares. A
+página de Configurações só aparece quando `app/routes/settings.tsx` passa
+`extensionTools: true` para `useAgentSettingsTabs()`. O agente só consegue criar
+extensões depois que `frameworkTools.extensions` é ligado em
+`server/plugins/agent-chat.ts`. Veja [Extensões](/docs/extensions) para saber o
 que elas podem e não podem fazer.
 
 ## Personalizando {#customizing}
@@ -339,7 +350,8 @@ export const noteShares = createSharesTable("note_shares");
 ```
 
 O cliente de banco de dados fornece `getDb()` às suas actions e registra as
-notas no sistema de compartilhamento.
+notas no sistema de compartilhamento. As notas não têm página de detalhe, então
+os links de compartilhamento apontam para a lista.
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -356,7 +368,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -615,7 +627,28 @@ Os rótulos do próprio Chat vêm de arquivos de tradução, então o literal
 
 ### 4. Conte ao agente sobre isso
 
-Acrescente uma seção curta ao `AGENTS.md` para que o agente saiba que as
+O `app/hooks/use-navigation-state.ts` informa ao agente a visualização atual e
+converte os nomes de visualização de volta em caminhos. Sem essas duas edições,
+o agente vê a página Notes como `chat`, e "open Notes" não consegue navegar até
+ela.
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+Depois acrescente uma seção curta ao `AGENTS.md` para que o agente saiba que as
 notas existem e quais actions as gerenciam. Seja breve, porque o prompt de
 runtime corta o arquivo em 6.000 caracteres.
 
@@ -624,6 +657,8 @@ runtime corta o arquivo em 6.000 caracteres.
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |

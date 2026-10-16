@@ -120,7 +120,7 @@ SQL に書き込むと、クライアントは SSE、または 2 秒間隔のポ
 
 ## 認証 {#auth}
 
-認証は Better Auth で動作します。ログイン、サインアップ、セッション、組織が `server/plugins/auth.ts` の `createAuthPlugin` で設定されています。ローカルでも本番でも同じフローが動きますが、開発ではメール認証をスキップするので、すぐにサインアップして構築を始められます。`createAuthPlugin` は、ログイン ページのマーケティング文言 (アプリ名、キャッチコピー、機能の箇条書き) も、同じファイル内の通常の設定として受け取ります。認証モデルの全体 (セッション、組織、保護されたルート) については [認証](/docs/authentication) を参照してください。
+認証は Better Auth で動作します。ログイン、サインアップ、セッション、組織があります。Chat は `server/plugins/auth.ts` で `createToolkitAuthPlugin` を使って設定しています。このファイルは `/` を公開にしてサインインのランディングを読み込めるようにし、`marketing: false` を設定しているので、サインイン ページにマーケティング文言はありません。アプリ名、キャッチコピー、機能の箇条書きを表示したい場合は、代わりに `marketing` オブジェクトを渡します。ローカルでも本番でも同じフローが動きますが、開発ではメール認証をスキップするので、すぐにサインアップして構築を始められます。認証モデルの全体 (セッション、組織、保護されたルート) については [認証](/docs/authentication) を参照してください。
 
 ## ルート リファレンス {#routes}
 
@@ -169,7 +169,7 @@ SQL に書き込むと、クライアントは SSE、または 2 秒間隔のポ
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions: /settings/extensions にリダイレクトします",
+      note: "/extensions: /settings/extensions にリダイレクトします。このページは Extensions をオンにした場合にだけ存在します",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -202,11 +202,12 @@ SQL に書き込むと、クライアントは SSE、または 2 秒間隔のポ
 参照してください。
 
 **拡張機能** は、サンドボックス化された Alpine.js のミニアプリです。Chat は、それらを
-表示して実行するルート (`/extensions/:id`) をマウントし、`/extensions` を Settings の
-拡張機能ページにリダイレクトします。エージェントがそれらを作成できるのは、
-`server/plugins/agent-chat.ts` の `frameworkTools.extensions` をオンにした場合だけで、
-Chat ではオフのままです。できることとできないことについては
-[拡張機能](/docs/extensions) を参照してください。
+表示して実行するルート (`/extensions/:id`) をマウントし、`/extensions` を
+`/settings/extensions` にリダイレクトします。Chat では Extensions が 2 か所でオフになっています。
+Settings のページは、`app/routes/settings.tsx` が `useAgentSettingsTabs()` に
+`extensionTools: true` を渡した場合にだけ表示されます。エージェントが拡張機能を作成できるのは、
+`server/plugins/agent-chat.ts` で `frameworkTools.extensions` をオンにした場合だけです。
+できることとできないことについては [拡張機能](/docs/extensions) を参照してください。
 
 ## カスタマイズする {#customizing}
 
@@ -322,7 +323,7 @@ export const noteShares = createSharesTable("note_shares");
 ```
 
 データベース クライアントは、actions に `getDb()` を提供し、メモを共有システムに
-登録します。
+登録します。メモには詳細ページがないので、共有リンクは一覧を指します。
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -339,7 +340,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -594,7 +595,27 @@ Chat 自身のラベルは翻訳ファイルから来るため、リテラルの
 
 ### 4. エージェントに知らせる
 
-`AGENTS.md` に短いセクションを追加して、メモが存在すること、どの actions が管理するかを
+`app/hooks/use-navigation-state.ts` は、現在のビューをエージェントに報告し、ビュー名を
+パスに対応付けます。この 2 つの編集がないと、エージェントは Notes ページを `chat` として
+認識し、「Notes を開いて」と頼んでもそこへ移動できません。
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+次に `AGENTS.md` に短いセクションを追加して、メモが存在すること、どの actions が管理するかを
 エージェントに知らせます。ランタイム プロンプトはこのファイルを 6,000 文字で切り捨てる
 ため、簡潔にしてください。
 
@@ -603,6 +624,8 @@ Chat 自身のラベルは翻訳ファイルから来るため、リテラルの
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |

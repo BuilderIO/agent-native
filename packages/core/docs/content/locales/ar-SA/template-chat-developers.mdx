@@ -120,7 +120,14 @@ npx --yes @agent-native/core@latest create my-agent --headless
 
 ## المصادقة {#auth}
 
-تعمل المصادقة على Better Auth: تسجيل الدخول، والتسجيل، والجلسات، والمؤسسات، وتُضبط في `server/plugins/auth.ts` عبر `createAuthPlugin`. يعمل التدفق نفسه محليًا وفي الإنتاج، باستثناء أن التطوير يتخطى التحقق من البريد الإلكتروني لتتمكن من التسجيل والبدء في البناء فورًا. كما يقبل `createAuthPlugin` النص التسويقي لصفحة تسجيل الدخول (اسم التطبيق، والشعار، ونقاط الميزات) كإعداد عادي في الملف نفسه. راجع [المصادقة](/docs/authentication) لنموذج المصادقة الكامل (الجلسات، والمؤسسات، والمسارات المحمية).
+تعمل المصادقة على Better Auth: تسجيل الدخول، والتسجيل، والجلسات، والمؤسسات.
+تضبطها الدردشة في `server/plugins/auth.ts` عبر `createToolkitAuthPlugin`.
+يُبقي الملف المسار `/` عامًا لتُحمَّل صفحة الدخول، ويضبط `marketing: false` فلا
+يظهر نص تسويقي في صفحة تسجيل الدخول. لإظهار اسم التطبيق والشعار ونقاط الميزات
+هناك، مرّر كائن `marketing` بدلاً من ذلك. يعمل التدفق نفسه محليًا وفي الإنتاج،
+باستثناء أن التطوير يتخطى التحقق من البريد الإلكتروني لتتمكن من التسجيل والبدء
+في البناء فورًا. راجع [المصادقة](/docs/authentication) لنموذج المصادقة الكامل
+(الجلسات، والمؤسسات، والمسارات المحمية).
 
 ## مرجع المسارات {#routes}
 
@@ -169,7 +176,7 @@ npx --yes @agent-native/core@latest create my-agent --headless
     },
     {
       path: "app/routes/extensions._index.tsx",
-      note: "/extensions: يعيد التوجيه إلى /settings/extensions",
+      note: "/extensions: يعيد التوجيه إلى /settings/extensions، وهي لا توجد إلا بعد تشغيل الامتدادات",
     },
     {
       path: "app/routes/extensions.$id.tsx",
@@ -201,10 +208,11 @@ npx --yes @agent-native/core@latest create my-agent --headless
 
 **الإضافات** هي تطبيقات مصغّرة معزولة مبنية بـ Alpine.js. تركّب الدردشة
 المسارات التي تعرضها وتشغّلها (`/extensions/:id`) وتعيد توجيه `/extensions` إلى
-صفحة الإضافات في الإعدادات. لا يستطيع الوكيل إنشاءها إلا بعد تشغيل
-`frameworkTools.extensions` في `server/plugins/agent-chat.ts`، وهو ما تتركه
-الدردشة مُطفأً. راجع [الامتدادات](/docs/extensions) لمعرفة ما يمكنها فعله وما
-لا يمكنها.
+`/settings/extensions`. تُبقي الدردشة الإضافات مُطفأة في موضعين. لا تظهر صفحة
+الإعدادات إلا عندما يمرّر `app/routes/settings.tsx` القيمة `extensionTools: true`
+إلى `useAgentSettingsTabs()`. ولا يستطيع الوكيل إنشاء الإضافات إلا بعد تشغيل
+`frameworkTools.extensions` في `server/plugins/agent-chat.ts`. راجع
+[الامتدادات](/docs/extensions) لمعرفة ما يمكنها فعله وما لا يمكنها.
 
 ## تخصيصه {#customizing}
 
@@ -316,7 +324,8 @@ export const notes = pgTable("notes", {
 export const noteShares = createSharesTable("note_shares");
 ```
 
-يمنح عميل قاعدة البيانات إجراءاتك `getDb()` ويسجّل الملاحظات في نظام المشاركة.
+يمنح عميل قاعدة البيانات إجراءاتك `getDb()` ويسجّل الملاحظات في نظام المشاركة. ليس للملاحظات صفحة تفاصيل، لذا تشير روابط
+المشاركة إلى القائمة.
 
 ```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
@@ -333,7 +342,7 @@ registerShareableResource({
   sharesTable: schema.noteShares,
   displayName: "Note",
   titleColumn: "title",
-  getResourcePath: (note) => `/notes/${note.id}`,
+  getResourcePath: () => "/notes",
   getDb,
 });
 ```
@@ -590,7 +599,27 @@ function NotesNavLink({ collapsed }: { collapsed: boolean }) {
 
 ### 4. أخبر الوكيل عنها
 
-أضف قسمًا قصيرًا إلى `AGENTS.md` ليعرف الوكيل أن الملاحظات موجودة وأي إجراءات
+يُبلغ `app/hooks/use-navigation-state.ts` الوكيل بالعرض الحالي ويحوّل أسماء
+العروض إلى مسارات. من دون هذين التعديلين يرى الوكيل صفحة Notes على أنها `chat`،
+ولا يستطيع "open Notes" التنقل إليها.
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+ثم أضف قسمًا قصيرًا إلى `AGENTS.md` ليعرف الوكيل أن الملاحظات موجودة وأي إجراءات
 تديرها. اجعله موجزًا، لأن موجّه وقت التشغيل يقتطع الملف عند 6,000 حرف.
 
 ```md filename="AGENTS.md"
@@ -598,6 +627,8 @@ function NotesNavLink({ collapsed }: { collapsed: boolean }) {
 
 Notes live at `/notes`. Each note has a title and a body. A note is visible to
 the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
 
 | Action        | Purpose                             |
 | ------------- | ----------------------------------- |
