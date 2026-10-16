@@ -341,9 +341,12 @@ There is one capture implementation, `captureAttribution()` from `@agent-native/
 
 - `localStorage` key `an_attribution` and first-party cookie `an_ft` (`path=/; max-age=2592000; SameSite=Lax`, not HttpOnly — non-sensitive, written by client JS).
 - Both store the same URL-encoded compact JSON (empty fields omitted, each value capped at 120 chars): `{ ref, via, utm_source, utm_medium, utm_campaign, utm_content, utm_term, landing_path, landing_referrer, landed_at }`. `landing_referrer` is the **host only** of `document.referrer` (scrubbed; same-origin referrers are dropped).
+- A durable copy, cookie `an_fts`, set only by our server (`POST /_agent-native/auth/attribution`, same-origin, no session needed) and expiring 365 days after `landed_at`, never extended by later visits. The browser sends its first touch there each load until the server holds that visit. Safari caps cookies written by page JavaScript at seven days, so only a server-set cookie can keep first touch for a year. The value carries `v: "1"`; a reader ignores other versions. When the browser's copies are gone, capture restores them from `an_fts`.
+- Every copy is compared with `preferFirstTouch` (`shared/first-touch-persistence.ts`): the first visit with a source, else the first visit. Never add a second ordering rule: the server cookie route, the browser, and signup must agree on which visit is first touch, or a slow response from one tab overwrites a better touch from another.
+- No attribution is stored for visitors where consent is needed (EU, EEA, UK, Switzerland). We have no consent banner, so the browser skips capture by time zone and clears existing copies, and the server refuses `an_fts` and clears all three cookies by request country. Don't add attribution storage that bypasses `captureAttribution()`, or it skips this check.
 - `getFirstTouchAttribution()` (from `@agent-native/core/client`) returns the parsed object or `null`.
 
-**Signup event enrichment** (server-side, from the `an_ft` cookie on the signup/OAuth-callback request, derived in `packages/core/src/server/attribution.ts`):
+**Signup event enrichment** (server-side, from the `an_fts` and `an_ft` cookies on the signup/OAuth-callback request, whichever `preferFirstTouch` picks, with `an_fts` winning a tie, derived in `packages/core/src/server/attribution.ts`):
 
 - `referral_source` — `ref` if present, else derived: `/share/…` → `clip_share`; a plan public path (`/p/`, `/plan/`, `/share-plan/`) → `plan_share`; a non-empty external referring host → `external`; otherwise `direct`.
 - `referrer_user` (= `via`), `referral_medium` (= `utm_medium`), `referral_campaign` (= `utm_campaign`)

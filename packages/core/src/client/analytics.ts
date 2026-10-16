@@ -30,6 +30,14 @@ import {
   type ErrorNoiseFrame,
 } from "../shared/error-noise.js";
 import {
+  FIRST_TOUCH_SERVER_COOKIE_NAME,
+  FIRST_TOUCH_SERVER_COOKIE_VERSION,
+  FIRST_TOUCH_SERVER_PATH,
+  isConsentRegionTimeZone,
+  isSameFirstTouch,
+  preferFirstTouch,
+} from "../shared/first-touch-persistence.js";
+import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
@@ -43,6 +51,7 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { agentNativePath } from "./api-path.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
 import { clientFailureContext } from "./failure-report.js";
@@ -369,6 +378,8 @@ const LAST_TOUCH_COOKIE: AttributionCookieSpec = {
 };
 
 let _firstTouchCaptured = false;
+// Bounds the resend after a response race; see `syncFirstTouchToServer`.
+let _firstTouchSyncsLeft = 2;
 
 export interface FirstTouchAttribution {
   ref?: string;
@@ -420,6 +431,14 @@ function safeStorageGet(key: string): string | null {
 function safeStorageSet(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
+  } catch {
+    // private browsing / storage disabled — best-effort
+  }
+}
+
+function safeStorageRemove(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
   } catch {
     // private browsing / storage disabled — best-effort
   }
@@ -843,15 +862,107 @@ function backfillAttributionCookie(
 }
 
 /**
- * Capture the visitor's referral attribution once per page load, into both
- * `localStorage` and a first-party cookie the signup boundary reads. Fully
- * defensive and SSR-safe — any failure is swallowed so it can never break app
- * boot.
+ * Whether the visitor seems to be where attribution storage needs consent we
+ * don't ask for. The time zone answers without storing anything; the server's
+ * country check backs it up for a browser whose zone doesn't say.
+ */
+function isConsentRegionBrowser(): boolean {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return !timeZone || isConsentRegionTimeZone(timeZone);
+  } catch {
+    // An unknown zone could be anywhere, so it gets the stricter answer.
+    return true;
+  }
+}
+
+/** Remove every stored touch, in storage and cookies. */
+function clearStoredAttribution(): void {
+  safeStorageRemove(FIRST_TOUCH_STORAGE_KEY);
+  safeStorageRemove(LAST_TOUCH_STORAGE_KEY);
+  if (typeof document === "undefined") return;
+  for (const name of [
+    FIRST_TOUCH_COOKIE_NAME,
+    LAST_TOUCH_COOKIE_NAME,
+    FIRST_TOUCH_SERVER_COOKIE_NAME,
+  ]) {
+    try {
+      document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+    } catch {
+      // document.cookie can throw in sandboxed iframes — best-effort.
+    }
+  }
+}
+
+/** The year-long copy our server keeps in `an_fts`. */
+function readServerFirstTouch(): FirstTouchAttribution | null {
+  const touch = readAttributionCookieValue<
+    FirstTouchAttribution & { v?: string }
+  >(FIRST_TOUCH_SERVER_COOKIE_NAME);
+  if (!touch || touch.v !== FIRST_TOUCH_SERVER_COOKIE_VERSION) return null;
+  const { v: _version, ...firstTouch } = touch;
+  return firstTouch;
+}
+
+/** The browser's own copies: localStorage, then the 30-day `an_ft` cookie. */
+function readLocalFirstTouch(): FirstTouchAttribution | null {
+  return readStoredAttribution<FirstTouchAttribution>(
+    FIRST_TOUCH_STORAGE_KEY,
+    FIRST_TOUCH_COOKIE_NAME,
+  );
+}
+
+/**
+ * Ask our server to keep `firstTouch` in its year-long cookie, unless it
+ * already holds that visit. Two tabs can each send a touch before either
+ * response lands, and the later response wins the cookie, so when ours
+ * leaves a worse touch there than this browser holds, send the better one
+ * again. Until the server holds it, signup still reads `an_ft`.
+ */
+function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
+  if (isSameFirstTouch(readServerFirstTouch(), firstTouch)) return;
+  if (_firstTouchSyncsLeft <= 0 || typeof fetch !== "function") return;
+  _firstTouchSyncsLeft -= 1;
+  void fetch(agentNativePath(FIRST_TOUCH_SERVER_PATH), {
+    method: "POST",
+    credentials: "same-origin",
+    keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ firstTouch }),
+  })
+    .then(async (response) => {
+      if (!response.ok) return;
+      const result = (await response.json()) as { reason?: string };
+      if (result.reason === "consent_region") {
+        clearStoredAttribution();
+        return;
+      }
+      const server = readServerFirstTouch();
+      const local = readLocalFirstTouch();
+      if (!server || isSameFirstTouch(server, local)) return;
+      if (preferFirstTouch(server, local) === server) {
+        storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, server);
+      } else if (local) {
+        syncFirstTouchToServer(local);
+      }
+    })
+    .catch(() => {
+      // coercion-ok: the 30-day `an_ft` cookie still carries first touch to
+      // signup; the next page load tries again.
+    });
+}
+
+/**
+ * Capture the visitor's referral attribution once per page load, into
+ * `localStorage`, a first-party cookie the signup boundary reads, and the
+ * server's year-long copy. Fully defensive and SSR-safe — any failure is
+ * swallowed so it can never break app boot.
  *
- * First touch (`an_attribution` / `an_ft`) is first-write-wins, except over a
- * visit that had no source: the first visit that says where this person came
- * from replaces it. Without that, an untagged first visit would hide every
- * tagged visit after it.
+ * First touch (`an_attribution` / `an_ft` / `an_fts`) is the first visit that
+ * said where this person came from, else the first visit; see
+ * `preferFirstTouch`. Without that, an untagged first visit would hide every
+ * tagged visit after it. When the browser's copies are gone, as Safari clears
+ * them, the server's copy restores them.
  */
 function captureFirstTouchAttribution(
   options: CaptureAttributionOptions = {},
@@ -859,19 +970,26 @@ function captureFirstTouchAttribution(
   if (_firstTouchCaptured) return;
   _firstTouchCaptured = true;
   if (typeof window === "undefined") return;
+  if (isConsentRegionBrowser()) {
+    clearStoredAttribution();
+    return;
+  }
   try {
     const current = buildFirstTouchAttribution(
       options.landingPath ?? window.location.pathname,
     );
-    const existing = getFirstTouchAttribution();
-    if (
-      existing &&
-      (hasAttributionSource(existing) || !hasAttributionSource(current))
-    ) {
+    const local = readLocalFirstTouch();
+    // The same visit in both keeps the local copy, which was never trimmed.
+    const firstTouch = preferFirstTouch(
+      preferFirstTouch(local, readServerFirstTouch()),
+      current,
+    )!;
+    if (firstTouch === local) {
       backfillAttributionCookie(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE);
     } else {
-      storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, current);
+      storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, firstTouch);
     }
+    syncFirstTouchToServer(firstTouch);
     captureLastTouchAttribution(current);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
@@ -985,10 +1103,8 @@ function readStoredAttribution<T extends AttributionTouch>(
 }
 
 export function getFirstTouchAttribution(): FirstTouchAttribution | null {
-  return readStoredAttribution<FirstTouchAttribution>(
-    FIRST_TOUCH_STORAGE_KEY,
-    FIRST_TOUCH_COOKIE_NAME,
-  );
+  if (typeof window === "undefined") return null;
+  return preferFirstTouch(readLocalFirstTouch(), readServerFirstTouch());
 }
 
 export function getLastTouchAttribution(): LastTouchAttribution | null {

@@ -34,6 +34,7 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_MAX_AGE,
 } from "../shared/first-run-onboarding.js";
+import { FIRST_TOUCH_SERVER_PATH } from "../shared/first-touch-persistence.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   EMBED_TRANSPLANT_HEADER,
@@ -58,6 +59,7 @@ import {
   resolveEmbedSessionFromRequest,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import { createFirstTouchHandler } from "./first-touch-route.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 import {
@@ -7281,6 +7283,7 @@ export async function autoMountAuth(
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
   mountAuthCorsMiddleware(app);
+  app.use(FIRST_TOUCH_SERVER_PATH, createFirstTouchHandler());
 
   if (options.getSession) {
     customGetSession = options.getSession;

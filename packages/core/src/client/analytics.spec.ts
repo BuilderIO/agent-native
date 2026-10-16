@@ -110,6 +110,9 @@ function installFetch({
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (String(url).includes("/_agent-native/auth/attribution")) {
+      return new Response(JSON.stringify({ stored: true }));
+    }
     analyticsCalls.push([url, init ?? {}]);
     return new Response("{}");
   });
@@ -118,6 +121,11 @@ function installFetch({
 }
 
 function installBrowser(url = "https://mail.agent-native.com/inbox") {
+  // Attribution storage depends on the visitor's time zone, so pin it.
+  const realOptions = new Intl.DateTimeFormat().resolvedOptions();
+  const resolvedOptions = vi
+    .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+    .mockReturnValue({ ...realOptions, timeZone: "America/Los_Angeles" });
   const parsed = new URL(url);
   const location = {
     href: parsed.href,
@@ -186,6 +194,8 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
 
   return {
     fetchMock: vi.fn().mockResolvedValue(new Response("{}")),
+    setTimeZone: (timeZone: string) =>
+      resolvedOptions.mockReturnValue({ ...realOptions, timeZone }),
     gtag,
     history,
     localStorage,
@@ -346,6 +356,9 @@ describe("browser analytics pageviews", () => {
           return new Response(JSON.stringify({ error: "not authenticated" }), {
             headers: { "Content-Type": "application/json" },
           });
+        }
+        if (String(url).includes("/_agent-native/auth/attribution")) {
+          return new Response(JSON.stringify({ stored: true }));
         }
         analyticsCalls.push([url, init ?? {}]);
         return new Response("{}");
@@ -760,6 +773,157 @@ describe("browser analytics pageviews", () => {
       capture_truncated: "1",
     });
     expect(stored.utm_term).toBe("💡".repeat(60));
+  });
+
+  it("stores no attribution in a consent-region time zone, and clears what was there", async () => {
+    const { cookieAssignment, localStorage, setTimeZone } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    setTimeZone("Europe/Berlin");
+    localStorage.setItem("an_attribution", JSON.stringify({ ref: "old" }));
+    localStorage.setItem("an_last_touch", JSON.stringify({ ref: "old" }));
+    document.cookie = `an_ft=${encodeURIComponent('{"ref":"old"}')}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+    expect(localStorage.getItem("an_last_touch")).toBeNull();
+    for (const name of ["an_ft", "an_lt", "an_fts"]) {
+      expect(cookieAssignment(name)).toMatch(
+        new RegExp(`^${name}=; .*max-age=0`),
+      );
+    }
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+  });
+
+  it("sends first touch to the server for its year-long cookie", async () => {
+    installBrowser("https://clips.agent-native.com/?utm_source=youtube");
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/_agent-native/auth/attribution"),
+    );
+    expect(call?.[1]).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+    });
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      firstTouch: { utm_source: "youtube", landing_path: "/" },
+    });
+  });
+
+  it("restores first touch from the server's cookie when the browser's copies are gone", async () => {
+    const { cookieJson, localStorage } = installBrowser(
+      "https://clips.agent-native.com/",
+    );
+    const serverTouch = {
+      utm_source: "youtube",
+      landing_path: "/share/c",
+      landed_at: "2026-01-02T00:00:00.000Z",
+    };
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...serverTouch }),
+    )}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution, getFirstTouchAttribution } =
+      await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    expect(getFirstTouchAttribution()).toEqual(serverTouch);
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toEqual(
+      serverTouch,
+    );
+    expect(cookieJson("an_ft")).toMatchObject({ utm_source: "youtube" });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores a server cookie from another format version", async () => {
+    installBrowser("https://clips.agent-native.com/");
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "2", utm_source: "youtube", landed_at: "x" }),
+    )}; path=/`;
+    const { getFirstTouchAttribution } = await freshAnalytics();
+
+    expect(getFirstTouchAttribution()).toBeNull();
+  });
+
+  it("sends the better first touch again when another tab's response lands after ours", async () => {
+    installBrowser("https://clips.agent-native.com/?utm_source=youtube");
+    const staleDirect = encodeURIComponent(
+      JSON.stringify({
+        v: "1",
+        landing_path: "/",
+        landed_at: "2026-10-16T00:00:00.000Z",
+      }),
+    );
+    const bodies: Array<Record<string, any>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        if (String(url).includes("/_agent-native/auth/attribution")) {
+          const body = JSON.parse(String(init?.body));
+          bodies.push(body);
+          // The first response is overtaken by another tab's, which leaves
+          // its direct visit in the cookie; the resend is stored.
+          document.cookie =
+            bodies.length === 1
+              ? `an_fts=${staleDirect}; path=/`
+              : `an_fts=${encodeURIComponent(
+                  JSON.stringify({ v: "1", ...body.firstTouch }),
+                )}; path=/`;
+          return new Response(JSON.stringify({ stored: true }));
+        }
+        return new Response("{}");
+      }),
+    );
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+    await tick();
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]!.firstTouch).toMatchObject({ utm_source: "youtube" });
+  });
+
+  it("clears attribution when the server says the visitor needs consent", async () => {
+    const { localStorage } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ stored: false, reason: "consent_region" }),
+          ),
+      ),
+    );
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    expect(localStorage.getItem("an_attribution")).not.toBeNull();
+    await tick();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+    expect(localStorage.getItem("an_last_touch")).toBeNull();
   });
 
   it("emits return usage after a seven-day gap between app entries", async () => {
