@@ -430,6 +430,35 @@ function validateOwnedDispositionScopes(
 ): void {
   if (!hasOwnedReaction) return;
 
+  const hasOpenFollowUp = unfinishedScopeNames.size > 0 || handoffs.length > 0;
+  if (hasOpenFollowUp && !hasEye) {
+    throw new Error(
+      `${parentName}: unfinished work or a human handoff must keep this actor's 👀`,
+    );
+  }
+
+  const closedDispositions = new Set([
+    "Fixed",
+    "Shipped",
+    "Live verified",
+    "Resolved elsewhere",
+    "Skipped",
+    "Clustered",
+    "Abandoned - no answer in 4 days",
+  ]);
+  const abandonedReporterWaitWithInternalWork =
+    parent.disposition === "Abandoned - no answer in 4 days" &&
+    unfinishedScopeNames.size > 0;
+  if (
+    hasEye &&
+    closedDispositions.has(parent.disposition) &&
+    !abandonedReporterWaitWithInternalWork
+  ) {
+    throw new Error(
+      `${parentName}: ${parent.disposition} is closed; remove this actor's 👀`,
+    );
+  }
+
   const hasFixedScope = fixedScopeNames.size > 0;
   if (hasCheckmark !== hasFixedScope) {
     throw new Error(
@@ -455,11 +484,6 @@ function validateOwnedDispositionScopes(
   ) {
     throw new Error(
       `${parentName}: Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed`,
-    );
-  }
-  if (parent.disposition === "Fixed" && hasEye) {
-    throw new Error(
-      `${parentName}: fully Fixed work must remove this actor's 👀 and keep ✅`,
     );
   }
   if (
@@ -1705,8 +1729,11 @@ if (args[0] === "--self-test" && args.length === 1) {
           const updated: Parent = {
             ...parent,
             disposition: "In progress",
-            reactionSummary: "ticket (1): USWEEPER",
-            reactionOwners: { ticket: ["USWEEPER"] },
+            reactionSummary: "eyes (1): USWEEPER; ticket (1): USWEEPER",
+            reactionOwners: {
+              eyes: ["USWEEPER"],
+              ticket: ["USWEEPER"],
+            },
             reactionDecision: {
               checkmark: {
                 state: "none",
@@ -2017,7 +2044,43 @@ if (args[0] === "--self-test" && args.length === 1) {
     },
     {
       name: "ticket without an owned eye still needs reaction decisions",
-      inventory: withUnownedTicket({ reactionDecision: undefined }),
+      inventory: withUnownedTicket({
+        reactionSummary: "ticket (1): USWEEPER",
+        reactionOwners: { ticket: ["USWEEPER"] },
+        reactionDecision: undefined,
+      }),
+    },
+    {
+      name: "unfinished accepted handoff requires this actor's eye",
+      inventory: withUnownedTicket({
+        reactionSummary: "ticket (1): USWEEPER",
+        reactionOwners: { ticket: ["USWEEPER"] },
+      }),
+    },
+    {
+      name: "Skipped work releases this actor's eye",
+      inventory: withSweepOwnedParent({
+        disposition: "Skipped",
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: ["USWEEPER"] },
+        reactionDecision: {
+          checkmark: {
+            state: "none",
+            reason: "The report is not a defect.",
+          },
+          ticket: {
+            state: "none",
+            reason: "No human-owned action remains.",
+          },
+        },
+        fixedScopes: [],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Skipped",
+          evidence: "the reported behavior is expected",
+          text: "Skipped: the reported behavior is expected",
+        },
+      }),
     },
     {
       name: "reply root is missing from page rows and threadRoots",
@@ -3001,6 +3064,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateInventory(
       withSweepOwnedParent({
         disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
         unfinishedScopes: [
           {
             scope: "paragraph selection behavior",
@@ -3013,6 +3081,36 @@ if (args[0] === "--self-test" && args.length === 1) {
           evidence:
             "focused test passed in the open PR; merge pending; paragraph selection remains broken",
           text: "Partially fixed: focused test passed in the open PR; merge pending; paragraph selection remains broken.",
+        },
+      }),
+    );
+    validateInventory(
+      withSweepOwnedParent({
+        disposition: "Abandoned - no answer in 4 days",
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: ["USWEEPER"] },
+        reactionDecision: {
+          checkmark: {
+            state: "none",
+            reason: "The remaining behavior has not passed verification.",
+          },
+          ticket: {
+            state: "none",
+            reason: "No named human accepted the remaining internal work.",
+          },
+        },
+        fixedScopes: [],
+        unfinishedScopes: [
+          {
+            scope: "recording start and stop affordance",
+            evidence: "the remaining control behavior is still unverified",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Abandoned - no answer in 4 days",
+          evidence: "the remaining control behavior is still unverified",
+          text: "Abandoned - no answer in 4 days: the reporter wait is closed; the remaining control behavior is still unverified.",
         },
       }),
     );
