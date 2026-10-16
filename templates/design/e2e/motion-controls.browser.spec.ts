@@ -1094,6 +1094,215 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
   });
 }
 
+test("applying a composite recipe preserves an existing unrelated native style", async ({
+  page,
+  request,
+}) => {
+  let recipeDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion recipe preserves native style",
+      projectType: "prototype",
+    });
+    recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!recipeDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: recipeDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", { designId: recipeDesignId });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+      deep: false,
+    });
+
+    const addAnimation = page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first();
+    const sizeApplied = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Size", exact: true }).click();
+    const sizeResponse = await sizeApplied;
+    expect(sizeResponse.ok(), await sizeResponse.text()).toBe(true);
+
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-11",
+    );
+    if (!recipe) throw new Error("The sampled Rise recipe is missing");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+    const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+    await expect(recipeRow).toBeVisible();
+    const recipeApplied = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await recipeRow.click();
+    const recipeResponse = await recipeApplied;
+    expect(recipeResponse.ok(), await recipeResponse.text()).toBe(true);
+    expect(await recipeResponse.json()).toMatchObject({ persisted: true });
+    await captureReferenceState(page, "motion-recipe-preserves-size-style");
+
+    const timeline = await getAction(request, "get-motion-timeline", {
+      designId: recipeDesignId,
+      sourceRef: file.id,
+    });
+    const targetId = "e2e-motion-reference-rectangle";
+    expect(timeline.timelines?.[0]?.nativeStyles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ styleKey: "Size", targetNodeId: targetId }),
+      ]),
+    );
+    const recipeTracks = timeline.timelines?.[0]?.tracks?.filter(
+      (track: { targetNodeId: string }) => track.targetNodeId === targetId,
+    );
+    expect(recipeTracks).toHaveLength(recipe.tracks.length);
+    expect(
+      recipeTracks?.map((track: { property: string }) => track.property),
+    ).toEqual(recipe.tracks.map((track) => track.property));
+  } finally {
+    if (recipeDesignId) {
+      if (!page.isClosed()) await page.close();
+      await postAction(request, "delete-design", { id: recipeDesignId });
+    }
+  }
+});
+
+test("keyboard-applies a searched recipe and saves its source-backed tracks", async ({
+  page,
+  request,
+}) => {
+  let recipeDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Keyboard Motion recipe application",
+      projectType: "prototype",
+    });
+    recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!recipeDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: recipeDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", { designId: recipeDesignId });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+      deep: false,
+    });
+
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-01",
+    );
+    if (!recipe) throw new Error("The keyboard recipe is missing");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+
+    const gallery = page.locator("[data-radix-popper-content-wrapper]").filter({
+      has: page.getByRole("button", { name: "Close", exact: true }),
+    });
+    const search = gallery.getByRole("textbox", {
+      name: "Search animation styles",
+      exact: true,
+    });
+    const categoryFilter = gallery.getByRole("combobox").first();
+    const recipeRow = gallery.locator(
+      '[data-motion-recipe-id="enter.recipe-01"]',
+    );
+
+    await expect(search).toBeFocused();
+    await search.fill("Builder Arrival 01");
+    await expect(recipeRow).toBeVisible();
+    await expect(gallery.locator("[data-motion-recipe-id]")).toHaveCount(1);
+
+    await page.keyboard.press("Tab");
+    await expect(categoryFilter).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(recipeRow).toBeFocused();
+
+    const applied = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await page.keyboard.press("Enter");
+    const appliedResponse = await applied;
+    expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
+    expect(await appliedResponse.json()).toMatchObject({ persisted: true });
+
+    const timeline = await getAction(request, "get-motion-timeline", {
+      designId: recipeDesignId,
+      sourceRef: file.id,
+    });
+    const tracks = timeline.timelines?.[0]?.tracks?.filter(
+      (track: { targetNodeId: string }) =>
+        track.targetNodeId === "e2e-motion-reference-rectangle",
+    );
+    expect(tracks).toHaveLength(recipe.tracks.length);
+    expect(
+      tracks?.map(
+        (track: {
+          property: string;
+          delayMs?: number;
+          durationMs: number;
+          keyframes: Array<{ t: number; value: string; ease?: string }>;
+        }) => ({
+          property: track.property,
+          delayMs: track.delayMs ?? 0,
+          durationMs: track.durationMs,
+          keyframes: track.keyframes.map((keyframe) => ({
+            t: keyframe.t,
+            value: keyframe.value,
+            ease: keyframe.ease ?? "linear",
+          })),
+        }),
+      ),
+    ).toEqual(
+      recipe.tracks.map((track) => ({
+        property: track.property,
+        delayMs: track.delayMs,
+        durationMs: track.durationMs,
+        keyframes: track.keyframes.map((keyframe, index) => ({
+          t: keyframe.t,
+          value: keyframe.value,
+          ease: index === 0 ? track.easing : "ease",
+        })),
+      })),
+    );
+    await captureReferenceState(page, "motion-keyboard-recipe-applied");
+  } finally {
+    if (recipeDesignId) {
+      if (!page.isClosed()) await page.close();
+      await postAction(request, "delete-design", { id: recipeDesignId });
+    }
+  }
+});
+
 test("saving imported inline CSS moves its animation into managed source", async ({
   request,
 }) => {

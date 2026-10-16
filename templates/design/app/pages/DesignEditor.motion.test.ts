@@ -167,6 +167,7 @@ describe("upsertMotionStyleKeyframes", () => {
       }),
     ).toEqual([
       {
+        id: expect.any(String),
         targetNodeId: "hero",
         property: "opacity",
         keyframes: [
@@ -191,6 +192,7 @@ describe("upsertMotionStyleKeyframes", () => {
       }),
     ).toEqual([
       {
+        id: expect.any(String),
         targetNodeId: "hero",
         property: "opacity",
         keyframes: [{ t: 0, value: "0.5", ease: "ease" }],

@@ -999,6 +999,43 @@ describe("MotionDock toolbar layout", () => {
     ]);
   });
 
+  it("reconciles untouched duration fields and preserves active edits", async () => {
+    const onDurationChange = vi.fn();
+    await renderInteractive({ onDurationChange });
+
+    const durationInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Duration"]',
+    );
+    expect(durationInput).not.toBeNull();
+    await act(async () => {
+      durationInput!.focus();
+    });
+    await renderInteractive({ durationMs: 1990, onDurationChange });
+    expect(durationInput!.value).toBe("2000");
+
+    await act(async () => durationInput!.blur());
+    expect(durationInput!.value).toBe("1990");
+    expect(onDurationChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      durationInput!.focus();
+      durationInput!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(durationInput!.value).toBe("1991");
+    expect(onDurationChange).toHaveBeenLastCalledWith(1991);
+
+    await renderInteractive({ durationMs: 1990, onDurationChange });
+    expect(durationInput!.value).toBe("1991");
+
+    await act(async () => durationInput!.blur());
+    expect(onDurationChange).toHaveBeenLastCalledWith(1991);
+
+    await renderInteractive({ durationMs: 1991, onDurationChange });
+    expect(durationInput!.value).toBe("1991");
+  });
+
   it("switches editable fields to seconds while ruler units stay compact", async () => {
     const onDurationChange = vi.fn();
     await act(async () => {

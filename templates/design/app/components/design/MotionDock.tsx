@@ -919,7 +919,11 @@ export function MotionDock({
   const [durationInput, setDurationInput] = useState(
     formatMotionTimeValue(durationMs, timeUnit),
   );
+  const durationInputEditingRef = useRef(false);
+  const durationInputDirtyRef = useRef(false);
   useEffect(() => {
+    if (durationInputEditingRef.current) return;
+    durationInputDirtyRef.current = false;
     setDurationInput(formatMotionTimeValue(durationMs, timeUnit));
   }, [durationMs, timeUnit]);
 
@@ -2129,12 +2133,25 @@ export function MotionDock({
               type="text"
               inputMode={timeUnit === "s" ? "decimal" : "numeric"}
               value={durationInput}
-              onChange={(e) => setDurationInput(e.target.value)}
+              onChange={(e) => {
+                durationInputDirtyRef.current = true;
+                setDurationInput(e.target.value);
+              }}
+              onFocus={() => {
+                durationInputEditingRef.current = true;
+              }}
               onBlur={() => {
+                durationInputEditingRef.current = false;
                 if (skipNextDurationBlurCommitRef.current) {
                   skipNextDurationBlurCommitRef.current = false;
+                  durationInputDirtyRef.current = false;
                   return;
                 }
+                if (!durationInputDirtyRef.current) {
+                  setDurationInput(formatMotionTimeValue(durationMs, timeUnit));
+                  return;
+                }
+                durationInputDirtyRef.current = false;
                 commitDurationDraft();
               }}
               onKeyDown={(e) => {
@@ -2155,6 +2172,7 @@ export function MotionDock({
                       currentMs + (e.key === "ArrowUp" ? stepMs : -stepMs),
                     ),
                   );
+                  durationInputDirtyRef.current = true;
                   setDurationInput(formatMotionTimeValue(nextMs, timeUnit));
                   if (nextMs !== durationMs) onDurationChange(nextMs);
                   return;
@@ -2170,6 +2188,7 @@ export function MotionDock({
                 if (e.key === "Escape") {
                   e.preventDefault();
                   setDurationInput(formatMotionTimeValue(durationMs, timeUnit));
+                  durationInputDirtyRef.current = false;
                   skipNextDurationBlurCommitRef.current =
                     motionFieldKeyRequiresBlurGuard(e.key);
                   (e.target as HTMLInputElement).blur();
