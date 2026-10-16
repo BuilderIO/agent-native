@@ -125,4 +125,24 @@ describe("dashboard extension panel editor values", () => {
     expect(panel.config).not.toHaveProperty("extensionId");
     expect(panel.config).not.toHaveProperty("customBlock");
   });
+
+  it("drops a saved height when changing a chart to a section", () => {
+    const panel = formToPanel(
+      { ...baseForm, chartType: "section", columns: 4, sql: "" },
+      {
+        id: "pipeline-widget",
+        title: "Pipeline Widget",
+        chartType: "table",
+        source: "bigquery",
+        width: 2,
+        height: 3,
+        sql: "SELECT 1",
+      },
+      "Untitled panel",
+      "dashboard-1",
+    );
+
+    expect(panel).toMatchObject({ chartType: "section", columns: 4 });
+    expect(panel).not.toHaveProperty("height");
+  });
 });

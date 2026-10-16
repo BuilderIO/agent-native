@@ -24,7 +24,9 @@ export function useAnnotationEditing({
   dashboardId: string | undefined;
   dashboard: SqlDashboardConfig | null;
   editing: boolean;
-  persist: (updated: SqlDashboardConfig) => void;
+  persist: (
+    update: (current: SqlDashboardConfig) => SqlDashboardConfig,
+  ) => void;
 }): {
   menu: ReactNode;
   dialogs: ReactNode;
@@ -47,10 +49,12 @@ export function useAnnotationEditing({
           `Can't save the unconfirmed annotation ${placeholder} to the dashboard; its controls should stay disabled until the server confirms it.`,
         );
       }
-      const { annotations: _previous, ...rest } = dashboard;
-      persist(
-        Object.keys(next).length > 0 ? { ...rest, annotations: next } : rest,
-      );
+      persist((current) => {
+        const { annotations: _previous, ...rest } = current;
+        return Object.keys(next).length > 0
+          ? { ...rest, annotations: next }
+          : rest;
+      });
     },
     [dashboard, persist],
   );

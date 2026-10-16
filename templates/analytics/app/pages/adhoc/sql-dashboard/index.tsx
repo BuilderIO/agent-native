@@ -225,6 +225,10 @@ type DashboardTabGroup = {
   tabs: Array<{ value: string; label: string }>;
 };
 
+type DashboardConfigUpdate = (
+  current: SqlDashboardConfig,
+) => SqlDashboardConfig;
+
 function groupDashboardTabs(tabs: string[]): {
   groups: DashboardTabGroup[];
   hasNestedTabs: boolean;
@@ -364,6 +368,7 @@ const PanelCell = memo(function PanelCell({
   const savedResizeValuesRef = useRef(resizeValuesRef.current);
   const resizeSaveCountRef = useRef(0);
   const resizeSaveSequenceRef = useRef(0);
+  const [resizeSaveGeneration, setResizeSaveGeneration] = useState(0);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
   const [previewHeight, setPreviewHeight] = useState<number | null>(null);
   const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
@@ -390,7 +395,7 @@ const PanelCell = memo(function PanelCell({
     savedResizeValuesRef.current = savedValues;
     setPreviewWidth(null);
     setPreviewHeight(null);
-  }, [panel.id, panel.width, panel.height, gridColumns]);
+  }, [panel.id, panel.width, panel.height, gridColumns, resizeSaveGeneration]);
   const effectiveVars = useMemo(
     () =>
       validTimeRangeOverride
@@ -468,6 +473,7 @@ const PanelCell = memo(function PanelCell({
       .then(() => {
         savedResizeValuesRef.current = nextValues;
         resizeSaveCountRef.current -= 1;
+        setResizeSaveGeneration((generation) => generation + 1);
         if (sequence !== resizeSaveSequenceRef.current) return;
         resizeValuesRef.current = nextValues;
         setPreviewWidth(null);
@@ -475,6 +481,7 @@ const PanelCell = memo(function PanelCell({
       })
       .catch((err: unknown) => {
         resizeSaveCountRef.current -= 1;
+        setResizeSaveGeneration((generation) => generation + 1);
         if (sequence !== resizeSaveSequenceRef.current) return;
         const savedValues = savedResizeValuesRef.current;
         resizeValuesRef.current = savedValues;
@@ -559,9 +566,13 @@ const PanelCell = memo(function PanelCell({
     handleResizePointerMove(event);
     const { axis, initial, preview } = active;
     resizeRef.current = null;
-    setPreviewWidth(null);
-    setPreviewHeight(null);
-    if (preview[axis] === initial[axis]) return;
+    if (preview[axis] === initial[axis]) {
+      if (resizeSaveCountRef.current === 0) {
+        setPreviewWidth(null);
+        setPreviewHeight(null);
+      }
+      return;
+    }
     const current =
       resizeValuesRef.current.panelId === panel.id
         ? resizeValuesRef.current
@@ -841,6 +852,7 @@ function SqlDashboardPageContent({
     id: string;
     config: SqlDashboardConfig | null;
   } | null>(null);
+  const loadedDashboardRef = useRef<typeof loadedDashboard>(null);
   const dashboard = loadedDashboard?.config ?? null;
   const loadedDashboardId = loadedDashboard?.id ?? null;
   const updateDashboard = useCallback(
@@ -848,9 +860,11 @@ function SqlDashboardPageContent({
       id: string,
       update: (current: SqlDashboardConfig | null) => SqlDashboardConfig | null,
     ) => {
-      setLoadedDashboard((loaded) =>
-        loaded?.id === id ? { id, config: update(loaded.config) } : loaded,
-      );
+      const loaded = loadedDashboardRef.current;
+      if (loaded?.id !== id) return;
+      const next = { id, config: update(loaded.config) };
+      loadedDashboardRef.current = next;
+      setLoadedDashboard(next);
     },
     [],
   );
@@ -1243,6 +1257,7 @@ function SqlDashboardPageContent({
     filterRestoreProgress.current = { status: "pending" };
     skipFilterPreferenceSave.current = null;
     setLoaded(false);
+    loadedDashboardRef.current = null;
     setLoadedDashboard(null);
     setArchivedAt(null);
     setHiddenAt(null);
@@ -1289,13 +1304,15 @@ function SqlDashboardPageContent({
       resetRevisionNavigation();
     }
     const fetchedConfig = fetched?.config ?? null;
+    const nextLoadedDashboard = { id: dashboardId, config: fetchedConfig };
     const fetchedVisibility =
       fetched?.visibility === "private" ||
       fetched?.visibility === "org" ||
       fetched?.visibility === "public"
         ? fetched.visibility
         : null;
-    setLoadedDashboard({ id: dashboardId, config: fetchedConfig });
+    loadedDashboardRef.current = nextLoadedDashboard;
+    setLoadedDashboard(nextLoadedDashboard);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardOrgId(fetched?.orgId ?? null);
@@ -1541,12 +1558,16 @@ function SqlDashboardPageContent({
   }, []);
 
   const persist = useCallback(
-    (updated: SqlDashboardConfig) => {
+    (update: DashboardConfigUpdate) => {
       if (!dashboardId) return;
       if (!canEdit) {
         toast.error(t("sqlDashboard.viewOnly"));
         return;
       }
+      const loaded = loadedDashboardRef.current;
+      if (loaded?.id !== dashboardId || !loaded.config) return;
+      const updated = update(loaded.config);
+      if (updated === loaded.config) return;
       resetRevisionNavigation();
       const hold = holdDashboardConfig();
       updateDashboard(dashboardId, () => updated);
@@ -1607,13 +1628,19 @@ function SqlDashboardPageContent({
   );
 
   const persistThrow = useCallback(
-    async (updated: SqlDashboardConfig) => {
+    async (update: DashboardConfigUpdate) => {
       if (!dashboardId) return;
       if (!canEdit) {
         throw new Error(t("sqlDashboard.viewOnly"));
       }
+      const loaded = loadedDashboardRef.current;
+      if (loaded?.id !== dashboardId || !loaded.config) return;
+      const updated = update(loaded.config);
+      if (updated === loaded.config) return;
       resetRevisionNavigation();
       const hold = holdDashboardConfig();
+      updateDashboard(dashboardId, () => updated);
+      updateCachedDashboardConfig(updated);
       const queue = dashboardSaveQueue(dashboardId);
       let isLatest: boolean;
       try {
@@ -1634,8 +1661,6 @@ function SqlDashboardPageContent({
         throw err;
       }
       if (!isLatest) return;
-      updateDashboard(dashboardId, () => updated);
-      updateCachedDashboardConfig(updated);
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
@@ -1828,45 +1853,44 @@ function SqlDashboardPageContent({
 
   const removePanel = useCallback(
     (panelId: string) => {
-      if (!dashboard) return;
-      persist({
-        ...dashboard,
+      persist((current) => ({
+        ...current,
         panels: removePanelFromLayout(
-          dashboard.panels,
+          current.panels,
           panelId,
-          dashboardColumns,
+          clampDashboardColumns(current.columns ?? DEFAULT_DASHBOARD_COLUMNS),
         ),
-      });
+      }));
     },
-    [dashboard, dashboardColumns, persist],
+    [persist],
   );
 
   const handleSavePanel = useCallback(
     async (panel: SqlPanel) => {
-      if (!dashboard) return;
-      const idx = dashboard.panels.findIndex((p) => p.id === panel.id);
-      const nextPanels =
-        idx >= 0
-          ? dashboard.panels.map((p, i) => (i === idx ? panel : p))
-          : [...dashboard.panels, panel];
-      await persistThrow({ ...dashboard, panels: nextPanels });
+      await persistThrow((current) => {
+        const idx = current.panels.findIndex((p) => p.id === panel.id);
+        const nextPanels =
+          idx >= 0
+            ? current.panels.map((p, i) => (i === idx ? panel : p))
+            : [...current.panels, panel];
+        return { ...current, panels: nextPanels };
+      });
     },
-    [dashboard, persistThrow],
+    [persistThrow],
   );
 
   // Column edits apply optimistically through `persist`, the same path as
   // removing a panel; a failed save toasts and refetches the saved config.
   const handleSaveColumns = useCallback(
     (panelId: string, columns: TableColumnConfig[]) => {
-      if (!dashboard) return;
-      persist({
-        ...dashboard,
-        panels: dashboard.panels.map((p) =>
+      persist((current) => ({
+        ...current,
+        panels: current.panels.map((p) =>
           p.id === panelId ? { ...p, config: { ...p.config, columns } } : p,
         ),
-      });
+      }));
     },
-    [dashboard, persist],
+    [persist],
   );
 
   const openEditPanel = useCallback(
@@ -1913,38 +1937,42 @@ function SqlDashboardPageContent({
     (event: DragEndEvent) => {
       setActiveDropSlot(null);
       setActiveDragPanelId(null);
-      if (!dashboard) return;
       const slot = readDropSlot(event.over?.data.current);
       if (!slot) return;
       const panelId = String(event.active.id);
-      const columnExpansion = columnExpansionForDropSlot(
-        buildDashboardPanelGroups(dashboard.panels, dashboardColumns),
-        panelId,
-        slot,
-      );
-      const nextPanels = movePanelToDropSlot(
-        dashboard.panels,
-        panelId,
-        slot,
-        dashboardColumns,
-      );
-      if (nextPanels === dashboard.panels) return;
-      const persistedPanels = columnExpansion?.sectionPanelId
-        ? nextPanels.map((panel) =>
-            panel.id === columnExpansion.sectionPanelId
-              ? { ...panel, columns: columnExpansion.columns }
-              : panel,
-          )
-        : nextPanels;
-      persist({
-        ...dashboard,
-        ...(columnExpansion && !columnExpansion.sectionPanelId
-          ? { columns: columnExpansion.columns }
-          : {}),
-        panels: persistedPanels,
+      persist((current) => {
+        const columns = clampDashboardColumns(
+          current.columns ?? DEFAULT_DASHBOARD_COLUMNS,
+        );
+        const columnExpansion = columnExpansionForDropSlot(
+          buildDashboardPanelGroups(current.panels, columns),
+          panelId,
+          slot,
+        );
+        const nextPanels = movePanelToDropSlot(
+          current.panels,
+          panelId,
+          slot,
+          columns,
+        );
+        if (nextPanels === current.panels) return current;
+        const persistedPanels = columnExpansion?.sectionPanelId
+          ? nextPanels.map((panel) =>
+              panel.id === columnExpansion.sectionPanelId
+                ? { ...panel, columns: columnExpansion.columns }
+                : panel,
+            )
+          : nextPanels;
+        return {
+          ...current,
+          ...(columnExpansion && !columnExpansion.sectionPanelId
+            ? { columns: columnExpansion.columns }
+            : {}),
+          panels: persistedPanels,
+        };
       });
     },
-    [dashboard, dashboardColumns, persist],
+    [persist],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -1953,30 +1981,33 @@ function SqlDashboardPageContent({
   }, []);
 
   const handleSaveName = useCallback(() => {
-    if (!dashboard) return;
     const name = nameInput.trim() || "Untitled Dashboard";
-    persist({ ...dashboard, name });
+    persist((current) => ({ ...current, name }));
     setEditingName(false);
-  }, [dashboard, nameInput, persist]);
+  }, [nameInput, persist]);
 
   const handleSaveFilterPreset = useCallback(
     (filterId: string, preset: FilterPreset) => {
       if (!dashboard?.filters) return;
-      persist({
-        ...dashboard,
-        filters: dashboard.filters.map((filter) =>
-          filter.id === filterId
-            ? {
-                ...filter,
-                // The page reads config unvalidated, and the filter bar already
-                // skips a hand-edited `presets` that isn't a list.
-                presets: Array.isArray(filter.presets)
-                  ? [...filter.presets, preset]
-                  : [preset],
-              }
-            : filter,
-        ),
-      });
+      persist((current) =>
+        current.filters
+          ? {
+              ...current,
+              filters: current.filters.map((filter) =>
+                filter.id === filterId
+                  ? {
+                      ...filter,
+                      // The page reads config unvalidated, and the filter bar
+                      // skips malformed preset lists.
+                      presets: Array.isArray(filter.presets)
+                        ? [...filter.presets, preset]
+                        : [preset],
+                    }
+                  : filter,
+              ),
+            }
+          : current,
+      );
       trackEvent("dashboard_filter_preset_saved", {
         app_name: "analytics",
         template_name: "analytics",
@@ -1987,14 +2018,13 @@ function SqlDashboardPageContent({
   );
 
   const handleSaveDescription = useCallback(() => {
-    if (!dashboard) return;
     const description = descriptionInput.trim();
-    persist({
-      ...dashboard,
+    persist((current) => ({
+      ...current,
       description: description || undefined,
-    });
+    }));
     setEditingDescription(false);
-  }, [dashboard, descriptionInput, persist]);
+  }, [descriptionInput, persist]);
 
   const vars = useMemo<Record<string, string>>(() => {
     const filterValues = dashboard?.filters

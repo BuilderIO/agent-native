@@ -60,7 +60,7 @@ const mocks = vi.hoisted(() => ({
   },
   chatContext: { selectedPanelId: null, selectPanelForChat: () => {} },
   collab: {
-    ydoc: null,
+    ydoc: null as unknown,
     awareness: null,
     isSynced: false,
     activeUsers: [],
@@ -236,9 +236,13 @@ vi.mock("./ViewsMenu", () => ({
   ViewsMenu: () => null,
 }));
 
-function tablePanel(title: string, sharedWidth: number): SqlPanel {
+function tablePanel(
+  title: string,
+  sharedWidth: number,
+  id = "shared-table",
+): SqlPanel {
   return {
-    id: "shared-table",
+    id,
     title,
     sql: "SELECT name FROM accounts",
     source: "first-party",
@@ -333,6 +337,14 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.submitEditorOn = null;
     mocks.session = { email: "viewer@example.com" };
     mocks.saveDashboard = async () => ({});
+    mocks.collab = {
+      ydoc: null,
+      awareness: null,
+      isSynced: false,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
     mocks.userPref = {
       data: undefined,
       isSuccess: true,
@@ -394,6 +406,161 @@ describe("SqlDashboardPage dashboard switch", () => {
 
     expect(savedHeights).toEqual([2, 3]);
     expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("keeps separate panel resizes in later queued dashboard saves", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let releaseFirstSave: (() => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      tablePanel("Accounts A", 200, "table-a"),
+      tablePanel("Accounts B", 200, "table-b"),
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSave = resolve;
+          signalFirstSaveStarted();
+        });
+      }
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSliders = () =>
+      container.querySelectorAll(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+      );
+    await act(async () => {
+      heightSliders()[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await act(async () => {
+      heightSliders()[1].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(savedPanels).toHaveLength(1);
+
+    await act(async () => {
+      releaseFirstSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[1].map((panel) => panel.height)).toEqual([2, 2]);
+  });
+
+  it("resyncs panel dimensions from collaboration after a resize save settles", async () => {
+    let releaseFirstSave: (() => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    let signalCollabChange: (() => void) | undefined;
+    let saveCount = 0;
+    let collabContent = JSON.stringify({
+      name: "Dashboard A",
+      panels: [tablePanel("Accounts A", 200)],
+    });
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    const savedHeights: number[] = [];
+    const ytext = {
+      toJSON: () => collabContent,
+      observe: (handler: () => void) => {
+        signalCollabChange = handler;
+      },
+      unobserve: (handler: () => void) => {
+        if (signalCollabChange === handler) signalCollabChange = undefined;
+      },
+    };
+    mocks.collab = {
+      ydoc: { clientID: 1, getText: () => ytext },
+      awareness: null,
+      isSynced: true,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedHeights.push(config.panels[0].height ?? 0);
+      saveCount += 1;
+      if (saveCount === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSave = resolve;
+          signalFirstSaveStarted();
+        });
+      }
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+
+    const externallyUpdatedPanel = {
+      ...tablePanel("Accounts A", 200),
+      height: 5,
+    };
+    collabContent = JSON.stringify({
+      name: "Dashboard A",
+      panels: [externallyUpdatedPanel],
+    });
+    mocks.dashboards["dash-a"] = {
+      ...mocks.dashboards["dash-a"],
+      panels: [externallyUpdatedPanel],
+      updatedAt: "2026-10-01T12:01:00.000Z",
+    };
+    await act(async () => {
+      signalCollabChange?.();
+    });
+
+    await act(async () => {
+      releaseFirstSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(heightSlider?.getAttribute("aria-valuenow")).toBe("5");
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+    expect(savedHeights).toEqual([2, 6]);
   });
 
   it("announces the measured height for an auto-height panel", async () => {

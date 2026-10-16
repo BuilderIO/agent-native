@@ -20,7 +20,9 @@ let container: HTMLDivElement;
 let root: Root;
 
 function render(
-  persist: (updated: SqlDashboardConfig) => void,
+  persist: (
+    update: (current: SqlDashboardConfig) => SqlDashboardConfig,
+  ) => void,
   editing = true,
 ) {
   let actions: DataNoteActions | undefined;
@@ -59,7 +61,9 @@ describe("useAnnotationEditing", () => {
     expect(persist).not.toHaveBeenCalled();
 
     actions.hide!("note-setup-incident", "signups");
-    expect(persist).toHaveBeenCalledWith({
+    expect(persist).toHaveBeenCalledWith(expect.any(Function));
+    const update = persist.mock.calls[0][0];
+    expect(update(dashboard)).toEqual({
       ...dashboard,
       annotations: {
         hiddenDataNotes: [
