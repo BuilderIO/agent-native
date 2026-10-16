@@ -171,6 +171,9 @@ pnpm action update-document --id abc123 --title "New Title" --content "New conte
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
+A page in Trash refuses `update-document` (except a favorite toggle) and
+`restore-document-version` with `DOCUMENT_NOT_FOUND`, like `edit-document`.
+
 ### Suggested edits
 
 When the user asks to **suggest**, **propose**, or **leave changes for review**,

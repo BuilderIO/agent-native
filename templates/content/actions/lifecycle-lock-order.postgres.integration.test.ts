@@ -44,6 +44,7 @@ let lockDocumentRows: typeof import("./_row-lock-order.js").lockDocumentRows;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let lockPrimaryBlocksFields: typeof import("./_blocks-field-identity.js").lockPrimaryBlocksFields;
 let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
+let lockDocumentForSave: typeof import("./_document-save-locks.js").lockDocumentForSave;
 let configurationRevision: typeof import("./_database-setup-mutation.js").configurationRevision;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let importedStateFingerprint: typeof import("../server/lib/content-import.js").importedStateFingerprint;
@@ -81,6 +82,7 @@ beforeAll(async () => {
   ({ lockPrimaryBlocksFields } = await import("./_blocks-field-identity.js"));
   ({ lockDatabaseMemberships } =
     await import("./_database-membership-lock.js"));
+  ({ lockDocumentForSave } = await import("./_document-save-locks.js"));
   ({ configurationRevision } = await import("./_database-setup-mutation.js"));
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   ({ importedStateFingerprint } =
@@ -616,6 +618,62 @@ async function seedInlineCollection() {
     { label: "inline collection page", kind: "page", id: ids.collectionPage },
   ];
   return { key, ids, rows };
+}
+
+/**
+ * A page that backs a collection, owns an inline collection with a lower id,
+ * and is a row in a third collection.
+ */
+async function seedSavedPage() {
+  const key = fixtureKey();
+  const ids = {
+    inline: `${key}_c1`,
+    backed: `${key}_c2`,
+    outer: `${key}_c3`,
+    item: `${key}_m1`,
+    outerPage: `${key}_p0`,
+    inlinePage: `${key}_p1`,
+    page: `${key}_p3`,
+  };
+  const db = getDb();
+  await db
+    .insert(schema.documents)
+    .values([
+      pageValues(ids.outerPage, null, "Outer collection"),
+      pageValues(ids.page, ids.outerPage, "Page", { content: "Page body" }),
+      pageValues(ids.inlinePage, ids.page, "Inline collection"),
+    ]);
+  const collection = (id: string, documentId: string, title: string) => ({
+    id,
+    ownerEmail: OWNER,
+    spaceId: SPACE_ID,
+    documentId,
+    title,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.contentDatabases).values([
+    {
+      ...collection(ids.inline, ids.inlinePage, "Inline collection"),
+      ownerDocumentId: ids.page,
+      ownerBlockId: `${key}_block`,
+    },
+    collection(ids.backed, ids.page, "Page"),
+    collection(ids.outer, ids.outerPage, "Outer collection"),
+  ]);
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values(itemValues(ids.item, ids.outer, ids.page, 0));
+  const rows: LockedRow[] = [
+    { label: "inline collection", kind: "collection", id: ids.inline },
+    { label: "backed collection", kind: "collection", id: ids.backed },
+    { label: "outer collection", kind: "collection", id: ids.outer },
+    { label: "membership", kind: "membership", id: ids.item },
+    { label: "outer collection page", kind: "page", id: ids.outerPage },
+    { label: "inline collection page", kind: "page", id: ids.inlinePage },
+    { label: "page", kind: "page", id: ids.page },
+  ];
+  return { ids, rows };
 }
 
 async function recordVersion(key: string, documentId: string) {
@@ -1260,6 +1318,30 @@ describe.skipIf(!POSTGRES_URL)(
         });
         expect(report.violations).toEqual([]);
         expect(report.waitedOn).toEqual(["inline collection", "owner page"]);
+      });
+
+      it("lockDocumentForSave takes a page's own and inline collections in one pass", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedSavedPage();
+          return {
+            rows: seed.rows,
+            run: () =>
+              getDb().transaction((tx) =>
+                lockDocumentForSave(tx as unknown as Db, {
+                  documentId: seed.ids.page,
+                  ownerEmail: OWNER,
+                  body: true,
+                }),
+              ),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "inline collection",
+          "backed collection",
+          "membership",
+          "page",
+        ]);
       });
     });
 
