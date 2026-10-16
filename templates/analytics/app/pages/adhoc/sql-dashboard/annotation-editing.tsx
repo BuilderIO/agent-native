@@ -12,8 +12,8 @@ import type { DashboardAnnotations, SqlDashboardConfig } from "./types";
 /**
  * The Annotations header menu, its dialogs, and the actions a chart's
  * data-note card offers. Key dates and notes belong to the organization;
- * only which ones a dashboard hides is saved with the dashboard. Hiding or
- * showing one saves for everyone in a click, so it waits for Edit mode.
+ * only which ones a dashboard hides is saved with the dashboard. Either way a
+ * change shows for everyone, so all of it waits for Edit mode.
  */
 export function useAnnotationEditing({
   dashboardId,
@@ -28,7 +28,7 @@ export function useAnnotationEditing({
 }): {
   menu: ReactNode;
   dialogs: ReactNode;
-  dataNoteActions: DataNoteActions;
+  dataNoteActions: DataNoteActions | undefined;
 } {
   const [noteDraft, setNoteDraft] = useState<DataNoteDraft | null>(null);
   const [keyDateDraft, setKeyDateDraft] = useState<KeyDateDraft | null>(null);
@@ -64,22 +64,21 @@ export function useAnnotationEditing({
       },
       edit: (note) => setNoteDraft({ note }),
       markFixed: (note) => setNoteDraft({ note, markFixed: true }),
-      hide: editing
-        ? (noteId, panelId) =>
-            updateAnnotations({
-              ...annotations,
-              hiddenDataNotes: [
-                ...(annotations?.hiddenDataNotes ?? []),
-                { noteId, panelId },
-              ],
-            })
-        : undefined,
+      hide: (noteId, panelId) =>
+        updateAnnotations({
+          ...annotations,
+          hiddenDataNotes: [
+            ...(annotations?.hiddenDataNotes ?? []),
+            { noteId, panelId },
+          ],
+        }),
     }),
-    [annotations, dashboardId, editing, updateAnnotations],
+    [annotations, dashboardId, updateAnnotations],
   );
+  const chartNoteActions = editing ? dataNoteActions : undefined;
 
   if (!dashboardId || !dashboard) {
-    return { menu: null, dialogs: null, dataNoteActions };
+    return { menu: null, dialogs: null, dataNoteActions: chartNoteActions };
   }
 
   const menu = (
@@ -87,6 +86,7 @@ export function useAnnotationEditing({
       dashboardId={dashboardId}
       panels={dashboard.panels}
       annotations={annotations}
+      editing={editing}
       onAnnotationsChange={onAnnotationsChange}
       onAddKeyDate={() => setKeyDateDraft({})}
       onEditKeyDates={() => setKeyDatesOpen(true)}
@@ -116,5 +116,5 @@ export function useAnnotationEditing({
       />
     </>
   );
-  return { menu, dialogs, dataNoteActions };
+  return { menu, dialogs, dataNoteActions: chartNoteActions };
 }

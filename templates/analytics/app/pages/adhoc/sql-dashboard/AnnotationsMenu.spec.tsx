@@ -82,6 +82,7 @@ function render(
           <AnnotationsMenu
             dashboardId="dash"
             panels={panels}
+            editing
             {...handlers}
             {...props}
           />
@@ -209,7 +210,7 @@ describe("AnnotationsMenu", () => {
     });
     expect(onEditDataNote).not.toHaveBeenCalled();
 
-    render({ annotations, onAnnotationsChange: undefined });
+    render({ annotations, editing: false, onAnnotationsChange: undefined });
     openMenu();
     expect(
       item("menuitem", SETUP_INCIDENT.title).getAttribute("aria-disabled"),
@@ -226,12 +227,23 @@ describe("AnnotationsMenu", () => {
     }
   });
 
-  it("lets a viewer see the sets but not change what the dashboard hides", () => {
-    render({ onAnnotationsChange: undefined });
+  it("only lists the sets and notes outside Edit mode", () => {
+    const { onEditDataNote } = render({
+      editing: false,
+      onAnnotationsChange: undefined,
+    });
     openMenu();
+
     expect(
       item("menuitemcheckbox", "Launches").getAttribute("aria-disabled"),
     ).toBe("true");
+    for (const label of ["Add key date", "Edit key dates", "Add data note"]) {
+      expect(item("menuitem", label), label).toBeUndefined();
+    }
+    const note = item("menuitem", SETUP_INCIDENT.title);
+    expect(note.getAttribute("aria-disabled")).toBe("true");
+    act(() => note.click());
+    expect(onEditDataNote).not.toHaveBeenCalled();
   });
 
   it("shows a just-added set and note but holds their controls until the server confirms them", () => {

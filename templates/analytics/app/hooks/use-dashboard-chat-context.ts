@@ -75,7 +75,7 @@ function dashboardContext(
     lines.push(
       args.editing
         ? "Dashboard mode: edit (the user's own drags and renames save for everyone)"
-        : "Dashboard mode: view (moving or editing panels, renaming, showing or hiding key dates and data notes, and undo on the page wait for edit mode, and the user's column drags stay in their browser; saving a view, restoring history, archiving, deleting, and adding a first panel still work and apply to everyone)",
+        : "Dashboard mode: view (moving or editing panels, renaming, adding, editing, showing or hiding key dates and data notes, and undo on the page wait for edit mode, and the user's column drags stay in their browser; saving a view, restoring history, archiving, deleting, and adding a first panel still work and apply to everyone)",
     );
   }
   if (typeof window !== "undefined") {
