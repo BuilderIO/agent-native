@@ -81,27 +81,12 @@ export default defineAction({
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
-    const [preRoll] = await db
-      .select()
-      .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.preRollRecordingId),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
-    if (!recording || !preRoll) {
-      throw new Error("The Clip or its local Rewind pre-roll is unavailable.");
+    if (!recording) {
+      fail("The Clip or its local Rewind pre-roll is unavailable.", {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
     }
-    if (
-      !isPrivateClip(recording.visibility) ||
-      !isPrivateClip(preRoll.visibility)
-    ) {
-      throw new Error(
-        "Rewind history can only be added to a private Clip from a private pre-roll.",
-      );
-    }
-    await assertNoDirectRecordingShares(args.recordingId);
     const key = rewindExtensionKey(args.recordingId);
     const request = (await readAppState(key)) as RewindExtensionRequest | null;
     if (
@@ -110,7 +95,10 @@ export default defineAction({
       request.status !== "ready" ||
       request.preRollRecordingId !== args.preRollRecordingId
     ) {
-      throw new Error("The Rewind pre-roll request is not ready to apply.");
+      fail("The Rewind pre-roll request is not ready to apply.", {
+        errorCode: "rewind_request_not_ready",
+        statusCode: 409,
+      });
     }
     const now = new Date().toISOString();
     const finish = async () => {
@@ -133,11 +121,36 @@ export default defineAction({
     };
     // The shift records its request in the edits, so a retry after it
     // committed (say, when queuing the thumbnail or marking the request
-    // applied failed) only finishes up. The duration check below would
-    // refuse it.
+    // applied failed) only finishes up. The checks below would refuse it:
+    // the duration has changed, and the shift trashed the pre-roll, which
+    // may be gone by now.
     if (parseEdits(recording.editsJson).rewindRequestId === args.requestId) {
       return finish();
     }
+    const [preRoll] = await db
+      .select()
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, args.preRollRecordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
+    if (!preRoll) {
+      fail("The Clip or its local Rewind pre-roll is unavailable.", {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    if (
+      !isPrivateClip(recording.visibility) ||
+      !isPrivateClip(preRoll.visibility)
+    ) {
+      throw new Error(
+        "Rewind history can only be added to a private Clip from a private pre-roll.",
+      );
+    }
+    await assertNoDirectRecordingShares(args.recordingId);
     const expectedDuration = recording.durationMs + args.addedMs;
     if (Math.abs(args.durationMs - expectedDuration) > 2_000) {
       throw new Error("The combined Clip duration does not match its sources.");

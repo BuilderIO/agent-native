@@ -332,4 +332,17 @@ describe("apply-rewind-extension", () => {
     expect(result.request.status).toBe("applied");
     await expectShiftedOnce();
   });
+
+  it("finishes the retry after the trashed pre-roll was deleted", async () => {
+    mocks.dispatch.mockRejectedValueOnce(new Error("worker down"));
+    await expect(
+      apply("https://storage.example/rec_1/rewind.mp4"),
+    ).rejects.toThrow("worker down");
+    await client.query(`DELETE FROM recordings WHERE id = 'pre_1'`);
+
+    const result = await apply("https://storage.example/rec_1/rewind.mp4");
+
+    expect(result.request.status).toBe("applied");
+    await expectShiftedOnce();
+  });
 });
