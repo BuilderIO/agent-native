@@ -8298,6 +8298,13 @@ function Setup({
               <p className="text-xs text-destructive">
                 {rewindStatusPresentation.detail}
               </p>
+            ) : rewindOn && rewindStatusPresentation.kind !== "off" ? (
+              <p className="flex items-center gap-2" role="status">
+                {rewindStatusPresentation.isLive ? (
+                  <span className="rec-dot" aria-hidden="true" />
+                ) : null}
+                {rewindStatusPresentation.title}
+              </p>
             ) : null}
           </SettingsRow>
           {rewindOn ? (

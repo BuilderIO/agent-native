@@ -414,6 +414,7 @@ pub struct ScreenMemoryActiveSegment {
     pub duration_ms: u128,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub capture_mode: RewindCaptureMode,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1131,6 +1132,7 @@ fn build_status(app: &AppHandle) -> Result<ScreenMemoryStatus, String> {
                     duration_ms: active.started_at.elapsed().as_millis(),
                     width: active.width,
                     height: active.height,
+                    capture_mode: active.capture_mode,
                 }),
             guard.last_error.clone(),
             guard.exclusion_active,

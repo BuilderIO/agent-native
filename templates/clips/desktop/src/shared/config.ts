@@ -70,6 +70,9 @@ export interface ScreenMemoryActiveSegment {
   durationMs: number;
   width?: number | null;
   height?: number | null;
+  // What this segment captures. A clip or meeting can add audio while the
+  // configured mode is screen only.
+  captureMode: RewindCaptureMode;
 }
 
 export interface ScreenMemoryStatus {
