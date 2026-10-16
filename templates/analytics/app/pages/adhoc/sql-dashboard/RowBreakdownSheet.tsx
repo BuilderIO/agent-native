@@ -10,6 +10,7 @@ import {
   rowsForBreakdown,
   type PanelBreakdown,
 } from "@shared/row-breakdown";
+import { SqlQueryRefusalError } from "@shared/sql-query-contract";
 import {
   useEffect,
   useMemo,
@@ -37,7 +38,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatBytes } from "@/lib/cost-tracker";
-import { SqlQueryError, useSqlQuery } from "@/lib/sql-query";
+import { useSqlQuery } from "@/lib/sql-query";
 import { cn } from "@/lib/utils";
 
 import { interpolateDashboardPanelSql } from "./interpolate";
@@ -217,11 +218,11 @@ export function RowBreakdownSheet({
         ? null
         : selection && query.dataUpdatedAt < selection.openedAt
           ? t("sqlDashboard.rowBreakdownAlreadyLoaded")
-          : query.data.cached
+          : query.data.cached || query.data.providerCacheHit
             ? t("sqlDashboard.rowBreakdownFromCache")
-            : typeof query.data.bytesProcessed === "number"
+            : typeof query.data.bytesRead === "number"
               ? t("sqlDashboard.rowBreakdownBytesRead", {
-                  bytes: formatBytes(query.data.bytesProcessed),
+                  bytes: formatBytes(query.data.bytesRead),
                 })
               : null;
 
@@ -293,7 +294,7 @@ export function RowBreakdownSheet({
             </p>
           ) : query.error && plan.kind === "query" ? (
             <p className="text-sm text-destructive">
-              {query.error instanceof SqlQueryError &&
+              {query.error instanceof SqlQueryRefusalError &&
               query.error.code === BREAKDOWN_OVER_BYTE_CAP_ERROR
                 ? t("sqlDashboard.rowBreakdownOverByteCap", {
                     gib: ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3,

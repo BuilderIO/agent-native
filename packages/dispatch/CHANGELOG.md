@@ -1,5 +1,19 @@
 # @agent-native/dispatch
 
+## 0.40.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ce4eca0]
+- Updated dependencies
+- Updated dependencies [95aa388]
+- Updated dependencies [36fc751]
+- Updated dependencies [f99e655]
+- Updated dependencies [f99e655]
+- Updated dependencies [95aa388]
+  - @agent-native/toolkit@0.209.2
+
 ## 0.40.24
 
 ### Patch Changes
@@ -1262,13 +1276,6 @@
 
 - 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
 - b676db8: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.18
-
-### Patch Changes
-
-- 436340b: Share the canonical localized authentication copy with native sign-in surfaces
   and allow authenticated packaged callers to mint workspace embed sessions.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

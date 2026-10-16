@@ -2163,6 +2163,7 @@ const messages = {
     viewsCount: "조회수 {{count}}회",
     recordingMenu: "녹화 메뉴",
     moveToFolder: "폴더로 이동",
+    moveHere: "여기로 이동",
     unarchive: "보관 해제",
     shareNamedMeeting: '"{{title}}" 공유',
     shareMeeting: "회의 공유",

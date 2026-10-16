@@ -77,7 +77,8 @@ interface ExportMenuProps {
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
-  inline?: boolean;
+  /** Render no menu, only the imperative export handle (and status dialog). */
+  headless?: boolean;
   hideExportDialog?: boolean;
   onExportStatusChange?: (status: ExportStatus) => void;
 }
@@ -188,6 +189,106 @@ export function ExportStatusDialog({
   );
 }
 
+function ExportActionItems({
+  hasSlides,
+  googleSlidesAvailable,
+  onExportHtml,
+  onExportPdf,
+  onExportPptx,
+  onExportGoogleSlides,
+}: {
+  hasSlides: boolean;
+  googleSlidesAvailable: boolean;
+  onExportHtml: () => void;
+  onExportPdf: () => void;
+  onExportPptx: () => void;
+  onExportGoogleSlides?: () => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      <DropdownMenuItem
+        onClick={onExportHtml}
+        disabled={!hasSlides}
+        className="cursor-pointer"
+      >
+        <IconCode className="size-4" />
+        {t("editorExport.downloadHtml")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={onExportPdf}
+        disabled={!hasSlides}
+        className="cursor-pointer"
+      >
+        <IconFileTypePdf className="size-4" />
+        {t("editorExport.exportPdf")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={onExportPptx}
+        disabled={!hasSlides}
+        className="cursor-pointer"
+      >
+        <IconDownload className="size-4" />
+        {t("editorExport.exportPptx")}
+      </DropdownMenuItem>
+      {onExportGoogleSlides && (
+        <DropdownMenuItem
+          onClick={onExportGoogleSlides}
+          disabled={!hasSlides || !googleSlidesAvailable}
+          className="cursor-pointer"
+        >
+          <IconBrandGoogle className="size-4" />
+          {t("editorExport.openInGoogleSlides")}
+          {hasSlides && !googleSlidesAvailable ? (
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t("editorExport.googleSlidesUnavailable")}
+            </span>
+          ) : null}
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+}
+
+/**
+ * Export submenu for a parent menu. It drives a separately mounted headless
+ * `ExportMenu` through its handle, so exports keep working (and finish) while
+ * the parent menu is closed.
+ */
+export function ExportSubmenu({
+  exportMenuRef,
+  hasSlides,
+  showGoogleSlides,
+}: {
+  exportMenuRef: { current: ExportMenuHandle | null };
+  hasSlides: boolean;
+  showGoogleSlides: boolean;
+}) {
+  const t = useT();
+  const googleSlidesExport = useGoogleSlidesExportAvailability(hasSlides);
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={!hasSlides} className="cursor-pointer">
+        {t("appMenu.export")}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-56">
+        <ExportActionItems
+          hasSlides={hasSlides}
+          googleSlidesAvailable={googleSlidesExport.available}
+          onExportHtml={() => void exportMenuRef.current?.exportHtml()}
+          onExportPdf={() => void exportMenuRef.current?.exportPdf()}
+          onExportPptx={() => void exportMenuRef.current?.exportPptx()}
+          onExportGoogleSlides={
+            showGoogleSlides
+              ? () => void exportMenuRef.current?.exportGoogleSlides()
+              : undefined
+          }
+        />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
 export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
   function ExportMenu(
     {
@@ -200,7 +301,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       onExportGoogleSlides,
       onShareLink,
       onShareTeam,
-      inline = false,
+      headless = false,
       hideExportDialog = false,
       onExportStatusChange,
     },
@@ -211,7 +312,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     const [menuOpen, setMenuOpen] = useState(false);
     const queryClient = useQueryClient();
     const googleSlidesExport = useGoogleSlidesExportAvailability(
-      hasSlides && (inline || menuOpen),
+      hasSlides && menuOpen,
     );
     const [exportStatus, setExportStatus] = useState<ExportStatus>({
       state: "idle",
@@ -429,47 +530,18 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     );
 
     const exportActions = (
-      <>
-        <DropdownMenuItem
-          onClick={() => void handleExportHtml()}
-          disabled={!hasSlides}
-          className="cursor-pointer"
-        >
-          <IconCode className="size-4" />
-          {t("editorExport.downloadHtml")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => void handleExportPdf()}
-          disabled={!hasSlides}
-          className="cursor-pointer"
-        >
-          <IconFileTypePdf className="size-4" />
-          {t("editorExport.exportPdf")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => void handleExportPptx()}
-          disabled={!hasSlides}
-          className="cursor-pointer"
-        >
-          <IconDownload className="size-4" />
-          {t("editorExport.exportPptx")}
-        </DropdownMenuItem>
-        {onExportGoogleSlides && (
-          <DropdownMenuItem
-            onClick={() => void handleExportGoogleSlides()}
-            disabled={!hasSlides || !googleSlidesExport.available}
-            className="cursor-pointer"
-          >
-            <IconBrandGoogle className="size-4" />
-            {t("editorExport.openInGoogleSlides")}
-            {hasSlides && !googleSlidesExport.available ? (
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorExport.googleSlidesUnavailable")}
-              </span>
-            ) : null}
-          </DropdownMenuItem>
-        )}
-      </>
+      <ExportActionItems
+        hasSlides={hasSlides}
+        googleSlidesAvailable={googleSlidesExport.available}
+        onExportHtml={() => void handleExportHtml()}
+        onExportPdf={() => void handleExportPdf()}
+        onExportPptx={() => void handleExportPptx()}
+        onExportGoogleSlides={
+          onExportGoogleSlides
+            ? () => void handleExportGoogleSlides()
+            : undefined
+        }
+      />
     );
 
     const shareActions = (
@@ -509,36 +581,9 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       </>
     );
 
-    const inlineMenuContent = (
-      <>
-        {onShareTeam || onShareLink ? (
-          <>
-            {shareActions}
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger
-            disabled={!hasSlides}
-            className="cursor-pointer gap-2"
-          >
-            <IconUpload className="size-4" />
-            {t("editorExport.export")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-56">
-            {exportActions}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSeparator />
-        {duplicateAction}
-      </>
-    );
-
     return (
       <>
-        {inline ? (
-          inlineMenuContent
-        ) : (
+        {headless ? null : (
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button

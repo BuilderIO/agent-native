@@ -67,6 +67,29 @@ describe("partial generation failure state", () => {
     ).toBe(false);
   });
 
+  it("keeps an unresolved warning visible until the slide snapshot is refreshed", () => {
+    const unknownSnapshot = {
+      ...base,
+      failureCode: "outcome_unresolved",
+      failureSlidesFingerprint: null,
+      currentSlidesFingerprint: null,
+    };
+    expect(shouldShowPartialGenerationFailure(unknownSnapshot)).toBe(true);
+    expect(shouldClearPartialGenerationFailure(unknownSnapshot)).toBe(false);
+  });
+
+  it("clears an unknown snapshot marker from an older generation attempt", () => {
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureCode: "outcome_unresolved",
+        failureAttemptId: "attempt-2",
+        failureSlidesFingerprint: null,
+        currentSlidesFingerprint: null,
+      }),
+    ).toBe(true);
+  });
+
   it("clears stale and legacy failure markers but keeps a matching marker", () => {
     expect(shouldClearPartialGenerationFailure(base)).toBe(false);
     expect(

@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/data-programs";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
+import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract";
 import { getUserSegmentation, queryEvents } from "./amplitude";
 import { runQuery } from "./bigquery";
 import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
@@ -30,11 +31,9 @@ export const DASHBOARD_PANEL_SOURCES = [
 
 export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
 
-export interface DashboardPanelQueryResult {
+export interface DashboardPanelQueryResult extends SqlQueryExecutionMetadata {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
-  truncated?: boolean;
-  bytesProcessed?: number;
 }
 
 export interface UnsupportedBackendResponse {

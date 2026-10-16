@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),
+  recordQueryCost: vi.fn(),
   callAction: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("./cost-tracker", () => ({
   addBytesProcessed: mocks.addBytesProcessed,
+  recordQueryCost: mocks.recordQueryCost,
 }));
 
 import {
@@ -31,6 +33,8 @@ describe("executeSqlQuery", () => {
   beforeEach(() => {
     mocks.addBytesProcessed.mockReset();
     mocks.callAction.mockReset();
+    mocks.recordQueryCost.mockReset();
+    mocks.recordQueryCost.mockReturnValue({ counted: 0, reason: "no-bytes" });
   });
 
   it("uses the dashboard panel action with the existing source/query payload", async () => {
@@ -56,7 +60,6 @@ describe("executeSqlQuery", () => {
         { name: "date", type: "string" },
         { name: "signups", type: "number" },
       ],
-      bytesProcessed: 128,
     });
 
     expect(mocks.callAction).toHaveBeenCalledWith(
@@ -70,7 +73,9 @@ describe("executeSqlQuery", () => {
         timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
       }),
     );
-    expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
+    expect(mocks.recordQueryCost).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "success", bytesProcessed: 128 }),
+    );
   });
 
   it("requests a live result when refreshing a BigQuery panel", async () => {
@@ -122,18 +127,35 @@ describe("executeSqlQuery", () => {
     });
   });
 
-  it("does not count a cache hit's bytes as read again", async () => {
+  it("reports bytes read only when the cost meter counted a scan", async () => {
+    mocks.callAction.mockResolvedValue({
+      rows: [],
+      schema: [],
+      bytesProcessed: 4096,
+      cached: false,
+      providerCacheHit: false,
+    });
+    mocks.recordQueryCost.mockReturnValueOnce({
+      counted: 4096,
+      reason: "scanned",
+    });
+    await expect(
+      executeSqlQuery("SELECT 1", "bigquery"),
+    ).resolves.toMatchObject({ bytesRead: 4096 });
+
     mocks.callAction.mockResolvedValue({
       rows: [],
       schema: [],
       bytesProcessed: 4096,
       cached: true,
     });
-
-    await expect(
-      executeSqlQuery("SELECT 1", "bigquery"),
-    ).resolves.toMatchObject({ bytesProcessed: 4096, cached: true });
-    expect(mocks.addBytesProcessed).not.toHaveBeenCalled();
+    mocks.recordQueryCost.mockReturnValueOnce({
+      counted: 0,
+      reason: "app-cache",
+    });
+    const cached = await executeSqlQuery("SELECT 1", "bigquery");
+    expect(cached).not.toHaveProperty("bytesRead");
+    expect(cached.cached).toBe(true);
   });
 
   it("gives report panel actions their own timeout above the query timeout", async () => {

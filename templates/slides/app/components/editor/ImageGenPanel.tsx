@@ -22,7 +22,7 @@ interface ImageGenPanelProps {
     deckTitle: string;
   };
   referenceImageUrls?: string[];
-  anchorRef?: React.RefObject<HTMLButtonElement | null>;
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
 export interface BuildImageGenerationContextArgs {

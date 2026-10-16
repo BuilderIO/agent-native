@@ -2201,6 +2201,7 @@ const messages = {
     viewsCount: "{{count}} 回表示",
     recordingMenu: "録画メニュー",
     moveToFolder: "フォルダーに移動",
+    moveHere: "ここに移動",
     unarchive: "アーカイブ解除",
     shareNamedMeeting: "「{{title}}」を共有",
     shareMeeting: "会議を共有",

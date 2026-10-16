@@ -32,7 +32,7 @@ describe("editor side panels", () => {
 
   it("clears generic animation targets when the active slide changes", () => {
     expect(pageSource).toContain(`useEffect(() => {
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
   }, [activeSlideId]);`);
     const toggleAnimationsStart = pageSource.indexOf(
       "const toggleAnimations = useCallback(() => {",
@@ -46,7 +46,9 @@ describe("editor side panels", () => {
       toggleLayersStart,
     );
     expect(toggleAnimationsSource).toContain("setLayersOpen(false);");
-    expect(toggleAnimationsSource).toContain("setAnimationTarget(null);");
+    expect(toggleAnimationsSource).toContain(
+      "setAnimationTargets(NO_ANIMATION_TARGETS);",
+    );
     expect(toggleAnimationsSource).toContain(
       "setAnimationsOpen((open) => !open);",
     );
