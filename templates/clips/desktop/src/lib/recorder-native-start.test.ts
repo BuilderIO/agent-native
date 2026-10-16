@@ -33,6 +33,7 @@ vi.mock("./local-export", async (importOriginal) => {
 
 import { requestRecordingContext } from "../lookback/context-api";
 import {
+  emitRecorderSession,
   forgetRewindClipOriginIfNoRequest,
   getRewindClipOrigin,
   rememberRewindClipOrigin,
@@ -348,6 +349,38 @@ afterEach(() => {
   vi.unstubAllGlobals();
   emitStopChunk = false;
   rejectMediaRecorderStop = false;
+});
+
+describe("recorder session event", () => {
+  it("emits the requested context flag and recording URL", () => {
+    emitRecorderSession(
+      "https://clips.example/",
+      "recording-1",
+      false,
+      true,
+      true,
+    );
+
+    expect(mocks.emit).toHaveBeenCalledWith("clips:recorder-session", {
+      viewUrl: "https://clips.example/r/recording-1",
+      recordingId: "recording-1",
+      localOnly: false,
+      microphoneEnabled: true,
+      lookbackEnabled: true,
+    });
+  });
+
+  it("never enables context for a local-only recording", () => {
+    emitRecorderSession(null, "recording-1", true, false, true);
+
+    expect(mocks.emit).toHaveBeenCalledWith("clips:recorder-session", {
+      viewUrl: null,
+      recordingId: "recording-1",
+      localOnly: true,
+      microphoneEnabled: false,
+      lookbackEnabled: false,
+    });
+  });
 });
 
 describe("native recording startup", () => {

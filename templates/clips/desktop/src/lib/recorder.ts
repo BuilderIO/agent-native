@@ -2915,7 +2915,7 @@ function showFinalizingFeedback() {
   // window is no longer shown here.
 }
 
-function emitRecorderSession(
+export function emitRecorderSession(
   serverUrl: string | null,
   recordingId: string | null,
   localOnly: boolean,
