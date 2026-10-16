@@ -2310,7 +2310,7 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 }
 
 const scopedDbExec = new AsyncLocalStorage<DbExec>();
-const transactionCallbacks = new AsyncLocalStorage<true>();
+const transactionCallbacks = new AsyncLocalStorage<{ active: boolean }>();
 
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
   return scopedDbExec.run(guardSchemaMutations(exec), run);
@@ -2326,11 +2326,18 @@ export function getScopedDbExec(): DbExec | undefined {
  * transaction asks this as well.
  */
 export function insideDbTransactionCallback(): boolean {
-  return transactionCallbacks.getStore() === true;
+  return transactionCallbacks.getStore()?.active === true;
 }
 
-function inTransactionCallback<T>(run: () => Promise<T>): Promise<T> {
-  return transactionCallbacks.run(true, run);
+async function inTransactionCallback<T>(run: () => Promise<T>): Promise<T> {
+  const callback = { active: true };
+  try {
+    return await transactionCallbacks.run(callback, run);
+  } finally {
+    // Work the callback started and left running inherits this store; once
+    // the callback settles, that work is no longer inside the transaction.
+    callback.active = false;
+  }
 }
 
 export function getDbExec(): DbExec {

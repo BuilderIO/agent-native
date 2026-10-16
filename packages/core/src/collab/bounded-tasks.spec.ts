@@ -235,6 +235,19 @@ describe("createBoundedTaskRunner", () => {
     ]);
   });
 
+  it("refuses worker and queue limits that are not whole counts", () => {
+    for (const limits of [
+      { maxWorkers: 1.5 },
+      { maxWorkers: 0 },
+      { maxQueue: 0.5 },
+      { maxQueue: -1 },
+    ]) {
+      expect(() =>
+        createBoundedTaskRunner({ source: source(), ...limits }),
+      ).toThrow(RangeError);
+    }
+  });
+
   it("fails a task that waits longer than queueTimeoutMs", async () => {
     const tasks = runner({
       maxWorkers: 1,

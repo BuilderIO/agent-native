@@ -385,6 +385,12 @@ describe("stored state classification", () => {
     expect(
       await rejection(manager.readLiveCopy(binding, "live:big")),
     ).toMatchObject({ code: "state_too_large" });
+    // Not base64 at all: only a check made before decoding can call it too
+    // large rather than malformed.
+    await insertRow("live:junk", "!".repeat(64));
+    expect(
+      await rejection(manager.readLiveCopy(binding, "live:junk")),
+    ).toMatchObject({ code: "state_too_large", reason: "48" });
   });
 });
 
@@ -1403,6 +1409,125 @@ describe("mutateLiveCopy", () => {
     ).toEqual({ body: "base", version: 0 });
   });
 
+  it("rolls back the work of a binding replaced during its last statement", async () => {
+    const binding = define({
+      persist: async (tx, commit) => {
+        await tx.execute({
+          sql: "INSERT INTO bodies (doc_id, body, version) VALUES (?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET body = excluded.body, version = excluded.version",
+          args: [commit.docId, commit.text, commit.version],
+        });
+      },
+    });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+    // Replaces the binding while the matching statement runs, after the
+    // persist hooks are done.
+    let replaceDuring: RegExp | undefined;
+    const plain = exec;
+    exec = {
+      ...plain,
+      transaction: (fn) =>
+        plain.transaction!((tx) =>
+          fn({
+            execute: async (input) => {
+              const result = await tx.execute(input);
+              const sql = typeof input === "string" ? input : input.sql;
+              if (replaceDuring?.test(sql)) {
+                replaceDuring = undefined;
+                define();
+              }
+              return result;
+            },
+          }),
+        ),
+    };
+
+    replaceDuring = /^\s*UPDATE _collab_docs/;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(binding, "live:doc", {
+          edit: "append",
+          input: { text: "late" },
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+
+    const current = define({
+      persist: async (tx, commit) => {
+        await tx.execute({
+          sql: "INSERT INTO bodies (doc_id, body, version) VALUES (?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET body = excluded.body, version = excluded.version",
+          args: [commit.docId, commit.text, commit.version],
+        });
+      },
+    });
+    replaceDuring = /FOR SHARE/;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(current, "live:doc", {
+          edit: "unchanged",
+          persist: async (tx) => {
+            await tx.execute({
+              sql: "UPDATE bodies SET body = ? WHERE doc_id = ?",
+              args: ["claimed", "live:doc"],
+            });
+          },
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "base",
+      version: 0,
+    });
+    expect(
+      await pglite
+        .prepare("SELECT body, version FROM bodies WHERE doc_id = ?")
+        .get("live:doc"),
+    ).toEqual({ body: "base", version: 0 });
+  });
+
+  it("reports a replaced binding, not a version conflict, when its last attempt conflicts", async () => {
+    let replace = false;
+    const replaceAndConflict = async (tx: DbExec) => {
+      if (!replace) return;
+      replace = false;
+      define();
+      // A peer's commit, made in this transaction so it rolls back with it.
+      await tx.execute({
+        sql: "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
+        args: ["live:doc"],
+      });
+    };
+    const binding = define({ persist: (tx) => replaceAndConflict(tx) });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+
+    replace = true;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(binding, "live:doc", {
+          edit: "append",
+          input: { text: "late" },
+          maxAttempts: 1,
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+
+    const current = define();
+    replace = true;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(current, "live:doc", {
+          edit: "unchanged",
+          maxAttempts: 1,
+          persist: (tx) => replaceAndConflict(tx),
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "base",
+      version: 0,
+    });
+  });
+
   it("loads a cold copy once for a burst of readers, with its text", async () => {
     let reads = 0;
     const binding = define({
@@ -1805,7 +1930,7 @@ describe("other collab paths", () => {
     const execute = exec.execute.bind(exec);
     exec.execute = async (input) => {
       const sql = typeof input === "string" ? input : input.sql;
-      if (/SELECT yjs_state/i.test(sql)) stateReads.push(sql);
+      if (/(SELECT|END AS) yjs_state/i.test(sql)) stateReads.push(sql);
       return execute(input);
     };
     await manager.applyUpdate(

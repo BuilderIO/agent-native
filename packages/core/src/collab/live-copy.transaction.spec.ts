@@ -6,13 +6,19 @@ import {
   insideDbTransactionCallback,
 } from "../db/client.js";
 import type { BoundedTaskRunner } from "./bounded-tasks.js";
-import { defineLiveCopy, releaseLiveCopy } from "./live-copy.js";
+import {
+  assertOwnTransaction,
+  defineLiveCopy,
+  releaseLiveCopy,
+} from "./live-copy.js";
 import { applyUpdate, mutateLiveCopy, seedLiveCopy } from "./ydoc-manager.js";
 
+let tasks = 0;
 const runner: BoundedTaskRunner = {
-  name: "unreached",
+  name: "counting",
   run: async () => {
-    throw new Error("A refused write ran a task");
+    tasks += 1;
+    throw new Error("No task runs in this spec");
   },
   stats: () => ({ workers: 0, running: 0, queued: 0 }),
   close: async () => {},
@@ -50,6 +56,15 @@ function refusals() {
   ]);
 }
 
+function refusal(): unknown {
+  try {
+    assertOwnTransaction("live:doc", "seedLiveCopy");
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 describe("live copies inside a caller's getDbExec().transaction()", () => {
   it("refuse every write before it runs a task", async () => {
     expect(insideDbTransactionCallback()).toBe(false);
@@ -75,6 +90,23 @@ describe("live copies inside a caller's getDbExec().transaction()", () => {
         }),
       ]);
     }
+    expect(tasks).toBe(0);
     expect(insideDbTransactionCallback()).toBe(false);
+  });
+
+  it("stops refusing work a transaction left running once it commits", async () => {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let detached!: Promise<unknown>;
+    await getDbExec().transaction!(async () => {
+      expect(refusal()).toMatchObject({ reason: "caller_transaction" });
+      // The guard, not seedLiveCopy itself: PGlite routes the detached work's
+      // queries to its closed transaction, which is the adapter's to fix.
+      detached = gate.then(refusal);
+    });
+    open();
+    expect(await detached).toBeUndefined();
   });
 });
