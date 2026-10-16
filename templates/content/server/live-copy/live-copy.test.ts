@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
 import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -1632,6 +1633,306 @@ describe("a server rewrite of a switched page's body", () => {
     expect(after.content).toBe(`Intro\n\n![A cat](${IMAGE})`);
     expect(after.liveBodySwitchedAt).toBeNull();
     expect(await collabVersion("alt-text-off")).toBeUndefined();
+  });
+});
+
+describe("a version restore on a switched page", () => {
+  async function restore(
+    id: string,
+    versionId: string,
+    expectedUpdatedAt: string,
+  ) {
+    const action = (await import("../../actions/restore-document-version.js"))
+      .default;
+    return asOwner(async () =>
+      action.run(
+        { documentId: id, versionId, expectedUpdatedAt } as never,
+        { caller: "tool", userEmail: OWNER } as never,
+      ),
+    ) as Promise<{ title: string; content: string; bodyRevision: number }>;
+  }
+
+  async function metadata(id: string) {
+    const [row] = await getDb()
+      .select({
+        title: schema.documents.title,
+        updatedAt: schema.documents.updatedAt,
+        bodyRevision: schema.documents.bodyRevision,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    return row;
+  }
+
+  /** A server edit to `content`, so History holds the body it replaced. */
+  async function serverEdit(id: string, content: string) {
+    await writer.editContentLiveCopy(id, {
+      cause: { operation: "test-replace" },
+      edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content, expected: (await page(id)).content },
+    });
+  }
+
+  async function versionHolding(id: string, content: string) {
+    const [row] = await getDb()
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, id),
+          eq(schema.documentVersions.content, content),
+        ),
+      )
+      .orderBy(asc(schema.documentVersions.createdAt))
+      .limit(1);
+    if (!row)
+      throw new Error(`History holds no version of ${id} reading ${content}`);
+    return row.id;
+  }
+
+  async function rename(id: string, title: string) {
+    await getDb()
+      .update(schema.documents)
+      .set({ title })
+      .where(eq(schema.documents.id, id));
+  }
+
+  it("restores a version through the live copy, so the page stays switched", async () => {
+    await switchedPage("restore", "First draft");
+    await serverEdit("restore", "Second draft");
+    const versionId = await versionHolding("restore", "First draft");
+    const before = await metadata("restore");
+
+    const restored = await restore("restore", versionId, before.updatedAt);
+
+    expect(restored).toMatchObject({
+      content: "First draft",
+      bodyRevision: before.bodyRevision + 1,
+    });
+    expect((await page("restore")).content).toBe("First draft");
+    expect(await gateFor("restore")).toEqual({ writePath: "live_copy" });
+    await expect(
+      collab.readLiveCopy(binding.contentLiveCopy, "restore"),
+    ).resolves.toMatchObject({ kind: "live", text: "First draft" });
+    const rows = await history("restore");
+    expect(rows[rows.length - 1]).toMatchObject({
+      operation: "restore-document-version",
+      content: "First draft",
+      actorEmail: OWNER,
+    });
+  });
+
+  it("takes the version's title with its body", async () => {
+    await switchedPage("restore-title", "First draft");
+    await serverEdit("restore-title", "Second draft");
+    const versionId = await versionHolding("restore-title", "First draft");
+    await rename("restore-title", "Renamed");
+
+    const restored = await restore(
+      "restore-title",
+      versionId,
+      (await metadata("restore-title")).updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "restore-title",
+      content: "First draft",
+    });
+    expect((await metadata("restore-title")).title).toBe("restore-title");
+  });
+
+  it("restores a version's title alone when the body already reads the same", async () => {
+    await switchedPage("restore-title-only", "Same body");
+    await serverEdit("restore-title-only", "Other body");
+    const versionId = await versionHolding("restore-title-only", "Same body");
+    await serverEdit("restore-title-only", "Same body");
+    await rename("restore-title-only", "Renamed");
+    const before = await metadata("restore-title-only");
+    const version = await collabVersion("restore-title-only");
+
+    const restored = await restore(
+      "restore-title-only",
+      versionId,
+      before.updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "restore-title-only",
+      content: "Same body",
+      bodyRevision: before.bodyRevision,
+    });
+    expect(await collabVersion("restore-title-only")).toBe(version);
+    const rows = await history("restore-title-only");
+    expect(rows[rows.length - 1]).toMatchObject({
+      operation: "restore-document-version",
+      content: "Same body",
+    });
+  });
+
+  it("refuses a restore prepared before the page changed, and commits nothing", async () => {
+    await switchedPage("restore-stale", "First draft");
+    await serverEdit("restore-stale", "Second draft");
+    const versionId = await versionHolding("restore-stale", "First draft");
+    const prepared = await metadata("restore-stale");
+    await serverEdit("restore-stale", "Third draft");
+
+    await expect(
+      restore("restore-stale", versionId, prepared.updatedAt),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_RESTORE_CONFLICT",
+      statusCode: 409,
+    });
+    expect((await page("restore-stale")).content).toBe("Third draft");
+  });
+
+  it("refuses a restore a tab's commit overtook, and keeps the tab's text", async () => {
+    await switchedPage("restore-overtaken", "First draft");
+    await serverEdit("restore-overtaken", "Second draft");
+    const versionId = await versionHolding("restore-overtaken", "First draft");
+    const prepared = await metadata("restore-overtaken");
+    const spy = peerCommitsAfterBuild("restore-overtaken", "Tab typed");
+    try {
+      await expect(
+        restore("restore-overtaken", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_RESTORE_CONFLICT",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await page("restore-overtaken")).content).toBe("Tab typed");
+    expect(await gateFor("restore-overtaken")).toEqual({
+      writePath: "live_copy",
+    });
+  });
+
+  it("refuses a restore when the page is renamed before it commits, and keeps the new title", async () => {
+    await switchedPage("restore-renamed", "First draft");
+    await serverEdit("restore-renamed", "Second draft");
+    const versionId = await versionHolding("restore-renamed", "First draft");
+    const prepared = await metadata("restore-renamed");
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    let renamed = false;
+    const spy = vi
+      .spyOn(runner, "run")
+      .mockImplementation(async (task, ...rest) => {
+        const result = await run(task, ...rest);
+        if (renamed || task !== "liveCopy.edit") return result;
+        renamed = true;
+        await getDb()
+          .update(schema.documents)
+          .set({
+            title: "Renamed meanwhile",
+            updatedAt: new Date(Date.now() + 1_000).toISOString(),
+          })
+          .where(eq(schema.documents.id, "restore-renamed"));
+        return result;
+      });
+    try {
+      await expect(
+        restore("restore-renamed", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_RESTORE_CONFLICT",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await metadata("restore-renamed")).title).toBe("Renamed meanwhile");
+    expect((await page("restore-renamed")).content).toBe("Second draft");
+  });
+
+  it("restores with a tab open without waiting on the tab to save (SF-03)", async () => {
+    await switchedPage("restore-open", "First draft");
+    await serverEdit("restore-open", "Second draft");
+    const versionId = await versionHolding("restore-open", "First draft");
+    await collab.loadAwarenessRowsStrict("restore-open");
+    await getDbExec().execute({
+      sql: "INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen) VALUES (?, ?, ?, ?)",
+      args: [
+        "restore-open",
+        7,
+        JSON.stringify({ user: { email: OWNER }, canFlushDocument: true }),
+        Date.now(),
+      ],
+    });
+    const { flushOpenDocumentEditorToSql } =
+      await import("../../actions/_document-flush.js");
+    const started = performance.now();
+
+    await asOwner(() =>
+      flushOpenDocumentEditorToSql({
+        documentId: "restore-open",
+        ownerEmail: OWNER,
+      }),
+    );
+    await restore(
+      "restore-open",
+      versionId,
+      (await metadata("restore-open")).updatedAt,
+    );
+
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect((await page("restore-open")).content).toBe("First draft");
+  });
+
+  it("restores a version's private callout icon in the page's canonical form", async () => {
+    const icon = serializeIconValue({
+      version: 1,
+      kind: "image",
+      authority: "private-icon",
+      assetId: "restore-icon-asset",
+    })!;
+    const saved = `Intro\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+    await switchedPage("restore-icon", "Current");
+    await getDb().insert(schema.documentVersions).values({
+      id: "restore-icon-version",
+      documentId: "restore-icon",
+      ownerEmail: OWNER,
+      title: "restore-icon",
+      content: saved,
+    });
+
+    const restored = await restore(
+      "restore-icon",
+      "restore-icon-version",
+      (await metadata("restore-icon")).updatedAt,
+    );
+
+    expect(restored.content).not.toBe(saved);
+    expect(restored.content).toContain("Saved");
+    const references = await getDb()
+      .select({ assetId: schema.privateIconReferences.assetId })
+      .from(schema.privateIconReferences)
+      .where(
+        eq(
+          schema.privateIconReferences.elementId,
+          "restore-icon:restore-icon-asset",
+        ),
+      );
+    expect(references).toEqual([{ assetId: "restore-icon-asset" }]);
+  });
+
+  it("restores through main's path once the page's flags are off (SF-11)", async () => {
+    await switchedPage("restore-off", "First draft");
+    await serverEdit("restore-off", "Second draft");
+    const versionId = await versionHolding("restore-off", "First draft");
+    const version = await collabVersion("restore-off");
+    await setFlags(false);
+
+    await restore(
+      "restore-off",
+      versionId,
+      (await metadata("restore-off")).updatedAt,
+    );
+
+    expect((await page("restore-off")).content).toBe("First draft");
+    expect(await collabVersion("restore-off")).toBe(version);
+    expect(await gateFor("restore-off")).not.toEqual({
+      writePath: "live_copy",
+    });
   });
 });
 

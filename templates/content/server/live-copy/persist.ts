@@ -47,6 +47,8 @@ export interface PersistedContentBodyCommit {
   before: string;
   /** The page body this commit wrote: the live copy's derived text. */
   after: string;
+  /** The page's `updatedAt` before this commit. */
+  beforeUpdatedAt: string;
   bodyRevision: number;
   updatedAt: string;
   /** Inline collections the new body no longer holds, now in Trash. */
@@ -451,6 +453,7 @@ async function writeBody(args: {
   const updatedAt = changed
     ? nextDocumentUpdatedAt(page.updatedAt)
     : page.updatedAt;
+  const title = changed ? (cause?.title ?? page.title) : page.title;
   const actor = documentAttributionActor(cause?.ctx);
   // guard:allow-unscoped — writes the page row this transaction locked, for a write already authorized.
   await db
@@ -464,6 +467,7 @@ async function writeBody(args: {
             content: text,
             bodyRevision,
             updatedAt,
+            ...(title !== page.title ? { title } : {}),
             ...(actor ? documentEditAttribution(actor) : {}),
           }
         : {}),
@@ -490,6 +494,7 @@ async function writeBody(args: {
       userEmail: actor ?? page.ownerEmail,
       ownerEmail: page.ownerEmail,
       orgId: page.orgId,
+      ...(cause?.calloutSource ? { source: cause.calloutSource } : {}),
     });
     const history: EditorHistory = cause
       ? { kind: "record", cause: serverHistoryCause(cause, actor) }
@@ -500,7 +505,7 @@ async function writeBody(args: {
         ownerEmail: page.ownerEmail,
         documentId,
         before: { title: page.title, content: page.content },
-        after: { title: page.title, content: text },
+        after: { title, content: text },
         beforeBodyRevision: page.bodyRevision,
         afterBodyRevision: bodyRevision,
         cause: history.cause,
@@ -531,6 +536,7 @@ async function writeBody(args: {
   const persisted = {
     before: page.content,
     after: text,
+    beforeUpdatedAt: page.updatedAt,
     bodyRevision,
     updatedAt,
     softDeletedDatabaseIds,

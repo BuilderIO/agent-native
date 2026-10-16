@@ -37,6 +37,15 @@ export interface ContentBodyWriteCause {
   origin?: string;
   historySessionId?: string;
   intent?: ContentBodyIntentRecord;
+  /** A title the write sets with the body, as a version restore does. */
+  title?: string;
+  /**
+   * Where a body copied from elsewhere got its private callout icons, so
+   * an editor who doesn't own them may restore or copy them.
+   */
+  calloutSource?:
+    | { kind: "version"; versionId: string }
+    | { kind: "document"; documentId: string };
 }
 
 /** A page being switched to its live copy, from the body at `baseRevision`. */
