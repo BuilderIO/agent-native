@@ -276,6 +276,17 @@ fn build_menu_with_meetings(
         guides.always_visible,
         None::<&str>,
     )?;
+    let step_capture_item = MenuItem::with_id(
+        app,
+        "step-capture",
+        if crate::step_capture::is_active() {
+            "Stop Step Capture"
+        } else {
+            "Start Step Capture"
+        },
+        true,
+        None::<&str>,
+    )?;
     let devtools_item =
         MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Cmd+Alt+I"))?;
     let version_item = MenuItem::with_id(
@@ -297,6 +308,7 @@ fn build_menu_with_meetings(
             &separator,
             &stop_item,
             &paste_last_dictation_item,
+            &step_capture_item,
             &region_guides_item,
             &devtools_item,
             &separator2,
@@ -368,6 +380,15 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         if let Err(err) = crate::clips::paste_last_dictation(app).await {
                             eprintln!("[clips-tray] paste_last_dictation (tray) failed: {err}");
                         }
+                    });
+                }
+                "step-capture" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = crate::step_capture::toggle_from_tray(app.clone()).await {
+                            eprintln!("[clips-tray] step capture (tray) failed: {err}");
+                        }
+                        rebuild_tray_menu(&app);
                     });
                 }
                 "toggle-region-guides" => {

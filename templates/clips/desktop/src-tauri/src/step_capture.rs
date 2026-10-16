@@ -557,6 +557,29 @@ pub async fn step_capture_stop(app: AppHandle) -> Result<StepCaptureSession, Str
         .map_err(|_| "step capture worker panicked".to_string())
 }
 
+/// Whether a session is recording, for the tray menu label.
+pub(crate) fn is_active() -> bool {
+    ACTIVE
+        .lock()
+        .map(|active| active.is_some())
+        .unwrap_or(false)
+}
+
+/// Tray entry point: start a session, or stop it and open its folder so the
+/// screenshots and `manifest.json` can be checked without the console.
+pub(crate) async fn toggle_from_tray(app: AppHandle) -> Result<(), String> {
+    if !is_active() {
+        step_capture_start(app).await?;
+        return Ok(());
+    }
+    let directory = step_capture_status().await?.directory;
+    step_capture_stop(app).await?;
+    if let Some(directory) = directory {
+        platform::reveal(Path::new(&directory))?;
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Platform
 
@@ -663,6 +686,14 @@ mod platform {
         })
     }
 
+    pub fn reveal(directory: &Path) -> Result<(), String> {
+        std::process::Command::new("open")
+            .arg(directory)
+            .status()
+            .map_err(|error| format!("could not open {}: {error}", directory.display()))
+            .map(|_| ())
+    }
+
     pub fn capture_still(
         path: &Path,
         location: StepPoint,
@@ -698,6 +729,10 @@ mod platform {
 
     pub fn remove_monitor(_app: &AppHandle) -> Result<(), String> {
         Ok(())
+    }
+
+    pub fn reveal(_directory: &Path) -> Result<(), String> {
+        Err("Step capture is only available on macOS.".to_string())
     }
 
     pub fn capture_still(
