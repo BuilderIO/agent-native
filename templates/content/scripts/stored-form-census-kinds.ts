@@ -30,16 +30,22 @@ export const MAX_NESTING = 100;
 // A `_` between letters or digits can neither open nor close emphasis, and
 // costs nothing to read.
 export const MAX_EMPHASIS_RUNS = 8192;
-const EMPHASIS_RUN = /\*+|~+|(?<![\p{L}\p{N}_])_+|_+(?![\p{L}\p{N}_])/gu;
+// Each `_` alternative starts only where a run starts, so no run is rescanned
+// from inside it.
+const EMPHASIS_RUN = /\*+|~+|(?<![\p{L}\p{N}_])_+|(?<!_)_+(?![\p{L}\p{N}_])/gu;
 // Content's parser reads a bare CR as a line break too.
 const LINE_END = /\r\n?|\n/g;
 // Consumes only spaces, tabs and marker characters, so it never runs past the
 // end of a line. A list marker may end its line: an empty item still nests.
 const CONTAINER_MARKER = /([ \t]*)(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t\r\n]|$))/y;
-// The tags of CONTAINER_CLOSE in shared/nfm.ts. They nest by tag, whatever the
-// indentation, so their depth carries from line to line.
-const CONTENT_CONTAINER =
-  /[ \t]*<(\/?)(?:details|callout|columns|column|table|synced_block_reference|synced_block|meeting-notes)[ >]/y;
+// The tags of CONTAINER_CLOSE in shared/nfm.ts, read after a line's tabs as
+// matchContainerOpen and its scanners read them. A table closes on its first
+// `</table>`, whatever surrounds it.
+const CONTAINER_OPEN =
+  /^<(?:(details|callout|table|synced_block_reference|synced_block)[ >]|(columns|column|meeting-notes)>$)/;
+const CONTAINER_CLOSE =
+  /^<\/(details|callout|columns|column|table|synced_block_reference|synced_block|meeting-notes)>$/;
+const CONTENT_FENCE = /^(`{3,})(.*)$/;
 
 /**
  * Whether the census's parsers can read `text` within the caps above. A line
@@ -47,18 +53,55 @@ const CONTENT_CONTAINER =
  * markers, plus the list levels the indentation before them can continue, at
  * two columns each and up to four per tab, so nesting cannot pass by adding
  * one level per line.
+ *
+ * A container counts as closed only by the close of the innermost one open,
+ * at the same tabs, outside a code fence: Content pairs closes by tag and
+ * indentation and skips fenced lines. Its code blocks end on lines its fence
+ * scanners do not, so a container line inside a fence may still open one.
+ * Once a close or a fenced container line breaks that shape, no close can be
+ * trusted: from there every container opened so far counts, which also bounds
+ * the opens left unclosed, each of which Content scans to the end of its
+ * parent. Content rereads a container's lines once per level around them and
+ * its canonical form indents them once per level, so their total depth is
+ * held to the body cap.
  */
 export function withinParserLimits(text: string): boolean {
   if (text.length > MAX_BODY_BYTES) return false;
-  let containers = 0;
+  const open: Array<{ tag: string; tabs: number }> = [];
+  let opened = 0;
+  let paired = true;
+  let fence = 0;
+  let indentation = 0;
   for (let start = 0; start <= text.length; ) {
     LINE_END.lastIndex = start;
     const end = LINE_END.exec(text);
     const stop = end ? end.index : text.length;
     if (stop - start > MAX_LINE_CHARS) return false;
-    CONTENT_CONTAINER.lastIndex = start;
-    const tag = CONTENT_CONTAINER.exec(text);
-    if (tag) containers = tag[1] ? Math.max(0, containers - 1) : containers + 1;
+    const line = text.slice(start, stop);
+    const tabs = line.length - line.replace(/^\t+/, "").length;
+    const bare = line.slice(tabs);
+    const opens = CONTAINER_OPEN.exec(bare);
+    const closes =
+      CONTAINER_CLOSE.exec(bare)?.[1] ??
+      (line.trim() === "</table>" ? "table" : undefined);
+    if (opens) opened++;
+    const run = CONTENT_FENCE.exec(bare);
+    if (fence) {
+      if (opens || closes) paired = false;
+      if (run && !run[2].trim() && run[1].length >= fence) fence = 0;
+    } else if (run) {
+      fence = run[1].length;
+    } else if (opens) {
+      open.push({ tag: opens[1] ?? opens[2], tabs });
+    } else if (closes && open.length) {
+      const top = open[open.length - 1];
+      if (top.tag === closes && (closes === "table" || top.tabs === tabs))
+        open.pop();
+      else paired = false;
+    }
+    const containers = paired ? open.length : opened;
+    indentation += containers;
+    if (indentation > MAX_BODY_BYTES) return false;
     CONTAINER_MARKER.lastIndex = start;
     let depth = containers;
     for (let marker; (marker = CONTAINER_MARKER.exec(text)); )

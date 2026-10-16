@@ -20,7 +20,7 @@ type CensusQuery = (
 ) => Promise<Record<string, unknown>[]>;
 
 const ORPHAN_BATCH = 1000;
-const PAST_PARSER_LIMITS = `over ${MAX_BODY_BYTES} characters, or with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels`;
+const PAST_PARSER_LIMITS = `over ${MAX_BODY_BYTES} characters, or with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels, or over ${MAX_BODY_BYTES} container levels summed over all lines`;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
 const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
 // What one query may return, which bounds the census's memory however large
@@ -732,6 +732,10 @@ export async function runStoredFormCensusScan(
     [
       `live copies ${PAST_PARSER_LIMITS}, not compared`,
       liveCopies.byOutcome.pagesIn("pastParserLimits"),
+    ],
+    [
+      "live copies of bodies not classified, not compared",
+      liveCopies.byOutcome.pagesIn("bodyNotRead"),
     ],
     [
       "pages with suggestions that could not be read or resolved",

@@ -304,10 +304,42 @@ describe("parser limits", () => {
     expect(withinParserLimits(details(101))).toBe(false);
     // A closing tag ends the depth its opening tag began.
     expect(withinParserLimits(L(details(60), details(60)))).toBe(true);
+    expect(withinParserLimits(L(...Array<string>(300).fill(details(1))))).toBe(
+      true,
+    );
     expect(
       withinParserLimits(L('<callout icon="x">', staircase("  ", 100))),
     ).toBe(false);
     expect(withinParserLimits(L("<columns>", "<column>", "x"))).toBe(true);
+    // Content rereads each line once per container around it: 100 levels
+    // around 20,000 lines took 35 seconds to classify.
+    const around = (lines: number) =>
+      L(
+        ...Array<string>(100).fill("<details>"),
+        ...Array<string>(lines).fill("filler"),
+        ...Array<string>(100).fill("</details>"),
+      );
+    expect(withinParserLimits(around(2000))).toBe(true);
+    expect(withinParserLimits(around(3000))).toBe(false);
+  });
+
+  it("closes a container only where Content would", () => {
+    // Each of these nests 120 `<details>` in Content, though a closing tag
+    // follows every opening one: of another tag, padded, or inside a fence.
+    const nested = (...after: string[]) =>
+      L(
+        ...Array<string>(120).fill(L("<details>", ...after)),
+        ...Array<string>(120).fill("</details>"),
+      );
+    for (const close of ["</callout>", "  </details>", "</details> "]) {
+      expect(withinParserLimits(nested(close)), close).toBe(false);
+    }
+    expect(withinParserLimits(nested("```", "</details>", "```"))).toBe(false);
+    // An indented fence ends Content's code block but not its scanners'
+    // fence, so the opening tags inside that fence still open containers.
+    expect(
+      withinParserLimits(L("```", "  ```", nested("```", "</details>", "```"))),
+    ).toBe(false);
   });
 
   it("caps the emphasis runs in one paragraph, however many lines it spans", () => {
@@ -326,5 +358,10 @@ describe("parser limits", () => {
     );
     expect(withinEmphasisLimit("snake_case ".repeat(10_000))).toBe(true);
     expect(withinEmphasisLimit("_a_ ".repeat(4097))).toBe(false);
+    // Rescanning a run from inside it took 14 seconds for these eight lines.
+    const underscores = Array<string>(8).fill(`a${"_".repeat(31_000)}b`);
+    const startedAt = performance.now();
+    expect(withinEmphasisLimit(L(...underscores))).toBe(true);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
   });
 });

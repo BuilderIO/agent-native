@@ -859,6 +859,11 @@ describe("stored-form census against a local database", () => {
       sql: "UPDATE _collab_docs SET yjs_state = ? WHERE doc_id = ?",
       args: ["!!not a live copy!!", "page-editor"],
     });
+    // A live copy has nothing to be compared with when its body was not read.
+    await db.execute({
+      sql: "INSERT INTO _collab_docs (doc_id, yjs_state) VALUES (?, ?)",
+      args: ["page-deep", liveCopyState("Live text")],
+    });
     await db.execute(
       "UPDATE agent_review_suggestion_operations SET anchor_json = '{not json' WHERE suggestion_id = 'suggestion-1'",
     );
@@ -885,15 +890,19 @@ describe("stored-form census against a local database", () => {
     expect(report.liveCopies.byOutcome.pastParserLimits.pageIds).toEqual([
       "page-agent",
     ]);
+    expect(report.liveCopies.byOutcome.bodyNotRead.pageIds).toEqual([
+      "page-deep",
+    ]);
     expect(report.agentFormPages.pendingSuggestions.unreadable).toMatchObject({
       items: 1,
       pageIds: ["page-agent"],
     });
     expect(report.incompleteReasons).toEqual([
       "bodies over 262144 bytes, not classified: 1",
-      "bodies or their canonical forms over 262144 characters, or with a line over 32768 characters or nested over 100 levels, or bodies with a paragraph of over 8192 emphasis runs, not classified: 2",
+      "bodies or their canonical forms over 262144 characters, or with a line over 32768 characters or nested over 100 levels, or over 262144 container levels summed over all lines, or bodies with a paragraph of over 8192 emphasis runs, not classified: 2",
       "unreadable live copies: 1",
-      "live copies over 262144 characters, or with a line over 32768 characters or nested over 100 levels, not compared: 1",
+      "live copies over 262144 characters, or with a line over 32768 characters or nested over 100 levels, or over 262144 container levels summed over all lines, not compared: 1",
+      "live copies of bodies not classified, not compared: 1",
       "pages with suggestions that could not be read or resolved: 1",
       "pages with comment quotes over 262144 bytes, not checked: 1",
     ]);
@@ -1024,7 +1033,7 @@ describe("stored-form census against a local database", () => {
     expect(comments.strandedByCanonicalize.pageIds).toContain("page-repeat");
     expect(report.incompleteReasons).toEqual([
       "pages with suggestions over 4194304 bytes, not judged: 1",
-      "pages with suggestions made against text over 262144 characters, or with a line over 32768 characters or nested over 100 levels, not judged: 1",
+      "pages with suggestions made against text over 262144 characters, or with a line over 32768 characters or nested over 100 levels, or over 262144 container levels summed over all lines, not judged: 1",
       "pages with comments whose repeated quote may land elsewhere: 1",
     ]);
   });
