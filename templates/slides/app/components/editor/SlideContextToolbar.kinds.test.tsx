@@ -66,10 +66,9 @@ function renderToolbar(
 describe("contextual toolbar kinds", () => {
   afterEach(cleanup);
 
-  it("offers Select and Pen only when nothing is selected", () => {
-    renderToolbar({ onToggleDrawMode: vi.fn() });
-    expect(screen.getByRole("button", { name: "Select" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Pen" })).toBeTruthy();
+  it("shows the insert cluster and no agent button when nothing is selected", () => {
+    renderToolbar({ leading: <button type="button">Insert</button> });
+    expect(screen.getByRole("button", { name: "Insert" })).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Edit with agent" }),
     ).toBeNull();

@@ -1165,6 +1165,7 @@ export default function DeckEditor() {
   }, []);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const insertMediaInputRef = useRef<HTMLInputElement>(null);
   const storageQuery = useSlideFileStorageStatus();
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
@@ -3961,6 +3962,25 @@ export default function DeckEditor() {
     [replaceImageSrc, uploadAndApplyImage],
   );
 
+  const openInsertMedia = useCallback(() => {
+    if (fileStorageConfigured) {
+      insertMediaInputRef.current?.click();
+    } else {
+      setShowUploadStorageSetup(true);
+    }
+  }, [fileStorageConfigured]);
+
+  const handleInsertMedia = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      if (file.type.startsWith("video/")) await uploadAndApplyVideo(file);
+      else await uploadAndApplyImage(null, file);
+    },
+    [uploadAndApplyImage, uploadAndApplyVideo],
+  );
+
   const selectedSlideIdsForAction = useCallback(
     (slideIds: string[]) => {
       const selected = new Set(slideIds);
@@ -5590,8 +5610,7 @@ export default function DeckEditor() {
                 <EditorActionCluster
                   textBoxMode={textBoxMode}
                   onToggleTextBoxMode={toggleTextBoxMode}
-                  onAddEmptySlide={handleNewSlideClick}
-                  addSlideGenerating={addSlideGenerating}
+                  onInsertMedia={openInsertMedia}
                   shapeType={shapeType}
                   onSelectShape={selectShape}
                 />
@@ -5767,7 +5786,6 @@ export default function DeckEditor() {
             onComment={openCommentComposer}
             drawMode={drawMode}
             onExitDrawMode={() => setDrawMode(false)}
-            onToggleDrawMode={toggleDrawMode}
             onToggleLayers={toggleLayers}
             pinMode={pinMode}
             onExitPinMode={() => setPinMode(false)}
@@ -5852,6 +5870,15 @@ export default function DeckEditor() {
         type="file"
         accept="image/*,.svg"
         onChange={handleDirectUpload}
+        disabled={!fileStorageConfigured}
+        className="hidden"
+      />
+
+      <input
+        ref={insertMediaInputRef}
+        type="file"
+        accept="image/*,.svg,video/*"
+        onChange={handleInsertMedia}
         disabled={!fileStorageConfigured}
         className="hidden"
       />

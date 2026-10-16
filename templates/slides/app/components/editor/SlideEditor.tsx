@@ -392,6 +392,8 @@ const SLIDE_SHAPE_DEFAULT_SIZES = {
   circle: { width: 144, height: 144 },
   arrow: { width: 192, height: 144 },
   triangle: { width: 144, height: 144 },
+  star: { width: 144, height: 144 },
+  polygon: { width: 144, height: 144 },
   line: { width: 240, height: 4 },
 } satisfies Record<
   SlideShapeType,
@@ -1190,7 +1192,6 @@ interface SlideEditorProps {
   drawMode?: boolean;
   /** Called when the draw overlay should exit (Esc, Send, close button) */
   onExitDrawMode?: () => void;
-  onToggleDrawMode?: () => void;
   onToggleLayers?: () => void;
   /** Whether comment-pin mode is active on the canvas */
   pinMode?: boolean;
@@ -1790,7 +1791,6 @@ export default function SlideEditor({
   aspectRatio,
   drawMode,
   onExitDrawMode,
-  onToggleDrawMode,
   onToggleLayers,
   pinMode,
   canComment = false,
@@ -2083,18 +2083,6 @@ export default function SlideEditor({
     userSetCanvasZoomRef.current = true;
     setCanvasZoom(Math.round(next));
   }, []);
-  const canvasZoomIn = useCallback(() => {
-    const next = CANVAS_ZOOM_PRESETS.find((preset) => preset > canvasZoom);
-    setManualCanvasZoom(
-      next ?? CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
-    );
-  }, [canvasZoom, setManualCanvasZoom]);
-  const canvasZoomOut = useCallback(() => {
-    const previous = [...CANVAS_ZOOM_PRESETS]
-      .reverse()
-      .find((preset) => preset < canvasZoom);
-    setManualCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
-  }, [canvasZoom, setManualCanvasZoom]);
 
   usePinchZoom({
     containerRef: scrollContainerRef,
@@ -5943,6 +5931,12 @@ export default function SlideEditor({
           "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
       } else if (type === "triangle") {
         shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
+      } else if (type === "star") {
+        shape.style.clipPath =
+          "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)";
+      } else if (type === "polygon") {
+        shape.style.clipPath =
+          "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)";
       }
       shape.style.opacity = "0.85";
       if (lineRotationDeg) setSlideObjectRotation(shape, lineRotationDeg);
@@ -10315,17 +10309,12 @@ export default function SlideEditor({
   const multiSelectionBounds = unionDomRects(
     Array.from(multiSelectionRects.values()).map((value) => value.rect),
   );
-  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
-  const canZoomIn =
-    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
   const zoomControls = slide.excalidrawData
     ? undefined
     : {
         value: canvasZoom,
-        onZoomOut: canvasZoomOut,
-        onZoomIn: canvasZoomIn,
-        canZoomOut,
-        canZoomIn,
+        presets: CANVAS_ZOOM_PRESETS,
+        onSelect: setManualCanvasZoom,
       };
 
   const contextImageTarget = (() => {
@@ -10460,10 +10449,9 @@ export default function SlideEditor({
   // SlideRenderer paints `slide.background` behind the drawing, so the row has
   // to stay mounted or that background becomes uneditable. Write access is
   // supplied by the caller for both standalone and embedded editors.
-  const toggleSelectedImageFit = () => {
-    if (!imageOverlay) return;
+  const setSelectedImageFit = (newFit: "cover" | "contain") => {
+    if (!imageOverlay || imageOverlay.objectFit === newFit) return;
     finishImageCrop(true);
-    const newFit = imageOverlay.objectFit === "cover" ? "contain" : "cover";
     onToggleObjectFit(imageOverlay.src, newFit, imageOverlay.imageOccurrence);
     setImageOverlay({ ...imageOverlay, objectFit: newFit });
     if (selectedImg) {
@@ -10533,8 +10521,6 @@ export default function SlideEditor({
     videoPlayback: selectedVideoPlayback,
     onVideoPlaybackChange: updateSelectedVideoPlayback,
     zoomControls: zoomControls,
-    drawMode,
-    onToggleDrawMode,
     layersOpen,
     onToggleLayers,
     imageFit: imageOverlay?.objectFit,
@@ -10544,7 +10530,7 @@ export default function SlideEditor({
           onUploadImage(imageOverlay.src);
         }
       : undefined,
-    onToggleImageFit: imageOverlay ? toggleSelectedImageFit : undefined,
+    onImageFitChange: imageOverlay ? setSelectedImageFit : undefined,
     inlineFormatting: Boolean(editingEl && textSessionRef.current?.text),
     onTextFormat: (format: "code") =>
       runInlineTextCommand((session) => session.commands[format]()),
@@ -11074,7 +11060,11 @@ export default function SlideEditor({
             finishImageCrop(true);
             void downloadImage(imageOverlay.src);
           }}
-          onToggleObjectFit={toggleSelectedImageFit}
+          onToggleObjectFit={() =>
+            setSelectedImageFit(
+              imageOverlay.objectFit === "cover" ? "contain" : "cover",
+            )
+          }
           onChangeObjectPosition={(objectPosition) => {
             finishImageCrop(true);
             onChangeObjectPosition(
