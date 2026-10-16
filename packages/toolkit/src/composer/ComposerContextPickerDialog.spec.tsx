@@ -335,6 +335,11 @@ describe("shared context URL dialog", () => {
     expect(dialog()!.querySelector('[role="alert"]')?.textContent).toContain(
       "Decks are unavailable",
     );
+    expect(
+      Array.from(dialog()!.querySelectorAll("button")).filter(
+        (button) => button.textContent === "agentChat.common.retry",
+      ),
+    ).toHaveLength(1);
     await click("agentChat.common.retry");
 
     expect(load).toHaveBeenCalledTimes(2);

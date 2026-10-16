@@ -400,6 +400,7 @@ export function ComposerContextPickerDialog({
                 </Button>
               ))}
             {error &&
+              !gallery &&
               (stage === "link" ? picker.actionError?.retry : picker.retry) && (
                 <Button
                   type="button"
