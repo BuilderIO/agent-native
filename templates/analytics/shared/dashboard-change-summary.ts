@@ -281,13 +281,15 @@ function describePanels(
   }
   // Adding or removing a panel rebalances the widths of its row, so width
   // changes alongside one are the reflow, not a resize anyone asked for.
-  if (rearranged || (resized.length > 1 && !addedOrRemoved)) {
+  if (rearranged) {
     changes.push({ kind: "layout-changed" });
-  } else if (resized.length === 1 && !addedOrRemoved) {
-    changes.push({
-      kind: "panel-resized",
-      title: nameOf(afterPanels.byId.get(resized[0])!.title),
-    });
+  } else if (!addedOrRemoved) {
+    for (const id of resized) {
+      changes.push({
+        kind: "panel-resized",
+        title: nameOf(afterPanels.byId.get(id)!.title),
+      });
+    }
   }
   return { other };
 }

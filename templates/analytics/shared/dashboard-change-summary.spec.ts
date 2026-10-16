@@ -200,13 +200,24 @@ describe("describeDashboardChanges", () => {
     ]);
   });
 
-  it("names one resized panel, and calls moves a layout change", () => {
+  it("names each resized panel, and calls moves a layout change", () => {
     expect(
       describeDashboardChanges(
         dashboard(),
         dashboard({ panels: [panel("dau", { width: 2 }), panel("wau")] }),
       ),
     ).toEqual([{ kind: "panel-resized", title: "DAU" }]);
+    expect(
+      describeDashboardChanges(
+        dashboard(),
+        dashboard({
+          panels: [panel("dau", { width: 2 }), panel("wau", { width: 2 })],
+        }),
+      ),
+    ).toEqual([
+      { kind: "panel-resized", title: "DAU" },
+      { kind: "panel-resized", title: "WAU" },
+    ]);
     expect(
       describeDashboardChanges(
         dashboard(),
