@@ -340,33 +340,62 @@ function paintedSurfaceAtPoint(
   root: Element,
   x: number,
   y: number,
-): Element | null {
+  liveDocument?: Document | null,
+  includeDocumentBackground = false,
+): boolean | null {
+  const liveView = liveDocument?.defaultView;
+  if (
+    liveDocument &&
+    liveView &&
+    typeof liveDocument.elementsFromPoint === "function"
+  ) {
+    for (const hit of liveDocument.elementsFromPoint(
+      x - liveView.scrollX,
+      y - liveView.scrollY,
+    )) {
+      if (
+        !includeDocumentBackground &&
+        (hit === liveDocument.body || hit === liveDocument.documentElement)
+      ) {
+        continue;
+      }
+      const isLight = resolveDestinationBackgroundLightnessOrNull([
+        { color: liveView.getComputedStyle(hit).backgroundColor },
+      ]);
+      if (isLight !== null) return isLight;
+    }
+    return null;
+  }
+
   const candidates = Array.from(root.querySelectorAll<HTMLElement>("*"))
-    .map((element) => ({ element, rect: absoluteRect(element) }))
+    .map((element) => ({
+      rect: absoluteRect(element),
+      color: element.style.backgroundColor || element.style.background || null,
+    }))
     .filter(
       (
         candidate,
       ): candidate is {
-        element: HTMLElement;
         rect: { x: number; y: number; w: number; h: number };
+        color: string;
       } => {
-        const color =
-          candidate.element.style.backgroundColor ||
-          candidate.element.style.background ||
-          null;
         return (
           candidate.rect !== null &&
           x >= candidate.rect.x &&
           y >= candidate.rect.y &&
           x <= candidate.rect.x + candidate.rect.w &&
           y <= candidate.rect.y + candidate.rect.h &&
-          resolveDestinationBackgroundLightnessOrNull([{ color }]) !== null
+          candidate.color !== null &&
+          resolveDestinationBackgroundLightnessOrNull([
+            { color: candidate.color },
+          ]) !== null
         );
       },
     );
-  // Canvas layers are appended in paint order when their z-index is equal.
-  // The last solid fill under the insertion point wins.
-  return candidates[candidates.length - 1]?.element ?? null;
+  const color = candidates[candidates.length - 1]?.color;
+  return color
+    ? resolveDestinationBackgroundLightnessOrNull([{ color }])
+    : null;
 }
 
 export function canvasPrimitiveInsertionHostNodeId(
@@ -403,6 +432,7 @@ export function appendCanvasPrimitiveToHtml(
     isBoardTarget?: boolean;
     positioning?: "absolute" | "flow";
     boardBackground?: string | null;
+    liveDocument?: Document | null;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
@@ -676,10 +706,13 @@ export function appendCanvasPrimitiveToHtml(
           ? null
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
-      const paintedSurface = paintedSurfaceAtPoint(doc.body, left, top);
-      const paintedSurfaceIsLight = paintedSurface
-        ? destinationBackgroundLightness(paintedSurface)
-        : null;
+      const paintedSurfaceIsLight = paintedSurfaceAtPoint(
+        doc.body,
+        left,
+        top,
+        options?.liveDocument,
+        options?.isBoardTarget !== true,
+      );
       const resolvedSurfaceIsLight = paintedSurfaceIsLight ?? surfaceIsLight;
       const autoTextNeedsLightFill =
         resolvedSurfaceIsLight === null

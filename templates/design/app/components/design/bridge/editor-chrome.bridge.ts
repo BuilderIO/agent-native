@@ -8093,6 +8093,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var shieldPointerClickCount = 0;
   var lastShieldPointerDownAt = 0;
   var lastShieldPointerDownPoint: { x: number; y: number } | null = null;
+  var lastShieldPointerDownTarget: Element | null = null;
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -26795,25 +26796,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function beginPotentialShieldDrag(e) {
     if (readOnly) return;
-    if (
-      e.type === "pointerdown" &&
-      e.pointerType === "mouse" &&
-      e.button === 0
-    ) {
-      var now = Date.now();
-      var sameClickPoint =
-        lastShieldPointerDownPoint &&
-        now - lastShieldPointerDownAt < 500 &&
-        Math.hypot(
-          e.clientX - lastShieldPointerDownPoint.x,
-          e.clientY - lastShieldPointerDownPoint.y,
-        ) <= 4;
-      shieldPointerClickCount = sameClickPoint
-        ? shieldPointerClickCount + 1
-        : 1;
-      lastShieldPointerDownAt = now;
-      lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
-    }
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
     }
@@ -26841,6 +26823,28 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
+    if (
+      e.type === "pointerdown" &&
+      e.pointerType === "mouse" &&
+      e.button === 0
+    ) {
+      var now = Date.now();
+      var hitSelectionTarget = selectionTargetForHit(hit, true);
+      var sameClickPoint =
+        lastShieldPointerDownTarget === hitSelectionTarget &&
+        lastShieldPointerDownPoint &&
+        now - lastShieldPointerDownAt < 500 &&
+        Math.hypot(
+          e.clientX - lastShieldPointerDownPoint.x,
+          e.clientY - lastShieldPointerDownPoint.y,
+        ) <= 4;
+      shieldPointerClickCount = sameClickPoint
+        ? shieldPointerClickCount + 1
+        : 1;
+      lastShieldPointerDownAt = now;
+      lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
+      lastShieldPointerDownTarget = hitSelectionTarget;
+    }
     var hitTarget = selectionTargetForHit(hit);
     var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
     if (
@@ -26990,6 +26994,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         shieldPointerClickCount = 0;
         lastShieldPointerDownAt = 0;
         lastShieldPointerDownPoint = null;
+        lastShieldPointerDownTarget = null;
         return;
       }
       if (!readOnly && !e.altKey) {
@@ -27011,7 +27016,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
                   clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
       var cycleTarget =
-        cycledEl && !(cycledEl.contains && cycledEl.contains(hit))
+        cycledEl &&
+        (!(cycledEl.contains && cycledEl.contains(hit)) ||
+          (cycledEl !== selectedEl &&
+            selectedEl &&
+            cycledEl.contains(selectedEl)))
           ? cycledEl
           : null;
       if (cycleTarget) {

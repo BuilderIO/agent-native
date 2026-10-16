@@ -6816,6 +6816,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var shieldPointerClickCount = 0;
     var lastShieldPointerDownAt = 0;
     var lastShieldPointerDownPoint = null;
+    var lastShieldPointerDownTarget = null;
     var hoveredSpacingHandleKey = "";
     var spacingHoverClearTimer = null;
     var lastSpacingPointerPoint = null;
@@ -20887,16 +20888,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastPointerDownTimestamp = 0;
     function beginPotentialShieldDrag(e) {
       if (readOnly) return;
-      if (e.type === "pointerdown" && e.pointerType === "mouse" && e.button === 0) {
-        var now = Date.now();
-        var sameClickPoint = lastShieldPointerDownPoint && now - lastShieldPointerDownAt < 500 && Math.hypot(
-          e.clientX - lastShieldPointerDownPoint.x,
-          e.clientY - lastShieldPointerDownPoint.y
-        ) <= 4;
-        shieldPointerClickCount = sameClickPoint ? shieldPointerClickCount + 1 : 1;
-        lastShieldPointerDownAt = now;
-        lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
-      }
       if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
         return;
       }
@@ -20917,6 +20908,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
+      if (e.type === "pointerdown" && e.pointerType === "mouse" && e.button === 0) {
+        var now = Date.now();
+        var hitSelectionTarget = selectionTargetForHit(hit, true);
+        var sameClickPoint = lastShieldPointerDownTarget === hitSelectionTarget && lastShieldPointerDownPoint && now - lastShieldPointerDownAt < 500 && Math.hypot(
+          e.clientX - lastShieldPointerDownPoint.x,
+          e.clientY - lastShieldPointerDownPoint.y
+        ) <= 4;
+        shieldPointerClickCount = sameClickPoint ? shieldPointerClickCount + 1 : 1;
+        lastShieldPointerDownAt = now;
+        lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
+        lastShieldPointerDownTarget = hitSelectionTarget;
+      }
       var hitTarget = selectionTargetForHit(hit);
       var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
       if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || startsOnContainerBackground) {
@@ -21024,6 +21027,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           shieldPointerClickCount = 0;
           lastShieldPointerDownAt = 0;
           lastShieldPointerDownPoint = null;
+          lastShieldPointerDownTarget = null;
           return;
         }
         if (!readOnly && !e.altKey) {
@@ -21032,7 +21036,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
         var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev, repeatedClick) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev, repeatedClick) || clickThroughSelectionTarget(hit, ev, repeatedClick) : null) || containerFirstSelectionTarget(hit);
-        var cycleTarget = cycledEl && !(cycledEl.contains && cycledEl.contains(hit)) ? cycledEl : null;
+        var cycleTarget = cycledEl && (!(cycledEl.contains && cycledEl.contains(hit)) || cycledEl !== selectedEl && selectedEl && cycledEl.contains(selectedEl)) ? cycledEl : null;
         if (cycleTarget) {
           selectTarget(cycleTarget, ev, true);
         } else {

@@ -290,29 +290,40 @@ export type { LayersPanelMoveIntent };
 let activeIconToggleDrag: {
   kind: "hidden" | "locked";
   value: boolean;
-  columnLeft: number;
-  columnRight: number;
+  row: HTMLElement;
+  clear: () => void;
 } | null = null;
+
+function clearIconToggleDrag(row?: HTMLElement | null): void {
+  const drag = activeIconToggleDrag;
+  if (!drag || (row !== undefined && drag.row !== row)) return;
+
+  activeIconToggleDrag = null;
+  drag.row.draggable = drag.row.dataset.layerRowDraggable === "true";
+  window.removeEventListener("mouseup", drag.clear, true);
+  window.removeEventListener("pointerup", drag.clear, true);
+  window.removeEventListener("pointercancel", drag.clear, true);
+  window.removeEventListener("lostpointercapture", drag.clear, true);
+  window.removeEventListener("blur", drag.clear, true);
+}
 
 function beginIconToggleDrag(
   kind: "hidden" | "locked",
   value: boolean,
   button: HTMLButtonElement,
 ): void {
-  const bounds = button.getBoundingClientRect();
-  activeIconToggleDrag = {
-    kind,
-    value,
-    columnLeft: bounds.left,
-    columnRight: bounds.right,
-  };
-  const clear = () => {
-    activeIconToggleDrag = null;
-    window.removeEventListener("mouseup", clear);
-    window.removeEventListener("blur", clear);
-  };
-  window.addEventListener("mouseup", clear, { once: true });
-  window.addEventListener("blur", clear, { once: true });
+  const row = button.closest<HTMLElement>('[role="treeitem"]');
+  if (!row) return;
+
+  clearIconToggleDrag();
+  row.draggable = false;
+  const clear = () => clearIconToggleDrag(row);
+  activeIconToggleDrag = { kind, value, row, clear };
+  window.addEventListener("mouseup", clear, true);
+  window.addEventListener("pointerup", clear, true);
+  window.addEventListener("pointercancel", clear, true);
+  window.addEventListener("lostpointercapture", clear, true);
+  window.addEventListener("blur", clear, true);
 }
 
 // Row height, left inset and type size; the Tokens panel lays its rows out with
@@ -1841,6 +1852,16 @@ const LayerRow = memo(function LayerRow({
   const activeDrop = activeDropPlacement;
   const renameCancelledRef = useRef(false);
   const preventContextMenuFocusRestoreRef = useRef(false);
+  const rowElementRef = useRef<HTMLDivElement | null>(null);
+  const setRowElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      const previous = rowElementRef.current;
+      if (!element && previous) clearIconToggleDrag(previous);
+      rowElementRef.current = element;
+      registerRowElement(row.rowKey, element);
+    },
+    [registerRowElement, row.rowKey],
+  );
   const springLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SPRING_LOAD_DELAY_MS = 600;
   const clearSpringLoadTimer = () => {
@@ -1884,10 +1905,16 @@ const LayerRow = memo(function LayerRow({
   const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
     onHoverLayer?.(node.id);
     const toggleDrag = activeIconToggleDrag;
+    if (!toggleDrag) return;
+    const toggleButton = event.currentTarget.querySelector<HTMLButtonElement>(
+      `[data-layer-toggle="${toggleDrag.kind}"]`,
+    );
+    if (!toggleButton) return;
+    const bounds = toggleButton.getBoundingClientRect();
     if (
-      !toggleDrag ||
-      event.clientX < toggleDrag.columnLeft ||
-      event.clientX > toggleDrag.columnRight
+      bounds.width <= 0 ||
+      event.clientX < bounds.left ||
+      event.clientX > bounds.right
     )
       return;
     if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
@@ -2126,8 +2153,9 @@ const LayerRow = memo(function LayerRow({
     <ContextMenu>
       <ContextMenuTrigger asChild disabled={!showContextMenu}>
         <div
-          ref={(element) => registerRowElement(row.rowKey, element)}
+          ref={setRowElement}
           role="treeitem"
+          data-layer-row-draggable={draggable ? "true" : "false"}
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
@@ -2348,6 +2376,7 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.locked ? labels.unlock : labels.lock}
+                        data-layer-toggle="locked"
                         draggable={false}
                         onMouseDown={(event) => {
                           event.preventDefault();
@@ -2392,6 +2421,7 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.hidden ? labels.show : labels.hide}
+                        data-layer-toggle="hidden"
                         draggable={false}
                         onMouseDown={(event) => {
                           event.preventDefault();

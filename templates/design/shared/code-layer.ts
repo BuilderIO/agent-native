@@ -1,4 +1,4 @@
-import type { Declaration, Root } from "postcss";
+import type { Declaration, Root, Rule } from "postcss";
 import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
 
@@ -4216,12 +4216,162 @@ function unescapeCssAttributeValue(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
+function splitCssListAtTopLevel(value: string): string[] | null {
+  const result: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (!character) continue;
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    else if (bracketDepth === 0 && character === "(") parenDepth += 1;
+    else if (bracketDepth === 0 && character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return null;
+    if (character === "," && bracketDepth === 0 && parenDepth === 0) {
+      result.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return null;
+  result.push(value.slice(start).trim());
+  return result;
+}
+
+function extractNotPseudoSelectors(
+  selector: string,
+): { selector: string; negatedSelectors: string[] } | null {
+  let remaining = "";
+  const negatedSelectors: string[] = [];
+  let quote: string | null = null;
+  let bracketDepth = 0;
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index];
+    if (!character) continue;
+    if (character === "\\") {
+      remaining += character;
+      const escaped = selector[index + 1];
+      if (escaped) {
+        remaining += escaped;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      remaining += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      remaining += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    if (bracketDepth < 0) return null;
+
+    if (
+      bracketDepth === 0 &&
+      selector.slice(index, index + 5).toLowerCase() === ":not("
+    ) {
+      let depth = 1;
+      let innerQuote: string | null = null;
+      let innerBracketDepth = 0;
+      let end = index + 5;
+      for (; end < selector.length; end += 1) {
+        const innerCharacter = selector[end];
+        if (!innerCharacter) continue;
+        if (innerCharacter === "\\") {
+          end += 1;
+          continue;
+        }
+        if (innerQuote) {
+          if (innerCharacter === innerQuote) innerQuote = null;
+          continue;
+        }
+        if (innerCharacter === '"' || innerCharacter === "'") {
+          innerQuote = innerCharacter;
+          continue;
+        }
+        if (innerCharacter === "[") innerBracketDepth += 1;
+        else if (innerCharacter === "]") innerBracketDepth -= 1;
+        else if (innerBracketDepth === 0 && innerCharacter === "(") {
+          depth += 1;
+        } else if (innerBracketDepth === 0 && innerCharacter === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      if (depth !== 0 || innerQuote || innerBracketDepth !== 0) return null;
+      const argumentsList = splitCssListAtTopLevel(
+        selector.slice(index + 5, end),
+      );
+      if (!argumentsList || argumentsList.some((value) => !value)) return null;
+      negatedSelectors.push(...argumentsList);
+      index = end;
+      continue;
+    }
+    remaining += character;
+  }
+  if (quote || bracketDepth !== 0) return null;
+  return { selector: remaining, negatedSelectors };
+}
+
+function isSupportedStaticSelector(selector: string): boolean {
+  const extracted = extractNotPseudoSelectors(selector);
+  if (!extracted) return false;
+  if (
+    extracted.negatedSelectors.some(
+      (nested) => !isSupportedStaticSelector(nested),
+    )
+  ) {
+    return false;
+  }
+  const base = extracted.selector.trim();
+  return (
+    base.length > 0 &&
+    !/[\s>+~,]/.test(base) &&
+    /^(?:\*|[A-Za-z][A-Za-z0-9:-]*)?(?:[.#][A-Za-z_][A-Za-z0-9_-]*)*$/.test(
+      base,
+    )
+  );
+}
+
 function simpleSelectorMatchesElement(
   element: ParsedElement,
   selector: string,
 ): boolean {
   let remaining = selector.trim();
   if (!remaining) return false;
+
+  const extractedNotSelectors = extractNotPseudoSelectors(remaining);
+  if (!extractedNotSelectors) return true;
+  remaining = extractedNotSelectors.selector.trim() || "*";
+  for (const negatedSelector of extractedNotSelectors.negatedSelectors) {
+    if (
+      isSupportedStaticSelector(negatedSelector) &&
+      simpleSelectorMatchesElement(element, negatedSelector)
+    ) {
+      return false;
+    }
+  }
 
   const nthMatch = remaining.match(/:nth-of-type\((\d+)\)$/);
   if (nthMatch?.[1]) {
@@ -4265,7 +4415,8 @@ function simpleSelectorMatchesElement(
     idMatch ||
     attributes.length > 0 ||
     requiredClasses.length > 0 ||
-    nthMatch,
+    nthMatch ||
+    remaining === "*",
   );
 }
 
@@ -9786,9 +9937,6 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
-  const hasAuthoredCrossAxisAlignment = effectiveStyleDeclarations(
-    declarations,
-  ).some((declaration) => cssPropertyKey(declaration.prop) === "align-items");
   if (containerStyles) {
     const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
@@ -9808,6 +9956,12 @@ function applyAutoLayout(
     setOrReplace("flex-direction", direction);
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
+    const hasAuthoredCrossAxisAlignment =
+      effectiveStyleDeclarations(declarations).some(
+        (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+      ) ||
+      node.layout.alignItems !== undefined ||
+      stylesheetMaySetAlignItems(html, element, build.elements);
     if (!hasAuthoredCrossAxisAlignment) {
       setOrReplace("align-items", "flex-start");
       writtenProperties.push("align-items");
@@ -9908,6 +10062,225 @@ function applyAutoLayout(
       confidence: 0.88,
     },
   };
+}
+
+function stylesheetMaySetAlignItems(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const tagRe =
+    /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    let raw = match[0];
+    if (raw.startsWith("<!")) continue;
+    const tagEnd = findHtmlTagEnd(html, match.index);
+    raw = html.slice(match.index, tagEnd === -1 ? html.length : tagEnd);
+    tagRe.lastIndex = match.index + raw.length;
+    const tag = match[1]?.toLowerCase();
+    if (!tag || raw.startsWith("</")) continue;
+
+    const inTemplate =
+      tag === "style" && isOffsetInsideTemplateInterior(html, match.index);
+    if (tag === "link") continue;
+
+    if (tag === "style") {
+      const close = findClosingTag(html, "style", match.index + raw.length);
+      const mediaAttribute = parseAttributes(raw, match.index).find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const mediaValue = mediaAttribute
+        ? typeof mediaAttribute.value === "string"
+          ? decodeBasicHtmlEntities(mediaAttribute.value)
+          : ""
+        : null;
+      if (
+        !inTemplate &&
+        (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
+      ) {
+        const css = html.slice(
+          match.index + raw.length,
+          close?.closeStart ?? html.length,
+        );
+        try {
+          const stylesheet = parseCss(css, { map: false });
+          let matchingAlignmentRule = false;
+          stylesheet.walkRules((rule) => {
+            if (
+              stylesheetRuleMayApplyOnScreen(rule) &&
+              rule.nodes?.some(
+                (declaration) =>
+                  declaration.type === "decl" &&
+                  cssPropertyKey(declaration.prop) === "align-items",
+              ) &&
+              rule.selectors.some((selector) =>
+                stylesheetSelectorMayMatchElement(selector, target, elements),
+              )
+            ) {
+              matchingAlignmentRule = true;
+            }
+          });
+          if (matchingAlignmentRule) return true;
+        } catch (error) {
+          if (!(error instanceof CssSyntaxError)) throw error;
+          if (/\balign-items\s*:/i.test(css)) return true;
+        }
+      }
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+      continue;
+    }
+
+    if (["script", "textarea", "title", "noscript"].includes(tag)) {
+      const close = findClosingTag(html, tag, match.index + raw.length);
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+    }
+  }
+  return false;
+}
+
+function stylesheetRuleMayApplyOnScreen(rule: Rule): boolean {
+  let parent = rule.parent;
+  while (parent) {
+    if (
+      parent.type === "atrule" &&
+      parent.name.toLowerCase() === "media" &&
+      !mediaQueryListMayMatchScreen(parent.params)
+    ) {
+      return false;
+    }
+    const ancestor = parent.parent;
+    parent = ancestor && ancestor.type !== "document" ? ancestor : undefined;
+  }
+  return true;
+}
+
+function mediaQueryListMayMatchScreen(params: string): boolean {
+  const queries = splitCssListAtTopLevel(params);
+  if (!queries) return true;
+  return queries.some((query) => {
+    let remaining = query.trim();
+    if (!remaining) return true;
+
+    const negated = /^not\b/i.test(remaining);
+    if (negated) remaining = remaining.replace(/^not\b\s*/i, "");
+    else remaining = remaining.replace(/^only\b\s*/i, "");
+
+    const mediaType = remaining
+      .match(/^([A-Za-z][A-Za-z0-9-]*)\b/)?.[1]
+      ?.toLowerCase();
+    if (!mediaType) return true;
+    if (mediaType === "print" || mediaType === "speech") return negated;
+    if (mediaType === "screen" || mediaType === "all") return !negated;
+    return true;
+  });
+}
+
+function stylesheetSelectorMayMatchElement(
+  selector: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const normalized = normalizeSelectorForMatch(selector);
+  if (!normalized) return false;
+
+  const parts: Array<{
+    selector: string;
+    relation: "child" | "descendant" | null;
+  }> = [];
+  let current = "";
+  let relation: "child" | "descendant" | null = null;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  const pushPart = (): boolean => {
+    const value = current.trim();
+    if (!value) return false;
+    parts.push({ selector: value, relation });
+    current = "";
+    relation = null;
+    return true;
+  };
+
+  for (const character of normalized) {
+    if (quote) {
+      current += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return true;
+
+    if (bracketDepth === 0 && parenDepth === 0) {
+      if (character === ">") {
+        if (current.trim() && !pushPart()) return true;
+        if (relation === "child") return true;
+        relation = "child";
+        continue;
+      }
+      if (character === "+" || character === "~") return true;
+      if (/\s/.test(character)) {
+        if (current.trim()) {
+          pushPart();
+          relation ??= "descendant";
+        }
+        continue;
+      }
+    }
+    current += character;
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return true;
+  if (current.trim()) pushPart();
+  if (relation !== null || parts.length === 0) return true;
+
+  const matchesAt = (element: ParsedElement, index: number): boolean => {
+    const part = parts[index];
+    if (
+      !part ||
+      (part.selector !== "*" &&
+        !simpleSelectorMatchesElement(element, part.selector))
+    ) {
+      return false;
+    }
+    if (index === 0) return true;
+
+    const previousIndex = index - 1;
+    if (part.relation === "child") {
+      const parent =
+        element.parentIndex === undefined
+          ? undefined
+          : elements[element.parentIndex];
+      return parent ? matchesAt(parent, previousIndex) : false;
+    }
+
+    let parentIndex = element.parentIndex;
+    while (parentIndex !== undefined) {
+      const parent = elements[parentIndex];
+      if (!parent) break;
+      if (matchesAt(parent, previousIndex)) return true;
+      parentIndex = parent.parentIndex;
+    }
+    return false;
+  };
+
+  const lastPart = parts[parts.length - 1];
+  if (!lastPart) return false;
+  if (
+    lastPart.selector !== "*" &&
+    !simpleSelectorMatchesElement(target, lastPart.selector)
+  ) {
+    return false;
+  }
+  return matchesAt(target, parts.length - 1);
 }
 
 function findAfterNode(

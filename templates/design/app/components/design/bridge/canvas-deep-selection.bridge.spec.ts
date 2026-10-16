@@ -62,6 +62,17 @@ async function messageCount(
   return messages.filter((message) => message.type === type).length;
 }
 
+async function lastSelectedSourceId(page: import("@playwright/test").Page) {
+  const selection = last(
+    (await selectionMessages(page)).filter(
+      (message) => message.type === "element-select",
+    ),
+  );
+  return selection?.payload && !Array.isArray(selection.payload)
+    ? selection.payload.sourceId
+    : undefined;
+}
+
 async function waitForMessageAfter(
   page: import("@playwright/test").Page,
   type: string,
@@ -196,4 +207,91 @@ describe("canvas deep selection modifiers", () => {
       await browser.close();
     }
   });
+
+  it("does not treat a new hit target at the same point as a repeated click", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
+             style="position:absolute;left:40px;top:40px;width:160px;height:120px;background:#1f2937"></div>
+      </body></html>`);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.source === window)
+            (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "agent-native:editor-chrome-ready",
+        ),
+      );
+
+      let elementSelectCount = await messageCount(page, "element-select");
+      await page.mouse.click(100, 80);
+      await waitForMessageAfter(page, "element-select", elementSelectCount);
+      expect(await lastSelectedSourceId(page)).toBe("card");
+      elementSelectCount = await messageCount(page, "element-select");
+
+      await page.evaluate(() => {
+        const child = document.createElement("div");
+        child.setAttribute("data-agent-native-node-id", "kid");
+        child.setAttribute("data-agent-native-layer-name", "Kid");
+        child.style.cssText = "position:absolute;inset:0;background:#3b82f6";
+        document
+          .querySelector('[data-agent-native-node-id="card"]')!
+          .append(child);
+      });
+      await page.mouse.click(100, 80);
+      await waitForMessageAfter(page, "element-select", elementSelectCount);
+
+      expect(await lastSelectedSourceId(page)).toBe("card");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it.each(["Meta", "Control"] as const)(
+    "%s-click cycles from a selected child to its containing layer",
+    async (modifier) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(FIXTURE);
+        await page.evaluate(() => {
+          (window as any).__bridgeMessages = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.source === window)
+              (window as any).__bridgeMessages.push(event.data);
+          });
+        });
+        await page.addScriptTag({ content: hydratedBridge() });
+        await page.waitForFunction(() =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: BridgeMessage) =>
+              message.type === "agent-native:editor-chrome-ready",
+          ),
+        );
+
+        let elementSelectCount = await messageCount(page, "element-select");
+        await page.mouse.click(150, 148);
+        await waitForMessageAfter(page, "element-select", elementSelectCount);
+        expect(await lastSelectedSourceId(page)).toBe("note");
+        elementSelectCount = await messageCount(page, "element-select");
+
+        await page.keyboard.down(modifier);
+        await page.mouse.click(150, 148);
+        await page.keyboard.up(modifier);
+        await waitForMessageAfter(page, "element-select", elementSelectCount);
+
+        expect(await lastSelectedSourceId(page)).toBe("artwork");
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 });

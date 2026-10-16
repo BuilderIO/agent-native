@@ -570,6 +570,73 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
     expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
   });
+
+  it("uses class fills and rendered stacking order for overlapping surfaces", () => {
+    const content = `<!doctype html><html><head><style>
+      .upper { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #ffffff; z-index: 2; }
+      .lower { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #111111; z-index: 1; }
+    </style></head><body><div class="upper"></div><div class="lower"></div></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const upper = liveDocument.querySelector<HTMLElement>(".upper");
+    const lower = liveDocument.querySelector<HTMLElement>(".lower");
+    expect(upper).not.toBeNull();
+    expect(lower).not.toBeNull();
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [upper!, lower!],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the upper surface",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "hsl(0 0% 10%)",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("checks lower painted siblings before a nested hit's painted ancestor", () => {
+    const content = `<!doctype html><html><head><style>
+      .parent { position: relative; width: 100px; height: 100px; background: #ffffff; }
+      .nested { position: absolute; inset: 0; z-index: 2; background: transparent; }
+      .lower { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #111111; z-index: 1; }
+    </style></head><body><div class="parent"><div class="nested"></div></div><div class="lower"></div></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const parent = liveDocument.querySelector<HTMLElement>(".parent");
+    const nested = liveDocument.querySelector<HTMLElement>(".nested");
+    const lower = liveDocument.querySelector<HTMLElement>(".lower");
+    expect(parent).not.toBeNull();
+    expect(nested).not.toBeNull();
+    expect(lower).not.toBeNull();
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [nested!, lower!, parent!],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the lower surface",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "hsl(0 0% 10%)",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#ffffff/i);
+  });
 });
 
 describe("nesting follows where you started, not whether the box fits", () => {
