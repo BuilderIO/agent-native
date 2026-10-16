@@ -1857,6 +1857,8 @@ function isValidProviderApiBaseUrlForConfig(
     !url.port &&
     !url.search &&
     !url.hash &&
+    // Gong request paths are relative to its versioned API base.
+    (config.id !== "gong" || url.pathname.replace(/\/+$/, "") === "/v2") &&
     isAllowedProviderHost(url.hostname, config)
   );
 }

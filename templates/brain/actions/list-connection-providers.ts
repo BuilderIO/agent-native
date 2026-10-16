@@ -243,7 +243,7 @@ async function providerApiBaseUrlErrorForProvider({
   }
   if (isValidProviderApiBaseUrl(providerApi.id, credential.value)) return null;
 
-  return "GONG_API_BASE must be an HTTPS URL on the api.gong.io host or a regional Gong API subdomain.";
+  return "GONG_API_BASE must be an HTTPS /v2 URL on the api.gong.io host or a regional Gong API subdomain.";
 }
 
 async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
@@ -272,7 +272,7 @@ async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
   }
 
   const ctx = getCredentialContext();
-  if (!ctx) {
+  if (!ctx || (provider.id === "gong" && !ctx.orgId)) {
     return {
       status: "unavailable",
       available: false,

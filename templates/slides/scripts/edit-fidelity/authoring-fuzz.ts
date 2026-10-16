@@ -1258,6 +1258,13 @@ export function isWithinCleanupRecoveryClaimCorrelationWindow(
   );
 }
 
+export function cleanupRecoveryClaimRequestAgeMs(
+  startedAt: number,
+  pageErrorAt: number,
+) {
+  return pageErrorAt - startedAt;
+}
+
 export function shouldRetainCleanupRecoveryClaimEvidence(
   failedAt: number,
   now: number,

@@ -153,8 +153,12 @@ const credentialContext = {
 describe("provider API base URL validation", () => {
   it.each([
     ["https://api.gong.io/v2", true],
+    ["https://api.gong.io/v2/", true],
     ["https://us-88601.api.gong.io/v2", true],
     ["https://company-17.api.gong.io/v2", true],
+    ["https://api.gong.io", false],
+    ["https://api.gong.io/v1", false],
+    ["https://api.gong.io/v2/calls", false],
     ["https://nested.us-88601.api.gong.io/v2", false],
     ["http://us-88601.api.gong.io/v2", false],
     ["https://attacker.example/v2", false],

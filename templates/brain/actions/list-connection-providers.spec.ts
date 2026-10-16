@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   availableKeys: new Set<string>(),
   isBrainAdmin: true,
   providerId: "jira",
+  orgId: "org-1" as string | null,
   credentialValues: new Map<string, string>(),
   credentialLookupErrors: new Set<string>(),
   resolvedCredentialChecks: [] as Array<{
@@ -11,7 +12,7 @@ const mocks = vi.hoisted(() => ({
     key: string;
     ctx: {
       userEmail: string;
-      orgId: string;
+      orgId: string | null;
       credentialScope?: "org";
     };
   }>,
@@ -20,7 +21,7 @@ const mocks = vi.hoisted(() => ({
     key: string;
     ctx: {
       userEmail: string;
-      orgId: string;
+      orgId: string | null;
       credentialScope?: "org";
     };
   }>,
@@ -99,7 +100,7 @@ vi.mock("@agent-native/core/provider-api", async () => {
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext: () => ({
     userEmail: "owner@example.test",
-    orgId: "org-1",
+    orgId: mocks.orgId,
   }),
 }));
 
@@ -268,6 +269,7 @@ describe("list-connection-providers", () => {
     mocks.credentialLookupErrors.clear();
     mocks.resolvedCredentialChecks = [];
     mocks.credentialChecks = [];
+    mocks.orgId = "org-1";
     mocks.isBrainAdmin = true;
     mocks.providerId = "jira";
     mocks.sourceRows = [];
@@ -497,6 +499,8 @@ describe("list-connection-providers", () => {
   it.each([
     "https://attacker.example/v2",
     "http://us-88601.api.gong.io/v2",
+    "https://us-88601.api.gong.io/v1",
+    "https://us-88601.api.gong.io/v2/calls",
     "not a URL",
   ])(
     "does not report Gong ready for an invalid organization base URL: %s",
@@ -514,7 +518,9 @@ describe("list-connection-providers", () => {
         configured: false,
         providerHealth: { status: "unhealthy" },
       });
-      expect(gong?.providerHealth.message).toContain("GONG_API_BASE");
+      expect(gong?.providerHealth.message).toContain(
+        "GONG_API_BASE must be an HTTPS /v2 URL",
+      );
       expect(gong?.providerHealth.message).not.toContain(baseUrl);
       expect(JSON.stringify(gong)).not.toContain(baseUrl);
     },
@@ -560,6 +566,26 @@ describe("list-connection-providers", () => {
     expect(gong?.providerHealth.message).not.toMatch(
       /personal seat|individual seat|personal account/i,
     );
+  });
+
+  it("reports Gong credentials unavailable without an organization context", async () => {
+    mocks.orgId = null;
+
+    const result = await action.run({});
+    const gong = result.providers.find((provider) => provider.id === "gong");
+
+    expect(gong).toMatchObject({
+      configured: null,
+      usesBrainLocalCredentials: true,
+      credentialHealth: {
+        status: "unavailable",
+        missingCredentialKeys: [],
+        missingMessages: ["Credential availability could not be verified."],
+      },
+    });
+    expect(
+      mocks.credentialChecks.filter((check) => check.provider === "gong"),
+    ).toEqual([]);
   });
 
   it("does not treat unreadable Gong organization keys as missing", async () => {

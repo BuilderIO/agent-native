@@ -44,6 +44,7 @@ import {
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
+  cleanupRecoveryClaimRequestAgeMs,
   isPotentialCleanupRecoveryPageBrowserSessionError,
   isWithinCleanupRecoveryClaimCorrelationWindow,
   shouldRetainCleanupRecoveryClaimEvidence,
@@ -1800,6 +1801,35 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
       { ...candidate, requestAgeMs: 110 },
     ]),
   ).toBe(false);
+});
+
+it("measures cleanup recovery request age at the page-error event", () => {
+  const requestStartedAt = 100;
+  const pageErrorAt = 200;
+  const delayedInspectionAt = pageErrorAt + 10_000;
+  const requestAgeMs = cleanupRecoveryClaimRequestAgeMs(
+    requestStartedAt,
+    pageErrorAt,
+  );
+
+  expect(delayedInspectionAt - requestStartedAt).toBeGreaterThan(9_000);
+  expect(requestAgeMs).toBe(100);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [
+        {
+          url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+          pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+          method: "POST",
+          requestAgeMs,
+          failureOffsetMs: 0,
+          sameOrigin: true,
+          competingClaimStartedAfterFailure: false,
+        },
+      ],
+    ),
+  ).toBe(true);
 });
 
 it("retains cleanup claim evidence through delayed page-error inspection", () => {

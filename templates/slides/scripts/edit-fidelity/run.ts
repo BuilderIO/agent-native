@@ -32,6 +32,7 @@ import {
   formatAuthoringFuzzUnavailable,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
+  cleanupRecoveryClaimRequestAgeMs,
   isPotentialCleanupRecoveryPageBrowserSessionError,
   isWithinCleanupRecoveryClaimCorrelationWindow,
   isFirefoxBrowserSessionConsoleError,
@@ -5966,7 +5967,10 @@ async function runAuthoringFuzzQa(
             url: candidate.url,
             pathname: candidate.pathname,
             method: candidate.method,
-            requestAgeMs: now - candidate.startedAt,
+            requestAgeMs: cleanupRecoveryClaimRequestAgeMs(
+              candidate.startedAt,
+              pageErrorAt,
+            ),
             failureOffsetMs: candidate.failedAt - pageErrorAt,
             sameOrigin: candidate.sameOrigin,
             competingClaimStartedAfterFailure:
