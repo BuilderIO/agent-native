@@ -650,11 +650,6 @@ describe("AgentEngine registry", () => {
           ? { engine: "builder", model: "gemini-3-1-pro" }
           : null,
       );
-      vi.doMock("../../server/request-context.js", () => ({
-        getRequestContext: () => ({ orgScope: "personal" }),
-        getRequestUserEmail: () => "owner@example.com",
-        getRequestOrgId: () => undefined,
-      }));
       vi.doMock("../../settings/user-settings.js", () => ({
         getUserSetting,
       }));
@@ -665,9 +660,13 @@ describe("AgentEngine registry", () => {
         }),
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
+      const { runWithRequestContext } =
+        await import("../../server/request-context.js");
 
       expect(
-        await getStoredModelForEngine("builder", { appId: "analytics" }),
+        await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+          getStoredModelForEngine("builder", { appId: "analytics" }),
+        ),
       ).toBe("gemini-3-1-pro");
       expect(getUserSetting).toHaveBeenCalledWith(
         "owner@example.com",
