@@ -19,6 +19,74 @@ describe("SQL execution boundary with the real cost counter", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it.each(["bigquery", "first-party"] as const)(
+    "keeps a %s result with missing provider cache metadata unknown",
+    async (source) => {
+      callAction.mockResolvedValue({
+        rows: [{ n: 1 }],
+        cached: false,
+        bytesProcessed: 4096,
+      });
+
+      const result = await executeSqlQuery("SELECT 1", source);
+
+      expect(result).toMatchObject({ rows: [{ n: 1 }], cached: false });
+      expect(result).not.toHaveProperty("providerCacheHit");
+      expect(callAction).toHaveBeenCalledTimes(1);
+      expect(getTotalBytes()).toBe(0);
+      expect(getUnknownScans()).toBe(1);
+    },
+  );
+
+  it.each([
+    [{}, 1],
+    [{ providerCacheHit: false }, 1],
+    [{ cached: true }, 0],
+    [{ providerCacheHit: true }, 0],
+    [{ cached: true, providerCacheHit: true }, 0],
+  ] as const)(
+    "does not charge a dashboard result with provenance %j",
+    async (metadata, unknownScans) => {
+      callAction.mockResolvedValue({
+        rows: [],
+        bytesProcessed: 4096,
+        ...metadata,
+      });
+
+      await executeSqlQuery("SELECT 1", "bigquery");
+
+      expect(callAction).toHaveBeenCalledTimes(1);
+      expect(getTotalBytes()).toBe(0);
+      expect(getUnknownScans()).toBe(unknownScans);
+    },
+  );
+
+  it.each([undefined, null, 0, -1, Number.NaN, Infinity, "4096"])(
+    "does not invent a scan for bytes %s",
+    async (bytesProcessed) => {
+      callAction.mockResolvedValue({ rows: [], bytesProcessed });
+
+      await executeSqlQuery("SELECT 1", "bigquery");
+
+      expect(callAction).toHaveBeenCalledTimes(1);
+      expect(getTotalBytes()).toBe(0);
+      expect(getUnknownScans()).toBe(0);
+    },
+  );
+
+  it("does not invent a scan for a non-BigQuery response without bytes", async () => {
+    callAction.mockResolvedValue({ rows: [{ n: 1 }] });
+
+    expect(await executeSqlQuery("SELECT 1", "ga4")).toEqual({
+      rows: [{ n: 1 }],
+      schema: undefined,
+    });
+
+    expect(callAction).toHaveBeenCalledTimes(1);
+    expect(getTotalBytes()).toBe(0);
+    expect(getUnknownScans()).toBe(0);
+  });
+
+  it.each(["bigquery", "first-party"] as const)(
     "does not count a pre-query 401 for %s",
     async (source) => {
       const error = Object.assign(new Error("authentication required"), {

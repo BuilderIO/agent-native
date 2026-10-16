@@ -96,7 +96,35 @@ describe("queryMetrics cost accounting", () => {
       status: "success",
       bytesProcessed: 10,
     });
+    expect(getTotalBytes()).toBe(0);
+    expect(getUnknownScans()).toBe(1);
   });
+
+  it.each([
+    [{ cached: false }, 1],
+    [{ providerCacheHit: false }, 1],
+    [{ cached: true }, 0],
+    [{ providerCacheHit: true }, 0],
+  ] as const)(
+    "preserves incomplete Explorer cache provenance %j",
+    async (metadata, unknownScans) => {
+      const fetchMock = vi.fn(async () =>
+        jsonResponse({ rows: [], bytesProcessed: 4096, ...metadata }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await queryMetrics("SELECT 1");
+
+      expect(mocks.recordQueryCost).toHaveBeenCalledExactlyOnceWith({
+        status: "success",
+        bytesProcessed: 4096,
+        ...metadata,
+      });
+      expect(getTotalBytes()).toBe(0);
+      expect(getUnknownScans()).toBe(unknownScans);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("records an error response as an unknown scan and still returns the error", async () => {
     vi.stubGlobal(

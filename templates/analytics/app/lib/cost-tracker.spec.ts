@@ -28,7 +28,12 @@ describe("cost tracker", () => {
     expect(tracker.getTotalBytes()).toBe(0);
     expect(tracker.getTotalCost()).toBe(0);
 
-    tracker.addBytesProcessed(1234);
+    tracker.recordQueryCost({
+      status: "success",
+      cached: false,
+      providerCacheHit: false,
+      bytesProcessed: 1234,
+    });
 
     expect(tracker.getTotalBytes()).toBe(1234);
   });
@@ -37,7 +42,12 @@ describe("cost tracker", () => {
     const tracker = await loadTracker(memoryStorage());
 
     expect(
-      tracker.recordQueryCost({ status: "success", bytesProcessed: 5_000 }),
+      tracker.recordQueryCost({
+        status: "success",
+        cached: false,
+        providerCacheHit: false,
+        bytesProcessed: 5_000,
+      }),
     ).toEqual({ counted: 5_000, reason: "scanned" });
     for (const [record, reason] of [
       [{ cached: true, bytesProcessed: 9_000 }, "app-cache"],
@@ -59,6 +69,48 @@ describe("cost tracker", () => {
     expect(tracker.getUnknownScans()).toBe(0);
   });
 
+  it.each([{}, { cached: false }, { providerCacheHit: false }])(
+    "keeps positive bytes with incomplete provenance unknown: %j",
+    async (metadata) => {
+      const storage = memoryStorage();
+      const tracker = await loadTracker(storage);
+      const listener = vi.fn();
+      tracker.subscribe(listener);
+
+      expect(
+        tracker.recordQueryCost({
+          status: "success",
+          bytesProcessed: 4096,
+          ...metadata,
+        }),
+      ).toEqual({ counted: 0, reason: "unknown-scan" });
+
+      expect(tracker.getTotalBytes()).toBe(0);
+      expect(tracker.getTotalCost()).toBe(0);
+      expect(tracker.getUnknownScans()).toBe(1);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(
+        JSON.parse(storage.data.get("analytics_query_cost/v3")!),
+      ).toMatchObject({ bytes: 0, unknownScans: 1 });
+    },
+  );
+
+  it("keeps the legacy bytes-only API honest about unknown provenance", async () => {
+    const tracker = await loadTracker();
+
+    expect(tracker.addBytesProcessed(1234)).toEqual({
+      counted: 0,
+      reason: "unknown-scan",
+    });
+    expect(tracker.getTotalBytes()).toBe(0);
+    expect(tracker.getUnknownScans()).toBe(1);
+    expect(tracker.addBytesProcessed(0)).toEqual({
+      counted: 0,
+      reason: "no-bytes",
+    });
+    expect(tracker.getUnknownScans()).toBe(1);
+  });
+
   it("tallies failed and cancelled queries as unknown, not as zero cost", async () => {
     const tracker = await loadTracker(memoryStorage());
 
@@ -78,29 +130,44 @@ describe("cost tracker", () => {
     tracker.subscribe(listener);
 
     tracker.recordQueryCost({ status: "success", cached: true });
-    tracker.recordQueryCost({ status: "success", bytesProcessed: 10 });
+    tracker.recordQueryCost({
+      status: "success",
+      cached: false,
+      providerCacheHit: false,
+      bytesProcessed: 10,
+    });
     tracker.recordQueryCost({ status: "error" });
 
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it("drops the old 24h counter, whose totals included cache hits", async () => {
-    const storage = memoryStorage({
-      analytics_query_cost: JSON.stringify({
-        bytes: 9_000_000_000,
-        startedAt: Date.now(),
-      }),
-    });
+  it.each(["analytics_query_cost", "analytics_query_cost/v2"])(
+    "discards uncorrectable legacy totals from %s with a warning",
+    async (key) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const storage = memoryStorage({
+        [key]: JSON.stringify({
+          bytes: 9_000_000_000,
+          unknownScans: 2,
+          startedAt: Date.now(),
+        }),
+      });
 
-    const tracker = await loadTracker(storage);
+      const tracker = await loadTracker(storage);
 
-    expect(tracker.getTotalBytes()).toBe(0);
-    expect(storage.data.has("analytics_query_cost")).toBe(false);
-  });
+      expect(tracker.getTotalBytes()).toBe(0);
+      expect(tracker.getUnknownScans()).toBe(0);
+      expect(storage.data.has(key)).toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        "[cost-tracker] discarded a legacy query cost with unverified cache provenance",
+        undefined,
+      );
+    },
+  );
 
   it("restores the versioned counter within 24h and drops it after", async () => {
     const now = Date.now();
-    const key = "analytics_query_cost/v2";
+    const key = "analytics_query_cost/v3";
     const recent = await loadTracker(
       memoryStorage({
         [key]: JSON.stringify({ bytes: 42, unknownScans: 1, startedAt: now }),
@@ -123,7 +190,7 @@ describe("cost tracker", () => {
 
   it("starts over from a stored counter it cannot trust, and says so", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const key = "analytics_query_cost/v2";
+    const key = "analytics_query_cost/v3";
     const malformed = memoryStorage({
       [key]: JSON.stringify({ bytes: "lots", unknownScans: 0, startedAt: 1 }),
     });
@@ -151,7 +218,12 @@ describe("cost tracker", () => {
     };
     const tracker = await loadTracker(storage);
 
-    tracker.recordQueryCost({ status: "success", bytesProcessed: 100 });
+    tracker.recordQueryCost({
+      status: "success",
+      cached: false,
+      providerCacheHit: false,
+      bytesProcessed: 100,
+    });
 
     expect(tracker.getTotalBytes()).toBe(100);
     expect(warn).toHaveBeenCalledWith(

@@ -2,25 +2,25 @@
 // the bill and not a bound on it. BigQuery bills `totalBytesBilled`, and
 // capacity pricing or the free allowance can make the actual bill lower.
 const COST_PER_BYTE = 6.25 / 1_000_000_000_000;
-const STORAGE_KEY = "analytics_query_cost/v2";
-// Version 1 added `bytesProcessed` for every response, including app-cache and
-// provider-cache hits that scanned nothing, so its totals cannot be corrected.
-const LEGACY_STORAGE_KEY = "analytics_query_cost";
+const STORAGE_KEY = "analytics_query_cost/v3";
+// Earlier counters included cache hits (v1) or unconfirmed misses (v2).
+// Aggregated totals cannot recover that provenance.
+const LEGACY_STORAGE_KEYS = ["analytics_query_cost", "analytics_query_cost/v2"];
 const TTL_MS = 24 * 60 * 60 * 1000;
 
 interface StoredCost {
   /** Bytes processed by queries that actually scanned. */
   bytes: number;
-  /** Failed or cancelled scans, whose bytes are unknown rather than zero. */
+  /** Failed/cancelled queries or positive bytes with unknown cache provenance. */
   unknownScans: number;
   startedAt: number;
 }
 
 export type QueryCostRecord = {
   status: "success" | "error" | "cancelled";
-  /** App-side cache (L1/L2) served the result. */
+  /** App-side cache (L1/L2) served the result; absent means unknown. */
   cached?: boolean;
-  /** BigQuery served the result from its own query cache. */
+  /** BigQuery served the result from its own query cache; absent means unknown. */
   providerCacheHit?: boolean;
   /** Rows came from a browser snapshot, so no request produced them. */
   restored?: boolean;
@@ -60,7 +60,12 @@ function load(): StoredCost {
   if (typeof window === "undefined") return fresh();
 
   try {
-    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    for (const key of LEGACY_STORAGE_KEYS) {
+      if (window.localStorage.getItem(key) !== null) {
+        window.localStorage.removeItem(key);
+        warn("discarded a legacy query cost with unverified cache provenance");
+      }
+    }
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return fresh();
     const parsed: Partial<StoredCost> | null = JSON.parse(raw);
@@ -106,17 +111,8 @@ function notify() {
   listeners.forEach((fn) => fn());
 }
 
-/**
- * Counts one finished query. Only a result that actually scanned adds bytes:
- * an app-cache hit, a provider-cache hit and restored browser rows carry the
- * original scan's `bytesProcessed` but cost nothing now. A failed or cancelled
- * query may have scanned something, so it is tallied as unknown, never as 0.
- */
-export function recordQueryCost(record: QueryCostRecord): QueryCostOutcome {
+function queryCostOutcome(record: QueryCostRecord): QueryCostOutcome {
   if (record.status !== "success") {
-    state.unknownScans += 1;
-    save(state);
-    notify();
     return { counted: 0, reason: "unknown-scan" };
   }
   if (record.restored) return { counted: 0, reason: "restored" };
@@ -129,14 +125,30 @@ export function recordQueryCost(record: QueryCostRecord): QueryCostOutcome {
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
     return { counted: 0, reason: "invalid-bytes" };
   }
-  state.bytes += bytes;
-  save(state);
-  notify();
+  if (record.cached !== false || record.providerCacheHit !== false) {
+    return { counted: 0, reason: "unknown-scan" };
+  }
   return { counted: bytes, reason: "scanned" };
 }
 
-export function addBytesProcessed(bytes: number) {
-  recordQueryCost({ status: "success", bytesProcessed: bytes });
+/**
+ * Cache hits can carry the original scan's bytes. Positive bytes count only
+ * when both cache layers confirm a miss; missing provenance and failed or
+ * cancelled requests remain unknown rather than being priced as fresh scans.
+ */
+export function recordQueryCost(record: QueryCostRecord): QueryCostOutcome {
+  const outcome = queryCostOutcome(record);
+  if (outcome.reason === "unknown-scan") state.unknownScans += 1;
+  else if (outcome.reason === "scanned") state.bytes += outcome.counted;
+  else return outcome;
+  save(state);
+  notify();
+  return outcome;
+}
+
+/** Legacy callers supply no cache provenance, so positive bytes stay unknown. */
+export function addBytesProcessed(bytes: number): QueryCostOutcome {
+  return recordQueryCost({ status: "success", bytesProcessed: bytes });
 }
 
 export function getTotalBytes(): number {
