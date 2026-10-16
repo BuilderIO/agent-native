@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
@@ -33,6 +33,28 @@ export interface UseCollaborativeDocOptions {
   requestSource?: string;
   user?: CollabUser;
   activityResource?: { resourceType: string; resourceId: string };
+  /**
+   * Keeps this tab's unacknowledged updates in localStorage until the server
+   * acknowledges them, and sends the ones a closed or reloaded tab left
+   * behind when the doc next opens for the same user. Needs `user`, whose
+   * email scopes what is kept.
+   */
+  durableUpdates?: boolean;
+  /**
+   * Called for each update the server acknowledged, with the live-copy
+   * outcome it reported. With it, an acknowledgment whose body cannot be read
+   * counts as undelivered and the update is sent again.
+   */
+  onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
+}
+
+/**
+ * What the server reported for an acknowledged update: whether the app's rows
+ * were derived from its live copy, or null when the server defines none.
+ */
+export interface CollabUpdateAck {
+  liveCopy: "derived" | "not_derived" | "unchanged" | null;
+  liveCopyReason?: string;
 }
 
 export type CollabInitializationErrorCategory =
@@ -66,6 +88,11 @@ export interface UseCollaborativeDocResult {
    * can already receive it through the document instead of inserting it twice.
    */
   flushUpdates: () => Promise<boolean>;
+  /**
+   * True once keeping this tab's unacknowledged updates, or reading the ones
+   * another tab left, failed. Updates still send while the tab stays open.
+   */
+  durableUpdatesFailed: boolean;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -223,6 +250,7 @@ interface CollabDocSnapshot {
   isLoading: boolean;
   isSynced: boolean;
   initialization: CollabInitializationState;
+  durableUpdatesFailed: boolean;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -233,6 +261,8 @@ interface CollabDocSubscription {
   pollIntervalWithSse: number;
   pauseWhenHidden: boolean;
   requestSource?: string;
+  durableUpdates?: boolean;
+  onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
 }
 
@@ -240,10 +270,47 @@ const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
   isLoading: false,
   isSynced: false,
   initialization: { status: "loading" as const },
+  durableUpdatesFailed: false,
   activeUsers: [],
   agentActive: false,
   agentPresent: false,
 });
+
+function readUpdateAck(body: unknown): CollabUpdateAck {
+  if (!body || typeof body !== "object") {
+    throw new Error("The collab update response was not an object.");
+  }
+  const { liveCopy, liveCopyReason } = body as {
+    liveCopy?: unknown;
+    liveCopyReason?: unknown;
+  };
+  if (liveCopy === undefined) return { liveCopy: null };
+  if (
+    liveCopy !== "derived" &&
+    liveCopy !== "not_derived" &&
+    liveCopy !== "unchanged"
+  ) {
+    throw new Error(`Unknown live-copy outcome ${String(liveCopy)}.`);
+  }
+  return typeof liveCopyReason === "string"
+    ? { liveCopy, liveCopyReason }
+    : { liveCopy };
+}
+
+// Unacknowledged updates kept in localStorage, one entry per connection. Yjs
+// integrates an update once, so sending one the server already holds again
+// changes nothing.
+const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
+const OUTBOX_ORIGIN = "collab-outbox";
+
+function outboxPrefix(docKey: string, email: string): string {
+  return `${OUTBOX_PREFIX}${encodeURIComponent(docKey)}:${encodeURIComponent(email)}:`;
+}
+
+interface StoredOutbox {
+  key: string;
+  raw: string;
+}
 
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
   Promise.resolve({ status: "unavailable" });
@@ -273,6 +340,11 @@ class CollabDocConnection {
   private updateErrors = 0;
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
+  private keepsUnsentUpdates = false;
+  private unsentUpdatesRestored = false;
+  private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -304,6 +376,7 @@ class CollabDocConnection {
       isLoading: true,
       isSynced: false,
       initialization: { status: "loading" },
+      durableUpdatesFailed: false,
       activeUsers: [],
       agentActive: false,
       agentPresent: false,
@@ -333,6 +406,13 @@ class CollabDocConnection {
     }
     if (!this.requestSource && sub.requestSource) {
       this.requestSource = sub.requestSource;
+    }
+    // Once kept, updates stay kept until acknowledged, even if the caller
+    // stops asking.
+    if (sub.durableUpdates && !this.keepsUnsentUpdates) {
+      this.keepsUnsentUpdates = true;
+      this.storeUnsentUpdates();
+      this.restoreUnsentUpdates();
     }
     if (!this.started) {
       this.started = true;
@@ -430,6 +510,93 @@ class CollabDocConnection {
     }
   }
 
+  private get outboxScope(): { prefix: string; key: string } | null {
+    const email = this.lastSetUser?.email?.trim().toLowerCase();
+    if (!email || typeof window === "undefined") return null;
+    const prefix = outboxPrefix(this.registryKey, email);
+    return { prefix, key: prefix + this.outboxOwnerId };
+  }
+
+  private markDurableUpdatesFailed(): void {
+    if (!this.snapshot.durableUpdatesFailed) {
+      this.setSnapshot({ durableUpdatesFailed: true });
+    }
+  }
+
+  private storeUnsentUpdates(): void {
+    if (!this.keepsUnsentUpdates) return;
+    const scope = this.outboxScope;
+    if (!scope) return;
+    try {
+      if (this.pendingUpdates.length === 0) {
+        window.localStorage.removeItem(scope.key);
+      } else {
+        window.localStorage.setItem(
+          scope.key,
+          uint8ArrayToBase64(
+            this.pendingUpdates.length === 1
+              ? this.pendingUpdates[0]
+              : Y.mergeUpdates(this.pendingUpdates),
+          ),
+        );
+      }
+    } catch {
+      this.markDurableUpdatesFailed();
+    }
+  }
+
+  /**
+   * Sends what other connections for this doc and user kept: a tab that
+   * closed or reloaded before its updates were acknowledged. Applying them
+   * queues what the doc lacks as this connection's own unsent updates, which
+   * are kept before the other entry is removed. A live tab's entry is adopted
+   * too, which sends its updates twice and changes nothing.
+   */
+  private restoreUnsentUpdates(): void {
+    if (
+      this.unsentUpdatesRestored ||
+      !this.keepsUnsentUpdates ||
+      !this.updateHandlerAttached ||
+      this.disposed
+    ) {
+      return;
+    }
+    const scope = this.outboxScope;
+    if (!scope) return;
+    this.unsentUpdatesRestored = true;
+    const stored: StoredOutbox[] = [];
+    try {
+      const storage = window.localStorage;
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (!key?.startsWith(scope.prefix) || key === scope.key) continue;
+        const raw = storage.getItem(key);
+        if (raw !== null) stored.push({ key, raw });
+      }
+    } catch {
+      this.markDurableUpdatesFailed();
+      return;
+    }
+    for (const entry of stored) {
+      try {
+        Y.applyUpdate(this.ydoc, base64ToUint8Array(entry.raw), OUTBOX_ORIGIN);
+        // Kept nowhere else while this connection cannot keep its own.
+        if (this.snapshot.durableUpdatesFailed) continue;
+      } catch {
+        // An entry that cannot be applied never will be; it is reported,
+        // then removed so it is not reported on every open.
+        this.markDurableUpdatesFailed();
+      }
+      try {
+        if (window.localStorage.getItem(entry.key) === entry.raw) {
+          window.localStorage.removeItem(entry.key);
+        }
+      } catch {
+        this.markDurableUpdatesFailed();
+      }
+    }
+  }
+
   private markAgentActive(): void {
     this.setSnapshot({ agentActive: true });
     if (this.agentTimer) clearTimeout(this.agentTimer);
@@ -484,6 +651,8 @@ class CollabDocConnection {
         void this.flushPendingUpdates();
       }
     }
+    this.storeUnsentUpdates();
+    this.restoreUnsentUpdates();
     this.awareness.setLocalStateField("user", {
       name: user.name,
       email: user.email,
@@ -634,6 +803,7 @@ class CollabDocConnection {
           initialization: { status: "ready" },
         });
         this.startTransport();
+        this.restoreUnsentUpdates();
       },
       () => {
         if (this.disposed) return;
@@ -711,6 +881,7 @@ class CollabDocConnection {
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
     if (origin === "remote") return;
     this.pendingUpdates.push(update);
+    this.storeUnsentUpdates();
     if (this.updateErrors && this.flushTimer) return;
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = setTimeout(() => {
@@ -723,12 +894,24 @@ class CollabDocConnection {
     this.flushPendingUpdates(true);
   };
 
+  // A tab that comes back online sends what it kept without waiting out the
+  // retry backoff it built up while offline.
+  private handleOnline = (): void => {
+    if (!this.keepsUnsentUpdates || this.updateInFlight) return;
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    void this.flushPendingUpdates();
+  };
+
   private attachUpdateHandler(): void {
     if (this.updateHandlerAttached || this.docMissing) return;
     this.updateHandlerAttached = true;
     this.ydoc.on("update", this.handleDocUpdate);
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", this.handlePageHide);
+      window.addEventListener("online", this.handleOnline);
     }
   }
 
@@ -738,6 +921,7 @@ class CollabDocConnection {
     this.ydoc.off("update", this.handleDocUpdate);
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.handlePageHide);
+      window.removeEventListener("online", this.handleOnline);
     }
   }
 
@@ -768,6 +952,10 @@ class CollabDocConnection {
       () => controller.abort(),
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
+    const ackListeners = Array.from(this.subscribers.values()).flatMap((sub) =>
+      sub.onUpdateAcknowledged ? [sub.onUpdateAcknowledged] : [],
+    );
+    let ack: CollabUpdateAck | null = null;
     try {
       const response = await fetch(`${this.baseUrl}/${this.docId}/update`, {
         method: "POST",
@@ -780,6 +968,7 @@ class CollabDocConnection {
         ...(keepalive ? { keepalive: true } : {}),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (ackListeners.length) ack = readUpdateAck(await response.json());
       const previous = this.pendingUpdates;
       const acknowledged = new Set(toSend);
       this.pendingUpdates = previous.filter(
@@ -796,6 +985,7 @@ class CollabDocConnection {
           retiredCollabUpdates.delete(retiredKey);
         }
       }
+      this.storeUnsentUpdates();
       this.updateErrors = 0;
     } catch {
       this.updateErrors++;
@@ -818,6 +1008,9 @@ class CollabDocConnection {
         );
       }
     }
+    // After the bookkeeping, so a listener that throws cannot send an
+    // acknowledged update again.
+    if (ack) for (const listener of ackListeners) listener(ack);
   }
 
   private startSync(): void {
@@ -1230,8 +1423,8 @@ class CollabDocConnection {
 }
 
 const collabConnectionRegistry = new Map<string, CollabDocConnection>();
-// ponytail: in-memory retention survives component remounts; use a durable
-// outbox if offline reload recovery becomes supported. No retired retry loop.
+// In-memory retention survives component remounts; a connection with durable
+// updates also keeps them in localStorage. No retired retry loop.
 const retiredCollabUpdates = new Map<string, Uint8Array[]>();
 
 function collabRegistryKey(docId: string, baseUrl: string): string {
@@ -1280,7 +1473,12 @@ export function useCollaborativeDoc(
     requestSource,
     user,
     activityResource,
+    durableUpdates = false,
+    onUpdateAcknowledged,
   } = options;
+  const onUpdateAcknowledgedRef = useRef(onUpdateAcknowledged);
+  onUpdateAcknowledgedRef.current = onUpdateAcknowledged;
+  const wantsAcks = onUpdateAcknowledged !== undefined;
   useEffect(() => {
     if (!docId || !activityResource) return;
     return registerCollabActivityResource(activityResource);
@@ -1326,13 +1524,28 @@ export function useCollaborativeDoc(
       pollIntervalWithSse,
       pauseWhenHidden,
       requestSource,
+      durableUpdates,
+      ...(wantsAcks
+        ? {
+            onUpdateAcknowledged: (ack: CollabUpdateAck) =>
+              onUpdateAcknowledgedRef.current?.(ack),
+          }
+        : {}),
       onSnapshot: setSnapshot,
     });
     setSnapshot(conn.snapshot);
     return () => {
       conn.remove(id);
     };
-  }, [conn, pollInterval, pollIntervalWithSse, pauseWhenHidden, requestSource]);
+  }, [
+    conn,
+    pollInterval,
+    pollIntervalWithSse,
+    pauseWhenHidden,
+    requestSource,
+    durableUpdates,
+    wantsAcks,
+  ]);
 
   useEffect(() => {
     if (!conn || conn.detached || !resolvedUser) return;
@@ -1359,6 +1572,7 @@ export function useCollaborativeDoc(
       : () => {},
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
     flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
+    durableUpdatesFailed: snapshot.durableUpdatesFailed,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

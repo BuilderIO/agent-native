@@ -57,6 +57,11 @@ export interface Document {
   revision?: string;
   bodyRevision?: number;
   collabContentRevision?: string | null;
+  /**
+   * How the page's body is written. On `live_copy` the server derives it from
+   * the collab doc, so the browser sends the body only as collab updates.
+   */
+  writePath?: "live_copy" | "legacy";
   contentHash?: string;
   contentFidelity?: NfmFidelityReport;
 }
