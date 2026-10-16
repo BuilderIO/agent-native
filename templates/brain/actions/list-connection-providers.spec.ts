@@ -33,7 +33,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/provider-api", () => ({
   isProviderApiId: (provider: string) =>
-    provider === "jira" || provider === "github",
+    provider === "jira" || provider === "github" || provider === "gong",
   listProviderApiCatalog: (provider: string) => [
     provider === "github"
       ? {
@@ -44,18 +44,27 @@ vi.mock("@agent-native/core/provider-api", () => ({
           specUrls: [],
           examples: [],
         }
-      : {
-          id: "jira",
-          auth: "oauth-bearer:jira-or-basic:JIRA_USER_EMAIL:JIRA_API_TOKEN",
-          credentialKeys: [
-            "JIRA_BASE_URL",
-            "JIRA_USER_EMAIL",
-            "JIRA_API_TOKEN",
-          ],
-          docsUrls: [],
-          specUrls: [],
-          examples: [],
-        },
+      : provider === "gong"
+        ? {
+            id: "gong",
+            auth: "basic",
+            credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
+            docsUrls: [],
+            specUrls: [],
+            examples: [],
+          }
+        : {
+            id: "jira",
+            auth: "oauth-bearer:jira-or-basic:JIRA_USER_EMAIL:JIRA_API_TOKEN",
+            credentialKeys: [
+              "JIRA_BASE_URL",
+              "JIRA_USER_EMAIL",
+              "JIRA_API_TOKEN",
+            ],
+            docsUrls: [],
+            specUrls: [],
+            examples: [],
+          },
   ],
 }));
 
@@ -278,6 +287,42 @@ describe("list-connection-providers", () => {
     });
   });
 
+  it("reports Gong ready from organization API keys without a shared connection or base override", async () => {
+    mocks.availableKeys.add("GONG_ACCESS_KEY");
+    mocks.availableKeys.add("GONG_ACCESS_SECRET");
+
+    const result = await action.run({});
+
+    expect(
+      result.providers.find((provider) => provider.id === "gong"),
+    ).toMatchObject({
+      configured: true,
+      setupLink: undefined,
+      sourceProviderSupported: false,
+      providerHealth: { status: "ready" },
+      rawProviderApi: { available: true },
+    });
+  });
+
+  it("reports missing Gong organization API keys without requesting a personal seat", async () => {
+    mocks.availableKeys.add("GONG_ACCESS_KEY");
+
+    const result = await action.run({});
+    const gong = result.providers.find((provider) => provider.id === "gong");
+
+    expect(gong).toMatchObject({
+      configured: false,
+      setupLink: undefined,
+      credentialHealth: {
+        missingCredentialKeys: ["GONG_ACCESS_SECRET"],
+      },
+      providerHealth: { status: "missing_credentials" },
+    });
+    expect(gong?.providerHealth.message).not.toMatch(
+      /personal seat|individual seat|personal account/i,
+    );
+  });
+
   it("lists Zoom only for Brain admins", async () => {
     const admin = await action.run({});
     expect(admin.canManageZoom).toBe(true);
@@ -286,6 +331,9 @@ describe("list-connection-providers", () => {
     mocks.isBrainAdmin = false;
     const member = await action.run({});
     expect(member.canManageZoom).toBe(false);
-    expect(member.providers.map((provider) => provider.id)).toEqual(["jira"]);
+    expect(member.providers.map((provider) => provider.id)).toEqual([
+      "jira",
+      "gong",
+    ]);
   });
 });

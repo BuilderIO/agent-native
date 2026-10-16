@@ -1104,9 +1104,9 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       usernameKey: "GONG_ACCESS_KEY",
       passwordKey: "GONG_ACCESS_SECRET",
     },
-    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
+    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
     docsUrls: ["https://gong.app.gong.io/settings/api/documentation"],
-    templateUses: ["analytics", "calendar"],
+    templateUses: ["analytics", "brain", "calendar"],
     examples: [
       { label: "List calls", method: "GET", path: "/calls" },
       {
@@ -1131,7 +1131,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "To answer a question about a Gong account, deal, customer, or topic, use Gong's connected MCP tools (ask_account, ask_deal, generate_brief) when available; Gong searches the calls server-side and answers in one request. Gong's REST API has no account, company, or topic filter, so finding one account's calls or a topic through /calls or /calls/extensive means scanning the whole org, and those responses truncate at the size limit. If the Analytics app is connected, ask it with call-agent; it owns Gong search. Use the REST endpoints below only for exact counts, verbatim quotes, or proof of absence across a bounded cohort.",
+      "To answer a question about a Gong account, deal, customer, or topic, use Gong's connected MCP tools (ask_account, ask_deal, generate_brief) when available; Gong searches the calls server-side and answers in one request. Gong's REST API has no account, company, or topic filter, so finding one account's calls or a topic through /calls or /calls/extensive means scanning the whole org, and those responses truncate at the size limit. If the Analytics app is connected, ask it with call-agent for CRM or warehouse joins. In Brain, configured organization-scoped GONG_ACCESS_KEY and GONG_ACCESS_SECRET credentials enable on-demand Gong queries without requiring each Brain user to have a personal Gong seat. Use the REST endpoints below for bounded corpus work, exact counts, verbatim quotes, or proof of absence.",
       "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
       "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
     ],

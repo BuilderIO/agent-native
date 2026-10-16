@@ -47,10 +47,8 @@ type CatalogProvider = Omit<
   id: string;
 };
 
-// The shared workspace connection catalog has no Zoom provider, so Brain
-// lists it from its own registered secrets. There is no shared connection to
-// grant, which is why the summary is always "not_connected" and the setup link
-// is omitted rather than pointing Dispatch at a provider it does not know.
+// These providers use Brain's own organization-scoped API keys instead of a
+// shared workspace connection grant.
 const BRAIN_LOCAL_PROVIDERS: readonly Omit<
   CatalogProvider,
   "workspaceConnection"
@@ -70,6 +68,27 @@ const BRAIN_LOCAL_PROVIDERS: readonly Omit<
       },
     ],
     capabilities: ["import", "meetings"],
+    recommendedTemplateUses: ["brain"],
+  },
+  {
+    id: "gong",
+    label: "Gong",
+    description:
+      "On-demand Gong call queries using organization API credentials; users do not need individual Gong seats.",
+    credentialKeys: [
+      { key: "GONG_ACCESS_KEY", label: "Gong Access Key", required: true },
+      {
+        key: "GONG_ACCESS_SECRET",
+        label: "Gong Access Secret",
+        required: true,
+      },
+      {
+        key: "GONG_API_BASE",
+        label: "Gong API Base URL",
+        required: false,
+      },
+    ],
+    capabilities: ["meetings"],
     recommendedTemplateUses: ["brain"],
   },
 ];
@@ -249,12 +268,14 @@ async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
 
 function providerHealthForProvider({
   credentialHealth,
+  provider,
   providerApi,
   providerApiIsConfigured,
   sourceProviderSupported,
   workspace,
 }: {
   credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
+  provider: CatalogProvider;
   providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
   providerApiIsConfigured: boolean | null;
   sourceProviderSupported: boolean;
@@ -279,8 +300,11 @@ function providerHealthForProvider({
     }
     return {
       status: "missing_credentials" as const,
-      message:
-        "Connect this provider before Brain makes an on-demand API request.",
+      message: BRAIN_LOCAL_PROVIDERS.some(
+        (localProvider) => localProvider.id === provider.id,
+      )
+        ? workspace.grantAvailabilityMessage
+        : "Connect this provider before Brain makes an on-demand API request.",
     };
   }
   if (!sourceProviderSupported) {
@@ -358,7 +382,7 @@ async function listWorkspaceConnectionsForCatalog(): Promise<{
 
 export default defineAction({
   description:
-    "Check reusable Brain source and provider API readiness before using a provider. Each provider reports whether authenticated access is configured and includes an absolute Dispatch setupLink when shared setup is needed. When a requested provider is unavailable, explain the missing connection and return its setupLink instead of attempting provider-api-request; if the user is not a workspace admin, mention that a personal MCP connection may be available in chat.",
+    "Check Brain source and on-demand provider API readiness. `configured: true` means Brain can make authenticated requests with an active shared connection or organization-scoped API keys. Use a returned setupLink when present; for Brain-local providers, describe the missing API keys in Brain Settings instead of asking each user to connect a personal provider account.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -428,6 +452,7 @@ export default defineAction({
           credentialHealth,
           providerHealth: providerHealthForProvider({
             credentialHealth,
+            provider,
             providerApi,
             providerApiIsConfigured,
             sourceProviderSupported,
