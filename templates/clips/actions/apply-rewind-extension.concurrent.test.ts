@@ -17,6 +17,7 @@ let queries: string[];
 const mocks = vi.hoisted(() => ({
   appState: new Map<string, unknown>(),
   writeAppState: vi.fn(),
+  dispatch: vi.fn(),
   isBound: vi.fn(),
 }));
 
@@ -35,7 +36,7 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
 }));
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
-  dispatchPostFinalizeJob: vi.fn(async () => undefined),
+  dispatchPostFinalizeJob: mocks.dispatch,
 }));
 vi.mock("../server/lib/recordings.js", async () => {
   const { eq } = await import("drizzle-orm");
@@ -103,6 +104,7 @@ beforeEach(async () => {
     mocks.appState.set(key, value);
   });
   mocks.isBound.mockReset().mockResolvedValue(true);
+  mocks.dispatch.mockReset().mockResolvedValue(undefined);
   mocks.appState.set(rewindExtensionKey("rec_1"), {
     requestId: "req_1",
     recordingId: "rec_1",
@@ -221,6 +223,11 @@ describe("apply-rewind-extension", () => {
           chapters_json = '[{"startMs":2000,"title":"Made-up chapter"},{"startMs":7000,"title":"Added meanwhile"}]'
         WHERE id = 'rec_1'
       `);
+      await client.query(`
+        UPDATE recording_transcripts
+        SET segments_json = '[{"startMs":1000,"endMs":4000,"text":"Made-up words."},{"startMs":5000,"endMs":6000,"text":"Saved meanwhile."}]'
+        WHERE recording_id = 'rec_1'
+      `);
       return true;
     });
 
@@ -245,6 +252,39 @@ describe("apply-rewind-extension", () => {
         ),
       ).trims,
     ).toMatchObject([{ startMs: 31_000, endMs: 32_000, excluded: true }]);
+    expect(
+      JSON.parse(
+        String(
+          await value(
+            `SELECT segments_json FROM recording_transcripts WHERE recording_id = 'rec_1'`,
+          ),
+        ),
+      ),
+    ).toMatchObject([
+      { startMs: 31_000, endMs: 34_000 },
+      { startMs: 35_000, endMs: 36_000, text: "Saved meanwhile." },
+    ]);
+    expect(
+      queries.filter((query) =>
+        /from "recording_transcripts" .*for update/i.test(query),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the request ready to retry when the thumbnail job can't be queued", async () => {
+    mocks.dispatch.mockRejectedValueOnce(new Error("worker down"));
+    await expect(
+      apply("https://storage.example/rec_1/rewind.mp4"),
+    ).rejects.toThrow("worker down");
+    expect(mocks.appState.get(rewindExtensionKey("rec_1"))).toMatchObject({
+      status: "ready",
+    });
+
+    const result = await apply("https://storage.example/rec_1/rewind.mp4");
+
+    expect(result.request.status).toBe("applied");
+    expect(mocks.dispatch).toHaveBeenCalledTimes(2);
+    await expectShiftedOnce();
   });
 
   it("stops before touching the pre-roll when the Clip is gone by the transaction", async () => {

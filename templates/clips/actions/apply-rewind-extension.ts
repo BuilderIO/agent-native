@@ -120,18 +120,21 @@ export default defineAction({
         actualDurationMs: args.addedMs,
         updatedAt: now,
       };
-      await writeAppState(key, applied);
+      // Queued first: an applied request can't be retried, so a failed
+      // dispatch has to leave it ready.
       await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "thumbnail",
         requireAccepted: true,
       });
+      await writeAppState(key, applied);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return { recordingId: args.recordingId, request: applied };
     };
     // The shift records its request in the edits, so a retry after it
-    // committed (say, when marking the request applied failed) only finishes
-    // up. The duration check below would refuse it.
+    // committed (say, when queuing the thumbnail or marking the request
+    // applied failed) only finishes up. The duration check below would
+    // refuse it.
     if (parseEdits(recording.editsJson).rewindRequestId === args.requestId) {
       return finish();
     }
@@ -152,25 +155,11 @@ export default defineAction({
       throw new Error("The Rewind upload is not bound to its recording.");
     }
 
-    const [transcript] = await db
-      .select()
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-    const shiftedTranscript = transcript
-      ? JSON.stringify(
-          parseTranscriptSegments(transcript.segmentsJson).map((segment) => ({
-            ...segment,
-            startMs: segment.startMs + args.addedMs,
-            endMs: segment.endMs + args.addedMs,
-          })),
-        )
-      : null;
-
     await db.transaction(async (tx) => {
       // Two applies of one request can both pass the checks above. Locked,
       // the second waits for the first and then finds the request in the
-      // edits, so it shifts nothing a second time. Reading the edits and
-      // chapters here, not above, also keeps an edit saved meanwhile.
+      // edits, so it shifts nothing a second time. Reading what it shifts
+      // here, not above, also keeps an edit saved meanwhile.
       const [locked] = await tx
         .select({
           editsJson: schema.recordings.editsJson,
@@ -217,10 +206,22 @@ export default defineAction({
           updatedAt: now,
         })
         .where(eq(schema.recordings.id, args.recordingId));
-      if (transcript && shiftedTranscript) {
+      const [transcript] = await tx
+        .select({ segmentsJson: schema.recordingTranscripts.segmentsJson })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+        .for("update");
+      if (transcript) {
+        const shifted = parseTranscriptSegments(transcript.segmentsJson).map(
+          (segment) => ({
+            ...segment,
+            startMs: segment.startMs + args.addedMs,
+            endMs: segment.endMs + args.addedMs,
+          }),
+        );
         await tx
           .update(schema.recordingTranscripts)
-          .set({ segmentsJson: shiftedTranscript, updatedAt: now })
+          .set({ segmentsJson: JSON.stringify(shifted), updatedAt: now })
           .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
       }
       await tx
