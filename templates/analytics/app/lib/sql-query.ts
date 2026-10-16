@@ -21,7 +21,14 @@ export interface SqlQueryResult {
   rows: Record<string, unknown>[];
   error?: string;
   schema?: { name: string; type: string }[];
+  /** Bytes the warehouse read for this result; absent for sources without a byte count. */
+  bytesProcessed?: number;
+  /** True when the server answered from its query cache and read nothing. */
+  cached?: boolean;
 }
+
+/** Why a query runs; the server applies the matching billed-byte cap. */
+export type SqlQueryPurpose = "row-breakdown";
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;
@@ -143,7 +150,11 @@ export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
-  options?: { reportScreenshot?: boolean; forceRefresh?: boolean },
+  options?: {
+    reportScreenshot?: boolean;
+    forceRefresh?: boolean;
+    purpose?: SqlQueryPurpose;
+  },
 ): Promise<SqlQueryResult> {
   const deadline = createDeadlineSignal(
     signal,
@@ -161,6 +172,7 @@ export async function executeSqlQuery(
         ...(options?.forceRefresh && source === "bigquery"
           ? { forceRefresh: true }
           : {}),
+        ...(options?.purpose ? { purpose: options.purpose } : {}),
       },
       {
         signal: deadline.signal,
@@ -187,6 +199,10 @@ export async function executeSqlQuery(
   return {
     rows: data.rows ?? [],
     schema: data.schema,
+    ...(typeof data.bytesProcessed === "number"
+      ? { bytesProcessed: data.bytesProcessed }
+      : {}),
+    ...(data.cached === true ? { cached: true } : {}),
   };
 }
 
@@ -223,6 +239,7 @@ export function useSqlQuery(
      * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
      */
     reuseCompletedOnEnable?: boolean;
+    purpose?: SqlQueryPurpose;
   },
 ) {
   // The signed-in user and org are part of the cache key, so one account's
@@ -263,6 +280,7 @@ export function useSqlQuery(
       const result = await executeSqlQuery(sql, source, signal, {
         reportScreenshot: options?.reportScreenshot,
         forceRefresh,
+        ...(options?.purpose ? { purpose: options.purpose } : {}),
       });
       successfulRefreshToken.current = Math.max(
         successfulRefreshToken.current,

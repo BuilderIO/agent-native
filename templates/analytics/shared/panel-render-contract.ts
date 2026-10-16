@@ -15,6 +15,7 @@ import {
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
 import { isValidPanelEvent, panelEventProblem } from "./panel-events";
+import { isValidPanelBreakdowns } from "./row-breakdown";
 import {
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
@@ -74,6 +75,7 @@ export const PANEL_CONFIG_KEYS = {
   valueLabels: {},
   sortable: {},
   columns: {},
+  breakdowns: { onlyFor: ["table"] },
   limit: {},
   extensionId: {},
   extensionSlotId: {},
@@ -294,6 +296,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
         STRING_ARRAY_SHAPE.valid(value.seriesOrder)),
     expected:
       "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
+  },
+  breakdowns: {
+    valid: isValidPanelBreakdowns,
+    expected:
+      "a non-empty array of { column: result column identifier, label?: string } with no repeated column; the panel SQL selects and groups by the column inside a {{?breakdown}}…{{/breakdown}} block",
   },
   funnelOutcomes: {
     valid: (value) =>

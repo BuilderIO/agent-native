@@ -179,6 +179,10 @@ export default defineAction({
     if (effectiveNavigation) screen.navigation = effectiveNavigation;
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
+    const rowBreakdown = isAskView
+      ? null
+      : await readAppStateForCurrentTab("row-breakdown");
+    if (rowBreakdown) screen.rowBreakdown = rowBreakdown;
 
     if (url?.searchParams) {
       const activeFilters: Record<string, string> = {};

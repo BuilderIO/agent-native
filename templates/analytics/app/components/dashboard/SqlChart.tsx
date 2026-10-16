@@ -55,6 +55,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -127,6 +129,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
+import { cn } from "@/lib/utils";
 import {
   resolveDualAxis,
   type ChartAxisSide,
@@ -1276,9 +1279,17 @@ interface SqlChartProps {
    * calls this instead of `onSaveColumns`, and null resets the column.
    */
   onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  /** Passing this makes a table's rows clickable; it gets the row and the rows in shown order. */
+  onTableRowClick?: TableRowClickHandler;
+  isTableRowActive?: (row: Record<string, unknown>) => boolean;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
+
+export type TableRowClickHandler = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+) => void;
 
 export function SqlChart({
   panel,
@@ -1296,6 +1307,8 @@ export function SqlChart({
   onSaveColumns,
   columnWidths,
   onColumnWidthChange,
+  onTableRowClick,
+  isTableRowActive,
   dashboardId,
   extensionContext,
 }: SqlChartProps) {
@@ -1622,6 +1635,8 @@ export function SqlChart({
         onSaveColumns={onSaveColumns}
         columnWidths={columnWidths}
         onColumnWidthChange={onColumnWidthChange}
+        onRowClick={onTableRowClick}
+        isRowActive={isTableRowActive}
       />,
     );
   }
@@ -2036,7 +2051,9 @@ function isSessionColumn(key: string): boolean {
   return key === "session_id" || key === "sessionId";
 }
 
-function isNumericColumnFormat(format: ColumnFormat | undefined): boolean {
+export function isNumericColumnFormat(
+  format: ColumnFormat | undefined,
+): boolean {
   return (
     format === "number" ||
     format === "currency" ||
@@ -2091,6 +2108,8 @@ function TableRenderer({
   onSaveColumns,
   columnWidths,
   onColumnWidthChange,
+  onRowClick,
+  isRowActive,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
@@ -2099,6 +2118,8 @@ function TableRenderer({
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
   columnWidths?: Record<string, number>;
   onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  onRowClick?: TableRowClickHandler;
+  isRowActive?: (row: Record<string, unknown>) => boolean;
 }) {
   const t = useT();
   const config = panel.config;
@@ -2562,7 +2583,35 @@ function TableRenderer({
           </thead>
           <tbody>
             {displayRows.map((row, i) => (
-              <tr key={i} className="border-b border-border/50">
+              <tr
+                key={i}
+                className={cn(
+                  "border-b border-border/50",
+                  onRowClick &&
+                    "cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
+                  isRowActive?.(row) && "bg-muted",
+                )}
+                {...(onRowClick
+                  ? {
+                      tabIndex: 0,
+                      "data-no-panel-chat-select": "",
+                      onClick: (event: ReactMouseEvent<HTMLElement>) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest("a, button")
+                        ) {
+                          return;
+                        }
+                        onRowClick(row, sortedRows);
+                      },
+                      onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        onRowClick(row, sortedRows);
+                      },
+                    }
+                  : {})}
+              >
                 {columns.map((col) => {
                   const raw = row[col.key];
                   const truncated = truncatedColumns.has(col.key);

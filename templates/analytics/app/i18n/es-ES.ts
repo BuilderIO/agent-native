@@ -1436,6 +1436,21 @@ export default {
     columnShowHidden: "Mostrar columnas ocultas",
     columnName: "Nombre de la columna",
     columnResize: "Cambiar tamaño de la columna",
+    rowBreakdownBy: "Desglosar por",
+    rowBreakdownAll: "Todos",
+    rowBreakdownOther: "Otros",
+    rowBreakdownOtherHint:
+      "Grupos más pequeños y quienes el SQL de este panel deja fuera",
+    rowBreakdownSmallGroup:
+      "Menos de {{count}}: interpreta las tasas con cautela",
+    rowBreakdownNoValue: "(ninguno)",
+    rowBreakdownEmpty: "No hay filas para este desglose.",
+    rowBreakdownUnavailable:
+      "El SQL de este panel no tiene desglose por {{column}}.",
+    rowBreakdownFromPanel: "De las filas de este panel. No se leyó nada.",
+    rowBreakdownFromCache: "De la caché. No se leyó nada.",
+    rowBreakdownAlreadyLoaded: "Ya cargado. No se leyó nada.",
+    rowBreakdownBytesRead: "Se leyeron {{bytes}}",
     deleteSectionTitle: "¿Eliminar sección?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "¿Eliminar panel?",

@@ -1449,6 +1449,21 @@ export default {
     columnShowHidden: "Ausgeblendete Spalten einblenden",
     columnName: "Spaltenname",
     columnResize: "Spaltenbreite ändern",
+    rowBreakdownBy: "Aufschlüsseln nach",
+    rowBreakdownAll: "Alle",
+    rowBreakdownOther: "Andere",
+    rowBreakdownOtherHint:
+      "Kleinere Gruppen und alle, die das SQL dieses Panels auslässt",
+    rowBreakdownSmallGroup: "Weniger als {{count}}: Raten mit Vorsicht lesen",
+    rowBreakdownNoValue: "(keine)",
+    rowBreakdownEmpty: "Keine Zeilen für diese Aufschlüsselung.",
+    rowBreakdownUnavailable:
+      "Das SQL dieses Panels hat keine Aufschlüsselung nach {{column}}.",
+    rowBreakdownFromPanel:
+      "Aus den Zeilen dieses Panels. Es wurde nichts gelesen.",
+    rowBreakdownFromCache: "Aus dem Cache. Es wurde nichts gelesen.",
+    rowBreakdownAlreadyLoaded: "Bereits geladen. Es wurde nichts gelesen.",
+    rowBreakdownBytesRead: "{{bytes}} gelesen",
     deleteSectionTitle: "Abschnitt löschen?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Panel löschen?",

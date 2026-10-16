@@ -5,6 +5,11 @@ import { useDraggable } from "@dnd-kit/core";
 import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
 import {
+  breakdownRowKey,
+  isValidPanelBreakdowns,
+  sameCell,
+} from "@shared/row-breakdown";
+import {
   IconGripVertical,
   IconDotsVertical,
   IconMaximize,
@@ -82,6 +87,10 @@ import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
+import {
+  RowBreakdownSheet,
+  type RowBreakdownSelection,
+} from "./RowBreakdownSheet";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -214,6 +223,34 @@ export function SqlChartCard({
           onColumnWidthChange: personalColumnWidths.setWidth,
         }
       : {};
+  const breakdowns =
+    panel.chartType === "table" &&
+    isValidPanelBreakdowns(panel.config?.breakdowns)
+      ? panel.config.breakdowns
+      : null;
+  const [breakdownSelection, setBreakdownSelection] =
+    useState<RowBreakdownSelection | null>(null);
+  // New filters change every number in the open row, so close it rather than
+  // show a split of rows that are no longer on screen.
+  useEffect(() => setBreakdownSelection(null), [resolvedSql]);
+  const breakdownRowKeyName = breakdownSelection
+    ? breakdownRowKey(panel.config?.columns, breakdownSelection.row)
+    : null;
+  const breakdownRowProps = breakdowns
+    ? {
+        onTableRowClick: (
+          row: Record<string, unknown>,
+          rows: Record<string, unknown>[],
+        ) => setBreakdownSelection({ row, rows, openedAt: Date.now() }),
+        isTableRowActive: (row: Record<string, unknown>) =>
+          breakdownSelection !== null &&
+          breakdownRowKeyName !== null &&
+          sameCell(
+            row[breakdownRowKeyName],
+            breakdownSelection.row[breakdownRowKeyName],
+          ),
+      }
+    : {};
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -707,6 +744,7 @@ export function SqlChartCard({
       data-chat-selected={selectedForChat ? "true" : undefined}
       data-dashboard-report-panel-id={panel.id}
       data-dashboard-report-panel-title={panel.title}
+      data-row-breakdown-panel={breakdowns ? panel.id : undefined}
       className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
       <Card
@@ -928,12 +966,24 @@ export function SqlChartCard({
               onExportCsvChange={handleExportCsvChange}
               onCopyTableChange={handleCopyTableChange}
               {...tableColumnProps}
+              {...breakdownRowProps}
               extensionContext={extensionContext}
             />
           </UnplacedDataNotesListener>
           <DataNoteLines notes={listedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
+
+      {breakdowns ? (
+        <RowBreakdownSheet
+          panel={panel}
+          breakdowns={breakdowns}
+          dashboardId={dashboardId}
+          filters={filters ?? {}}
+          selection={breakdownSelection}
+          onSelectionChange={setBreakdownSelection}
+        />
+      ) : null}
 
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
