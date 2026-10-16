@@ -1,5 +1,15 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  meetingBrowserConfirmation:
+    "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
+  quitRecovery: {
+    title: "Clips에서 회의를 마무리하는 중입니다",
+    body: "Clips에서 이 회의를 중지하고 저장하는 작업을 완료하지 못했습니다. 지금 종료하면 최신 대화록이 손실될 수 있습니다.",
+    keepOpen: "Clips 계속 열어 두기",
+    quitAnyway: "그래도 종료",
+    actionFailed:
+      "Clips에서 종료 복구 상태를 업데이트하지 못했습니다. 다시 시도하세요.",
+  },
   lookbackContext: {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",

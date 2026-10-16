@@ -250,6 +250,8 @@ pub fn run() {
             clips::set_meeting_active,
             clips::get_active_meeting_id,
             clips::quit_teardown_done,
+            clips::quit_teardown_cancel,
+            clips::quit_teardown_force,
             clips::reset_state,
             clips::save_bubble_position,
             clips::bubble_drag_start,
@@ -558,12 +560,25 @@ pub fn run() {
                     .unwrap_or(false);
                 let teardown_state =
                     clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst);
-                if teardown_state == 1 {
+                if teardown_state == clips::QUIT_TEARDOWN_PENDING {
                     api.prevent_exit();
                 } else if meeting_active && teardown_state == 0 {
-                    clips::QUIT_TEARDOWN_STATE.store(1, std::sync::atomic::Ordering::SeqCst);
-                    api.prevent_exit();
-                    let _ = _app_handle.emit("meetings:quit-requested", ());
+                    if clips::begin_quit_teardown() {
+                        api.prevent_exit();
+                        let _ = _app_handle.emit("meetings:quit-requested", ());
+                        let app_handle = _app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs(15)).await;
+                            if clips::show_quit_teardown_recovery() {
+                                clips::force_show_popover(&app_handle);
+                                let _ = app_handle.emit("meetings:quit-recovery-required", ());
+                            }
+                        });
+                    } else if clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst)
+                        == clips::QUIT_TEARDOWN_PENDING
+                    {
+                        api.prevent_exit();
+                    }
                 }
             }
             if let tauri::RunEvent::Exit = _event {

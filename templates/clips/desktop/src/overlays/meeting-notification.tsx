@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
   IconChevronDown,
@@ -110,6 +111,7 @@ function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
 }
 
 export function MeetingNotification() {
+  const t = useT();
   const [data, setData] = useState<NotificationData | null>(null);
   const [showClose, setShowClose] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -503,7 +505,11 @@ export function MeetingNotification() {
       >
         <div className="meeting-notification-content">
           <div className="meeting-notification-title">{data.title}</div>
-          <div className="meeting-notification-subtitle">{data.subtitle}</div>
+          <div className="meeting-notification-subtitle">
+            {data.type === "adhoc" && data.browserBundleId
+              ? t("meetingBrowserConfirmation")
+              : data.subtitle}
+          </div>
           {error ? (
             <div className="meeting-notification-error" role="alert">
               <IconAlertCircle size={12} aria-hidden="true" />

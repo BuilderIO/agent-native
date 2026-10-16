@@ -67,11 +67,15 @@ vi.mock("../server/db/index.js", () => ({
 
 import action from "./stop-meeting-recording";
 
-function createDb(results: unknown[][]) {
+function createDb(
+  results: unknown[][],
+  stopResults: unknown[] = [{ actualEnd: "2026-10-16T17:00:00.000Z" }],
+) {
   let selectIndex = 0;
   const updateBuilder = {
     set: vi.fn(() => updateBuilder),
-    where: vi.fn(async () => undefined),
+    where: vi.fn(() => updateBuilder),
+    returning: vi.fn(async () => stopResults),
   };
   const db = {
     select: vi.fn(() => {
@@ -236,5 +240,39 @@ describe("stop-meeting-recording endReason", () => {
     expect(JSON.stringify(meetingUpdate.actualEnd)).toContain("coalesce(");
     expect(meetingUpdate.endReason).toMatchObject({ kind: "sql" });
     expect(JSON.stringify(meetingUpdate.endReason)).toContain("is null then");
+  });
+
+  it("returns the terminal state for an ended meeting even after it is trashed", async () => {
+    const db = createDb([
+      [
+        meeting({
+          visibility: "org",
+          actualEnd: "2026-10-16T16:59:00.000Z",
+          trashedAt: "2026-10-16T16:59:30.000Z",
+        }),
+      ],
+      [{ fullText: "Welcome to the call." }],
+      [{ visibility: "org" }],
+    ]);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      action.run({ meetingId: "meeting-1", reason: "manual" }),
+    ).resolves.toMatchObject({
+      meetingId: "meeting-1",
+      actualEnd: "2026-10-16T17:00:00.000Z",
+    });
+  });
+
+  it("returns a typed not-found failure when the stop update affects no row", async () => {
+    const db = createDb([[meeting()]], []);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      action.run({ meetingId: "meeting-1", reason: "manual" }),
+    ).rejects.toMatchObject({
+      errorCode: "meeting_not_found",
+      statusCode: 404,
+    });
   });
 });

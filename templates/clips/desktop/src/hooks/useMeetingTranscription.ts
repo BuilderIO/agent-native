@@ -3,6 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
+import { withMeetingActionTimeout } from "../lib/meeting-action-timeout";
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import { stopMeetingBeforeTranscriptFlush } from "../lib/meeting-stop";
 import { subscribeAutoStop } from "../lib/silence-events";
@@ -80,6 +81,7 @@ interface Props {
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
 const MEETING_ENDED_POLL_MS = 30_000;
+const MEETING_ACTION_TIMEOUT_MS = 10_000;
 const RECOVERY_RETRY_INITIAL_MS = 3_000;
 const RECOVERY_RETRY_MAX_MS = 30_000;
 
@@ -151,13 +153,22 @@ export function useMeetingTranscription({
     const seq = session.dirtySeq;
     session.flushSeq = seq;
     const run = (async () => {
-      await callClipsAction("save-browser-transcript", {
-        recordingId: session.recordingId,
-        fullText: transcriptFullText(session.lines),
-        segments: transcriptSegments(session.lines),
-        source: session.engine,
-        overwriteReady: true,
-      });
+      await withMeetingActionTimeout(
+        (signal) =>
+          callClipsAction(
+            "save-browser-transcript",
+            {
+              recordingId: session.recordingId,
+              fullText: transcriptFullText(session.lines),
+              segments: transcriptSegments(session.lines),
+              source: session.engine,
+              overwriteReady: true,
+            },
+            { signal },
+          ),
+        MEETING_ACTION_TIMEOUT_MS,
+        "Saving the meeting transcript timed out.",
+      );
       emit("clips:meeting-saved", {
         meetingId: session.meetingId,
         ts: Date.now(),
@@ -207,24 +218,27 @@ export function useMeetingTranscription({
         unlistenAll(session.unlisten.splice(0));
         await invoke("silence_detector_stop").catch(() => {});
         try {
+          let stopConfirmed = false;
           await stopMeetingBeforeTranscriptFlush({
             stopRecording: async () => {
-              await callClipsAction("stop-meeting-recording", {
-                meetingId: session.meetingId,
-                reason: stopReason,
-              });
+              const result = await withMeetingActionTimeout(
+                (signal) =>
+                  callClipsAction<{
+                    actualEnd?: string | null;
+                  }>(
+                    "stop-meeting-recording",
+                    {
+                      meetingId: session.meetingId,
+                      reason: stopReason,
+                    },
+                    { signal },
+                  ),
+                MEETING_ACTION_TIMEOUT_MS,
+                "Stopping the meeting timed out.",
+              );
+              stopConfirmed = Boolean(result?.actualEnd);
             },
-            isStopped: async () => {
-              const result = await callClipsAction<{
-                meeting?: { actualEnd?: string | null } | null;
-              }>("get-meeting", { id: session.meetingId }, { method: "GET" });
-              if (!result?.meeting) {
-                throw new Error(
-                  "The meeting is unavailable for stop confirmation.",
-                );
-              }
-              return Boolean(result.meeting.actualEnd);
-            },
+            isStopped: async () => stopConfirmed,
             waitForHistory: async () => {
               await session.historyInFlight?.catch(() => {});
             },
@@ -497,17 +511,6 @@ export function useMeetingTranscription({
             if (stoppedMeetingId && stoppedMeetingId !== resolvedMeetingId)
               return;
             stopTranscription("manual").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:quit-requested", () => {
-            stopTranscription("app-quit")
-              .catch((err) => {
-                console.warn("[clips-popover] app-quit teardown failed:", err);
-              })
-              .finally(() => {
-                invoke("quit_teardown_done").catch(() => {});
-              });
           }),
         );
         const autoStopUnlisten = await subscribeAutoStop((reason) => {
@@ -993,7 +996,8 @@ export function useMeetingTranscription({
 
   useEffect(() => {
     let stopped = false;
-    let unlisten: (() => void) | null = null;
+    let unlistenQuitRequested: (() => void) | null = null;
+    let unlistenQuitCancelled: (() => void) | null = null;
     listen("meetings:quit-requested", () => {
       quitTeardownPendingRef.current = true;
       pendingStartRef.current = null;
@@ -1008,7 +1012,7 @@ export function useMeetingTranscription({
     })
       .then((dispose) => {
         if (stopped) dispose();
-        else unlisten = dispose;
+        else unlistenQuitRequested = dispose;
       })
       .catch((error) => {
         console.warn(
@@ -1016,9 +1020,23 @@ export function useMeetingTranscription({
           error,
         );
       });
+    listen("meetings:quit-cancelled", () => {
+      quitTeardownPendingRef.current = false;
+    })
+      .then((dispose) => {
+        if (stopped) dispose();
+        else unlistenQuitCancelled = dispose;
+      })
+      .catch((error) => {
+        console.warn(
+          "[clips-popover] quit cancellation listener registration failed:",
+          error,
+        );
+      });
     return () => {
       stopped = true;
-      unlisten?.();
+      unlistenQuitRequested?.();
+      unlistenQuitCancelled?.();
     };
   }, [stopTranscription]);
 

@@ -2,6 +2,16 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
   },
+  meetingBrowserConfirmation:
+    "Clips detecta atividade do microfone neste navegador, mas não consegue identificar em qual guia está a reunião.",
+  quitRecovery: {
+    title: "Clips ainda está finalizando a reunião",
+    body: "Clips ainda não terminou de encerrar e salvar esta reunião. A transcrição mais recente pode ser perdida se você sair agora.",
+    keepOpen: "Manter Clips aberto",
+    quitAnyway: "Sair mesmo assim",
+    actionFailed:
+      "Clips não conseguiu atualizar o estado de recuperação. Tente novamente.",
+  },
   lookbackContext: {
     includeLast: "Incluir os últimos",
     whatIsThis: "O que é isto?",

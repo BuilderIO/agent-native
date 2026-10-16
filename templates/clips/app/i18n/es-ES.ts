@@ -2,6 +2,16 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },
+  meetingBrowserConfirmation:
+    "Clips detecta actividad del micrófono en este navegador, pero no puede saber qué pestaña está en la reunión.",
+  quitRecovery: {
+    title: "Clips aún está terminando la reunión",
+    body: "Clips aún no ha terminado de detener y guardar esta reunión. Si sales ahora, es posible que se pierda la transcripción más reciente.",
+    keepOpen: "Mantener Clips abierto",
+    quitAnyway: "Salir de todos modos",
+    actionFailed:
+      "Clips no pudo actualizar el estado de recuperación. Inténtalo de nuevo.",
+  },
   lookbackContext: {
     includeLast: "Incluir los últimos",
     whatIsThis: "¿Qué es esto?",

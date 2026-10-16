@@ -396,6 +396,11 @@ impl AdhocMeetingsWatcherInner {
         if let Some(candidate) = candidate.filter(|candidate| {
             mic_by_bundle.get(candidate.bundle_id).copied().flatten() == Some(true)
         }) {
+            self.browser_associations.retain(|platform, association| {
+                *platform == candidate.platform
+                    || association.pid != candidate.pid
+                    || association.bundle_id != candidate.bundle_id
+            });
             let association = self
                 .browser_associations
                 .entry(candidate.platform)
@@ -587,6 +592,23 @@ fn adhoc_notification_plan(config: &crate::config::FeatureConfig) -> AdhocNotifi
             || config.meeting_transcription_mode == MeetingTranscriptionMode::Ask
             || auto_start,
         auto_start,
+    }
+}
+
+fn adhoc_notification_plan_for_evidence(
+    config: &crate::config::FeatureConfig,
+    browser_process_mic_only: bool,
+) -> AdhocNotificationPlan {
+    let plan = adhoc_notification_plan(config);
+    // CoreAudio reports browser microphone use per process, so Auto mode must
+    // ask before recording a candidate identified only by the focused URL.
+    if browser_process_mic_only && plan.auto_start {
+        AdhocNotificationPlan {
+            show_widget: true,
+            auto_start: false,
+        }
+    } else {
+        plan
     }
 }
 
@@ -832,7 +854,7 @@ async fn tick_macos(
     let AdhocNotificationPlan {
         show_widget,
         auto_start,
-    } = adhoc_notification_plan(config);
+    } = adhoc_notification_plan_for_evidence(config, browser_bundle_id.is_some());
 
     // Awaited, not spawned. `meetings:hide-notification` is dropped by the
     // overlay unless it already holds the matching payload, so auto-start
@@ -1009,6 +1031,31 @@ mod tests {
         );
         assert_eq!(ended.ended_platforms, vec!["meet"]);
         assert!(state.browser_associations.is_empty());
+    }
+
+    #[test]
+    fn browser_provider_change_replaces_the_same_process_association() {
+        let start = Instant::now();
+        let meet = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let zoom = BrowserCallCandidate {
+            platform: "zoom",
+            ..meet
+        };
+        let mic = HashMap::from([("com.google.chrome".to_string(), Some(true))]);
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(start, Some(meet), &mic);
+        state.observe_browser_calls(start + Duration::from_secs(1), Some(zoom), &mic);
+
+        assert!(!state.browser_associations.contains_key("meet"));
+        assert!(state.browser_associations.contains_key("zoom"));
+
+        let updates = state.observe_browser_calls(start + Duration::from_secs(5), None, &mic);
+        assert_eq!(updates.live_platforms, vec!["zoom"]);
     }
 
     fn ago(now: Instant, secs: u64) -> Instant {
@@ -1816,6 +1863,28 @@ mod tests {
         let plan = adhoc_notification_plan(&config_with(MeetingTranscriptionMode::Ask, false));
         assert!(plan.show_widget);
         assert!(!plan.auto_start);
+    }
+
+    #[test]
+    fn auto_mode_asks_before_starting_a_browser_process_candidate() {
+        let plan = adhoc_notification_plan_for_evidence(
+            &config_with(MeetingTranscriptionMode::Auto, false),
+            true,
+        );
+
+        assert!(plan.show_widget);
+        assert!(!plan.auto_start);
+    }
+
+    #[test]
+    fn auto_mode_still_starts_native_meeting_candidates() {
+        let plan = adhoc_notification_plan_for_evidence(
+            &config_with(MeetingTranscriptionMode::Auto, false),
+            false,
+        );
+
+        assert!(plan.show_widget);
+        assert!(plan.auto_start);
     }
 
     #[test]

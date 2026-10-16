@@ -1,5 +1,14 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
+  meetingBrowserConfirmation:
+    "Clips 检测到此浏览器正在使用麦克风，但无法判断会议在哪个标签页中进行。",
+  quitRecovery: {
+    title: "Clips 正在完成会议",
+    body: "Clips 尚未完成停止并保存此会议。现在退出可能会丢失最新的转录内容。",
+    keepOpen: "保持 Clips 打开",
+    quitAnyway: "仍要退出",
+    actionFailed: "Clips 无法更新退出恢复状态，请重试。",
+  },
   lookbackContext: {
     includeLast: "包含最近",
     whatIsThis: "这是什么？",

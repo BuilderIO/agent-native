@@ -1,5 +1,14 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
+  meetingBrowserConfirmation:
+    "Clips 偵測到此瀏覽器正在使用麥克風，但無法判斷會議在哪個分頁進行。",
+  quitRecovery: {
+    title: "Clips 正在完成會議",
+    body: "Clips 尚未完成停止並儲存此會議。現在結束可能會遺失最新的逐字稿。",
+    keepOpen: "保持 Clips 開啟",
+    quitAnyway: "仍要結束",
+    actionFailed: "Clips 無法更新結束復原狀態，請再試一次。",
+  },
   lookbackContext: {
     includeLast: "包含最近",
     whatIsThis: "這是什麼？",

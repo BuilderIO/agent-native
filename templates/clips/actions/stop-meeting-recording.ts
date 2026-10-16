@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import shareResource from "@agent-native/core/sharing/actions/share-resource";
@@ -57,7 +57,7 @@ async function sharePublicMeetingResourcesWithParticipants(args: {
 
 export default defineAction({
   description:
-    "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording.",
+    "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording. Returns the persisted actualEnd as stop confirmation, so callers do not need a separate meeting read.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
     reason: z
@@ -110,7 +110,7 @@ export default defineAction({
     // transcriptStatus stays a plain write: live rows start as "pending", so
     // "pending" cannot be read as a finalizer claim here; finalize-meeting's
     // own compare-and-swap guards its claim.
-    await db
+    const [stoppedMeeting] = await db
       .update(schema.meetings)
       .set({
         actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
@@ -122,7 +122,14 @@ export default defineAction({
             }
           : {}),
       })
-      .where(eq(schema.meetings.id, args.meetingId));
+      .where(eq(schema.meetings.id, args.meetingId))
+      .returning({ actualEnd: schema.meetings.actualEnd });
+    if (!stoppedMeeting?.actualEnd) {
+      fail("The meeting is no longer available to stop.", {
+        errorCode: "meeting_not_found",
+        statusCode: 404,
+      });
+    }
 
     if (meeting.recordingId) {
       await db
@@ -161,6 +168,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { meetingId: args.meetingId, recordingId: meeting.recordingId };
+    return {
+      meetingId: args.meetingId,
+      recordingId: meeting.recordingId,
+      actualEnd: stoppedMeeting.actualEnd,
+    };
   },
 });
