@@ -337,14 +337,38 @@ test.describe("mobile app build", () => {
     ).toEqual(["header", "card", ...copies]);
     const original = before.get("card")!;
     const copiedTitles: string[] = [];
+    const normalizedStyles = await app.page.evaluate(
+      (styleStrings) =>
+        styleStrings.map((styleString) => {
+          const element = document.createElement("div");
+          element.setAttribute("style", styleString ?? "");
+          const properties = Array.from(
+            { length: element.style.length },
+            (_, index) => element.style.item(index),
+          ).sort();
+          return properties.map((property) => [
+            property,
+            element.style.getPropertyValue(property).trim(),
+          ]);
+        }),
+      [
+        original.attrs.style,
+        ...copies.map((copy) => after.get(copy)?.attrs.style ?? ""),
+      ],
+    );
     for (const copy of copies) {
-      expect(after.get(copy)?.attrs.style).toBe(original.attrs.style);
       const [title] = childrenOf(after, copy);
       copiedTitles.push(title);
       expect(after.get(title)).toMatchObject({
         text: "Sunrise Cafe",
         attrs: { "data-agent-native-layer-name": "Sunrise Cafe" },
       });
+    }
+    for (const [index, style] of normalizedStyles.slice(1).entries()) {
+      expect(
+        style,
+        `copy ${index + 1} keeps every inline CSS declaration`,
+      ).toEqual(normalizedStyles[0]);
     }
     expectOnlyChanged(before, after, [...copies, ...copiedTitles]);
     await expandAllLayers(app.page);
