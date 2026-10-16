@@ -1194,7 +1194,7 @@ export function isExpectedWatchedRequestCorsError(
           isCleanupBrowserSessionRequest
             ? cleanupNavigationBrowserSessionMaxRequestAgeMs
             : reloadNavigationAbortMaxRequestAgeMs,
-          activePhase === "save/reload",
+          true,
         )
       );
     }).length === 1

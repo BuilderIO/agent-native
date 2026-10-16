@@ -1989,6 +1989,10 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
     ageMs: 100,
     sameOrigin: true,
     requestWasPendingAtNavigation: true,
+    requestSessionId: "session-id",
+    retiredSessionId: "session-id",
+    competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
   };
   expect(
     isExpectedWatchedRequestCorsError(
@@ -2013,6 +2017,28 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
       [{ ...registrationCandidate, ageMs: 11_000 }],
     ),
   ).toBe(false);
+  for (const invalidRegistration of [
+    {
+      ...registrationCandidate,
+      requestSessionId: null,
+      retiredSessionId: null,
+    },
+    { ...registrationCandidate, requestSessionId: "new-session" },
+    { ...registrationCandidate, retiredSessionId: "new-session" },
+    { ...registrationCandidate, competingSameTypeRequest: true },
+    {
+      ...registrationCandidate,
+      competingRegistrationStartedAfterNavigation: true,
+    },
+  ]) {
+    expect(
+      isExpectedWatchedRequestCorsError(
+        `Fetch API cannot load ${registrationUrl} due to access control checks.`,
+        "cleanup/navigation",
+        [invalidRegistration],
+      ),
+    ).toBe(false);
+  }
 
   const heartbeatUrl =
     "http://localhost:45715/_agent-native/browser-sessions/session-id/heartbeat";
