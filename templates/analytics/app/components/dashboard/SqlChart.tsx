@@ -1704,8 +1704,10 @@ export function SqlChart({
         onSaveColumns={onSaveColumns}
         columnWidths={columnWidths}
         onColumnWidthChange={onColumnWidthChange}
+        // Rows kept from the previous filters while new ones load belong to
+        // no current scope, so they open nothing.
         onRowClick={
-          onTableRowClick
+          onTableRowClick && !isShowingPreviousFilters
             ? (row, displayRows, resultRows) =>
                 onTableRowClick(
                   row,

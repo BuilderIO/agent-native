@@ -305,11 +305,18 @@ export function SqlChartCard({
   const shouldLoadData =
     visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
-  // New filters or a refresh change every number in the open row. A row opened
-  // under other ones is closed in the same render, before the sheet could start
-  // a breakdown query on the new filters.
-  const breakdownScope = `${resolvedSql ?? ""}
-${refreshToken}`;
+  // New filters, a refresh or another account change every number in the open
+  // row. A row opened under other ones is closed in the same render, before the
+  // sheet could start a breakdown query, and dropped so returning to the old
+  // filters does not reopen it.
+  const breakdownScope = JSON.stringify([
+    session?.email ?? null,
+    resolvedSql ?? null,
+    refreshToken,
+  ]);
+  if (openBreakdown && openBreakdown.scope !== breakdownScope) {
+    setOpenBreakdown(null);
+  }
   const breakdownSelection =
     openBreakdown?.scope === breakdownScope ? openBreakdown.selection : null;
   const setBreakdownSelection = (selection: RowBreakdownSelection | null) =>
