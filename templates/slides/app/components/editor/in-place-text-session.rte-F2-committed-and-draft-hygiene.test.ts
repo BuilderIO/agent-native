@@ -210,6 +210,17 @@ describe("a style toggled at a caret and never used", () => {
   });
 });
 
+describe("a draft clone beside emptied text nodes", () => {
+  it("cleans the placeholder it belongs to when an empty node precedes it", () => {
+    boot("<p>a</p><p>b</p>");
+    const paragraphs = session!.element.querySelectorAll("p");
+    paragraphs[0].prepend(document.createTextNode(""));
+    paragraphs[1].append(document.createTextNode(ZWSP));
+    const clone = session!.cloneWithoutPlaceholders(slide());
+    expect(clone.textContent).toBe("ab");
+  });
+});
+
 describe("a line a placeholder holds open", () => {
   it("is a break in the draft, as it is once saved", () => {
     boot("<ol><li>one two</li><li>three four</li></ol>");

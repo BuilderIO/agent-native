@@ -368,7 +368,7 @@
   {
     "id": "history-007",
     "area": "history",
-    "title": "Repeated Backspace undo count reveals per-keystroke versus coalesced steps",
+    "title": "Two Backspaces in a word then two undos return the original text",
     "html": "<p>ab|c</p>",
     "steps": ["Backspace", "Backspace", "undo", "undo"],
     "expected": "<p>ab|c</p>"
@@ -392,7 +392,7 @@
   {
     "id": "history-036",
     "area": "history",
-    "title": "Markdown bullet shortcut creates separate undo steps",
+    "title": "Typing a bullet marker and its space, then undoing twice, returns an empty paragraph",
     "html": "<p>|</p>",
     "steps": ["type:*", "type: ", "undo", "undo"],
     "expected": "<p>|</p>"
@@ -617,7 +617,7 @@
   {
     "id": "links-013",
     "area": "links",
-    "title": "Typing at the end of a link extends the link",
+    "title": "Typing at the end of a link then undoing it leaves the caret at the link end, and the next typing lands after the link",
     "html": "<p><a href='https://a.com'>example|</a></p>",
     "steps": ["type:x", "undo", "type:y"],
     "expected": "<p><a href=\"https://a.com\">example</a>y|</p>"
@@ -657,7 +657,7 @@
   {
     "id": "lists-004",
     "area": "lists",
-    "title": "Bullet toggle joins a preceding same-type list, then undo",
+    "title": "Bullet toggle joins a preceding same-type list; undoing the typing that follows keeps the join",
     "html": "<ul><li>a</li></ul><p>|b</p>",
     "steps": ["Mod+Shift+8", "type:x", "Mod+z"],
     "expected": "<ul><li>a</li><li>|b</li></ul>"

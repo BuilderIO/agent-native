@@ -6714,8 +6714,10 @@ export function startInPlaceTextSession(
       ) as HTMLElement;
       unwrapIdleStyleRuns(editedCopy, authoredEmptyKeeper());
     }
+    // `copies` is taken before the emptied nodes go, so its indexes still line
+    // up with the live nodes; an emptied node beside a placeholder would
+    // otherwise make the placeholder look shared.
     const copies = textNodesIn(copy);
-    // An emptied node beside a placeholder must not make it look shared.
     for (const empty of copies) if (!empty.data) empty.remove();
     const texts = textNodesIn(el);
     const flags = new Map(
