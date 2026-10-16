@@ -1479,6 +1479,49 @@ describe("mutateLiveCopy", () => {
     ).toEqual({ body: "base", version: 0 });
   });
 
+  it("reports a replaced binding, not a version conflict, when its last attempt conflicts", async () => {
+    let replace = false;
+    const replaceAndConflict = async (tx: DbExec) => {
+      if (!replace) return;
+      replace = false;
+      define();
+      // A peer's commit, made in this transaction so it rolls back with it.
+      await tx.execute({
+        sql: "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
+        args: ["live:doc"],
+      });
+    };
+    const binding = define({ persist: (tx) => replaceAndConflict(tx) });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+
+    replace = true;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(binding, "live:doc", {
+          edit: "append",
+          input: { text: "late" },
+          maxAttempts: 1,
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+
+    const current = define();
+    replace = true;
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(current, "live:doc", {
+          edit: "unchanged",
+          maxAttempts: 1,
+          persist: (tx) => replaceAndConflict(tx),
+        }),
+      ),
+    ).toMatchObject({ code: "not_live_copy", reason: "binding_inactive" });
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "base",
+      version: 0,
+    });
+  });
+
   it("loads a cold copy once for a burst of readers, with its text", async () => {
     let reads = 0;
     const binding = define({

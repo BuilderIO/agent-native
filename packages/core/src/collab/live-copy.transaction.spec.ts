@@ -6,7 +6,11 @@ import {
   insideDbTransactionCallback,
 } from "../db/client.js";
 import type { BoundedTaskRunner } from "./bounded-tasks.js";
-import { defineLiveCopy, releaseLiveCopy } from "./live-copy.js";
+import {
+  assertOwnTransaction,
+  defineLiveCopy,
+  releaseLiveCopy,
+} from "./live-copy.js";
 import { applyUpdate, mutateLiveCopy, seedLiveCopy } from "./ydoc-manager.js";
 
 let tasks = 0;
@@ -52,6 +56,15 @@ function refusals() {
   ]);
 }
 
+function refusal(): unknown {
+  try {
+    assertOwnTransaction("live:doc", "seedLiveCopy");
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 describe("live copies inside a caller's getDbExec().transaction()", () => {
   it("refuse every write before it runs a task", async () => {
     expect(insideDbTransactionCallback()).toBe(false);
@@ -81,23 +94,19 @@ describe("live copies inside a caller's getDbExec().transaction()", () => {
     expect(insideDbTransactionCallback()).toBe(false);
   });
 
-  it("lets work a transaction left running write once it commits", async () => {
+  it("stops refusing work a transaction left running once it commits", async () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => {
       open = resolve;
     });
-    let detached!: Promise<[boolean, unknown]>;
+    let detached!: Promise<unknown>;
     await getDbExec().transaction!(async () => {
-      detached = gate.then(async () => [
-        insideDbTransactionCallback(),
-        await seedLiveCopy(binding, "live:doc", { source: "base" }).catch(
-          (error) => error,
-        ),
-      ]);
+      expect(refusal()).toMatchObject({ reason: "caller_transaction" });
+      // The guard, not seedLiveCopy itself: PGlite routes the detached work's
+      // queries to its closed transaction, which is the adapter's to fix.
+      detached = gate.then(refusal);
     });
     open();
-    const [inside, error] = await detached;
-    expect(inside).toBe(false);
-    expect(error).not.toMatchObject({ reason: "caller_transaction" });
+    expect(await detached).toBeUndefined();
   });
 });

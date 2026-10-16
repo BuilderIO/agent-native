@@ -719,8 +719,10 @@ export async function commitLiveCopy(
     });
     return outcome;
   } catch (error) {
-    if (error instanceof CommitVersionConflict) return null;
-    throw error;
+    if (!(error instanceof CommitVersionConflict)) throw error;
+    // A released or replaced binding says so, not a retry that cannot help.
+    assertActiveLiveCopy(binding, commit.docId);
+    return null;
   }
 }
 
@@ -750,7 +752,8 @@ export async function persistLiveCopyCall(
     });
     return true;
   } catch (error) {
-    if (error instanceof CommitVersionConflict) return false;
-    throw error;
+    if (!(error instanceof CommitVersionConflict)) throw error;
+    assertActiveLiveCopy(binding, docId);
+    return false;
   }
 }
