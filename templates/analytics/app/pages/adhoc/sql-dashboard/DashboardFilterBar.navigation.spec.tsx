@@ -69,7 +69,7 @@ let container: HTMLDivElement;
 let router: ReturnType<typeof createMemoryRouter>;
 let loads: {
   search: string;
-  resolve: () => void;
+  resolve: (data?: Response) => void;
   reject: (error: Error) => void;
 }[];
 let committedQueries: string[];
@@ -97,7 +97,7 @@ async function render(
       {
         path: "/dashboards/:id",
         loader: ({ request }) =>
-          new Promise<void>((resolve, reject) => {
+          new Promise<void | Response>((resolve, reject) => {
             loads.push({
               search: new URL(request.url).search,
               resolve,
@@ -182,6 +182,33 @@ async function settle() {
   await act(async () => {
     loads[loads.length - 1].resolve();
   });
+}
+
+async function holdResponseBody(index: number) {
+  let close!: () => void;
+  let bodyRead!: () => void;
+  const readingBody = new Promise<void>((resolve) => {
+    bodyRead = resolve;
+  });
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"value":1}'));
+      close = () => controller.close();
+    },
+  });
+  const response = new Response(body, {
+    headers: { "Content-Type": "application/json" },
+  });
+  const readJson = response.json.bind(response);
+  response.json = () => {
+    bodyRead();
+    return readJson();
+  };
+  await act(async () => {
+    loads[index].resolve(response);
+    await readingBody;
+  });
+  return close;
 }
 
 describe("dashboard filter feedback during navigation", () => {
@@ -416,5 +443,141 @@ describe("dashboard filter feedback during navigation", () => {
     await settle();
     expect(router.state.location.search).toBe(loads[loads.length - 1].search);
     expect(router.state.location.hash).toBe("#details");
+  });
+
+  it("uses an external commit while an aborted response body remains pending, including for the next edit", async () => {
+    await render();
+    act(() => appTrigger().click());
+    act(() => option("Chat").click());
+    const closeBody = await holdResponseBody(1);
+    try {
+      let navigation!: Promise<void>;
+      act(() => {
+        navigation = router.navigate(
+          "/dashboards/test?tab=other&f_app=slides#new",
+        );
+      });
+      await act(async () => {
+        loads[loads.length - 1].resolve();
+        await navigation;
+      });
+      expect(router.state.navigation.state).toBe("idle");
+      expect(router.state.location.search).toBe("?tab=other&f_app=slides");
+      expect(appTrigger().textContent).toBe("Slides");
+      const queryCount = mocks.callAction.mock.calls.length;
+      act(() => button("Off").click());
+      expect(loads[loads.length - 1].search).toBe(
+        "?tab=other&f_app=slides&f_staff=true",
+      );
+      expect(mocks.callAction).toHaveBeenCalledTimes(queryCount);
+      await settle();
+      expect(router.state.location.search).toBe(
+        "?tab=other&f_app=slides&f_staff=true",
+      );
+      expect(router.state.location.hash).toBe("#new");
+    } finally {
+      await act(async () => {
+        closeBody();
+      });
+    }
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
+    expect(committedQueries[committedQueries.length - 1]).toBe(
+      "?tab=other&f_app=slides&f_staff=true",
+    );
+    expect(committedQueries).not.toContain("?tab=activity&f_app=chat");
+  });
+
+  it("keeps the newer allowed draft when an aborted older response finishes first", async () => {
+    await render();
+    act(() => appTrigger().click());
+    act(() => option("Chat").click());
+    const closeBody = await holdResponseBody(1);
+    try {
+      act(() => option("Slides").click());
+      expect(appTrigger().textContent).toBe("Chat, Slides");
+      await act(async () => closeBody());
+      expect(router.state.navigation.state).toBe("loading");
+      expect(appTrigger().textContent).toBe("Chat, Slides");
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      act(() => button("Off").click());
+      expect(loads[loads.length - 1].search).toBe(
+        "?tab=activity&f_app=chat%2Cslides&f_staff=true",
+      );
+      await settle();
+      expect(appTrigger().textContent).toBe("Chat, Slides");
+      expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => {
+        loads.forEach((load) => load.resolve());
+      });
+    }
+  });
+
+  it.each([
+    "/dashboards/other?id=selected&tab=other&f_app=slides#external",
+    "/dashboards/test?id=other&tab=other&f_app=slides#external",
+  ])(
+    "reconciles an external dashboard identity change to %s before composing the next edit",
+    async (target) => {
+      await render("/dashboards/test?id=selected&tab=activity");
+      act(() => appTrigger().click());
+      act(() => option("Chat").click());
+      const closeBody = await holdResponseBody(1);
+      try {
+        let navigation!: Promise<void>;
+        act(() => {
+          navigation = router.navigate(target);
+        });
+        await act(async () => {
+          loads[loads.length - 1].resolve();
+          await navigation;
+        });
+        expect(appTrigger().textContent).toBe("Slides");
+        act(() => button("Off").click());
+        const expected = new URL(target, "https://example.test");
+        expect(loads[loads.length - 1].search).toBe(
+          `${expected.search}&f_staff=true`,
+        );
+        await settle();
+        expect(router.state.location.pathname).toBe(expected.pathname);
+        expect(router.state.location.hash).toBe("#external");
+      } finally {
+        await act(async () => closeBody());
+      }
+    },
+  );
+
+  it("does not carry a blocked follow-up edit while the earlier allowed navigation stays pending", async () => {
+    await render();
+    act(() => appTrigger().click());
+    act(() => option("Chat").click());
+    blockNavigations = true;
+    await act(async () => option("Slides").click());
+    const blocker = [...router.state.blockers.values()].find(
+      (entry) => entry.state === "blocked",
+    )!;
+    expect(loads).toHaveLength(2);
+    expect(router.state.navigation.location?.search).toBe(
+      "?tab=activity&f_app=chat",
+    );
+    expect(appTrigger().textContent).toBe("Chat");
+    act(() => blocker.reset!());
+    blockNavigations = false;
+    act(() => button("Off").click());
+    expect(loads[loads.length - 1].search).toBe(
+      "?tab=activity&f_app=chat&f_staff=true",
+    );
+    expect(appTrigger().textContent).toBe("Chat");
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(router.state.location.search).toBe(
+      "?tab=activity&f_app=chat&f_staff=true",
+    );
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    await act(async () => loads[1].resolve());
+    expect(appTrigger().textContent).toBe("Chat");
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
   });
 });

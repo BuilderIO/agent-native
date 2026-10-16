@@ -1,50 +1,71 @@
 import {
+  startTransition,
   useCallback,
-  useLayoutEffect,
-  useOptimistic,
+  useContext,
   useRef,
-  useTransition,
+  useState,
+  useSyncExternalStore,
 } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import {
+  UNSAFE_DataRouterContext,
+  useLocation,
+  useNavigate,
+} from "react-router";
+
+type Draft = { key: string; params: URLSearchParams };
+const subscribeToNothing = () => () => {};
+const noServerNavigation = () => null;
 
 export function useFilterSearchParams() {
-  const [committed] = useSearchParams();
-  const location = useLocation();
+  const router = useContext(UNSAFE_DataRouterContext)?.router;
+  const renderedLocation = useLocation();
   const navigate = useNavigate();
-  const [pending, startTransition] = useTransition();
-  const canonical = { pathname: location.pathname, params: committed };
-  const [displayed, setDisplayed] = useOptimistic(
-    canonical,
-    (base, draft: typeof canonical) =>
-      draft.pathname === base.pathname &&
-      draft.params.get("id") === base.params.get("id")
-        ? draft
-        : base,
+  // Only this bar subscribes synchronously; route/dashboard rendering stays in
+  // the router's transition. Action promises can outlive their navigation.
+  const state = useSyncExternalStore(
+    router?.subscribe ?? subscribeToNothing,
+    useCallback(() => router?.state ?? null, [router]),
+    noServerNavigation,
   );
-  const latest = useRef(canonical);
-  useLayoutEffect(() => {
-    if (
-      !pending ||
-      latest.current.pathname !== location.pathname ||
-      latest.current.params.get("id") !== committed.get("id")
-    ) {
-      latest.current = canonical;
-    }
-  });
+  const [draft, setDraft] = useState<Draft>();
+  const latest = useRef<Draft>(undefined);
+  const location = state?.location ?? renderedLocation;
+  const activeKey = state?.navigation.location?.key;
+  const displayed =
+    draft && draft.key === activeKey
+      ? draft.params
+      : new URLSearchParams(location.search);
 
   const updateParams = useCallback(
     (update: (prev: URLSearchParams) => URLSearchParams) => {
-      const params = update(new URLSearchParams(latest.current.params));
-      latest.current = { pathname: location.pathname, params };
+      const current = router?.state;
+      const location = current?.location ?? renderedLocation;
+      const key = current?.navigation.location?.key;
+      const params = update(
+        new URLSearchParams(
+          latest.current && latest.current.key === key
+            ? latest.current.params
+            : location.search,
+        ),
+      );
+      let accepted: Draft | undefined;
       startTransition(() => {
-        setDisplayed(latest.current);
-        // Keep the draft for the router action's lifetime, including rollback
-        // to its actual location after a blocked or interrupted navigation.
-        return navigate({ search: `?${params}`, hash: location.hash });
+        const navigation = navigate({
+          search: `?${params}`,
+          hash: location.hash,
+        });
+        const next = router?.state.navigation.location;
+        // A blocked request leaves the prior navigation (and its key) intact.
+        if (next && next.key !== key) {
+          accepted = { key: next.key, params };
+          latest.current = accepted;
+        }
+        return navigation;
       });
+      if (accepted) setDraft(accepted);
     },
-    [location.pathname, location.hash, navigate],
+    [router, renderedLocation, navigate],
   );
 
-  return [displayed.params, updateParams] as const;
+  return [displayed, updateParams] as const;
 }
