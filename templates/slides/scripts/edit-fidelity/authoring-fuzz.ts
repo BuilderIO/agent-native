@@ -1246,6 +1246,28 @@ export function isPotentialCleanupRecoveryPageBrowserSessionError(
   );
 }
 
+export function isWithinCleanupRecoveryClaimCorrelationWindow(
+  failedAt: number,
+  pageErrorAt: number,
+) {
+  return (
+    Math.abs(failedAt - pageErrorAt) <= retiredBrowserSessionPollConsoleGraceMs
+  );
+}
+
+export function shouldRetainCleanupRecoveryClaimEvidence(
+  failedAt: number,
+  now: number,
+  pendingPageErrorAts: readonly number[],
+) {
+  return (
+    now - failedAt <= retiredBrowserSessionPollConsoleGraceMs ||
+    pendingPageErrorAts.some((pageErrorAt) =>
+      isWithinCleanupRecoveryClaimCorrelationWindow(failedAt, pageErrorAt),
+    )
+  );
+}
+
 export function isExpectedCleanupRecoveryPageBrowserSessionError(
   message: string,
   candidates: Array<{
@@ -1253,7 +1275,7 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
     pathname: string;
     method: string;
     requestAgeMs: number;
-    failureAgeMs: number;
+    failureOffsetMs: number;
     sameOrigin: boolean;
     competingClaimStartedAfterFailure: boolean;
   }>,
@@ -1284,8 +1306,8 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
         !candidate.competingClaimStartedAfterFailure &&
         candidate.requestAgeMs >= 0 &&
         candidate.requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
-        candidate.failureAgeMs >= 0 &&
-        candidate.failureAgeMs <= retiredBrowserSessionPollConsoleGraceMs &&
+        candidate.failureOffsetMs >= -retiredBrowserSessionPollConsoleGraceMs &&
+        candidate.failureOffsetMs <= retiredBrowserSessionPollConsoleGraceMs &&
         (corsUrl === null || candidate.url === corsUrl),
     ).length === 1
   );

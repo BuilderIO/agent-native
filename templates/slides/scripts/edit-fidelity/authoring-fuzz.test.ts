@@ -45,6 +45,8 @@ import {
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   isPotentialCleanupRecoveryPageBrowserSessionError,
+  isWithinCleanupRecoveryClaimCorrelationWindow,
+  shouldRetainCleanupRecoveryClaimEvidence,
   isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
@@ -1714,7 +1716,7 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     requestAgeMs: 100,
-    failureAgeMs: 20,
+    failureOffsetMs: 20,
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
   };
@@ -1772,7 +1774,12 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
   ).toBe(false);
   expect(
     isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
-      { ...candidate, failureAgeMs: 251 },
+      { ...candidate, failureOffsetMs: 251 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, failureOffsetMs: -251 },
     ]),
   ).toBe(false);
   expect(
@@ -1792,6 +1799,13 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
       { ...candidate, requestAgeMs: 110 },
     ]),
   ).toBe(false);
+});
+
+it("retains correlated cleanup claim evidence while delayed page-error checks are pending", () => {
+  expect(isWithinCleanupRecoveryClaimCorrelationWindow(100, 0)).toBe(true);
+  expect(isWithinCleanupRecoveryClaimCorrelationWindow(251, 0)).toBe(false);
+  expect(shouldRetainCleanupRecoveryClaimEvidence(100, 600, [0])).toBe(true);
+  expect(shouldRetainCleanupRecoveryClaimEvidence(100, 600, [])).toBe(false);
 });
 
 it("ignores browser-session poll or heartbeat errors only for matching canceled reload requests", () => {

@@ -138,6 +138,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   createProviderApiRuntime,
   getProviderApiConfig,
+  isValidProviderApiBaseUrl,
   resolveProviderApiOAuthAccessToken,
 } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
@@ -148,6 +149,21 @@ const credentialContext = {
   userEmail: "ada@example.com",
   orgId: "org-1",
 };
+
+describe("provider API base URL validation", () => {
+  it.each([
+    ["https://api.gong.io/v2", true],
+    ["https://us-88601.api.gong.io/v2", true],
+    ["http://us-88601.api.gong.io/v2", false],
+    ["https://attacker.example/v2", false],
+    ["https://user:secret@api.gong.io/v2", false],
+    ["https://api.gong.io:8443/v2", false],
+    ["https://api.gong.io/v2?redirect=elsewhere", false],
+    ["not a URL", false],
+  ])("validates Gong base URL %s", (value, expected) => {
+    expect(isValidProviderApiBaseUrl("gong", value)).toBe(expected);
+  });
+});
 
 describe("provider API runtime", () => {
   beforeEach(() => {

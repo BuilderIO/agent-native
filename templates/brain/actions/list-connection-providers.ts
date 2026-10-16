@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   isProviderApiId,
+  isValidProviderApiBaseUrl,
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
@@ -25,6 +26,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   inspectSourceCredentialAvailability,
+  resolveSourceCredentialWithProvenance,
   type SourceCredentialAvailability,
 } from "../server/lib/source-credentials.js";
 import { isBrainAdmin } from "../server/lib/zoom-governance.js";
@@ -162,13 +164,16 @@ function dispatchIntegrationsHref(
 function providerApiConfigured({
   credentialHealth,
   providerApi,
+  providerApiBaseUrlError,
   workspace,
 }: {
   credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
   providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+  providerApiBaseUrlError: string | null;
   workspace: WorkspaceConnectionProviderAppSummary;
 }): boolean | null {
   if (!providerApi) return null;
+  if (providerApiBaseUrlError) return false;
   if (workspace.hasActiveWorkspaceConnection) return true;
   if (providerApi.auth === "none") return true;
 
@@ -198,6 +203,40 @@ function providerApiConfigured({
     return providerApi.credentialKeys.some((key) => availableKeys.has(key));
   }
   return providerApi.credentialKeys.every((key) => availableKeys.has(key));
+}
+
+async function providerApiBaseUrlErrorForProvider({
+  credentialHealth,
+  providerApi,
+}: {
+  credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
+  providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+}): Promise<string | null> {
+  if (providerApi?.id !== "gong" || !providerApi.baseUrlCredentialKey) {
+    return null;
+  }
+
+  const baseUrlKey = providerApi.baseUrlCredentialKey;
+  if (
+    !credentialHealth.details.some(
+      (detail) => detail.key === baseUrlKey && detail.available,
+    )
+  ) {
+    return null;
+  }
+
+  const ctx = getCredentialContext();
+  if (!ctx) return "Brain could not check the organization Gong API base URL.";
+
+  const credential = await resolveSourceCredentialWithProvenance({
+    provider: providerApi.id,
+    key: baseUrlKey,
+    ctx: { ...ctx, credentialScope: "org" },
+  });
+  if (!credential?.value) return null;
+  if (isValidProviderApiBaseUrl(providerApi.id, credential.value)) return null;
+
+  return "GONG_API_BASE must be an HTTPS URL on the api.gong.io host or a regional Gong API subdomain.";
 }
 
 async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
@@ -270,6 +309,7 @@ function providerHealthForProvider({
   credentialHealth,
   provider,
   providerApi,
+  providerApiBaseUrlError,
   providerApiIsConfigured,
   sourceProviderSupported,
   workspace,
@@ -277,10 +317,17 @@ function providerHealthForProvider({
   credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
   provider: CatalogProvider;
   providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+  providerApiBaseUrlError: string | null;
   providerApiIsConfigured: boolean | null;
   sourceProviderSupported: boolean;
   workspace: WorkspaceConnectionProviderAppSummary;
 }) {
+  if (providerApiBaseUrlError) {
+    return {
+      status: "unhealthy" as const,
+      message: providerApiBaseUrlError,
+    };
+  }
   if (providerApi && providerApiIsConfigured === false) {
     if (workspace.grantState === "needs_grant") {
       return {
@@ -424,9 +471,15 @@ export default defineAction({
         const providerApi = isProviderApiId(provider.id)
           ? (listProviderApiCatalog(provider.id)[0] ?? null)
           : null;
+        const providerApiBaseUrlError =
+          await providerApiBaseUrlErrorForProvider({
+            credentialHealth,
+            providerApi,
+          });
         const providerApiIsConfigured = providerApiConfigured({
           credentialHealth,
           providerApi,
+          providerApiBaseUrlError,
           workspace: workspaceConnection,
         });
         return {
@@ -454,6 +507,7 @@ export default defineAction({
             credentialHealth,
             provider,
             providerApi,
+            providerApiBaseUrlError,
             providerApiIsConfigured,
             sourceProviderSupported,
             workspace: workspaceConnection,

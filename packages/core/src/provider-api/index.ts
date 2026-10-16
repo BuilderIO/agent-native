@@ -1767,6 +1767,47 @@ export function getProviderApiConfig(
   return config;
 }
 
+export function isValidProviderApiBaseUrl(
+  provider: ProviderApiId | string,
+  value: string,
+  overrides: readonly ProviderApiConfig[] = [],
+): boolean {
+  return isValidProviderApiBaseUrlForConfig(
+    getProviderApiConfig(provider, overrides),
+    value,
+  );
+}
+
+function isValidProviderApiBaseUrlForConfig(
+  config: ProviderApiConfig,
+  value: string,
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    (config.requireHttps && url.protocol !== "https:")
+  ) {
+    return false;
+  }
+
+  if (!config.baseUrlMustMatchAllowedHost) return true;
+  return (
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    !url.search &&
+    !url.hash &&
+    isAllowedProviderHost(url.hostname, config)
+  );
+}
+
 export function mergeProviderApiConfigs(
   overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig[] {
@@ -3645,12 +3686,9 @@ async function resolveBaseUrl(
     workspaceProvider,
   });
   const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
-  if (
-    config.baseUrlMustMatchAllowedHost &&
-    !isAllowedProviderHost(new URL(url).hostname, config)
-  ) {
+  if (!isValidProviderApiBaseUrlForConfig(config, url)) {
     throw new Error(
-      `${config.label} API requests must stay on the configured provider host or registered provider host suffix.`,
+      `${config.label} API base URL is invalid or must use the configured provider host or registered provider host suffix.`,
     );
   }
   return {

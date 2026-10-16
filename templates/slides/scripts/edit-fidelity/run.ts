@@ -33,6 +33,7 @@ import {
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   isPotentialCleanupRecoveryPageBrowserSessionError,
+  isWithinCleanupRecoveryClaimCorrelationWindow,
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
@@ -40,6 +41,7 @@ import {
   retiredBrowserSessionPollConsoleGraceMs,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
+  shouldRetainCleanupRecoveryClaimEvidence,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
 import { devServerListeningUrl } from "./dev-server-url.ts";
@@ -5855,6 +5857,7 @@ async function runAuthoringFuzzQa(
     } finally {
       const cleanupErrors: string[] = [];
       const pendingCleanupErrorInspections = new Set<Promise<void>>();
+      const pendingRecoveryPageErrors = new Set<{ at: number }>();
       const monitoredPages = new Set<Page>();
       const cleanupPageListeners = new Map<
         Page,
@@ -5923,24 +5926,48 @@ async function runAuthoringFuzzQa(
         target === cleanupNavigationPage
           ? getCleanupNavigationCandidates()
           : [];
-      const recoveryPollCandidatesFor = (target: Page, now = Date.now()) => {
+      const pruneFailedCleanupBrowserSessionClaims = (now = Date.now()) => {
+        const pendingPageErrorAts = Array.from(
+          pendingRecoveryPageErrors,
+          ({ at }) => at,
+        );
         for (
           let index = failedCleanupBrowserSessionClaims.length - 1;
           index >= 0;
           index -= 1
         ) {
-          if (now - failedCleanupBrowserSessionClaims[index].failedAt > 250) {
+          if (
+            !shouldRetainCleanupRecoveryClaimEvidence(
+              failedCleanupBrowserSessionClaims[index].failedAt,
+              now,
+              pendingPageErrorAts,
+            )
+          ) {
             failedCleanupBrowserSessionClaims.splice(index, 1);
           }
         }
+      };
+      const recoveryPollCandidatesFor = (
+        target: Page,
+        pageErrorAt = Date.now(),
+        now = Date.now(),
+      ) => {
+        pruneFailedCleanupBrowserSessionClaims(now);
         return failedCleanupBrowserSessionClaims
-          .filter((candidate) => candidate.page === target)
+          .filter(
+            (candidate) =>
+              candidate.page === target &&
+              isWithinCleanupRecoveryClaimCorrelationWindow(
+                candidate.failedAt,
+                pageErrorAt,
+              ),
+          )
           .map((candidate) => ({
             url: candidate.url,
             pathname: candidate.pathname,
             method: candidate.method,
             requestAgeMs: now - candidate.startedAt,
-            failureAgeMs: now - candidate.failedAt,
+            failureOffsetMs: candidate.failedAt - pageErrorAt,
             sameOrigin: candidate.sameOrigin,
             competingClaimStartedAfterFailure:
               cleanupClaimSequence > candidate.sequence,
@@ -5949,6 +5976,7 @@ async function runAuthoringFuzzQa(
       const isExpectedCleanupNavigationError = (
         target: Page,
         message: string,
+        recoveryPageErrorAt = Date.now(),
       ) => {
         return (
           isExpectedCleanupNavigationRequestError(
@@ -5959,7 +5987,7 @@ async function runAuthoringFuzzQa(
           (target !== page &&
             isExpectedCleanupRecoveryPageBrowserSessionError(
               message,
-              recoveryPollCandidatesFor(target),
+              recoveryPollCandidatesFor(target, recoveryPageErrorAt),
             ))
         );
       };
@@ -6000,23 +6028,40 @@ async function runAuthoringFuzzQa(
           pendingCleanupErrorInspections.add(inspection);
         };
         const onPageError = (error: Error) => {
-          if (isExpectedCleanupNavigationError(target, error.message)) return;
+          const pageErrorAt = Date.now();
           if (
             isPotentialCleanupRecoveryPageBrowserSessionError(error.message)
           ) {
+            const pendingPageError = { at: pageErrorAt };
+            pendingRecoveryPageErrors.add(pendingPageError);
             let inspection: Promise<void>;
             inspection = new Promise<void>((resolve) =>
               setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
             )
               .then(() => {
-                if (!isExpectedCleanupNavigationError(target, error.message)) {
+                if (
+                  !isExpectedCleanupNavigationError(
+                    target,
+                    error.message,
+                    pageErrorAt,
+                  )
+                ) {
                   cleanupErrors.push(
                     `pageerror: ${error.stack ?? String(error)}`,
                   );
                 }
               })
-              .finally(() => pendingCleanupErrorInspections.delete(inspection));
+              .finally(() => {
+                pendingRecoveryPageErrors.delete(pendingPageError);
+                pruneFailedCleanupBrowserSessionClaims();
+                pendingCleanupErrorInspections.delete(inspection);
+              });
             pendingCleanupErrorInspections.add(inspection);
+            return;
+          }
+          if (
+            isExpectedCleanupNavigationError(target, error.message, pageErrorAt)
+          ) {
             return;
           }
           cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);

@@ -4,6 +4,16 @@ const mocks = vi.hoisted(() => ({
   availableKeys: new Set<string>(),
   isBrainAdmin: true,
   providerId: "jira",
+  credentialValues: new Map<string, string>(),
+  resolvedCredentialChecks: [] as Array<{
+    provider: string;
+    key: string;
+    ctx: {
+      userEmail: string;
+      orgId: string;
+      credentialScope?: "org";
+    };
+  }>,
   credentialChecks: [] as Array<{
     provider: string;
     key: string;
@@ -40,42 +50,50 @@ vi.mock("@agent-native/core", () => ({
   defineAction: <T>(action: T) => action,
 }));
 
-vi.mock("@agent-native/core/provider-api", () => ({
-  isProviderApiId: (provider: string) =>
-    provider === "jira" || provider === "github" || provider === "gong",
-  listProviderApiCatalog: (provider: string) => [
-    provider === "github"
-      ? {
-          id: "github",
-          auth: "oauth-bearer:github-or-bearer-key:GITHUB_TOKEN",
-          credentialKeys: ["GITHUB_TOKEN"],
-          docsUrls: [],
-          specUrls: [],
-          examples: [],
-        }
-      : provider === "gong"
+vi.mock("@agent-native/core/provider-api", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/provider-api")
+  >("@agent-native/core/provider-api");
+  return {
+    ...actual,
+    isProviderApiId: (provider: string) =>
+      provider === "jira" || provider === "github" || provider === "gong",
+    listProviderApiCatalog: (provider: string) => [
+      provider === "github"
         ? {
-            id: "gong",
-            auth: "basic",
-            credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
+            id: "github",
+            auth: "oauth-bearer:github-or-bearer-key:GITHUB_TOKEN",
+            credentialKeys: ["GITHUB_TOKEN"],
             docsUrls: [],
             specUrls: [],
             examples: [],
           }
-        : {
-            id: "jira",
-            auth: "oauth-bearer:jira-or-basic:JIRA_USER_EMAIL:JIRA_API_TOKEN",
-            credentialKeys: [
-              "JIRA_BASE_URL",
-              "JIRA_USER_EMAIL",
-              "JIRA_API_TOKEN",
-            ],
-            docsUrls: [],
-            specUrls: [],
-            examples: [],
-          },
-  ],
-}));
+        : provider === "gong"
+          ? {
+              id: "gong",
+              auth: "basic",
+              defaultBaseUrl: "https://api.gong.io/v2",
+              baseUrlCredentialKey: "GONG_API_BASE",
+              credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
+              docsUrls: [],
+              specUrls: [],
+              examples: [],
+            }
+          : {
+              id: "jira",
+              auth: "oauth-bearer:jira-or-basic:JIRA_USER_EMAIL:JIRA_API_TOKEN",
+              credentialKeys: [
+                "JIRA_BASE_URL",
+                "JIRA_USER_EMAIL",
+                "JIRA_API_TOKEN",
+              ],
+              docsUrls: [],
+              specUrls: [],
+              examples: [],
+            },
+    ],
+  };
+});
 
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext: () => ({
@@ -166,6 +184,30 @@ vi.mock("../server/lib/zoom-governance.js", () => ({
 }));
 
 vi.mock("../server/lib/source-credentials.js", () => ({
+  resolveSourceCredentialWithProvenance: async ({
+    provider,
+    key,
+    ctx,
+  }: {
+    provider: string;
+    key: string;
+    ctx: { userEmail: string; orgId: string; credentialScope?: "org" };
+  }) => {
+    mocks.resolvedCredentialChecks.push({ provider, key, ctx });
+    const value = mocks.credentialValues.get(key);
+    return value
+      ? {
+          value,
+          provenance: {
+            source: "registered_secret" as const,
+            key,
+            provider,
+            scope: "org" as const,
+            scopeId: ctx.orgId,
+          },
+        }
+      : undefined;
+  },
   inspectSourceCredentialAvailability: async ({
     key,
     provider,
@@ -192,6 +234,8 @@ const { default: action } = await import("./list-connection-providers.js");
 describe("list-connection-providers", () => {
   beforeEach(() => {
     mocks.availableKeys.clear();
+    mocks.credentialValues.clear();
+    mocks.resolvedCredentialChecks = [];
     mocks.credentialChecks = [];
     mocks.isBrainAdmin = true;
     mocks.providerId = "jira";
@@ -364,6 +408,62 @@ describe("list-connection-providers", () => {
         .every((check) => check.ctx.credentialScope === "org"),
     ).toBe(true);
   });
+
+  it("reports a valid regional Gong base URL ready for a non-admin member", async () => {
+    mocks.isBrainAdmin = false;
+    mocks.availableKeys.add("GONG_ACCESS_KEY");
+    mocks.availableKeys.add("GONG_ACCESS_SECRET");
+    mocks.availableKeys.add("GONG_API_BASE");
+    mocks.credentialValues.set(
+      "GONG_API_BASE",
+      "https://us-88601.api.gong.io/v2",
+    );
+
+    const result = await action.run({});
+    const gong = result.providers.find((provider) => provider.id === "gong");
+
+    expect(gong).toMatchObject({
+      configured: true,
+      providerHealth: { status: "ready" },
+    });
+    expect(mocks.resolvedCredentialChecks).toEqual([
+      {
+        provider: "gong",
+        key: "GONG_API_BASE",
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    "https://attacker.example/v2",
+    "http://us-88601.api.gong.io/v2",
+    "not a URL",
+  ])(
+    "does not report Gong ready for an invalid organization base URL: %s",
+    async (baseUrl) => {
+      mocks.isBrainAdmin = false;
+      mocks.availableKeys.add("GONG_ACCESS_KEY");
+      mocks.availableKeys.add("GONG_ACCESS_SECRET");
+      mocks.availableKeys.add("GONG_API_BASE");
+      mocks.credentialValues.set("GONG_API_BASE", baseUrl);
+
+      const result = await action.run({});
+      const gong = result.providers.find((provider) => provider.id === "gong");
+
+      expect(gong).toMatchObject({
+        configured: false,
+        providerHealth: { status: "unhealthy" },
+      });
+      expect(gong?.providerHealth.message).toContain("GONG_API_BASE");
+      expect(gong?.providerHealth.message).not.toContain(baseUrl);
+      expect(JSON.stringify(gong)).not.toContain(baseUrl);
+    },
+  );
 
   it("reports missing Gong organization API keys without requesting a personal seat", async () => {
     mocks.availableKeys.add("GONG_ACCESS_KEY");
