@@ -2751,8 +2751,9 @@ function parseRawContainer(
 }
 
 // For each line of a table, indexed from its open tag, the first line at or
-// after it that closes a cell or starts or ends a row, or `close`: a table of
-// unclosed cells would otherwise rescan the rest of itself from every one.
+// after it that opens or closes a cell or starts or ends a row, or `close`: a
+// table of unclosed cells would otherwise rescan the rest of itself from every
+// one.
 function cellClosesFrom(
   start: number,
   close: number,
@@ -2763,7 +2764,7 @@ function cellClosesFrom(
   for (let index = close - 1; index > start; index--) {
     const line = lineAt(index);
     next[index - start] =
-      ROW_EDGE.test(line) || CELL_LINE_END.test(line)
+      ROW_EDGE.test(line) || CELL_OPEN.test(line) || CELL_LINE_END.test(line)
         ? index
         : next[index - start + 1];
   }
@@ -2838,12 +2839,16 @@ function parseTable(
       if (cd === "</tr>") break;
       if (!cd) continue;
       // HTML reads a cell's line breaks as spaces.
-      if (/^<t[dh][\s>]/.test(cd) && !CELL_LINE_END.test(cd)) {
+      if (CELL_OPEN.test(cd) && !CELL_LINE_END.test(cd)) {
         cellCloses ??= cellClosesFrom(start, close, lineAt);
         const end = cellCloses[i - start];
-        // A cell left open at its row's end is dropped, not read into the
-        // next row.
-        if (end < close && !ROW_EDGE.test(lineAt(end))) {
+        // A cell left open when its row ends or the next cell opens is
+        // dropped, not read into what follows.
+        if (
+          end < close &&
+          !ROW_EDGE.test(lineAt(end)) &&
+          !CELL_OPEN.test(lineAt(end))
+        ) {
           for (; i <= end; i++) cd += ` ${lineAt(i)}`;
           cd = cd
             .replace(/^(<t[dh][^>]*>)\s+/, "$1")
@@ -2932,6 +2937,7 @@ const CELL_ATTRS = new Set(["color", "align"]);
 const COL_ATTRS = new Set(["color", "width"]);
 const TABLE_WRAPPER_LINE = /^<\/?(?:colgroup|thead|tbody|tfoot)>$/;
 const ROW_EDGE = /^<\/?tr[\s>]/;
+const CELL_OPEN = /^<t[dh][\s>]/;
 // A cell's line may also close its row; the writer never closes one there.
 const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 const ROW_BREAK =
