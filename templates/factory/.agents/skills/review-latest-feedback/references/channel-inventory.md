@@ -74,7 +74,7 @@ place of Slack source messages.
   owner/action. It rejects supplemental roots at or after the cutoff and checks
   that `reactionSummary` and `reactionOwners` contain the same emoji and exact
   unique actor IDs. A partial fixed scope is valid with disposition `Partially
-  fixed` and its own `✅`; a human handoff for another scope can additionally
+fixed` and its own `✅`; a human handoff for another scope can additionally
   carry `🎫`. It also checks that a
   reply row maps to an in-page self-root or a verified `threadRoots` entry,
   along with boundary overlap, page/cursor order, count parity, timestamps,
