@@ -13,6 +13,7 @@ export type ContentSaveOutcome =
   | "preserved_to_history"
   | "merged"
   | "merged_with_displaced_text"
+  | "live_copy_body"
   | "refused"
   | "applied"
   | "displaced_preserved"
