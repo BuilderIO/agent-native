@@ -80,6 +80,8 @@ interface Props {
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
 const MEETING_ENDED_POLL_MS = 30_000;
+const RECOVERY_RETRY_INITIAL_MS = 3_000;
+const RECOVERY_RETRY_MAX_MS = 30_000;
 
 function unlistenAll(unlisteners: Array<() => void>): void {
   for (const unlisten of unlisteners) {
@@ -99,6 +101,13 @@ export function useMeetingTranscription({
   enabled,
 }: Props): void {
   const sessionRef = useRef<MeetingTranscriptionSession | null>(null);
+  const pendingStartRef = useRef<MeetingTranscriptionPayload | null>(null);
+  const recoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const recoveryRetryDelayRef = useRef(RECOVERY_RETRY_INITIAL_MS);
+  const retryPendingWorkRef = useRef<(() => void) | null>(null);
+  const quitTeardownPendingRef = useRef(false);
   const pendingPillInitRef = useRef<{
     meetingId: string;
     initialNotes: string;
@@ -111,6 +120,22 @@ export function useMeetingTranscription({
     () => normalizeServerUrl(serverUrl),
     [serverUrl],
   );
+
+  const acknowledgeQuitTeardown = useCallback(async () => {
+    if (!quitTeardownPendingRef.current) return;
+    await invoke("quit_teardown_done");
+    quitTeardownPendingRef.current = false;
+  }, []);
+
+  const scheduleRecoveryRetry = useCallback(() => {
+    if (recoveryRetryTimerRef.current) return;
+    const delay = recoveryRetryDelayRef.current;
+    recoveryRetryDelayRef.current = Math.min(delay * 2, RECOVERY_RETRY_MAX_MS);
+    recoveryRetryTimerRef.current = window.setTimeout(() => {
+      recoveryRetryTimerRef.current = null;
+      retryPendingWorkRef.current?.();
+    }, delay);
+  }, []);
 
   const flushTranscript = useCallback(async (): Promise<void> => {
     const session = sessionRef.current;
@@ -155,9 +180,13 @@ export function useMeetingTranscription({
   const stopTranscription = useCallback(
     async (reason: string = "manual") => {
       const session = sessionRef.current;
-      if (!session) return;
+      if (!session) {
+        await acknowledgeQuitTeardown();
+        return;
+      }
       if (session.stopping) {
         await stopInFlightRef.current;
+        await acknowledgeQuitTeardown();
         return;
       }
       const stopReason = session.stopPending
@@ -197,9 +226,7 @@ export function useMeetingTranscription({
               return Boolean(result.meeting.actualEnd);
             },
             waitForHistory: async () => {
-              if (stopReason !== "app-quit") {
-                await session.historyInFlight?.catch(() => {});
-              }
+              await session.historyInFlight?.catch(() => {});
             },
             flushTranscript: async () => {
               await flushTranscript();
@@ -210,6 +237,7 @@ export function useMeetingTranscription({
             session.stopPending = true;
             session.pendingStopReason = stopReason;
             session.stopping = false;
+            scheduleRecoveryRetry();
           }
           console.warn(
             "[clips-popover] meeting stop is incomplete; preserving session for retry:",
@@ -223,7 +251,7 @@ export function useMeetingTranscription({
           }).catch((err) => {
             console.warn("[clips-popover] finalize meeting failed:", err);
           });
-          if (stopReason !== "app-quit") await finalizePromise;
+          await finalizePromise;
         }
         // Keep completed notes in Clips instead of interrupting the user by
         // opening a browser tab. On a normal stop the pill stays up and
@@ -253,15 +281,28 @@ export function useMeetingTranscription({
       stopInFlightRef.current = run;
       try {
         await run;
+        recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
+        if (!pendingStartRef.current && recoveryRetryTimerRef.current) {
+          window.clearTimeout(recoveryRetryTimerRef.current);
+          recoveryRetryTimerRef.current = null;
+        }
+        await acknowledgeQuitTeardown();
       } finally {
         if (stopInFlightRef.current === run) stopInFlightRef.current = null;
       }
     },
-    [callClipsAction, flushTranscript, normalizedServerUrl],
+    [
+      acknowledgeQuitTeardown,
+      callClipsAction,
+      flushTranscript,
+      normalizedServerUrl,
+      scheduleRecoveryRetry,
+    ],
   );
 
   useEffect(() => {
     if (enabled) return;
+    pendingStartRef.current = null;
     stopTranscription("lab-disabled").catch(() => {});
   }, [enabled, stopTranscription]);
 
@@ -271,6 +312,28 @@ export function useMeetingTranscription({
       const meetingId = payload.meetingId;
       if (!meetingId) return;
 
+      const clearPendingStart = () => {
+        if (pendingStartRef.current?.meetingId !== meetingId) return;
+        pendingStartRef.current = null;
+        recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
+        if (recoveryRetryTimerRef.current) {
+          window.clearTimeout(recoveryRetryTimerRef.current);
+          recoveryRetryTimerRef.current = null;
+        }
+      };
+      if (
+        pendingStartRef.current &&
+        pendingStartRef.current.meetingId !== meetingId
+      ) {
+        pendingStartRef.current = null;
+        recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
+        if (recoveryRetryTimerRef.current) {
+          window.clearTimeout(recoveryRetryTimerRef.current);
+          recoveryRetryTimerRef.current = null;
+        }
+      }
+      if (quitTeardownPendingRef.current) return;
+
       const existing = sessionRef.current;
       if (existing) {
         if (
@@ -278,6 +341,7 @@ export function useMeetingTranscription({
           !existing.stopPending &&
           existing.meetingId === meetingId
         ) {
+          clearPendingStart();
           await invoke("recording_pill_show", {
             meetingId: existing.meetingId,
             mode: "meeting",
@@ -289,8 +353,20 @@ export function useMeetingTranscription({
           emit("meetings:hide-notification", { meetingId }).catch(() => {});
           return;
         }
-        await stopTranscription("replaced");
+        try {
+          await stopTranscription("replaced");
+        } catch (error) {
+          pendingStartRef.current = payload;
+          scheduleRecoveryRetry();
+          console.warn(
+            "[clips-popover] replacement meeting queued until the previous recording is safely stopped:",
+            error,
+          );
+          return;
+        }
       }
+      if (quitTeardownPendingRef.current) return;
+      clearPendingStart();
 
       pendingPillInitRef.current = {
         meetingId,
@@ -855,6 +931,7 @@ export function useMeetingTranscription({
       selectedMicLabel,
       stopTranscription,
       enabled,
+      scheduleRecoveryRetry,
     ],
   );
 
@@ -873,6 +950,73 @@ export function useMeetingTranscription({
     },
     [runStartTranscription],
   );
+
+  retryPendingWorkRef.current = () => {
+    const session = sessionRef.current;
+    if (quitTeardownPendingRef.current) {
+      stopTranscription("app-quit").catch((error) => {
+        console.warn("[clips-popover] queued quit retry failed:", error);
+      });
+      return;
+    }
+    const payload = pendingStartRef.current;
+    if (payload) {
+      startTranscription(payload).catch((error) => {
+        console.warn(
+          "[clips-popover] queued meeting start retry failed:",
+          error,
+        );
+      });
+    } else if (session?.stopPending) {
+      stopTranscription(session.pendingStopReason ?? "manual").catch(
+        (error) => {
+          console.warn("[clips-popover] queued stop retry failed:", error);
+        },
+      );
+    }
+  };
+
+  useEffect(
+    () => () => {
+      if (recoveryRetryTimerRef.current) {
+        window.clearTimeout(recoveryRetryTimerRef.current);
+        recoveryRetryTimerRef.current = null;
+      }
+      retryPendingWorkRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let stopped = false;
+    let unlisten: (() => void) | null = null;
+    listen("meetings:quit-requested", () => {
+      quitTeardownPendingRef.current = true;
+      pendingStartRef.current = null;
+      recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
+      if (recoveryRetryTimerRef.current) {
+        window.clearTimeout(recoveryRetryTimerRef.current);
+        recoveryRetryTimerRef.current = null;
+      }
+      stopTranscription("app-quit").catch((error) => {
+        console.warn("[clips-popover] app-quit teardown failed:", error);
+      });
+    })
+      .then((dispose) => {
+        if (stopped) dispose();
+        else unlisten = dispose;
+      })
+      .catch((error) => {
+        console.warn(
+          "[clips-popover] quit listener registration failed:",
+          error,
+        );
+      });
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
+  }, [stopTranscription]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -915,7 +1059,17 @@ export function useMeetingTranscription({
   useEffect(() => {
     const timer = window.setInterval(() => {
       const session = sessionRef.current;
-      if (!session) return;
+      if (!session) {
+        if (quitTeardownPendingRef.current) {
+          acknowledgeQuitTeardown().catch((error) => {
+            console.warn(
+              "[clips-popover] quit acknowledgement retry failed:",
+              error,
+            );
+          });
+        }
+        return;
+      }
       if (session.stopPending) {
         stopTranscription(session.pendingStopReason ?? "manual").catch(
           () => {},
@@ -939,7 +1093,7 @@ export function useMeetingTranscription({
         });
     }, MEETING_ENDED_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [callClipsAction, enabled, stopTranscription]);
+  }, [acknowledgeQuitTeardown, callClipsAction, enabled, stopTranscription]);
 
   useEffect(() => {
     if (!enabled) return;

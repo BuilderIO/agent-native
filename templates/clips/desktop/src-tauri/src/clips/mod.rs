@@ -3131,16 +3131,9 @@ pub async fn get_active_meeting_id(app: AppHandle) -> Result<Option<String>, Str
 
 pub static QUIT_TEARDOWN_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-/// Called by the popover webview once it has finished (or given up on)
-/// stopping an in-progress meeting during app quit. Marks teardown done and
-/// asks Tauri to exit again — this second `app.exit(0)` is the one that
-/// actually terminates the process, since the `ExitRequested` handler only
-/// calls `prevent_exit()` on the FIRST pass (gated on this same atomic).
-///
-/// compare_exchange (not load-then-store) so this and lib.rs's 3s watchdog
-/// can't both observe state==1 and both call `app.exit()` — only whichever
-/// wins the CAS proceeds. If this loses the race (watchdog already fired),
-/// there's nothing left to do: the process is already exiting.
+/// Called after the popover has confirmed that the meeting stopped and its
+/// transcript was flushed. The second `app.exit(0)` is allowed through by the
+/// `ExitRequested` handler once this state moves past the pending value.
 #[tauri::command]
 pub async fn quit_teardown_done(app: AppHandle) -> Result<(), String> {
     if QUIT_TEARDOWN_STATE

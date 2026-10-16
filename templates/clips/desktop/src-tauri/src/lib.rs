@@ -558,28 +558,12 @@ pub fn run() {
                     .unwrap_or(false);
                 let teardown_state =
                     clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst);
-                if meeting_active && teardown_state == 0 {
+                if teardown_state == 1 {
+                    api.prevent_exit();
+                } else if meeting_active && teardown_state == 0 {
                     clips::QUIT_TEARDOWN_STATE.store(1, std::sync::atomic::Ordering::SeqCst);
                     api.prevent_exit();
                     let _ = _app_handle.emit("meetings:quit-requested", ());
-                    let watchdog_handle = _app_handle.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_secs(3));
-                        if clips::QUIT_TEARDOWN_STATE
-                            .compare_exchange(
-                                1,
-                                2,
-                                std::sync::atomic::Ordering::SeqCst,
-                                std::sync::atomic::Ordering::SeqCst,
-                            )
-                            .is_ok()
-                        {
-                            eprintln!(
-                                "[clips-tray] quit-teardown watchdog fired — forcing exit after 3s"
-                            );
-                            watchdog_handle.exit(0);
-                        }
-                    });
                 }
             }
             if let tauri::RunEvent::Exit = _event {

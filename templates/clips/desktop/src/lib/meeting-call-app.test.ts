@@ -86,4 +86,24 @@ describe("callAppBundleIdsForJoinUrl", () => {
       "com.google.Chrome",
     );
   });
+
+  it("parses meeting URLs when URL.canParse is unavailable", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(URL, "canParse");
+    Object.defineProperty(URL, "canParse", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      expect(
+        callAppBundleIdsForJoinUrl("https://meet.google.com/abc-defg-hij"),
+      ).toContain("com.google.Chrome");
+      expect(callAppBundleIdsForJoinUrl("not a URL", "meet")).toContain(
+        "com.google.Chrome",
+      );
+    } finally {
+      if (descriptor) Object.defineProperty(URL, "canParse", descriptor);
+      else Reflect.deleteProperty(URL, "canParse");
+    }
+  });
 });

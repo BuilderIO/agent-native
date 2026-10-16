@@ -16,6 +16,15 @@ function isHost(hostname: string, host: string): boolean {
   return hostname === host || hostname.endsWith(`.${host}`);
 }
 
+function parseJoinUrlHostname(joinUrl: string): string | null {
+  try {
+    return new URL(joinUrl).hostname.toLowerCase();
+  } catch (error) {
+    if (error instanceof TypeError) return null;
+    throw error;
+  }
+}
+
 export function callAppBundleIdsForJoinUrl(
   joinUrl?: string | null,
   platform?: string | null,
@@ -37,8 +46,8 @@ export function callAppBundleIdsForJoinUrl(
     return [...NATIVE_CALL_APP_BUNDLE_IDS];
   }
 
-  if (URL.canParse(joinUrl)) {
-    const hostname = new URL(joinUrl).hostname.toLowerCase();
+  const hostname = parseJoinUrlHostname(joinUrl);
+  if (hostname) {
     if (isHost(hostname, "meet.google.com")) {
       return [...BROWSER_CALL_APP_BUNDLE_IDS];
     }
