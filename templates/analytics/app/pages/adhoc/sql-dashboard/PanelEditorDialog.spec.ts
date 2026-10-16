@@ -6,6 +6,7 @@ import {
   panelToForm,
   type PanelFormValues,
 } from "./PanelEditorDialog";
+import { mergeLatestPanelHeight } from "./types";
 import type { SqlPanel } from "./types";
 
 const baseForm: PanelFormValues = {
@@ -141,8 +142,73 @@ describe("dashboard extension panel editor values", () => {
       "Untitled panel",
       "dashboard-1",
     );
+    const merged = mergeLatestPanelHeight(panel, {
+      id: "pipeline-widget",
+      title: "Pipeline Widget",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      height: 4,
+      sql: "SELECT 1",
+    });
 
     expect(panel).toMatchObject({ chartType: "section", columns: 4 });
     expect(panel).not.toHaveProperty("height");
+    expect(merged).not.toHaveProperty("height");
+  });
+
+  it("keeps the latest persisted height when saving unrelated panel fields", () => {
+    const edited = formToPanel(
+      { ...baseForm, chartType: "table", title: "Updated title" },
+      {
+        id: "pipeline-widget",
+        title: "Pipeline Widget",
+        chartType: "table",
+        source: "bigquery",
+        width: 2,
+        height: 2,
+        sql: "SELECT 1",
+      },
+      "Untitled panel",
+      "dashboard-1",
+    );
+    const current = {
+      id: "pipeline-widget",
+      title: "Pipeline Widget",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      height: 4,
+      sql: "SELECT 1",
+    } satisfies SqlPanel;
+
+    expect(mergeLatestPanelHeight(edited, current)).toMatchObject({
+      title: "Updated title",
+      height: 4,
+    });
+  });
+
+  it("clears a stale fixed height when the latest panel is auto-height", () => {
+    const edited: SqlPanel = {
+      id: "pipeline-widget",
+      title: "Updated title",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      height: 4,
+      sql: "SELECT 1",
+    };
+    const current: SqlPanel = {
+      id: "pipeline-widget",
+      title: "Pipeline Widget",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      sql: "SELECT 1",
+    };
+
+    expect(mergeLatestPanelHeight(edited, current)).not.toHaveProperty(
+      "height",
+    );
   });
 });

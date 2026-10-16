@@ -13,7 +13,18 @@ export type DashboardSaveOutcome = {
   omittedChanges?: number;
 };
 
-export type DashboardSaveResult = DashboardSaveOutcome & { isLatest: boolean };
+export type DashboardSaveResult<T> = DashboardSaveOutcome & {
+  isLatest: boolean;
+  /** The config this save actually sent, after rebasing queued edits. */
+  config: T;
+};
+
+export class DashboardSaveQueueConflictError extends Error {
+  constructor(message = "Dashboard changed while a save was pending.") {
+    super(message);
+    this.name = "DashboardSaveQueueConflictError";
+  }
+}
 
 export type DashboardSaveQueue<T> = {
   /**
@@ -23,18 +34,20 @@ export type DashboardSaveQueue<T> = {
   enqueue(
     config: T,
     baseUpdatedAt: string | null,
-  ): Promise<DashboardSaveResult>;
+    update?: (current: T) => T,
+    baseConfig?: T,
+  ): Promise<DashboardSaveResult<T>>;
   /** Saves queued and not yet settled. */
   pending(): number;
 };
 
 /**
  * Runs saves one at a time, each fenced to the version its config was edited
- * from. A save queued from the same version as an earlier one carries that
- * one's edit too, so when the earlier save lands, its version becomes the
- * later save's base. Nothing else moves a base: an edit adopted from someone
- * else after a save was queued isn't in its config, so that save must fail
- * rather than overwrite it.
+ * from. Queued updates are replayed against the latest confirmed config when
+ * they belong to the same version chain, so a later edit does not carry a
+ * failed earlier edit. An edit adopted from someone else after a save was
+ * queued keeps its captured config; if an earlier save fails, that diverged
+ * branch is rejected instead of replaying against a stale confirmed config.
  */
 export function createDashboardSaveQueue<T>(
   save: (
@@ -42,26 +55,77 @@ export function createDashboardSaveQueue<T>(
     expectedUpdatedAt: string | undefined,
   ) => Promise<DashboardSaveOutcome>,
 ): DashboardSaveQueue<T> {
-  const waiting = new Set<{ base: string | null }>();
+  const waiting = new Set<{ base: string | null; diverged: boolean }>();
   let tail: Promise<void> = Promise.resolve();
+  let confirmedConfig: T | undefined;
+  let confirmedVersion: string | null | undefined;
+  let hasConfirmedConfig = false;
+  let latestQueuedConfig: T | undefined;
+  let hasLatestQueuedConfig = false;
+  let queuedChainDiverged = false;
+  let previousSaveFailed = false;
 
   return {
-    enqueue(config, baseUpdatedAt) {
-      const entry = { base: baseUpdatedAt };
+    enqueue(config, baseUpdatedAt, update, baseConfig) {
+      if (waiting.size === 0) {
+        if (baseConfig !== undefined) {
+          confirmedConfig = baseConfig;
+          confirmedVersion = baseUpdatedAt;
+          hasConfirmedConfig = true;
+        }
+        queuedChainDiverged = false;
+        previousSaveFailed = false;
+      } else if (
+        baseConfig !== undefined &&
+        hasLatestQueuedConfig &&
+        baseConfig !== latestQueuedConfig
+      ) {
+        queuedChainDiverged = true;
+      }
+      if (!hasConfirmedConfig && baseConfig !== undefined) {
+        confirmedConfig = baseConfig;
+        confirmedVersion = baseUpdatedAt;
+        hasConfirmedConfig = true;
+      }
+      const entry = { base: baseUpdatedAt, diverged: queuedChainDiverged };
       waiting.add(entry);
+      latestQueuedConfig = config;
+      hasLatestQueuedConfig = true;
       const saveResult = tail.then(async () => {
         let outcome: DashboardSaveOutcome;
+        let configToSave = config;
+        let succeeded = false;
         try {
-          outcome = await save(config, entry.base ?? undefined);
+          if (entry.diverged && previousSaveFailed) {
+            throw new DashboardSaveQueueConflictError();
+          }
+          if (
+            update &&
+            hasConfirmedConfig &&
+            !entry.diverged &&
+            entry.base === confirmedVersion
+          ) {
+            configToSave = update(confirmedConfig as T);
+          }
+          outcome = await save(configToSave, entry.base ?? undefined);
+          succeeded = true;
         } finally {
           waiting.delete(entry);
+          previousSaveFailed = !succeeded;
         }
+        confirmedConfig = configToSave;
+        confirmedVersion = outcome.updatedAt ?? entry.base;
+        hasConfirmedConfig = true;
         if (outcome.updatedAt) {
           for (const later of waiting) {
             if (later.base === entry.base) later.base = outcome.updatedAt;
           }
         }
-        return { ...outcome, isLatest: waiting.size === 0 };
+        return {
+          ...outcome,
+          isLatest: waiting.size === 0,
+          config: configToSave,
+        };
       });
       tail = saveResult.then(
         () => undefined,

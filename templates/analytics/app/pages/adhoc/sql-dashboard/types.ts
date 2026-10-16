@@ -229,3 +229,17 @@ export function clampPanelHeight(value: unknown): number {
   if (integer > MAX_PANEL_HEIGHT) return MAX_PANEL_HEIGHT;
   return integer;
 }
+
+export function mergeLatestPanelHeight(
+  editedPanel: SqlPanel,
+  currentPanel: SqlPanel | null,
+): SqlPanel {
+  const merged = { ...editedPanel };
+  if (editedPanel.chartType === "section") {
+    delete merged.height;
+  } else if (currentPanel) {
+    if (currentPanel.height === undefined) delete merged.height;
+    else merged.height = currentPanel.height;
+  }
+  return merged;
+}

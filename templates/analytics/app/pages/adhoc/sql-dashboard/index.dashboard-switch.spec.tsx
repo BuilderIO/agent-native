@@ -467,6 +467,113 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(savedPanels[1].map((panel) => panel.height)).toEqual([2, 2]);
   });
 
+  it("does not persist a failed resize through a later queued resize", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200, "table-a"), height: 2 },
+      { ...tablePanel("Accounts B", 200, "table-b"), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      return { updatedAt: "2026-10-01T12:01:00.000Z" };
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSliders = container.querySelectorAll(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    await act(async () => {
+      heightSliders[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await act(async () => {
+      heightSliders[1].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(savedPanels).toHaveLength(1);
+
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[0].map((panel) => panel.height)).toEqual([3, 2]);
+    expect(savedPanels[1].map((panel) => panel.height)).toEqual([2, 3]);
+    const savedHeightSliders = container.querySelectorAll(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(savedHeightSliders[0].getAttribute("aria-valuenow")).toBe("2");
+    expect(savedHeightSliders[1].getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("keeps a resize made while the panel editor is open", async () => {
+    const savedConfigs: { panels: SqlPanel[] }[] = [];
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      savedConfigs.push(args.config as { panels: SqlPanel[] });
+      return {
+        updatedAt: `2026-10-01T12:0${savedConfigs.length}:00.000Z`,
+      };
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+    await click("edit-shared-table");
+
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+    expect(savedConfigs[0].panels[0].height).toBe(3);
+
+    await click("panel-editor-save");
+
+    expect(savedConfigs).toHaveLength(2);
+    expect(savedConfigs[1].panels[0]).toMatchObject({
+      title: "Accounts A edited",
+      height: 3,
+    });
+  });
+
   it("resyncs panel dimensions from collaboration after a resize save settles", async () => {
     let releaseFirstSave: (() => void) | undefined;
     let signalFirstSaveStarted!: () => void;
