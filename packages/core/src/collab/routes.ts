@@ -73,7 +73,7 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
     }
   }
   let state: Uint8Array;
-  if (encodedStateVector) {
+  if (encodedStateVector !== null) {
     const stateVector = readStateVector(encodedStateVector);
     if (!stateVector) {
       setResponseStatus(event, 400);
