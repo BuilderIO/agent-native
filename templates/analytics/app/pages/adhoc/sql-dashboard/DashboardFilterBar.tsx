@@ -8,12 +8,15 @@ import {
   IconUser,
 } from "@tabler/icons-react";
 import {
+  Component,
   useCallback,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
+  type ComponentPropsWithoutRef,
+  type RefObject,
 } from "react";
 import { toast } from "sonner";
 
@@ -172,6 +175,49 @@ interface DashboardFilterBarProps {
   shared?: boolean;
 }
 
+interface BusyFocusBoundaryProps extends ComponentPropsWithoutRef<
+  typeof Collapsible
+> {
+  busy: boolean;
+  barRef: RefObject<HTMLDivElement | null>;
+}
+
+class BusyFocusBoundary extends Component<
+  BusyFocusBoundaryProps,
+  unknown,
+  boolean
+> {
+  getSnapshotBeforeUpdate(previous: BusyFocusBoundaryProps) {
+    const bar = this.props.barRef.current;
+    // Chromium can blur a disabled native control during DOM mutation, before
+    // layout effects can inspect which element owned focus.
+    return (
+      !previous.busy &&
+      this.props.busy &&
+      !!bar?.contains(bar.ownerDocument.activeElement)
+    );
+  }
+
+  componentDidUpdate(
+    _previous: BusyFocusBoundaryProps,
+    _state: unknown,
+    ownedFocus: boolean,
+  ) {
+    if (!ownedFocus) return;
+    const bar = this.props.barRef.current;
+    if (!bar) return;
+    const active = bar.ownerDocument.activeElement;
+    if (active === bar.ownerDocument.body || bar.contains(active)) {
+      bar.focus({ preventScroll: true });
+    }
+  }
+
+  render() {
+    const { busy: _busy, barRef, ...props } = this.props;
+    return <Collapsible {...props} ref={barRef} />;
+  }
+}
+
 export function DashboardFilterBar({
   filters,
   views = NO_VIEWS,
@@ -297,8 +343,9 @@ export function DashboardFilterBar({
 
   return (
     <>
-      <Collapsible
-        ref={barRef}
+      <BusyFocusBoundary
+        busy={filtersBusy}
+        barRef={barRef}
         role="group"
         aria-label={t("sqlDashboard.filters")}
         aria-busy={filtersBusy}
@@ -408,7 +455,7 @@ export function DashboardFilterBar({
             )}
           </div>
         </div>
-      </Collapsible>
+      </BusyFocusBoundary>
 
       <Dialog
         open={saveDialogOpen && !filtersBusy}

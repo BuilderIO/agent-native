@@ -698,6 +698,122 @@ describe("dashboard filter feedback during navigation", () => {
   });
 
   it.each([
+    ["input", "foreign"],
+    ["toggle", "foreign"],
+    ["input", "POST"],
+    ["toggle", "POST"],
+  ])(
+    "recovers inline %s focus when %s begins, without restoring a disabled control",
+    async (control, navigation) => {
+      barFilters = [...filters, { id: "name", label: "Name", type: "text" }];
+      await render("/dashboards/test?id=selected", undefined, true);
+      const inline =
+        control === "input"
+          ? container.querySelector<HTMLInputElement>("input")!
+          : button("Off");
+      act(() => inline.focus());
+      expect(document.activeElement).toBe(inline);
+      act(() => {
+        void router.navigate(
+          navigation === "foreign"
+            ? "/dashboards/other?id=foreign#target"
+            : "/dashboards/test?id=selected#write",
+          navigation === "POST"
+            ? { formMethod: "POST", formData: new FormData() }
+            : undefined,
+        );
+      });
+      const pending = router.state.navigation.location;
+      const busy = container.querySelector<HTMLElement>('[aria-busy="true"]')!;
+      expect(inline.disabled).toBe(true);
+      expect(document.activeElement).toBe(busy);
+      expect(busy.title).toBe("Updating");
+      const outside = document.createElement("input");
+      container.appendChild(outside);
+      act(() => outside.focus());
+      if (navigation === "POST") {
+        await act(async () => submission.resolve());
+        expect(router.state.navigation.location).toBe(pending);
+        expect(submission.signal.aborted).toBe(false);
+        expect(inline.disabled).toBe(true);
+        expect(document.activeElement).toBe(outside);
+        await settle();
+      } else {
+        expect(pending?.pathname).toBe("/dashboards/other");
+        expect(pending?.hash).toBe("#target");
+        await act(async () => loads[1].reject(new Error("foreign failed")));
+      }
+      expect(inline.disabled).toBe(false);
+      expect(document.activeElement).toBe(outside);
+      expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+      act(() => {
+        inline.focus();
+        button("Off").click();
+      });
+      expect(button("On").disabled).toBe(false);
+      expect(document.activeElement).toBe(inline);
+      await settle();
+      expect(router.state.location.search).toBe(
+        navigation === "foreign"
+          ? "?id=foreign&f_staff=true"
+          : "?id=selected&f_staff=true",
+      );
+      expect(filterBarMounts).toBe(1);
+    },
+  );
+
+  it.each(["input", "destination"])(
+    "preserves outside %s focus when busy begins",
+    async (kind) => {
+      await render("/dashboards/test?id=selected");
+      act(() => button("Off").focus());
+      const outside = document.createElement(
+        kind === "input" ? "input" : "button",
+      );
+      container.appendChild(outside);
+      outside.addEventListener("click", () => {
+        void router.navigate("/dashboards/other?id=foreign#target");
+      });
+      act(() => {
+        outside.focus();
+        outside.click();
+      });
+      expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+      expect(button("Off").disabled).toBe(true);
+      expect(document.activeElement).toBe(outside);
+      expect(router.state.navigation.location?.pathname).toBe(
+        "/dashboards/other",
+      );
+    },
+  );
+
+  it.each(["input", "toggle"])(
+    "keeps inline %s focus during ordinary same-dashboard GET updates",
+    async (control) => {
+      barFilters = [...filters, { id: "name", label: "Name", type: "text" }];
+      await render("/dashboards/test?id=selected");
+      const inline =
+        control === "input"
+          ? container.querySelector<HTMLInputElement>("input")!
+          : button("Off");
+      act(() => inline.focus());
+      act(() => {
+        void router.navigate("/dashboards/test?id=selected&tab=other#same");
+      });
+      expect(document.activeElement).toBe(inline);
+      expect(inline.disabled).toBe(false);
+      act(() => button("Off").click());
+      expect(document.activeElement).toBe(inline);
+      expect(router.state.navigation.location?.search).toBe(
+        "?id=selected&tab=other&f_staff=true",
+      );
+      expect(router.state.navigation.location?.hash).toBe("#same");
+      await settle();
+      expect(document.activeElement).toBe(inline);
+    },
+  );
+
+  it.each([
     "/dashboards/other?id=selected&tab=other&f_app=slides#external",
     "/dashboards/test?id=other&tab=other&f_app=slides#external",
   ])(
