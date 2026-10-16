@@ -76,20 +76,49 @@ export async function readServiceAccountIdentity(): Promise<ServiceAccountIdenti
   }
 }
 
+/**
+ * A saved key that can't be parsed or signed with. Only the signer's error is
+ * quoted: a JSON parse error can echo part of the key.
+ */
+function unreadableServiceAccountKey(cause?: string): Error {
+  return Object.assign(
+    new Error(
+      `Couldn't read the saved service account key${cause ? ` (${cause})` : ""}. Re-save the key under Google Cloud in Data sources.`,
+    ),
+    { errorCode: "google_credentials_unreadable", statusCode: 422 },
+  );
+}
+
 async function getAccessToken(scope: string): Promise<string> {
-  const creds = JSON.parse(await readServiceAccountJson());
+  const credsJson = await readServiceAccountJson();
+  let creds: { client_email?: unknown; private_key?: unknown };
+  try {
+    creds = JSON.parse(credsJson);
+  } catch {
+    throw unreadableServiceAccountKey();
+  }
+  if (typeof creds.private_key !== "string") {
+    throw unreadableServiceAccountKey();
+  }
   const now = Math.floor(Date.now() / 1000);
 
-  const jwt = await signRs256Jwt(
-    {
-      iss: creds.client_email,
-      scope,
-      aud: "https://oauth2.googleapis.com/token",
-      iat: now,
-      exp: now + 3600,
-    },
-    creds.private_key,
-  );
+  let jwt: string;
+  try {
+    jwt = await signRs256Jwt(
+      {
+        iss: creds.client_email,
+        scope,
+        aud: "https://oauth2.googleapis.com/token",
+        iat: now,
+        exp: now + 3600,
+      },
+      creds.private_key,
+    );
+  } catch (error) {
+    throw unreadableServiceAccountKey(
+      error instanceof Error ? error.message : undefined,
+    );
+  }
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",

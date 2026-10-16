@@ -739,6 +739,8 @@ export default {
       runRunning: "{{when}}부터 수집 중",
       runFailed: "{{when}}에 실패",
       unavailable: "수집 상태를 확인할 수 없습니다: {{message}}",
+      keyUnreadable:
+        "저장된 서비스 계정 키를 읽을 수 없습니다. Google Cloud에서 다시 저장하세요.",
     },
     uploadFile: "파일 업로드",
     googleSheetsExport: "Google Sheets 내보내기",

@@ -156,8 +156,17 @@ function LastRun({ run }: { run: StepRun }) {
   return (
     <div className="space-y-1 text-xs">
       <p className={tone}>{label}</p>
-      {run.errorMessage && run.status !== "succeeded" && (
-        <p className="break-words text-muted-foreground">{run.errorMessage}</p>
+      {run.errorCode === "google_credentials_unreadable" ? (
+        <p className="break-words text-muted-foreground">
+          {t("dataSources.searchConsole.keyUnreadable")}
+        </p>
+      ) : (
+        run.errorMessage &&
+        run.status !== "succeeded" && (
+          <p className="break-words text-muted-foreground">
+            {run.errorMessage}
+          </p>
+        )
       )}
     </div>
   );

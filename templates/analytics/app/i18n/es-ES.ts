@@ -766,6 +766,8 @@ export default {
       runFailed: "Falló {{when}}",
       unavailable:
         "El estado de la recopilación no está disponible: {{message}}",
+      keyUnreadable:
+        "No se pudo leer la clave de cuenta de servicio guardada. Vuelve a guardarla en Google Cloud.",
     },
     uploadFile: "Subir archivo",
     googleSheetsExport: "Exportación a Google Sheets",

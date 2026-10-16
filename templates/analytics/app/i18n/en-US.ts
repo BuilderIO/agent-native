@@ -1222,6 +1222,8 @@ export default {
       runRunning: "Collecting since {{when}}",
       runFailed: "Failed {{when}}",
       unavailable: "Collection status is unavailable: {{message}}",
+      keyUnreadable:
+        "Couldn't read the saved service account key. Re-save it under Google Cloud.",
     },
     uploadFile: "Upload file",
     googleSheetsExport: "Google Sheets export",

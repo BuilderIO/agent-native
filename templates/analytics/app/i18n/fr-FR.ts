@@ -773,6 +773,8 @@ export default {
       runRunning: "Collecte depuis {{when}}",
       runFailed: "Échec {{when}}",
       unavailable: "État de la collecte indisponible : {{message}}",
+      keyUnreadable:
+        "Impossible de lire la clé de compte de service enregistrée. Enregistrez-la de nouveau sous Google Cloud.",
     },
     uploadFile: "Télécharger le fichier",
     googleSheetsExport: "Export Google Sheets",
