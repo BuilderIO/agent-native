@@ -40,4 +40,13 @@ describe("Slides content-edit agent guidance", () => {
       "Removing boxes, headers, or other objects is an in-slide edit: preserve slide count, order, and IDs, and use update-slide or patch-deck with patch-slide operations; use delete-slide only when the user explicitly asks to remove a slide.",
     );
   });
+
+  it("uses web search for factual slide research", () => {
+    expect(agentChatSource).toContain(
+      'call tool-search with names ["web-search", "web-request"] to load both tools, even when the user gives only a name or domain',
+    );
+    expect(agentChatSource).toContain(
+      "Then call web-search to find sources and web-request to read the most relevant public pages before writing factual claims to slides.",
+    );
+  });
 });
