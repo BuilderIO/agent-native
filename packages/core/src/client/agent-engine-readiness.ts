@@ -1,4 +1,5 @@
 import { agentNativePath } from "./api-path.js";
+import { hasBrowserEventTarget } from "./browser-runtime.js";
 import {
   fetchAgentEngineStatus,
   invalidateClientStatusRequest,
@@ -104,10 +105,9 @@ function pruneIdleStores(now: number): void {
 
 function canonicalStatusUrl(url: string): string {
   try {
-    const base =
-      typeof window === "undefined"
-        ? "http://agent-native.invalid"
-        : window.location.href;
+    const base = hasBrowserEventTarget()
+      ? window.location.href
+      : "http://agent-native.invalid";
     return new URL(url, base).toString();
   } catch {
     return url;
@@ -183,10 +183,9 @@ function readinessSourceKey(
 export function agentEngineStatusUrlForChatApi(apiUrl?: string): string {
   if (!apiUrl) return agentNativePath(AGENT_ENGINE_STATUS_PATH);
   try {
-    const base =
-      typeof window === "undefined"
-        ? "http://agent-native.invalid"
-        : window.location.href;
+    const base = hasBrowserEventTarget()
+      ? window.location.href
+      : "http://agent-native.invalid";
     const chatUrl = new URL(apiUrl, base);
     const chatPathSuffix = "/agent-chat";
     if (chatUrl.pathname.endsWith(chatPathSuffix)) {
@@ -285,8 +284,7 @@ function refreshStores(scope?: { tabId?: unknown; threadId?: unknown }): void {
 }
 
 function installInvalidationEvents(): void {
-  if (eventsInstalled || typeof window === "undefined") return;
-  eventsInstalled = true;
+  if (eventsInstalled || !hasBrowserEventTarget()) return;
   window.addEventListener("agent-engine:configured-changed", () => {
     for (const store of stores.values()) invalidateStore(store);
     refreshStores();
@@ -301,6 +299,7 @@ function installInvalidationEvents(): void {
         : undefined,
     );
   });
+  eventsInstalled = true;
 }
 
 async function waitForStatus<T>(

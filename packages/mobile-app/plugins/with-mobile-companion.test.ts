@@ -10,8 +10,8 @@ const require = createRequire(import.meta.url);
 const EXPO_APP_DELEGATE_ARCHIVE_PATH =
   "package/ios/HelloWorld/AppDelegate.swift";
 const expoTemplateArchive = require.resolve("expo/template.tgz");
-const expoSdk57AppDelegate = readFileSync(
-  new URL("./fixtures/expo-sdk-57.0.29/AppDelegate.swift", import.meta.url),
+const expoSdk58AppDelegate = readFileSync(
+  new URL("./fixtures/expo-sdk-58.0.10/AppDelegate.swift", import.meta.url),
   "utf8",
 );
 
@@ -26,16 +26,18 @@ function readPinnedExpoAppDelegate() {
 describe("with-mobile-companion iOS template anchors", () => {
   it("keeps its fixture identical to the pinned Expo template archive", () => {
     expect(
-      expoSdk57AppDelegate,
-      "Refresh plugins/fixtures/expo-sdk-57.0.29 from expo/template.tgz when upgrading Expo.",
+      expoSdk58AppDelegate,
+      "Refresh plugins/fixtures/expo-sdk-58.0.10 from expo/template.tgz when upgrading Expo.",
     ).toBe(readPinnedExpoAppDelegate());
   });
 
-  it("routes cold and warm quick actions against the Expo SDK 57 AppDelegate", () => {
-    const result = addIosShortcutRouting(expoSdk57AppDelegate);
+  it("routes cold and warm quick actions against the Expo SDK 58 AppDelegate", () => {
+    const result = addIosShortcutRouting(expoSdk58AppDelegate);
 
     expect(result).toContain("private enum AgentNativeShortcutRouter");
-    expect(result).toContain("launchOptions: agentNativeLaunchOptions");
+    expect(result).toContain(
+      "didFinishLaunchingWithOptions: agentNativeLaunchOptions",
+    );
     expect(result).toContain("performActionFor shortcutItem");
     expect(result).toContain(
       "return agentNativeShortcutURL == nil ? didFinish : false",
@@ -43,14 +45,14 @@ describe("with-mobile-companion iOS template anchors", () => {
   });
 
   it("is idempotent", () => {
-    const once = addIosShortcutRouting(expoSdk57AppDelegate);
+    const once = addIosShortcutRouting(expoSdk58AppDelegate);
     expect(addIosShortcutRouting(once)).toBe(once);
   });
 
   it("fails closed when Expo changes the AppDelegate anchors", () => {
     expect(() =>
       addIosShortcutRouting(
-        expoSdk57AppDelegate.replace(
+        expoSdk58AppDelegate.replace(
           "    let delegate = ReactNativeDelegate()",
           "    let delegate = NewReactNativeDelegate()",
         ),

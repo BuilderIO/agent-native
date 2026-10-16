@@ -6,6 +6,9 @@ packages:
   - community-templates
   - community-templates/*
 
+syncInjectedDepsAfterScripts:
+  - build
+
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@bacons/apple-targets"

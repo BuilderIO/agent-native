@@ -83,9 +83,11 @@ describe("iOS EAS provisioning metadata", () => {
     );
 
     expect(config.ios?.appleTeamId).toBeUndefined();
-    expect(config.plugins).toContainEqual([
+    expect(config.plugins).not.toContainEqual([
       "expo-build-properties",
-      expect.objectContaining({ ios: { enableSceneSupport: true } }),
+      expect.objectContaining({
+        ios: expect.objectContaining({ enableSceneSupport: true }),
+      }),
     ]);
     expect(appExtensions).toHaveLength(4);
     expect(extensionsByBundleId).toMatchObject({
