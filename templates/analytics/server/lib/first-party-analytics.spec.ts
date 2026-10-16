@@ -724,6 +724,21 @@ describe("recordAnalyticsEvents", () => {
     );
   });
 
+  it("marks a batch lost when its event sink cannot be read", async () => {
+    backendMocks.get.mockRejectedValueOnce(new Error("settings unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("settings unavailable");
+
+    expect(outputOutcomeMocks.record).not.toHaveBeenCalled();
+    expect(outputOutcomeMocks.lost).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "pageview" })],
+      expect.any(String),
+    );
+  });
+
   it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {
     sessionEventIndexMocks.record.mockRejectedValueOnce(
       new Error("gap marker write failed"),

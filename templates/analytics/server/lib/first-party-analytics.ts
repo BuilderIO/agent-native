@@ -909,31 +909,29 @@ export async function recordAnalyticsEvents(
     };
   });
 
-  const backend = await getFirstPartyAnalyticsBackend({
-    userEmail: key.ownerEmail,
-    orgId: key.orgId ?? null,
-  });
-
-  if (rows.length && backend.sink === "dual") {
-    try {
-      await runWithRequestContext(
-        {
-          userEmail: key.ownerEmail,
-          orgId: key.orgId ?? undefined,
-        },
-        () => insertFirstPartyAnalyticsRows(rows, backend.table),
-      );
-    } catch (error) {
-      console.error(
-        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-        error,
-      );
-    }
-  }
-
   let persistenceError: unknown = null;
   if (rows.length) {
     try {
+      const backend = await getFirstPartyAnalyticsBackend({
+        userEmail: key.ownerEmail,
+        orgId: key.orgId ?? null,
+      });
+      if (backend.sink === "dual") {
+        try {
+          await runWithRequestContext(
+            {
+              userEmail: key.ownerEmail,
+              orgId: key.orgId ?? undefined,
+            },
+            () => insertFirstPartyAnalyticsRows(rows, backend.table),
+          );
+        } catch (error) {
+          console.error(
+            "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+            error,
+          );
+        }
+      }
       if (backend.sink === "bigquery") {
         await persistBigQueryRowsWithMigrationFallback(
           db,

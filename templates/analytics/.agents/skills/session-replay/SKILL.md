@@ -337,7 +337,8 @@ agent answers about browser recordings in the Analytics template.
   the earliest qualifying use; the upsert merges batches in any order. A failed
   outcome write records the batch's event-time span per tenant in
   `analytics_output_outcome_gaps`, and so does `recordLostOutputBatch` when
-  ingest fails to store a batch at all (volume limit, raw insert, index), since
+  ingest fails to store a batch at all (sink lookup, volume limit, raw insert,
+  index), since
   the tracker does not resend it. An output whose window overlaps a gap is
   `unmeasured`, never `unused`, since the lost batch could hold its use.
   Outputs made before the tenant's coverage start are skipped. Before the
