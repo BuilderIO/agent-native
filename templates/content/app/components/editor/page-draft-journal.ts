@@ -78,9 +78,14 @@ export function holdPageDraftWriter(writerId: string): () => void {
           else release = resolve;
         }),
     )
-    .catch(() => {
-      // coercion-ok: A writer whose lock was refused reads as gone, so
-      // another tab may replay its journal, as it did before writer locks.
+    .catch((error: unknown) => {
+      // coercion-ok: A writer whose lock was refused reads as gone, so another
+      // tab may replay its journal, as it did before writer locks. Reading it
+      // as live instead would strand that journal once this tab closed.
+      console.warn(
+        "Could not hold the page draft writer lock; another tab may replay this editor's draft",
+        error,
+      );
     });
   return () => {
     released = true;

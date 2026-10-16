@@ -487,6 +487,24 @@ describe("Page draft writer locks", () => {
     expect(await liveDraftWriterIds()).toEqual(new Set());
   });
 
+  it("reports a refused lock, and its writer reads as gone", async () => {
+    const refusal = new DOMException("Refused", "SecurityError");
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      locks: { ...locks, request: async () => Promise.reject(refusal) },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      holdPageDraftWriter("tab-one");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(await liveDraftWriterIds()).toEqual(new Set());
+      expect(warn).toHaveBeenCalledWith(expect.any(String), refusal);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("cannot tell which writers are live without Web Locks", async () => {
     vi.stubGlobal("navigator", { ...navigator, locks: undefined });
     const release = holdPageDraftWriter("tab-one");
