@@ -73,15 +73,23 @@ describe("dbtProviderReadiness", () => {
     ).resolves.toBe("ready");
   });
 
-  it("fails loudly on a non-string environment ID instead of reporting it missing", async () => {
+  it("reports a corrupt non-string environment ID as invalid without failing the provider", async () => {
     await expect(
       dbtProviderReadiness(
         [row({ config: { semanticLayerEnvironmentId: 123456 } })],
         "org_test",
       ),
-    ).rejects.toMatchObject({
-      errorCode: "dbt_connection_invalid",
-      statusCode: 500,
-    });
+    ).resolves.toBe("environment_invalid");
+  });
+
+  it("keeps the status precedence for a corrupt row: a token problem still wins", async () => {
+    mocks.hasAppSecret.mockResolvedValueOnce(false);
+
+    await expect(
+      dbtProviderReadiness(
+        [row({ config: { semanticLayerEnvironmentId: 123456 } })],
+        "org_test",
+      ),
+    ).resolves.toBe("token_missing");
   });
 });

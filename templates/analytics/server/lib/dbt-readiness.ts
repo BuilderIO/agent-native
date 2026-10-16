@@ -1,4 +1,3 @@
-import { fail } from "@agent-native/core/action";
 import { hasAppSecret } from "@agent-native/core/secrets";
 import type { SerializedWorkspaceConnection } from "@agent-native/core/workspace-connections";
 
@@ -9,18 +8,27 @@ import {
   type DbtConnectionReadiness,
 } from "./dbt-connection.js";
 
-function dbtEnvironmentId(
+// One corrupt row must not throw out of the shared status action, so a
+// non-string saved ID is reported as an invalid environment ID instead.
+function rowReadiness(
   connection: SerializedWorkspaceConnection,
-): string | null {
+  tokenConfigured: boolean | null,
+): DbtConnectionReadiness {
   const value = connection.config[DBT_ENVIRONMENT_CONFIG_KEY];
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string") {
-    fail("The saved dbt connection has an unreadable configuration.", {
-      errorCode: "dbt_connection_invalid",
-      statusCode: 500,
-    });
+  const readiness = dbtConnectionReadiness({
+    status: connection.status,
+    tokenConfigured,
+    environmentId: typeof value === "string" ? value : null,
+  });
+  if (
+    readiness === "environment_missing" &&
+    value !== undefined &&
+    value !== null &&
+    value !== ""
+  ) {
+    return "environment_invalid";
   }
-  return value;
+  return readiness;
 }
 
 // Provider readiness across its granted rows: any ready row makes dbt ready,
@@ -39,11 +47,7 @@ export async function dbtProviderReadiness(
       })
     : null;
   const readiness = grantedConnections.map((connection) =>
-    dbtConnectionReadiness({
-      status: connection.status,
-      tokenConfigured,
-      environmentId: dbtEnvironmentId(connection),
-    }),
+    rowReadiness(connection, tokenConfigured),
   );
   const [first] = readiness;
   return readiness.includes("ready") ? "ready" : first;

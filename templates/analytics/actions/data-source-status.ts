@@ -448,9 +448,15 @@ export default defineAction({
           : provider.grantState === "connected") &&
         (scopedProviderIds === null || scopedProviderIds.has(provider.id)),
     );
+    // A dbt readiness error means its status could not be read, so the
+    // aggregate is unknown rather than "no connected sources".
     const hasUnknownProviderStatus =
       workspace.error !== null ||
-      providers.some((provider) => provider.configured === null);
+      providers.some((provider) => provider.configured === null) ||
+      workspaceProviderStatuses.some(
+        (provider) =>
+          provider.id === DBT_PROVIDER_ID && provider.dbtReadiness === "error",
+      );
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.

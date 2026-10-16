@@ -13,7 +13,9 @@ const SOURCE_QUERY_TOOLS = new Set([
   "bigquery",
   "query-dashboard-panel",
 ]);
-const WAREHOUSE_QUERY_TOOLS = new Set(["bigquery", "query-dashboard-panel"]);
+// Dashboard panels can read cached or saved results, so only a warehouse query
+// counts as the warehouse read that a disclosure describes.
+const WAREHOUSE_QUERY_TOOLS = new Set(["bigquery"]);
 
 const ROUTING_ACTION_ALLOWLIST = [
   "find-data",
@@ -76,6 +78,28 @@ function warehouseQueryRan(run: AgentRunOutput): boolean {
   );
 }
 
+// A call that was made is not evidence; only a completed, non-error metric
+// result with status "success" is.
+function dbtQuerySucceeded(run: AgentRunOutput): boolean {
+  return (run.toolCallDetails ?? []).some((call) => {
+    if (
+      call.name !== DBT_TOOL ||
+      call.completed !== true ||
+      call.isError === true ||
+      typeof call.result !== "string"
+    ) {
+      return false;
+    }
+    try {
+      return (
+        (JSON.parse(call.result) as { status?: unknown }).status === "success"
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
 function dbtReadinessReadings(run: AgentRunOutput): string[] {
   return (run.toolCallDetails ?? [])
     .filter(
@@ -113,6 +137,11 @@ const ownerMetricRouteScorer = createScorer<
     } else if (firstSourceQuery !== DBT_TOOL) {
       reasons.push(
         `first source query was ${firstSourceQuery}; expected ${DBT_TOOL}`,
+      );
+    }
+    if (!dbtQuerySucceeded(run)) {
+      reasons.push(
+        `no successful ${DBT_TOOL} result; a call that returned a non-success status is not routing evidence`,
       );
     }
     if (!run.ok || run.error)

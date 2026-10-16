@@ -66,6 +66,16 @@ function connectionReadiness(readiness: string): ToolCallDetail {
   );
 }
 
+function dbtResult(status: string): ToolCallDetail {
+  return {
+    name: "query-dbt-semantic-metric",
+    input: {},
+    completed: true,
+    isError: false,
+    result: JSON.stringify({ status }),
+  };
+}
+
 function warehouseRead(isError = false): ToolCallDetail {
   return {
     name: "bigquery",
@@ -145,10 +155,26 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
         },
         "production run failed or was aborted",
       ],
+      [
+        "dbt call returned not_found",
+        transcript(
+          "Synthetic routing answer.",
+          ["query-dbt-semantic-metric"],
+          [dbtResult("not_found")],
+        ),
+        "no successful query-dbt-semantic-metric result",
+      ],
     ];
 
+    // Every passing route also needs a successful dbt result, not just a call.
     for (const output of passing) {
-      const { report } = await scoreCase(ownerMetricCase, output);
+      const { report } = await scoreCase(ownerMetricCase, {
+        ...output,
+        toolCallDetails: [
+          ...(output.toolCallDetails ?? []),
+          dbtResult("success"),
+        ],
+      });
       expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
     }
     for (const [label, output, reason] of failing) {

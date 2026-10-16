@@ -1234,8 +1234,22 @@ export function hasDataQueryAttempt(
     if (isToolName(name, "run-code")) {
       return hasRunCodeDataQueryAttempt(result.content);
     }
+    // dbt returns not_found, connection_error, and similar states as normal
+    // payloads, so only a success payload is evidence.
+    if (isToolName(name, "query-dbt-semantic-metric")) {
+      return isSuccessfulDbtMetricResult(result.content);
+    }
     return isGroundingActionName(name) || isMcpDataSourceTool(name);
   });
+}
+
+export function isSuccessfulDbtMetricResult(content: unknown): boolean {
+  try {
+    const parsed = JSON.parse(String(content ?? "")) as { status?: unknown };
+    return parsed.status === "success";
+  } catch {
+    return false;
+  }
 }
 
 function isFailedDataQueryAttempt(result: {

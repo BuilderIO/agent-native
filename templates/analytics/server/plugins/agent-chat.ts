@@ -1105,12 +1105,14 @@ function dataSourceStatusSummary(
         typeof record.grantState === "string" ? record.grantState : null;
       const isDbt = providerId === DBT_PROVIDER_ID;
       if (isDbt) dbtReadiness = parseDbtReadiness(record.dbtReadiness);
-      // Mirrors data-source-status: a granted dbt row whose Semantic Layer is
-      // not ready is neither configured nor a healthy workspace connection.
-      const dbtNotReady =
-        isDbt && dbtReadiness !== undefined && dbtReadiness !== "ready";
+      // Mirrors data-source-status: dbt is configured or healthy only when its
+      // readiness is "ready". An absent readiness is unknown, not healthy, so the
+      // grant alone must not restore health.
+      const dbtNotReady = isDbt && dbtReadiness !== "ready";
       const configured = dbtNotReady
-        ? false
+        ? dbtReadiness === undefined
+          ? null
+          : false
         : record.configured === true ||
             grantState === "connected" ||
             grantState === "granted"
