@@ -107,6 +107,7 @@ describe("AgentEngine registry", () => {
     );
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../settings/user-settings.js");
+    vi.doUnmock("../app-model-defaults.js");
     vi.doUnmock("../../server/credential-provider.js");
     vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
