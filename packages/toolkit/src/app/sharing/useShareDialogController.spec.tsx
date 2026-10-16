@@ -285,18 +285,19 @@ describe("useShareDialogController", () => {
     expect(mocks.share.mutate).not.toHaveBeenCalled();
   });
 
-  it("does not refetch after a visibility mutation is superseded", async () => {
+  it("refetches the actual visibility save after refusing a different target", async () => {
     let result = await render();
 
     act(() => result.visibility.set("public"));
     result = controller as ShareDialogController;
     act(() => result.visibility.set("org"));
 
-    act(() => mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess());
+    expect(mocks.visibility.mutate).toHaveBeenCalledOnce();
+    expect(result.visibility.value).toBe("public");
     expect(mocks.query.refetch).not.toHaveBeenCalled();
 
     await act(async () => {
-      mocks.visibility.mutate.mock.calls[1]?.[1]?.onSuccess();
+      mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess();
       await Promise.resolve();
     });
     expect(mocks.query.refetch).toHaveBeenCalledOnce();
@@ -495,7 +496,7 @@ describe("useShareDialogController", () => {
       expect(transition().error).toBeNull();
     });
 
-    it("rejects a superseded write that failed without showing it as the current error", async () => {
+    it("reports the actual write failure after refusing a different target", async () => {
       mocks.query.data = { ...mocks.query.data!, visibility: "public" };
       const result = await render();
       let older!: Promise<void>;
@@ -505,7 +506,10 @@ describe("useShareDialogController", () => {
       act(() =>
         (controller as ShareDialogController).visibility.set("private"),
       );
-      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(2);
+      expect(mocks.visibility.mutate).toHaveBeenCalledOnce();
+      expect((controller as ShareDialogController).visibility.value).toBe(
+        "org",
+      );
 
       await act(async () => {
         mocks.visibility.mutate.mock.calls[0]?.[1]?.onError(
@@ -514,7 +518,9 @@ describe("useShareDialogController", () => {
         await expect(older).rejects.toThrow("stale write failed");
       });
 
-      expect((controller as ShareDialogController).error).toBeNull();
+      expect((controller as ShareDialogController).error).toBe(
+        "stale write failed",
+      );
     });
 
     it("drops the request when the resource changes or access is lost", async () => {
@@ -699,6 +705,12 @@ describe("useShareDialogController", () => {
       expect(transition().pending).toBeNull();
       expect(mocks.visibility.mutate).toHaveBeenCalledTimes(1);
 
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess({
+          visibility: "org",
+        });
+        await Promise.resolve();
+      });
       mocks.visibility.mutate.mockClear();
       mocks.query.data = { ...mocks.query.data!, visibility: "private" };
       const priv = await render();

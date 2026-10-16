@@ -3032,9 +3032,6 @@ const messages: ToolkitAgentChatTranslation = {
     "Von {{owner}} erstellt und rotiert. Trenne die Verbindung dort.",
   "settingsApiKeys.membersLocked":
     "Nur Inhaber und Admins können Schlüssel mit {{org}} teilen.",
-  "settingsApiKeys.modelFootnote":
-    "Um deinen eigenen Modellanbieter zu nutzen, {{link}}.",
-  "settingsApiKeys.modelFootnoteLink": "füge ihn unter Modell hinzu",
   "settingsApiKeys.name": "Name",
   "settingsApiKeys.noKeys": "Noch keine Schlüssel",
   "settingsApiKeys.noKeysDescription":

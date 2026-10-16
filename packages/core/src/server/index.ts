@@ -345,6 +345,7 @@ export {
   type ChatThreadOwnership,
   type ChatThreadScope,
   type ChatThreadSummary,
+  type ChatThreadListRow,
   type ListThreadsOptions,
 } from "../chat-threads/store.js";
 export {

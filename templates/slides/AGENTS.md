@@ -26,7 +26,7 @@ Read relevant guides before deeper work:
 
 ## Framework Docs
 
-Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
+For framework questions, use local docs: `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --slug "<slug>"`. For slide requests to look up or add public facts, load `web-search` and `web-request` with `tool-search`.
 
 ## Actions
 

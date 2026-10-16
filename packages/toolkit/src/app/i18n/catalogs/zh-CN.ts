@@ -2638,8 +2638,6 @@ const messages: ToolkitAgentChatTranslation = {
     "由 {{owner}} 创建和轮换。请在那里断开连接。",
   "settingsApiKeys.membersLocked":
     "只有所有者和管理员可以与 {{org}} 共享密钥。",
-  "settingsApiKeys.modelFootnote": "要使用你自己的模型提供商，请{{link}}。",
-  "settingsApiKeys.modelFootnoteLink": "在“模型”中添加",
   "settingsApiKeys.name": "名称",
   "settingsApiKeys.noKeys": "还没有密钥",
   "settingsApiKeys.noKeysDescription":

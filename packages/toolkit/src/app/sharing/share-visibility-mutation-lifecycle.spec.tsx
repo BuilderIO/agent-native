@@ -198,42 +198,88 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     mounted = false;
   };
 
-  it("settles every write when overlapping direct writes finish in order", async () => {
+  it("refuses a different direct target until the first write persists, then permits retry", async () => {
     const first = await start(() => surface.request("public"));
     await tick();
     const second = await start(() => surface.request("private"));
     await tick();
-    expect(transport.writes.map((w) => w.visibility)).toEqual([
-      "public",
-      "private",
-    ]);
+    expect(transport.writes.map((w) => w.visibility)).toEqual(["public"]);
+    expect(first.status).toBe("pending");
+    expect(second.status).toBe("rejected");
+    expect(second.reason).toMatchObject({
+      name: "ShareVisibilityNotSavedError",
+      reason: "ignored",
+    });
+    expect(surface.value()).toBe("public");
+    expect(transport.server.visibility).toBe("private");
 
     await drive(() => transport.writes[0].resolve());
     await tick();
+    const retry = await start(() => surface.request("private"));
+    await until(() => transport.writes.length === 2, "the retry write");
+    expect(retry.status).toBe("pending");
     await drive(() => transport.writes[1].resolve());
     await tick();
 
     expect(first.status).toBe("resolved");
-    expect(second.status).toBe("resolved");
+    expect(retry.status).toBe("resolved");
+    expect(transport.server.visibility).toBe("private");
     expect(surface.value()).toBe("private");
   });
 
-  it("settles every write when the newer write finishes first", async () => {
+  it("prevents Org to Private to Public writes from committing out of order", async () => {
+    const held = await start(() => surface.request("org"));
+    await start(() => surface.confirm());
+    await until(() => transport.writes.length === 1, "the org write");
+    await drive(() => transport.writes[0].resolve());
+    await tick();
+    expect(held.status).toBe("resolved");
+    expect(transport.server.visibility).toBe("org");
+
+    const first = await start(() => surface.request("private"));
+    await until(() => transport.writes.length === 2, "the private write");
+    const second = await start(() => surface.request("public"));
+    expect(second.status).toBe("rejected");
+    expect(second.reason).toMatchObject({ reason: "ignored" });
+    expect(transport.writes.map((write) => write.visibility)).toEqual([
+      "org",
+      "private",
+    ]);
+    expect(first.status).toBe("pending");
+    expect(surface.value()).toBe("private");
+    expect(transport.server.visibility).toBe("org");
+
+    await drive(() => transport.writes[1].resolve());
+    await tick();
+    expect(first.status).toBe("resolved");
+    const retry = await start(() => surface.request("public"));
+    await until(() => transport.writes.length === 3, "the public retry");
+    await drive(() => transport.writes[2].resolve());
+    await tick();
+    expect(retry.status).toBe("resolved");
+    expect(transport.server.visibility).toBe("public");
+    expect(surface.value()).toBe("public");
+  });
+
+  it("keeps the actual direct save pending after refusing the newer target", async () => {
     const first = await start(() => surface.request("public"));
     await tick();
     const second = await start(() => surface.request("private"));
     await tick();
 
-    await drive(() => transport.writes[1].resolve());
-    await tick();
+    expect(transport.writes).toHaveLength(1);
+    expect(second.status).toBe("rejected");
+    expect(second.reason).toMatchObject({ reason: "ignored" });
+    expect(first.status).toBe("pending");
     await drive(() => transport.writes[0].resolve());
     await tick();
 
     expect(first.status).toBe("resolved");
-    expect(second.status).toBe("resolved");
+    expect(surface.value()).toBe("public");
+    expect(transport.server.visibility).toBe("public");
   });
 
-  it("rejects a superseded write that fails while the newer one saves", async () => {
+  it("reports the actual save failure after refusing a different target and releases the lock", async () => {
     const first = await start(() => surface.request("public"));
     await tick();
     const second = await start(() => surface.request("private"));
@@ -242,23 +288,30 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     const failure = new Error("first save failed");
     await drive(() => transport.writes[0].reject(failure));
     await tick();
+    expect(second.status).toBe("rejected");
+    expect(second.reason).toMatchObject({ reason: "ignored" });
+    expect(transport.writes).toHaveLength(1);
+    expect(surface.error()).toBe("first save failed");
+    expect(surface.value()).toBe("private");
+    const retry = await start(() => surface.request("public"));
+    await until(() => transport.writes.length === 2, "the retry write");
     await drive(() => transport.writes[1].resolve());
     await tick();
 
     expect(first.status).toBe("rejected");
     expect(first.reason).toBe(failure);
-    expect(second.status).toBe("resolved");
+    expect(retry.status).toBe("resolved");
+    expect(surface.error()).toBeNull();
   });
 
-  it("rejects the newest write when it fails and still resolves the earlier one", async () => {
+  it("reports a failed retry after the preceding direct save has settled", async () => {
     const first = await start(() => surface.request("public"));
     await tick();
-    const second = await start(() => surface.request("private"));
-    await tick();
-
-    const failure = new Error("second save failed");
     await drive(() => transport.writes[0].resolve());
     await tick();
+    const second = await start(() => surface.request("private"));
+    await until(() => transport.writes.length === 2, "the second write");
+    const failure = new Error("second save failed");
     await drive(() => transport.writes[1].reject(failure));
     await tick();
 
@@ -269,24 +322,23 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     expect(surface.error()).not.toBeNull();
   });
 
-  it("keeps the shown error clean when an older write fails after a newer one saved", async () => {
+  it("keeps the actual pending target after a different void UI request is refused", async () => {
     const older = await start(() => surface.request("public"));
     await tick();
-    const newer = await start(() => surface.request("private"));
+    await drive(() => surface.requestFromUi("private"));
     await tick();
-
-    await drive(() => transport.writes[1].resolve());
-    await tick();
-    const failure = new Error("older save failed");
+    expect(transport.writes).toHaveLength(1);
+    expect(surface.value()).toBe("public");
+    expect(surface.error()).toBeNull();
+    const failure = new Error("actual save failed");
     await drive(() => transport.writes[0].reject(failure));
     await tick();
 
-    // The caller of the superseded write still learns it failed...
     expect(older.status).toBe("rejected");
     expect(older.reason).toBe(failure);
-    expect(newer.status).toBe("resolved");
-    // ...but the UI describes the write the person last asked for, which saved.
-    expect(surface.error()).toBeNull();
+    expect(surface.error()).toBe("actual save failed");
+    expect(surface.value()).toBe("private");
+    expect(transport.server.visibility).toBe("private");
   });
 
   it("resolves a write that finishes after the surface unmounted", async () => {
@@ -314,7 +366,7 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     expect(saved.reason).toBe(failure);
   });
 
-  it("settles both an overlapped and an unmounted write in one run", async () => {
+  it("settles the actual write after refusing overlap and unmounting", async () => {
     const first = await start(() => surface.request("public"));
     await tick();
     const second = await start(() => surface.request("private"));
@@ -322,11 +374,13 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
 
     unmount();
     await drive(() => transport.writes[0].resolve());
-    await drive(() => transport.writes[1].resolve());
     await tick();
 
     expect(first.status).toBe("resolved");
-    expect(second.status).toBe("resolved");
+    expect(second.status).toBe("rejected");
+    expect(second.reason).toMatchObject({ reason: "ignored" });
+    expect(transport.writes).toHaveLength(1);
+    expect(transport.server.visibility).toBe("public");
   });
 
   it("makes a repeat of the optimistic target wait for the save in flight", async () => {

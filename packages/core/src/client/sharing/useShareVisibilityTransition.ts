@@ -91,6 +91,8 @@ export interface ShareVisibilityTransition {
    * retry and rejects with `ShareVisibilityNotSavedError` once the change is
    * cancelled or invalidated (resource change, closed surface, lost manage
    * rights). A request that is refused up front rejects the same way.
+   * While a save runs, the same target joins it and a different target is
+   * refused with reason `ignored` until the write settles.
    */
   request: (next: ShareVisibility) => Promise<void>;
   confirm: () => Promise<void>;
@@ -116,8 +118,8 @@ export function useShareVisibilityTransition(
   // Bumped whenever the pending request is dropped, so a save that finishes
   // afterwards cannot touch the next request's state.
   const generationRef = useRef(0);
-  // The newest save still running per resource. A request for the value it is
-  // already writing joins it instead of reporting that value as persisted.
+  // A server write cannot be cancelled: join its target or refuse a different
+  // target until it settles so writes on one resource cannot commit out of order.
   const inflightRef = useRef(
     new Map<string, { target: ShareVisibility; promise: Promise<void> }>(),
   );
@@ -172,9 +174,7 @@ export function useShareVisibilityTransition(
       const latest = latestRef.current;
       const inflight = inflightRef.current.get(latest.resourceKey);
       if (inflight?.target === next) return inflight.promise;
-      if (confirmingRef.current.has(latest.resourceKey)) {
-        return notSaved("ignored");
-      }
+      if (inflight) return notSaved("ignored");
       if (next === latest.current) {
         return Promise.resolve();
       }
