@@ -1245,6 +1245,7 @@ const updateDocumentAction = defineAction({
             snapshot: { title: string; content: string },
             now: string,
           ) => {
+            if (liveCopyBodySave && !settlesLiveCopyBody) return;
             if (
               settlesPreviewDraft &&
               args.editorSnapshotTitle !== undefined &&
@@ -1265,11 +1266,7 @@ const updateDocumentAction = defineAction({
                 now,
               });
             }
-            if (
-              args.browserSaveAttemptId &&
-              browserSavePayload &&
-              (!liveCopyBodySave || settlesLiveCopyBody)
-            ) {
+            if (args.browserSaveAttemptId && browserSavePayload) {
               const [confirmed] = await tx
                 .select({
                   bodyRevision: schema.documents.bodyRevision,
@@ -1277,7 +1274,12 @@ const updateDocumentAction = defineAction({
                   updatedAt: schema.documents.updatedAt,
                 })
                 .from(schema.documents)
-                .where(eq(schema.documents.id, id))
+                .where(
+                  and(
+                    eq(schema.documents.id, id),
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                  ),
+                )
                 .limit(1);
               const confirmation: BrowserSaveAttemptConfirmation = {
                 attemptId: args.browserSaveAttemptId,
