@@ -10,11 +10,14 @@ import {
 import { describe, expect, it } from "vitest";
 
 import evals, {
+  DBT_CONNECTION_STATUS_ACTION_ALLOWLIST,
   METADATA_ONLY_ACTION_ALLOWLIST,
+  dbtConnectionStatusEval,
   sourceContracts,
 } from "./production-source-cases.eval.js";
 
 const cases = evals as Eval[];
+const sourceCases = cases.slice(0, Object.keys(sourceContracts).length);
 
 function outputFor(
   contract: (typeof sourceContracts)[keyof typeof sourceContracts],
@@ -130,6 +133,45 @@ function runnerFor(output: AgentRunOutput): AgentRunner {
   };
 }
 
+function dbtStatusOutput(
+  connectionHealth: string,
+  text: string,
+  overrides: Partial<AgentRunOutput> = {},
+): AgentRunOutput {
+  const grantState =
+    connectionHealth === "connected" ? "connected" : "not_connected";
+  const statuses = [connectionHealth];
+  return {
+    text,
+    toolCalls: ["data-source-status"],
+    toolCallDetails: [
+      {
+        name: "data-source-status",
+        input: { key: "dbt" },
+        completed: true,
+        isError: false,
+        result: JSON.stringify({
+          workspaceConnections: {
+            available: true,
+            providers: [{ id: "dbt", grantState, statuses }],
+          },
+          providers: [
+            {
+              provider: "dbt",
+              connectionHealth,
+              workspaceConnection: { grantState, statuses },
+            },
+          ],
+        }),
+      },
+    ],
+    ok: true,
+    runId: "eval:synthetic-dbt-status",
+    durationMs: 0,
+    ...overrides,
+  };
+}
+
 describe("Analytics synthetic production source evals", () => {
   it("keeps all cases synthetic, runner-discoverable, and free of custom run callbacks", async () => {
     const files = await discoverEvalFiles(
@@ -140,17 +182,20 @@ describe("Analytics synthetic production source evals", () => {
     expect(files.map((file) => file.split("/").at(-1))).toContain(
       "production-source-cases.eval.ts",
     );
-    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(7);
+    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(8);
     expect(
-      cases.every((evalCase) => evalCase.name.startsWith("SYNTHETIC:")),
+      sourceCases.every((evalCase) => evalCase.name.startsWith("SYNTHETIC:")),
     ).toBe(true);
     expect(cases.every((evalCase) => evalCase.run === undefined)).toBe(true);
     expect(
-      cases.every(
+      sourceCases.every(
         (evalCase) =>
           evalCase.actionAllowlist === METADATA_ONLY_ACTION_ALLOWLIST,
       ),
     ).toBe(true);
+    expect(dbtConnectionStatusEval.actionAllowlist).toBe(
+      DBT_CONNECTION_STATUS_ACTION_ALLOWLIST,
+    );
     expect(
       cases.map((evalCase) => evalCase.input.prompt).join("\n"),
     ).not.toMatch(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
@@ -236,7 +281,7 @@ describe("Analytics synthetic production source evals", () => {
     const contracts = Object.values(sourceContracts);
     let contractIndex = 0;
     const report = await runEvals(
-      cases,
+      sourceCases,
       {
         engine: {} as AgentRunner["engine"],
         model: "synthetic-fixture",
@@ -251,6 +296,115 @@ describe("Analytics synthetic production source evals", () => {
     );
 
     expect(report).toMatchObject({ total: 7, passed: 7, failed: 0 });
+  });
+
+  it("grounds dbt readiness in source status and withholds metric values", async () => {
+    const reportFor = (output: AgentRunOutput) =>
+      runEvals([dbtConnectionStatusEval], runnerFor(output), {
+        persist: false,
+      });
+    const disconnected = await reportFor(
+      dbtStatusOutput(
+        "not_connected",
+        "The dbt Semantic Layer is not connected, so no metric value is available. I did not run a metric query or substitute BigQuery.",
+      ),
+    );
+    const connected = await reportFor(
+      dbtStatusOutput(
+        "connected",
+        "The dbt Semantic Layer is connected. I did not query a metric, so no metric value is available from this status check.",
+      ),
+    );
+
+    expect(disconnected).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(connected).toMatchObject({ total: 1, passed: 1, failed: 0 });
+  });
+
+  it.each([
+    [
+      "needs_reauth",
+      "The dbt connection needs re-auth; no metric value is available.",
+    ],
+    ["error", "The dbt connection error means no metric value is available."],
+    [
+      "checking",
+      "The dbt connection is still checking; no metric value is available.",
+    ],
+  ])("reports the observed dbt %s state", async (state, text) => {
+    const report = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(dbtStatusOutput(state, text)),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
+  });
+
+  it("rejects missing status evidence, conflicting states, fabricated values, and data queries", async () => {
+    const valid = dbtStatusOutput(
+      "not_connected",
+      "The dbt Semantic Layer is not connected; no metric value is available.",
+    );
+    const noStatus = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor({
+        ...valid,
+        toolCalls: [],
+        toolCallDetails: [],
+      }),
+      { persist: false },
+    );
+    const invalidStatus = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor({
+        ...valid,
+        toolCallDetails: valid.toolCallDetails?.map((call) => ({
+          ...call,
+          result: "not-json",
+        })),
+      }),
+      { persist: false },
+    );
+    const contradictory = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(
+        dbtStatusOutput(
+          "connected",
+          "The dbt connection is not connected; no metric value is available.",
+        ),
+      ),
+      { persist: false },
+    );
+    const fabricated = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(
+        dbtStatusOutput(
+          "not_connected",
+          "The dbt Semantic Layer is not connected; no metric value is available, with 42 active workspaces.",
+        ),
+      ),
+      { persist: false },
+    );
+    const queried = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(
+        dbtStatusOutput(
+          "not_connected",
+          "The dbt Semantic Layer is not connected; no metric value is available.",
+          { toolCalls: ["data-source-status", "query-dbt-semantic-metric"] },
+        ),
+      ),
+      { persist: false },
+    );
+
+    expect(noStatus).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(invalidStatus).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(invalidStatus.results[0]?.scores[0]?.reason).toContain(
+      "dbt status response was invalid JSON",
+    );
+    expect(contradictory).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(fabricated).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(queried).toMatchObject({ total: 1, passed: 0, failed: 1 });
   });
 
   it("rejects row counts and identifiers in metadata-only answers", async () => {

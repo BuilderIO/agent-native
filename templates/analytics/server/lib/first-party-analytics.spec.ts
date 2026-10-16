@@ -156,6 +156,7 @@ import {
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
 import { withFirstPartyCache } from "./first-party-analytics-cache";
+import { FirstPartyAnalyticsValidationError } from "./first-party-analytics-errors.js";
 import {
   buildOnboardingJourneyEventsSql,
   buildOnboardingJourneyFollowupSql,
@@ -898,6 +899,43 @@ describe("recordAnalyticsEvents", () => {
 });
 
 describe("validateFirstPartyAnalyticsSql", () => {
+  it("tags source and function validation failures for safe action guidance", () => {
+    const capture = (sql: string) => {
+      try {
+        validateFirstPartyAnalyticsSql(sql);
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    };
+    const sourceError = capture("SELECT user_id FROM dbt_mart.dim_users_core");
+    const functionError = capture(
+      "SELECT DIV(COUNT(*), 2) FROM analytics_event_daily_rollups",
+    );
+
+    expect(sourceError).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(sourceError).toMatchObject({ code: "disallowed_source" });
+    expect(functionError).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(functionError).toMatchObject({ code: "unsupported_function" });
+  });
+
+  it.each([
+    "UPDATE analytics_events SET event_name = 'private'",
+    "SELECT event_name FROM analytics_events; SELECT event_name FROM analytics_events",
+    "SELECT event_name FROM analytics_events, analytics_user_days",
+    "SELECT event_name FROM analytics_events WHERE event_name = $1",
+  ])("tags rejected query shape for safe recovery guidance: %s", (sql) => {
+    let error: unknown;
+    try {
+      validateFirstPartyAnalyticsSql(sql);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(error).toMatchObject({ code: "invalid_shape" });
+  });
+
   it("rejects PostgreSQL-style bind placeholders outside string literals", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
@@ -1972,12 +2010,16 @@ describe("queryFirstPartyAnalytics", () => {
       backfillCompleted: true,
     });
 
-    await expect(
-      queryFirstPartyAnalytics(
-        "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
-        { userEmail: "alice@example.com", orgId: "org_123" },
-      ),
-    ).rejects.toThrow("Cross-backend joins are not supported");
+    const error = await queryFirstPartyAnalytics(
+      "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(error).toMatchObject({ code: "cross_backend_join" });
+    expect(error).toMatchObject({
+      message: expect.stringContaining("Cross-backend joins are not supported"),
+    });
   });
 
   it("rejects unapproved functions before executing SQL-store queries", async () => {

@@ -24,6 +24,7 @@ const providerBoundary = vi.hoisted(() => ({
   activeCaseKey: "",
   metricMetadataPageNumbers: [] as number[],
   bigquerySql: [] as string[],
+  queryFirstPartyAnalytics: vi.fn(),
   searchAnalyticsQueryCatalog: vi.fn(),
   runQuery: vi.fn(),
   getBigQueryProjectId: vi.fn(),
@@ -63,6 +64,16 @@ vi.mock("../../server/lib/bigquery", async (importOriginal) => ({
   getBigQueryTableMetadata: providerBoundary.getBigQueryTableMetadata,
   runQuery: providerBoundary.runQuery,
 }));
+
+vi.mock(
+  "../../server/lib/first-party-analytics.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../server/lib/first-party-analytics.js")
+    >()),
+    queryFirstPartyAnalytics: providerBoundary.queryFirstPartyAnalytics,
+  }),
+);
 
 vi.mock(
   "../../server/lib/bigquery-schema-recovery",
@@ -932,6 +943,29 @@ async function runCase(
   providerBoundary.activeCaseKey = testCase.key;
   providerBoundary.metricMetadataPageNumbers.length = 0;
   providerBoundary.bigquerySql.length = 0;
+  providerBoundary.queryFirstPartyAnalytics.mockReset();
+  providerBoundary.queryFirstPartyAnalytics.mockResolvedValue({
+    rows: [],
+    schema: [],
+  });
+  if (testCase.key === "synthetic-first-party-unsupported-sql-recovery") {
+    providerBoundary.queryFirstPartyAnalytics
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "provider detail echoed synthetic secret_column and FILTER SQL",
+          ),
+          {
+            name: "FirstPartyAnalyticsUnsupportedSqlError",
+            construct: "FILTER (WHERE ...)",
+          },
+        ),
+      )
+      .mockResolvedValueOnce({
+        rows: [{ signups: 42 }],
+        schema: [{ name: "signups", type: "number" }],
+      });
+  }
   providerBoundary.searchAnalyticsQueryCatalog.mockReset();
   providerBoundary.runQuery.mockReset();
   providerBoundary.getBigQueryProjectId.mockReset();
@@ -1370,9 +1404,16 @@ async function runCase(
     }
     action.run = async (input: Record<string, unknown>, actionContext) => {
       capture.actionCalls.push({ name, input });
-      const result = await productionRun(input, actionContext);
-      capture.actionResults.push(result);
-      return result;
+      try {
+        const result = await productionRun(input, actionContext);
+        capture.actionResults.push(result);
+        return result;
+      } catch (error) {
+        capture.actionResults.push({
+          error: error instanceof Error ? error.message : "unknown query error",
+        });
+        throw error;
+      }
     };
   }
 
@@ -1456,6 +1497,63 @@ describe("Analytics synthetic production-path query quality", () => {
       }
     });
   }
+
+  it("corrects a first-party SQL failure once without exposing backend text", async () => {
+    const testCase: Case = {
+      key: "synthetic-first-party-unsupported-sql-recovery",
+      prompt:
+        "SYNTHETIC: Count synthetic signup events in September. If FILTER is unsupported by the first-party BigQuery path, rewrite it once as a conditional aggregate and report only the synthetic result.",
+      actionAllowlist: ["query-agent-native-analytics", "tool-search"],
+      steps: [
+        {
+          name: "query-agent-native-analytics",
+          input: {
+            sql: "SELECT COUNT(*) FILTER (WHERE event_name = 'signup') AS signups FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+          },
+        },
+        {
+          name: "query-agent-native-analytics",
+          input: {
+            sql: "SELECT SUM(CASE WHEN event_name = 'signup' THEN event_count ELSE 0 END) AS signups FROM analytics_event_daily_rollups WHERE event_date >= '2026-09-01' AND event_date < '2026-10-01'",
+          },
+        },
+      ],
+      finalText:
+        "The first-party query rejected FILTER syntax. I rewrote it as conditional aggregation and reran it successfully: the synthetic result is 42 signups for September 2026. This is a synthetic fixture, not a live Builder.io measurement.",
+      check: ({ output, actionCalls, actionResults }) => {
+        const calls = actionCalls.filter(
+          (call) => call.name === "query-agent-native-analytics",
+        );
+        const failed = actionResults[0] as { error?: string } | undefined;
+        const succeeded = actionResults[1] as
+          | { rows?: Array<Record<string, unknown>> }
+          | undefined;
+        const text = output?.text.toLowerCase() ?? "";
+        return (
+          calls.length === 2 &&
+          String(calls[0]?.input.sql).includes("FILTER (WHERE") &&
+          String(calls[1]?.input.sql).includes("CASE WHEN") &&
+          failed?.error?.includes("unsupported_sql; recovery=rewrite_once") ===
+            true &&
+          failed.error.includes("SUM(CASE WHEN condition THEN value") &&
+          !failed.error.includes("secret_column") &&
+          succeeded?.rows?.[0]?.signups === 42 &&
+          text.includes("rewrote it as conditional aggregation") &&
+          text.includes("synthetic result is 42 signups") &&
+          text.includes("synthetic fixture") &&
+          output?.toolCalls.filter(
+            (name) => name === "query-agent-native-analytics",
+          ).length === 2
+        );
+      },
+    };
+
+    for (const replicate of [1, 2]) {
+      const { capture, passed } = await runCase(testCase);
+      expect(passed, `synthetic retry replicate ${replicate}`).toBe(true);
+      expect(capture.receipt?.finalResponseGuardApplied).toBe(true);
+    }
+  }, 60_000);
 
   it("keeps the exported CSV on its allowlisted, privacy-safe schema", async () => {
     const header = SAFE_CSV_COLUMNS.join(",");

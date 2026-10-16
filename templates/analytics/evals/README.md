@@ -114,12 +114,14 @@ separate production-model artifact above remains a single redacted case where
 both phases failed the source-contract scorer because no production source
 index was configured at measurement time.
 
-`production-source-cases.eval.ts` adds seven synthetic questions. They ask for
-source selection, declared grain, and relation or field attribution; they do
-not use captured prompts, people, identifiers, event rows, or production result
-values. Their scorer rejects failed or aborted runs, email-shaped output, and
-calls outside the metadata-only tool set. The CLI still runs each case through
-this directory's production adapter and the shared production agent loop.
+`production-source-cases.eval.ts` adds seven synthetic source questions and one
+synthetic dbt-connection readiness question. The source questions check source
+selection, declared grain, and relation or field attribution; the dbt case
+checks connection state and abstention from metric values. They do not use
+captured prompts, people, identifiers, event rows, or production result values.
+Their scorer rejects failed or aborted runs, email-shaped output, and calls
+outside each case's metadata-only tool set. The CLI runs each case through this
+directory's production adapter and the shared production agent loop.
 
 The expected source contracts are:
 

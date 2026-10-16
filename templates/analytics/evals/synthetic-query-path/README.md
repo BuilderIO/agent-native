@@ -16,6 +16,13 @@ separate from related Visual Views metrics.
 Each runs twice. No copied conversation, customer identity, production row,
 query, credential, or secret is used.
 
+A separate production-path regression also scripts one unsupported first-party
+SQL error followed by a corrected conditional aggregate. It checks that the
+safe recovery instruction reaches the agent, the final response guard accepts
+the later complete result, and backend details stay hidden. Its scripted model
+steps make it a recovery-contract check, not an independent model-quality
+benchmark, so it is not included in the paired CSV comparison below.
+
 ## Run
 
 ```sh

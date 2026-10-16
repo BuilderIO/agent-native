@@ -57,8 +57,15 @@ The Builder.io BigQuery path translates a restricted PostgreSQL-compatible SQL
 subset. Extract an event property with `properties::jsonb ->> 'key'`; bare JSON
 operators are not translated. Avoid `LATERAL`, `unnest`, `generate_series`,
 `FILTER (WHERE ...)`, `DISTINCT ON`, and `ILIKE`, which the BigQuery path rejects.
-Use `||` explicitly for string concatenation. After an unsupported-syntax error,
-correct the expression once; do not repeat the same SQL or switch sources.
+Use `||` explicitly for string concatenation. Rewrite `FILTER (WHERE ...)` as a
+conditional aggregate such as `SUM(CASE WHEN ... THEN value ELSE 0 END)`,
+`ILIKE` as `LOWER(left) LIKE LOWER(right)`, and `DISTINCT ON` as `ROW_NUMBER()`
+in a CTE with an outer `WHERE` filter. After an unsupported-syntax error, make
+one corrected attempt and do not repeat unchanged SQL. Follow the first-party
+query's typed recovery instruction: schema errors call for `find-data` or
+`search-bigquery-schema`; permission failures stop; billed-byte failures need a
+narrower scan; only timeout, rate-limit, and temporary backend failures permit
+one unchanged retry. Use the separate BigQuery action for GoogleSQL-only SQL.
 
 First-party reads exclude test identities (QA/E2E accounts): ingest never
 stores their events or replays, and the read scope filters `user_id` (events,

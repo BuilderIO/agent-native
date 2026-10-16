@@ -370,6 +370,41 @@ describe("real data action classification", () => {
     expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
   });
 
+  it("keeps a first-party query failure when a later unrelated query succeeds", () => {
+    const failed = {
+      name: "query-agent-native-analytics",
+      isError: true,
+      content:
+        "[unsupported_sql; recovery=rewrite_once] Rewrite the unsupported part once.",
+    };
+    const completed = {
+      name: "query_agent_native_analytics",
+      content: JSON.stringify({
+        rows: [{ signups: 42 }],
+        schema: [{ name: "signups", type: "number" }],
+      }),
+    };
+
+    expect(hasDataQueryAttempt([failed, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([failed, completed])).toContain(
+      "unsupported_sql; recovery=rewrite_once",
+    );
+  });
+
+  it("preserves safe first-party recovery guidance when no retry succeeds", () => {
+    const failed = {
+      name: "query-agent-native-analytics",
+      isError: true,
+      content:
+        "[unsupported_sql; recovery=rewrite_once] Rewrite the unsupported part once.",
+    };
+
+    expect(failedDataQueryAttemptMessage([failed])).toContain(
+      "unsupported_sql; recovery=rewrite_once",
+    );
+    expect(failedDataQueryAttemptMessage([failed])).not.toContain("secret");
+  });
+
   it.each([
     ["ambiguous_metric", "ask which exact metric"],
     ["connection_error", "Repair the dbt workspace connection"],

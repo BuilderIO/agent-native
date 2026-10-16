@@ -1686,6 +1686,11 @@ function isFailedDataQueryAttempt(
       !isRecoveredDbtContinuation(result, index, results)
     );
   }
+  if (isToolName(name, "query-agent-native-analytics")) {
+    return (
+      result.isError === true || isProviderErrorOnlyContent(result.content)
+    );
+  }
   const isDataQuery =
     isGroundingActionName(name) ||
     isMcpDataSourceTool(name) ||
