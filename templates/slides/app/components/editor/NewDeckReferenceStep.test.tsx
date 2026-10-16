@@ -736,11 +736,13 @@ describe("<NewDeckReferenceStep>", () => {
       name: "Reference deck",
     });
 
-    expect(
-      picker.querySelector(
-        ".agent-template-library-preview .slide-reference-preview-fallback svg",
-      ),
-    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        picker.querySelector(
+          ".agent-template-library-preview .slide-reference-preview-fallback svg",
+        ),
+      ).toBeTruthy(),
+    );
   });
 
   it("omits date metadata when a deck timestamp is missing or invalid", async () => {
