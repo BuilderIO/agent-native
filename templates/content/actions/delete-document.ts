@@ -1004,6 +1004,14 @@ async function deleteCollectedDocuments(
         ),
       );
     await db
+      .delete(schema.documentBodySteps)
+      .where(
+        and(
+          inArray(schema.documentBodySteps.documentId, documentIdBatch),
+          eq(schema.documentBodySteps.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
       .delete(schema.builderDocSidecars)
       .where(
         and(

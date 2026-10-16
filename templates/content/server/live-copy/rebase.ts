@@ -162,6 +162,50 @@ function touchedBlocks(
   );
 }
 
+// The base block the line holding `offset` belongs to, read from how the
+// text through that line parses. Null when that parse's blocks before its
+// last differ from base's, as when the cut leaves open a container a later
+// line closes.
+function blockAtLine(
+  base: string,
+  baseKeys: readonly string[],
+  offset: number,
+): number | null {
+  const lineEnd = base.indexOf("\n", offset);
+  const blocks = nfmToDoc(
+    lineEnd === -1 ? base : base.slice(0, lineEnd),
+  ).content;
+  const last = blocks.length - 1;
+  if (last < 0 || last >= baseKeys.length) return null;
+  for (let index = 0; index < last; index += 1)
+    if (JSON.stringify(blocks[index]) !== baseKeys[index]) return null;
+  return last;
+}
+
+// The base blocks the lines of each range belong to, where `touchedBlocks`
+// may read more: a range that takes a closing code fence leaves its probe's
+// code block open over every block after it. Null for an empty range, which
+// marks a place between blocks, or for a block the probe didn't touch.
+function coveredBlocks(
+  base: string,
+  baseKeys: readonly string[],
+  ranges: readonly BodyTextRange[],
+  touched: readonly SlidRange[],
+): SlidRange[] | null {
+  const covered: SlidRange[] = [];
+  for (const range of ranges) {
+    if (range.end === range.start) return null;
+    const from = blockAtLine(base, baseKeys, range.start);
+    const to = blockAtLine(base, baseKeys, range.end - 1);
+    if (from === null || to === null || to < from) return null;
+    for (let index = from; index <= to; index += 1)
+      if (!touched.some((hunk) => hunk.from <= index && index < hunk.to))
+        return null;
+    covered.push({ from, to: to + 1, insertion: false });
+  }
+  return covered;
+}
+
 /**
  * Applies the blocks `candidate` changed from `base` to `current`, which
  * other writers moved on from `base`. Null unless that is unambiguous:
@@ -258,15 +302,19 @@ export function rebaseBodyEdit(
     }
   }
   if (authored.length) {
+    const othersTouch = (ranges: readonly SlidRange[]) =>
+      ranges.some((range) =>
+        others.some(
+          (other, index) =>
+            !shared.has(other) && rangesOverlap(range, otherRanges[index]),
+        ),
+      );
     const touched = touchedBlocks(base, baseKeys, authored, codes);
     if (!touched) return null;
-    for (const range of touched)
-      for (let other = 0; other < others.length; other += 1)
-        if (
-          !shared.has(others[other]) &&
-          rangesOverlap(range, otherRanges[other])
-        )
-          return null;
+    if (othersTouch(touched)) {
+      const covered = coveredBlocks(base, baseKeys, authored, touched);
+      if (!covered || othersTouch(covered)) return null;
+    }
   }
   const merged = [...baseBlocks];
   for (const hunk of [
