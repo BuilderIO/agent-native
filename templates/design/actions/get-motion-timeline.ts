@@ -851,7 +851,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "For the Design editor's background hydration query only. Known unsupported source syntax is returned as an explicit sourceReadCapability; other validation errors still fail.",
+        "For the Design editor's background hydration query only. Known unsupported source conditions are returned as an explicit sourceReadCapability; other validation errors still fail.",
       ),
   }),
   run: async (args, context) => {
