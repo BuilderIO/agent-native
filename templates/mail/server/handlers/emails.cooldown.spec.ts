@@ -219,6 +219,21 @@ describe("listEmails during a Gmail cooldown", () => {
     expect(mocks.setResponseStatus).not.toHaveBeenCalled();
   });
 
+  it("keeps global search ranking inside a bounded metadata window", async () => {
+    mocks.query = { view: "all", q: "from:sender@example.com" };
+
+    await (listEmails as any)(event);
+
+    expect(mocks.listInboxEmails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        view: "all",
+        q: "from:sender@example.com",
+        threadFormat: "metadata",
+        threadCandidateLimit: 40,
+      }),
+    );
+  });
+
   it("answers a thrown cooldown from token resolution the same way", async () => {
     mocks.getClientsWithErrors.mockRejectedValue(
       new GmailQuotaCooldownError(20_000),

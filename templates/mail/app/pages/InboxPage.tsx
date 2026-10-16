@@ -729,7 +729,7 @@ export function InboxPage() {
   const emailListLoading =
     isLoading ||
     !hasEmailData ||
-    (!googleStatus.data && googleStatus.isLoading);
+    (!isInboxView && !googleStatus.data && googleStatus.isLoading);
 
   const emails = useMemo(() => {
     if (isInboxView) return rawEmails ?? EMPTY_EMAILS;

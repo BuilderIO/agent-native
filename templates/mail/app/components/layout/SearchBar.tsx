@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
+import type { ListInboxThreadsResult } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { IconLoader2, IconPin, IconX } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -37,6 +38,7 @@ import {
   type Contact,
   type InfiniteEmails,
 } from "@/hooks/use-emails";
+import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
 import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
@@ -110,25 +112,49 @@ export function SearchBar({
   const localMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q || q.length < 2) return [];
+    const cachedInbox = queryClient.getQueriesData<ListInboxThreadsResult>({
+      queryKey: INBOX_THREADS_QUERY_KEY,
+    });
     const cached = queryClient.getQueriesData<InfiniteEmails>({
       queryKey: ["emails"],
     });
     const seenThreadIds = new Set<string>();
     const messages: EmailMessage[] = [];
-    for (const [, data] of cached) {
-      for (const page of data?.pages ?? []) {
-        for (const email of page.emails) {
-          const threadKey = email.threadId || email.id;
-          if (seenThreadIds.has(threadKey)) continue;
-          const haystack =
-            `${email.subject} ${email.from.name} ${email.from.email} ${email.snippet}`.toLowerCase();
-          if (!haystack.includes(q)) continue;
-          seenThreadIds.add(threadKey);
-          messages.push(email);
-        }
+    const addMatchingEmail = (email: EmailMessage) => {
+      const threadKey = `${email.accountEmail?.toLowerCase() ?? ""}:${email.threadId || email.id}`;
+      if (seenThreadIds.has(threadKey)) return;
+      const haystack =
+        `${email.subject} ${email.from.name} ${email.from.email} ${email.snippet}`.toLowerCase();
+      if (!haystack.includes(q)) return;
+      seenThreadIds.add(threadKey);
+      messages.push(email);
+    };
+    for (const [, data] of cachedInbox) {
+      for (const email of data?.items ?? []) addMatchingEmail(email);
+      for (const emails of Object.values(data?.tabPreviews ?? {})) {
+        for (const email of emails) addMatchingEmail(email);
       }
     }
-    return groupIntoThreads(messages).slice(0, LOCAL_MATCH_LIMIT);
+    for (const [, data] of cached) {
+      for (const page of data?.pages ?? []) {
+        for (const email of page.emails) addMatchingEmail(email);
+      }
+    }
+    const messagesByAccount = new Map<string, EmailMessage[]>();
+    for (const email of messages) {
+      const accountEmail = email.accountEmail?.toLowerCase() ?? "";
+      const accountMessages = messagesByAccount.get(accountEmail) ?? [];
+      accountMessages.push(email);
+      messagesByAccount.set(accountEmail, accountMessages);
+    }
+    return [...messagesByAccount.values()]
+      .flatMap(groupIntoThreads)
+      .sort(
+        (a, b) =>
+          new Date(b.latestMessage.date).getTime() -
+          new Date(a.latestMessage.date).getTime(),
+      )
+      .slice(0, LOCAL_MATCH_LIMIT);
   }, [query, queryClient]);
 
   const remoteSearchPending =

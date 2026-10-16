@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
     },
   ],
   getQueriesData: vi.fn(),
+  inboxThreads: [] as Array<Record<string, unknown>>,
   navigate: vi.fn(),
 }));
 
@@ -148,9 +149,18 @@ function SearchPaletteHarness({
 
 describe("SearchBar suggestion selection", () => {
   beforeEach(() => {
-    mocks.getQueriesData.mockReturnValue([
-      [["emails", "synthetic-fixture"], { pages: [{ emails: mocks.emails }] }],
-    ]);
+    mocks.inboxThreads = [];
+    mocks.getQueriesData.mockImplementation(({ queryKey }) => {
+      if (queryKey[0] === "action") {
+        return [[queryKey, { items: mocks.inboxThreads, tabPreviews: {} }]];
+      }
+      return [
+        [
+          ["emails", "synthetic-fixture"],
+          { pages: [{ emails: mocks.emails }] },
+        ],
+      ];
+    });
     mocks.navigate.mockReset();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -177,6 +187,35 @@ describe("SearchBar suggestion selection", () => {
     expect(
       screen.getByRole("button", { name: "mail.search.clear" }),
     ).toBeTruthy();
+  });
+
+  it("shows matching inbox threads from the local cache immediately", () => {
+    mocks.inboxThreads = [
+      {
+        id: "inbox-message",
+        threadId: "inbox-thread",
+        subject: "Inbox only result",
+        from: { name: "Casey Sender", email: "casey@example.test" },
+        snippet: "Already loaded in the inbox.",
+        accountEmail: "demo@example.test",
+      },
+    ];
+    mocks.getQueriesData.mockImplementation(({ queryKey }) => {
+      if (queryKey[0] === "action") {
+        return [[queryKey, { items: mocks.inboxThreads, tabPreviews: {} }]];
+      }
+      return [];
+    });
+
+    render(<SearchBar onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "in" },
+    });
+
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option").textContent).toContain(
+      "Inbox only result",
+    );
   });
 
   it("clears an active query when the visible clear control is clicked", () => {

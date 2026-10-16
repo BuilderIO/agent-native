@@ -12,7 +12,7 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
-  getClients,
+  getClientsWithErrors,
   isConnected,
 } from "../server/lib/google-auth.js";
 import { retryAfterSecondsFromErrors } from "../server/lib/list-inbox-emails.js";
@@ -213,7 +213,17 @@ export default defineAction({
       return JSON.stringify(payload, null, 2);
     }
 
-    const clients = await getClients(ownerEmail);
+    const { clients, errors: clientErrors } = await getClientsWithErrors(
+      ownerEmail,
+      accountFilter ? [accountFilter] : undefined,
+    );
+    if (clients.length === 0 && clientErrors.length > 0) {
+      throw new Error(
+        clientErrors
+          .map((error) => `${error.email}: ${error.error}`)
+          .join("; "),
+      );
+    }
     if (clients.length === 0) throw new Error("No Google account connected.");
     await assertGmailNotCoolingDown(clients.map((client) => client.email));
 
@@ -234,7 +244,12 @@ export default defineAction({
       limit,
       ownerEmail,
       undefined,
-      { mode: "threads", threadCandidateLimit: 500 },
+      {
+        mode: "threads",
+        threadFormat: "metadata",
+        threadCandidateLimit: 40,
+        ...(accountFilter && { accountEmails: [accountFilter] }),
+      },
     );
     if (errors.length > 0 && messages.length === 0) {
       const failedAccounts = new Set(

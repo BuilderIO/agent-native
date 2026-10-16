@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   buildDeepLink: vi.fn(),
   fetchGmailLabelMap: vi.fn(),
-  getClients: vi.fn(),
+  getClientsWithErrors: vi.fn(),
   getRequestUserEmail: vi.fn(),
   getUserSetting: vi.fn(),
   isConnected: vi.fn(),
@@ -32,7 +32,7 @@ vi.mock("@agent-native/core/tracking", () => ({
 
 vi.mock("../server/lib/google-auth.js", () => ({
   fetchGmailLabelMap: mocks.fetchGmailLabelMap,
-  getClients: mocks.getClients,
+  getClientsWithErrors: mocks.getClientsWithErrors,
   gmailToEmailMessage: vi.fn(),
   isConnected: mocks.isConnected,
   listGmailMessages: mocks.listGmailMessages,
@@ -49,9 +49,12 @@ beforeEach(() => {
   mocks.assertGmailNotCoolingDown.mockResolvedValue(undefined);
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.isConnected.mockResolvedValue(true);
-  mocks.getClients.mockResolvedValue([
-    { email: ACCOUNT, accessToken: "access-token", refreshToken: "" },
-  ]);
+  mocks.getClientsWithErrors.mockResolvedValue({
+    clients: [
+      { email: ACCOUNT, accessToken: "access-token", refreshToken: "" },
+    ],
+    errors: [],
+  });
   mocks.fetchGmailLabelMap.mockResolvedValue(new Map());
   mocks.listGmailMessages.mockResolvedValue({
     messages: [],
@@ -104,5 +107,29 @@ describe("search-emails quota cooldown", () => {
     expect(mocks.assertGmailNotCoolingDown).toHaveBeenCalledWith([ACCOUNT]);
     expect(mocks.fetchGmailLabelMap).not.toHaveBeenCalled();
     expect(mocks.listGmailMessages).not.toHaveBeenCalled();
+  });
+});
+
+describe("search-emails query cost", () => {
+  it("uses a bounded metadata window and scopes reads to the requested account", async () => {
+    mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
+
+    await action.run({ q: "from:sender@example.com", account: ACCOUNT });
+
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(OWNER, [ACCOUNT]);
+    expect(mocks.assertGmailNotCoolingDown).toHaveBeenCalledWith([ACCOUNT]);
+    expect(mocks.fetchGmailLabelMap).toHaveBeenCalledTimes(1);
+    expect(mocks.listGmailMessages).toHaveBeenCalledWith(
+      "from:sender@example.com",
+      25,
+      OWNER,
+      undefined,
+      {
+        mode: "threads",
+        threadFormat: "metadata",
+        threadCandidateLimit: 40,
+        accountEmails: [ACCOUNT],
+      },
+    );
   });
 });
