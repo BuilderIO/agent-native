@@ -136,20 +136,21 @@ export function outputUrl(
   if (!rule) return null;
   const pages = [recording.firstUrl, recording.lastUrl].flatMap((value) => {
     const page = recordedPage(value);
-    return page ? [page] : [];
+    return page && recording.allowedOrigins.includes(page.origin) ? [page] : [];
   });
-  const origin = pages[0]?.origin;
-  if (!origin || !recording.allowedOrigins.includes(origin)) return null;
   // A workspace deploy mounts each app at `/<app id>` on one origin, and a
   // tab's recording follows it from app to app, so either page may show the
   // mount. Reading that prefix as the mount assumes the app has no route of
   // its own there (Slides has none). The recording's app label can't decide
-  // it: without a declared app it is the hostname's first label.
+  // it: without a declared app it is the hostname's first label. Uploaded
+  // pages can name two origins, so the origin and mount come from one page.
   const mount = `/${app}`;
-  const mounted = pages.some(
+  const mounted = pages.find(
     (page) => page.pathname === mount || page.pathname.startsWith(`${mount}/`),
   );
-  return `${origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
+  const page = mounted ?? pages[0];
+  if (!page) return null;
+  return `${page.origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
 }
 
 /**

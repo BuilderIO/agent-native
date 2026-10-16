@@ -351,11 +351,12 @@ agent answers about browser recordings in the Analytics template.
   lost batch may have held an output it made). It returns the paginated shape
   with `outputs` and `omittedOutputs` by recording id and
   `outputCoverageStartedAt`. Statuses are `used`, `unused`, `open` (window
-  still open), and `unmeasured`; `url` is the recording's app origin, its
-  `/<app>` workspace mount when its first or last page is under it, and the
-  rule's `outputPath`. Recorded URLs come from the uploader, so `url` is null
-  unless the recording's replay key lists that origin (a key that accepts any
-  origin links nothing). The app checks access when it opens.
+  still open), and `unmeasured`; `url` comes from the recording's first or
+  last page, preferring one under the `/<app>` workspace mount: that page's
+  origin, the mount when it is under it, and the rule's `outputPath`. Recorded
+  URLs come from the uploader, so only a page whose origin the recording's
+  replay key lists counts, and `url` is null when none does (a key that
+  accepts any origin links nothing). The app checks access when it opens.
 - `getSessionRecordingOutputs` is the one reader. Per readable recording it
   gives `[]` for none, null when they are unknown (a recording from another
   tenant, since a share grants the recording, not its events, one whose
