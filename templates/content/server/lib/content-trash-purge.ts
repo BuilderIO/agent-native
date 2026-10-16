@@ -142,135 +142,160 @@ export async function processContentTrashPurge(operationId: string) {
     return { accepted: false, reason: "already-claimed-or-terminal" };
 
   try {
-    const batchResult = await db.transaction(
-      async (tx) => {
-        const transactionDb = tx as unknown as ReturnType<typeof getDb>;
-        const transactionNow = new Date().toISOString();
-        const renewedUntil = new Date(Date.now() + LEASE_MS).toISOString();
-        const [leaseReceipt] = await transactionDb
-          .update(schema.contentTrashPurgeOperations)
-          .set({ leaseExpiresAt: renewedUntil, updatedAt: transactionNow })
-          .where(
-            and(
-              eq(schema.contentTrashPurgeOperations.id, operationId),
-              eq(schema.contentTrashPurgeOperations.leaseToken, leaseToken),
-              eq(schema.contentTrashPurgeOperations.status, "running"),
-              gt(
-                schema.contentTrashPurgeOperations.leaseExpiresAt,
-                transactionNow,
+    // One transaction per Trash unit. Each unit sorts only its own locks, so
+    // holding one unit's pages while locking the next unit's collections
+    // would break Content's row-lock order.
+    for (let pass = 0; pass < BATCH_UNITS; pass += 1) {
+      const batchResult = await db.transaction(
+        async (tx) => {
+          const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+          const transactionNow = new Date().toISOString();
+          const renewedUntil = new Date(Date.now() + LEASE_MS).toISOString();
+          const [leaseReceipt] = await transactionDb
+            .update(schema.contentTrashPurgeOperations)
+            .set({ leaseExpiresAt: renewedUntil, updatedAt: transactionNow })
+            .where(
+              and(
+                eq(schema.contentTrashPurgeOperations.id, operationId),
+                eq(schema.contentTrashPurgeOperations.leaseToken, leaseToken),
+                eq(schema.contentTrashPurgeOperations.status, "running"),
+                gt(
+                  schema.contentTrashPurgeOperations.leaseExpiresAt,
+                  transactionNow,
+                ),
               ),
-            ),
-          )
-          .returning({ id: schema.contentTrashPurgeOperations.id });
-        if (!leaseReceipt) throw new ContentTrashPurgeLeaseLostError();
+            )
+            .returning({ id: schema.contentTrashPurgeOperations.id });
+          if (!leaseReceipt) throw new ContentTrashPurgeLeaseLostError();
 
-        const allPending = await transactionDb
-          .select({
-            unitId: schema.contentTrashPurgePlanItems.unitId,
-            rootDocumentId: schema.contentTrashPurgePlanItems.rootDocumentId,
-            documentId: schema.contentTrashPurgePlanItems.documentId,
-            ownerEmail: schema.contentTrashPurgePlanItems.ownerEmail,
-            expectedTrashedAt:
-              schema.contentTrashPurgePlanItems.expectedTrashedAt,
-            expectedParentId:
-              schema.contentTrashPurgePlanItems.expectedParentId,
-            expectedScopeFingerprint:
-              schema.contentTrashPurgePlanItems.expectedScopeFingerprint,
-            ancestorUnitIdsJson:
-              schema.contentTrashPurgePlanItems.ancestorUnitIdsJson,
-          })
-          .from(schema.contentTrashPurgePlanItems)
-          .where(
-            and(
-              eq(schema.contentTrashPurgePlanItems.planId, claimed.planId),
-              eq(schema.contentTrashPurgePlanItems.eligibility, "eligible"),
-              eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
-            ),
-          );
-        const authorizedIds = await authorizedTrashDocumentIds(
-          transactionDb,
-          allPending.map(({ documentId }) => documentId),
-        );
-        const blockedUnits = new Set<string>();
-        for (const item of allPending) {
-          if (authorizedIds.has(item.documentId)) continue;
-          blockedUnits.add(item.unitId);
-          for (const ancestor of JSON.parse(
-            item.ancestorUnitIdsJson,
-          ) as string[]) {
-            blockedUnits.add(ancestor);
-          }
-        }
-
-        let blockedDelta = 0;
-        if (blockedUnits.size > 0) {
-          const completedAt = new Date().toISOString();
-          const receipts = await transactionDb
-            .update(schema.contentTrashPurgePlanItems)
-            .set({
-              outcome: "blocked",
-              outcomeDetail:
-                "Access changed after confirmation in a dependent deletion unit",
-              completedAt,
+          const allPending = await transactionDb
+            .select({
+              unitId: schema.contentTrashPurgePlanItems.unitId,
+              rootDocumentId: schema.contentTrashPurgePlanItems.rootDocumentId,
+              documentId: schema.contentTrashPurgePlanItems.documentId,
+              ownerEmail: schema.contentTrashPurgePlanItems.ownerEmail,
+              expectedTrashedAt:
+                schema.contentTrashPurgePlanItems.expectedTrashedAt,
+              expectedParentId:
+                schema.contentTrashPurgePlanItems.expectedParentId,
+              expectedScopeFingerprint:
+                schema.contentTrashPurgePlanItems.expectedScopeFingerprint,
+              ancestorUnitIdsJson:
+                schema.contentTrashPurgePlanItems.ancestorUnitIdsJson,
             })
+            .from(schema.contentTrashPurgePlanItems)
             .where(
               and(
                 eq(schema.contentTrashPurgePlanItems.planId, claimed.planId),
-                inArray(schema.contentTrashPurgePlanItems.unitId, [
-                  ...blockedUnits,
-                ]),
+                eq(schema.contentTrashPurgePlanItems.eligibility, "eligible"),
                 eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
               ),
-            )
-            .returning({ id: schema.contentTrashPurgePlanItems.id });
-          blockedDelta = receipts.length;
-          if (blockedDelta > 0) {
-            const [operationReceipt] = await transactionDb
-              .update(schema.contentTrashPurgeOperations)
+            );
+          const authorizedIds = await authorizedTrashDocumentIds(
+            transactionDb,
+            allPending.map(({ documentId }) => documentId),
+          );
+          const blockedUnits = new Set<string>();
+          for (const item of allPending) {
+            if (authorizedIds.has(item.documentId)) continue;
+            blockedUnits.add(item.unitId);
+            for (const ancestor of JSON.parse(
+              item.ancestorUnitIdsJson,
+            ) as string[]) {
+              blockedUnits.add(ancestor);
+            }
+          }
+
+          let blockedDelta = 0;
+          if (blockedUnits.size > 0) {
+            const completedAt = new Date().toISOString();
+            const receipts = await transactionDb
+              .update(schema.contentTrashPurgePlanItems)
               .set({
-                blockedCount: sql`${schema.contentTrashPurgeOperations.blockedCount} + ${blockedDelta}`,
-                updatedAt: completedAt,
+                outcome: "blocked",
+                outcomeDetail:
+                  "Access changed after confirmation in a dependent deletion unit",
+                completedAt,
               })
               .where(
                 and(
-                  eq(schema.contentTrashPurgeOperations.id, operationId),
-                  eq(schema.contentTrashPurgeOperations.leaseToken, leaseToken),
-                  eq(schema.contentTrashPurgeOperations.status, "running"),
+                  eq(schema.contentTrashPurgePlanItems.planId, claimed.planId),
+                  inArray(schema.contentTrashPurgePlanItems.unitId, [
+                    ...blockedUnits,
+                  ]),
+                  eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
                 ),
               )
-              .returning({ id: schema.contentTrashPurgeOperations.id });
-            if (!operationReceipt) throw new ContentTrashPurgeLeaseLostError();
+              .returning({ id: schema.contentTrashPurgePlanItems.id });
+            blockedDelta = receipts.length;
+            if (blockedDelta > 0) {
+              const [operationReceipt] = await transactionDb
+                .update(schema.contentTrashPurgeOperations)
+                .set({
+                  blockedCount: sql`${schema.contentTrashPurgeOperations.blockedCount} + ${blockedDelta}`,
+                  updatedAt: completedAt,
+                })
+                .where(
+                  and(
+                    eq(schema.contentTrashPurgeOperations.id, operationId),
+                    eq(
+                      schema.contentTrashPurgeOperations.leaseToken,
+                      leaseToken,
+                    ),
+                    eq(schema.contentTrashPurgeOperations.status, "running"),
+                  ),
+                )
+                .returning({ id: schema.contentTrashPurgeOperations.id });
+              if (!operationReceipt)
+                throw new ContentTrashPurgeLeaseLostError();
+            }
           }
-        }
 
-        const pendingUnits = [
-          ...new Map(allPending.map((item) => [item.unitId, item])).values(),
-        ];
-        const units = pendingUnits
-          .filter((unit) => !blockedUnits.has(unit.unitId))
-          .slice(0, BATCH_UNITS);
-        let deletedDelta = 0;
-        for (const unit of units) {
-          const frozen = allPending.filter(
-            (item) => item.unitId === unit.unitId,
-          );
-          let deleted: string[];
-          try {
-            deleted = await deleteTrashedDocumentSubtree(
-              transactionDb,
-              unit.rootDocumentId,
-              unit.ownerEmail,
-              frozen,
-              frozen[0]?.expectedScopeFingerprint,
+          const pendingUnits = [
+            ...new Map(allPending.map((item) => [item.unitId, item])).values(),
+          ];
+          const units = pendingUnits
+            .filter((unit) => !blockedUnits.has(unit.unitId))
+            .slice(0, 1);
+          let deletedDelta = 0;
+          for (const unit of units) {
+            const frozen = allPending.filter(
+              (item) => item.unitId === unit.unitId,
             );
-          } catch (error) {
-            if (!(error instanceof PermanentDeleteScopeChangedError))
-              throw error;
+            let deleted: string[];
+            try {
+              deleted = await deleteTrashedDocumentSubtree(
+                transactionDb,
+                unit.rootDocumentId,
+                unit.ownerEmail,
+                frozen,
+                frozen[0]?.expectedScopeFingerprint,
+              );
+            } catch (error) {
+              if (!(error instanceof PermanentDeleteScopeChangedError))
+                throw error;
+              await transactionDb
+                .update(schema.contentTrashPurgePlanItems)
+                .set({
+                  outcome: "conflicted",
+                  outcomeDetail: "Trash scope changed after confirmation",
+                  completedAt: new Date().toISOString(),
+                })
+                .where(
+                  and(
+                    eq(
+                      schema.contentTrashPurgePlanItems.planId,
+                      claimed.planId,
+                    ),
+                    eq(schema.contentTrashPurgePlanItems.unitId, unit.unitId),
+                  ),
+                );
+              continue;
+            }
             await transactionDb
               .update(schema.contentTrashPurgePlanItems)
               .set({
-                outcome: "conflicted",
-                outcomeDetail: "Trash scope changed after confirmation",
+                outcome: "deleted",
                 completedAt: new Date().toISOString(),
               })
               .where(
@@ -279,43 +304,34 @@ export async function processContentTrashPurge(operationId: string) {
                   eq(schema.contentTrashPurgePlanItems.unitId, unit.unitId),
                 ),
               );
-            continue;
+            deletedDelta += deleted.length;
           }
-          await transactionDb
-            .update(schema.contentTrashPurgePlanItems)
-            .set({ outcome: "deleted", completedAt: new Date().toISOString() })
-            .where(
-              and(
-                eq(schema.contentTrashPurgePlanItems.planId, claimed.planId),
-                eq(schema.contentTrashPurgePlanItems.unitId, unit.unitId),
-              ),
-            );
-          deletedDelta += deleted.length;
-        }
-        if (deletedDelta > 0) {
-          const [countReceipt] = await transactionDb
-            .update(schema.contentTrashPurgeOperations)
-            .set({
-              deletedCount: sql`${schema.contentTrashPurgeOperations.deletedCount} + ${deletedDelta}`,
-              updatedAt: new Date().toISOString(),
-            })
-            .where(
-              and(
-                eq(schema.contentTrashPurgeOperations.id, operationId),
-                eq(schema.contentTrashPurgeOperations.leaseToken, leaseToken),
-              ),
-            )
-            .returning({
-              deletedCount: schema.contentTrashPurgeOperations.deletedCount,
-            });
-          if (!countReceipt) throw new ContentTrashPurgeLeaseLostError();
-        }
-        return { blockedDelta, deletedDelta };
-      },
-      { isolationLevel: "serializable" },
-    );
-    claimed.blockedCount += batchResult.blockedDelta;
-    claimed.deletedCount += batchResult.deletedDelta;
+          if (deletedDelta > 0) {
+            const [countReceipt] = await transactionDb
+              .update(schema.contentTrashPurgeOperations)
+              .set({
+                deletedCount: sql`${schema.contentTrashPurgeOperations.deletedCount} + ${deletedDelta}`,
+                updatedAt: new Date().toISOString(),
+              })
+              .where(
+                and(
+                  eq(schema.contentTrashPurgeOperations.id, operationId),
+                  eq(schema.contentTrashPurgeOperations.leaseToken, leaseToken),
+                ),
+              )
+              .returning({
+                deletedCount: schema.contentTrashPurgeOperations.deletedCount,
+              });
+            if (!countReceipt) throw new ContentTrashPurgeLeaseLostError();
+          }
+          return { blockedDelta, deletedDelta, unitCount: units.length };
+        },
+        { isolationLevel: "serializable" },
+      );
+      claimed.blockedCount += batchResult.blockedDelta;
+      claimed.deletedCount += batchResult.deletedDelta;
+      if (batchResult.unitCount === 0) break;
+    }
   } catch (error) {
     if (error instanceof ContentTrashPurgeLeaseLostError) throw error;
     const message = error instanceof Error ? error.message : String(error);

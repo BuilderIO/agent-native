@@ -320,9 +320,12 @@ export default defineAction({
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
         let blockDatabaseIdToDetach: string | null = null;
-        // The moved page and every sibling it renumbers, in id order.
+        // The moved page, its new parent and every sibling it renumbers, in
+        // id order. Locking the parent makes a concurrent Trash or delete of
+        // it finish first, so the check below sees it.
         const pageIds = [
           id,
+          ...(args.parentId ? [args.parentId] : []),
           ...(normalizedSiblingPositions ?? []).map((document) => document.id),
         ];
         if (args.parentId !== undefined) {
@@ -344,6 +347,23 @@ export default defineAction({
               "The document's move scope changed. Read it again and retry.",
               { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
             );
+          }
+          if (args.parentId) {
+            const [parent] = await tx
+              .select({ trashedAt: schema.documents.trashedAt })
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.id, args.parentId),
+                  eq(schema.documents.ownerEmail, ownerEmail),
+                ),
+              );
+            if (!parent || parent.trashedAt) {
+              throw new ActionContractError("Parent document not found.", {
+                errorCode: "DOCUMENT_NOT_FOUND",
+                statusCode: 404,
+              });
+            }
           }
           await assertDocumentMetadataDatabaseScope({
             db: tx,

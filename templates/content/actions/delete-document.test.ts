@@ -14,7 +14,9 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 
 const mutationLock = vi.hoisted(() => vi.fn());
 const membershipLock = vi.hoisted(() => vi.fn());
-const pageLock = vi.hoisted(() => vi.fn(async () => []));
+const pageLock = vi.hoisted(() =>
+  vi.fn(async (_db: unknown, ids: Iterable<string>) => [...ids]),
+);
 
 vi.mock("./_content-database-mutation-lock.js", () => ({
   lockContentDatabaseMutation: mutationLock,
