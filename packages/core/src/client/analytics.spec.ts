@@ -1048,6 +1048,89 @@ describe("browser analytics pageviews", () => {
     expect(localStorage.getItem("an_last_touch")).toBeNull();
   });
 
+  it("clears attribution when the visitor rejects while the sync is out", async () => {
+    const { localStorage, getCookie } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    let respond!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown) =>
+        String(url).includes("/_agent-native/auth/attribution")
+          ? new Promise<Response>((resolve) => (respond = resolve))
+          : Promise.resolve(new Response(JSON.stringify({ region: "none" }))),
+      ),
+    );
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: false, targeting: false });
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+
+    // The server stored the touch before it heard about the reject.
+    respond(new Response(JSON.stringify({ stored: true })));
+    await tick();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_(ft|fts|lt)=[^;]/);
+  });
+
+  it("puts back the newest last touch when a slow response rolls it back", async () => {
+    const { localStorage, cookieJson } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    let respond!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown) =>
+        String(url).includes("/_agent-native/auth/attribution")
+          ? new Promise<Response>((resolve) => (respond = resolve))
+          : Promise.resolve(new Response(JSON.stringify({ region: "none" }))),
+      ),
+    );
+    const { captureAttribution } = await freshAnalytics();
+    captureAttribution();
+    const newest = cookieJson("an_lt");
+    expect(newest).toMatchObject({ utm_source: "youtube" });
+
+    // An older page's response re-sets an_lt to the touch it carried.
+    document.cookie = `an_lt=${encodeURIComponent(
+      JSON.stringify({
+        utm_source: "older",
+        touched_at: "2026-01-01T00:00:00.000Z",
+      }),
+    )}; path=/`;
+    respond(new Response(JSON.stringify({ stored: true })));
+    await tick();
+
+    expect(cookieJson("an_lt")).toEqual(newest);
+    expect(JSON.parse(localStorage.getItem("an_last_touch")!)).toEqual(newest);
+  });
+
+  it("ignores a stored first touch older than a year", async () => {
+    const { localStorage } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    installFetch();
+    localStorage.setItem(
+      "an_attribution",
+      JSON.stringify({
+        utm_source: "stale",
+        landing_path: "/",
+        landed_at: new Date(Date.now() - 400 * 86_400_000).toISOString(),
+      }),
+    );
+    const { captureAttribution, getFirstTouchAttribution } =
+      await freshAnalytics();
+
+    captureAttribution();
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      utm_source: "youtube",
+    });
+  });
+
   it("emits return usage after a seven-day gap between app entries", async () => {
     const { localStorage } = installBrowser();
     const { analyticsCalls } = installFetch();

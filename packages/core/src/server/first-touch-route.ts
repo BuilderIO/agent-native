@@ -3,7 +3,6 @@ import {
   defineEventHandler,
   getHeader,
   getMethod,
-  readRawBody,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
@@ -25,6 +24,7 @@ import {
   type FirstTouchAttribution,
 } from "./attribution.js";
 import { requestAllowsConsentCategory } from "./consent-route.js";
+import { readBodyWithSizeLimit } from "./h3-helpers.js";
 import {
   getForwardedRequestOrigin,
   isSameOriginPost,
@@ -84,12 +84,17 @@ function resetBrowserCookies(event: H3Event): void {
   }
 }
 
-function readCandidate(body: string): FirstTouchAttribution | null {
-  const parsed = JSON.parse(body) as { firstTouch?: unknown };
-  if (!parsed?.firstTouch || typeof parsed.firstTouch !== "object") {
-    return null;
-  }
-  return decodeFirstTouchValue(JSON.stringify(parsed.firstTouch));
+function readCandidate(body: unknown): FirstTouchAttribution | null {
+  const firstTouch = (body as { firstTouch?: unknown } | null)?.firstTouch;
+  if (!firstTouch || typeof firstTouch !== "object") return null;
+  return decodeFirstTouchValue(JSON.stringify(firstTouch));
+}
+
+/** A touch more than a year old can't be kept, or win against one that can. */
+function unexpired(
+  touch: FirstTouchAttribution | null,
+): FirstTouchAttribution | null {
+  return touch && firstTouchServerExpiry(touch) ? touch : null;
 }
 
 /**
@@ -113,14 +118,15 @@ export function createFirstTouchHandler() {
       setResponseStatus(event, 403);
       return { error: "Cross-origin request" };
     }
-    if (Number(getHeader(event, "content-length") ?? 0) > MAX_BODY_BYTES) {
-      setResponseStatus(event, 413);
-      return { error: "Body too large" };
-    }
-    const body = (await readRawBody(event)) ?? "";
-    if (body.length > MAX_BODY_BYTES) {
-      setResponseStatus(event, 413);
-      return { error: "Body too large" };
+    let body: unknown;
+    try {
+      body = await readBodyWithSizeLimit(event, MAX_BODY_BYTES);
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 413) {
+        return { error: "Body too large" };
+      }
+      setResponseStatus(event, 400);
+      return { error: "Invalid JSON" };
     }
 
     if (!requestAllowsConsentCategory(event, "targeting")) {
@@ -131,13 +137,7 @@ export function createFirstTouchHandler() {
       } satisfies FirstTouchSyncResult;
     }
 
-    let candidate: FirstTouchAttribution | null;
-    try {
-      candidate = readCandidate(body);
-    } catch {
-      setResponseStatus(event, 400);
-      return { error: "Invalid JSON" };
-    }
+    const candidate = readCandidate(body);
     if (!candidate) {
       setResponseStatus(event, 400);
       return { error: "Missing firstTouch" };
@@ -149,9 +149,12 @@ export function createFirstTouchHandler() {
         FIRST_TOUCH_SERVER_COOKIE_NAME
       ],
     );
-    const firstTouch = preferFirstTouch(existing, candidate)!;
-    const expires = firstTouchServerExpiry(firstTouch);
-    if (!expires) {
+    const firstTouch = preferFirstTouch(
+      unexpired(existing),
+      unexpired(candidate),
+    );
+    const expires = firstTouch && firstTouchServerExpiry(firstTouch);
+    if (!firstTouch || !expires) {
       return {
         stored: false,
         reason: "expired",

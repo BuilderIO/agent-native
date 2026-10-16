@@ -33,6 +33,7 @@ import {
   FIRST_TOUCH_SERVER_COOKIE_NAME,
   FIRST_TOUCH_SERVER_COOKIE_VERSION,
   FIRST_TOUCH_SERVER_PATH,
+  firstTouchServerExpiry,
   isSameFirstTouch,
   preferFirstTouch,
 } from "../shared/first-touch-persistence.js";
@@ -54,7 +55,7 @@ import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
-import { whenConsentAllows } from "./consent.js";
+import { consentAllowsNow, whenConsentAllows } from "./consent.js";
 import { clientFailureContext } from "./failure-report.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
@@ -896,12 +897,37 @@ function readServerFirstTouch(): FirstTouchAttribution | null {
   return firstTouch;
 }
 
-/** The browser's own copies: localStorage, then the 30-day `an_ft` cookie. */
+/**
+ * The browser's own copies: localStorage, then the 30-day `an_ft` cookie. A
+ * visit more than a year old no longer counts, or the cookie it's copied back
+ * into would keep it going.
+ */
 function readLocalFirstTouch(): FirstTouchAttribution | null {
-  return readStoredAttribution<FirstTouchAttribution>(
+  const touch = readStoredAttribution<FirstTouchAttribution>(
     FIRST_TOUCH_STORAGE_KEY,
     FIRST_TOUCH_COOKIE_NAME,
   );
+  return touch && firstTouchServerExpiry(touch) ? touch : null;
+}
+
+/**
+ * The server writes `an_lt` again from each request's cookies, so a slow
+ * response from an older page can put back an older last touch. The newest
+ * one is in localStorage.
+ */
+function restoreNewestLastTouchCookie(): void {
+  const stored = safeStorageGet(LAST_TOUCH_STORAGE_KEY);
+  const newest = parseAttribution<LastTouchAttribution>(stored);
+  if (!stored || !newest) return;
+  const cookie = readAttributionCookieValue<LastTouchAttribution>(
+    LAST_TOUCH_COOKIE_NAME,
+  );
+  if (
+    Date.parse(cookie?.touched_at ?? "") >= Date.parse(newest.touched_at ?? "")
+  ) {
+    return;
+  }
+  writeAttributionCookie(stored, LAST_TOUCH_COOKIE);
 }
 
 /**
@@ -935,10 +961,15 @@ function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
     .then(async (response) => {
       if (!response.ok) return;
       const result = (await response.json()) as { reason?: string };
-      if (result.reason === "consent_required") {
+      // The visitor may have rejected while this request was out.
+      if (
+        result.reason === "consent_required" ||
+        !consentAllowsNow("targeting")
+      ) {
         clearStoredAttribution();
         return;
       }
+      restoreNewestLastTouchCookie();
       const server = readServerFirstTouch();
       const local = readLocalFirstTouch();
       if (!server || isSameFirstTouch(server, local)) return;
