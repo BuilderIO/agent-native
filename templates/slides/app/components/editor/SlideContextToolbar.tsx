@@ -249,7 +249,17 @@ export function SlideContextToolbar({
   // The field holds what was typed until the object paints it; a refused
   // rotation never will, so the field starts over from what the object paints.
   const [refusedRotations, setRefusedRotations] = useState(0);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("");
+  // Start each open from the selected text's own link, never the last URL typed.
+  const openLinkPopover = (open: boolean) => {
+    if (open) {
+      const node = window.getSelection()?.anchorNode;
+      const element = node instanceof Element ? node : node?.parentElement;
+      setLinkHref(element?.closest("a[href]")?.getAttribute("href") ?? "");
+    }
+    setLinkOpen(open);
+  };
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
@@ -1017,7 +1027,7 @@ export function SlideContextToolbar({
               </Popover>
 
               {onSetLink && (
-                <Popover>
+                <Popover open={linkOpen} onOpenChange={openLinkPopover}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <PopoverTrigger asChild>
@@ -1045,6 +1055,7 @@ export function SlideContextToolbar({
                       onSubmit={(event) => {
                         event.preventDefault();
                         onSetLink(linkHref.trim() || null);
+                        setLinkOpen(false);
                       }}
                     >
                       <Input
