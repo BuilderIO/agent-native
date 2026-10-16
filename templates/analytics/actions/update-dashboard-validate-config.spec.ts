@@ -34,8 +34,16 @@ vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: vi.fn(async () => null),
 }));
 
-const { assertValidDashboardConfig, isAgentCaller, validateDashboardConfig } =
-  await import("./update-dashboard");
+const {
+  assertValidDashboardConfig,
+  changedPanelIdsForSqlValidation,
+  changedPanelIdsForTimeScopeValidation,
+  isAgentCaller,
+  validateDashboardConfig,
+  validateChangedPanelTimeScopes,
+} = await import("./update-dashboard");
+const { applyDashboardMutationOperations, parseDashboardMutationScript } =
+  await import("./dashboard-mutation-api");
 
 function panel(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -110,6 +118,31 @@ describe("validateDashboardConfig ratchet", () => {
     expect(message).toContain('panel[3] ("No id") id is missing');
     expect(message).toContain('panel "fresh" ("fresh title") width is missing');
     expect(message).not.toContain("viral-by-app");
+  });
+
+  it("rejects section height added through a generic set patch", () => {
+    const baseline: Record<string, unknown> = {
+      name: "Activity",
+      panels: [
+        {
+          id: "activity-section",
+          title: "Activity",
+          chartType: "section",
+          width: 2,
+        },
+      ],
+    };
+    const next = clone(baseline);
+    const operations = parseDashboardMutationScript(
+      next,
+      'dashboard.section("activity-section").set({"height":2});',
+    );
+
+    applyDashboardMutationOperations(next, operations);
+
+    expect(validateDashboardConfig(next, { baseline })).toBe(
+      'panel "activity-section" ("Activity") height is 2; section panels do not support height; remove height.',
+    );
   });
 
   it("does not trust a baseline that is the config itself", () => {
@@ -464,5 +497,95 @@ describe("validateDashboardConfig annotations", () => {
     expect(
       validateDashboardConfig(config({ hiddenDataNotes: ["note-1"] })),
     ).toMatch(/hiddenDataNotes must be/);
+  });
+});
+
+describe("dashboard SQL validation scope", () => {
+  const baseline = {
+    name: "Usage",
+    filters: [] as unknown[],
+    variables: {} as Record<string, string>,
+    panels: [panel("a"), panel("b")],
+  };
+
+  it("skips SQL validation when only panel layout changes", () => {
+    const next = clone(baseline);
+    next.panels[0].width = 2;
+    next.panels[0].height = 3;
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(new Set());
+  });
+
+  it("validates the panels whose query inputs changed", () => {
+    const next = clone(baseline);
+    next.panels[1].sql = "SELECT 2 AS value";
+    next.panels[0].config = { timeScope: "all-time" };
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(
+      new Set(["a", "b"]),
+    );
+  });
+
+  it("validates all panels when dashboard filters or variables change", () => {
+    const withFilter = clone(baseline);
+    withFilter.filters = [{ id: "timeRange", label: "Time", type: "date" }];
+    const withVariable = clone(baseline);
+    withVariable.variables = { timeRange: "30d" };
+
+    expect(
+      changedPanelIdsForSqlValidation(withFilter, baseline),
+    ).toBeUndefined();
+    expect(
+      changedPanelIdsForSqlValidation(withVariable, baseline),
+    ).toBeUndefined();
+  });
+
+  it("validates newly added panels and every panel without a baseline", () => {
+    const next = clone(baseline);
+    next.panels.push(panel("new"));
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(
+      new Set(["new"]),
+    );
+    expect(changedPanelIdsForSqlValidation(next, null)).toBeUndefined();
+  });
+});
+
+describe("dashboard time-scope validation scope", () => {
+  const baseline = {
+    name: "Usage",
+    filters: [] as unknown[],
+    variables: {} as Record<string, string>,
+    panels: [
+      panel("a", {
+        title: "Lifetime signups",
+        config: { timeScope: "all-time" },
+      }),
+    ],
+  };
+
+  it("rechecks an all-time panel when its title loses the lifetime label", () => {
+    const next = clone(baseline);
+    next.panels[0].title = "Signups";
+
+    expect(changedPanelIdsForTimeScopeValidation(next, baseline)).toEqual(
+      new Set(["a"]),
+    );
+    expect(validateChangedPanelTimeScopes(next, baseline)).toMatch(
+      /description or title.*lifetime/,
+    );
+  });
+
+  it("rechecks an all-time panel when its description loses the lifetime label", () => {
+    const labeledBaseline = clone(baseline);
+    labeledBaseline.panels[0].title = "All signups";
+    (labeledBaseline.panels[0].config as Record<string, unknown>).description =
+      "Lifetime signups across the full history.";
+    const next = clone(labeledBaseline);
+    (next.panels[0].config as Record<string, unknown>).description = "Signups";
+
+    expect(validateChangedPanelTimeScopes(next, labeledBaseline)).toMatch(
+      /description or title.*lifetime/,
+    );
   });
 });

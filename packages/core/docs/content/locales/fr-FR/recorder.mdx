@@ -146,7 +146,7 @@ Une fonction qui lève une exception est signalée comme `{ unreadable: "<messag
 
 ### `recorder.onReport()` {#on-report}
 
-`recorder.onReport()` envoie les rapports vers une destination. Il accepte un écouteur et renvoie une fonction qui le retire. L'écouteur reçoit chaque rapport construit avec une raison autre que `"manual"`. Cela couvre « Signaler un problème » (`"user"`), les erreurs non interceptées (`"error"`) et les tests (`"test"`).
+`recorder.onReport()` envoie les rapports vers une destination. Il accepte un écouteur et renvoie une fonction qui le retire. L'écouteur reçoit chaque rapport construit avec une raison autre que `"manual"`. Cela couvre les erreurs non interceptées (`"error"`) et les tests (`"test"`). Une application peut toujours émettre un rapport avec la raison `"user"` en intégrant directement le `ReportProblemDialog` exporté.
 
 ```ts
 recorder.onReport((report) => posthog.capture("problem_report", report));
@@ -211,16 +211,6 @@ Une fenêtre ou un plafond qui n'est pas un nombre positif lève une `RangeError
 
 ## Destinations des rapports {#destinations}
 
-### Signaler un problème {#report-a-problem}
-
-Toutes les apps proposent **Signaler un problème**. L'option se trouve en bas de la barre latérale, dans le menu d'options du panneau de l'agent et dans le menu de commandes (⌘K).
-
-- Elle demande s'il faut joindre ce que l'app a fait au cours des deux dernières minutes, et affiche un aperçu des compteurs, des échecs et des premiers événements. Elle le demande à chaque fois.
-- Si l'utilisateur accepte, le rapport complet est stocké dans un fichier privé que seul cet utilisateur peut lire. L'agent de l'app reçoit un court résumé avec une référence au fichier.
-- L'agent lit la suite du rapport avec l'action `read-problem-report`, filtrée par type d'événement ou par période.
-- Quand la page n'a pas de chat d'agent, le bouton copie le résumé et la référence à la place.
-- Le rapport nécessite un stockage de fichiers. Sans lui, la boîte de dialogue indique que le rapport n'a pas été joint, et rien n'est envoyé.
-
 ### Sentry {#sentry}
 
 Quand une app a Sentry côté navigateur configuré via Agent-Native (voir [Rapport d'erreurs](/docs/observability#sentry)), chaque événement d'erreur Sentry reçoit :
@@ -242,7 +232,7 @@ Quand les journaux développeur sont activés, l'extension Clips le lit dans l'o
 
 ## Confidentialité {#privacy}
 
-- **Tout reste dans le navigateur.** Un rapport ne sort que lorsqu'une destination l'envoie : « Signaler un problème » après l'accord de l'utilisateur, un enregistrement Clips lancé par l'utilisateur, Sentry, ou un écouteur enregistré par le développeur.
+- **Tout reste dans le navigateur.** Un rapport ne sort que lorsqu'une destination l'envoie : un enregistrement Clips lancé par l'utilisateur, Sentry, ou un écouteur enregistré par le développeur. Un `ReportProblemDialog` monté directement envoie également un rapport, mais uniquement après que l’utilisateur l’a envoyé.
 - **Les secrets sont retirés.** Un champ dont le nom ressemble à un secret (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) s'affiche comme `"[redacted]"`. Le texte qui ressemble à un jeton dans n'importe quelle valeur, comme les JWT, les jetons bearer et les clés d'API de fournisseurs, est lui aussi remplacé par `[redacted]`. Ce sont les mêmes fonctions de masquage que core utilise pour les rapports d'erreurs.
 - **Les valeurs sont bornées.** Les chaînes sont coupées à 200 caractères et chaque événement à environ 2 Ko. Chaque coupure indique ce qui a été retiré. Les corps des requêtes et des réponses ne sont jamais enregistrés.
 - **Il oublie.** Il ne conserve que la fenêtre, dans la limite de ses plafonds. Il est vidé au rechargement et à la déconnexion.
