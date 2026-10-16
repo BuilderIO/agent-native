@@ -29,7 +29,7 @@ describe("requestRecordingContext", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends the capturing device's id with the request", async () => {
+  it("sends the capturing device and audio details with the request", async () => {
     const fetchMock = stubFetch({ id: "ctx1" });
 
     await requestRecordingContext(target, {
@@ -37,6 +37,8 @@ describe("requestRecordingContext", () => {
       seconds: 30,
       endedAt: "2026-10-09T10:00:00.000Z",
       deviceId: "device-1",
+      includeMicrophone: true,
+      includeSystemAudio: false,
     });
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
@@ -48,6 +50,8 @@ describe("requestRecordingContext", () => {
       seconds: 30,
       endedAt: "2026-10-09T10:00:00.000Z",
       deviceId: "device-1",
+      includeMicrophone: true,
+      includeSystemAudio: false,
     });
   });
 });

@@ -1,4 +1,5 @@
 import type { ClipsActionTarget } from "../lib/clips-action";
+import { ClipsActionError } from "../lib/clips-action";
 import { originForServer } from "../lib/desktop-auth-token";
 import type { RecordingContextRequestInput } from "./context-api";
 import {
@@ -56,7 +57,11 @@ function isRequestInput(value: unknown): value is RecordingContextRequestInput {
     typeof request.endedAt === "string" &&
     Boolean(request.endedAt.trim()) &&
     typeof request.deviceId === "string" &&
-    Boolean(request.deviceId.trim())
+    Boolean(request.deviceId.trim()) &&
+    (request.includeMicrophone === undefined ||
+      typeof request.includeMicrophone === "boolean") &&
+    (request.includeSystemAudio === undefined ||
+      typeof request.includeSystemAudio === "boolean")
   );
 }
 
@@ -130,6 +135,15 @@ function writeIntents(
 ): void {
   if (intents.length === 0) storage.removeItem(key);
   else storage.setItem(key, JSON.stringify(intents));
+}
+
+function isTerminalRequestRecoveryFailure(error: unknown): boolean {
+  return (
+    error instanceof ClipsActionError &&
+    ((error.status === 400 &&
+      error.code === "recording_context_invalid_window") ||
+      (error.status === 404 && error.code === "recording_unavailable"))
+  );
 }
 
 export function persistPendingLookbackCleanupIntent(
@@ -261,7 +275,20 @@ export async function retryPendingLookbackCleanupIntents(input: {
     try {
       let itemId = intent.itemId;
       if (!itemId) {
-        const item = await input.requestItem(input.target, intent.request);
+        let item: { id: string };
+        try {
+          item = await input.requestItem(input.target, intent.request);
+        } catch (error) {
+          if (!isTerminalRequestRecoveryFailure(error)) throw error;
+          clearPendingLookbackCleanupIntent(
+            input.storage,
+            input.serverUrl,
+            input.account,
+            recordingId,
+          );
+          input.retries?.delete(retryKey);
+          continue;
+        }
         itemId = item.id;
         persistPendingLookbackCleanupIntent(
           input.storage,

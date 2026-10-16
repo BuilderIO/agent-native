@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ClipsActionError } from "../lib/clips-action";
 import {
   hasPendingLookbackCleanupIntentWarning,
   pendingLookbackCleanupIntentStorageKey,
@@ -32,6 +33,8 @@ const request = {
   seconds: 300,
   endedAt: "2026-10-15T12:00:00.000Z",
   deviceId: "device-1",
+  includeMicrophone: true,
+  includeSystemAudio: false,
 };
 
 describe("pending lookback cleanup intents", () => {
@@ -145,6 +148,63 @@ describe("pending lookback cleanup intents", () => {
       account,
       target: { serverUrl, authToken: "current-token" },
       requestItem,
+    });
+
+    expect(state.pendingRecordingIds).toEqual(new Set(["recording-1"]));
+    expect(hasPendingLookbackCleanupIntentWarning(state)).toBe(true);
+  });
+
+  it.each([
+    ["recording_context_invalid_window", 400],
+    ["recording_unavailable", 404],
+  ])(
+    "clears cleanup intent after terminal request recovery error %s",
+    async (code, status) => {
+      const storage = memoryStorage();
+      persistPendingLookbackCleanupIntent(storage, serverUrl, account, request);
+      const intentKey = pendingLookbackCleanupIntentStorageKey(
+        serverUrl,
+        account,
+      );
+      if (!intentKey) throw new Error("Expected a scoped storage key.");
+      const retryKey = `${intentKey}:recording-1`;
+      const retries = new Map<string, { attempts: number; retryAt: number }>([
+        [retryKey, { attempts: 1, retryAt: 1_000 }],
+      ]);
+      const requestItem = vi.fn(async () => {
+        throw new ClipsActionError("terminal request error", status, code);
+      });
+
+      const state = await retryPendingLookbackCleanupIntents({
+        storage,
+        serverUrl,
+        account,
+        target: { serverUrl, authToken: "current-token" },
+        retries,
+        requestItem,
+      });
+
+      expect(requestItem).toHaveBeenCalledOnce();
+      expect(state.pendingRecordingIds.size).toBe(0);
+      expect(hasPendingLookbackCleanupIntentWarning(state)).toBe(false);
+      expect(retries.size).toBe(0);
+    },
+  );
+
+  it("keeps access-denied intent for a later retry", async () => {
+    const storage = memoryStorage();
+    persistPendingLookbackCleanupIntent(storage, serverUrl, account, request);
+    const requestItem = vi.fn(async () => {
+      throw new ClipsActionError("forbidden", 403, "recording_forbidden");
+    });
+
+    const state = await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      requestItem,
+      now: () => 5_000,
     });
 
     expect(state.pendingRecordingIds).toEqual(new Set(["recording-1"]));

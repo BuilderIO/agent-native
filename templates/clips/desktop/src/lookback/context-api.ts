@@ -21,6 +21,8 @@ export interface RecordingContextItem {
   // The footage the current 'processing' claim reserved. Only a ready write
   // naming this id can link it, so a worker reconciling its own write checks it.
   pendingMediaRecordingId: string | null;
+  includeMicrophone: boolean | null;
+  includeSystemAudio: boolean | null;
   durationMs: number | null;
   width: number | null;
   height: number | null;
@@ -56,6 +58,8 @@ export type RecordingContextRequestInput = {
   seconds: number;
   endedAt: string;
   deviceId: string;
+  includeMicrophone?: boolean;
+  includeSystemAudio?: boolean;
 };
 
 export function requestRecordingContext(

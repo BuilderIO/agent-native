@@ -34,6 +34,7 @@ vi.mock("./local-export", async (importOriginal) => {
 import { requestRecordingContext } from "../lookback/context-api";
 import {
   getRewindClipOrigin,
+  rememberRewindClipOrigin,
   startRecording,
   type StartParams,
 } from "./recorder";
@@ -349,6 +350,85 @@ afterEach(() => {
 });
 
 describe("native recording startup", () => {
+  it("retains origins for more than fifty outstanding recordings", () => {
+    const now = Date.now();
+    for (let index = 0; index < 51; index++) {
+      const startedAt = new Date(now - index * 1_000).toISOString();
+      rememberRewindClipOrigin({
+        recordingId: `recording-${index}`,
+        startedAt,
+        includeMicrophone: true,
+        includeSystemAudio: false,
+        rememberedAt: startedAt,
+      });
+    }
+
+    expect(getRewindClipOrigin("recording-0")).not.toBeNull();
+    expect(getRewindClipOrigin("recording-50")).not.toBeNull();
+  });
+
+  it("retains origins until the pending request is completed or removed", () => {
+    vi.setSystemTime(new Date("2026-10-15T12:00:00.000Z"));
+    localStorageValues.set(
+      "clips.rewindClipOrigins.v1",
+      JSON.stringify({
+        expired: {
+          recordingId: "expired",
+          startedAt: "2026-10-14T11:59:59.000Z",
+          includeMicrophone: true,
+          includeSystemAudio: false,
+          rememberedAt: "2026-10-14T11:59:59.000Z",
+        },
+      }),
+    );
+
+    expect(getRewindClipOrigin("expired")).toMatchObject({
+      recordingId: "expired",
+      rememberedAt: "2026-10-14T11:59:59.000Z",
+    });
+  });
+
+  it("keeps a new origin in memory when browser storage is unavailable", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("storage unavailable");
+      },
+      setItem: () => {
+        throw new Error("storage full");
+      },
+      removeItem: (key: string) => localStorageValues.delete(key),
+    });
+    const now = new Date().toISOString();
+    const origin = {
+      recordingId: "memory-only",
+      startedAt: now,
+      includeMicrophone: true,
+      includeSystemAudio: false,
+      rememberedAt: now,
+    };
+
+    rememberRewindClipOrigin(origin);
+
+    expect(getRewindClipOrigin("memory-only")).toEqual(origin);
+  });
+
+  it("reports unreadable browser storage instead of reporting no origin", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("access denied");
+      },
+      setItem: () => {
+        throw new Error("access denied");
+      },
+      removeItem: () => {},
+    });
+
+    expect(() => getRewindClipOrigin("unknown")).toThrow(
+      "Earlier screen-time capture details could not be read: access denied",
+    );
+  });
+
   it("requests earlier screen time for a hosted window recording", async () => {
     let originAtSuspension: ReturnType<typeof getRewindClipOrigin> = null;
     let originAtWarm: ReturnType<typeof getRewindClipOrigin> = null;

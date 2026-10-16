@@ -310,7 +310,10 @@ import {
   type LookbackRemovalRetry,
   type LookbackRemovalStorage,
 } from "./lookback/pending-lookback-removal";
-import { processRecordingContextItem } from "./lookback/worker";
+import {
+  lookbackOriginForItem,
+  processRecordingContextItem,
+} from "./lookback/worker";
 import { PillLogo } from "./overlays/pill-logo";
 import {
   useFeatureConfig,
@@ -2069,8 +2072,7 @@ export function App({
   function requestLookbackForRecording(seconds: number) {
     if (seconds <= 0) return;
     const recordingId = sessionRecordingIdRef.current;
-    const origin = recordingId ? getRewindClipOrigin(recordingId) : null;
-    if (!recordingId || !origin) {
+    if (!recordingId) {
       setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
       return;
     }
@@ -2081,6 +2083,17 @@ export function App({
       );
       setLookbackNotice(t("lookbackContext.requestFailed"));
     };
+    let origin: ReturnType<typeof getRewindClipOrigin>;
+    try {
+      origin = getRewindClipOrigin(recordingId);
+    } catch (error) {
+      onRequestError(error);
+      return;
+    }
+    if (!origin) {
+      setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
+      return;
+    }
     if (!signedInAs) {
       onRequestError(
         new Error("An account is required for earlier screen time."),
@@ -2094,13 +2107,23 @@ export function App({
         seconds,
         endedAt: origin.startedAt,
         deviceId: clipsDeviceId(),
+        includeMicrophone: origin.includeMicrophone,
+        includeSystemAudio: origin.includeSystemAudio,
       };
-      const item = requestRecordingContext(target, request).catch(
-        (error: unknown) => {
+      const item = requestRecordingContext(target, request)
+        .then((result) => {
+          if (
+            typeof result.includeMicrophone === "boolean" &&
+            typeof result.includeSystemAudio === "boolean"
+          ) {
+            forgetRewindClipOrigin(recordingId);
+          }
+          return result;
+        })
+        .catch((error: unknown) => {
           onRequestError(error);
           return null;
-        },
-      );
+        });
       lookbackContextRef.current.set(recordingId, {
         recordingId,
         request,
@@ -2157,6 +2180,7 @@ export function App({
               }
             : null;
         },
+        forgetOrigin: forgetRewindClipOrigin,
         update: (input) => updateRecordingContext(target, input),
         currentItem: (recordingId, itemId) =>
           getRecordingContextItem(target, recordingId, itemId),
@@ -2311,7 +2335,17 @@ export function App({
           ) {
             continue;
           }
-          if (!getRewindClipOrigin(item.recordingId)) {
+          if (
+            !lookbackOriginForItem(item, (recordingId) => {
+              const origin = getRewindClipOrigin(recordingId);
+              return origin
+                ? {
+                    includeMicrophone: origin.includeMicrophone,
+                    includeSystemAudio: origin.includeSystemAudio,
+                  }
+                : null;
+            })
+          ) {
             // Not this device's footage. Excluding it keeps the batch from
             // refilling with items this device will never export.
             skippedLookbackIdsRef.current.add(item.id);

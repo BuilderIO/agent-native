@@ -25,6 +25,9 @@ function item(
     endedAt: "2026-10-09T10:00:00.000Z",
     status: "pending",
     mediaRecordingId: null,
+    pendingMediaRecordingId: null,
+    includeMicrophone: null,
+    includeSystemAudio: null,
     durationMs: null,
     width: null,
     height: null,
@@ -95,7 +98,12 @@ describe("processRecordingContextItem", () => {
   });
 
   it("exports the window and marks the item ready with its media", async () => {
-    const deps = fakeDeps();
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
 
     await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
       "ready",
@@ -128,6 +136,65 @@ describe("processRecordingContextItem", () => {
       includeSystemAudio: false,
     });
     expect(deps.trashed).toEqual([]);
+    expect(deps.forgetOrigin).not.toHaveBeenCalled();
+  });
+
+  it("keeps an origin while a failed item can still be retried", async () => {
+    const terminal = fakeDeps({
+      forgetOrigin: vi.fn(),
+      createRecording: vi.fn(async () => {
+        throw new Error("disk full");
+      }),
+      currentItem: vi.fn(async () => item({ status: "failed" })),
+    });
+    await expect(processRecordingContextItem(item(), terminal)).resolves.toBe(
+      "failed",
+    );
+    expect(terminal.forgetOrigin).not.toHaveBeenCalled();
+
+    const retryable = fakeDeps({
+      forgetOrigin: vi.fn(),
+      uploadWindow: vi.fn(async () => {
+        throw new Error("network unavailable");
+      }),
+      currentItem: vi.fn(async () => item({ status: "processing" })),
+    });
+    await processRecordingContextItem(item(), retryable);
+    expect(retryable.forgetOrigin).not.toHaveBeenCalled();
+  });
+
+  it("forgets an origin after the server confirms the item is gone", async () => {
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () => null),
+    });
+
+    await processRecordingContextItem(item(), deps);
+
+    expect(deps.forgetOrigin).toHaveBeenCalledOnce();
+    expect(deps.forgetOrigin).toHaveBeenCalledWith("rec1");
+  });
+
+  it("uses capture audio details saved with the request", async () => {
+    const deps = fakeDeps({
+      originFor: vi.fn(() => null),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await processRecordingContextItem(
+      item({ includeMicrophone: false, includeSystemAudio: true }),
+      deps,
+    );
+
+    expect(deps.created).toEqual([
+      { hasAudio: true, startedAt: "2026-10-09T09:59:30.000Z" },
+    ]);
+    expect(deps.originFor).not.toHaveBeenCalled();
+    expect(deps.uploadWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMic: false, includeSystemAudio: true }),
+    );
   });
 
   it("creates a silent recording when the original had no audio", async () => {

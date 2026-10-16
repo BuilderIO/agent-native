@@ -108,7 +108,7 @@ export default defineAction({
       .limit(PENDING_BATCH_LIMIT + 1);
     const hasMore = items.length > PENDING_BATCH_LIMIT;
     const page = items.slice(0, PENDING_BATCH_LIMIT);
-    const last = page.at(-1);
+    const last = page[page.length - 1];
     return {
       items: page,
       nextCursor:

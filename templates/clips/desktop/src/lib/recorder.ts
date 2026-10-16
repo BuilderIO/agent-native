@@ -266,56 +266,126 @@ export interface RewindClipOrigin {
   rememberedAt: string;
 }
 
+const inMemoryRewindClipOrigins = new Map<string, RewindClipOrigin>();
+const forgottenRewindClipOrigins = new Set<string>();
+
 function readRewindClipOrigins(): Record<string, RewindClipOrigin> {
+  const origins: Record<string, RewindClipOrigin> = {};
+  let serialized: string | null;
   try {
-    const parsed = JSON.parse(
-      localStorage.getItem(REWIND_CLIP_ORIGINS_KEY) || "{}",
+    serialized = localStorage.getItem(REWIND_CLIP_ORIGINS_KEY);
+  } catch (error) {
+    throw new Error(
+      `Earlier screen-time capture details could not be read: ${error instanceof Error ? error.message : String(error)}`,
     );
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized || "{}");
+  } catch (error) {
+    throw new Error(
+      `Earlier screen-time capture details are unreadable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    for (const [recordingId, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const origin = value as RewindClipOrigin;
+      if (
+        typeof origin.startedAt !== "string" ||
+        typeof origin.rememberedAt !== "string" ||
+        !Number.isFinite(Date.parse(origin.rememberedAt)) ||
+        typeof origin.includeMicrophone !== "boolean" ||
+        typeof origin.includeSystemAudio !== "boolean"
+      ) {
+        continue;
+      }
+      origins[recordingId] = origin;
+    }
+  } else {
+    throw new Error("Earlier screen-time capture details are unreadable.");
+  }
+  for (const [recordingId, origin] of inMemoryRewindClipOrigins) {
+    if (!forgottenRewindClipOrigins.has(recordingId)) {
+      origins[recordingId] = origin;
+    }
+  }
+  for (const recordingId of forgottenRewindClipOrigins)
+    delete origins[recordingId];
+  return origins;
 }
 
 function writeRewindClipOrigins(
   origins: Record<string, RewindClipOrigin>,
-): void {
+): boolean {
   try {
     localStorage.setItem(REWIND_CLIP_ORIGINS_KEY, JSON.stringify(origins));
-  } catch {
-    // Losing optional retrospective metadata must never cancel a live Clip.
+    for (const recordingId of Object.keys(origins))
+      inMemoryRewindClipOrigins.delete(recordingId);
+    forgottenRewindClipOrigins.clear();
+    return true;
+  } catch (error) {
+    console.warn("Could not save earlier screen-time capture details:", error);
+    return false;
   }
 }
 
-function rememberRewindClipOrigin(origin: RewindClipOrigin): void {
-  const origins = readRewindClipOrigins();
+export function rememberRewindClipOrigin(origin: RewindClipOrigin): void {
+  let origins: Record<string, RewindClipOrigin>;
+  try {
+    origins = readRewindClipOrigins();
+  } catch (error) {
+    console.warn(
+      "Could not read saved earlier screen-time details; keeping the new capture details in memory.",
+      error,
+    );
+    origins = Object.fromEntries(
+      [...inMemoryRewindClipOrigins].filter(
+        ([recordingId]) => !forgottenRewindClipOrigins.has(recordingId),
+      ),
+    );
+  }
   origins[origin.recordingId] = origin;
-  const newest = Object.values(origins)
-    .sort((left, right) => right.rememberedAt.localeCompare(left.rememberedAt))
-    .slice(0, 50);
-  writeRewindClipOrigins(
-    Object.fromEntries(newest.map((entry) => [entry.recordingId, entry])),
-  );
+  if (!writeRewindClipOrigins(origins))
+    inMemoryRewindClipOrigins.set(origin.recordingId, origin);
+  forgottenRewindClipOrigins.delete(origin.recordingId);
 }
 
 export function getRewindClipOrigin(
   recordingId: string,
 ): RewindClipOrigin | null {
+  if (forgottenRewindClipOrigins.has(recordingId)) return null;
+  const savedInMemory = inMemoryRewindClipOrigins.get(recordingId);
+  if (savedInMemory) return savedInMemory;
   return readRewindClipOrigins()[recordingId] ?? null;
 }
 
 export function forgetRewindClipOrigin(recordingId: string): void {
-  const origins = readRewindClipOrigins();
+  let origins: Record<string, RewindClipOrigin>;
+  try {
+    origins = readRewindClipOrigins();
+  } catch (error) {
+    console.warn(
+      "Could not read saved earlier screen-time details while clearing a capture.",
+      error,
+    );
+    inMemoryRewindClipOrigins.delete(recordingId);
+    forgottenRewindClipOrigins.add(recordingId);
+    return;
+  }
   if (!origins[recordingId]) return;
   delete origins[recordingId];
-  writeRewindClipOrigins(origins);
+  inMemoryRewindClipOrigins.delete(recordingId);
+  forgottenRewindClipOrigins.add(recordingId);
+  if (writeRewindClipOrigins(origins))
+    forgottenRewindClipOrigins.delete(recordingId);
 }
 
 function rememberRewindClipOriginForStart(
   recordingId: string,
   params: StartParams,
 ): void {
-  if (!params.lookbackEnabled || getRewindClipOrigin(recordingId)) return;
+  if (!params.lookbackEnabled) return;
   const startedAt = new Date().toISOString();
   rememberRewindClipOrigin({
     recordingId,

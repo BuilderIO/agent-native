@@ -18,7 +18,11 @@ export interface LookbackOrigin {
 // rewind_agent_handoff_upload command.
 export interface LookbackWorkerDeps {
   // Null when this device did not capture the recording, so its footage is not here.
-  originFor(recordingId: string): LookbackOrigin | null;
+  originFor(
+    recordingId: string,
+    item: RecordingContextItem,
+  ): LookbackOrigin | null;
+  forgetOrigin?(recordingId: string): void;
   update(input: RecordingContextUpdate): Promise<unknown>;
   // Null means the server reports the item absent, removed, or its Clip gone. A failed read must throw.
   currentItem(
@@ -45,6 +49,22 @@ export interface LookbackWorkerDeps {
   trashRecording(id: string): Promise<unknown>;
 }
 
+export function lookbackOriginForItem(
+  item: RecordingContextItem,
+  originFor: LookbackWorkerDeps["originFor"],
+): LookbackOrigin | null {
+  if (
+    typeof item.includeMicrophone === "boolean" &&
+    typeof item.includeSystemAudio === "boolean"
+  ) {
+    return {
+      includeMicrophone: item.includeMicrophone,
+      includeSystemAudio: item.includeSystemAudio,
+    };
+  }
+  return originFor(item.recordingId, item);
+}
+
 export type LookbackWorkerOutcome = "skipped" | "ready" | "failed";
 
 const FALLBACK_ERROR = "Earlier screen time couldn't be saved.";
@@ -53,7 +73,29 @@ export async function processRecordingContextItem(
   item: RecordingContextItem,
   deps: LookbackWorkerDeps,
 ): Promise<LookbackWorkerOutcome> {
-  const origin = deps.originFor(item.recordingId);
+  const outcome = await processRecordingContextItemWithOrigin(item, deps);
+  if (!deps.forgetOrigin) return outcome;
+
+  try {
+    const current = await deps.currentItem(item.recordingId, item.id);
+    if (!current || current.status === "removed") {
+      deps.forgetOrigin(item.recordingId);
+    }
+  } catch (error) {
+    // Keep the origin while a failed read leaves the item's state unknown.
+    console.warn(
+      "[lookback] could not confirm whether capture details can be cleared; keeping them for a later retry:",
+      error,
+    );
+  }
+  return outcome;
+}
+
+async function processRecordingContextItemWithOrigin(
+  item: RecordingContextItem,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  const origin = lookbackOriginForItem(item, deps.originFor);
   // Footage only leaves the device that captured it. Another device's item
   // stays pending for that device's worker.
   if (!origin) return "skipped";
