@@ -51,7 +51,7 @@ validation remain covered by the focused dbt action tests.
 records ten cases twice against identical harness bytes on
 2026-10-16. The previous PR head `6e35888005449c43092b986d19c13366f3aad728`
 passed 18/20 runs; candidate code at
-`9d1c4d0ad977da981cbc8b65edd10dbe4954d4c7` passed 20/20. Both baseline runs
+`e70655bb09c80d5dea1a45f2bc38b63fd78804e5` passed 20/20. Both baseline runs
 failed the related-metric guidance check for Content API requests versus
 Visual Views; both candidate runs passed. The other nine cases passed in both
 phases. The harness SHA-256 is
