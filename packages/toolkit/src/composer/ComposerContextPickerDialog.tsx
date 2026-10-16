@@ -39,7 +39,7 @@ export function ComposerContextPickerDialog({
   const urlOnly = presentation?.mode === "url";
   const singleSelect = presentation?.mode === "single";
   const gallery =
-    presentation?.mode === "multiple" && presentation.layout === "gallery";
+    presentation?.mode !== "url" && presentation?.layout === "gallery";
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const [touched, setTouched] = useState(false);
@@ -142,7 +142,9 @@ export function ComposerContextPickerDialog({
                     items={items.map((item) => ({
                       ...item,
                       disabled:
-                        item.disabled || config.selectedIds?.includes(item.id),
+                        item.disabled ||
+                        (!singleSelect &&
+                          config.selectedIds?.includes(item.id)),
                     }))}
                     loading={loading}
                     error={error}
@@ -166,14 +168,18 @@ export function ComposerContextPickerDialog({
                         (selected) => selected.id === item.id,
                       )
                     }
-                    onSelect={(item) =>
+                    onSelect={(item) => {
+                      if (singleSelect) {
+                        void picker.select(item);
+                        return;
+                      }
                       picker.toggleItem(
                         item,
                         !picker.selectedItems.some(
                           (selected) => selected.id === item.id,
                         ),
-                      )
-                    }
+                      );
+                    }}
                     renderPreview={(item) => (
                       <div className="pointer-events-none relative h-full overflow-hidden bg-muted">
                         {item.preview}

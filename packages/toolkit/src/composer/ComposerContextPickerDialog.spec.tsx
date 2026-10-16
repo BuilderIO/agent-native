@@ -9,6 +9,8 @@ import {
   ComposerContextMenu,
   type ComposerContextPickerConfig,
 } from "./ComposerContextMenu.js";
+import { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
+import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -88,6 +90,25 @@ async function render(
     ),
   );
 }
+async function renderPickerDialog(
+  config: ComposerContextPickerConfig,
+  onClose: () => void = () => {},
+) {
+  await act(async () =>
+    root.render(
+      <TooltipProvider>
+        <ComposerRuntimeAdaptersProvider adapters={{ translate: (key) => key }}>
+          <ComposerContextPickerDialog
+            config={config}
+            title="Pick a presentation"
+            onClose={onClose}
+            onRestoreFocus={() => {}}
+          />
+        </ComposerRuntimeAdaptersProvider>
+      </TooltipProvider>,
+    ),
+  );
+}
 async function tick() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -162,6 +183,64 @@ function deferred<T>() {
 }
 
 describe("shared context URL dialog", () => {
+  it("supports gallery previews with immediate single selection", async () => {
+    const onSelect = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search presentations",
+      items: [
+        {
+          id: "campaign",
+          title: "Campaign launch",
+          preview: (
+            <img src="https://example.com/campaign.png" alt="Campaign slide" />
+          ),
+        },
+        {
+          id: "quarterly",
+          title: "Quarterly review",
+          preview: (
+            <img
+              src="https://example.com/quarterly.png"
+              alt="Quarterly slide"
+            />
+          ),
+        },
+      ],
+      onSelect,
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config, onClose);
+    expect(
+      dialog()!.querySelectorAll(".agent-template-library-card"),
+    ).toHaveLength(2);
+    expect(dialog()!.querySelectorAll("img")).toHaveLength(2);
+
+    await type("Campaign", 'input[type="search"]');
+    expect(
+      dialog()!.querySelectorAll(".agent-template-library-card"),
+    ).toHaveLength(1);
+    const card = dialog()!.querySelector<HTMLElement>("[aria-pressed]")!;
+    await act(async () => card.click());
+    await tick();
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "campaign",
+        title: "Campaign launch",
+        disabled: false,
+        preview: expect.anything(),
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("shows distinct preview cards for duplicate titles and retains selections through search", async () => {
     const onAttach = vi.fn().mockResolvedValue(undefined);
     const items = [
