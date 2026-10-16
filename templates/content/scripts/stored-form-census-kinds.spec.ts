@@ -45,6 +45,16 @@ describe("difference kinds", () => {
       explainHunk({ removed: ["| a |b|", "|---|---|"], added: ["<table>"] }),
     ).toEqual(["gfm-pipe-table-to-content-table"]);
     expect(
+      explainHunk({
+        removed: ["* item", "| a |b|", "|---|---|", "___"],
+        added: ["- item", "<table>", "<tr>", "</table>", "---"],
+      }),
+    ).toEqual([
+      "gfm-pipe-table-to-content-table",
+      "thematic-break",
+      "list-markers",
+    ]);
+    expect(
       explainHunk({ removed: ["completely"], added: ["different"] }),
     ).toEqual(["unclassified"]);
   });

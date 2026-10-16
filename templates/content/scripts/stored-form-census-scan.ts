@@ -220,17 +220,19 @@ function liveCopyOutcome(state: string, body: string): LiveCopyOutcome {
 
 function parseJsonObject(
   raw: unknown,
-): { ok: true; value: Record<string, unknown> } | { ok: false } {
-  if (typeof raw !== "string") return { ok: false };
+):
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; malformed: boolean } {
+  if (typeof raw !== "string") return { ok: false, malformed: false };
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    return { ok: false };
+    return { ok: false, malformed: true };
   }
   return value && typeof value === "object" && !Array.isArray(value)
     ? { ok: true, value: value as Record<string, unknown> }
-    : { ok: false };
+    : { ok: false, malformed: false };
 }
 
 /** Where a pending suggestion's anchor lands, or why it cannot be judged. */
@@ -243,6 +245,10 @@ function suggestionOutcome(
   const before = parseJsonObject(row.before_json);
   const after = parseJsonObject(row.after_json);
   const anchor = parseJsonObject(row.anchor_json);
+  // Core's suggestion store throws on JSON it cannot parse, so the page's
+  // suggestions fail to load: not judged, unlike an operation Content refuses.
+  if ([before, after, anchor].some((json) => !json.ok && json.malformed))
+    return "unreadable";
   if (
     !ACCEPTED_OPERATION_KINDS.has(String(row.operation_kind)) ||
     row.target_id !== "body" ||
@@ -572,7 +578,7 @@ export async function runStoredFormCensusScan(
       liveCopies.byOutcome.pagesIn("tooLarge"),
     ],
     [
-      "pages with suggestions whose anchors could not be resolved",
+      "pages with suggestions that could not be read or resolved",
       agentForm.suggestions.pagesIn("unreadable"),
     ],
     [

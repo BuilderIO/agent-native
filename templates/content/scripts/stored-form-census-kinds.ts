@@ -192,18 +192,39 @@ function* subsetsOfSize(size: number, from = 0): Generator<Normalizer[]> {
   }
 }
 
+/** The hunk with a pipe table's rows and the Content table they became removed. */
+function withoutTableConversion(hunk: Hunk): Hunk | null {
+  if (
+    !hunk.removed.some((line) => PIPE_ROW.test(line)) ||
+    !hunk.added.some((line) => /<table\b/.test(line))
+  )
+    return null;
+  let inTable = false;
+  const added = hunk.added.filter((line) => {
+    if (/<table\b/.test(line)) inTable = true;
+    const outside = !inTable;
+    if (/<\/table>/.test(line)) inTable = false;
+    return outside;
+  });
+  return {
+    removed: hunk.removed.filter((line) => !PIPE_ROW.test(line)),
+    added,
+  };
+}
+
 /** The smallest set of difference kinds that turns `removed` into `added`. */
 export function explainHunk(hunk: Hunk): string[] {
+  // Edits next to a table share its hunk, so they are explained on their own.
+  const rest = withoutTableConversion(hunk);
+  if (rest) {
+    const others =
+      rest.removed.length + rest.added.length > 0 ? explainHunk(rest) : [];
+    return ["gfm-pipe-table-to-content-table", ...others];
+  }
   // Each line keeps its terminator so a hunk that only drops blank lines
   // still differs from an empty one.
   const removed = hunk.removed.map((line) => `${line}\n`).join("");
   const added = hunk.added.map((line) => `${line}\n`).join("");
-  if (
-    hunk.removed.some((line) => PIPE_ROW.test(line)) &&
-    hunk.added.some((line) => /<table\b/.test(line))
-  ) {
-    return ["gfm-pipe-table-to-content-table"];
-  }
   const explains = (normalizers: readonly Normalizer[]) =>
     applyOnce(normalizers, removed) === applyOnce(normalizers, added);
 

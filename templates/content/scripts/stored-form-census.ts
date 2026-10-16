@@ -45,7 +45,6 @@ export type CensusTarget = {
   kind: "pglite" | "local" | "remote";
   host: string;
   database: string;
-  redactedUrl: string;
   neon: { project: string; branch: string; endpoint: string } | null;
 };
 
@@ -141,7 +140,6 @@ export function resolveCensusTarget(
       kind: "pglite",
       host: "pglite (local file)",
       database: url.slice("pglite:".length) || "./data/pglite",
-      redactedUrl: url,
       neon: null,
     };
   }
@@ -178,8 +176,6 @@ export function resolveCensusTarget(
       );
     }
   }
-  const redacted = new URL(url);
-  if (redacted.password) redacted.password = "***";
   const isNeonHost = host.endsWith(".neon.tech");
   if (isNeonHost && (!options.neonProject || !options.neonBranch)) {
     throw new CensusRefusal(
@@ -192,7 +188,6 @@ export function resolveCensusTarget(
     kind: LOOPBACK_HOSTS.has(host) ? "local" : "remote",
     host,
     database,
-    redactedUrl: redacted.toString(),
     neon: isNeonHost
       ? {
           project: options.neonProject!,
@@ -225,13 +220,16 @@ export function productionRefusal(
     : null;
 }
 
+/**
+ * Only fields the census has checked, never the URL itself: its user name and
+ * parameter values are not checked and could hold a misplaced secret.
+ */
 export function describeCensusTarget(target: CensusTarget): string[] {
   return [
     "Content stored-form census (read-only)",
     `Target host: ${target.host}`,
     `Database: ${target.database}`,
     `From env var: ${target.sourceEnv}`,
-    `URL: ${target.redactedUrl}`,
     ...(target.neon
       ? [
           `Neon project: ${target.neon.project}`,

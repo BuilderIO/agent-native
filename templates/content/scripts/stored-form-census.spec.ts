@@ -107,12 +107,13 @@ describe("stored-form census guards (SF-09)", () => {
       `log Target host: ${POOLED_BRANCH_HOST}`,
       "log Database: neondb",
       "log From env var: CENSUS_URL",
-      `log URL: ${targetUrl("census_reader", POOLED_BRANCH_HOST, "neondb?sslmode=require", "***")}`,
       "log Neon project: project-fixture",
       "log Neon branch: census/fixture",
       "log Neon endpoint: ep-census-branch-654321",
     ]);
     expect(events.join("\n")).not.toContain(PASSWORD);
+    // The URL's user name and parameter values are unchecked, so never shown.
+    expect(events.join("\n")).not.toMatch(/census_reader|sslmode/);
   });
 
   it("refuses production before connecting, however the host is written", async () => {
@@ -780,6 +781,9 @@ describe("stored-form census against a local database", () => {
       sql: "UPDATE _collab_docs SET yjs_state = ? WHERE doc_id = ?",
       args: ["!!not a live copy!!", "page-editor"],
     });
+    await db.execute(
+      "UPDATE agent_review_suggestion_operations SET anchor_json = '{not json' WHERE suggestion_id = 'suggestion-1'",
+    );
     const { run, stdout } = cli(
       ["--database-url-env=CENSUS_URL"],
       { CENSUS_URL: "pglite:memory" },
@@ -792,9 +796,14 @@ describe("stored-form census against a local database", () => {
     expect(report.liveCopies.byOutcome.unreadable.pageIds).toEqual([
       "page-editor",
     ]);
+    expect(report.agentFormPages.pendingSuggestions.unreadable).toMatchObject({
+      items: 1,
+      pageIds: ["page-agent"],
+    });
     expect(report.incompleteReasons).toEqual([
       "bodies over 262144 bytes, not classified: 1",
       "unreadable live copies: 1",
+      "pages with suggestions that could not be read or resolved: 1",
     ]);
   });
 
