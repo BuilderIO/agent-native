@@ -34,34 +34,28 @@ async function assertParentIsNotDescendant({
   id: string;
   parentId: string | null | undefined;
 }) {
-  if (!parentId) return;
-  const queue = [id];
+  // Walks up from the new parent, one query per level rather than one per
+  // page under the moved page: this runs while the move holds its locks.
   const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    if (visited.has(currentId)) continue;
+  let currentId = parentId ?? null;
+  while (currentId && !visited.has(currentId)) {
+    if (currentId === id) {
+      throw new ActionContractError(
+        "A document cannot be moved under one of its children",
+        { errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT", statusCode: 400 },
+      );
+    }
     visited.add(currentId);
-
-    const children = await db
-      .select({ id: schema.documents.id })
+    const [current] = await db
+      .select({ parentId: schema.documents.parentId })
       .from(schema.documents)
       .where(
         and(
+          eq(schema.documents.id, currentId),
           eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.parentId, currentId),
         ),
       );
-
-    for (const child of children) {
-      if (child.id === parentId) {
-        throw new ActionContractError(
-          "A document cannot be moved under one of its children",
-          { errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT", statusCode: 400 },
-        );
-      }
-      queue.push(child.id);
-    }
+    currentId = current?.parentId ?? null;
   }
 }
 
@@ -146,22 +140,18 @@ function rootSectionFilter(document: {
   );
 }
 
-async function resolveSiblingPositionsAfterMove({
+function selectSiblings({
   db,
   ownerEmail,
-  id,
   parentId,
   rootSection,
-  position,
 }: {
   db: ReturnType<typeof getDb>;
   ownerEmail: string;
-  id: string;
   parentId: string | null;
   rootSection: { visibility: Visibility; orgId?: string | null };
-  position: number;
 }) {
-  const siblings = await db
+  return db
     .select({
       id: schema.documents.id,
       position: schema.documents.position,
@@ -180,6 +170,29 @@ async function resolveSiblingPositionsAfterMove({
             sql`parent_id IS NULL`,
           ),
     );
+}
+
+async function resolveSiblingPositionsAfterMove({
+  db,
+  ownerEmail,
+  id,
+  parentId,
+  rootSection,
+  position,
+}: {
+  db: ReturnType<typeof getDb>;
+  ownerEmail: string;
+  id: string;
+  parentId: string | null;
+  rootSection: { visibility: Visibility; orgId?: string | null };
+  position: number;
+}) {
+  const siblings = await selectSiblings({
+    db,
+    ownerEmail,
+    parentId,
+    rootSection,
+  });
   const siblingsWithoutActive = siblings
     .filter((document) => document.id !== id)
     .sort(
@@ -323,6 +336,32 @@ export default defineAction({
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
         let blockDatabaseIdToDetach: string | null = null;
+        // The renumbering was read before these locks. A sibling that left or
+        // joined the parent since would get a position from the old order.
+        const assertSiblingsUnchanged = async () => {
+          if (!normalizedSiblingPositions) return;
+          const expected = new Set(
+            normalizedSiblingPositions.map((document) => document.id),
+          );
+          expected.delete(id);
+          const current = (
+            await selectSiblings({
+              db: tx,
+              ownerEmail,
+              parentId: targetParentId,
+              rootSection: existing,
+            })
+          ).filter((document) => document.id !== id);
+          if (
+            current.length !== expected.size ||
+            current.some((document) => !expected.has(document.id))
+          ) {
+            throw new ActionContractError(
+              "The document's move scope changed. Read it again and retry.",
+              { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+            );
+          }
+        };
         // The moved page, its new parent and every sibling it renumbers, in
         // id order. Locking the parent makes a concurrent Trash or delete of
         // it finish first, so the check below sees it.
@@ -339,6 +378,7 @@ export default defineAction({
             ownerEmail,
           });
           await lockDocumentRows(tx, pageIds);
+          await assertSiblingsUnchanged();
           const current = (
             await assertDocumentMutationAccess(id, "editor", "id")
           ).resource;
@@ -422,6 +462,7 @@ export default defineAction({
           }
         } else {
           await lockDocumentRows(tx, pageIds);
+          await assertSiblingsUnchanged();
         }
         await tx
           .update(schema.documents)
