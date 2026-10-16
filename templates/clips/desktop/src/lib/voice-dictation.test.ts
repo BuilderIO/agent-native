@@ -320,6 +320,184 @@ describe("desktop voice dictation runs", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
   });
 
+  it("cancels browser recognition during the transcript tail window", async () => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: FakeRecognition,
+    });
+    const started = await startDictation("browser");
+    dispose = started.dispose;
+    const recognition = FakeRecognition.instances[0];
+    const result = Object.assign([{ transcript: "recognized words" }], {
+      isFinal: true,
+    });
+    recognition.onresult?.({ results: [result] });
+    await release();
+    const abort = vi.spyOn(recognition, "abort");
+
+    await dispatch("voice:cancel");
+
+    expect(abort).toHaveBeenCalledOnce();
+    expect(recognition.onresult).toBeNull();
+    expect(recognition.onerror).toBeNull();
+    expect(recognition.onend).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    await settle();
+
+    expect(tauri.invoke).not.toHaveBeenCalledWith(
+      "complete_voice_dictation",
+      expect.anything(),
+    );
+  });
+
+  it("uses stop and reports when browser recognition abort fails", async () => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: FakeRecognition,
+    });
+    const started = await startDictation("browser");
+    dispose = started.dispose;
+    const recognition = FakeRecognition.instances[0];
+    const result = Object.assign([{ transcript: "recognized words" }], {
+      isFinal: true,
+    });
+    recognition.onresult?.({ results: [result] });
+    await release();
+    const abortError = new Error("abort unavailable");
+    const abort = vi.spyOn(recognition, "abort").mockImplementation(() => {
+      throw abortError;
+    });
+    const stop = vi.spyOn(recognition, "stop");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await dispatch("voice:cancel");
+
+    expect(abort).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(warning).toHaveBeenCalledWith(
+      "[voice-dictation] browser recognition abort failed; stop fallback succeeded:",
+      abortError,
+    );
+    expect(recognition.onresult).toBeNull();
+    expect(recognition.onerror).toBeNull();
+    expect(recognition.onend).toBeNull();
+
+    warning.mockRestore();
+    await vi.advanceTimersByTimeAsync(1_500);
+    await settle();
+
+    expect(tauri.invoke).not.toHaveBeenCalledWith(
+      "complete_voice_dictation",
+      expect.anything(),
+    );
+  });
+
+  it("keeps browser cancellation failure visible when abort and stop fail", async () => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: FakeRecognition,
+    });
+    const started = await startDictation("browser");
+    dispose = started.dispose;
+    const recognition = FakeRecognition.instances[0];
+    const result = Object.assign([{ transcript: "recognized words" }], {
+      isFinal: true,
+    });
+    recognition.onresult?.({ results: [result] });
+    await release();
+    const abortError = new Error("abort unavailable");
+    const stopError = new Error("stop unavailable");
+    const abort = vi.spyOn(recognition, "abort").mockImplementation(() => {
+      throw abortError;
+    });
+    const stop = vi.spyOn(recognition, "stop").mockImplementation(() => {
+      throw stopError;
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await dispatch("voice:cancel");
+
+    expect(abort).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith(
+      "[voice-dictation] browser recognition abort and stop failed:",
+      { abortError, stopError },
+    );
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      failure: "provider",
+      recoverable: true,
+      transcript: "recognized words",
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await settle();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("hide_flow_bar");
+    await vi.advanceTimersByTimeAsync(1_250);
+    await settle();
+    expect(tauri.invoke).not.toHaveBeenCalledWith(
+      "complete_voice_dictation",
+      expect.anything(),
+    );
+    error.mockRestore();
+  });
+
+  it("surfaces browser recognition cleanup failure during early stop", async () => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: FakeRecognition,
+    });
+    const started = await startDictation("browser");
+    dispose = started.dispose;
+    const recognition = FakeRecognition.instances[0];
+    const abortError = new Error("abort unavailable");
+    const stopError = new Error("stop unavailable");
+    const abort = vi.spyOn(recognition, "abort").mockImplementation(() => {
+      throw abortError;
+    });
+    const stop = vi.spyOn(recognition, "stop").mockImplementation(() => {
+      throw stopError;
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await dispatch("voice:shortcut-stop", { source: "fn" });
+
+    expect(abort).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith(
+      "[voice-dictation] browser recognition abort and stop failed:",
+      { abortError, stopError },
+    );
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      failure: "provider",
+    });
+    error.mockRestore();
+  });
+
+  it("finalizes browser recognition after capturing its transcript tail", async () => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: FakeRecognition,
+    });
+    const started = await startDictation("browser");
+    dispose = started.dispose;
+    const recognition = FakeRecognition.instances[0];
+    const result = Object.assign([{ transcript: "recognized words" }], {
+      isFinal: true,
+    });
+    recognition.onresult?.({ results: [result] });
+    await release();
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    await settle();
+
+    expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+      text: "recognized words",
+    });
+  });
+
   it("classifies a native no-speech event separately from provider failure", async () => {
     const started = await startDictation("macos-native");
     dispose = started.dispose;

@@ -1686,6 +1686,60 @@ export function installDesktopVoiceDictation(
     }
   };
 
+  type BrowserRecognitionAbortResult =
+    | { status: "aborted" }
+    | { status: "stopped"; abortError: unknown }
+    | { status: "failed"; abortError: unknown; stopError: unknown };
+
+  const detachAndAbortBrowserRecognition = (
+    target: VoiceSession,
+  ): BrowserRecognitionAbortResult => {
+    const recognition = target.recognition;
+    if (!recognition) return { status: "aborted" };
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    try {
+      recognition.abort();
+      target.recognition = null;
+      return { status: "aborted" };
+    } catch (abortError) {
+      try {
+        recognition.stop();
+        target.recognition = null;
+        return { status: "stopped", abortError };
+      } catch (stopError) {
+        target.recognition = null;
+        return { status: "failed", abortError, stopError };
+      }
+    }
+  };
+
+  const reportBrowserRecognitionAbort = (
+    result: BrowserRecognitionAbortResult,
+  ) => {
+    if (result.status === "stopped") {
+      console.warn(
+        "[voice-dictation] browser recognition abort failed; stop fallback succeeded:",
+        result.abortError,
+      );
+    } else if (result.status === "failed") {
+      console.error(
+        "[voice-dictation] browser recognition abort and stop failed:",
+        { abortError: result.abortError, stopError: result.stopError },
+      );
+    }
+  };
+
+  const failBrowserRecognitionCleanup = (target: VoiceSession) => {
+    const transcript = target.browserTranscript.trim();
+    failRun(target.runId, "provider", {
+      recoverable: !!transcript,
+      transcript: transcript || undefined,
+    });
+    cleanup(target);
+  };
+
   const cancel = (): boolean => {
     const current = session ?? lingeringSession;
     if (!current) {
@@ -1713,6 +1767,19 @@ export function installDesktopVoiceDictation(
     setHandsFreeActive(false);
     pendingHandsFreeTapAt = null;
     current.cancelled = true;
+    if (current.kind === "browser") {
+      current.browserFinalizationStarted = true;
+      const recognitionCleanup = detachAndAbortBrowserRecognition(current);
+      reportBrowserRecognitionAbort(recognitionCleanup);
+      if (recognitionCleanup.status === "failed") {
+        failBrowserRecognitionCleanup(current);
+        emit("voice:partial-transcript", {
+          text: "",
+          runId: current.runId,
+        }).catch(() => {});
+        return false;
+      }
+    }
     if (current.nativeFinalizeTimer !== undefined) {
       window.clearTimeout(current.nativeFinalizeTimer);
       current.nativeFinalizeTimer = undefined;
@@ -1744,12 +1811,6 @@ export function installDesktopVoiceDictation(
             err,
           );
         });
-      } else {
-        try {
-          current.recognition?.abort();
-        } catch {
-          // ignore
-        }
       }
     }
     cleanup(current);
@@ -1782,10 +1843,12 @@ export function installDesktopVoiceDictation(
       }
       current.cancelled = true;
       if (current.kind === "browser") {
-        try {
-          current.recognition?.abort();
-        } catch {
-          // ignore
+        current.browserFinalizationStarted = true;
+        const recognitionCleanup = detachAndAbortBrowserRecognition(current);
+        reportBrowserRecognitionAbort(recognitionCleanup);
+        if (recognitionCleanup.status === "failed") {
+          failBrowserRecognitionCleanup(current);
+          return;
         }
       } else if (current.kind === "native") {
         invoke("native_speech_cancel", {
@@ -1910,19 +1973,6 @@ export function installDesktopVoiceDictation(
         const QUIET_MS = 600;
         const userFellSilent = sinceLastResult > QUIET_MS;
 
-        const detachAndAbort = (s: VoiceSession) => {
-          if (!s.recognition) return;
-          s.recognition.onresult = null;
-          s.recognition.onerror = null;
-          s.recognition.onend = null;
-          try {
-            s.recognition.abort();
-          } catch {
-            // ignore
-          }
-          s.recognition = null;
-        };
-
         const lingering = current;
         if (session === current) session = null;
         lingeringSession = lingering;
@@ -1946,7 +1996,13 @@ export function installDesktopVoiceDictation(
             cleanup(lingering);
             return;
           }
-          detachAndAbort(lingering);
+          const recognitionCleanup =
+            detachAndAbortBrowserRecognition(lingering);
+          reportBrowserRecognitionAbort(recognitionCleanup);
+          if (recognitionCleanup.status === "failed") {
+            failBrowserRecognitionCleanup(lingering);
+            return;
+          }
           stopTracks(lingering);
           const finalText = lingering.browserTranscript.trim();
           lingering.browserTranscript = "";
