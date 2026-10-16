@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
+import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
 import { clientBuildId } from "./build-compatibility.js";
 import {
   getAccessDeniedActionQueryBinding,
@@ -296,9 +297,15 @@ async function waitForStorageClearWithinBound(
   }
 }
 
-function releaseWithoutCache(client: QueryClient, attempt: number): void {
+function releaseWithoutCache(
+  client: QueryClient,
+  attempt: number,
+  trustPrebindResults: boolean,
+): void {
   closeBinding();
-  client.removeQueries({ queryKey: ACTION_QUERY_KEY });
+  if (!trustPrebindResults) {
+    client.removeQueries({ queryKey: ACTION_QUERY_KEY });
+  }
   registerActionQueryCacheRevoker(client, () => {
     if (attempt !== bindAttemptGeneration || binding !== undefined) {
       return;
@@ -574,7 +581,7 @@ function trackRevokedScopeDelete(
 
 /** Stops persisting and drops this document's action results. Storage is
  * untouched. */
-function closeBinding(): void {
+function closeBinding(preserveActionQueries = false): void {
   bindingGeneration += 1;
   const closing = binding;
   binding = undefined;
@@ -589,7 +596,7 @@ function closeBinding(): void {
     .findAll({ queryKey: ACTION_QUERY_KEY })) {
     if (isAccessDeniedActionQuery(query)) {
       clearAccessDeniedActionQueryData(query);
-    } else {
+    } else if (!preserveActionQueries) {
       closing.client.removeQueries({ queryKey: query.queryKey, exact: true });
     }
   }
@@ -661,11 +668,12 @@ export async function bindActionQueryCache(
   options: { trustPrebindResults?: boolean } = {},
 ): Promise<void> {
   const attempt = ++bindAttemptGeneration;
+  const trustPrebindResults = options.trustPrebindResults === true;
   const bindDeadline = Date.now() + BIND_WAIT_BUDGET_MS;
   const remainingBindBudget = () => Math.max(0, bindDeadline - Date.now());
   let cacheSafety = readCacheSafetyState(true);
   if (!cacheSafety) {
-    releaseWithoutCache(client, attempt);
+    releaseWithoutCache(client, attempt, trustPrebindResults);
     return;
   }
   if (!storageClearInFlight) {
@@ -679,7 +687,7 @@ export async function bindActionQueryCache(
       );
     } catch (error) {
       if (attempt === bindAttemptGeneration) {
-        releaseWithoutCache(client, attempt);
+        releaseWithoutCache(client, attempt, trustPrebindResults);
       }
       throw error;
     }
@@ -687,16 +695,15 @@ export async function bindActionQueryCache(
       return;
     }
     if (!clearFinished || remainingBindBudget() <= 0) {
-      releaseWithoutCache(client, attempt);
+      releaseWithoutCache(client, attempt, trustPrebindResults);
       return;
     }
   }
   cacheSafety = readCacheSafetyState(true);
   if (!cacheSafety || cacheSafety.pendingClearIntents.length > 0) {
-    releaseWithoutCache(client, attempt);
+    releaseWithoutCache(client, attempt, trustPrebindResults);
     return;
   }
-  const trustPrebindResults = options.trustPrebindResults === true;
   const previousBinding = binding;
   const alreadyBoundClient = previousBinding?.client === client;
   const deniedBeforeBind = client
@@ -953,7 +960,7 @@ export async function bindActionQueryCache(
       });
     }
   } catch (error) {
-    if (binding === currentBinding) closeBinding();
+    if (binding === currentBinding) closeBinding(trustPrebindResults);
     throw error;
   }
 }
@@ -1031,9 +1038,17 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     !bindAttempt.trustPrebindResults;
   const holdUntrustedChildren =
     scope !== null && !bindAttempt.trustPrebindResults && restoring;
+  const trustedBindingPending =
+    scope !== null &&
+    settledAttempt !== bindAttempt &&
+    bindAttempt.trustPrebindResults;
   return (
-    <IsRestoringProvider value={restoring}>
-      {holdUntrustedChildren ? null : children}
-    </IsRestoringProvider>
+    <trustedActionQueryCacheBindingPendingContext.Provider
+      value={trustedBindingPending}
+    >
+      <IsRestoringProvider value={restoring}>
+        {holdUntrustedChildren ? null : children}
+      </IsRestoringProvider>
+    </trustedActionQueryCacheBindingPendingContext.Provider>
   );
 }
