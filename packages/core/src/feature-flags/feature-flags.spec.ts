@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const globalSettings = new Map<string, Record<string, unknown> | null>();
 const orgSettings = new Map<string, Record<string, unknown> | null>();
-const entry = (settings: typeof globalSettings, key: string) =>
-  settings.has(key)
+const corruptSettings = new Set<string>();
+const entry = (settings: typeof globalSettings, key: string) => {
+  if (corruptSettings.has(key)) throw new SyntaxError("Unexpected token");
+  return settings.has(key)
     ? { found: true as const, value: settings.get(key) }
     : { found: false as const };
+};
 const executeMock = vi.fn(async () => ({ rows: [] }));
 const getSettingMock = vi.fn(
   async (key: string) => globalSettings.get(key) ?? null,
@@ -75,6 +78,7 @@ beforeEach(() => {
   registry._resetFeatureFlagRegistryForTests();
   globalSettings.clear();
   orgSettings.clear();
+  corruptSettings.clear();
   vi.clearAllMocks();
   executeMock.mockResolvedValue({ rows: [] });
 });
@@ -303,6 +307,7 @@ describe("feature flag evaluator", () => {
     ).resolves.toEqual(store.defaultFeatureFlagRules());
 
     globalSettings.set("feature-flag:write-path", {
+      version: 1,
       mode: "rules",
       emails: ["Owner@Example.com"],
     });
@@ -311,6 +316,7 @@ describe("feature flag evaluator", () => {
     ).resolves.toMatchObject({ mode: "rules", emails: ["owner@example.com"] });
 
     globalSettings.set("feature-flag:write-path", {
+      version: 1,
       mode: "rules",
       percentage: 25,
     });
@@ -320,12 +326,14 @@ describe("feature flag evaluator", () => {
 
     for (const malformed of [
       null,
-      { mode: "onn" },
-      { emails: ["owner@example.com"] },
-      { mode: "rules", emails: "owner@example.com" },
-      { mode: "rules", orgIds: ["org-1", 7] },
-      { mode: "rules", percentage: 150 },
-      { mode: "rules", percentage: 0.5 },
+      { mode: "on" },
+      { version: 2, mode: "on" },
+      { version: 1, mode: "onn" },
+      { version: 1, emails: ["owner@example.com"] },
+      { version: 1, mode: "rules", emails: "owner@example.com" },
+      { version: 1, mode: "rules", orgIds: ["org-1", 7] },
+      { version: 1, mode: "rules", percentage: 150 },
+      { version: 1, mode: "rules", percentage: 0.5 },
     ]) {
       globalSettings.set("feature-flag:write-path", malformed);
       await expect(
@@ -336,13 +344,21 @@ describe("feature flag evaluator", () => {
       ).rejects.toMatchObject({ code: "malformed", key: "write-path" });
     }
 
-    globalSettings.set("feature-flag:write-path", { mode: "on" });
-    for (const malformed of [null, { mode: "onn" }]) {
+    globalSettings.set("feature-flag:write-path", { version: 1, mode: "on" });
+    for (const malformed of [null, { version: 1, mode: "onn" }]) {
       orgSettings.set("org-1:feature-flag:write-path", malformed);
       await expect(
         store.getFeatureFlagRulesStrict("write-path", { orgId: "org-1" }),
       ).rejects.toMatchObject({ code: "malformed" });
     }
+
+    corruptSettings.add("org-1:feature-flag:write-path");
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", { orgId: "org-1" }),
+    ).rejects.toMatchObject({
+      name: "FeatureFlagRulesError",
+      code: "malformed",
+    });
 
     await expect(
       store.getFeatureFlagRulesStrict("never-registered", {}),
