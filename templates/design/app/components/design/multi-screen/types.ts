@@ -362,7 +362,6 @@ export interface MultiScreenCanvasProps {
     targetAbsoluteOrigin?: CrossScreenHitTestOrigin;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
-    targetOutsideBoardContentBounds?: boolean;
     sourcePointerOffset?: Point;
     sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;

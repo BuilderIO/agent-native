@@ -125,7 +125,6 @@ export function absolutePlacePointForDrop(args: {
 export function authoredTargetPointForDrop(args: {
   boardFileId?: string;
   targetScreenId: string;
-  targetOutsideBoardContentBounds?: boolean;
   targetAnchorNodeId?: string;
   targetAnchorPendingNodeId?: string;
   targetAnchorSelector?: string;
@@ -137,11 +136,12 @@ export function authoredTargetPointForDrop(args: {
     args.targetAnchorPendingNodeId ||
     args.targetAnchorSelector,
   );
+  // An unanchored board drop lands on the board root, which is authored in
+  // canvas coordinates; the local point is offset by the render window origin.
   if (
     !hasAnchor &&
     args.boardFileId &&
     args.targetScreenId === args.boardFileId &&
-    args.targetOutsideBoardContentBounds === true &&
     args.targetCanvasPoint
   ) {
     return args.targetCanvasPoint;
@@ -378,7 +378,6 @@ export function runCrossScreenElementDrop(
     targetGridPlacement,
     targetAbsoluteOrigin,
     targetCanvasPoint,
-    targetOutsideBoardContentBounds,
     targetLocalPoint,
     sourcePointerOffset,
     sourceComputedSize,
@@ -408,7 +407,6 @@ export function runCrossScreenElementDrop(
     };
     targetAbsoluteOrigin?: { left: number; top: number };
     targetCanvasPoint?: { x: number; y: number };
-    targetOutsideBoardContentBounds?: boolean;
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
     sourceComputedSize?: { width?: number; height?: number };
@@ -434,7 +432,6 @@ export function runCrossScreenElementDrop(
     targetAnchorPendingNodeId,
     targetAnchorSelector,
     targetCanvasPoint,
-    targetOutsideBoardContentBounds,
     targetLocalPoint,
   });
   if (styleSnapshotCaptureFailed) {

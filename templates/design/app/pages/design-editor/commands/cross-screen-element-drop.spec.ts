@@ -1124,7 +1124,6 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardContentBounds: true,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1142,9 +1141,13 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
     );
   });
 
-  it("keeps render-window-local coordinates for an in-window board drop", () => {
-    const targetCanvasPoint = { x: 8_276, y: 5_000 };
-    const targetLocalPoint = { x: 84, y: 904 };
+  it("persists an unanchored drop inside board content in canvas coordinates, not render-window-local ones", () => {
+    const renderOrigin = { x: -4_096, y: -4_096 };
+    const targetCanvasPoint = { x: 912, y: 764 };
+    const targetLocalPoint = {
+      x: targetCanvasPoint.x - renderOrigin.x,
+      y: targetCanvasPoint.y - renderOrigin.y,
+    };
     const sourcePointerOffset = { x: 32, y: 12 };
     const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
     const { writes } = runStoredCrossScreenDrop({
@@ -1159,7 +1162,6 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardContentBounds: false,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1170,10 +1172,10 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
       .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
     expect(persistedWidget).not.toBeNull();
     expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
-      targetLocalPoint.x - sourcePointerOffset.x,
+      targetCanvasPoint.x - sourcePointerOffset.x,
     );
     expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
-      targetLocalPoint.y - sourcePointerOffset.y,
+      targetCanvasPoint.y - sourcePointerOffset.y,
     );
   });
 
