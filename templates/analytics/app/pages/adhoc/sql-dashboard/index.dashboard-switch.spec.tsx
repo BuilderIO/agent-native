@@ -426,6 +426,52 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
   });
 
+  it("does not re-add a panel deleted while its editor is open", async () => {
+    const original = dashboardRecord("Dashboard A", [
+      tablePanel("Accounts A", 200, "table-a"),
+    ]);
+    let collabContent = JSON.stringify(original);
+    let signalCollabChange: (() => void) | undefined;
+    const ytext = {
+      toJSON: () => collabContent,
+      observe: (handler: () => void) => {
+        signalCollabChange = handler;
+      },
+      unobserve: (handler: () => void) => {
+        if (signalCollabChange === handler) signalCollabChange = undefined;
+      },
+    };
+    const savedPanels: SqlPanel[][] = [];
+    mocks.dashboards["dash-a"] = original;
+    mocks.collab = {
+      ydoc: { clientID: 1, getText: () => ytext },
+      awareness: null,
+      isSynced: true,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      return {};
+    };
+
+    await renderAt("/dashboards/dash-a");
+    await click("edit-table-a");
+    expect(byTestId("panel-editor")).not.toBeNull();
+    expect(signalCollabChange).toBeDefined();
+
+    collabContent = JSON.stringify(dashboardRecord("Dashboard A", []));
+    await act(async () => signalCollabChange?.());
+    await settle();
+    expect(byTestId("edit-table-a")).toBeNull();
+    expect(byTestId("panel-editor")).not.toBeNull();
+
+    await click("panel-editor-save");
+    expect(savedPanels).toEqual([]);
+  });
+
   it("keeps separate panel resizes in later queued dashboard saves", async () => {
     const savedPanels: SqlPanel[][] = [];
     let releaseFirstSave: (() => void) | undefined;

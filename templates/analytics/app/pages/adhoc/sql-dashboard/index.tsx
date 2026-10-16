@@ -2025,6 +2025,9 @@ function SqlDashboardPageContent({
     async (panel: SqlPanel, editorBaseline?: SqlPanel | null) => {
       await persistThrow((current) => {
         const idx = current.panels.findIndex((p) => p.id === panel.id);
+        if (editorBaseline && idx < 0) {
+          throw new DashboardSaveQueueConflictError();
+        }
         const nextPanel =
           editorBaseline !== undefined && idx >= 0
             ? mergeUnchangedPanelFields(
