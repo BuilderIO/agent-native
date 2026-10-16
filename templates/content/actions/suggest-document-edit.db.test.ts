@@ -1465,6 +1465,57 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
     );
   });
 
+  it("never ends a match on a backslash that escapes the next character", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        await expect(
+          suggestOwnSpelling(page, "costs \\", "pays "),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  // Code shows a backslash as written, so it escapes nothing there.
+  for (const { name, content, find, replace } of [
+    {
+      name: "inline code",
+      content: "Example `\\$60` here.",
+      find: "$60",
+      replace: "$75",
+    },
+    {
+      name: "a code block",
+      content: "Example:\n\n```\nprice \\$60\n```",
+      find: "$60",
+      replace: "$75",
+    },
+    {
+      name: "inline code it ends",
+      content: "Path `C:\\` here.",
+      find: "C:\\",
+      replace: "D:\\",
+    },
+  ])
+    it(`edits text beside a backslash in ${name}`, async () => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const page = await switchedPage(content);
+          expect(page.content).toContain(find);
+          const { suggestionId } = await suggestOwnSpelling(
+            page,
+            find,
+            replace,
+          );
+          expect(await acceptedBody(page, suggestionId)).toBe(
+            canonicalizeNfm(page.content.replace(find, replace)),
+          );
+        },
+      );
+    });
+
   it("keeps the exact match on a Page that isn't switched", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

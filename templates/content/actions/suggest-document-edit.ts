@@ -15,6 +15,7 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { commentAnchorText } from "../shared/comment-reanchor.js";
 import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
@@ -142,11 +143,17 @@ function inStoredForm(text: string): string | undefined {
 
 const ESCAPABLE = /[!-/:-@[-`{-~]/;
 
-/** Whether the backslashes before `index` escape the character there. */
+/**
+ * Whether the backslashes before `index` escape the character there. Code
+ * shows a backslash as written, so only the parse can tell: with the escaped
+ * character replaced by a letter, an escaping backslash shows too.
+ */
 function escapedAt(text: string, index: number) {
   let slashes = 0;
   while (text[index - slashes - 1] === "\\") slashes += 1;
-  return slashes % 2 === 1 && ESCAPABLE.test(text[index] ?? "");
+  if (slashes % 2 === 0 || !ESCAPABLE.test(text[index] ?? "")) return false;
+  const probe = `${text.slice(0, index)}a${text.slice(index + 1)}`;
+  return commentAnchorText(probe).length === commentAnchorText(text).length + 1;
 }
 
 /**
