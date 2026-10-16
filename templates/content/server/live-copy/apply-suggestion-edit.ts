@@ -2,7 +2,10 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { updateYFragment } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
-import { LIVE_BODY_FIELD, materializeLiveBody } from "../../shared/live-body.js";
+import {
+  LIVE_BODY_FIELD,
+  materializeLiveBody,
+} from "../../shared/live-body.js";
 import {
   canonicalizeNfm,
   docToNfm,
@@ -17,16 +20,24 @@ import {
   type MarkdownSuggestionOperationLike,
 } from "../../shared/suggestion-apply.js";
 
-// The live-copy edit that accepts one suggestion. It runs in the bounded
-// worker that hosts Content's live-copy tasks, so it must stay free of
-// database and server imports.
+// The live-copy edit that accepts suggestions. It runs in the bounded worker
+// that hosts Content's live-copy tasks, so it must stay free of database and
+// server imports.
 
 export const APPLY_SUGGESTION_EDIT = "apply-suggestion";
 
-export type ApplySuggestionInput = {
+export type ApplySuggestionStep = {
   operation: MarkdownSuggestionOperationLike;
   /** Ranges of accepted suggestions saved from the same before-text. */
   acceptedSiblingRanges: MarkdownRange[];
+};
+
+export type ApplySuggestionInput = {
+  /**
+   * One step per accepted suggestion, in decision order. A proposal's members
+   * commit together, each placed on the text the steps before it left.
+   */
+  steps: ApplySuggestionStep[];
 };
 
 export const APPLY_SUGGESTION_REFUSALS = [
@@ -101,9 +112,9 @@ function refused(
 }
 
 /**
- * Accepts one suggestion on a live copy. The suggestion is placed on the page
- * text the live copy derives, never on a stored copy that may lag it, and only
- * the top-level blocks whose text it changes are rewritten. Every other block
+ * Accepts suggestions on a live copy. They are placed on the page text the
+ * live copy derives, never on a stored copy that may lag it, and only the
+ * top-level blocks whose text they change are rewritten. Every other block
  * keeps its Yjs element untouched, so concurrent edits elsewhere merge and
  * nothing outside the change moves. A refusal leaves `doc` as it was.
  */
@@ -126,15 +137,21 @@ export function applySuggestionEdit(
     if (current.includes("<InlineDatabase"))
       return refused("suggestion_body_unavailable", "inline database");
 
-    const next = applyMarkdownSuggestionWithSiblings(
-      current,
-      input.operation,
-      input.acceptedSiblingRanges,
-    );
-    if (next === null) return refused("suggestion_stale");
+    if (!input.steps.length)
+      return refused("suggestion_unmappable", "no steps");
+    let next = current;
+    for (const [index, step] of input.steps.entries()) {
+      const placed = applyMarkdownSuggestionWithSiblings(
+        next,
+        step.operation,
+        step.acceptedSiblingRanges,
+      );
+      if (placed === null) return refused("suggestion_stale", `step ${index}`);
+      if (!supportedSuggestionStructure(next, placed))
+        return refused("suggestion_structure_unsupported", `step ${index}`);
+      next = placed;
+    }
     if (next === current) return;
-    if (!supportedSuggestionStructure(current, next))
-      return refused("suggestion_structure_unsupported");
 
     const liveJson = live.root.toJSON() as PMNode;
     const blocks = liveJson.content ?? [];

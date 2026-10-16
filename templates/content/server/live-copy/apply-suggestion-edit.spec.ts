@@ -4,7 +4,10 @@ import * as Y from "yjs";
 
 import { materializeLiveBody } from "../../shared/live-body.js";
 import { nfmToDoc } from "../../shared/nfm.js";
-import { suggestionEditorSchema } from "../../shared/suggestion-apply.js";
+import {
+  operationAnchor,
+  suggestionEditorSchema,
+} from "../../shared/suggestion-apply.js";
 import { markdownSuggestionOperationsForFindReplace } from "../../shared/suggestion-diff.js";
 import {
   applySuggestionEdit,
@@ -52,8 +55,7 @@ function accept(
   operation: ReturnType<typeof suggestion>,
 ): void | ApplySuggestionRefusal {
   return applySuggestionEdit(doc, "default", {
-    operation,
-    acceptedSiblingRanges: [],
+    steps: [{ operation, acceptedSiblingRanges: [] }],
   });
 }
 
@@ -149,6 +151,7 @@ describe("applySuggestionEdit", () => {
     expect(accept(doc, operation)).toEqual({
       kind: "refused",
       reason: "suggestion_stale",
+      detail: "step 0",
     });
     expect(Y.encodeStateAsUpdate(doc)).toEqual(state);
   });
@@ -164,6 +167,7 @@ describe("applySuggestionEdit", () => {
     expect(accept(doc, operation)).toEqual({
       kind: "refused",
       reason: "suggestion_stale",
+      detail: "step 0",
     });
     expect(Y.encodeStateAsUpdate(doc)).toEqual(state);
   });
@@ -201,10 +205,68 @@ describe("applySuggestionEdit", () => {
     const operation = suggestion(bodyOf(doc), "Intro", "Opening");
     expect(
       applySuggestionEdit(doc, "other", {
-        operation,
-        acceptedSiblingRanges: [],
+        steps: [{ operation, acceptedSiblingRanges: [] }],
       }),
     ).toMatchObject({ kind: "refused", reason: "suggestion_unmappable" });
+  });
+
+  it("accepts a proposal's members together, each on the text the ones before it left", () => {
+    const doc = seededDoc(page);
+    const body = bodyOf(doc);
+    const find = "first paragraph sets the scene";
+    const replace = "opening paragraph sets the whole scene";
+    const operations = markdownSuggestionOperationsForFindReplace({
+      before: body,
+      find,
+      replace,
+      start: body.indexOf(find),
+    });
+    expect(operations.length).toBeGreaterThan(1);
+    const before = doc.getXmlFragment("default").toArray();
+    expect(
+      applySuggestionEdit(doc, "default", {
+        steps: operations.map((operation, index) => ({
+          operation,
+          // Accept passes the members it accepted before this one.
+          acceptedSiblingRanges: operations.slice(0, index).map((sibling) => {
+            const { from, to } = operationAnchor(sibling);
+            return { from, to };
+          }),
+        })),
+      }),
+    ).toBeUndefined();
+    expect(bodyOf(doc)).toBe(body.replace(find, replace));
+    const after = doc.getXmlFragment("default").toArray();
+    after.forEach((element, index) => expect(element).toBe(before[index]));
+  });
+
+  it("refuses a proposal whose later member no longer places, leaving the page alone", () => {
+    const doc = seededDoc(page);
+    const body = bodyOf(doc);
+    const state = Y.encodeStateAsUpdate(doc);
+    expect(
+      applySuggestionEdit(doc, "default", {
+        steps: [
+          {
+            operation: suggestion(body, "sets the scene", "opens"),
+            acceptedSiblingRanges: [],
+          },
+          {
+            operation: suggestion(
+              body.replace("closing", "final"),
+              "final",
+              "last",
+            ),
+            acceptedSiblingRanges: [],
+          },
+        ],
+      }),
+    ).toEqual({
+      kind: "refused",
+      reason: "suggestion_stale",
+      detail: "step 1",
+    });
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(state);
   });
 
   describe("on pages an agent wrote", () => {
