@@ -54,7 +54,77 @@ cursor, then checks that the requested date range and grouping survive the
 query and final-response guard. First-page cursor creation and signature
 validation remain covered by the focused dbt action tests.
 
+## Reproduce a paired comparison
+
+The eval harness is newer than the baseline commit. Copy that same harness
+into a clean baseline worktree so both phases use identical test bytes while
+the production code remains at the requested revision. Use a fresh worktree
+path for each reproduction:
+
+```sh
+BASELINE_SHA=3215556c9c955b5e37ff359708f4ef527d019c4e
+CANDIDATE_SHA=f899416ee99fcd0d82253729de97a12d79ba003b
+BASELINE_DIR=".tmp/analytics-eval-baseline-$(date +%s)"
+EVAL_DIR="$(pwd)/.tmp/analytics-eval-$(date +%s)"
+mkdir -p "$EVAL_DIR"
+git worktree add --detach "$BASELINE_DIR" "$BASELINE_SHA"
+mkdir -p "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path"
+cp templates/analytics/evals/synthetic-query-path/production-path.spec.ts \
+  "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path/production-path.spec.ts"
+(
+  cd "$BASELINE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=baseline \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$BASELINE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/baseline.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+)
+ANALYTICS_QUERY_EVAL_PHASE=candidate \
+  ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$CANDIDATE_SHA" \
+  ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+  ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/candidate.csv" \
+  pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts \
+  "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
+```
+
+The combiner checks each phase, the shared harness hash, and exact case/replicate
+pairing; it refuses to overwrite an existing output. The generated CSV has no
+prompts, SQL, provider rows, identity values, cursors, or credentials.
+
 ## Current latest-wave comparison
+
+[`SYNTHETIC-analytics-query-quality-v5-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v5-main-vs-pr7639.csv)
+contains twelve synthetic questions run twice through the production path on
+baseline `3215556c9c955b5e37ff359708f4ef527d019c4e` and candidate
+`f899416ee99fcd0d82253729de97a12d79ba003b`. The baseline passed 10/24 runs;
+the candidate passed 24/24. Seven cases failed both baseline repetitions:
+Content API requests versus Visual Views, disconnected dbt abstention,
+paginated MetricFlow grouping, rolling-window MetricFlow grouping, monthly AI
+credits routing, organization-grain validation, and first-party DIV recovery.
+Every baseline row records that the production path, final guard, owner/org
+context, and usage capture ran; failures are `contract_failed`, not missing
+production-path evidence.
+
+The comparison uses the same harness bytes in both phases, SHA-256
+`0184e1c5482dff4ac016e120c753e704fb62c7a94ff8c224060206922cb235d3`, with every
+case/replicate pair present. The baseline DIV fixture now uses the baseline's
+actual plain-error policy message. The organization-grain case checks
+`metric_time` with `WEEK` in both the captured action input and returned query
+specification. Both phases have production-path, guard, owner/org-context, and
+usage receipts.
+
+At current `origin/main` `695f465ed885fe727c9c473f5055a91f32790c88`, no files
+under `templates/analytics` changed between the baseline and main. This is a
+deterministic scripted-engine contract comparison with mocked provider
+responses; it does not measure independent model choices, live warehouse
+accuracy, user outcomes, or provider latency. The paired CSV contains only
+synthetic case keys, reason codes, booleans, call counts, and synthetic usage
+counters. It contains no prompts, SQL, provider rows, identity values, cursors,
+or credentials.
+
+### Superseded v4 snapshot
 
 [`SYNTHETIC-analytics-query-quality-v4-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v4-main-vs-pr7639.csv)
 contains twelve synthetic questions run twice through the production path on
@@ -76,12 +146,11 @@ and returned query specification. Both phases use the same harness SHA-256,
 `71a2f83b90ab627a755f57eeb3d50e6af63310fb32aadf84a404e2157669f997`, and every
 case/replicate pair matches.
 
-The baseline is the Analytics code from `3215556`; current `origin/main` is
-`ec46c1d`. The commits since the baseline change Clips, Slides, and core store
-registry/release files, with no Analytics source or shared production-path
-changes. This is a deterministic scripted-engine contract comparison with
-mocked provider responses. It does not measure independent model source
-selection, live warehouse accuracy, real user outcomes, or provider latency.
+At the v4 checkpoint, `origin/main` was `9ba9383`; no Analytics files had
+changed between that revision and the baseline. This is a deterministic
+scripted-engine contract comparison with mocked provider responses. It does not
+measure independent model source selection, live warehouse accuracy, real user
+outcomes, or provider latency.
 
 ### Previous v3 harness snapshot
 
@@ -111,12 +180,10 @@ This is a deterministic scripted-engine contract comparison with mocked
 provider responses. It does not measure independent model source selection,
 live warehouse accuracy, real user outcomes, or provider latency.
 
-This snapshot is retained for audit history. Its earlier harness did not supply
-a typed unsupported-SQL error on baseline for the DIV recovery case, so its two
-baseline DIV rows were recorded as `production_path_failed`. Use the v4 CSV above
-for the current comparison; v4 supplies the baseline's existing typed
-unsupported-SQL error and includes the full privacy-safe owner/org-context
-receipt.
+This v4 snapshot is retained for audit history, not as the current score. Its
+baseline DIV fixture used a typed BigQuery-translation error instead of the
+baseline policy's plain rejection, so that case did not compare equivalent
+inputs. The corrected v5 comparison below uses the baseline's actual error.
 
 ### Previous v2 comparison
 
@@ -151,10 +218,8 @@ five cases passed in both phases.
 
 ## dbt live validation
 
-Live dbt validation is blocked because the current Analytics workspace has no
-dbt Semantic Layer connection. This suite tests both a synthetic disconnected
-response and a synthetic successful metric response, including metadata
-continuation and bounded grouping. It does not claim to validate a live dbt
-manifest, metric definition, or value. A live read-only check can be added once
-an authorized workspace connection is available and a semantic metric has
-been deployed successfully.
+This comparison does not run a live Semantic Layer query. It tests synthetic
+disconnected and successful metric responses, including metadata continuation
+and bounded grouping. It does not establish current connection health, manifest
+contents, metric definitions, or live values. A separate read-only run against
+a deployed semantic manifest is needed to make those claims.
