@@ -1195,6 +1195,146 @@ describe("mutateLiveCopy", () => {
     expect(() => define({ maxWaitingWrites: -1 })).toThrow(RangeError);
   });
 
+  it("counts and orders writes before their binding lookup resolves", async () => {
+    let slowLookup = false;
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const binding = define({
+      maxWaitingWrites: 1,
+      appliesTo: async (docId) => {
+        if (slowLookup) {
+          slowLookup = false;
+          await gate;
+        }
+        return docId.startsWith("live:");
+      },
+    });
+    const seeded = await manager.seedLiveCopy(binding, "live:doc", {
+      source: "base",
+    });
+    const updates = ["first", "second", "third"].map((text) =>
+      clientEdit(seeded.state, appendParagraph(text)),
+    );
+    emitted = [];
+    slowLookup = true;
+    const [first, second, third] = updates.map((update) =>
+      manager.applyUpdate("live:doc", update),
+    );
+    expect(await rejection(third)).toMatchObject({
+      code: "build_failed",
+      reason: "queue_full",
+    });
+    open();
+    await Promise.all([first, second]);
+    expect(
+      emitted.map((event) =>
+        ["first", "second", "third"].at(
+          updates.findIndex((update) => base64(update) === event.update),
+        ),
+      ),
+    ).toEqual(["first", "second"]);
+  });
+
+  it("checks an edit's or seed's scope after it takes its place in line", async () => {
+    let slowLookup = false;
+    let open = () => {};
+    const appliesTo = async (docId: string) => {
+      if (slowLookup) {
+        slowLookup = false;
+        await new Promise<void>((resolve) => {
+          open = resolve;
+        });
+      }
+      return docId.startsWith("live:");
+    };
+    const binding = define({ maxWaitingWrites: 1, appliesTo });
+
+    slowLookup = true;
+    const seeds = ["first", "second"].map((source) =>
+      manager.seedLiveCopy(binding, "live:doc", { source }),
+    );
+    open();
+    const [first, second] = await Promise.all(seeds);
+    expect([first.seeded, second.seeded]).toEqual([true, false]);
+
+    slowLookup = true;
+    const [one, two, three] = ["one", "two", "three"].map((text) =>
+      manager.mutateLiveCopy(binding, "live:doc", {
+        edit: "append",
+        input: { text },
+      }),
+    );
+    expect(await rejection(three)).toMatchObject({ reason: "queue_full" });
+    open();
+    await Promise.all([one, two]);
+    expect((await row("live:doc"))?.text_snapshot).toBe("first\none\ntwo");
+  });
+
+  it("keeps later writes behind a running one after refusing a write", async () => {
+    const gates = new Map<
+      string,
+      { entered: () => void; gate: Promise<void> }
+    >();
+    const hold = (task: string) => {
+      let entered!: () => void;
+      const inRunner = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      gates.set(task, { entered, gate });
+      return { inRunner, open };
+    };
+    const binding = define({
+      maxWaitingWrites: 1,
+      runner: intercepted(async (task) => {
+        const held = gates.get(task);
+        if (!held) return;
+        gates.delete(task);
+        held.entered();
+        await held.gate;
+      }),
+    });
+    const seeded = await manager.seedLiveCopy(binding, "live:doc", {
+      source: "base",
+    });
+    const edit = hold("liveCopy.edit");
+    const holder = manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "held" },
+    });
+    await edit.inRunner;
+    const apply = hold("liveCopy.apply");
+    const running = manager.applyUpdate(
+      "live:doc",
+      clientEdit(seeded.state, appendParagraph("running")),
+    );
+    const refused = manager.applyUpdate(
+      "live:doc",
+      clientEdit(seeded.state, appendParagraph("refused")),
+    );
+    expect(await rejection(refused)).toMatchObject({ reason: "queue_full" });
+    edit.open();
+    await holder;
+    await apply.inRunner;
+
+    let settled = false;
+    const later = rejection(
+      manager.applyText("live:doc", "later").finally(() => {
+        settled = true;
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    apply.open();
+    await running;
+    expect(await later).toMatchObject({ code: "write_refused" });
+  });
+
   it("keeps a row recreated at the same version while an edit runs", async () => {
     let recreate = false;
     const binding = define({
@@ -1367,6 +1507,9 @@ describe("mutateLiveCopy", () => {
       await rejection(
         manager.mutateLiveCopy(binding, "plain:doc", { edit: "append" }),
       ),
+    ).toMatchObject({ code: "not_live_copy" });
+    expect(
+      await rejection(manager.readLiveCopy(binding, "plain:doc")),
     ).toMatchObject({ code: "not_live_copy" });
   });
 });

@@ -139,33 +139,15 @@ function evictIfNeeded(): void {
  * writes queue here, ahead of its runner, so the runner's own queue never
  * sees them; the binding bounds them instead.
  */
-function withDocWriteLock<T>(
+async function withDocWriteLock<T>(
   docId: string,
   fn: () => Promise<T>,
   refusePath?: string,
 ): Promise<T> {
-  // Synchronous when no binding exists, so writes keep their call order.
-  if (!liveCopiesDefined()) return enterDocWriteLock(docId, fn, refusePath);
-  return liveCopyBindingFor(docId).then((binding) => {
-    const pending = _writesPending.get(docId) ?? 0;
-    if (binding && pending > binding.maxWaitingWrites) {
-      throw new LiveCopyError(
-        "build_failed",
-        docId,
-        `Live copy ${docId} already has ${binding.maxWaitingWrites} writes waiting; try again shortly.`,
-        { reason: "queue_full" },
-      );
-    }
-    return enterDocWriteLock(docId, fn, refusePath);
-  });
-}
-
-async function enterDocWriteLock<T>(
-  docId: string,
-  fn: () => Promise<T>,
-  refusePath?: string,
-): Promise<T> {
-  _writesPending.set(docId, (_writesPending.get(docId) ?? 0) + 1);
+  // A write takes its place in line before its first await, so writes keep
+  // their call order and a slow `appliesTo` cannot let a burst past the bound.
+  const ahead = _writesPending.get(docId) ?? 0;
+  _writesPending.set(docId, ahead + 1);
   const previous = _writeLocks.get(docId) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -173,10 +155,26 @@ async function enterDocWriteLock<T>(
   });
   const chained = previous.catch(() => {}).then(() => current);
   _writeLocks.set(docId, chained);
+  // Not in `finally`: a refused write releases while earlier writes still run.
+  void chained.then(() => {
+    if (_writeLocks.get(docId) === chained) _writeLocks.delete(docId);
+  });
 
-  await previous.catch(() => {});
   try {
-    // Checked under the lock so a refused write never changes who goes next.
+    if (liveCopiesDefined()) {
+      const binding = await liveCopyBindingFor(docId);
+      if (binding && ahead > binding.maxWaitingWrites) {
+        throw new LiveCopyError(
+          "build_failed",
+          docId,
+          `Live copy ${docId} already has ${binding.maxWaitingWrites} writes waiting; try again shortly.`,
+          { reason: "queue_full" },
+        );
+      }
+    }
+    await previous.catch(() => {});
+    // Checked under the lock so a binding defined while this write waited
+    // still refuses it.
     if (refusePath !== undefined) {
       const refusal = refuseLiveCopyWrite(docId, refusePath);
       if (refusal) await refusal;
@@ -184,9 +182,6 @@ async function enterDocWriteLock<T>(
     return await fn();
   } finally {
     release();
-    if (_writeLocks.get(docId) === chained) {
-      _writeLocks.delete(docId);
-    }
     const pending = (_writesPending.get(docId) ?? 1) - 1;
     if (pending > 0) _writesPending.set(docId, pending);
     else _writesPending.delete(docId);
@@ -682,6 +677,7 @@ export async function readLiveCopy(
   binding: LiveCopyBinding,
   docId: string,
 ): Promise<LiveCopyRead> {
+  await assertLiveCopy(binding, docId);
   await ensureTable();
   const stored = await loadLiveCopyState(binding, docId);
   if (stored.kind === "absent") return { kind: "absent" };
@@ -765,10 +761,13 @@ export async function mutateLiveCopy(
   if (callPersist !== undefined && typeof callPersist !== "function") {
     throw new TypeError("mutateLiveCopy persist must be a function");
   }
-  await assertLiveCopy(binding, docId);
+  // Refused before joining the line: a caller's transaction waiting in it
+  // could hold rows the write ahead needs to commit.
   assertOwnTransaction(docId, "mutateLiveCopy");
-  await ensureTable();
   return withDocWriteLock(docId, async () => {
+    // In line, so a slow appliesTo cannot reorder writes or unbound them.
+    await assertLiveCopy(binding, docId);
+    await ensureTable();
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const stored = await loadLiveCopyState(binding, docId);
       if (stored.kind === "absent") {
@@ -889,10 +888,10 @@ export async function seedLiveCopy(
   docId: string,
   options: SeedLiveCopyOptions,
 ): Promise<LiveCopySeedResult> {
-  await assertLiveCopy(binding, docId);
   assertOwnTransaction(docId, "seedLiveCopy");
-  await ensureTable();
   return withDocWriteLock(docId, async () => {
+    await assertLiveCopy(binding, docId);
+    await ensureTable();
     for (let attempt = 0; attempt < LIVE_COPY_COMMIT_ATTEMPTS; attempt += 1) {
       const stored = await loadLiveCopyState(binding, docId);
       const result = await seedLiveCopyState(
