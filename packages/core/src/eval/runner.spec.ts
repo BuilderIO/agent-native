@@ -1272,6 +1272,50 @@ describe("runEvalSuite runner creation", () => {
     });
   });
 
+  it("does not report unflagged adapter usage without an observed usage event", async () => {
+    const evalCase = defineEval({
+      name: "unflagged-production-adapter-usage",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run({
+        ...args,
+        onUsage: () => {},
+      });
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "fake-model",
+          },
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Production chat eval adapter did not return or report usage.",
+    });
+    expect(suite.report.results[0].usage).toBeUndefined();
+  });
+
   it("fails closed when an adapter returns a truthy non-boolean ok value", async () => {
     const evalCase = defineEval({
       name: "malformed-production-adapter-ok",

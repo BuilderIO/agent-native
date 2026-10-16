@@ -491,9 +491,7 @@ async function runProductionChatPath(args: {
       engineName: args.engine.name,
     });
     const usage =
-      outputUsage?.usageReported === false
-        ? partialUsage
-        : (outputUsage ?? partialUsage);
+      outputUsage?.usageReported === true ? outputUsage : partialUsage;
     if (!usage) {
       return failedProductionPathOutput(
         output,
