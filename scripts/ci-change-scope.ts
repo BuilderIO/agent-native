@@ -148,6 +148,7 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/e2e/live-body-gate.ts",
   "templates/content/e2e/playwright.config.ts",
   "templates/content/e2e/save-lineage.ts",
+  "templates/content/e2e/server-identity.ts",
   "templates/content/e2e/two-tab-convergence.spec.ts",
 ]);
 

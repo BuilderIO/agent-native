@@ -1,10 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 
-import { chromium, type FullConfig } from "@playwright/test";
+import { chromium, request, type FullConfig } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { AUTH_FILES, RUN_EMAIL as EMAIL } from "./auth-files";
 import { AgentClient, signInAccount, type SignInResult } from "./helpers";
+import { expectRunServer } from "./server-identity";
 
 if (!isAutozQaEmail(EMAIL)) {
   throw new Error("CONTENT_E2E_EMAIL must contain +autoz.");
@@ -14,6 +15,14 @@ const PASS =
 
 async function globalSetup(_config: FullConfig) {
   const baseURL = process.env.CONTENT_BASE_URL || "http://127.0.0.1:8090";
+  // Before anything signs in, so another server on the port never gets this
+  // run's accounts.
+  const api = await request.newContext();
+  try {
+    await expectRunServer(api, baseURL);
+  } finally {
+    await api.dispose();
+  }
   mkdirSync(AUTH_FILES.dir, { recursive: true });
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ baseURL });

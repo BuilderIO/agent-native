@@ -45,9 +45,12 @@ every check it flips, in the same PR, so the
 check blocks every PR after it. A check main fails differently on each side of
 the gate takes `knownLossOnArm` from `e2e/live-body-gate.ts`; a fix that flips
 one arm deletes only that arm's entry. Run the browser checks against the production
-build, which refuses PGlite: serve `.output/server/index.mjs` on Postgres, then
-from `templates/content` run
-`CONTENT_BASE_URL=<url> CONTENT_LIVE_BODY_GATE=off npx playwright test -c e2e/playwright.config.ts e2e/stored-form/`.
+build, which refuses PGlite: serve `.output/server/index.mjs` on Postgres with
+`PING_MESSAGE=<nonce>`, then from `templates/content` run
+`CONTENT_BASE_URL=<url> CONTENT_E2E_SERVER_NONCE=<nonce> CONTENT_LIVE_BODY_GATE=off npx playwright test -c e2e/playwright.config.ts e2e/stored-form/`.
+Global setup refuses a server whose ping answers anything else. A server that
+fails to start leaves its port to whatever else listens there, and without the
+nonce the run would test that server instead.
 Global setup connects one MCP connector for the run, because the device flow
 allows 20 starts a minute; two runs from one checkout at once overwrite each
 other's connector. A change that means to alter what a writer stores with the
