@@ -123,6 +123,54 @@ describe("applySuggestionEdit", () => {
     expect(bodyOf(doc)).toContain("$75 for the team. Approved.");
   });
 
+  it("deletes the paragraph the suggestion names when another one reads the same", () => {
+    const doc = seededDoc("Repeat.\n\nRepeat.\n\nTail.");
+    const body = bodyOf(doc);
+    expect(body).toBe("Repeat.\nRepeat.\nTail.");
+    const update = acceptElsewhere(doc, suggestion(body, "Repeat.\n", ""));
+    // A tab types in the second paragraph, which the suggestion keeps.
+    const peer = copyOf(doc);
+    const second = peer.getXmlFragment("default").get(1) as Y.XmlElement;
+    (second.get(0) as Y.XmlText).insert(7, " Approved.");
+    Y.applyUpdate(peer, update);
+    expect(bodyOf(peer)).toBe("Repeat. Approved.\nTail.");
+  });
+
+  it("adds a paragraph where the suggestion puts it when the one beside it reads the same", () => {
+    const doc = seededDoc("Repeat.\n\nTail.");
+    const body = bodyOf(doc);
+    expect(body).toBe("Repeat.\nTail.");
+    const update = acceptElsewhere(doc, {
+      ordinal: 0,
+      kind: "insert_text",
+      targetId: "body",
+      before: { markdown: body, changedText: "" },
+      after: { markdown: `Repeat.\n${body}`, changedText: "Repeat.\n" },
+      anchor: { from: 0, to: 0, prefix: "", suffix: body },
+      schemaVersion: 1,
+    });
+    // A tab types in the original paragraph, which now comes second.
+    const peer = copyOf(doc);
+    const original = peer.getXmlFragment("default").get(0) as Y.XmlElement;
+    (original.get(0) as Y.XmlText).insert(7, " Approved.");
+    Y.applyUpdate(peer, update);
+    expect(bodyOf(peer)).toBe("Repeat.\nRepeat. Approved.\nTail.");
+  });
+
+  it("deletes the list item the suggestion names when another one reads the same", () => {
+    const doc = seededDoc("- Repeat.\n- Repeat.\n- Tail.");
+    const body = bodyOf(doc);
+    expect(body).toBe("- Repeat.\n- Repeat.\n- Tail.");
+    const update = acceptElsewhere(doc, suggestion(body, "- Repeat.\n", ""));
+    // A tab types in the second item, which the suggestion keeps.
+    const peer = copyOf(doc);
+    const list = peer.getXmlFragment("default").get(0) as Y.XmlElement;
+    const item = list.get(1) as Y.XmlElement;
+    ((item.get(0) as Y.XmlElement).get(0) as Y.XmlText).insert(7, " Approved.");
+    Y.applyUpdate(peer, update);
+    expect(bodyOf(peer)).toBe("- Repeat. Approved.\n- Tail.");
+  });
+
   it("adds a block between two others without touching them", () => {
     const doc = seededDoc(page);
     const body = bodyOf(doc);
