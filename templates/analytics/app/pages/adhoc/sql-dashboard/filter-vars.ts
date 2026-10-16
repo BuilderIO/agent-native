@@ -41,7 +41,7 @@ function daysAgo(n: number): string {
 // toISOString), so callers treat it like any other unrecognized value.
 const MAX_DAY_COUNT = 36_500;
 
-function parseDayCount(value: string): number | null {
+export function parseDayCount(value: string): number | null {
   const match = /^(\d+)d$/.exec(value);
   if (!match) return null;
   const days = Number(match[1]);

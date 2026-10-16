@@ -653,6 +653,40 @@ describe("dataNoteInRange", () => {
     });
   });
 
+  it("reads a preset as long as the filter takes, past the chart's gap-fill limit", () => {
+    const summer2024 = { startDate: "2024-08-05", endDate: "2024-08-09" };
+    expect(listed(summer2024, { timeRange: "900d" })).toBe(true);
+    expect(listed(summer2024, { timeRange: "365d" })).toBe(false);
+  });
+
+  it("reads a date-range filter's start and end, and no range when the SQL reads two", () => {
+    const bySignup = {
+      sql: "SELECT plan, count(*) FROM signups WHERE signup_date >= '{{signupStart}}' AND signup_date <= '{{signupEnd}}' GROUP BY plan",
+    };
+    const vars = { signupStart: "2026-10-13", signupEnd: "2026-10-31" };
+    expect(panelTimeRange(bySignup, vars, december)).toEqual({
+      kind: "days",
+      start: Date.parse("2026-10-13"),
+      end: Date.parse("2026-11-01"),
+    });
+    expect(
+      dataNoteInRange(SETUP_INCIDENT, panelTimeRange(bySignup, vars, december)),
+    ).toBe(true);
+    expect(
+      dataNoteInRange(
+        SETUP_INCIDENT,
+        panelTimeRange(bySignup, { ...vars, signupStart: "2026-10-14" }),
+      ),
+    ).toBe(false);
+    expect(
+      panelTimeRange(
+        { sql: `${funnel.sql} -- {{signupStart}} {{signupEnd}}` },
+        { ...vars, timeRange: "90d" },
+        december,
+      ),
+    ).toEqual({ kind: "unreadable" });
+  });
+
   it("lists a note that overlaps a custom range by a day", () => {
     const custom = (start: string, end: string) => ({
       timeRange: "custom",

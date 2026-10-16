@@ -1,5 +1,5 @@
+import { parseDayCount } from "./filter-vars";
 import { serializePanelSql } from "./panel-sql";
-import { timeRangeDays } from "./pivot";
 import type { SqlPanel } from "./types";
 
 function escapeSqlValue(value: string): string {
@@ -61,11 +61,13 @@ export function interpolateDashboardPanelSql(
 }
 
 /**
- * The dates a panel's query covers under the dashboard's `timeRange` filter.
- * "days" runs from `start` up to `end`, both midnight UTC; "all" has no bound.
- * "absent" when the panel's SQL doesn't use `{{timeRange}}` or nothing sets
- * it; "unreadable" for a value none of the SQL's branches reads, or "custom"
- * without a valid start and end.
+ * The dates a panel's query covers under the dashboard's time filters: the
+ * `timeRange` preset, or a date-range filter's `{{<id>Start}}` and
+ * `{{<id>End}}`. "days" runs from `start` up to `end`, both midnight UTC;
+ * "all" has no bound. "absent" when the panel's SQL reads no time filter that
+ * is set; "unreadable" for a value none of the SQL's branches reads, a range
+ * without a valid start and end, or SQL that reads more than one range, as
+ * the chart's dates could follow either.
  */
 export type PanelTimeRange =
   | { kind: "days"; start: number; end: number }
@@ -74,43 +76,79 @@ export type PanelTimeRange =
   | { kind: "unreadable" };
 
 /**
- * As the dashboard's SQL reads `{{timeRange}}`: "Nd" from N days before
- * today through today, by the UTC day CURRENT_DATE counts, "custom" from
- * timeRangeStart through timeRangeEnd, and "all" or "" every date. A panel's
- * own time range is already in `vars`, as its SQL gets it.
+ * As the dashboard's SQL reads its time filters. A panel's own time range is
+ * already in `vars`, as its SQL gets it.
  */
 export function panelTimeRange(
   panel: Pick<SqlPanel, "sql">,
   vars: Record<string, string>,
   now: number = Date.now(),
 ): PanelTimeRange {
-  const value = vars.timeRange;
-  if (
-    value === undefined ||
-    !serializePanelSql(panel.sql).includes("{{timeRange")
-  ) {
-    return { kind: "absent" };
-  }
+  const sql = serializePanelSql(panel.sql);
+  const readsPreset =
+    vars.timeRange !== undefined && sql.includes("{{timeRange");
+  const ranges = [
+    ...(readsPreset ? [presetTimeRange(vars.timeRange, vars, now)] : []),
+    ...boundedFilterNames(sql, vars)
+      // The preset's own bounds describe the same range as its value.
+      .filter((name) => !(readsPreset && name === "timeRange"))
+      .map((name) => datesRange(vars[`${name}Start`], vars[`${name}End`])),
+  ];
+  if (ranges.length === 0) return { kind: "absent" };
+  return ranges.length === 1 ? ranges[0] : { kind: "unreadable" };
+}
+
+/**
+ * "Nd" from N days before today through today, by the UTC day CURRENT_DATE
+ * counts, "custom" from timeRangeStart through timeRangeEnd, and "all" or ""
+ * every date.
+ */
+function presetTimeRange(
+  value: string,
+  vars: Record<string, string>,
+  now: number,
+): PanelTimeRange {
   if (value === "" || value === "all") return { kind: "all" };
   if (value === "custom") {
-    const start = vars.timeRangeStart;
-    const end = vars.timeRangeEnd;
-    return isValidDate(start) && isValidDate(end) && start <= end
-      ? {
-          kind: "days",
-          start: Date.parse(start),
-          end: Date.parse(end) + DAY_MILLISECONDS,
-        }
-      : { kind: "unreadable" };
+    return datesRange(vars.timeRangeStart, vars.timeRangeEnd);
   }
-  const days = timeRangeDays(value);
-  if (days === undefined) return { kind: "unreadable" };
+  const days = parseDayCount(value);
+  if (days === null) return { kind: "unreadable" };
   const tomorrow = (Math.floor(now / DAY_MILLISECONDS) + 1) * DAY_MILLISECONDS;
   return {
     kind: "days",
     start: tomorrow - (days + 1) * DAY_MILLISECONDS,
     end: tomorrow,
   };
+}
+
+/** Filters whose `{{<id>Start}}` and `{{<id>End}}` the SQL reads and `vars` set. */
+function boundedFilterNames(sql: string, vars: Record<string, string>) {
+  const names = new Set<string>();
+  for (const [, name] of sql.matchAll(/\{\{(\w+)Start\}\}/g)) {
+    if (
+      sql.includes(`{{${name}End}}`) &&
+      vars[`${name}Start`] !== undefined &&
+      vars[`${name}End`] !== undefined
+    ) {
+      names.add(name);
+    }
+  }
+  return [...names];
+}
+
+/** From `start` through `end`, as `date <= '{{...End}}'` includes the last day. */
+function datesRange(
+  start: string | undefined,
+  end: string | undefined,
+): PanelTimeRange {
+  return isValidDate(start) && isValidDate(end) && start <= end
+    ? {
+        kind: "days",
+        start: Date.parse(start),
+        end: Date.parse(end) + DAY_MILLISECONDS,
+      }
+    : { kind: "unreadable" };
 }
 
 function isTimeVariable(name: string): boolean {
