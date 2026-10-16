@@ -756,6 +756,9 @@ export function useEditorLayerActions({
           activeFile,
           applyFileContentUpdate,
           boardFileId,
+          canvasFrameGeometryById: getCanvasFrameGeometry(
+            designDataJsonRef.current,
+          ),
           codeLayerOwnerByNodeId,
           effectiveCodeLayerState,
           files,

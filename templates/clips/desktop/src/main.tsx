@@ -40,7 +40,7 @@ function installRouteAttributes(route: string): void {
 function pickRoute(route: string): React.ReactElement {
   switch (route) {
     case "countdown":
-      return <Countdown />;
+      return <Countdown attemptId={currentRouteDetail()} />;
     case "toolbar":
       return <RecordingPill />;
     case "bubble":

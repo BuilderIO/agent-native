@@ -22,7 +22,7 @@
 
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { isBlockedExtensionUrlWithDns } from "../extensions/url-safety.js";
 
@@ -79,23 +79,29 @@ const CREATE_SQL = `CREATE TABLE IF NOT EXISTS custom_api_providers (
   PRIMARY KEY (scope, scope_id, id)
 )`;
 
-let _initPromise: Promise<void> | undefined;
+export const customApiProvidersStore = defineStore({
+  id: "custom_api_providers",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists("custom_api_providers", CREATE_SQL);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("custom_api_providers", [
+          "created_at",
+          "updated_at",
+        ]);
+      },
+    },
+  ],
+});
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      await ensureTableExists("custom_api_providers", CREATE_SQL);
-      await widenIntColumnsToBigInt("custom_api_providers", [
-        "created_at",
-        "updated_at",
-      ]);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return customApiProvidersStore.ready();
 }
 
 const PROVIDER_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$|^[a-z0-9]$/;

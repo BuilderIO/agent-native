@@ -25,6 +25,17 @@ export default {
     templateCatalog: "Catalogue",
     semanticLayer: "Couche sémantique",
   },
+  dashboardMode: {
+    label: "Mode du tableau de bord",
+    view: "Afficher",
+    edit: "Modifier",
+    viewHint:
+      "Consultez sans rien modifier. Les largeurs de colonne que vous ajustez restent les vôtres.",
+    editHint: "Les modifications sont enregistrées pour tout le monde",
+    columnResizePersonal:
+      "Faites glisser pour redimensionner pour vous seul. Double-cliquez pour réinitialiser.",
+    columnResizeShared: "Faites glisser pour redimensionner pour tout le monde",
+  },
   dashboardHeader: {
     updated: "Mis à jour le {{date}}",
     created: "Créé le {{date}}",
@@ -52,7 +63,7 @@ export default {
     moveDashboard: "Déplacer le tableau de bord",
     folderCreateFailed: "Impossible de créer le dossier",
     moveFailed: "Impossible de déplacer le tableau de bord",
-    previewSigma: "Aperçu Sigma",
+    importFromSigma: "Importer depuis Sigma",
     sigmaConnection: "Connexion Sigma",
     sigmaConnectedTo: "Connecté à {{name}}",
     sigmaChooseConnection: "Connexion Sigma",
@@ -60,9 +71,37 @@ export default {
     sigmaChooseConnectionDescription:
       "Choisissez l’espace de travail Sigma dont vous voulez parcourir les classeurs.",
     sigmaNoConnection: "Sigma n’est pas connecté",
+    sigmaClientId: "ID client",
+    sigmaClientSecret: "Secret client",
+    sigmaBaseUrl: "URL de base de l’API (facultatif)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Connecter Sigma",
+    sigmaConnecting: "Connexion à Sigma…",
+    sigmaConnectFailed:
+      "Impossible de vérifier cette connexion Sigma. Vérifiez les identifiants et la région de l’API, puis réessayez.",
+    sigmaCredentialStageFailed:
+      "Impossible de stocker temporairement les identifiants Sigma. Vérifiez l’accès au Vault, puis réessayez.",
+    sigmaCredentialsRequired:
+      "Enregistrez d’abord l’ID client et le secret client Sigma.",
+    sigmaBaseUrlInvalid:
+      "Utilisez une URL HTTPS de l’API Sigma sur un domaine sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "Analytics ne peut pas enregistrer la connexion Sigma de manière sécurisée pour le moment. Réessayez.",
+    sigmaPolicyInvalid:
+      "La connexion Sigma existante d’Analytics a une règle d’accès inattendue. Reconnectez-la dans Dispatch avant de réessayer.",
+    sigmaSaveFailed:
+      "Les identifiants Sigma ont été vérifiés, mais Analytics n’a pas pu les enregistrer. La connexion précédente est inchangée. Réessayez.",
+    sigmaCleanupPending:
+      "Les identifiants temporaires de configuration Sigma restent présents jusqu’à la réussite du nettoyage.",
+    sigmaCleanupFailed:
+      "Impossible d’effacer les identifiants Sigma temporaires. Réessayez le nettoyage.",
+    sigmaRetryCleanup: "Réessayer le nettoyage",
+    sigmaDirectCredentialsUnavailable:
+      "Impossible de lire les identifiants Sigma enregistrés pour Analytics. Un administrateur de l’organisation peut reconnecter Sigma dans Dispatch ou saisir à nouveau les identifiants dans Analytics.",
     sigmaNoConnectionDescription:
-      "Ouvrez Dispatch et demandez-lui de connecter Sigma à Analytics. Les identifiants restent dans Vault.",
-    sigmaOpenDispatch: "Configurer dans Dispatch",
+      "Saisissez ici les identifiants pour créer une connexion réservée à Analytics. Les connexions Sigma autorisées pour Analytics dans Dispatch s’affichent automatiquement ici ; seuls les administrateurs de l’organisation peuvent enregistrer directement des identifiants.",
+    sigmaOpenDispatch: "Connecter dans Dispatch",
+    sigmaOpenVault: "Ouvrir Vault",
     sigmaWorkbooksLoadFailed: "Impossible de charger les classeurs Sigma",
     sigmaRetryConnection: "Vérifiez la connexion, puis réessayez.",
     sigmaRetry: "Réessayer",
@@ -74,7 +113,7 @@ export default {
     sigmaStatusImported: "Importé",
     sigmaStatusFailed: "Échec de l’importation",
     sigmaArchived: "Archivé",
-    sigmaPreviewTitle: "Aperçu du classeur",
+    sigmaPreviewTitle: "Contenu du classeur",
     sigmaPreviewFailed: "Impossible de prévisualiser ce classeur",
     sigmaRetryPreview: "Réessayez de charger l’aperçu du classeur.",
     sigmaImportableCount: "{{count}} importables",
@@ -1239,6 +1278,7 @@ export default {
     selectAll: "Tout sélectionner",
     selectOnly: "Uniquement",
     selectOnlyValue: "Uniquement {{value}}",
+    presets: "Préréglages",
     untitledDashboard: "Tableau de bord sans titre",
     dashboardFallback: "tableau de bord",
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",

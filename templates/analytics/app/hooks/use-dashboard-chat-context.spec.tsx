@@ -318,6 +318,32 @@ describe("useDashboardChatContext", () => {
     ).toBe("true");
   });
 
+  it("names only the page edits view mode holds back", async () => {
+    function ModeHarness() {
+      useDashboardChatContext({
+        id: "dash-1",
+        kind: "sql",
+        title: "Revenue",
+        canEdit: true,
+        editing: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<ModeHarness />);
+    });
+    await settleContextPublish();
+
+    const { context } = clientMocks.setAgentChatContextItem.mock.calls[0][0];
+    expect(context).toContain("Dashboard mode: view");
+    expect(context).toContain("column drags stay in their browser");
+    expect(context).toContain(
+      "saving a view, restoring history, archiving, deleting, and adding a first panel still work",
+    );
+    expect(context).not.toContain("nothing they do on the page");
+  });
+
   it("publishes once when dashboard metadata arrives in pieces", async () => {
     function MetadataHarness({ panelCount }: { panelCount?: number }) {
       useDashboardChatContext({

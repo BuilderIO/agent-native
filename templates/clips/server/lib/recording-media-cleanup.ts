@@ -2,13 +2,20 @@ import {
   BUILDER_ASSETS_WRITE_SCOPE,
   resolveBuilderRequestAuthorization,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 
 import { isImageRecording } from "../../shared/recording-kind.js";
-import { deleteS3ObjectByUrl } from "./s3-upload-provider.js";
+import { subtractHostedClipRetainedBytes } from "./hosted-clip-allowance.js";
+import {
+  deleteS3ObjectByUrl,
+  isUrlInS3Storage,
+  s3ObjectSizeBytesByUrl,
+} from "./s3-upload-provider.js";
 import { screenshotLeftoverUrls } from "./screenshot-edits.js";
 
 interface RecordingMediaUrls {
   id?: string;
+  storageMode?: "own" | "hosted" | null;
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -25,6 +32,8 @@ export interface RecordingMediaCleanupResult {
   attempted: number;
   deleted: number;
   skipped: number;
+  /** Hosted recordings only: URLs outside the bucket, which are not ours to delete. */
+  external: number;
   errors: Array<{ url: string; error: string }>;
 }
 
@@ -133,6 +142,121 @@ async function deleteBuilderAssetByUrl(
 }
 
 /**
+ * The object is gone but the ledger still holds its bytes, and nothing retries
+ * the subtraction, so the over-count has to be visible to someone.
+ */
+function reportHostedByteAccountingFailure(
+  recordingId: string,
+  reason:
+    | "size_unreadable"
+    | "ledger_update_failed"
+    | "superseded_delete_unconfirmed",
+  error: unknown,
+): void {
+  console.error("[clips] hosted retained bytes not reduced after delete", {
+    recordingId,
+    reason,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  try {
+    track("clips_hosted_byte_accounting_failed", {
+      app_name: "clips",
+      template_name: "clips",
+      recording_id: recordingId,
+      reason,
+    });
+  } catch {
+    // coercion-ok: analytics is best-effort; the error log above already carries the failure.
+  }
+}
+
+/**
+ * Deletes one hosted object and, once the provider confirms, lowers the
+ * recording's retained bytes by what it held. An object whose size cannot be
+ * read is still deleted and leaves the ledger high: bytes over-counted until
+ * the clip is removed beat bytes under-counted against the global cap. Either
+ * accounting failure is reported, since the deletion result stays `true`.
+ */
+async function deleteHostedMediaObject(
+  url: string,
+  recordingId: string | undefined,
+): Promise<boolean> {
+  let sizeBytes: number | null = null;
+  let sizeError: unknown = null;
+  if (recordingId) {
+    try {
+      sizeBytes = await s3ObjectSizeBytesByUrl(url, {
+        recordingId,
+        storageMode: "hosted",
+      });
+    } catch (error) {
+      sizeError = error;
+    }
+  }
+  const deleted = await deleteS3ObjectByUrl(url, {
+    storageMode: "hosted",
+    recordingId,
+  });
+  if (deleted && recordingId) {
+    if (sizeError) {
+      reportHostedByteAccountingFailure(
+        recordingId,
+        "size_unreadable",
+        sizeError,
+      );
+    } else if (sizeBytes) {
+      try {
+        await subtractHostedClipRetainedBytes({
+          recordingId,
+          deletedBytes: sizeBytes,
+        });
+      } catch (error) {
+        reportHostedByteAccountingFailure(
+          recordingId,
+          "ledger_update_failed",
+          error,
+        );
+      }
+    }
+  }
+  return deleted;
+}
+
+/**
+ * Removes the hosted object a successful swap just replaced, so it neither
+ * lingers in the bucket nor stays in the retained-byte ledger: once the row
+ * points at the new URL, permanent delete can no longer find the old one. The
+ * user's action already succeeded, so a delete that fails or goes unconfirmed
+ * is reported, not thrown. URLs outside the bucket are not ours to delete.
+ * With no `replacementUrl` it removes an upload that never became referenced.
+ */
+export async function deleteSupersededHostedMedia(
+  previousUrl: string | null | undefined,
+  options: { recordingId: string; replacementUrl?: string },
+): Promise<void> {
+  if (!previousUrl || previousUrl === options.replacementUrl) return;
+  try {
+    if (
+      (await isUrlInS3Storage(previousUrl, { storageMode: "hosted" })) === false
+    ) {
+      return;
+    }
+    if (await deleteHostedMediaObject(previousUrl, options.recordingId)) return;
+    reportHostedByteAccountingFailure(
+      options.recordingId,
+      "superseded_delete_unconfirmed",
+      new Error("The provider did not confirm deleting the superseded object."),
+    );
+  } catch (error) {
+    reportHostedByteAccountingFailure(
+      options.recordingId,
+      "superseded_delete_unconfirmed",
+      error,
+    );
+  }
+}
+
+/**
  * Delete exactly one stored media object.
  *
  * Redaction needs this: when a screenshot's blurred version replaces the
@@ -142,9 +266,21 @@ async function deleteBuilderAssetByUrl(
  * refuse to claim a redaction that only half happened — including when it was
  * already gone, so a retry can finish.
  */
-export async function deleteStoredMediaUrl(url: string): Promise<boolean> {
+export async function deleteStoredMediaUrl(
+  url: string,
+  options: {
+    storageMode?: "own" | "hosted" | null;
+    recordingId?: string;
+  } = {},
+): Promise<boolean> {
   if (!url || url.startsWith("data:")) return false;
-  if (await deleteS3ObjectByUrl(url)) return true;
+  if (options.storageMode === "hosted") {
+    return deleteHostedMediaObject(url, options.recordingId);
+  }
+  const deletedFromS3 = await deleteS3ObjectByUrl(url);
+  if (deletedFromS3) {
+    return true;
+  }
   return (await deleteBuilderAssetByUrl(url)) !== false;
 }
 
@@ -156,6 +292,7 @@ export async function deleteRecordingMediaObjects(
     attempted: 0,
     deleted: 0,
     skipped: 0,
+    external: 0,
     errors: [],
   };
   const protectedUrls = new Set(options.protectedUrls ?? []);
@@ -167,10 +304,23 @@ export async function deleteRecordingMediaObjects(
       continue;
     }
     try {
-      if (
-        (await deleteS3ObjectByUrl(url)) ||
-        (await deleteBuilderAssetByUrl(url)) === "deleted"
-      ) {
+      if (recording.storageMode === "hosted") {
+        if (
+          (await isUrlInS3Storage(url, { storageMode: "hosted" })) === false
+        ) {
+          result.external += 1;
+          continue;
+        }
+        const deleted = await deleteHostedMediaObject(url, recording.id);
+        if (deleted) {
+          result.deleted += 1;
+        } else {
+          result.skipped += 1;
+        }
+        continue;
+      }
+      const deletedFromS3 = await deleteS3ObjectByUrl(url);
+      if (deletedFromS3 || (await deleteBuilderAssetByUrl(url)) === "deleted") {
         result.deleted += 1;
       } else {
         result.skipped += 1;

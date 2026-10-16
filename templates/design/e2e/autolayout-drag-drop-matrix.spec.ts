@@ -2770,8 +2770,7 @@ test.describe("auto-layout drag/drop matrix", () => {
       .toBe("cross-target");
   });
 
-  // fixme: product bug: Teleport: the dropped layer is saved with no position/left/top, so it is a static body child rendered at the Screen's top-left (0,0)
-  test.fixme("cross-Screen oversized drop beside an empty auto-layout target lands at the drop point in the destination Screen", async ({
+  test("cross-Screen oversized drop beside an empty auto-layout target lands at the drop point in the destination Screen", async ({
     app,
     page,
     request,
@@ -3080,8 +3079,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     });
   });
 
-  // fixme: product bug: Modifier state at release is honoured (parent is the body), but the element is saved without position, so it renders at (0,0); same
-  test.fixme("cross-Screen drop released after letting go of Ignore Auto Layout lands like a plain oversized drop, at the drop point", async ({
+  test("cross-Screen drop released after letting go of Ignore Auto Layout lands like a plain oversized drop, at the drop point", async ({
     app,
     page,
     request,

@@ -164,7 +164,9 @@ pnpm exec tsx scripts/claude-launch.ts --name slides-edit-fidelity --dir templat
 ```
 
 That server uses a throwaway PGlite database, which is wiped when the harness
-exits.
+exits. If the requested port is taken before the server binds, it moves to the
+next free one; the harness polls the URL from the server's
+`[agent-native] … listening on` line in `server.log`.
 
 To reuse a server that is already running, set
 `SLIDES_BASE_URL=http://localhost:<port>`. The harness refuses any other host,

@@ -1359,6 +1359,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
   "errorMessages.requestTooLarge":
     "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
+  "errorMessages.capabilityUnavailable":
+    "Impossible d’envoyer votre message pour le moment. Réessayez dans quelques instants.",
+  "errorMessages.capabilityUnsupported":
+    "Cette application ne peut pas encore réessayer votre message enregistré en toute sécurité. Mettez l’application à jour, puis réessayez.",
   "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
   "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
   "errorMessages.runUnverified":
@@ -3312,6 +3316,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fermer",
   "observability.insights.rawTrace":
     "Trace brute (tous les spans, avec entrées et sorties)",
+  "reportProblem.menuItem": "Signaler un problème",
+  "reportProblem.title_one":
+    "Joindre ce que l'app a fait au cours de la dernière {{count}} seconde ?",
+  "reportProblem.title_many":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.title_other":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.noEvents": "Rien n'a encore été enregistré.",
+  "reportProblem.send": "Envoyer à l'agent",
+  "reportProblem.copy": "Copier le rapport de problème",
+  "reportProblem.attaching": "Ajout en cours…",
+  "reportProblem.notAttached": "Le rapport n'a pas été joint.",
+  "reportProblem.agentMessage":
+    "Un problème est survenu dans l'app. Utilisez le rapport de problème joint pour expliquer ce qui s'est passé.",
 };
 
 export default messages;

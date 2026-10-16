@@ -4,6 +4,7 @@ const messages = {
     includeLast: "包含最近",
     whatIsThis: "這是什麼？",
     off: "關",
+    none: "無",
     custom: "自訂…",
     customLabel: "自訂長度",
     customAmount: "長度",
@@ -15,6 +16,23 @@ const messages = {
     customErrorInvalid: "請輸入整數秒數或分鐘數。",
     customErrorTooLong: "請不超過 5 分鐘。",
     turnOnRewind: "開啟 Rewind",
+    turnOffRewind: "關閉",
+    turnOffRewindFailed: "無法關閉 Rewind。請先停止錄製，然後再試一次。",
+    turnOnRewindFailed: "無法開啟 Rewind。請再試一次。",
+    turnOnRewindPermissionFailed:
+      "在系統設定 > 隱私權與安全性 > 螢幕與系統音訊錄製中允許 Clips 錄製螢幕，然後重新啟動 Clips 並再試一次。",
+    turnOnRewindUnsupported: "Rewind 螢幕錄製僅支援 macOS。",
+    turnOnRewindNoSpace:
+      "磁碟空間不足，無法啟動 Rewind。請釋出空間後再試一次。",
+    turnOnRewindStopClip: "請先停止目前的 Clip，再開啟 Rewind。",
+    turnOnRewindStorageFailed:
+      "無法存取 Rewind 儲存空間。請檢查磁碟空間和資料夾權限後再試一次。",
+    rewindConsentTitle: "開啟 Rewind？",
+    rewindConsentBody:
+      "Clips 會持續錄製你的螢幕，並將內容保留在此裝置上。代理程式會取得文字摘錄，只有在你核准後才會分享影片。",
+    rewindConsentCancel: "暫不",
+    rewindConsentConfirm: "開啟 Rewind",
+    rewindConsentBusy: "正在開啟 Rewind…",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
       "預設為關閉。螢幕歷程記錄會保留在此裝置上，直到你將它加入錄影或核准分享請求。",
@@ -1478,6 +1496,8 @@ const messages = {
     builderGrantAskAdmin:
       "請擁有者或管理員連線具有片段上傳權限的 Builder.io 帳戶。",
     statusUnavailable: "無法檢查影片儲存是否就緒。",
+    hostedStorageUnavailable:
+      "Clips 託管儲存空間暫時無法使用。您的免費片段額度不變，請稍後再試上傳。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
     builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
@@ -1760,6 +1780,14 @@ const messages = {
     validWebUrl: "請輸入有效的 http:// 或 https:// 位址。",
   },
   recordRoute: {
+    freeClipsLeft_one: "還剩 {{count}} 個免費片段",
+    freeClipsLeft_other: "還剩 {{count}} 個免費片段",
+    hostedClipsExhaustedTitle: "免費連接 Builder.io，繼續錄製",
+    hostedClipsExhaustedDescription:
+      "免費託管錄製次數已用完。連接 Builder.io 儲存空間，即可繼續將片段儲存到資料庫。",
+    clipExceedsSizeLimit: "此片段超出目前上傳大小限制。",
+    clipExceedsMaxDuration: "此片段超出目前錄製時長限制。",
+    maxClipDurationReached: "已達片段時長上限。正在儲存錄製內容。",
     pageTitle: "新增錄製 · Clips",
     uploadFailed: "上傳失敗",
     uploadFailedAtChunk: "第 {{chunk}}/{{total}} 個區塊上傳失敗：{{message}}",
@@ -1975,6 +2003,9 @@ const messages = {
     vocabularyRemoveFailed: "無法移除詞彙",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 託管儲存空間已滿。請連接 Builder.io 儲存空間以繼續儲存片段。",
+    hostedRecordingTakenDown: "這段錄影已從 Clips 託管儲存空間移除。",
     splitAtPlayhead: "在播放頭處分割 (S)",
     selectedCount: "已選取 {{count}} 項",
     selectAll: "全選",
@@ -2143,9 +2174,15 @@ const messages = {
     issues: "問題",
     consoleSource: "主控台",
     networkSource: "網路",
+    appSource: "應用程式活動",
+    appEvent: "事件",
+    appData: "資料",
+    appFailureSummary: "{{count}} 個應用程式失敗",
+    appUnavailable: "無法載入應用程式活動。",
     consoleCount: "主控台 {{count}}",
     networkCount: "網路 {{count}}",
     afterRecording: "錄製結束後",
+    beforeRecording: "錄製開始前",
     seekToTime: "跳至 {{time}}",
     occurrences: "出現時間",
     message: "訊息",
@@ -2157,6 +2194,7 @@ const messages = {
     noIssuesTitle: "未偵測到瀏覽器問題",
     noConsoleTitle: "沒有主控台事件",
     noNetworkTitle: "沒有網路請求",
+    noAppTitle: "沒有應用程式活動",
     capturedDescription: "已為此錄製擷取診斷資訊。",
   },
   timeline: { clipStartedHere: "剪輯從這裡開始" },

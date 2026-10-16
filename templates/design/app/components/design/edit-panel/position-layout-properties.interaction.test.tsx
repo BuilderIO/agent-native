@@ -168,7 +168,7 @@ describe("PositionLayoutProperties interactions", () => {
     container.remove();
   });
 
-  it("opens the anchor target with Alt+R and writes its dragged position", async () => {
+  it("opens the anchor controls with Alt+R and writes a selected position", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -207,61 +207,16 @@ describe("PositionLayoutProperties interactions", () => {
     });
     expect(trigger?.getAttribute("aria-expanded")).toBe("true");
 
-    const surface = document.querySelector<HTMLDivElement>(
-      "[data-motion-origin-surface]",
+    const topRight = document.querySelector<HTMLButtonElement>(
+      'button[role="radio"][aria-label="editPanel.scale.topRight"]',
     );
-    const handle = document.querySelector<HTMLButtonElement>(
-      "[data-motion-origin-handle]",
-    );
-    expect(surface).not.toBeNull();
-    expect(handle).not.toBeNull();
-    if (!surface || !handle) throw new Error("Anchor target did not open.");
-    surface.getBoundingClientRect = () =>
-      ({
-        x: 0,
-        y: 0,
-        left: 0,
-        top: 0,
-        right: 100,
-        bottom: 100,
-        width: 100,
-        height: 100,
-        toJSON: () => ({}),
-      }) as DOMRect;
+    expect(topRight).not.toBeNull();
+    if (!topRight) throw new Error("Top-right origin anchor did not render.");
 
-    await act(async () => {
-      handle.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          cancelable: true,
-          pointerId: 1,
-          button: 0,
-          clientX: 50,
-          clientY: 50,
-        }),
-      );
-      handle.dispatchEvent(
-        new PointerEvent("pointermove", {
-          bubbles: true,
-          cancelable: true,
-          pointerId: 1,
-          button: 0,
-          clientX: 72,
-          clientY: 25,
-        }),
-      );
-      handle.dispatchEvent(
-        new PointerEvent("pointerup", {
-          bubbles: true,
-          cancelable: true,
-          pointerId: 1,
-          button: 0,
-        }),
-      );
-    });
+    await act(async () => topRight.click());
     expect(onStyleChange).toHaveBeenLastCalledWith(
       "transform-origin",
-      "72% 25%",
+      "100% 0%",
       undefined,
     );
     expect(

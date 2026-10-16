@@ -23,6 +23,7 @@ const nodeId = "motion-target";
 let rootPath = "";
 let designId = "";
 let connectionId = "";
+let screenId = "";
 let reactDevServerUrl = "";
 let viteServer: ViteDevServer | null = null;
 let bridge: DesignConnectBridge | null = null;
@@ -215,7 +216,7 @@ test.describe.serial("React Motion source browser writeback", () => {
     }
   });
 
-  test("writes React Motion to JSX, reads it back, and renders it after reload", async ({
+  test("writes React Motion to JSX and rehydrates it in the editor after reload", async ({
     page,
     request,
   }) => {
@@ -224,7 +225,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       designId,
       paths: ["/"],
     });
-    const screenId = opened.screens?.[0]?.id;
+    screenId = opened.screens?.[0]?.id;
     if (!screenId) throw new Error("React Motion screen was not registered");
 
     await page.goto(appPath(`/design/${designId}?editorView=overview`), {
@@ -256,14 +257,40 @@ test.describe.serial("React Motion source browser writeback", () => {
       designId,
       connectionId,
     });
-    const expectedTrack = {
-      targetNodeId: nodeId,
-      property: "translate",
-      keyframes: [
-        { t: 0, value: "0px 0px", ease: "linear" },
-        { t: 1, value: "24px 0px", ease: "linear" },
-      ],
-    };
+    const expectedTracks = [
+      {
+        targetNodeId: nodeId,
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "1", ease: "linear" },
+          { t: 1, value: "0.8", ease: "linear" },
+        ],
+      },
+      {
+        targetNodeId: nodeId,
+        property: "rotate",
+        keyframes: [
+          { t: 0, value: "0deg", ease: "linear" },
+          { t: 1, value: "12deg", ease: "linear" },
+        ],
+      },
+      {
+        targetNodeId: nodeId,
+        property: "scale",
+        keyframes: [
+          { t: 0, value: "1", ease: "linear" },
+          { t: 1, value: "1.2", ease: "linear" },
+        ],
+      },
+      {
+        targetNodeId: nodeId,
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "linear" },
+          { t: 1, value: "24px 0px", ease: "linear" },
+        ],
+      },
+    ];
     const textDocument = {
       version: 1,
       animations: [
@@ -289,9 +316,10 @@ test.describe.serial("React Motion source browser writeback", () => {
         connectionId,
         modulePath: sourcePath,
         moduleVersionHash: initialSourceHash,
+        timelineVersionHash: initialSourceHash,
         renderedNodeIds: [nodeId],
       },
-      tracks: [expectedTrack],
+      tracks: expectedTracks,
       textDocument,
       durationMs: 1000,
       playbackMode: "once",
@@ -343,19 +371,27 @@ test.describe.serial("React Motion source browser writeback", () => {
       durationMs: 1000,
       playbackMode: "once",
       defaultEase: "linear",
-      tracks: [expectedTrack],
+      tracks: expectedTracks,
       textDocument,
       sourceVersionHash: directSourceHash,
     });
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    frame = iframe.contentFrame();
-    const reloadedTarget = frame.locator(`#${nodeId}`);
+    const reloadedFrame = page
+      .locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+      )
+      .contentFrame();
+    const reloadedTarget = reloadedFrame.locator(`#${nodeId}`);
+    await expect(reloadedTarget).toBeVisible({ timeout: 30_000 });
     await expect(reloadedTarget).toHaveAttribute(
       "data-agent-native-motion-source-hash",
       directSourceHash,
+      { timeout: 30_000 },
     );
-
+    await expect(
+      reloadedFrame.locator("style[data-agent-native-motion]"),
+    ).toHaveAttribute("data-agent-native-motion", "true");
     await gotoEditor(page, designId);
     await selectByText(page, "Motion target", { screenId });
     await page
@@ -426,13 +462,479 @@ test.describe.serial("React Motion source browser writeback", () => {
         renderedTarget.evaluate((element) => element.getAnimations().length),
       )
       .toBeGreaterThan(0);
-    const renderedAtQuarterTime = await renderedTarget.evaluate((element) => {
-      const animation = element.getAnimations()[0];
-      if (!animation) throw new Error("React Motion CSS animation is missing");
-      animation.pause();
-      animation.currentTime = 250;
-      return getComputedStyle(element).translate;
+    const renderedAtQuarterTime = await renderedTarget.evaluate(
+      async (element) => {
+        const animations = element.getAnimations();
+        const properties = ["opacity", "rotate", "scale", "translate"];
+        const matchedAnimations = properties.map((property) => {
+          const animation = animations.find((candidate) =>
+            (candidate.effect as KeyframeEffect | null)
+              ?.getKeyframes()
+              .some((keyframe) => property in keyframe),
+          );
+          if (!animation)
+            throw new Error(`React ${property} animation is missing`);
+          animation.pause();
+          return animation;
+        });
+        await Promise.all(
+          matchedAnimations.map((animation) => animation.ready),
+        );
+        for (const animation of matchedAnimations) animation.currentTime = 250;
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+        const values: Record<string, string> = {};
+        for (const property of properties) {
+          values[property] =
+            getComputedStyle(element).getPropertyValue(property);
+        }
+        return values;
+      },
+    );
+    expect(renderedAtQuarterTime).toEqual({
+      opacity: "0.95",
+      rotate: "3deg",
+      scale: "1.05",
+      translate: "6px",
     });
-    expect(renderedAtQuarterTime).toBe("6px");
+  });
+
+  test("rehydrates the open Motion editor after a direct JSX source edit", async ({
+    page,
+    request,
+  }) => {
+    if (!screenId) throw new Error("React Motion screen is not registered");
+
+    await gotoEditor(page, designId);
+    await selectByText(page, "Motion target", { screenId });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const firstTextKeyframeValue = page.getByRole("textbox", {
+      name: "Keyframe value 1.1",
+      exact: true,
+    });
+    await expect(firstTextKeyframeValue).toHaveValue("0.25");
+
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    const before = fs.readFileSync(sourceFilePath, "utf8");
+    const after = before.replace('"value":"0.25"', '"value":"0.4"');
+    expect(after).not.toBe(before);
+    fs.writeFileSync(sourceFilePath, after);
+    const nextHash = createHash("sha256").update(after).digest("hex");
+    const iframe = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    );
+    const frame = iframe.contentFrame();
+    await expect(frame.locator(`#${nodeId}`)).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      nextHash,
+    );
+    await expect(firstTextKeyframeValue).toHaveValue("0.4", {
+      timeout: 20_000,
+    });
+
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            sourceVersionHash: nextHash,
+            textDocument: {
+              animations: [
+                {
+                  targetNodeId: nodeId,
+                  keyframes: [{ value: "0.4" }, { value: "1" }],
+                },
+              ],
+            },
+          },
+        ],
+      });
+    expect(fs.readFileSync(sourceFilePath, "utf8")).toContain('"value":"0.4"');
+
+    const cssEdited = after
+      .replace("opacity: 0.8;", "opacity: 0.6;")
+      .replace("rotate: 12deg;", "rotate: 24deg;")
+      .replace("scale: 1.2;", "scale: 1.4;")
+      .replace("translate: 24px 0px;", "translate: 36px 0px;")
+      .replace(
+        "animation-duration: 1s, 1s, 1s, 1s;",
+        "animation-duration: 1.2s, 1.2s, 1.2s, 1.2s;",
+      );
+    expect(cssEdited).not.toBe(after);
+    fs.writeFileSync(sourceFilePath, cssEdited);
+    const cssEditedHash = createHash("sha256").update(cssEdited).digest("hex");
+    await expect(frame.locator(`#${nodeId}`)).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      cssEditedHash,
+      { timeout: 20_000 },
+    );
+
+    const expectedDirectTracks = [
+      {
+        targetNodeId: nodeId,
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "1", ease: "linear" },
+          { t: 1, value: "0.6", ease: "linear" },
+        ],
+      },
+      {
+        targetNodeId: nodeId,
+        property: "rotate",
+        keyframes: [
+          { t: 0, value: "0deg", ease: "linear" },
+          { t: 1, value: "24deg", ease: "linear" },
+        ],
+      },
+      {
+        targetNodeId: nodeId,
+        property: "scale",
+        keyframes: [
+          { t: 0, value: "1", ease: "linear" },
+          { t: 1, value: "1.4", ease: "linear" },
+        ],
+      },
+      {
+        targetNodeId: nodeId,
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "linear" },
+          { t: 1, value: "36px 0px", ease: "linear" },
+        ],
+      },
+    ];
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            sourceVersionHash: cssEditedHash,
+            durationMs: 1200,
+            tracks: expectedDirectTracks,
+          },
+        ],
+      });
+
+    const durationInput = page.getByRole("textbox", {
+      name: "Duration",
+      exact: true,
+    });
+    await expect(durationInput).toHaveValue("1200");
+    const motionCodeSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await durationInput.fill("1300");
+    await durationInput.press("Enter");
+    const savedResponse = await motionCodeSave;
+    expect(savedResponse.ok(), await savedResponse.text()).toBe(true);
+    await expect
+      .poll(() => fs.readFileSync(sourceFilePath, "utf8"))
+      .not.toBe(cssEdited);
+    const savedSource = fs.readFileSync(sourceFilePath, "utf8");
+    const savedSourceHash = createHash("sha256")
+      .update(savedSource)
+      .digest("hex");
+    expect(savedSource).toContain("opacity: 0.6;");
+    expect(savedSource).toContain("rotate: 24deg;");
+    expect(savedSource).toContain("scale: 1.4;");
+    expect(savedSource).toContain("translate: 36px 0px;");
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            sourceVersionHash: savedSourceHash,
+            durationMs: 1300,
+            tracks: expectedDirectTracks,
+          },
+        ],
+      });
+
+    await page.goto(reactDevServerUrl, { waitUntil: "load" });
+    const browserTarget = page.locator(`#${nodeId}`);
+    await expect(browserTarget).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      savedSourceHash,
+    );
+    const renderedAtHalfTime = await browserTarget.evaluate(async (element) => {
+      const animations = element.getAnimations();
+      const properties = ["opacity", "rotate", "scale", "translate"];
+      const matchedAnimations = properties.map((property) => {
+        const animation = animations.find((candidate) =>
+          (candidate.effect as KeyframeEffect | null)
+            ?.getKeyframes()
+            .some((keyframe) => property in keyframe),
+        );
+        if (!animation)
+          throw new Error(`React ${property} animation is missing`);
+        animation.pause();
+        return animation;
+      });
+      await Promise.all(matchedAnimations.map((animation) => animation.ready));
+      for (const animation of matchedAnimations) animation.currentTime = 600;
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      const values: Record<string, string> = {};
+      for (const property of properties) {
+        values[property] = getComputedStyle(element).getPropertyValue(property);
+      }
+      return values;
+    });
+    expect(renderedAtHalfTime).toEqual({
+      opacity: "0.8",
+      rotate: "12deg",
+      scale: "1.2",
+      translate: "18px",
+    });
+  });
+
+  test("imports static JSX CSS into Motion and renders the saved source", async ({
+    page,
+    request,
+  }) => {
+    if (!screenId) throw new Error("React Motion screen is not registered");
+
+    const existing = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    for (const timeline of existing.timelines ?? []) {
+      if (timeline.id) {
+        if (typeof timeline.sourceVersionHash !== "string") {
+          throw new Error("React Motion source version is missing.");
+        }
+        await postAction(request, "remove-motion-timeline", {
+          designId,
+          timelineId: timeline.id,
+          fileId: screenId,
+          timelineVersionHash: timeline.sourceVersionHash,
+        });
+      }
+    }
+
+    const authoredSource = `import React from "react";
+import { createRoot } from "react-dom/client";
+
+function App() {
+  return (
+    <main>
+      <style>{\`
+#motion-target {
+  color: rebeccapurple;
+  /* Keep this authored note. */
+  animation-name: source-fade;
+  animation-duration: 900ms;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+@keyframes source-fade {
+  from { opacity: 0.1; }
+  to { opacity: 0.9; }
+}
+\`}</style>
+      <button data-agent-native-node-id="motion-target" id="motion-target">
+        Motion target
+      </button>
+    </main>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<App />);
+`;
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    fs.writeFileSync(sourceFilePath, authoredSource);
+    await page.goto(reactDevServerUrl, { waitUntil: "load" });
+    const target = page.locator("button#motion-target");
+    await expect(target).toHaveText("Motion target");
+    const targetNodeId = await target.getAttribute("data-agent-native-node-id");
+    expect(targetNodeId).toBe(nodeId);
+
+    const sourceHash = createHash("sha256")
+      .update(authoredSource)
+      .digest("hex");
+    const recovered = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+      targetNodeIds: [targetNodeId!],
+      previewModulePath: sourcePath,
+      previewModuleVersionHash: sourceHash,
+    });
+    expect(recovered.timelines).toHaveLength(1);
+    expect(recovered.timelines[0]).toMatchObject({
+      source: "recovered-react",
+      filePath: sourcePath,
+      tracks: [
+        {
+          targetNodeId,
+          property: "opacity",
+          durationMs: 900,
+          keyframes: [
+            { t: 0, value: "0.1", ease: "linear" },
+            { t: 1, value: "0.9", ease: "ease" },
+          ],
+        },
+      ],
+      sourceVersionHash: sourceHash,
+    });
+    expect(recovered.sourceWriteCapability).toMatchObject({
+      status: "supported",
+      modulePath: sourcePath,
+      moduleVersionHash: sourceHash,
+      targetNodeIds: [targetNodeId],
+    });
+
+    const saved = await postAction(request, "apply-motion-edit", {
+      designId,
+      fileId: screenId,
+      sourceRef: screenId,
+      localSource: {
+        connectionId,
+        modulePath: sourcePath,
+        moduleVersionHash: sourceHash,
+        timelineVersionHash: sourceHash,
+        renderedNodeIds: [targetNodeId],
+      },
+      tracks: [
+        {
+          targetNodeId,
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0.25", ease: "linear" },
+            { t: 1, value: "0.75", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 900,
+      playbackMode: "once",
+      defaultEase: "linear",
+    });
+    expect(saved).toMatchObject({
+      persisted: true,
+      sourceType: "localhost",
+      sourcePatched: true,
+      filePath: sourcePath,
+    });
+
+    const savedSource = fs.readFileSync(sourceFilePath, "utf8");
+    expect(savedSource).not.toContain("animation-name: source-fade;");
+    expect(savedSource).toContain("@keyframes source-fade");
+    expect(savedSource).toContain("color: rebeccapurple;");
+    expect(savedSource).toContain("/* Keep this authored note. */");
+    expect(savedSource).toContain("data-agent-native-motion");
+    await expect.poll(() => viteChangedFiles).toContain(sourceFilePath);
+
+    const savedHash = createHash("sha256").update(savedSource).digest("hex");
+    const roundTrip = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    expect(roundTrip.timelines).toHaveLength(1);
+    expect(roundTrip.timelines[0]).toMatchObject({
+      durationMs: 900,
+      tracks: [
+        {
+          targetNodeId,
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0.25", ease: "linear" },
+            { t: 1, value: "0.75", ease: "linear" },
+          ],
+        },
+      ],
+      sourceVersionHash: savedHash,
+    });
+
+    const renderedTarget = page.locator(
+      `[data-agent-native-node-id="${targetNodeId}"]`,
+    );
+    await expect(renderedTarget).toHaveText("Motion target");
+    await expect(renderedTarget).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      savedHash,
+    );
+    await expect
+      .poll(() =>
+        renderedTarget.evaluate((element) => element.getAnimations().length),
+      )
+      .toBeGreaterThan(0);
+    const atHalfTime = await renderedTarget.evaluate(async (element) => {
+      const animation = element
+        .getAnimations()
+        .find((candidate) =>
+          (candidate.effect as KeyframeEffect | null)
+            ?.getKeyframes()
+            .some((keyframe) => "opacity" in keyframe),
+        );
+      if (!animation) throw new Error("React opacity animation is missing");
+      animation.pause();
+      await animation.ready;
+      animation.currentTime = 450;
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      return getComputedStyle(element).opacity;
+    });
+    expect(atHalfTime).toBe("0.5");
+
+    const persistedTimelineId = roundTrip.timelines[0]?.id;
+    if (!persistedTimelineId) {
+      throw new Error("The imported React Motion timeline was not persisted.");
+    }
+    const sourceVersionHash = roundTrip.timelines[0]?.sourceVersionHash;
+    if (typeof sourceVersionHash !== "string") {
+      throw new Error("The imported React Motion source version is missing.");
+    }
+    const viteChangesBeforeRemoval = viteChangedFiles.length;
+    await postAction(request, "remove-motion-timeline", {
+      designId,
+      timelineId: persistedTimelineId,
+      fileId: screenId,
+      timelineVersionHash: sourceVersionHash,
+    });
+    const removedSource = fs.readFileSync(sourceFilePath, "utf8");
+    expect(removedSource).not.toContain("data-agent-native-motion");
+    expect(removedSource).toContain("color: rebeccapurple;");
+    expect(removedSource).toContain("/* Keep this authored note. */");
+    await expect
+      .poll(() => viteChangedFiles.length)
+      .toBeGreaterThan(viteChangesBeforeRemoval);
+
+    const motionFreeTarget = page.locator(
+      `[data-agent-native-node-id="${targetNodeId}"]`,
+    );
+    await expect(motionFreeTarget).toHaveText("Motion target");
+    await expect(motionFreeTarget).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      createHash("sha256").update(removedSource).digest("hex"),
+    );
+    await expect
+      .poll(() =>
+        motionFreeTarget.evaluate((element) => element.getAnimations().length),
+      )
+      .toBe(0);
+
+    fs.writeFileSync(sourceFilePath, reactSource());
   });
 });

@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -22,6 +23,12 @@ export interface AgentAppModelDefaultSelection {
   model: string;
   updatedAt?: number;
   updatedBy?: string;
+}
+
+export interface AgentAppModelDefaultContext {
+  userEmail?: string | null;
+  orgId?: string | null;
+  orgScope?: "personal";
 }
 
 export interface AgentAppModelDefaultSettings {
@@ -78,7 +85,7 @@ function emptySettings(
 }
 
 export async function readAgentAppModelDefaultSettings(
-  ctx: { userEmail?: string | null; orgId?: string | null },
+  ctx: AgentAppModelDefaultContext,
   appIdInput: string | null | undefined,
 ): Promise<AgentAppModelDefaultSettings> {
   const appId = normalizeAgentAppModelDefaultAppId(appIdInput);
@@ -94,18 +101,22 @@ export async function readAgentAppModelDefaultSettings(
       : emptySettings(appId, "org");
   }
 
-  if (ctx.userEmail) {
+  if (ctx.userEmail && ctx.orgScope === "personal") {
     const stored = parseSelection(await getUserSetting(ctx.userEmail, key));
     return stored
       ? { appId, ...stored, scope: "user", source: "user" }
       : emptySettings(appId, "user");
   }
 
+  if (ctx.userEmail) {
+    throw new Error("Organization scope could not be resolved.");
+  }
+
   return emptySettings(appId, "default");
 }
 
 export async function writeAgentAppModelDefaultSettings(
-  ctx: { userEmail?: string | null; orgId?: string | null },
+  ctx: AgentAppModelDefaultContext,
   appIdInput: string | null | undefined,
   selection: { engine: string; model: string; updatedBy?: string | null },
 ): Promise<AgentAppModelDefaultSettings> {
@@ -133,13 +144,16 @@ export async function writeAgentAppModelDefaultSettings(
   if (!ctx.userEmail) {
     throw new Error("Authentication required to update model defaults.");
   }
+  if (ctx.orgScope !== "personal") {
+    throw new Error("Organization scope could not be resolved.");
+  }
 
   await putUserSetting(ctx.userEmail, key, value);
   return readAgentAppModelDefaultSettings(ctx, appId);
 }
 
 export async function resetAgentAppModelDefaultSettings(
-  ctx: { userEmail?: string | null; orgId?: string | null },
+  ctx: AgentAppModelDefaultContext,
   appIdInput: string | null | undefined,
 ): Promise<AgentAppModelDefaultSettings> {
   const appId = normalizeAgentAppModelDefaultAppId(appIdInput);
@@ -154,6 +168,9 @@ export async function resetAgentAppModelDefaultSettings(
   if (!ctx.userEmail) {
     throw new Error("Authentication required to reset model defaults.");
   }
+  if (ctx.orgScope !== "personal") {
+    throw new Error("Organization scope could not be resolved.");
+  }
 
   await deleteUserSetting(ctx.userEmail, key);
   return readAgentAppModelDefaultSettings(ctx, appId);
@@ -162,9 +179,10 @@ export async function resetAgentAppModelDefaultSettings(
 export async function canUpdateAgentAppModelDefaultSettings(
   userEmail: string | null | undefined,
   orgId: string | null | undefined,
+  orgScope?: "personal",
 ): Promise<boolean> {
   if (!userEmail) return false;
-  if (!orgId) return true;
+  if (!orgId) return orgScope === "personal";
 
   try {
     const exec = getDbExec();
@@ -188,11 +206,19 @@ export async function getAgentAppModelDefaultForCurrentRequest(
   const appId = normalizeAgentAppModelDefaultAppId(appIdInput);
   if (!appId) return null;
 
+  const requestContext = getRequestContext();
   const userEmail = getRequestUserEmail();
   const orgId = getRequestOrgId();
+  if (!orgId && requestContext?.orgScope !== "personal") return null;
 
   const settings = await readAgentAppModelDefaultSettings(
-    { userEmail, orgId },
+    {
+      userEmail,
+      orgId,
+      ...(requestContext?.orgScope === "personal"
+        ? { orgScope: "personal" as const }
+        : {}),
+    },
     appId,
   ).catch(() => null);
 

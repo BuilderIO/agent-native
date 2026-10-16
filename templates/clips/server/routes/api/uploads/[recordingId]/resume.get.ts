@@ -19,7 +19,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte, ne, or } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -112,6 +112,7 @@ export default defineEventHandler(async (event: H3Event) => {
       const [recording] = await getDb()
         .select({
           status: schema.recordings.status,
+          failureCode: schema.recordings.failureCode,
           uploadAttemptId: schema.recordings.uploadAttemptId,
           uploadGenerationId: schema.recordings.uploadGenerationId,
         })
@@ -125,6 +126,10 @@ export default defineEventHandler(async (event: H3Event) => {
       if (!recording) {
         setResponseStatus(event, 404);
         return { error: "Recording not found" };
+      }
+      if (recording.failureCode === "taken_down") {
+        setResponseStatus(event, 409);
+        return { error: "Recording is no longer available.", terminal: true };
       }
       if (
         recording.uploadAttemptId &&
@@ -161,6 +166,7 @@ export default defineEventHandler(async (event: H3Event) => {
         id: schema.recordings.id,
         status: schema.recordings.status,
         failureReason: schema.recordings.failureReason,
+        failureCode: schema.recordings.failureCode,
         videoUrl: schema.recordings.videoUrl,
         uploadProgress: schema.recordings.uploadProgress,
         uploadAttemptId: schema.recordings.uploadAttemptId,
@@ -178,6 +184,10 @@ export default defineEventHandler(async (event: H3Event) => {
     if (!recording) {
       setResponseStatus(event, 404);
       return { error: "Recording not found" };
+    }
+    if (recording.failureCode === "taken_down") {
+      setResponseStatus(event, 409);
+      return { error: "Recording is no longer available.", terminal: true };
     }
 
     const existingGenerationId = recording.uploadGenerationId ?? null;
@@ -262,6 +272,10 @@ export default defineEventHandler(async (event: H3Event) => {
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          or(
+            isNull(schema.recordings.failureCode),
+            ne(schema.recordings.failureCode, "taken_down"),
+          ),
           retryableFailure
             ? eq(schema.recordings.status, "failed")
             : eq(schema.recordings.status, "uploading"),

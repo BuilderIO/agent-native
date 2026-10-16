@@ -189,6 +189,12 @@ describe("classifyLocalUploadFailure", () => {
         errorCode: "builder_credentials_rejected",
       }),
     ).toBe("storage_setup_required");
+    expect(
+      classifyLocalUploadFailure({
+        status: 503,
+        errorCode: "hosted_storage_unavailable",
+      }),
+    ).toBe("hosted_storage_unavailable");
     expect(classifyLocalUploadFailure({ status: 401 })).toBe("session_expired");
     expect(
       classifyLocalUploadFailure({
@@ -296,6 +302,38 @@ describe("uploadLocalRecording", () => {
     );
     expect(JSON.parse(abort![1].body).failureCode).toBe(
       "storage_setup_required",
+    );
+  });
+
+  it("keeps the local copy and exposes a retryable hosted storage outage", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.uploadChunkRequest.mockResolvedValue(
+      json(
+        {
+          error: "Clips hosted storage is temporarily unavailable.",
+          errorCode: "hosted_storage_unavailable",
+          retryable: true,
+        },
+        503,
+      ),
+    );
+
+    const error = await uploadLocalRecording("local-1", ME).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toMatchObject({
+      code: "hosted_storage_unavailable",
+      status: 503,
+      retryable: false,
+    });
+    expect(mocks.uploadChunkRequest).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    const abort = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/abort"),
+    );
+    expect(JSON.parse(abort![1].body).failureCode).toBe(
+      "hosted_storage_unavailable",
     );
   });
 
