@@ -820,7 +820,7 @@ jobs:
 
       - name: Upload the prebuilt artifact
         if: inputs.artifact_upload && inputs.migration_only != true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ runner.temp }}/netlify-artifact
@@ -3431,7 +3431,7 @@ jobs:
           inputs.target == 'preview' && inputs.deploy &&
           inputs.pull_request_number > 0 &&
           steps.pr_preview_record.outcome == 'success' && success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.pr_preview_record.outputs.artifact_name }}
           path: ${{ runner.temp }}/netlify-pr-preview-record/record.json

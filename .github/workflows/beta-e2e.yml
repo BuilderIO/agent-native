@@ -273,7 +273,7 @@ jobs:
           else
             pnpm e2e:beta --project=public
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
           name: beta-e2e-public-${{ matrix.app }}-${{ github.run_id }}
@@ -305,7 +305,7 @@ jobs:
           else
             pnpm e2e:beta --project=fleet
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
           name: beta-e2e-fleet-${{ github.run_id }}
@@ -497,7 +497,7 @@ jobs:
             exit "$selection_status"
           fi
           pnpm e2e:beta "${select_args[@]}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && env.SHARD_SELECTED == 'true' }}
         with:
           name: beta-e2e-authed-${{ matrix.slot }}-${{ github.run_id }}
@@ -555,7 +555,7 @@ jobs:
           else
             pnpm e2e:beta --project=advisory
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
           name: beta-e2e-advisory-${{ github.run_id }}
@@ -619,7 +619,7 @@ jobs:
                 --header 'Content-Type: application/json' \
                 --data-binary @- \
                 https://events.pagerduty.com/v2/enqueue
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
           name: signup-e2e-${{ github.run_id }}
