@@ -3,7 +3,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { captureError } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import type { UploadMode } from "@shared/recording-core.js";
-import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { formatUploadBytes, MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { eq } from "drizzle-orm";
 import { createError } from "h3";
 
@@ -46,22 +46,15 @@ import { validateRecordingScope } from "./lib/recording-scope.js";
 /** The `sourceAppName` the native mobile app (packages/mobile-app) sends. */
 const MOBILE_APP_SOURCE_NAME = "Agent-Native Mobile";
 
-function formatUploadBytes(bytes: number): string {
-  const mib = 1024 * 1024;
-  return bytes >= 1024 * mib
-    ? `${Number((bytes / (1024 * mib)).toFixed(1))} GB`
-    : `${Math.ceil(bytes / mib)} MB`;
-}
-
 function uploadTooLargeReason(
   sizeBytes: number,
   maxUploadBytes: number,
   storageMode: "own" | "hosted",
 ): string {
-  const size = formatUploadBytes(sizeBytes);
-  const limit = formatUploadBytes(maxUploadBytes);
+  const size = formatUploadBytes(sizeBytes, "up");
+  const limit = formatUploadBytes(maxUploadBytes, "down");
   return storageMode === "hosted"
-    ? `This video is ${size}, and Clips' free hosted storage takes clips up to ${limit}. Connect Builder.io or S3-compatible video storage in Clips settings to upload files up to ${formatUploadBytes(MAX_UPLOAD_BYTES)}, or trim the video and try again.`
+    ? `This video is ${size}, and Clips' free hosted storage takes clips up to ${limit}. Connect Builder.io or S3-compatible video storage in Clips settings to upload files up to ${formatUploadBytes(MAX_UPLOAD_BYTES, "down")}, or trim the video and try again.`
     : `This video is ${size}, and uploads are limited to ${limit}. Trim it or export a shorter copy and try again.`;
 }
 
@@ -222,7 +215,17 @@ export default defineAction({
     const maxUploadBytes =
       storage.mode === "hosted" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
     if (args.sizeBytes !== undefined && args.sizeBytes > maxUploadBytes) {
-      await releaseHostedReservation();
+      // The refusal and its limit must still reach the caller; a failed
+      // release only leaves this attempt's hosted allowance reserved.
+      await releaseHostedReservation().catch((error: unknown) => {
+        console.error(
+          "[create-recording] hosted allowance remains reserved after a size refusal",
+          {
+            recordingId: id,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      });
       fail(uploadTooLargeReason(args.sizeBytes, maxUploadBytes, storageMode), {
         errorCode: "upload_too_large",
         statusCode: 413,

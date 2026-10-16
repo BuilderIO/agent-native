@@ -196,6 +196,49 @@ describe("create-recording policy", () => {
     expect(calls.insert).toHaveBeenCalledOnce();
   });
 
+  it("still refuses an oversized file when its hosted reservation cannot be released", async () => {
+    calls.requestContext = { authUserId: "user-1" };
+    calls.releaseHosted.mockRejectedValueOnce(
+      new Error("allowance store down"),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: null,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: true,
+    });
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", sizeBytes: 250 * 1024 * 1024 + 1 },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "upload_too_large",
+      // One byte over still reads as over, not as the limit itself.
+      message: expect.stringMatching(/250\.1 MB.*up to 250 MB/),
+    });
+    expect(calls.insert).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("remains reserved after a size refusal"),
+      { recordingId: "rec-1", error: "allowance store down" },
+    );
+    consoleError.mockRestore();
+  });
+
   it("saves the new recording's policy before initializing its upload", async () => {
     const action = createRecording as unknown as {
       run: (
