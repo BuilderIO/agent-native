@@ -20,6 +20,7 @@ import {
 
 const popupState = vi.hoisted(() => ({ popup: null as unknown }));
 let localStorageDescriptor: PropertyDescriptor | undefined;
+let sessionStorageDescriptor: PropertyDescriptor | undefined;
 
 function createMemoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -46,7 +47,14 @@ function createMemoryStorage(): Storage {
 }
 
 beforeEach(() => {
-  window.sessionStorage.clear();
+  sessionStorageDescriptor = Object.getOwnPropertyDescriptor(
+    window,
+    "sessionStorage",
+  );
+  Object.defineProperty(window, "sessionStorage", {
+    configurable: true,
+    value: createMemoryStorage(),
+  });
   localStorageDescriptor = Object.getOwnPropertyDescriptor(
     window,
     "localStorage",
@@ -61,6 +69,11 @@ afterEach(() => {
   clearMcpConnectionResume();
   window.sessionStorage.clear();
   window.localStorage.clear();
+  if (sessionStorageDescriptor) {
+    Object.defineProperty(window, "sessionStorage", sessionStorageDescriptor);
+  } else {
+    Reflect.deleteProperty(window, "sessionStorage");
+  }
   if (localStorageDescriptor) {
     Object.defineProperty(window, "localStorage", localStorageDescriptor);
   } else {
@@ -649,7 +662,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
   it("resumes a prose-inferred connection request through the host thread", async () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/chat/thread-1");
-    saveMcpConnectionResume("Retry the Slack request.");
+    expect(saveMcpConnectionResume("Retry the Slack request.")).toBe(true);
     const onMessageResume = vi.fn();
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -694,7 +707,7 @@ describe("McpAgentKitConnectionResume after a failed attempt", () => {
   it("drops the failure notice when the next resume attempt starts", async () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/chat/thread-1");
-    saveMcpConnectionResume("Restore the request.", target);
+    expect(saveMcpConnectionResume("Restore the request.", target)).toBe(true);
     let finishRetry = () => {};
     const onResume = vi
       .fn()
@@ -727,7 +740,7 @@ describe("McpAgentKitConnectionResume after a failed attempt", () => {
   it("still clears the record after a successful resume", async () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/chat/thread-1");
-    saveMcpConnectionResume("Restore the request.", target);
+    expect(saveMcpConnectionResume("Restore the request.", target)).toBe(true);
     const onResume = vi.fn().mockResolvedValue(undefined);
 
     const container = await mount(onResume);

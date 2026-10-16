@@ -1227,6 +1227,98 @@ describe("createAgentKitProtocolAdapter", () => {
     }
   });
 
+  it("bounds a restored decline when its live stream never replays the request", async () => {
+    vi.useFakeTimers();
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    let markSubscriptionStarted!: () => void;
+    const subscriptionStarted = new Promise<void>((resolve) => {
+      markSubscriptionStarted = resolve;
+    });
+    let releaseSubscription!: () => void;
+    const subscriptionEnded = new Promise<void>((resolve) => {
+      releaseSubscription = resolve;
+    });
+    const subscribe = vi.fn(
+      async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
+        markSubscriptionStarted();
+        return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          await new Promise<void>((resolve) => {
+            if (abortSignal?.aborted) {
+              resolve();
+              return;
+            }
+            abortSignal?.addEventListener("abort", resolve, { once: true });
+          });
+          releaseSubscription();
+        })();
+      },
+    );
+    const continueTurn = vi.fn(async () => ({
+      id: "turn-2",
+      runId: "run-2",
+      sessionId: "thread-1",
+      events: noEvents(),
+    }));
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "restored-run",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+            continueTurn,
+          };
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "restored-run",
+            turnId: "turn-1",
+            terminalReason: null,
+            pendingConnectionRequestId: "restored-request",
+          };
+        },
+        subscribe,
+      }),
+    );
+
+    try {
+      const decline = transport.resolveConnectionRequest!({
+        threadId: "thread-1",
+        runId: "restored-run",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      });
+      const declineAssertion = expect(decline).rejects.toMatchObject({
+        code: "connection_request_unverified",
+        retryable: true,
+        message:
+          "Could not verify whether the restored connection request is still pending.",
+      });
+      await subscriptionStarted;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await declineAssertion;
+      expect(continueTurn).not.toHaveBeenCalled();
+      expect(subscribe).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: "restored-run", after: 0 }),
+      );
+    } finally {
+      vi.useRealTimers();
+      await transport.dispose();
+      await subscriptionEnded;
+    }
+  });
+
   it("restores the pending request before declining an excluded provider", async () => {
     async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
     const subscribe = vi.fn(async () => {

@@ -219,6 +219,19 @@ const DEFAULT_MAX_RETAINED_RUNS = 100;
 const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS = 5_000;
+const RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE =
+  "Could not verify whether the restored connection request is still pending.";
+
+function restoredConnectionRequestUnverifiedError() {
+  return Object.assign(
+    new Error(RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE),
+    {
+      code: "connection_request_unverified" as const,
+      retryable: true as const,
+    },
+  );
+}
 
 const DISCOVERABLE_CAPABILITIES = [
   "actions",
@@ -1823,9 +1836,7 @@ export function createAgentKitProtocolAdapter(
       runId: string,
     ): Promise<ServerRunState> => {
       if (!runAuthority) {
-        throw new Error(
-          "Could not verify whether the restored connection request is still pending.",
-        );
+        throw restoredConnectionRequestUnverifiedError();
       }
       const read = await readAuthoritativeRunState({
         sessionId,
@@ -1837,9 +1848,7 @@ export function createAgentKitProtocolAdapter(
         !("pendingConnectionRequestId" in read.state) ||
         read.state.pendingConnectionRequestId === undefined
       ) {
-        throw new Error(
-          "Could not verify whether the restored connection request is still pending.",
-        );
+        throw restoredConnectionRequestUnverifiedError();
       }
       return read.state;
     };
@@ -1905,9 +1914,7 @@ export function createAgentKitProtocolAdapter(
         !("pendingConnectionRequestId" in restoreRead.state) ||
         restoreRead.state.pendingConnectionRequestId === undefined)
     ) {
-      throw new Error(
-        "Could not verify whether the restored connection request is still pending.",
-      );
+      throw restoredConnectionRequestUnverifiedError();
     }
     const state = restoreRead?.kind === "read" ? restoreRead.state : undefined;
     const resumeInput = {
@@ -3220,6 +3227,28 @@ export function createAgentKitProtocolAdapter(
     });
   }
 
+  async function waitForRestoredConnectionRequest(
+    run: ProtocolRun,
+    requestId: string,
+  ): Promise<void> {
+    const isPending = () =>
+      run.pendingConnectionRequestId === requestId &&
+      run.events.some(
+        (event) =>
+          event.type === "connection.requested" &&
+          event.request.id === requestId,
+      );
+    const deadline = Date.now() + RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS;
+    while (!isPending() && !run.terminal && !readers.signal.aborted) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await notifyWhenChanged(run, readers.signal, remaining);
+    }
+    if (!isPending() && !run.terminal) {
+      throw restoredConnectionRequestUnverifiedError();
+    }
+  }
+
   async function resumeRuntimeTurn(
     run: ProtocolRun,
     cause?: unknown,
@@ -4247,11 +4276,15 @@ export function createAgentKitProtocolAdapter(
           ) {
             return;
           }
-          throw new Error(
-            "Could not verify whether the restored connection request is still pending.",
-          );
+          throw restoredConnectionRequestUnverifiedError();
         }
-        if (run.pumpPromise) await run.pumpPromise;
+        if (run.pumpPromise) {
+          if (input.response.status === "declined") {
+            await waitForRestoredConnectionRequest(run, input.requestId);
+          } else {
+            await run.pumpPromise;
+          }
+        }
       }
       touchRun(run);
       if (input.response.status === "declined" && run.terminal) return;
