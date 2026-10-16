@@ -99,7 +99,7 @@ jobs:
             echo
             echo "Run: $run_url"
             echo "Node.js and Docker paths: $paths_result"
-            echo "Netlify: $hosts_result"
+            echo "Netlify and Vercel hosts: $hosts_result"
             echo "Collected the legs' result files: $legs_outcome"
           } > report/summary.md
 
@@ -121,4 +121,4 @@ jobs:
           token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
           payload: |
             channel: ${{ env.SLACK_CHANNEL }}
-            text: ":rotating_light: Deploy canary failed. A reader following a deploy guide against npm would hit this. Node.js and Docker paths: ${{ needs.paths.result }}. Netlify: ${{ needs.hosts.result }}. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url || 'not available, the report could not be saved' }}"
+            text: ":rotating_light: Deploy canary failed. A reader following a deploy guide against npm would hit this. Node.js and Docker paths: ${{ needs.paths.result }}. Netlify and Vercel hosts: ${{ needs.hosts.result }}. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url || 'not available, the report could not be saved' }}"

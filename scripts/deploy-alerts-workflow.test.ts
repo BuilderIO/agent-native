@@ -99,6 +99,20 @@ describe("deploy-path alerts go to #qa-agent-native", () => {
       assertReporter(report, "deploy-canary-report-");
     });
 
+    it("labels the multi-provider host matrix accurately in both reports", () => {
+      const write = steps(report).find(
+        (step) => step.name === "Write the report",
+      );
+      assert.match(String(write?.run), /Netlify and Vercel hosts: \$hosts_result/);
+
+      const [post] = slackSteps(report);
+      const payload = (post?.with as Record<string, unknown>)?.payload;
+      assert.match(
+        String(payload),
+        /Netlify and Vercel hosts: \$\{\{ needs\.hosts\.result \}\}/,
+      );
+    });
+
     it("keeps each leg's result files apart, because their names repeat across npm tags", () => {
       const collect = steps(report).find((step) => step.id === "legs");
       const inputs = collect!.with as Record<string, unknown>;
