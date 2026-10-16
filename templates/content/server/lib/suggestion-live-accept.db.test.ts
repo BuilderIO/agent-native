@@ -153,9 +153,19 @@ async function stored(documentId: string) {
   return row!;
 }
 
-/** The live copy's version, and each top-level block's Yjs item and text. */
-async function liveCopy(documentId: string) {
-  const read = await collab.readLiveCopy(binding, documentId);
+/**
+ * The live copy's version, and each top-level block's Yjs item and text. A
+ * legacy write takes the Page off its live copy, so `uncovered` reads the
+ * state browsers load without the gate.
+ */
+async function liveCopy(
+  documentId: string,
+  options: { uncovered?: boolean } = {},
+) {
+  const read = await collab.readLiveCopy(
+    options.uncovered ? { ...binding, appliesTo: () => true } : binding,
+    documentId,
+  );
   if (read.kind !== "live") throw new Error(`live copy is ${read.kind}`);
   const doc = new Y.Doc();
   Y.applyUpdate(doc, read.state);
@@ -516,7 +526,9 @@ describe("accepting a suggestion on a Page its legacy writer still writes", () =
       }
       const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
       expect((await stored(documentId)).content).toBe(expected);
-      expect((await liveCopy(documentId)).text).toBe(expected);
+      expect((await liveCopy(documentId, { uncovered: true })).text).toBe(
+        expected,
+      );
     },
   );
 
@@ -550,6 +562,8 @@ describe("accepting a suggestion on a Page its legacy writer still writes", () =
     }
     const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
     expect((await stored(documentId)).content).toBe(expected);
-    expect((await liveCopy(documentId)).text).toBe(expected);
+    expect((await liveCopy(documentId, { uncovered: true })).text).toBe(
+      expected,
+    );
   });
 });

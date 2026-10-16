@@ -705,9 +705,9 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
-    // A Page can leave its live copy between reading the gate and writing, and
-    // a peer's commit in that gap reads the same way, so the gate is read
-    // again to choose the writer.
+    // A Page can leave its live copy between reading the gate and writing; the
+    // writer then refuses, having written nothing, and the gate is read again
+    // to choose the writer.
     for (let attempt = 1; ; attempt += 1) {
       const page = await liveCopyPage(context.resourceId);
       if (!page) break;
