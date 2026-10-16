@@ -1898,11 +1898,11 @@ describe("DeckEditor generation signal wiring", () => {
     });
     expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(7_000);
+      await vi.advanceTimersByTimeAsync(6_000);
     });
 
     const refreshCountBeforeHidden = mocks.refreshOpenDeck.mock.calls.length;
-    expect(refreshCountBeforeHidden).toBeGreaterThanOrEqual(4);
+    expect(refreshCountBeforeHidden).toBe(3);
     setVisibilityState("hidden");
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     await act(async () => {
