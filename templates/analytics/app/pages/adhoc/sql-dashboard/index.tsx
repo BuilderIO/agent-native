@@ -2011,7 +2011,7 @@ function SqlDashboardPageContent({
   );
 
   const annotationEditing = useAnnotationEditing({
-    dashboardId,
+    dashboardId: loadedDashboardId ?? undefined,
     dashboard,
     editing,
     persist,
