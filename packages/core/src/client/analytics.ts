@@ -33,7 +33,6 @@ import {
   FIRST_TOUCH_SERVER_COOKIE_NAME,
   FIRST_TOUCH_SERVER_COOKIE_VERSION,
   FIRST_TOUCH_SERVER_PATH,
-  isConsentRegionTimeZone,
   isSameFirstTouch,
   preferFirstTouch,
 } from "../shared/first-touch-persistence.js";
@@ -55,6 +54,7 @@ import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
+import { whenConsentAllows } from "./consent.js";
 import { clientFailureContext } from "./failure-report.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
@@ -862,21 +862,6 @@ function backfillAttributionCookie(
   }
 }
 
-/**
- * Whether the visitor seems to be where attribution storage needs consent we
- * don't ask for. The time zone answers without storing anything; the server's
- * country check backs it up for a browser whose zone doesn't say.
- */
-function isConsentRegionBrowser(): boolean {
-  try {
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return !timeZone || isConsentRegionTimeZone(timeZone);
-  } catch {
-    // An unknown zone could be anywhere, so it gets the stricter answer.
-    return true;
-  }
-}
-
 /** Remove every stored touch, in storage and cookies. */
 function clearStoredAttribution(): void {
   safeStorageRemove(FIRST_TOUCH_STORAGE_KEY);
@@ -938,7 +923,7 @@ function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
     .then(async (response) => {
       if (!response.ok) return;
       const result = (await response.json()) as { reason?: string };
-      if (result.reason === "consent_region") {
+      if (result.reason === "consent_required") {
         clearStoredAttribution();
         return;
       }
@@ -975,14 +960,32 @@ function captureFirstTouchAttribution(
   if (_firstTouchCaptured) return;
   _firstTouchCaptured = true;
   if (typeof window === "undefined") return;
-  if (isConsentRegionBrowser()) {
-    clearStoredAttribution();
-    return;
-  }
   try {
+    // Read the visit now: the URL can change before the visitor consents.
     const current = buildFirstTouchAttribution(
       options.landingPath ?? window.location.pathname,
     );
+    const forwarded = readForwardedLastTouch();
+    const forwardedAt = readForwardedLastTouchAt();
+    // Where the banner applies, nothing is stored until the visitor accepts
+    // targeting cookies, and a later "reject" clears it again.
+    whenConsentAllows(
+      "targeting",
+      () => storeTouches(current, forwarded, forwardedAt),
+      { optimistic: true, revoke: clearStoredAttribution },
+    );
+  } catch {
+    // coercion-ok: attribution is best-effort telemetry; never let it break
+    // boot.
+  }
+}
+
+function storeTouches(
+  current: FirstTouchAttribution,
+  forwarded: LastTouchAttribution | null,
+  forwardedAt: string | undefined,
+): void {
+  try {
     const local = readLocalFirstTouch();
     // The same visit in both keeps the local copy, which was never trimmed.
     const firstTouch = preferFirstTouch(
@@ -995,7 +998,7 @@ function captureFirstTouchAttribution(
       storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, firstTouch);
     }
     syncFirstTouchToServer(firstTouch);
-    captureLastTouchAttribution(current);
+    captureLastTouchAttribution(current, forwarded, forwardedAt);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
   }
@@ -1008,10 +1011,12 @@ function captureFirstTouchAttribution(
  * visit keeps the time it happened, and loses to a newer visit the app has
  * already recorded.
  */
-function captureLastTouchAttribution(current: FirstTouchAttribution): void {
-  const forwarded = readForwardedLastTouch();
+function captureLastTouchAttribution(
+  current: FirstTouchAttribution,
+  forwarded: LastTouchAttribution | null,
+  forwardedAt: string | undefined,
+): void {
   const source = forwarded ?? (hasAttributionSource(current) ? current : null);
-  const forwardedAt = readForwardedLastTouchAt();
   const existing = getLastTouchAttribution();
   const existingAt = Date.parse(existing?.touched_at ?? "");
   if (

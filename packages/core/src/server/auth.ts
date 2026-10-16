@@ -24,6 +24,7 @@ import {
   workspaceAppAccessUnavailableBody,
 } from "../org/workspace-app-access-outcome.js";
 import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
+import { CONSENT_REGION_PATH } from "../shared/consent.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -42,6 +43,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { createConsentRegionHandler } from "./consent-route.js";
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
@@ -7284,6 +7286,7 @@ export async function autoMountAuth(
 
   mountAuthCorsMiddleware(app);
   app.use(FIRST_TOUCH_SERVER_PATH, createFirstTouchHandler());
+  app.use(CONSENT_REGION_PATH, createConsentRegionHandler());
 
   if (options.getSession) {
     customGetSession = options.getSession;

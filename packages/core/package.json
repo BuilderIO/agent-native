@@ -510,6 +510,7 @@
     "./client/changelog/use-changelog-seen": "./dist/client/changelog/use-changelog-seen.js",
     "./client/chat-model-groups": "./dist/client/chat-model-groups.js",
     "./client/client-status-requests": "./dist/client/client-status-requests.js",
+    "./client/consent": "./dist/client/consent.js",
     "./client/context-xray/format": "./dist/client/context-xray/format.js",
     "./client/dev-overlay/builtins": "./dist/client/dev-overlay/builtins.js",
     "./client/error-reporting": "./dist/client/error-reporting.js",

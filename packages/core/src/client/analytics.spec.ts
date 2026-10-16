@@ -44,8 +44,10 @@ vi.mock("../observability/tracing.js", () => tracingMock);
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
 const appEntryStateKey = Symbol.for("agent-native.client.appEntryTracking");
 const agentChatStateKey = Symbol.for("agent-native.client.agentChatTracking");
+const consentStateKey = Symbol.for("agent-native.client.consent");
 
 function resetPageviewState() {
+  delete (globalThis as any)[consentStateKey];
   delete (globalThis as any)[pageviewStateKey];
   delete (globalThis as any)[appEntryStateKey];
   delete (globalThis as any)[agentChatStateKey];
@@ -112,6 +114,10 @@ function installFetch({
     }
     if (String(url).includes("/_agent-native/auth/attribution")) {
       return new Response(JSON.stringify({ stored: true }));
+    }
+    if (String(url).includes("/_agent-native/auth/consent-region")) {
+      // No geo header in tests, so the browser's time zone decides.
+      return new Response(JSON.stringify({ region: "unknown" }));
     }
     analyticsCalls.push([url, init ?? {}]);
     return new Response("{}");
@@ -357,7 +363,7 @@ describe("browser analytics pageviews", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (String(url).includes("/_agent-native/auth/attribution")) {
+        if (String(url).includes("/_agent-native/auth/")) {
           return new Response(JSON.stringify({ stored: true }));
         }
         analyticsCalls.push([url, init ?? {}]);
@@ -775,7 +781,7 @@ describe("browser analytics pageviews", () => {
     expect(stored.utm_term).toBe("💡".repeat(60));
   });
 
-  it("stores no attribution in a consent-region time zone, and clears what was there", async () => {
+  it("stores no attribution in a consent-region time zone until the visitor accepts", async () => {
     const { cookieAssignment, localStorage, setTimeZone } = installBrowser(
       "https://clips.agent-native.com/?utm_source=youtube",
     );
@@ -801,6 +807,41 @@ describe("browser analytics pageviews", () => {
         String(url).includes("/_agent-native/auth/attribution"),
       ),
     ).toBe(false);
+
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: false, targeting: true });
+    await tick();
+
+    expect(cookieAssignment("an_consent")).toMatch(
+      /^an_consent=1\.p0\.t1; path=\/; max-age=31536000; SameSite=Lax; domain=agent-native\.com$/,
+    );
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(true);
+
+    setConsentChoice({ performance: false, targeting: false });
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+  });
+
+  it("stores attribution for a visitor outside the consent region", async () => {
+    const { localStorage, setTimeZone } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    setTimeZone("Europe/London");
+    installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
   });
 
   it("sends first touch to the server for its year-long cookie", async () => {
@@ -936,7 +977,7 @@ describe("browser analytics pageviews", () => {
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ stored: false, reason: "consent_region" }),
+            JSON.stringify({ stored: false, reason: "consent_required" }),
           ),
       ),
     );
@@ -1030,6 +1071,9 @@ describe("browser analytics pageviews", () => {
       }
       if (String(url).includes("/_agent-native/auth/session")) {
         return pendingSession;
+      }
+      if (String(url).includes("/_agent-native/auth/")) {
+        return Promise.resolve(new Response("{}"));
       }
       analyticsCalls.push([url, init ?? {}]);
       return Promise.resolve(new Response("{}"));

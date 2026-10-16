@@ -12,7 +12,6 @@ import type { H3Event } from "h3";
 import {
   FIRST_TOUCH_SERVER_COOKIE_NAME,
   firstTouchServerExpiry,
-  isConsentRegionCountry,
   preferFirstTouch,
 } from "../shared/first-touch-persistence.js";
 import {
@@ -24,32 +23,14 @@ import {
   parseCookieHeader,
   type FirstTouchAttribution,
 } from "./attribution.js";
+import { requestAllowsConsentCategory } from "./consent-route.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
 
 const MAX_BODY_BYTES = 8 * 1024;
 
 export type FirstTouchSyncResult =
   | { stored: true; firstTouch: FirstTouchAttribution }
-  | { stored: false; reason: "consent_region" | "expired" };
-
-function requestCountry(event: H3Event): string | undefined {
-  const direct =
-    getHeader(event, "x-country") ??
-    getHeader(event, "cf-ipcountry") ??
-    getHeader(event, "x-vercel-ip-country");
-  if (direct) return direct;
-  const geo = getHeader(event, "x-nf-geo");
-  if (!geo) return undefined;
-  try {
-    const parsed = JSON.parse(Buffer.from(geo, "base64").toString("utf8"));
-    const code = parsed?.country?.code;
-    return typeof code === "string" ? code : undefined;
-  } catch {
-    // coercion-ok: an unreadable geo header is an unknown country, which the
-    // browser's own time-zone check already covered.
-    return undefined;
-  }
-}
+  | { stored: false; reason: "consent_required" | "expired" };
 
 // Stricter than `isSameOriginRequest`: a request with neither header, or from
 // a desktop shell's origin, can't prove it came from this site's pages.
@@ -92,8 +73,9 @@ function readCandidate(body: string): FirstTouchAttribution | null {
  * browser's first touch in the year-long `an_fts` cookie. Anyone may call it,
  * signed in or not, but only from this origin. The value already in the
  * cookie wins unless `preferFirstTouch` picks the new one, so a slow request
- * from another tab can't replace a better first touch it never saw. In a
- * consent region it stores nothing and clears every attribution cookie.
+ * from another tab can't replace a better first touch it never saw. Where the
+ * banner applies and the visitor hasn't accepted targeting cookies, it stores
+ * nothing and clears every attribution cookie.
  */
 export function createFirstTouchHandler() {
   return defineEventHandler(async (event) => {
@@ -116,11 +98,11 @@ export function createFirstTouchHandler() {
       return { error: "Body too large" };
     }
 
-    if (isConsentRegionCountry(requestCountry(event))) {
+    if (!requestAllowsConsentCategory(event, "targeting")) {
       clearAttributionCookies(event);
       return {
         stored: false,
-        reason: "consent_region",
+        reason: "consent_required",
       } satisfies FirstTouchSyncResult;
     }
 

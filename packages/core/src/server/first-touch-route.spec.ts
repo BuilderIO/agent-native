@@ -159,8 +159,8 @@ describe("first-touch server cookie route", () => {
 
   it.each([
     ["x-country", "DE"],
-    ["x-country", "gb"],
-    ["cf-ipcountry", "FR"],
+    ["x-country", "fr"],
+    ["cf-ipcountry", "NL"],
     [
       "x-nf-geo",
       Buffer.from(JSON.stringify({ country: { code: "IE" } })).toString(
@@ -168,13 +168,13 @@ describe("first-touch server cookie route", () => {
       ),
     ],
   ])(
-    "stores nothing and clears attribution where consent is needed (%s: %s)",
+    "stores nothing and clears attribution until the visitor consents (%s: %s)",
     async (header, value) => {
       const response = await post(sourced, { [header]: value });
 
       expect(await response.json()).toEqual({
         stored: false,
-        reason: "consent_region",
+        reason: "consent_required",
       });
       expect(setCookies(response)).toEqual([
         expect.stringMatching(/^an_fts=; Max-Age=0; Path=\//),
@@ -186,8 +186,25 @@ describe("first-touch server cookie route", () => {
 
   it("stores a visitor outside those countries", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
-    const response = await post(sourced, { "x-country": "US" });
-    expect(storedTouch(response)).toMatchObject({ utm_source: "youtube" });
+    for (const country of ["US", "GB", "CH"]) {
+      const response = await post(sourced, { "x-country": country });
+      expect(storedTouch(response)).toMatchObject({ utm_source: "youtube" });
+    }
+  });
+
+  it("stores a consent-region visitor who accepted targeting cookies", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const accepted = await post(sourced, {
+      "x-country": "DE",
+      cookie: "an_consent=1.p0.t1",
+    });
+    expect(storedTouch(accepted)).toMatchObject({ utm_source: "youtube" });
+
+    const performanceOnly = await post(sourced, {
+      "x-country": "DE",
+      cookie: "an_consent=1.p1.t0",
+    });
+    expect(await performanceOnly.json()).toMatchObject({ stored: false });
   });
 
   it("does not store a first touch older than a year", async () => {
