@@ -5612,7 +5612,10 @@ export default function DeckEditor() {
               <div
                 ref={setLayersPanelSlot}
                 data-layers-panel-host="true"
-                style={{ height: layersHeight ?? "50%" }}
+                style={{
+                  height: layersHeight ?? "50%",
+                  maxHeight: `calc(100% - ${LAYERS_MIN_RAIL_HEIGHT}px)`,
+                }}
                 className="flex w-full shrink-0 flex-col overflow-hidden empty:hidden"
               />
             </div>
