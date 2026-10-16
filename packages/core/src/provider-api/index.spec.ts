@@ -402,7 +402,7 @@ describe("provider API runtime", () => {
         if (url.endsWith("/mcp/token")) {
           return new Response(
             JSON.stringify({
-              access_token: "refreshed-sigma-token",
+              access_token: "fresh-access-token",
               refresh_token: "rotated-sigma-refresh-token",
               expires_in: 3600,
             }),
@@ -436,18 +436,18 @@ describe("provider API runtime", () => {
     );
     expect(refreshBody.get("refresh_token")).toBe("sigma-refresh-token");
     expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
-      Authorization: "Bearer refreshed-sigma-token",
+      Authorization: "Bearer fresh-access-token",
     });
     expect(saveOAuthTokens).toHaveBeenCalledWith(
       "sigma",
       connection.accountId,
       expect.objectContaining({
-        access_token: "refreshed-sigma-token",
+        access_token: "fresh-access-token",
         refresh_token: "rotated-sigma-refresh-token",
       }),
       "ada@example.com",
     );
-    expect(JSON.stringify(result)).not.toContain("refreshed-sigma-token");
+    expect(JSON.stringify(result)).not.toContain("fresh-access-token");
   });
 
   it("allows the configured provider origin alongside registered host suffixes", async () => {
