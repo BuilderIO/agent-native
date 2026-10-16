@@ -87,6 +87,11 @@ function useLiveMicrophoneMeter({
     let trackRetryTimeoutId: number | null = null;
     let cleanupAnalyser: (() => void) | null = null;
     const missingTrackStartedAt = performance.now();
+    const markMicrophoneTrackEnded = () => {
+      hasHeardAudioRef.current = false;
+      setLevel(null);
+      setSilentForMs(MIC_SILENCE_WARNING_MS);
+    };
 
     const attachAnalyser = (track: MediaStreamTrack) => {
       const AudioContextCtor = getAudioContextCtor();
@@ -163,9 +168,7 @@ function useLiveMicrophoneMeter({
       const handleTrackEnded = () => {
         cleanup();
         if (disposed) return;
-        hasHeardAudioRef.current = false;
-        setLevel(null);
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
+        markMicrophoneTrackEnded();
       };
 
       const sample = () => {
@@ -216,25 +219,28 @@ function useLiveMicrophoneMeter({
     const checkForTrack = () => {
       if (disposed) return;
       const track = getMicrophoneTrackRef.current();
-      if (track && track.readyState !== "ended") {
-        attachAnalyser(track);
+      if (!track) {
+        if (hadLiveAnalyserRef.current) {
+          markMicrophoneTrackEnded();
+          return;
+        }
+        const remaining =
+          MIC_SILENCE_WARNING_MS - (performance.now() - missingTrackStartedAt);
+        if (remaining <= 0) {
+          setSilentForMs(MIC_SILENCE_WARNING_MS);
+          return;
+        }
+        trackRetryTimeoutId = window.setTimeout(
+          checkForTrack,
+          Math.min(MICROPHONE_TRACK_RETRY_MS, remaining),
+        );
         return;
       }
-      if (hadLiveAnalyserRef.current) {
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
+      if (track.readyState === "ended") {
+        markMicrophoneTrackEnded();
         return;
       }
-
-      const remaining =
-        MIC_SILENCE_WARNING_MS - (performance.now() - missingTrackStartedAt);
-      if (remaining <= 0) {
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
-        return;
-      }
-      trackRetryTimeoutId = window.setTimeout(
-        checkForTrack,
-        Math.min(MICROPHONE_TRACK_RETRY_MS, remaining),
-      );
+      attachAnalyser(track);
     };
 
     checkForTrack();

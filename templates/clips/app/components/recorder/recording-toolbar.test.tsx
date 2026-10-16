@@ -365,4 +365,19 @@ describe("RecordingToolbar live microphone meter", () => {
 
     expect(noAudioWarning()).not.toBeNull();
   });
+
+  it("warns when the microphone track ends while paused after audio was detected", async () => {
+    sampleValue = 180;
+    await renderToolbar();
+    await act(async () => vi.advanceTimersByTime(20));
+    expect(noAudioWarning()).toBeNull();
+
+    await renderToolbar({ isPaused: true });
+    await act(async () => track.end());
+    expect(noAudioWarning()).toBeNull();
+
+    await renderToolbar({ isPaused: false });
+
+    expect(noAudioWarning()).not.toBeNull();
+  });
 });
