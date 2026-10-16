@@ -7,12 +7,14 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Dashboard freshness stays in the title row, with compact update times on wide cards and a clock on narrow cards.
 - Analytics preserves metric breakdowns across continued queries and keeps partial totals clearly labeled.
 - Analytics query errors now explain safe next steps without exposing raw SQL or backend details
 - Analytics separates related metrics from the measure you asked for and retries partial BigQuery results.
 
 ### Fixed
 
+- Dashboard update status remains visible for sources without fetch-time or cache metadata
 - Normalize typed date literals in first-party BigQuery queries
 - Treat incomplete schema and truncated BigQuery results as partial evidence
 
@@ -41,6 +43,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Dashboard query costs and refresh confirmations reflect actual execution, and disconnected sources clear saved rows
+- Dashboard results disappear when access is withdrawn, and Explorer query costs exclude cached scans
 - Analytics now distinguishes empty and partial dbt metric results from complete answers.
 
 ## 2026-10-14
@@ -55,6 +59,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Dashboard charts now reappear instantly after a reload from a saved copy while fresh data loads, show when each result was fetched, and keep a more accurate estimate of query cost.
+- Dashboard panels no longer carry a fetch-time badge: the time and cache state sit behind a clock in each panel's hover actions, and a panel only says so in plain text while it updates, briefly after you refresh it, or when its data is over an hour old, in a reserved line that keeps the chart from moving when the text appears or goes.
 - Changed dashboard filters now say only you see them, and coming back to a dashboard without a default view reopens the saved view you had open.
 - Dashboard charts stay visible while they refresh or while new filters load, marked as updating, instead of blanking to a skeleton
 - Dashboards open in View mode, so looking around never changes them for everyone; switch to Edit to rearrange, rename, or resize for everyone, and column widths you drag while viewing stay just for you.

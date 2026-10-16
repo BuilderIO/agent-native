@@ -69,6 +69,7 @@ function useCacheDatabase(): Map<
     refreshForced: boolean;
     refreshStartedAt: string | null;
     expiresAt: string;
+    createdAt: string;
   }
 > {
   const cache = new Map<
@@ -81,6 +82,7 @@ function useCacheDatabase(): Map<
       refreshForced: boolean;
       refreshStartedAt: string | null;
       expiresAt: string;
+      createdAt: string;
     }
   >();
   execute.mockImplementation(async ({ sql, args }) => {
@@ -119,7 +121,7 @@ function useCacheDatabase(): Map<
       return {
         rows:
           entry && entry.expiresAt > String(args[1])
-            ? [{ result: entry.result }]
+            ? [{ result: entry.result, created_at: entry.createdAt }]
             : [],
       };
     }
@@ -136,6 +138,7 @@ function useCacheDatabase(): Map<
         refreshForced: Boolean(args[5]),
         refreshStartedAt: String(args[2]),
         expiresAt: entry?.expiresAt ?? String(args[2]),
+        createdAt: entry?.createdAt ?? String(args[2]),
       };
       cache.set(key, next);
       return {
@@ -154,6 +157,7 @@ function useCacheDatabase(): Map<
         refreshForced: false,
         refreshStartedAt: null,
         expiresAt: String(args[5]),
+        createdAt: String(args[4]),
       };
       if (!entry) {
         cache.set(key, next);
@@ -189,6 +193,7 @@ function useCacheDatabase(): Map<
           refreshForced: false,
           refreshStartedAt: null,
           expiresAt: String(args[5]),
+          createdAt: String(args[4]),
         };
         cache.set(key, next);
         return {
@@ -623,7 +628,7 @@ describe("runQuery cancellation", () => {
       totalRows: 2,
     });
     expect(retry).not.toHaveProperty("partial");
-    expect(retry).not.toHaveProperty("cached");
+    expect(retry).toHaveProperty("cached", false);
     expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await expect(runQuery(sql)).resolves.toMatchObject({
@@ -1145,6 +1150,195 @@ describe("runQuery cancellation", () => {
     expect(fenceRead?.[0].args[0]).toMatch(/^v2:/);
   });
 
+  it("reports when the app received the result and whether the provider cache answered", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    const completed = (cacheHit?: boolean) =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "signups", type: "INT64" }] },
+        rows: [{ f: [{ v: "7" }] }],
+        totalBytesProcessed: "4096",
+        ...(cacheHit === undefined ? {} : { cacheHit }),
+      });
+    const fetchMock = mockQueryJobs(
+      completed(true),
+      completed(false),
+      completed(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const hit = await runQuery("SELECT 1 AS provider_cache_hit");
+    vi.setSystemTime(new Date("2026-10-14T12:05:00Z"));
+    const miss = await runQuery("SELECT 2 AS provider_cache_miss");
+    vi.setSystemTime(new Date("2026-10-14T12:10:00Z"));
+    const unreported = await runQuery("SELECT 3 AS provider_cache_unreported");
+
+    expect(hit).toMatchObject({
+      bytesProcessed: 4096,
+      fetchedAt: "2026-10-14T12:00:00.000Z",
+      providerCacheHit: true,
+    });
+    expect(miss).toMatchObject({
+      bytesProcessed: 4096,
+      fetchedAt: "2026-10-14T12:05:00.000Z",
+      providerCacheHit: false,
+    });
+    expect(unreported.fetchedAt).toBe("2026-10-14T12:10:00.000Z");
+    expect(unreported).not.toHaveProperty("providerCacheHit");
+    // Every one of these reached BigQuery, so none was served by the app cache.
+    for (const fresh of [hit, miss, unreported]) {
+      expect(fresh).toMatchObject({ cached: false });
+    }
+    // Metadata comes from the existing getQueryResults response: one submit and
+    // one poll per query, with an unchanged job configuration.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).configuration
+        .query,
+    ).toEqual({
+      query: "SELECT 1 AS provider_cache_hit",
+      useLegacySql: false,
+      maximumBytesBilled: "750000000000",
+    });
+  });
+
+  it("keeps the original fetch time and provider cache state on app cache hits", async () => {
+    const cache = useCacheDatabase();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "signups", type: "INT64" }] },
+        rows: [{ f: [{ v: "7" }] }],
+        totalBytesProcessed: "4096",
+        cacheHit: true,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS app_cache_metadata";
+
+    await runQuery(sql);
+    vi.setSystemTime(new Date("2026-10-14T13:00:00Z"));
+    const l1Hit = await runQuery(sql);
+    // A newer generation drops the in-process copy, so the next read comes
+    // from the shared database row.
+    for (const entry of cache.values()) entry.generation++;
+    const l2Hit = await runQuery(sql);
+
+    for (const hit of [l1Hit, l2Hit]) {
+      expect(hit).toMatchObject({
+        cached: true,
+        fetchedAt: "2026-10-14T12:00:00.000Z",
+        providerCacheHit: true,
+      });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("flags a fresh scan as an app-cache miss without persisting the flag", async () => {
+    const cache = useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "4096",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS app_cache_miss_flag";
+
+    const miss = await runQuery(sql);
+    const hit = await runQuery(sql);
+
+    expect(miss).toMatchObject({ cached: false, bytesProcessed: 4096 });
+    expect(hit).toMatchObject({ cached: true, bytesProcessed: 4096 });
+    for (const entry of cache.values()) {
+      expect(JSON.parse(entry.result)).not.toHaveProperty("cached");
+    }
+    // The second read was served by the app cache, not a second BigQuery job.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the cache row's created_at for results cached before fetchedAt existed", async () => {
+    const cache = useCacheDatabase();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "4096",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS legacy_cache_row";
+    await runQuery(sql);
+
+    for (const entry of cache.values()) {
+      const { fetchedAt: _written, ...legacy } = JSON.parse(entry.result);
+      entry.result = JSON.stringify(legacy);
+      entry.createdAt = "2026-10-13T08:30:00.000Z";
+      entry.generation++;
+    }
+    vi.setSystemTime(new Date("2026-10-14T18:00:00Z"));
+
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      cached: true,
+      bytesProcessed: 4096,
+      fetchedAt: "2026-10-13T08:30:00.000Z",
+    });
+
+    for (const entry of cache.values()) {
+      entry.createdAt = "not a timestamp";
+      entry.generation++;
+    }
+    const unreadable = await runQuery(sql);
+    expect(unreadable).toMatchObject({ cached: true });
+    expect(unreadable).not.toHaveProperty("fetchedAt");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stamps a forced refresh with its own fetch time while still bypassing the provider cache", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    const response = (cacheHit: boolean) =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "4096",
+        cacheHit,
+      });
+    const fetchMock = mockQueryJobs(response(true), response(false));
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS forced_refresh_metadata";
+
+    await runQuery(sql);
+    vi.setSystemTime(new Date("2026-10-14T12:30:00Z"));
+    const refreshed = await runQuery(sql, { forceRefresh: true });
+    const cachedAfter = await runQuery(sql);
+
+    expect(refreshed).toMatchObject({
+      fetchedAt: "2026-10-14T12:30:00.000Z",
+      providerCacheHit: false,
+    });
+    expect(refreshed).toMatchObject({ cached: false });
+    expect(cachedAfter).toMatchObject({
+      cached: true,
+      fetchedAt: "2026-10-14T12:30:00.000Z",
+      providerCacheHit: false,
+    });
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)).configuration
+        .query,
+    ).toHaveProperty("useQueryCache", false);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("runs the query without caching when cache coordination is unavailable", async () => {
     const originalExecute = execute.getMockImplementation();
     if (!originalExecute)
@@ -1173,7 +1367,7 @@ describe("runQuery cancellation", () => {
       rows: [],
       totalRows: 0,
     });
-    expect(result).not.toHaveProperty("cached");
+    expect(result).toMatchObject({ cached: false });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenCalledTimes(1);
@@ -1406,6 +1600,7 @@ describe("runQuery cancellation", () => {
       refreshForced: true,
       refreshStartedAt: new Date(now - 6 * 60 * 1000).toISOString(),
       expiresAt: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(now).toISOString(),
     });
     cache.set("active-refresh", {
       result: "{}",
@@ -1415,6 +1610,7 @@ describe("runQuery cancellation", () => {
       refreshForced: false,
       refreshStartedAt: new Date(now - 60 * 1000).toISOString(),
       expiresAt: expiredAt,
+      createdAt: new Date(now).toISOString(),
     });
     cache.set("expired-result", {
       result: "{}",
@@ -1424,6 +1620,7 @@ describe("runQuery cancellation", () => {
       refreshForced: false,
       refreshStartedAt: null,
       expiresAt: expiredAt,
+      createdAt: new Date(now).toISOString(),
     });
     vi.spyOn(Math, "random").mockReturnValue(0);
     const fetchMock = mockQueryJobs(

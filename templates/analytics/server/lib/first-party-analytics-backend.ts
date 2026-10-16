@@ -18,6 +18,7 @@ import {
 import { requireRequestCredentialContext } from "./credentials-context.js";
 import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
+import type { AnalyticsQueryResult } from "./first-party-analytics.js";
 import {
   fetchGoogleWithRetry,
   getBigQueryAccessToken,
@@ -1577,11 +1578,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     timeoutMs?: number;
     signal?: AbortSignal;
   } = {},
-): Promise<{
-  rows: Record<string, unknown>[];
-  schema: { name: string; type: string }[];
-  truncated?: boolean;
-}> {
+): Promise<AnalyticsQueryResult> {
   const timeoutMs = options.timeoutMs;
   if (
     timeoutMs !== undefined &&
@@ -1619,7 +1616,13 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   return {
     rows: result.rows,
     schema: result.schema,
-    ...(result.truncated ? { truncated: true } : {}),
+    bytesProcessed: result.bytesProcessed,
+    ...(result.cached !== undefined ? { cached: result.cached } : {}),
+    ...(result.providerCacheHit !== undefined
+      ? { providerCacheHit: result.providerCacheHit }
+      : {}),
+    ...(result.fetchedAt !== undefined ? { fetchedAt: result.fetchedAt } : {}),
+    ...(result.truncated !== undefined ? { truncated: result.truncated } : {}),
   };
 }
 

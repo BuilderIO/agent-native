@@ -1738,6 +1738,31 @@ describe("scopedAnalyticsSql", () => {
 });
 
 describe("queryFirstPartyAnalytics", () => {
+  it.each([false, true])(
+    "preserves BigQuery execution metadata through the scoped query on cache hit %s",
+    async (cached) => {
+      backendMocks.get.mockResolvedValueOnce({ sink: "bigquery" });
+      const result = {
+        rows: [{ events: 1 }],
+        schema: [{ name: "events", type: "number" }],
+        bytesProcessed: 4096,
+        cached,
+        providerCacheHit: false,
+        fetchedAt: "2026-10-14T12:00:00.000Z",
+        truncated: false,
+      };
+      backendMocks.query.mockResolvedValueOnce(result);
+      await expect(
+        queryFirstPartyAnalytics(
+          "SELECT COUNT(*) AS events FROM analytics_events",
+          { userEmail: "example@example.test", orgId: "example-org" },
+          { cache: true },
+        ),
+      ).resolves.toEqual(result);
+      expect(backendMocks.query).toHaveBeenCalledTimes(1);
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     "now()",
     "to_char(CURRENT_DATE, 'YYYY-MM-DD')",
@@ -2298,8 +2323,15 @@ describe("queryFirstPartyAnalytics", () => {
     try {
       const query = "SELECT COUNT(*) AS count FROM analytics_events";
       const scope = { userEmail: "cached@example.com", orgId: null };
-      await queryFirstPartyAnalytics(query, scope, { cache: true });
-      await queryFirstPartyAnalytics(query, scope, { cache: true });
+      const first = await queryFirstPartyAnalytics(query, scope, {
+        cache: true,
+      });
+      const cached = await queryFirstPartyAnalytics(query, scope, {
+        cache: true,
+      });
+      expect(first.cached).toBe(false);
+      expect(first.fetchedAt).toEqual(expect.any(String));
+      expect(cached).toEqual({ ...first, cached: true });
     } finally {
       random.mockRestore();
     }
@@ -2326,6 +2358,35 @@ describe("queryFirstPartyAnalytics", () => {
     );
     expect(execute.mock.calls[2][0].timeoutMs).toBeLessThanOrEqual(1_000);
   });
+
+  it.each([true, false])(
+    "preserves L2 metadata and the original age through L1, with fetch time present %s",
+    async (withFetchTime) => {
+      const saved = {
+        rows: [{ events: 1 }],
+        schema: [{ name: "events", type: "number" }],
+        ...(withFetchTime ? { fetchedAt: "2026-10-14T12:00:00.000Z" } : {}),
+      };
+      execute.mockResolvedValue({
+        rows: [{ result: JSON.stringify(saved) }],
+        rowsAffected: 0,
+      });
+      const scope = {
+        userEmail: `cache-${withFetchTime}@example.test`,
+        orgId: null,
+      };
+      const sql = "SELECT COUNT(*) AS events FROM analytics_events";
+      const first = await queryFirstPartyAnalytics(sql, scope, { cache: true });
+      expect(first).toEqual({ ...saved, cached: true });
+      expect(first).not.toHaveProperty("bytesProcessed");
+      const cached = await queryFirstPartyAnalytics(sql, scope, {
+        cache: true,
+      });
+      expect(cached).toEqual(first);
+      if (!withFetchTime) expect(cached).not.toHaveProperty("fetchedAt");
+      expect(execute).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("shares one deadline between the cache read and panel query", async () => {
     let now = 1_000;
@@ -2842,6 +2903,8 @@ describe("queryFirstPartyAnalytics", () => {
     ).resolves.toEqual({
       rows: [{ count: "1" }],
       schema: [{ name: "count", type: "string" }],
+      cached: false,
+      fetchedAt: expect.any(String),
     });
   });
 });

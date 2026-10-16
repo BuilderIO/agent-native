@@ -41,9 +41,39 @@ import {
   insertFirstPartyAnalyticsRowsWithResults,
   renderFirstPartyAnalyticsBigQueryRequestSql,
   renderFirstPartyAnalyticsBigQuerySql,
+  queryFirstPartyAnalyticsInBigQuery,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
 } from "./first-party-analytics-backend.js";
+
+describe("first-party BigQuery execution metadata", () => {
+  it.each([false, true])(
+    "preserves runQuery metadata on app cache hit %s",
+    async (cached) => {
+      const result = {
+        rows: [{ n: 1 }],
+        schema: [{ name: "n", type: "INTEGER" }],
+        bytesProcessed: 4096,
+        cached,
+        providerCacheHit: false,
+        fetchedAt: "2026-10-14T12:00:00.000Z",
+        truncated: false,
+      };
+      runQuery.mockResolvedValue(result);
+      await expect(
+        queryFirstPartyAnalyticsInBigQuery("SELECT 1 AS n", [], {
+          projectId: "example-project",
+          datasetId: "analytics",
+          tableId: "example_events",
+          fullyQualified: "example-project.analytics.example_events",
+        }),
+      ).resolves.toEqual(result);
+      expect(runQuery).toHaveBeenCalledTimes(1);
+      expect(fetchGoogleWithRetry).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+});
 
 beforeEach(() => {
   getScopedSettingRecord.mockReset();

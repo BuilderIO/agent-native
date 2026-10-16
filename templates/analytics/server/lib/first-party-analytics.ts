@@ -23,6 +23,7 @@ import { and, eq, getTableName, isNull, lt, or, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.js";
 import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
@@ -97,10 +98,9 @@ export interface IncomingAnalyticsEvent {
   timestamp?: string | number | Date | null;
 }
 
-export interface AnalyticsQueryResult {
+export interface AnalyticsQueryResult extends SqlQueryExecutionMetadata {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
-  truncated?: boolean;
 }
 
 export interface AnalyticsQueryOptions {
@@ -1778,6 +1778,8 @@ export async function queryFirstPartyAnalytics(
         return {
           rows,
           schema: inferSchema(rows),
+          cached: false,
+          fetchedAt: new Date().toISOString(),
           ...(truncated ? { truncated: true } : {}),
         };
       } catch (error) {
