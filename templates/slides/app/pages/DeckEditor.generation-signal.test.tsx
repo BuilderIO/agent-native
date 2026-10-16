@@ -1641,6 +1641,139 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBeTruthy();
   });
 
+  it("does not fingerprint the initial snapshot when the outcome refresh fails", async () => {
+    const originalPrompt = "Create a deck about customer onboarding.";
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
+    const initialRefreshSnapshot = {
+      ...mocks.deck,
+      slides: [{ id: "slide-1", content: "Older slide" }],
+    };
+    mocks.refreshOpenDeck
+      .mockResolvedValueOnce(mocks.deck)
+      .mockResolvedValueOnce(initialRefreshSnapshot)
+      .mockRejectedValueOnce(new Error("outcome refresh failed"));
+    mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: "attempt-1",
+        generationFailureSlidesFingerprint: null,
+        originalPrompt,
+      }),
+    );
+    expect(mocks.refreshOpenDeck.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          "slides:empty-generation-retry-recovery:deck-1",
+        )!,
+      ),
+    ).toMatchObject({
+      failureCode: "outcome_unresolved",
+      failureSlidesFingerprint: null,
+    });
+  });
+
+  it("retries an unknown snapshot refresh so the saved-prompt retry can proceed", async () => {
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    mocks.refreshOpenDeck
+      .mockRejectedValueOnce(new Error("transient refresh failure"))
+      .mockResolvedValueOnce(mocks.deck);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const retryButton = screen.getByRole("button", {
+      name: "deckEditor.checkedDeckTryAgain",
+    }) as HTMLButtonElement;
+    expect(retryButton.disabled).toBe(true);
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationFailureSlidesFingerprint:
+          partialGenerationFailureSlidesFingerprint([]),
+      }),
+    );
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(2);
+    expect(retryButton.disabled).toBe(false);
+    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("bounds unknown snapshot refresh attempts when the deck stays unavailable", async () => {
+    vi.useFakeTimers();
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    mocks.refreshOpenDeck.mockRejectedValue(new Error("refresh unavailable"));
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    const refreshCountAfterRetries = mocks.refreshOpenDeck.mock.calls.length;
+    expect(refreshCountAfterRetries).toBeGreaterThanOrEqual(3);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(
+      refreshCountAfterRetries,
+    );
+    expect(
+      (mocks.deck.generationContext as Record<string, unknown>)
+        .generationFailureSlidesFingerprint,
+    ).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.checkedDeckTryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
   it("shows the saved prompt when a refresh fails after output arrives", async () => {
     const originalPrompt = "Create a deck about customer onboarding.";
     mocks.deck.generationContext.originalPrompt = originalPrompt;

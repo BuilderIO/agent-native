@@ -301,6 +301,7 @@ const OUTPUT_VIEW_LEGACY_CLEANUP_KEY = "slides:output-viewed-cleanup-v1";
 const OUTPUT_VIEW_DECK_LIMIT = 512;
 const ACCESS_REQUEST_CHECK_INTERVAL_MS = 60_000;
 const ACCESS_REQUEST_MAX_CHECKS = 10;
+const UNKNOWN_SNAPSHOT_REFRESH_RETRY_DELAYS_MS = [250, 500] as const;
 
 async function claimOutputView(
   sessionId: string,
@@ -2143,9 +2144,7 @@ export default function DeckEditor() {
           await persistUnresolvedGuidedQuestionCheck(
             outcomeRefreshResult.status === "ready"
               ? outcomeRefreshResult.deck.slides
-              : initialOutcomeRefreshResult.status === "ready"
-                ? initialOutcomeRefreshResult.deck.slides
-                : null,
+              : null,
           );
           return;
         }
@@ -2190,14 +2189,7 @@ export default function DeckEditor() {
                 : "deck_not_visible_after_refresh",
           });
           const failureCode = "outcome_unresolved";
-          const refreshedSlides =
-            initialOutcomeRefreshResult.status === "ready"
-              ? initialOutcomeRefreshResult.deck.slides
-              : null;
-          const failureSlidesFingerprint =
-            refreshedSlides === null
-              ? null
-              : partialGenerationFailureSlidesFingerprint(refreshedSlides);
+          const failureSlidesFingerprint = null;
           if (generationContext) {
             updateDeck(id, {
               generationContext: {
@@ -2606,10 +2598,21 @@ export default function DeckEditor() {
     generationContext.generationFailureAttemptId === generationAttemptId &&
     generationContext.generationFailureSlidesFingerprint === null;
   useEffect(() => {
-    if (!id || !deck || !unresolvedFailureSnapshotUnknown) return;
+    if (!id || !unresolvedFailureSnapshotUnknown) return;
     let cancelled = false;
-    void refreshDeckForGenerationOutcome(refreshOpenDeck, id).then((result) => {
-      if (cancelled || result.status !== "ready") return;
+    let retryTimeout: ReturnType<typeof setTimeout> | undefined;
+    const refreshAndEstablishBaseline = async (retryIndex = 0) => {
+      const result = await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
+      if (cancelled) return;
+      if (result.status !== "ready") {
+        const retryDelay = UNKNOWN_SNAPSHOT_REFRESH_RETRY_DELAYS_MS[retryIndex];
+        if (retryDelay !== undefined) {
+          retryTimeout = setTimeout(() => {
+            void refreshAndEstablishBaseline(retryIndex + 1);
+          }, retryDelay);
+        }
+        return;
+      }
       const latestDeck = getDeckLatest(id);
       const latestContext = latestDeck?.generationContext;
       if (
@@ -2636,12 +2639,13 @@ export default function DeckEditor() {
           error,
         );
       });
-    });
+    };
+    void refreshAndEstablishBaseline();
     return () => {
       cancelled = true;
+      if (retryTimeout !== undefined) clearTimeout(retryTimeout);
     };
   }, [
-    deck,
     flushDeckSave,
     generationAttemptId,
     getDeckLatest,
