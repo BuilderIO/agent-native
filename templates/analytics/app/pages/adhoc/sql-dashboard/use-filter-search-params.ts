@@ -39,7 +39,19 @@ export function useFilterSearchParams() {
   const updateParams = useCallback(
     (update: (prev: URLSearchParams) => URLSearchParams) => {
       const current = router?.state;
-      const location = current?.location ?? renderedLocation;
+      const committed = current?.location ?? renderedLocation;
+      const location = current?.navigation.location ?? committed;
+      // Only read navigation within this dashboard can compose with this bar's
+      // config. Preserve other destinations and in-flight writes.
+      if (
+        (current?.navigation.formMethod &&
+          current.navigation.formMethod !== "GET") ||
+        location.pathname !== committed.pathname ||
+        new URLSearchParams(location.search).get("id") !==
+          new URLSearchParams(committed.search).get("id")
+      ) {
+        return;
+      }
       const key = current?.navigation.location?.key;
       const params = update(
         new URLSearchParams(
@@ -51,6 +63,7 @@ export function useFilterSearchParams() {
       let accepted: Draft | undefined;
       startTransition(() => {
         const navigation = navigate({
+          pathname: location.pathname,
           search: `?${params}`,
           hash: location.hash,
         });

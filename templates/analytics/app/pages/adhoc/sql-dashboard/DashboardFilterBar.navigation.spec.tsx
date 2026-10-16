@@ -69,6 +69,7 @@ let root: Root;
 let container: HTMLDivElement;
 let router: ReturnType<typeof createMemoryRouter>;
 let loads: {
+  pathname: string;
   search: string;
   resolve: (data?: Response) => void;
   reject: (error: Error) => void;
@@ -77,6 +78,7 @@ let committedQueries: string[];
 let blockNavigations = false;
 let queryClient: QueryClient;
 let filterBarMounts: number;
+let submission: { resolve: () => void; signal: AbortSignal };
 
 function TrackedFilterBar() {
   useEffect(() => {
@@ -91,6 +93,7 @@ function TrackedFilterBar() {
           filters: { f_app: "slides,design" },
           isDefault: true,
         },
+        { id: "staff", filters: { f_app: "chat", f_staff: "true" } },
       ]}
     />
   );
@@ -115,9 +118,14 @@ async function render(
   committedQueries = [];
   const route = {
     path: "/dashboards/:id",
+    action: ({ request }: { request: Request }) =>
+      new Promise<void>((resolve) => {
+        submission = { resolve, signal: request.signal };
+      }),
     loader: ({ request }: { request: Request }) =>
       new Promise<void | Response>((resolve, reject) => {
         loads.push({
+          pathname: new URL(request.url).pathname,
           search: new URL(request.url).search,
           resolve,
           reject,
@@ -684,6 +692,174 @@ describe("dashboard filter feedback during navigation", () => {
       }
     },
   );
+
+  it("merges edits into a pending external tab/view/search/hash target and keeps the newer draft", async () => {
+    await render("/dashboards/test?id=selected&tab=activity#old");
+    act(() => appTrigger().click());
+    act(() => option("Chat").click());
+    act(() => {
+      void router.navigate(
+        "/dashboards/test?id=selected&tab=other&view=staff&keep=one&keep=two&f_app=slides#target",
+      );
+    });
+    const externalKey = router.state.navigation.location?.key;
+    act(() => button("Off").click());
+    const expected =
+      "?id=selected&tab=other&view=staff&keep=one&keep=two&f_app=slides&f_staff=true";
+    expect(loads[3].pathname).toBe("/dashboards/test");
+    expect(loads[3].search).toBe(expected);
+    expect(router.state.navigation.location?.hash).toBe("#target");
+    expect(router.state.navigation.location?.key).not.toBe(externalKey);
+    expect(appTrigger().textContent).toBe("Slides");
+    expect(button("On")).toBeDefined();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      loads[2].resolve();
+      loads[1].resolve();
+    });
+    expect(appTrigger().textContent).toBe("Slides");
+    select(0, "Only .edu");
+    expect(loads[4].search).toBe(`${expected}&f_edu=only`);
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await settle();
+    await act(async () => loads[3].resolve());
+    expect(router.state.location.pathname).toBe("/dashboards/test");
+    expect(router.state.location.search).toBe(`${expected}&f_edu=only`);
+    expect(router.state.location.hash).toBe("#target");
+    expect(committedQueries).toEqual([
+      "?id=selected&tab=activity",
+      `${expected}&f_edu=only`,
+    ]);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
+  });
+
+  it("resets against the pending external saved view without losing its tab or hash", async () => {
+    await render();
+    act(() => {
+      void router.navigate(
+        "/dashboards/test?tab=other&view=staff&f_app=slides&keep=yes#target",
+      );
+    });
+    act(() => button("Reset filters").click());
+    expect(loads[2].search).toBe(
+      "?tab=other&view=staff&keep=yes&f_app=chat&f_staff=true",
+    );
+    expect(appTrigger().textContent).toBe("Chat");
+    expect(button("On")).toBeDefined();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(router.state.location.hash).toBe("#target");
+    expect(committedQueries).toEqual(["?tab=activity", loads[2].search]);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
+  });
+
+  it.each(
+    [
+      "/dashboards/other?id=selected&tab=other&view=foreign&f_app=slides#target",
+      "/dashboards/test?id=other&tab=other&view=foreign&f_app=slides#target",
+    ].flatMap((target) =>
+      ["Off", "Reset filters", "Launch apps"].map((control) => ({
+        target,
+        control,
+      })),
+    ),
+  )(
+    "preserves pending external dashboard $target instead of transferring an old $control interaction",
+    async ({ target, control }) => {
+      await render("/dashboards/test?id=selected&tab=activity");
+      act(() => appTrigger().click());
+      act(() => option("Chat").click());
+      let navigation!: Promise<void>;
+      act(() => {
+        navigation = router.navigate(target);
+      });
+      const pending = router.state.navigation.location;
+      act(() => button(control).click());
+      expect(router.state.navigation.location).toBe(pending);
+      expect(loads).toHaveLength(3);
+      expect(appTrigger().textContent).toBe("All");
+      expect(button("Off")).toBeDefined();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        loads[2].resolve();
+        await navigation;
+        loads[1].resolve();
+      });
+      const expected = new URL(target, "https://example.test");
+      expect(router.state.location.pathname).toBe(expected.pathname);
+      expect(router.state.location.search).toBe(expected.search);
+      expect(router.state.location.hash).toBe("#target");
+      expect(appTrigger().textContent).toBe("Slides");
+      act(() => button("Off").click());
+      expect(loads[3].pathname).toBe(expected.pathname);
+      expect(loads[3].search).toBe(`${expected.search}&f_staff=true`);
+      expect(mocks.callAction).toHaveBeenCalledTimes(2);
+      await settle();
+      expect(router.state.location.pathname).toBe(expected.pathname);
+      expect(router.state.location.search).toBe(
+        `${expected.search}&f_staff=true`,
+      );
+      expect(router.state.location.hash).toBe("#target");
+      expect(committedQueries).toEqual([
+        "?id=selected&tab=activity",
+        expected.search,
+        `${expected.search}&f_staff=true`,
+      ]);
+      expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+        committedQueries,
+      );
+    },
+  );
+
+  it("preserves an external submission and its revalidation before accepting the next filter edit", async () => {
+    await render();
+    let navigation!: Promise<void>;
+    act(() => {
+      navigation = router.navigate(
+        "/dashboards/test?tab=saved&f_app=slides#write",
+        { formMethod: "POST", formData: new FormData() },
+      );
+    });
+    expect(router.state.navigation.state).toBe("submitting");
+    const pending = router.state.navigation.location;
+    act(() => button("Off").click());
+    expect(router.state.navigation.location).toBe(pending);
+    expect(router.state.navigation.state).toBe("submitting");
+    expect(submission.signal.aborted).toBe(false);
+    expect(loads).toHaveLength(1);
+    expect(button("Off")).toBeDefined();
+    await act(async () => submission.resolve());
+    expect(router.state.navigation.state).toBe("loading");
+    expect(loads).toHaveLength(2);
+    act(() => button("Reset filters").click());
+    expect(router.state.navigation.location).toBe(pending);
+    expect(submission.signal.aborted).toBe(false);
+    expect(loads).toHaveLength(2);
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      loads[1].resolve();
+      await navigation;
+    });
+    expect(router.state.location.search).toBe("?tab=saved&f_app=slides");
+    expect(router.state.location.hash).toBe("#write");
+    act(() => button("Off").click());
+    expect(loads[2].search).toBe("?tab=saved&f_app=slides&f_staff=true");
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    await settle();
+    expect(router.state.location.hash).toBe("#write");
+    expect(committedQueries).toEqual([
+      "?tab=activity",
+      "?tab=saved&f_app=slides",
+      "?tab=saved&f_app=slides&f_staff=true",
+    ]);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
+  });
 
   it("does not carry a blocked follow-up edit while the earlier allowed navigation stays pending", async () => {
     await render();
