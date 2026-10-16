@@ -80,22 +80,27 @@ function cookieDomain(): string {
   return domain ? `; domain=${domain}` : "";
 }
 
+let serverChoiceWrites: Promise<unknown> = Promise.resolve();
+
 /**
  * Safari keeps a cookie page JavaScript wrote for seven days at most, so the
- * server writes the choice again for its full year.
+ * server writes the choice again for its full year. Writes go one at a time,
+ * so a slow earlier choice can't land after a later one.
  */
 function storeChoiceOnServer(choice: ConsentChoice): void {
   if (agentNativeApiDisabledReason() || typeof fetch !== "function") return;
-  void fetch(agentNativePath(CONSENT_PATH), {
-    method: "POST",
-    credentials: "same-origin",
-    keepalive: true,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ choice: serializeConsent(choice) }),
-  }).catch(() => {
-    // coercion-ok: the browser's own copy still holds the choice, for seven
-    // days in Safari; the visitor is asked again after that.
-  });
+  serverChoiceWrites = serverChoiceWrites.then(() =>
+    fetch(agentNativePath(CONSENT_PATH), {
+      method: "POST",
+      credentials: "same-origin",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice: serializeConsent(choice) }),
+    }).catch(() => {
+      // coercion-ok: the browser's own copy still holds the choice, for
+      // seven days in Safari; the visitor is asked again after that.
+    }),
+  );
 }
 
 function readCachedRegion(): ConsentRegion | null {
@@ -156,6 +161,10 @@ export function resolveConsentRegion(): Promise<ConsentRegion> {
   const cached = typeof window === "undefined" ? null : readCachedRegion();
   if (cached) {
     current.region = cached;
+    // Another app or tab may have stored a reject since this page's waiters
+    // last looked; let them clear what they kept.
+    settle();
+    notify();
     return Promise.resolve(cached);
   }
   return (current.regionPromise ??= fetchRegion().then((region) => {
@@ -177,6 +186,17 @@ function allows(category: ConsentCategory, region: ConsentRegion | null) {
   const choice = getConsentChoice();
   if (choice) return choice[category];
   return region === "none";
+}
+
+/**
+ * Whether `category` is allowed right now, on the time zone's guess until the
+ * server answers. Pair it with `whenConsentAllows` and a `revoke` that undoes
+ * whatever this let through.
+ */
+export function consentAllowsNow(category: ConsentCategory): boolean {
+  if (typeof window === "undefined") return false;
+  if (!state().region) void resolveConsentRegion();
+  return allows(category, regionGuess());
 }
 
 function settle(): void {

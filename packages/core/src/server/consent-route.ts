@@ -3,7 +3,6 @@ import {
   defineEventHandler,
   getHeader,
   getMethod,
-  readRawBody,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
@@ -19,6 +18,7 @@ import {
   type ConsentCategory,
 } from "../shared/consent.js";
 import { parseCookieHeader } from "./attribution.js";
+import { readBodyWithSizeLimit } from "./h3-helpers.js";
 import {
   getForwardedRequestOrigin,
   getForwardedRequestURL,
@@ -98,17 +98,17 @@ export function createConsentHandler() {
       setResponseStatus(event, 403);
       return { error: "Cross-origin request" };
     }
-    const body = (await readRawBody(event)) ?? "";
-    if (body.length > MAX_CONSENT_BODY_BYTES) {
-      setResponseStatus(event, 413);
-      return { error: "Body too large" };
-    }
     let choice;
     try {
-      choice = parseConsent(
-        (JSON.parse(body) as { choice?: unknown })?.choice as string,
+      const body = await readBodyWithSizeLimit<{ choice?: unknown } | null>(
+        event,
+        MAX_CONSENT_BODY_BYTES,
       );
-    } catch {
+      choice = parseConsent(body?.choice as string);
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 413) {
+        return { error: "Body too large" };
+      }
       setResponseStatus(event, 400);
       return { error: "Invalid JSON" };
     }

@@ -113,6 +113,7 @@ describe("client consent", () => {
     const consent = await freshConsent();
 
     consent.setConsentChoice({ performance: false, targeting: true });
+    await tick();
 
     const call = (
       fetchMock.mock.calls as unknown as Array<[string, RequestInit]>
@@ -122,6 +123,43 @@ describe("client consent", () => {
       credentials: "same-origin",
     });
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ choice: "1.p0.t1" });
+  });
+
+  it("sends a later choice only after the earlier one is stored", async () => {
+    const { fetchMock } = installBrowser({ region: "consent" });
+    const consent = await freshConsent();
+    const choiceBodies = () =>
+      (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)
+        .filter(([url]) => String(url).endsWith("/_agent-native/auth/consent"))
+        .map(([, init]) => JSON.parse(String(init.body)).choice);
+    let finishFirst!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (finishFirst = resolve)),
+    );
+
+    consent.setConsentChoice({ performance: true, targeting: true });
+    await tick();
+    consent.setConsentChoice({ performance: false, targeting: false });
+    await tick();
+    expect(choiceBodies()).toEqual(["1.p1.t1"]);
+
+    finishFirst(new Response("{}"));
+    await tick();
+    expect(choiceBodies()).toEqual(["1.p1.t1", "1.p0.t0"]);
+  });
+
+  it("clears this page's copies when another app already stored a reject", async () => {
+    const { session } = installBrowser();
+    session.set("an_consent_region", "consent");
+    document.cookie = "an_consent=1.p0.t0; path=/";
+    const consent = await freshConsent();
+    const run = vi.fn();
+    const revoke = vi.fn();
+
+    consent.whenConsentAllows("targeting", run, { optimistic: true, revoke });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalled();
   });
 
   it("runs scripts the page queued before the module loaded", async () => {

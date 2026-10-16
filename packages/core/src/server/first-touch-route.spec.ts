@@ -245,6 +245,23 @@ describe("first-touch server cookie route", () => {
     expect(setCookies(response)).toEqual([]);
   });
 
+  it("keeps a valid server copy when the browser sends one older than a year", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const expired = {
+      ...sourced,
+      landed_at: new Date(NOW - 400 * DAY_MS).toISOString(),
+    };
+    const response = await post(expired, {
+      cookie: serverCookie({ v: "1", ...direct }),
+    });
+
+    expect(await response.json()).toMatchObject({
+      stored: true,
+      firstTouch: direct,
+    });
+    expect(storedTouch(response)).toBeUndefined();
+  });
+
   it("counts a future visit time from now", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const response = await post({
@@ -283,6 +300,24 @@ describe("first-touch server cookie route", () => {
   it("rejects bodies that are too large, malformed, or missing a touch", async () => {
     const tooLarge = await post(null, {}, "x".repeat(9 * 1024));
     expect(tooLarge.status).toBe(413);
+
+    // A streamed body declares no length, so the cap applies while reading.
+    const streamed = await app().fetch(
+      new Request(`https://clips.agent-native.com${FIRST_TOUCH_SERVER_PATH}`, {
+        method: "POST",
+        headers: { "sec-fetch-site": "same-origin" },
+        body: new ReadableStream({
+          start(controller) {
+            for (let i = 0; i < 20; i += 1) {
+              controller.enqueue(new TextEncoder().encode("x".repeat(1024)));
+            }
+            controller.close();
+          },
+        }),
+        duplex: "half",
+      } as RequestInit),
+    );
+    expect(streamed.status).toBe(413);
 
     const malformed = await post(null, {}, "{");
     expect(malformed.status).toBe(400);
