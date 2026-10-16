@@ -14,7 +14,12 @@ import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import {
+  resolveDocumentTextEdits,
+  type DocumentTextEdit,
+} from "../shared/document-text-edits.js";
+import { canonicalizeNfm } from "../shared/nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "../shared/suggestion-diff.js";
 import { contentSuggestionPath } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
@@ -120,6 +125,39 @@ export function buildMarkdownSuggestionOperation(args: {
       ),
     },
   };
+}
+
+// Text between edge whitespace, in the form a stored body spells it. An edge
+// newline separates blocks, which the stored form spells differently.
+function inStoredForm(text: string): string | undefined {
+  const core = text.trim();
+  if (!core) return text;
+  const start = text.indexOf(core);
+  const lead = text.slice(0, start);
+  const trail = text.slice(start + core.length);
+  if (lead.includes("\n") || trail.includes("\n")) return undefined;
+  return `${lead}${canonicalizeNfm(core)}${trail}`;
+}
+
+/**
+ * A Page written through its live copy stores its body in canonical form, so
+ * an agent's find can be its own spelling of stored text, such as `$60` for
+ * the stored `\$60`. The edit is matched in that form when the result is
+ * still in it; otherwise the exact match's answer stands.
+ */
+function resolveInStoredForm(content: string, edit: DocumentTextEdit) {
+  const find = inStoredForm(edit.find);
+  const replace = edit.replace ? inStoredForm(edit.replace) : "";
+  if (find === undefined || replace === undefined) return undefined;
+  if (find === edit.find && replace === edit.replace) return undefined;
+  if (canonicalizeNfm(content) !== content) return undefined;
+  const resolved = resolveDocumentTextEdits(content, [{ find, replace }]);
+  if (!resolved.ok) {
+    return resolved.error.kind === "missing" ? undefined : resolved;
+  }
+  return canonicalizeNfm(resolved.content) === resolved.content
+    ? resolved
+    : undefined;
 }
 
 function rejectedFind(
@@ -330,16 +368,22 @@ export default defineAction({
       }
     }
 
-    const resolved = resolveDocumentTextEdits(content, [
-      { find: args.find, replace: args.replace ?? "" },
-    ]);
+    const edit = { find: args.find, replace: args.replace ?? "" };
+    let resolved = resolveDocumentTextEdits(content, [edit]);
+    if (
+      !resolved.ok &&
+      resolved.error.kind === "missing" &&
+      (await isLiveBodyWriterPage(id))
+    ) {
+      resolved = resolveInStoredForm(content, edit) ?? resolved;
+    }
     if (!resolved.ok) rejectedFind(resolved.error);
     const range = resolved.ranges[0]!;
 
     const operations = markdownSuggestionOperationsForFindReplace({
       before: content,
-      find: args.find,
-      replace: args.replace ?? "",
+      find: range.find,
+      replace: range.replace,
       start: range.start,
     });
     if (operations.length === 0) {

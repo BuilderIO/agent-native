@@ -1285,3 +1285,127 @@ describe("suggest-document-edit", () => {
     );
   });
 });
+
+describe("suggest-document-edit on a Page written through its live copy", () => {
+  // An agent writes `$60`; a Page written through its live copy stores `\$60`.
+  const AGENT_BODY =
+    "Charlie paragraph costs $60 per seat.\n\nDelta paragraph.";
+
+  beforeAll(async () => {
+    const { registerFeatureFlags } =
+      await import("@agent-native/core/feature-flags");
+    const { CONTENT_FEATURE_FLAGS } =
+      await import("../shared/feature-flags.js");
+    registerFeatureFlags(CONTENT_FEATURE_FLAGS);
+    const { putSetting } = await import("@agent-native/core/settings");
+    for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
+      await putSetting(`feature-flag:${flag}`, {
+        version: 1,
+        mode: "rules",
+        emails: [ctx.userEmail],
+        orgIds: [],
+        percentage: 0,
+        updatedAt: null,
+        updatedBy: null,
+      });
+  });
+
+  async function switchedPage(content: string) {
+    const { id } = await createPage(content);
+    const { switchPageToLiveCopy } =
+      await import("../server/live-copy/switch.js");
+    await expect(switchPageToLiveCopy(id)).resolves.toEqual({
+      writePath: "live_copy",
+    });
+    const doc = (await getDocument.run({ id }, ctx)) as {
+      revision: string;
+      content: string;
+    };
+    return { id, revision: doc.revision, content: doc.content };
+  }
+
+  function suggestOwnSpelling(
+    page: { id: string; revision: string },
+    find: string,
+    replace: string,
+  ) {
+    return suggestDocumentEdit.run(
+      {
+        id: page.id,
+        baseRevision: page.revision,
+        idempotencyKey: `stored-form-${page.id}-${find}`,
+        find,
+        replace,
+      },
+      ctx,
+    ) as Promise<{ suggestionId: string }>;
+  }
+
+  it("places an agent's spelling of the stored text, and accepting stores the change", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        expect(page.content).toBe(canonicalizeNfm(AGENT_BODY));
+
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "costs $60",
+          "costs $75",
+        );
+        const suggestion = (await getResourceSuggestion.run(
+          { id: suggestionId },
+          ctx,
+        )) as {
+          revision: number;
+          baseRevision: string;
+          metadata?: { sourceFind?: string };
+          operations: Array<{ before: { markdown: string } }>;
+        };
+        expect(suggestion.metadata?.sourceFind).toBe("costs $60");
+        expect(suggestion.operations[0]!.before.markdown).toBe(page.content);
+
+        await decideResourceSuggestion.run(
+          {
+            id: suggestionId,
+            decision: "accepted",
+            idempotencyKey: `accept-${suggestionId}`,
+            observedBase: suggestion.baseRevision,
+            observedRevision: suggestion.revision,
+          },
+          ctx,
+        );
+        expect(
+          ((await getDocument.run({ id: page.id }, ctx)) as { content: string })
+            .content,
+        ).toBe(canonicalizeNfm(AGENT_BODY.replace("$60", "$75")));
+      },
+    );
+  });
+
+  it("reports a stored-form find that matches more than once as ambiguous", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(
+          "Seats cost $60 now and desks cost $60 later.",
+        );
+        await expect(
+          suggestOwnSpelling(page, "cost $60", "cost $75"),
+        ).rejects.toThrow(/appears 2 times/);
+      },
+    );
+  });
+
+  it("keeps the exact match on a Page that isn't switched", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage(canonicalizeNfm(AGENT_BODY));
+        await expect(
+          suggestOwnSpelling({ id, revision }, "costs $60", "costs $75"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+});
