@@ -213,7 +213,9 @@ export function RowBreakdownSheet({
               : null;
 
   const numericCell = (item: TableColumnConfig) =>
-    isNumericColumnFormat(item.format) ? "text-right tabular-nums" : "";
+    isNumericColumnFormat(item.format)
+      ? "whitespace-nowrap text-right tabular-nums"
+      : "";
 
   return (
     <Sheet
@@ -287,14 +289,14 @@ export function RowBreakdownSheet({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-muted-foreground">
-                  <th className="px-2 py-1.5 text-start font-medium">
+                  <th className="w-full px-2 py-1.5 text-start font-medium">
                     {breakdown.label ?? breakdown.column}
                   </th>
                   {valueColumns.map((item) => (
                     <th
                       key={item.key}
                       className={cn(
-                        "px-2 py-1.5 font-medium",
+                        "whitespace-nowrap px-2 py-1.5 font-medium",
                         isNumericColumnFormat(item.format)
                           ? "text-right"
                           : "text-start",
