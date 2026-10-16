@@ -103,7 +103,10 @@ describe("deploy-path alerts go to #qa-agent-native", () => {
       const write = steps(report).find(
         (step) => step.name === "Write the report",
       );
-      assert.match(String(write?.run), /Netlify and Vercel hosts: \$hosts_result/);
+      assert.match(
+        String(write?.run),
+        /Netlify and Vercel hosts: \$hosts_result/,
+      );
 
       const [post] = slackSteps(report);
       const payload = (post?.with as Record<string, unknown>)?.payload;
