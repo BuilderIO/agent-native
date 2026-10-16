@@ -329,13 +329,16 @@ describe("import-transcript", () => {
     expect((importTranscript as any).mcpTool).toBeUndefined();
   });
 
-  it("asks the user to approve replacing a ready transcript, and only that", () => {
-    const needsApproval = (importTranscript as any).needsApproval;
-    expect(
-      needsApproval?.({ recordingId: "rec_1", text: VTT, replace: true }),
-    ).toBe(true);
-    expect(
-      needsApproval?.({ recordingId: "rec_1", text: VTT, replace: false }),
-    ).toBe(false);
-  });
+  it.each([true, "true", " Yes ", "1", "on", false, "false", "0", undefined])(
+    "asks the user to approve a call whose replace %j the action reads as true, and only that",
+    (replace) => {
+      const action = importTranscript as any;
+      const raw = { recordingId: "rec_1", text: VTT, replace };
+      const runsAsReplace = action.schema.parse(raw).replace === true;
+      expect(action.needsApproval?.(raw)).toBe(runsAsReplace);
+      expect(runsAsReplace).toBe(
+        ["true", " Yes ", "1", "on", true].includes(replace as never),
+      );
+    },
+  );
 });

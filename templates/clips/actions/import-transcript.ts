@@ -25,7 +25,9 @@ export default defineAction({
   // Advertised up front like create-recording-upload: an outside agent holding a
   // transcript file has no other way to hand it to Clips.
   mcpApp: { compactCatalog: true },
-  needsApproval: ({ replace }) => replace === true,
+  // Approval sees the call's raw arguments, before booleanParam turns "true"
+  // into true, so it must read replace the same way the schema will.
+  needsApproval: ({ replace }) => booleanParam.safeParse(replace).data === true,
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     text: z
