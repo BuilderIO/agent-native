@@ -1574,6 +1574,7 @@ interface VisualEditorProps {
     status: "ready" | "failed" | "unavailable";
     error?: unknown;
   }>;
+  flushCollabUpdates?: () => Promise<boolean>;
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -3048,6 +3049,7 @@ export function VisualEditor({
   collabContentRevision,
   requestCollabSync,
   discoverCollabPeers,
+  flushCollabUpdates,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   isEditorClean,
@@ -4194,6 +4196,7 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     discoverCollabPeers,
+    flushCollabUpdates,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
     isEditorClean,

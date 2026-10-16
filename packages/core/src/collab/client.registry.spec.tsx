@@ -994,42 +994,65 @@ describe("useCollaborativeDoc connection registry", () => {
     }
   });
 
-  it("reports a failed presence request as failed, not as no peers", async () => {
-    const { mock: fallback } = makeFetchMock();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        if (String(input).includes("/awareness") && init?.method === "POST") {
-          return new Response(null, { status: 503 });
-        }
-        return fallback(input);
-      }),
-    );
-    let result: UseCollaborativeDocResult | undefined;
-    mount(
-      <Probe
-        docId="doc-discover-failed"
-        onResult={(next) => (result = next)}
-        user={{ name: "Local", email: "local@example.com", color: "c" }}
-      />,
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
+  it.each([
+    {
+      answer: "an HTTP error",
+      response: () => new Response(null, { status: 503 }),
+      message: "Awareness request failed: HTTP 503",
+    },
+    {
+      answer: "no states",
+      response: () => Response.json({}),
+      message: "Awareness response has no states",
+    },
+    {
+      answer: "an unreadable state",
+      response: () =>
+        Response.json({
+          states: [
+            { clientId: 76, state: JSON.stringify({ user: { name: "Ok" } }) },
+            { clientId: 77, state: "{broken" },
+          ],
+        }),
+      message: "Awareness response has an unreadable state",
+    },
+  ])(
+    "reports a presence answer with $answer as failed, not as no peers",
+    async ({ response, message }) => {
+      const { mock: fallback } = makeFetchMock();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).includes("/awareness") && init?.method === "POST") {
+            return response();
+          }
+          return fallback(input);
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-discover-failed"
+          onResult={(next) => (result = next)}
+          user={{ name: "Local", email: "local@example.com", color: "c" }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
 
-    let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
-      null;
-    await act(async () => {
-      discovery = await result!.discoverPeers();
-    });
+      let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+        null;
+      await act(async () => {
+        discovery = await result!.discoverPeers();
+      });
 
-    expect(discovery).toMatchObject({
-      status: "failed",
-      error: expect.objectContaining({
-        message: "Awareness request failed: HTTP 503",
-      }),
-    });
-  });
+      expect(discovery).toMatchObject({
+        status: "failed",
+        error: expect.objectContaining({ message }),
+      });
+    },
+  );
 
   it("reports discovery unavailable without a document", async () => {
     let result: UseCollaborativeDocResult | undefined;

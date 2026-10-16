@@ -59,6 +59,7 @@ const PEER_SETTLE_MS = 2500;
 const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
 const CATCH_UP_ATTEMPTS = 3;
 const CATCH_UP_RETRY_MS = 2000;
+const JOIN_EVIDENCE_TIMEOUT_MS = 20_000;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -120,18 +121,26 @@ export interface UseCollabReconcileOptions {
     status: "synced" | "failed" | "unavailable";
   }>;
   /**
-   * Learns who else holds the document. Set it, with `awareness` and revisions,
-   * and a client opening onto a live doc that already holds text keeps that
-   * text when a collaborator reports its doc holds this stored revision or a
-   * newer one, instead of replacing it with the stored body: the doc can be
-   * ahead of a save still on its way, and the replace deletes that text for
-   * every collaborator. The client then reports its own revision in awareness.
-   * Without such a report, or without this option, it replaces the doc as before.
+   * Learns who else holds the document. Set it, with `flushCollabUpdates`,
+   * `requestCollabSync`, `awareness` and revisions, and a client opening onto
+   * a live doc that differs from the stored body keeps the doc when a
+   * collaborator reports it already holds this stored revision or a newer one,
+   * instead of replacing it with the stored body: the doc can be ahead of a
+   * save still on its way, and the replace deletes that text for every
+   * collaborator. Without such a report, or without these options, it replaces
+   * the doc as before.
    */
   discoverCollabPeers?: () => Promise<{
     status: "ready" | "failed" | "unavailable";
     error?: unknown;
   }>;
+  /**
+   * Resolves `true` once the server has every local Yjs update. A client
+   * reports the stored revision its doc holds (awareness `reconciledRevision`)
+   * only after that, so a collaborator that trusts the report can fetch the
+   * text it describes.
+   */
+  flushCollabUpdates?: () => Promise<boolean>;
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -242,6 +251,7 @@ export function useCollabReconcile({
   collabContentRevision,
   requestCollabSync,
   discoverCollabPeers,
+  flushCollabUpdates,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   requestInitialSeed,
@@ -279,52 +289,113 @@ export function useCollabReconcile({
     revision: string;
   } | null>(contentRevision ? { value, revision: contentRevision } : null);
   const joinsOnPeerEvidence = Boolean(
-    collab && awareness && discoverCollabPeers,
+    collab &&
+    awareness &&
+    discoverCollabPeers &&
+    flushCollabUpdates &&
+    requestCollabSync,
   );
   const heldRevisionAwarenessRef = useRef<Awareness | null>(null);
   heldRevisionAwarenessRef.current = joinsOnPeerEvidence ? awareness : null;
+  const flushCollabUpdatesRef = useRef(flushCollabUpdates);
+  flushCollabUpdatesRef.current = flushCollabUpdates;
+  const pendingHeldRevisionRef = useRef<string | null>(null);
+  // A seed records the stored body as applied even when another client's seed
+  // won with a different one, so this doc does not hold that body.
+  const unheldSeedValueRef = useRef<string | null>(null);
+  // A report goes out only once the server has the updates behind it: a joining
+  // client that trusts a report fetches the doc from the server, and an update
+  // still queued in a tab that then closes would never reach it.
+  const publishHeldRevision = (revision: string) => {
+    const target = heldRevisionAwarenessRef.current;
+    const flush = flushCollabUpdatesRef.current;
+    if (!target || !flush || pendingHeldRevisionRef.current === revision)
+      return;
+    pendingHeldRevisionRef.current = revision;
+    const publish = (delivered: boolean) => {
+      if (
+        !delivered ||
+        pendingHeldRevisionRef.current !== revision ||
+        heldRevisionAwarenessRef.current !== target
+      ) {
+        if (pendingHeldRevisionRef.current === revision)
+          pendingHeldRevisionRef.current = null;
+        return;
+      }
+      if (target.getLocalState()?.[HELD_REVISION_FIELD] !== revision)
+        target.setLocalStateField(HELD_REVISION_FIELD, revision);
+    };
+    flush().then(publish, () => publish(false));
+  };
+  const withdrawHeldRevision = () => {
+    pendingHeldRevisionRef.current = null;
+    const target = heldRevisionAwarenessRef.current;
+    if (target && target.getLocalState()?.[HELD_REVISION_FIELD] != null)
+      target.setLocalStateField(HELD_REVISION_FIELD, null);
+  };
   // For a base the live doc now holds. The first base, taken before this client
   // has applied or adopted anything, is set directly instead.
-  const holdAuthoritativeBase = (base: { value: string; revision: string }) => {
+  const holdAuthoritativeBase = (
+    base: { value: string; revision: string },
+    held = true,
+  ) => {
     authoritativeBaseRef.current = base;
-    const target = heldRevisionAwarenessRef.current;
-    if (
-      target &&
-      target.getLocalState()?.[HELD_REVISION_FIELD] !== base.revision
-    )
-      target.setLocalStateField(HELD_REVISION_FIELD, base.revision);
+    if (held) publishHeldRevision(base.revision);
   };
   const discoverCollabPeersRef = useRef(discoverCollabPeers);
   discoverCollabPeersRef.current = discoverCollabPeers;
-  const [peerDiscovery, setPeerDiscovery] = useState<{
+  const requestCollabSyncRef = useRef(requestCollabSync);
+  requestCollabSyncRef.current = requestCollabSync;
+  // Evidence for a client joining a live doc that differs from the stored
+  // body: who else holds the doc, and the doc as the server has it now, which
+  // holds every update behind the reports it just learned.
+  const [joinEvidence, setJoinEvidence] = useState<{
     ydoc: YDoc;
-    status: "pending" | "ready" | "failed" | "unavailable";
+    status: "pending" | "ready" | "none";
   } | null>(null);
-  useEffect(() => {
+  const joinEvidenceRequestRef = useRef<YDoc | null>(null);
+  const requestJoinEvidence = (doc: YDoc) => {
     const discover = discoverCollabPeersRef.current;
-    if (!joinsOnPeerEvidence || !ydoc || !discover) return;
-    let cancelled = false;
-    setPeerDiscovery({ ydoc, status: "pending" });
-    const settle = (
-      status: "ready" | "failed" | "unavailable",
-      error?: unknown,
-    ) => {
-      if (cancelled) return;
-      if (status === "failed")
+    const catchUp = requestCollabSyncRef.current;
+    if (joinEvidenceRequestRef.current === doc || !discover || !catchUp) return;
+    joinEvidenceRequestRef.current = doc;
+    setJoinEvidence({ ydoc: doc, status: "pending" });
+    let settled = false;
+    const settle = (status: "ready" | "none", error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      if (error !== undefined)
         console.warn(
           "Could not learn who else holds this document; opening it applies the stored body",
-          ...(error === undefined ? [] : [error]),
+          error,
         );
-      setPeerDiscovery({ ydoc, status });
+      setJoinEvidence((current) =>
+        current?.ydoc === doc ? { ydoc: doc, status } : current,
+      );
     };
-    discover().then(
-      (result) => settle(result.status, result.error),
-      (error: unknown) => settle("failed", error),
+    const watchdog = setTimeout(
+      () => settle("none", new Error("Timed out")),
+      JOIN_EVIDENCE_TIMEOUT_MS,
     );
-    return () => {
-      cancelled = true;
-    };
-  }, [joinsOnPeerEvidence, ydoc]);
+    discover()
+      .then(async (discovered) => {
+        if (discovered.status === "unavailable") return settle("none");
+        if (discovered.status !== "ready")
+          return settle(
+            "none",
+            discovered.error ?? new Error("Peer discovery failed"),
+          );
+        const synced = await catchUp();
+        if (synced.status !== "synced")
+          return settle(
+            "none",
+            new Error(`Catching up with the server ${synced.status}`),
+          );
+        settle("ready");
+      })
+      .catch((error: unknown) => settle("none", error));
+  };
   const reportedConflictRevisionRef = useRef<string | null>(null);
   const reconcileCallbacksRef = useRef({
     getMarkdown,
@@ -564,8 +635,13 @@ export function useCollabReconcile({
               pushEmittedRing(recentEmittedRef.current, serialized);
               lastAppliedValueRef.current = value;
               lastAppliedSerializedRef.current = serialized;
-              if (contentRevision)
-                holdAuthoritativeBase({ value, revision: contentRevision });
+              // Another client's seed can win with a different body.
+              const seededValueHeld =
+                serialized ===
+                reconcileCallbacksRef.current.normalizeValue(value);
+              unheldSeedValueRef.current = seededValueHeld ? null : value;
+              if (contentRevision && seededValueHeld)
+                publishHeldRevision(contentRevision);
               if (contentUpdatedAt)
                 lastAppliedUpdatedAtRef.current = contentUpdatedAt;
               markSeeded();
@@ -607,8 +683,11 @@ export function useCollabReconcile({
       pushEmittedRing(recentEmittedRef.current, serialized);
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
-      if (contentRevision)
-        holdAuthoritativeBase({ value, revision: contentRevision });
+      const seededValueHeld =
+        serialized === reconcileCallbacksRef.current.normalizeValue(value);
+      unheldSeedValueRef.current = seededValueHeld ? null : value;
+      if (contentRevision && seededValueHeld)
+        publishHeldRevision(contentRevision);
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
       markSeeded();
     }, 0);
@@ -710,6 +789,7 @@ export function useCollabReconcile({
             rollback.acknowledgementRevision
           ) {
             authoritativeBaseRef.current = rollback.base;
+            withdrawHeldRevision();
           }
           acknowledgementBaseRollbackRef.current = null;
           latestObservedUpdatedAtRef.current = contentUpdatedAt;
@@ -887,7 +967,11 @@ export function useCollabReconcile({
           lastAppliedSerializedRef.current = currentMarkdown;
         }
         if (contentRevision) {
-          holdAuthoritativeBase({ value, revision: contentRevision });
+          holdAuthoritativeBase(
+            { value, revision: contentRevision },
+            currentMarkdown === normalizedValue ||
+              unheldSeedValueRef.current !== value,
+          );
           reportedConflictRevisionRef.current = null;
         }
         if (contentUpdatedAt) {
@@ -931,10 +1015,14 @@ export function useCollabReconcile({
         lastAppliedSerializedRef.current === null &&
         currentMarkdown.trim()
       ) {
-        const discovery = peerDiscovery?.ydoc === ydoc ? peerDiscovery : null;
-        if (!discovery || discovery.status === "pending") return;
+        const evidence = joinEvidence?.ydoc === ydoc ? joinEvidence : null;
+        if (!evidence) {
+          requestJoinEvidence(ydoc!);
+          return;
+        }
+        if (evidence.status === "pending") return;
         if (
-          discovery.status === "ready" &&
+          evidence.status === "ready" &&
           peerHoldsRevision(
             awareness!,
             ydoc!.clientID,
@@ -1217,7 +1305,7 @@ export function useCollabReconcile({
     pendingCollabSnapshot,
     requestCollabSync,
     joinsOnPeerEvidence,
-    peerDiscovery,
+    joinEvidence,
     awareness,
   ]);
 

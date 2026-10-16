@@ -34,6 +34,7 @@ afterEach(() => {
 const ORIGINAL = "Alpha paragraph.\n\nBravo paragraph.";
 const WORD = "zq1723A1x";
 const SAVED = `Alpha paragraph. ${WORD}\n\nBravo paragraph.`;
+const CHARLIE = "Charlie paragraph.";
 
 interface Snapshot {
   value: string;
@@ -41,21 +42,27 @@ interface Snapshot {
   updatedAt: string;
 }
 
+// Content's body revisions: a counter, then a hash the order ignores.
 const STORED: Snapshot = {
   value: ORIGINAL,
-  revision: "revision-0",
+  revision: "body:0:a",
   updatedAt: "2024-01-01T00:00:00.000Z",
 };
 const ACKNOWLEDGED: Snapshot = {
   value: SAVED,
-  revision: "revision-1",
+  revision: "body:1:b",
   updatedAt: "2024-01-01T00:00:05.000Z",
 };
 const AGENT_EDIT: Snapshot = {
-  value: `${ORIGINAL}\n\nCharlie paragraph.`,
-  revision: "revision-2",
+  value: `${ORIGINAL}\n\n${CHARLIE}`,
+  revision: "body:2:c",
   updatedAt: "2024-01-01T00:00:09.000Z",
 };
+
+function compareRevisions(first: string, second: string): number {
+  const counter = (revision: string) => Number(revision.split(":")[1]);
+  return Math.sign(counter(first) - counter(second));
+}
 
 type DiscoveryStatus = "ready" | "failed" | "unavailable";
 type PeerState = {
@@ -73,11 +80,32 @@ function heldRevision(awareness: Awareness): unknown {
   return awareness.getLocalState()?.reconciledRevision;
 }
 
+function peer(name: string, reconciledRevision?: string): PeerState {
+  return {
+    user: { name },
+    visible: true,
+    canFlushDocument: true,
+    ...(reconciledRevision ? { reconciledRevision } : {}),
+  };
+}
+
+/** The Yjs state a client's seed of `markdown` writes. */
+function seedState(markdown: string): Uint8Array {
+  const doc = new Y.Doc();
+  const editor = new CoreEditor({
+    extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc: doc }),
+  });
+  editor.commands.setContent(markdown);
+  const state = Y.encodeStateAsUpdate(doc);
+  editor.destroy();
+  doc.destroy();
+  return state;
+}
+
 /**
- * Three tabs on one live doc. A types and its save is held, so the stored body
- * lacks A's word; B was already open; C opens mid-save. A runs no reconcile
- * hook: it only types, as a tab whose save is in flight does, and its
- * awareness reports the revision it loaded.
+ * Three tabs on one live doc, relayed as the server relays delivered updates.
+ * A only types, as a tab whose save is in flight does, and reports no
+ * revision. B was already open and runs the hook. C opens mid-save.
  */
 function makeTabs({
   joinsOnPeers = true,
@@ -104,22 +132,31 @@ function makeTabs({
   author.commands.setContent(ORIGINAL);
 
   const awareness = { B: new Awareness(docs.B), C: new Awareness(docs.C) };
-  const tab = (name: string, reconciledRevision?: string): PeerState => ({
-    user: { name },
-    visible: true,
-    canFlushDocument: true,
-    ...(reconciledRevision ? { reconciledRevision } : {}),
-  });
-  awareness.B.getStates().set(ids.A, tab("A", STORED.revision));
-  awareness.B.getStates().set(ids.C, tab("C"));
+  awareness.B.setLocalState(peer("B"));
+  awareness.C.setLocalState(peer("C"));
+  awareness.B.getStates().set(ids.A, peer("A"));
 
+  // B's updates reach the server unless its delivery is held.
+  let deliveryHeld = false;
+  const flush = {
+    B: () =>
+      deliveryHeld ? new Promise<boolean>(() => {}) : Promise.resolve(true),
+    C: () => Promise.resolve(true),
+  };
+  let catchUpStatus: "synced" | "failed" = "synced";
+  const catchUp = {
+    B: vi.fn(async () => ({ status: "synced" as const })),
+    C: vi.fn(async () => ({ status: catchUpStatus })),
+  };
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
   const discover = {
     B: async () => ({ status: "ready" as const }),
-    C: () =>
-      new Promise<{ status: DiscoveryStatus }>((resolve) => {
-        settleDiscovery = (status) => resolve({ status });
-      }),
+    C: vi.fn(
+      () =>
+        new Promise<{ status: DiscoveryStatus }>((resolve) => {
+          settleDiscovery = (status) => resolve({ status });
+        }),
+    ),
   };
 
   const editors: { B: Editor | null; C: Editor | null } = { B: null, C: null };
@@ -139,7 +176,14 @@ function makeTabs({
       value: snapshot.value,
       contentRevision: snapshot.revision,
       contentUpdatedAt: snapshot.updatedAt,
-      discoverCollabPeers: joinsOnPeers ? discover[name] : undefined,
+      compareContentRevisions: compareRevisions,
+      ...(joinsOnPeers
+        ? {
+            discoverCollabPeers: discover[name],
+            flushCollabUpdates: flush[name],
+            requestCollabSync: catchUp[name],
+          }
+        : {}),
       initialAppliedUpdatedAt: null,
       overlapPolicy: "prefer-live",
       onBaseAwareReconcile: () => {},
@@ -169,20 +213,30 @@ function makeTabs({
   return {
     Tabs,
     awareness,
+    discover,
+    catchUp,
     typeAsA: () => author.commands.insertContentAt(17, ` ${WORD}`),
+    /** B's later updates stay queued in B, as when its update request hangs. */
+    holdBDelivery: () => {
+      deliveryHeld = true;
+      connected.delete(docs.B);
+    },
+    failCatchUp: () => {
+      catchUpStatus = "failed";
+    },
     /** C's first sync: it fetches the live doc, then joins the relay. */
     syncC: () => {
       Y.applyUpdate(docs.C, Y.encodeStateAsUpdate(docs.A), "relay");
       connected.add(docs.C);
     },
     /**
-     * C's presence request answers, after its first snapshot. By default it
-     * learns A's and B's awareness as they stand.
+     * C's presence request answers. By default C learns A, which reports no
+     * revision, and B's awareness as it stands.
      */
     discoverPeers: (
       status: DiscoveryStatus = "ready",
       peers: Array<[number, PeerState]> = [
-        [ids.A, tab("A", STORED.revision)],
+        [ids.A, peer("A")],
         [ids.B, awareness.B.getLocalState() as PeerState],
       ],
     ) => {
@@ -200,8 +254,10 @@ function makeTabs({
       }
       settleDiscovery?.(status);
     },
-    markdown: (name: "A" | "C") =>
-      name === "A" ? getEditorMarkdown(author) : getEditorMarkdown(editors.C!),
+    markdown: (name: "A" | "B" | "C") =>
+      name === "A"
+        ? getEditorMarkdown(author)
+        : getEditorMarkdown(editors[name]!),
     counts: () => ({
       A: occurrences(getEditorMarkdown(author)),
       B: occurrences(getEditorMarkdown(editors.B!)),
@@ -223,11 +279,14 @@ type Tabs = ReturnType<typeof makeTabs>;
 /** B opens, A types, then C syncs and mounts while A's save is held. */
 async function openCWhileASaves(
   tabs: Tabs,
-  snapshotC: Snapshot = STORED,
+  {
+    snapshotB = STORED,
+    snapshotC = STORED,
+  }: { snapshotB?: Snapshot; snapshotC?: Snapshot } = {},
 ): Promise<void> {
   act(() =>
     root.render(
-      React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+      React.createElement(tabs.Tabs, { snapshot: snapshotB, withC: false }),
     ),
   );
   await act(async () => vi.advanceTimersByTimeAsync(3_000));
@@ -238,7 +297,7 @@ async function openCWhileASaves(
   act(() =>
     root.render(
       React.createElement(tabs.Tabs, {
-        snapshot: STORED,
+        snapshot: snapshotB,
         snapshotC,
         withC: true,
       }),
@@ -261,6 +320,7 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
         C: 1,
       });
       expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+      expect(tabs.catchUp.C).toHaveBeenCalled();
       expect(heldRevision(tabs.awareness.C)).toBe(STORED.revision);
 
       act(() =>
@@ -282,16 +342,80 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
+  it("counts a collaborator that holds a newer revision by its order", async () => {
+    const tabs = makeTabs();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, {
+        snapshotB: { ...STORED, revision: "body:10:k" },
+        snapshotC: { ...STORED, revision: "body:9:j" },
+      });
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("applies a stored body newer than any collaborator holds", async () => {
     const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
     vi.useFakeTimers();
     try {
-      await openCWhileASaves(tabs, AGENT_EDIT);
+      await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
       await act(async () => tabs.discoverPeers());
       await act(async () => vi.advanceTimersByTimeAsync(6_000));
-      expect(occurrences(tabs.markdown("C"), "Charlie paragraph.")).toBe(1);
-      expect(occurrences(tabs.markdown("A"), "Charlie paragraph.")).toBe(1);
+      expect(occurrences(tabs.markdown("C"), CHARLIE)).toBe(1);
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(1);
       expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("reports a revision only once the server has the updates behind it", async () => {
+    const tabs = makeTabs({ ids: { A: 3, B: 2, C: 1 } });
+    vi.useFakeTimers();
+    try {
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+
+      // B applies an agent edit, but the update carrying it never leaves B.
+      tabs.holdBDelivery();
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: AGENT_EDIT,
+            withC: false,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(occurrences(tabs.markdown("B"), CHARLIE)).toBe(1);
+      expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+
+      tabs.syncC();
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: AGENT_EDIT,
+            withC: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(
+        occurrences(tabs.markdown("C"), CHARLIE),
+        "C trusted a report the server could not back",
+      ).toBe(1);
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(1);
     } finally {
       tabs.dispose();
     }
@@ -308,6 +432,48 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       expect(tabs.counts()).toEqual({ A: 0, B: 0, C: 0 });
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Could not learn who else holds this document"),
+        expect.any(Error),
+      );
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("applies the stored body when it cannot catch up with the server", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    tabs.failCatchUp();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(tabs.counts()).toEqual({ A: 0, B: 0, C: 0 });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Could not learn who else holds this document"),
+        expect.objectContaining({
+          message: "Catching up with the server failed",
+        }),
+      );
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("stops waiting for collaborators that never answer", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      await act(async () => vi.advanceTimersByTimeAsync(19_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      await act(async () => vi.advanceTimersByTimeAsync(4_000));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.counts()).toEqual({ A: 0, B: 0, C: 0 });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Could not learn who else holds this document"),
+        expect.objectContaining({ message: "Timed out" }),
       );
     } finally {
       tabs.dispose();
@@ -328,10 +494,8 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
           [
             4,
             {
-              user: { name: "Viewer" },
-              visible: true,
+              ...peer("Viewer", STORED.revision),
               canFlushDocument: false,
-              reconciledRevision: STORED.revision,
             },
           ],
         ]),
@@ -348,19 +512,23 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     vi.useFakeTimers();
     try {
       await openCWhileASaves(tabs);
-      await act(async () => tabs.discoverPeers());
       await act(async () => vi.advanceTimersByTimeAsync(3_000));
       expect(tabs.counts()).toEqual({ A: 0, B: 0, C: 0 });
+      expect(tabs.discover.C).not.toHaveBeenCalled();
       expect(heldRevision(tabs.awareness.B)).toBeUndefined();
       expect(heldRevision(tabs.awareness.C)).toBeUndefined();
     } finally {
       tabs.dispose();
     }
   });
+});
 
-  it("seeds an empty live doc without waiting to learn who else is open", async () => {
+describe("useCollabReconcile: seeding an empty live doc", () => {
+  function mountOpener(seededBody: string) {
     const ydoc = new Y.Doc();
     const awareness = new Awareness(ydoc);
+    awareness.setLocalState(peer("Opener"));
+    const discover = vi.fn(() => new Promise<never>(() => {}));
     let editor: Editor | null = null;
     function Opener() {
       editor = useEditor({
@@ -371,27 +539,56 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
         ydoc,
         awareness,
         collabSynced: true,
-        value: STORED.value,
-        contentRevision: STORED.revision,
-        contentUpdatedAt: STORED.updatedAt,
-        discoverCollabPeers: () => new Promise(() => {}),
+        value: AGENT_EDIT.value,
+        contentRevision: AGENT_EDIT.revision,
+        contentUpdatedAt: AGENT_EDIT.updatedAt,
+        compareContentRevisions: compareRevisions,
+        discoverCollabPeers: discover,
+        flushCollabUpdates: () => Promise.resolve(true),
+        requestCollabSync: async () => ({ status: "synced" }),
+        requestInitialSeed: async () => seedState(seededBody),
         initialAppliedUpdatedAt: null,
         overlapPolicy: "prefer-live",
         editable: true,
       });
       return React.createElement("div");
     }
+    act(() => root.render(React.createElement(Opener)));
+    return {
+      awareness,
+      discover,
+      markdown: () => getEditorMarkdown(editor!),
+      dispose: () => {
+        act(() => root.unmount());
+        root = createRoot(container);
+        awareness.destroy();
+        ydoc.destroy();
+      },
+    };
+  }
+
+  it("seeds without waiting to learn who else is open", async () => {
     vi.useFakeTimers();
+    const opener = mountOpener(AGENT_EDIT.value);
     try {
-      act(() => root.render(React.createElement(Opener)));
       await act(async () => vi.advanceTimersByTimeAsync(1_000));
-      expect(getEditorMarkdown(editor!)).toBe(ORIGINAL);
-      expect(heldRevision(awareness)).toBe(STORED.revision);
+      expect(opener.markdown()).toBe(AGENT_EDIT.value);
+      expect(opener.discover).not.toHaveBeenCalled();
+      expect(heldRevision(opener.awareness)).toBe(AGENT_EDIT.revision);
     } finally {
-      act(() => root.unmount());
-      root = createRoot(container);
-      awareness.destroy();
-      ydoc.destroy();
+      opener.dispose();
+    }
+  });
+
+  it("reports no revision when another client's seed won with a different body", async () => {
+    vi.useFakeTimers();
+    const opener = mountOpener(ORIGINAL);
+    try {
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(opener.markdown()).toBe(ORIGINAL);
+      expect(heldRevision(opener.awareness)).toBeUndefined();
+    } finally {
+      opener.dispose();
     }
   });
 });

@@ -9357,6 +9357,7 @@ function PageEditorSessionBody({
                               }
                               requestCollabSync={requestCollabSync}
                               discoverCollabPeers={discoverCollabPeers}
+                              flushCollabUpdates={flushCollabUpdates}
                               onChange={
                                 isSuggesting
                                   ? handleSuggestionDraftChange

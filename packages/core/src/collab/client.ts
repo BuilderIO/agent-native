@@ -732,7 +732,10 @@ class CollabDocConnection {
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
     try {
-      const exchanged = await this.exchangeAwareness(controller.signal);
+      const exchanged = await this.exchangeAwareness({
+        signal: controller.signal,
+        strict: true,
+      });
       return exchanged && !this.disposed
         ? { status: "ready" }
         : { status: "unavailable" };
@@ -750,8 +753,15 @@ class CollabDocConnection {
     }
   }
 
-  /** Throws when the request fails; false when there was nothing to exchange. */
-  private async exchangeAwareness(signal?: AbortSignal): Promise<boolean> {
+  /**
+   * Throws when the request fails, and with `strict` when any of the answer is
+   * unreadable, since a caller acting on who is open must not read a partial
+   * answer as fewer collaborators. False when there was nothing to exchange.
+   */
+  private async exchangeAwareness({
+    signal,
+    strict = false,
+  }: { signal?: AbortSignal; strict?: boolean } = {}): Promise<boolean> {
     const localState = this.awareness.getLocalState();
     if (!localState || this.disposed) return false;
     const response = await fetch(`${this.baseUrl}/${this.docId}/awareness`, {
@@ -768,18 +778,29 @@ class CollabDocConnection {
     }
     const awarenessData = (await response.json()) as {
       states?: Array<{ clientId: number; state: string }>;
-    };
+    } | null;
     if (this.disposed) return false;
+    if (strict && !Array.isArray(awarenessData?.states)) {
+      throw new Error("Awareness response has no states");
+    }
     const remoteStates: RemoteAwarenessSnapshot[] = [];
-    for (const remote of awarenessData.states || []) {
+    for (const remote of awarenessData?.states || []) {
+      let state: unknown;
       try {
-        remoteStates.push({
-          clientId: Number(remote.clientId),
-          state: JSON.parse(remote.state),
-        });
+        state = JSON.parse(remote.state);
       } catch {
-        // Invalid state — skip
+        if (strict)
+          throw new Error("Awareness response has an unreadable state");
+        continue;
       }
+      const clientId = Number(remote.clientId);
+      if (
+        strict &&
+        (!Number.isInteger(clientId) || !state || typeof state !== "object")
+      ) {
+        throw new Error("Awareness response has an unreadable state");
+      }
+      remoteStates.push({ clientId, state });
     }
     const changes = reconcileRemoteAwarenessStates(
       this.awareness.getStates() as Map<number, unknown>,
