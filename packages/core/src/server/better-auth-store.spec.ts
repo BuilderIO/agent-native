@@ -3,7 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDbExec, getDbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { __resetStoreLedgerSnapshotForTests } from "../db/store-registry.js";
-import { betterAuthStore } from "./better-auth-migrations.js";
+import {
+  BETTER_AUTH_MIGRATIONS,
+  betterAuthStore,
+} from "./better-auth-migrations.js";
 
 let previousDatabaseUrl: string | undefined;
 
@@ -20,6 +23,12 @@ afterAll(async () => {
 });
 
 describe("better_auth store", () => {
+  // v11 sits before v6–v10, so it raises the old table's MAX(version) first.
+  // That only gates unnamed entries; a named list is gated by name alone.
+  it("names every entry, so the out-of-order v11 cannot skip later ones", () => {
+    expect(BETTER_AUTH_MIGRATIONS.filter((entry) => !entry.name)).toEqual([]);
+  });
+
   it("expires signing keys at most once per database", async () => {
     await withMigrationRuntime(() => betterAuthStore.ready());
     await getDbExec().execute(

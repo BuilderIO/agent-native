@@ -209,6 +209,41 @@ function validateMigrationNames(
   }
 }
 
+function legacyBookkeepingDdl(table: string): string[] {
+  return [
+    `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
+    `CREATE TABLE IF NOT EXISTS ${table}_named (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
+  ];
+}
+
+/**
+ * Records an entry in a `runMigrations` list's own bookkeeping exactly as the
+ * runner would after applying it: by name when named, and the version only when
+ * it advances `MAX(version)`, so unnamed entries below it are not skipped.
+ */
+export async function recordLegacyMigrationEntry(
+  exec: DbExec,
+  table: string,
+  entry: { version: number; name?: string },
+): Promise<void> {
+  for (const statement of legacyBookkeepingDdl(table)) {
+    await retryOnDdlRace(() => exec.execute(statement));
+  }
+  if (entry.name) {
+    await exec.execute({
+      sql: `INSERT INTO ${table}_named (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`,
+      args: [entry.name, entry.version],
+    });
+  }
+  const { rows } = await exec.execute(`SELECT MAX(version) as v FROM ${table}`);
+  if (entry.version > Number(rows[0]?.v ?? 0)) {
+    await exec.execute({
+      sql: `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`,
+      args: [entry.version],
+    });
+  }
+}
+
 export function runMigrations(
   migrationSource: MigrationSource,
   options: RunMigrationsOptions,
@@ -292,16 +327,9 @@ export function runMigrations(
 
       try {
         if (!runOnlyPending) {
-          await retryOnDdlRace(() =>
-            exec.execute(
-              `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
-            ),
-          );
-          await retryOnDdlRace(() =>
-            exec.execute(
-              `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
-            ),
-          );
+          for (const statement of legacyBookkeepingDdl(table)) {
+            await retryOnDdlRace(() => exec.execute(statement));
+          }
         }
 
         if (current === -1 || (hasNamedMigrations && namedRowsMissing)) {

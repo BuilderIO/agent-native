@@ -14,7 +14,11 @@
  */
 
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
-import { getDbExec, type DbExec } from "./client.js";
+import {
+  getDbExec,
+  HostedRuntimeLocalDatabaseError,
+  type DbExec,
+} from "./client.js";
 import {
   appMigratesAtRelease,
   schemaEnsureSkipRequested,
@@ -25,7 +29,11 @@ import {
   isProductionServerlessFunctionRuntime,
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
-import { runMigrations, type MigrationEntry } from "./migrations.js";
+import {
+  recordLegacyMigrationEntry,
+  runMigrations,
+  type MigrationEntry,
+} from "./migrations.js";
 import { retainRequestDbPoolScope } from "./request-pool-context.js";
 import {
   dbClientGeneration,
@@ -283,12 +291,45 @@ async function applyPending(
       );
     }
     await recordMigration(exec, store, migration, "step");
+    // Hosted apps without release migrations still replay boot lists against
+    // their old table; without this row they would run this entry again.
+    if (migration.legacy?.ranAtBoot) {
+      await recordLegacyMigrationEntry(exec, migration.legacy.table, {
+        version: migration.legacy.version,
+        name: migration.legacy.name,
+      });
+    }
     applied.add(migration.name);
     ran++;
   }
   state.snapshot = undefined;
   if (ran > 0) {
     console.log(`[db] Applied ${ran} migration(s) to store "${store.id}"`);
+  }
+}
+
+/**
+ * A deployed server with no hosted database refuses every database open, and
+ * its sign-in page explains the fix; rejecting here would keep the auth and org
+ * plugins from mounting that page, as `runMigrations` never did. Every later
+ * query raises the same refusal, so nothing downstream reads as migrated.
+ */
+function isDatabaseRefusal(err: unknown): boolean {
+  for (let cause = err; cause; cause = (cause as Error).cause) {
+    if (cause instanceof HostedRuntimeLocalDatabaseError) return true;
+  }
+  return false;
+}
+
+async function tolerateRefusedDatabase(
+  storeId: string,
+  apply: () => Promise<void>,
+): Promise<void> {
+  try {
+    await apply();
+  } catch (err) {
+    if (!isDatabaseRefusal(err) || isReleaseStep()) throw err;
+    console.error(`[db] Skipping store "${storeId}". ${err.message}`);
   }
 }
 
@@ -644,18 +685,20 @@ export function defineStore(definition: StoreDefinition): Store {
       syncWithDatabaseGeneration();
       const mode = readiness();
       if (mode === "apply") {
-        const exec = getDbExec();
-        const memo = isReleaseStep() ? appliedAtRelease : applied;
-        const existing = memo.get(exec);
-        if (existing) return existing;
-        const tracked = retainRequestDbPoolScope(
-          applyWithLedger(store, exec).catch((err) => {
-            if (memo.get(exec) === tracked) memo.delete(exec);
-            throw err;
-          }),
-        );
-        memo.set(exec, tracked);
-        return tracked;
+        return tolerateRefusedDatabase(id, () => {
+          const exec = getDbExec();
+          const memo = isReleaseStep() ? appliedAtRelease : applied;
+          const existing = memo.get(exec);
+          if (existing) return existing;
+          const tracked = retainRequestDbPoolScope(
+            applyWithLedger(store, exec).catch((err) => {
+              if (memo.get(exec) === tracked) memo.delete(exec);
+              throw err;
+            }),
+          );
+          memo.set(exec, tracked);
+          return tracked;
+        });
       }
       const existing = pending.get(mode);
       if (existing) return existing;

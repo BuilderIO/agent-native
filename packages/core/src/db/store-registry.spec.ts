@@ -9,7 +9,11 @@ import {
 } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
-import { closeDbExec, getDbExec } from "./client.js";
+import {
+  closeDbExec,
+  getDbExec,
+  HostedRuntimeLocalDatabaseError,
+} from "./client.js";
 import { withMigrationRuntime } from "./migration-runtime.js";
 import {
   STORE_MIGRATIONS_TABLE,
@@ -540,6 +544,32 @@ describe("release order", () => {
   });
 });
 
+describe("a deployed server refusing its local database", () => {
+  const refusing = (id: string) =>
+    defineStore({
+      id,
+      migrations: [
+        {
+          name: "v1",
+          run: async () => {
+            throw new HostedRuntimeLocalDatabaseError("pglite default");
+          },
+        },
+      ],
+    });
+
+  it("resolves so the auth and org plugins can mount the setup page", async () => {
+    await expect(refusing(`refused_${++seq}`).ready()).resolves.toBeUndefined();
+  });
+
+  it("still fails the release step", async () => {
+    const store = refusing(`refused_${++seq}`);
+    await expect(withMigrationRuntime(() => store.ready())).rejects.toThrow(
+      /no hosted database/,
+    );
+  });
+});
+
 describe("stores folded from lists that ran at boot", () => {
   it("imports their history in local runtimes instead of re-running it", async () => {
     const table = `widgets_${++seq}`;
@@ -558,6 +588,37 @@ describe("stores folded from lists that ran at boot", () => {
     await defineStore({ id: table, migrations: [entry(1), entry(2)] }).ready();
 
     expect(ran).toEqual(["v2"]);
+  });
+
+  it("records their old bookkeeping when applied, so hosted replay does not repeat them", async () => {
+    const table = `widgets_${++seq}`;
+    const oldList = `_${table}_migrations`;
+    await getDbExec().execute(`CREATE TABLE ${table} (run INT)`);
+    const sql = `INSERT INTO ${table} (run) VALUES (1)`;
+    const migration = {
+      name: "expire-keys",
+      kind: "data" as const,
+      sql: [sql],
+      legacy: {
+        table: oldList,
+        version: 4,
+        name: "expire-keys",
+        ranAtBoot: true,
+        entry: { version: 4, name: "expire-keys", sql },
+      },
+    };
+
+    await defineStore({ id: table, migrations: [migration] }).ready();
+    simulateHostedFunction({ releaseMigrations: false });
+    await defineStore({
+      id: `${table}_hosted`,
+      migrations: [migration],
+    }).ready();
+
+    const { rows } = await getDbExec().execute(
+      `SELECT count(*)::int AS n FROM ${table}`,
+    );
+    expect(rows[0]?.n).toBe(1);
   });
 
   it("keeps running them through their old bookkeeping in hosted requests", async () => {
