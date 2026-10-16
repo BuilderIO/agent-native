@@ -143,28 +143,45 @@ describe("normalizeModelForEngine", () => {
     );
   });
 
-  it("upgrades the outdated dotted GPT Luna id on OpenAI engines", () => {
+  it("upgrades the outdated dotted GPT Luna id on the first-party OpenAI engine", () => {
     const openAiEngine = {
       name: "ai-sdk:openai",
       ...AI_SDK_MODEL_CONFIG.openai,
     };
-    const endpointEngine = { ...openAiEngine, preserveCustomModels: true };
 
     expect(normalizeModelForEngine(openAiEngine, "gpt-5.6-luna")).toBe(
       "gpt-6-luna",
     );
-    expect(normalizeModelForEngine(endpointEngine, "gpt-5.6-luna")).toBe(
-      "gpt-6-luna",
-    );
-    expect(normalizeModelForEngine(endpointEngine, "gpt-5.6-sol")).toBe(
+    expect(normalizeModelForEngine(openAiEngine, "gpt-5.6-sol")).toBe(
       "gpt-6.1-sol",
     );
-    expect(normalizeModelForEngine(endpointEngine, "gpt-5.6-terra")).toBe(
-      "gpt-5.6-terra",
+    expect(normalizeModelForEngine(openAiEngine, "gpt-6-sol")).toBe(
+      "gpt-6.1-sol",
     );
-    expect(normalizeModelForEngine(endpointEngine, "deepseek-chat")).toBe(
+  });
+
+  it("sends a custom OpenAI endpoint the exact saved id", () => {
+    const endpointEngine = {
+      name: "ai-sdk:openai",
+      ...AI_SDK_MODEL_CONFIG.openai,
+      preserveCustomModels: true,
+    };
+
+    for (const model of [
+      "gpt-5.6-luna",
+      "gpt-5-6-luna",
+      "claude-sonnet-5",
       "deepseek-chat",
-    );
+    ]) {
+      expect(normalizeModelForEngine(endpointEngine, model)).toBe(model);
+      expect(
+        normalizeModelForEngine(
+          { ...endpointEngine, preserveCustomModels: false },
+          model,
+          { preserveCustomModels: true },
+        ),
+      ).toBe(model);
+    }
   });
 
   it("keeps Builder upgrading retired ids it still routes", () => {

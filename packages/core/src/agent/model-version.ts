@@ -14,18 +14,15 @@ const UPGRADEABLE_GPT_TIERS = new Set(["-sol", "-terra", "-luna"]);
 const OPENROUTER_MODEL_ALIASES: Record<string, string> = {
   "x-ai/grok-code-fast-1": "x-ai/grok-build-0.1",
 };
-// Endpoint-backed OpenAI engines preserve custom ids and skip the GPT tier
-// upgrade, so their outdated dotted ids need explicit aliases.
-const OPENAI_MODEL_ALIASES: Record<string, string> = {
-  "gpt-5.6-luna": "gpt-6-luna",
-  "gpt-5.6-sol": "gpt-6.1-sol",
-  "gpt-6-sol": "gpt-6.1-sol",
-};
 const MODEL_ALIAS_TABLES: readonly Readonly<Record<string, string>>[] = [
   BUILDER_MODEL_ALIASES,
-  OPENAI_MODEL_ALIASES,
   OPENROUTER_MODEL_ALIASES,
 ];
+// A custom endpoint's catalog is unknown, so only aliases whose keys and
+// targets are namespaced to that service can be trusted to resolve there.
+const PRESERVED_CATALOG_ALIAS_TABLES: readonly Readonly<
+  Record<string, string>
+>[] = [OPENROUTER_MODEL_ALIASES];
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
   "anthropic/claude-opus-4.8": "Claude Opus 4.8",
@@ -132,13 +129,14 @@ function upgradeProviderModelAlias(
   candidate: string,
   supportedModels: readonly string[],
   provider: string,
+  aliasTables = MODEL_ALIAS_TABLES,
 ): string | undefined {
   // Builder retires catalog entries it still routes; a BYOK provider still
   // serving an id (e.g. claude-opus-4-8) must keep receiving it.
   if (provider !== "builder" && supportedModels.includes(candidate)) {
     return undefined;
   }
-  for (const aliases of MODEL_ALIAS_TABLES) {
+  for (const aliases of aliasTables) {
     const latest = Object.hasOwn(aliases, candidate)
       ? aliases[candidate]
       : undefined;
@@ -200,16 +198,17 @@ export function normalizeModelForEngine(
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
+  const preserveCustomModels =
+    engine.preserveCustomModels || options.preserveCustomModels;
   const providerAlias = upgradeProviderModelAlias(
     candidate,
     engine.supportedModels,
     engine.name,
+    preserveCustomModels ? PRESERVED_CATALOG_ALIAS_TABLES : MODEL_ALIAS_TABLES,
   );
   if (providerAlias) return providerAlias;
 
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
-    return candidate;
-  }
+  if (preserveCustomModels) return candidate;
 
   const upgradedModel = upgradeModelToLatestSupportedVersion(
     candidate,
