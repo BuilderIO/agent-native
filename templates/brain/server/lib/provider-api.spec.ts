@@ -120,6 +120,54 @@ describe("Brain provider API credential resolver", () => {
     },
   );
 
+  it.each(["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"])(
+    "keeps missing %s separate from vault lookup failure",
+    async (key) => {
+      const resolveCredential = mocks.resolveCredential;
+      if (!resolveCredential)
+        throw new Error("Brain resolver was not registered");
+      const options = {
+        provider: "gong",
+        key,
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      };
+      mocks.inspectSourceCredentialAvailability.mockResolvedValue({
+        available: false,
+        checked: [{ status: "error" }],
+      });
+
+      await expect(resolveCredential(options)).rejects.toThrow(
+        "Brain could not verify the organization Gong credential from its credential vault.",
+      );
+      expect(
+        mocks.resolveSourceCredentialWithProvenance,
+      ).not.toHaveBeenCalled();
+
+      mocks.inspectSourceCredentialAvailability.mockResolvedValue({
+        available: false,
+        checked: [],
+      });
+      await expect(resolveCredential(options)).resolves.toBeNull();
+    },
+  );
+
+  it("fails closed when a required Gong credential disappears after inspection", async () => {
+    const resolveCredential = mocks.resolveCredential;
+    if (!resolveCredential)
+      throw new Error("Brain resolver was not registered");
+    mocks.resolveSourceCredentialWithProvenance.mockResolvedValue(undefined);
+
+    await expect(
+      resolveCredential({
+        provider: "gong",
+        key: "GONG_ACCESS_KEY",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).rejects.toThrow(
+      "Brain could not verify the organization Gong credential from its credential vault.",
+    );
+  });
+
   it("preserves the default credential scope for other providers", async () => {
     const resolveCredential = mocks.resolveCredential;
     if (!resolveCredential)

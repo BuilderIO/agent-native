@@ -38,16 +38,17 @@ const resolveBrainCredential: ProviderApiCredentialResolver = async ({
     ctx: credentialContext,
     workspaceConnectionId: connectionId,
   };
-  const isOptionalGongBaseUrl =
-    resolvedProvider === "gong" && key === "GONG_API_BASE";
-  if (isOptionalGongBaseUrl) {
+  const isGongCredential = resolvedProvider === "gong";
+  const isOptionalGongBaseUrl = isGongCredential && key === "GONG_API_BASE";
+  const gongCredentialVerificationError = isOptionalGongBaseUrl
+    ? "Brain could not verify the organization Gong API base URL from its credential vault."
+    : "Brain could not verify the organization Gong credential from its credential vault.";
+  if (isGongCredential) {
     const availability =
       await inspectSourceCredentialAvailability(credentialOptions);
     if (!availability.available) {
       if (hasCredentialLookupError(availability)) {
-        throw new Error(
-          "Brain could not verify the organization Gong API base URL from its credential vault.",
-        );
+        throw new Error(gongCredentialVerificationError);
       }
       return null;
     }
@@ -56,11 +57,7 @@ const resolveBrainCredential: ProviderApiCredentialResolver = async ({
   const credential =
     await resolveSourceCredentialWithProvenance(credentialOptions);
   if (!credential) {
-    if (isOptionalGongBaseUrl) {
-      throw new Error(
-        "Brain could not verify the organization Gong API base URL from its credential vault.",
-      );
-    }
+    if (isGongCredential) throw new Error(gongCredentialVerificationError);
     return null;
   }
   const { provenance } = credential;
