@@ -148,6 +148,38 @@ describe("KeyDateSetsDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("drops a typed name on Escape, though removing the field blurs it", () => {
+    render();
+    act(() => button("Rename Launches").click());
+    const field = document.activeElement as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(field, "Launch posts");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Chrome blurs a focused element as it is removed. React ignores events
+    // while it commits, so that blur must not reach onBlur's commit.
+    const removeChild = Node.prototype.removeChild;
+    const blurOnRemove = vi
+      .spyOn(Node.prototype, "removeChild")
+      .mockImplementation(function <T extends Node>(this: Node, child: T) {
+        if (child === document.activeElement) {
+          child.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+        }
+        return removeChild.call(this, child) as T;
+      });
+    try {
+      escape();
+    } finally {
+      blurOnRemove.mockRestore();
+    }
+
+    expect(button("Rename Launches")).toBeDefined();
+    expect(mocks.rename).not.toHaveBeenCalled();
+  });
+
   it("holds a just-added set's and date's controls until the server confirms them", () => {
     mocks.sets = [
       keyDateSet("pending-1", "Incidents", [
