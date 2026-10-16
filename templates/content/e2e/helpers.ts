@@ -466,6 +466,9 @@ export async function classifySave(response: Response): Promise<{
   return { outcome: "written", bodyState, body };
 }
 
+/** The save-code prefix of a collab update the server did not build the body from. */
+export const NOT_DERIVED = "live-copy:not_derived:";
+
 /**
  * A collab update's answer on a switched page. The tab drops an update from
  * its outbox only on a readable acknowledgment, and `not_derived` sends it
@@ -476,16 +479,19 @@ async function classifyCollabUpdate(
 ): Promise<{ outcome: SaveOutcome; code?: string }> {
   if (!response.ok())
     return { outcome: "refused", code: `HTTP ${response.status()}` };
-  let ack: { liveCopy?: unknown } | null;
+  let ack: { liveCopy?: unknown; liveCopyReason?: unknown } | null;
   try {
-    ack = (await response.json()) as { liveCopy?: unknown } | null;
+    ack = (await response.json()) as typeof ack;
   } catch {
     // coercion-ok: the tab keeps and resends an update whose acknowledgment it
     // cannot read, so the tally counts it as refused, under its own code.
     return { outcome: "refused", code: "collab-update:unreadable-ack" };
   }
   if (ack?.liveCopy === "not_derived")
-    return { outcome: "written", code: "live-copy:not_derived" };
+    return {
+      outcome: "written",
+      code: `${NOT_DERIVED}${String(ack.liveCopyReason ?? "no reason")}`,
+    };
   return { outcome: "written" };
 }
 

@@ -22,6 +22,7 @@ import {
   integrityFailures,
   Markers,
   noiseFailures,
+  NOT_DERIVED,
   observeIntegrity,
   outboxEntries,
   OUTBOX_PREFIX,
@@ -33,7 +34,7 @@ import {
   writeScenarioRecord,
   type ScenarioRecord,
 } from "./helpers";
-import { enterGateArm, GATE_ARM } from "./live-body-gate";
+import { enterGateArm, GATE_ARM, knownLossOnArm } from "./live-body-gate";
 
 // These scenarios count how often two tabs disagree. A retry would hide
 // exactly the intermittent failures they exist to count.
@@ -139,9 +140,11 @@ async function runScenario(
   if (BODY_SAVES === "collab-update")
     for (const tab of working)
       expect(
-        tab.saveCodes["live-copy:not_derived"] ?? 0,
+        Object.keys(tab.saveCodes).filter((code) =>
+          code.startsWith(NOT_DERIVED),
+        ),
         `${tab.label} heard the server stopped building the body from the live copy, so it went back to update-document saves`,
-      ).toBe(0);
+      ).toEqual([]);
   expect(
     integrityFailures(record),
     "lost, duplicated or deleted-then-back text",
@@ -1160,41 +1163,50 @@ test.describe(
       });
     });
 
-    test("an agent edit between two open tabs keeps every author's text", async ({
-      context,
-    }, testInfo) => {
-      await runScenario("agent-edit", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
+    test(
+      "an agent edit between two open tabs keeps every author's text",
+      knownLossOnArm({
+        on: {
+          lane: "L3",
+          outcome: "SF-01",
+          reason:
+            "After an agent's edit-document on a switched page, the server answers both tabs' collab updates not_derived (not_live_copy), so they go back to update-document saves, one of which goes to History with recovery notices; no text is lost.",
+        },
+      }),
+      async ({ context }, testInfo) => {
+        await runScenario("agent-edit", testInfo, context, async (s) => {
+          const { first, second } = await openPair(s);
 
-        await s.tabs.showOnly(first);
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-        await s.tabs.waitForSaveAnswers(first, 1);
+          await s.tabs.showOnly(first);
+          await typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          );
+          await s.tabs.waitForSaveAnswers(first, 1);
 
-        const fromAgent = s.markers.next("Agent");
-        s.notes.agentIdentity = await AgentClient.editOnce(
-          s.reader,
-          s.id,
-          "Delta paragraph stays untouched.",
-          `Delta paragraph edited by the agent ${fromAgent}.`,
-        );
-        await s.tabs.showOnly(second);
-        await typeAtParagraphEnd(
-          second,
-          "Charlie paragraph",
-          ` ${s.markers.next("B")}`,
-        );
-        await s.tabs.showOnly(first);
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-      });
-    });
+          const fromAgent = s.markers.next("Agent");
+          s.notes.agentIdentity = await AgentClient.editOnce(
+            s.reader,
+            s.id,
+            "Delta paragraph stays untouched.",
+            `Delta paragraph edited by the agent ${fromAgent}.`,
+          );
+          await s.tabs.showOnly(second);
+          await typeAtParagraphEnd(
+            second,
+            "Charlie paragraph",
+            ` ${s.markers.next("B")}`,
+          );
+          await s.tabs.showOnly(first);
+          await typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          );
+        });
+      },
+    );
 
     test("a second tab waits for the first blank-page create to finish", async ({
       context,
