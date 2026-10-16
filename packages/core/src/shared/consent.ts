@@ -139,6 +139,18 @@ export const CONSENT_COOKIE_NAME = "an_consent";
 /** Asked again a year later, like builder.io. */
 export const CONSENT_COOKIE_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
 export const CONSENT_REGION_PATH = "/_agent-native/auth/consent-region";
+export const CONSENT_PATH = "/_agent-native/auth/consent";
+
+/**
+ * One choice covers the site and every app on agent-native.com. The browser
+ * and the server must agree, or the two copies become two cookies.
+ */
+export function consentCookieDomain(hostname: string): string | null {
+  const host = hostname.toLowerCase();
+  return host === "agent-native.com" || host.endsWith(".agent-native.com")
+    ? "agent-native.com"
+    : null;
+}
 
 const CONSENT_COOKIE_VERSION = "1";
 

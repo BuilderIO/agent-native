@@ -76,6 +76,32 @@ describe("first-touch server cookie route", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("writes the browser's an_ft and an_lt again for 30 days", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const ft = encodeURIComponent(JSON.stringify(sourced));
+    const lt = encodeURIComponent(
+      JSON.stringify({ utm_source: "linkedin", touched_at: sourced.landed_at }),
+    );
+    const response = await post(sourced, {
+      cookie: `${serverCookie(sourced)}; an_ft=${ft}; an_lt=${lt}`,
+    });
+
+    expect(setCookies(response)).toEqual([
+      `an_ft=${ft}; Max-Age=2592000; Path=/; SameSite=Lax; Secure`,
+      `an_lt=${lt}; Max-Age=2592000; Path=/; SameSite=Lax; Secure`,
+    ]);
+  });
+
+  it("doesn't echo a browser cookie that isn't a touch", async () => {
+    const response = await post(sourced, {
+      cookie: "an_ft=not-json; an_lt=%7B%7D%3B%20Domain%3Devil",
+    });
+
+    expect(
+      setCookies(response).filter((c) => !c.startsWith("an_fts=")),
+    ).toEqual([]);
+  });
+
   it("refuses requests from another origin", async () => {
     const crossSite = await post(sourced, { "sec-fetch-site": "cross-site" });
     expect(crossSite.status).toBe(403);

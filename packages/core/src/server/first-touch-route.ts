@@ -19,27 +19,31 @@ import {
   LAST_TOUCH_COOKIE_NAME,
   decodeFirstTouchServerValue,
   decodeFirstTouchValue,
+  decodeLastTouchValue,
   encodeFirstTouchServerCookieValue,
   parseCookieHeader,
   type FirstTouchAttribution,
 } from "./attribution.js";
 import { requestAllowsConsentCategory } from "./consent-route.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  isSameOriginPost,
+} from "./request-origin.js";
 
 const MAX_BODY_BYTES = 8 * 1024;
+/** How long the browser's own `an_ft` and `an_lt` copies last. */
+const BROWSER_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+const BROWSER_COOKIES = [
+  { name: FIRST_TOUCH_COOKIE_NAME, decode: decodeFirstTouchValue },
+  { name: LAST_TOUCH_COOKIE_NAME, decode: decodeLastTouchValue },
+];
+// What `encodeURIComponent` emits, so a value echoed into Set-Cookie can't
+// carry an attribute or a header break.
+const ENCODED_COOKIE_VALUE = /^[A-Za-z0-9\-_.!~*'()%]{1,1500}$/;
 
 export type FirstTouchSyncResult =
   | { stored: true; firstTouch: FirstTouchAttribution }
   | { stored: false; reason: "consent_required" | "expired" };
-
-// Stricter than `isSameOriginRequest`: a request with neither header, or from
-// a desktop shell's origin, can't prove it came from this site's pages.
-function isSameOriginPost(event: H3Event): boolean {
-  const fetchSite = getHeader(event, "sec-fetch-site");
-  if (fetchSite) return fetchSite === "same-origin";
-  const origin = getHeader(event, "origin");
-  return !!origin && origin === getForwardedRequestOrigin(event);
-}
 
 function cookieAttributes(event: H3Event): string {
   const secure = getForwardedRequestOrigin(event).startsWith("https:");
@@ -60,6 +64,26 @@ function clearAttributionCookies(event: H3Event): void {
   }
 }
 
+/**
+ * Safari keeps a cookie page JavaScript wrote for seven days at most, so write
+ * the browser's own `an_ft` and `an_lt` again from here, for their full 30
+ * days. Only values that decode as touches are echoed back.
+ */
+function resetBrowserCookies(event: H3Event): void {
+  const cookies = parseCookieHeader(getHeader(event, "cookie"));
+  for (const { name, decode } of BROWSER_COOKIES) {
+    const value = cookies[name];
+    if (!value || !ENCODED_COOKIE_VALUE.test(value) || !decode(value)) {
+      continue;
+    }
+    appendResponseHeader(
+      event,
+      "set-cookie",
+      `${name}=${value}; Max-Age=${BROWSER_COOKIE_MAX_AGE_SECONDS}; ${cookieAttributes(event)}`,
+    );
+  }
+}
+
 function readCandidate(body: string): FirstTouchAttribution | null {
   const parsed = JSON.parse(body) as { firstTouch?: unknown };
   if (!parsed?.firstTouch || typeof parsed.firstTouch !== "object") {
@@ -75,7 +99,8 @@ function readCandidate(body: string): FirstTouchAttribution | null {
  * cookie wins unless `preferFirstTouch` picks the new one, so a slow request
  * from another tab can't replace a better first touch it never saw. Where the
  * banner applies and the visitor hasn't accepted targeting cookies, it stores
- * nothing and clears every attribution cookie.
+ * nothing and clears every attribution cookie. Elsewhere it also writes the
+ * browser's `an_ft` and `an_lt` again, so Safari keeps them their 30 days.
  */
 export function createFirstTouchHandler() {
   return defineEventHandler(async (event) => {
@@ -118,6 +143,7 @@ export function createFirstTouchHandler() {
       return { error: "Missing firstTouch" };
     }
 
+    resetBrowserCookies(event);
     const existing = decodeFirstTouchServerValue(
       parseCookieHeader(getHeader(event, "cookie"))[
         FIRST_TOUCH_SERVER_COOKIE_NAME

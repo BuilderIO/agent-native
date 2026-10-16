@@ -108,6 +108,22 @@ describe("client consent", () => {
     expect(revoke).toHaveBeenCalledTimes(1);
   });
 
+  it("asks the server to keep the choice for a year", async () => {
+    const { fetchMock } = installBrowser({ region: "consent" });
+    const consent = await freshConsent();
+
+    consent.setConsentChoice({ performance: false, targeting: true });
+
+    const call = (
+      fetchMock.mock.calls as unknown as Array<[string, RequestInit]>
+    ).find(([url]) => String(url).includes("/_agent-native/auth/consent"));
+    expect(call?.[1]).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+    });
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ choice: "1.p0.t1" });
+  });
+
   it("runs scripts the page queued before the module loaded", async () => {
     const { windowMock } = installBrowser({ region: "none" });
     const queued = vi.fn();

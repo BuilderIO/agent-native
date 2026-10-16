@@ -1,19 +1,31 @@
 import {
+  appendResponseHeader,
   defineEventHandler,
   getHeader,
   getMethod,
+  readRawBody,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
 import type { H3Event } from "h3";
 
 import {
+  CONSENT_COOKIE_LIFETIME_SECONDS,
   CONSENT_COOKIE_NAME,
+  consentCookieDomain,
   isConsentRegionCountry,
   parseConsent,
+  serializeConsent,
   type ConsentCategory,
 } from "../shared/consent.js";
 import { parseCookieHeader } from "./attribution.js";
+import {
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
+  isSameOriginPost,
+} from "./request-origin.js";
+
+const MAX_CONSENT_BODY_BYTES = 256;
 
 /** The visitor's country from the host's geo header, if it sent one. */
 export function requestCountry(event: H3Event): string | undefined {
@@ -66,5 +78,53 @@ export function createConsentRegionHandler() {
     const country = requestCountry(event);
     if (!country) return { region: "unknown" };
     return { region: isConsentRegionCountry(country) ? "consent" : "none" };
+  });
+}
+
+/**
+ * `POST /_agent-native/auth/consent` with `{ choice: "1.p1.t0" }`: write the
+ * visitor's choice from the server. Safari keeps a cookie page JavaScript
+ * wrote for seven days at most, and builder.io asks again only after a year.
+ * Uses the same domain as the browser's copy, so it replaces that copy.
+ */
+export function createConsentHandler() {
+  return defineEventHandler(async (event) => {
+    setResponseHeader(event, "cache-control", "no-store");
+    if (getMethod(event) !== "POST") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    if (!isSameOriginPost(event)) {
+      setResponseStatus(event, 403);
+      return { error: "Cross-origin request" };
+    }
+    const body = (await readRawBody(event)) ?? "";
+    if (body.length > MAX_CONSENT_BODY_BYTES) {
+      setResponseStatus(event, 413);
+      return { error: "Body too large" };
+    }
+    let choice;
+    try {
+      choice = parseConsent(
+        (JSON.parse(body) as { choice?: unknown })?.choice as string,
+      );
+    } catch {
+      setResponseStatus(event, 400);
+      return { error: "Invalid JSON" };
+    }
+    if (!choice) {
+      setResponseStatus(event, 400);
+      return { error: "Missing choice" };
+    }
+    const domain = consentCookieDomain(getForwardedRequestURL(event).hostname);
+    const secure = getForwardedRequestOrigin(event).startsWith("https:");
+    appendResponseHeader(
+      event,
+      "set-cookie",
+      `${CONSENT_COOKIE_NAME}=${serializeConsent(choice)}; ` +
+        `Max-Age=${CONSENT_COOKIE_LIFETIME_SECONDS}; Path=/; SameSite=Lax` +
+        `${domain ? `; Domain=${domain}` : ""}${secure ? "; Secure" : ""}`,
+    );
+    return { stored: true, choice };
   });
 }

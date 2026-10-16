@@ -912,6 +912,63 @@ describe("browser analytics pageviews", () => {
       serverTouch,
     );
     expect(cookieJson("an_ft")).toMatchObject({ utm_source: "youtube" });
+    // The restored `an_ft` was written by page JavaScript, so the server
+    // writes it again to outlast Safari's seven-day cap.
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(true);
+  });
+
+  it("asks the server to rewrite a new last touch when first touch is already synced", async () => {
+    installBrowser("https://clips.agent-native.com/?utm_source=linkedin");
+    const synced = {
+      utm_source: "youtube",
+      landing_path: "/",
+      landed_at: "2026-01-02T00:00:00.000Z",
+    };
+    const encoded = encodeURIComponent(JSON.stringify(synced));
+    window.localStorage.setItem("an_attribution", JSON.stringify(synced));
+    document.cookie = `an_ft=${encoded}; path=/`;
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...synced }),
+    )}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    const posts = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/auth/attribution"),
+    );
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(String(posts[0]![1]!.body))).toMatchObject({
+      firstTouch: { utm_source: "youtube" },
+    });
+  });
+
+  it("sends nothing when every copy is already in place", async () => {
+    installBrowser("https://clips.agent-native.com/");
+    // A direct visit: no new last touch to write.
+    (document as { referrer: string }).referrer = "";
+    const synced = {
+      utm_source: "youtube",
+      landing_path: "/",
+      landed_at: "2026-01-02T00:00:00.000Z",
+    };
+    window.localStorage.setItem("an_attribution", JSON.stringify(synced));
+    document.cookie = `an_ft=${encodeURIComponent(JSON.stringify(synced))}; path=/`;
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...synced }),
+    )}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
     expect(
       fetchMock.mock.calls.some(([url]) =>
         String(url).includes("/_agent-native/auth/attribution"),
