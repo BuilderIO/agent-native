@@ -201,6 +201,41 @@ describe("pending lookback removal storage", () => {
     expect(nextState.pendingIds.size).toBe(0);
   });
 
+  it("returns to export polling with a large cleanup backlog", async () => {
+    const storage = memoryStorage();
+    const serverUrl = "https://clips.example.test";
+    const account = "person@example.test";
+    const key = pendingLookbackRemovalStorageKey(serverUrl, account);
+    if (!key) throw new Error("Expected a scoped storage key.");
+    const pendingIds = Array.from(
+      { length: 100 },
+      (_, index) => `context-${index}`,
+    );
+    storage.setItem(key, JSON.stringify(pendingIds));
+
+    const removeItem = vi.fn(async () => undefined);
+    const pollExportQueue = vi.fn(async () => undefined);
+    let remainingCount = pendingIds.length;
+
+    // Each desktop poll awaits this helper before it requests pending exports.
+    for (let poll = 0; poll < 3; poll += 1) {
+      const state = await retryPendingLookbackRemovals({
+        storage,
+        serverUrl,
+        account,
+        target: { serverUrl, authToken: "current-token" },
+        removeItem,
+      });
+      remainingCount = state.pendingIds.size;
+      await pollExportQueue();
+    }
+
+    expect(removeItem).toHaveBeenCalledTimes(3);
+    expect(pollExportQueue).toHaveBeenCalledTimes(3);
+    expect(remainingCount).toBe(97);
+    expect(storage.getItem(key)).toBe(JSON.stringify(pendingIds.slice(3)));
+  });
+
   it("retains failed IDs, restores the warning, and gates only their worker items", async () => {
     const storage = memoryStorage();
     const serverUrl = "https://clips.example.test";

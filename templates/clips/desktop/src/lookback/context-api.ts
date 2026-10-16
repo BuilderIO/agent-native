@@ -2,6 +2,7 @@ import type { ScreenHistoryStatus } from "../../../shared/screen-history-context
 import {
   callClipsActionFor,
   ClipsActionError,
+  ClipsActionTimeoutError,
   type ClipsActionTarget,
 } from "../lib/clips-action";
 
@@ -43,6 +44,8 @@ export interface PendingRecordingContextPage {
 }
 
 export const LOOKBACK_ACTION_TIMEOUT_MS = 15_000;
+const RECORDING_CONTEXT_RETRY_INITIAL_DELAY_MS = 1_000;
+const RECORDING_CONTEXT_RETRY_MAX_DELAY_MS = 30_000;
 
 function callLookbackActionFor<T>(
   target: ClipsActionTarget,
@@ -97,11 +100,34 @@ export function requestRecordingContext(
   target: ClipsActionTarget,
   input: RecordingContextRequestInput,
 ): Promise<RecordingContextItem> {
+  return retryRecordingContextRequest(target, input);
+}
+
+export function requestRecordingContextOnce(
+  target: ClipsActionTarget,
+  input: RecordingContextRequestInput,
+): Promise<RecordingContextItem> {
   return callLookbackActionFor<RecordingContextItem>(
     target,
     "request-recording-context",
     input,
   );
+}
+
+async function retryRecordingContextRequest(
+  target: ClipsActionTarget,
+  input: RecordingContextRequestInput,
+): Promise<RecordingContextItem> {
+  let delayMs = RECORDING_CONTEXT_RETRY_INITIAL_DELAY_MS;
+  while (true) {
+    try {
+      return await requestRecordingContextOnce(target, input);
+    } catch (error) {
+      if (!isRetryableRecordingContextRequestFailure(error)) throw error;
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 2, RECORDING_CONTEXT_RETRY_MAX_DELAY_MS);
+    }
+  }
 }
 
 export function isTerminalRecordingContextRequestFailure(
@@ -112,6 +138,24 @@ export function isTerminalRecordingContextRequestFailure(
     ((error.status === 400 &&
       error.code === "recording_context_invalid_window") ||
       (error.status === 404 && error.code === "recording_unavailable"))
+  );
+}
+
+function isRetryableRecordingContextRequestFailure(error: unknown): boolean {
+  if (error instanceof ClipsActionError) {
+    return (
+      error.status === 408 ||
+      error.status === 425 ||
+      error.status === 429 ||
+      error.status >= 500
+    );
+  }
+  return (
+    error instanceof ClipsActionTimeoutError ||
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      (error.message === "Action returned an empty response." ||
+        error.message === "Action returned an invalid JSON response."))
   );
 }
 
@@ -127,9 +171,11 @@ export function settleRecordingContextRequest<
   onError: (error: unknown) => void,
 ): Promise<T | null> {
   return request.catch((error: unknown) => {
-    if (isTerminalRecordingContextRequestFailure(error)) {
-      forgetOrigin(recordingId);
+    if (isRetryableRecordingContextRequestFailure(error)) {
+      onError(error);
+      throw error;
     }
+    forgetOrigin(recordingId);
     onError(error);
     return null;
   });

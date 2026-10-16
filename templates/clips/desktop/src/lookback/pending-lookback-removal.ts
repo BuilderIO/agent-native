@@ -19,6 +19,8 @@ export interface LookbackRemovalRetry {
 
 const INITIAL_RETRY_DELAY_MS = 3_000;
 const MAX_RETRY_DELAY_MS = 5 * 60_000;
+// The desktop poll awaits cleanup before it asks the export queue for work.
+const MAX_REMOVALS_PER_RETRY = 1;
 
 export function lookbackRetryDelayMs(attempts: number): number {
   return Math.min(
@@ -168,8 +170,11 @@ export async function retryPendingLookbackRemovals(input: {
   const initialIds = [...initial.pendingIds];
   let ids = [...initialIds];
   let failed = false;
+  let attempted = 0;
   for (const itemId of initialIds) {
     if (input.skipIds?.has(itemId)) continue;
+    if (attempted >= MAX_REMOVALS_PER_RETRY) break;
+    attempted += 1;
     try {
       await input.removeItem(input.target, itemId);
     } catch {

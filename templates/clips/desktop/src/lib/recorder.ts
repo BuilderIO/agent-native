@@ -1898,6 +1898,7 @@ async function createServerRecording(
           method: "POST",
           headers: buildCreateRecordingRequestHeaders(options?.authToken),
           credentials: "include",
+          signal: options?.signal,
           body: JSON.stringify(
             buildCreateRecordingRequestBody(hasCamera, hasAudio, titleContext, {
               ...options,
@@ -1965,6 +1966,7 @@ export async function createPrivateAgentRewindRecording(
   hasAudio: boolean,
   startedAt: string,
   authToken?: string,
+  signal?: AbortSignal,
 ): Promise<{ id: string; uploadMode: UploadMode }> {
   return createServerRecording(
     serverUrl,
@@ -1982,6 +1984,7 @@ export async function createPrivateAgentRewindRecording(
       streamingUploadClient: "desktop-native",
       visibility: "private",
       authToken,
+      signal,
     },
   );
 }

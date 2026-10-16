@@ -6,7 +6,12 @@ import {
   type RecordingContextItem,
   type RecordingContextUpdate,
 } from "./context-api";
-import { processRecordingContextItem, type LookbackWorkerDeps } from "./worker";
+import {
+  LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS,
+  LOOKBACK_RECORDING_CREATE_TIMEOUT_MS,
+  processRecordingContextItem,
+  type LookbackWorkerDeps,
+} from "./worker";
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
 
@@ -63,8 +68,12 @@ function fakeDeps(
       return input;
     }),
     createRecording: vi.fn(
-      async (input: { hasAudio: boolean; startedAt: string }) => {
-        created.push(input);
+      async (input: {
+        hasAudio: boolean;
+        startedAt: string;
+        signal: AbortSignal;
+      }) => {
+        created.push({ hasAudio: input.hasAudio, startedAt: input.startedAt });
         return { id: "media-1", uploadMode: "streaming" as const };
       },
     ),
@@ -80,12 +89,14 @@ function fakeDeps(
     trashRecording: vi.fn(async (id: string) => {
       trashed.push(id);
     }),
+    cancelUpload: vi.fn(async () => undefined),
     ...overrides,
   };
 }
 
 describe("processRecordingContextItem", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -137,16 +148,57 @@ describe("processRecordingContextItem", () => {
     const [claimed] = vi.mocked(deps.update).mock.invocationCallOrder;
     expect(created).toBeLessThan(claimed ?? 0);
     expect(deps.uploadWindow).toHaveBeenCalledWith({
-      requestId: "handoff-lookback-ctx1",
+      requestId: "handoff-lookback-media-1",
       startedAt: "2026-10-09T09:59:30.000Z",
       endedAt: "2026-10-09T10:00:00.000Z",
       recordingId: "media-1",
       uploadMode: "streaming",
       includeMic: true,
       includeSystemAudio: false,
+      signal: expect.any(AbortSignal),
     });
     expect(deps.trashed).toEqual([]);
     expect(deps.forgetOrigin).not.toHaveBeenCalled();
+  });
+
+  it("aborts a recording creation that never returns", async () => {
+    vi.useFakeTimers();
+    let createSignal: AbortSignal | undefined;
+    const deps = fakeDeps({
+      createRecording: vi.fn(({ signal }) => {
+        createSignal = signal;
+        return new Promise(() => {});
+      }),
+    });
+
+    const processing = processRecordingContextItem(item(), deps);
+    await vi.advanceTimersByTimeAsync(LOOKBACK_RECORDING_CREATE_TIMEOUT_MS);
+
+    await expect(processing).resolves.toBe("failed");
+    expect(createSignal?.aborted).toBe(true);
+    expect(deps.updates.at(-1)).toEqual(
+      expect.objectContaining({ id: "ctx1", status: "failed" }),
+    );
+  });
+
+  it("cancels and releases a native upload that never returns", async () => {
+    vi.useFakeTimers();
+    const deps = fakeDeps({
+      currentItem: vi.fn(async () =>
+        item({ status: "processing", pendingMediaRecordingId: "media-1" }),
+      ),
+      uploadWindow: vi.fn(() => new Promise(() => {})),
+    });
+
+    const processing = processRecordingContextItem(item(), deps);
+    await vi.advanceTimersByTimeAsync(LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS);
+
+    await expect(processing).resolves.toBe("failed");
+    expect(deps.cancelUpload).toHaveBeenCalledWith("media-1");
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.updates.at(-1)).toEqual(
+      expect.objectContaining({ id: "ctx1", status: "failed" }),
+    );
   });
 
   it("keeps an origin while a failed item can still be retried", async () => {

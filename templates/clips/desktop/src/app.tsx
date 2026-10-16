@@ -269,6 +269,7 @@ import {
   getRecordingContextItem,
   listPendingRecordingContext,
   requestRecordingContext,
+  requestRecordingContextOnce,
   settleRecordingContextRequest,
   visitPendingRecordingContextPage,
   LOOKBACK_ACTION_TIMEOUT_MS,
@@ -2188,12 +2189,13 @@ export function App({
         update: (input) => updateRecordingContext(target, input),
         currentItem: (recordingId, itemId) =>
           getRecordingContextItem(target, recordingId, itemId),
-        createRecording: ({ hasAudio, startedAt }) =>
+        createRecording: ({ hasAudio, startedAt, signal }) =>
           createPrivateAgentRewindRecording(
             serverUrl,
             hasAudio,
             startedAt,
             target.authToken,
+            signal,
           ),
         uploadWindow: (input) =>
           invoke<NativeRewindUploadResult>("rewind_agent_handoff_upload", {
@@ -2209,6 +2211,8 @@ export function App({
             includeMic: input.includeMic,
             includeSystemAudio: input.includeSystemAudio,
           }),
+        cancelUpload: (recordingId) =>
+          invoke("native_fullscreen_recording_cancel_retry", { recordingId }),
         trashRecording: (id) =>
           callClipsAction(
             "trash-recording",
@@ -2254,7 +2258,7 @@ export function App({
           target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           skipRecordingIds: activeRecordingIds,
           retries: lookbackCleanupIntentRetriesRef.current,
-          requestItem: requestRecordingContext,
+          requestItem: requestRecordingContextOnce,
         });
         if (cancelled) return;
         const storedRemovals = readPendingLookbackRemovals(

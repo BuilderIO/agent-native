@@ -8,11 +8,16 @@ import {
   LOOKBACK_ACTION_TIMEOUT_MS,
   removeRecordingContext,
   requestRecordingContext,
+  requestRecordingContextOnce,
   settleRecordingContextRequest,
   visitPendingRecordingContextPage,
   type PendingRecordingContextPage,
   type RecordingContextItem,
 } from "./context-api";
+import {
+  settlePendingLookbackContextAfterStop,
+  type PendingLookbackContext,
+} from "./pending-lookback-context";
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
 
@@ -33,6 +38,7 @@ function stubFetch(
 
 describe("requestRecordingContext", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -60,6 +66,80 @@ describe("requestRecordingContext", () => {
       includeMicrophone: true,
       includeSystemAudio: false,
     });
+  });
+
+  it("retries temporary failures after a successful stop releases its context", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Temporary failure" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "ctx1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const requestInput = {
+      recordingId: "rec1",
+      seconds: 30,
+      endedAt: "2026-10-09T10:00:00.000Z",
+      deviceId: "device-1",
+    };
+    const item = settleRecordingContextRequest(
+      requestRecordingContext(target, requestInput),
+      "rec1",
+      vi.fn(),
+      vi.fn(),
+    );
+    const contexts = new Map<string, PendingLookbackContext>([
+      [
+        "rec1",
+        {
+          recordingId: "rec1",
+          request: requestInput,
+          target,
+          account: "owner@example.test",
+          item,
+        },
+      ],
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await settlePendingLookbackContextAfterStop(
+      contexts,
+      "rec1",
+      true,
+      vi.fn(),
+    );
+    expect(contexts.has("rec1")).toBe(false);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(item).resolves.toMatchObject({ id: "ctx1" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps cleanup retries bounded to the caller's persisted schedule", async () => {
+    const fetchMock = stubFetch({ error: "Temporary failure" }, 503);
+
+    await expect(
+      requestRecordingContextOnce(target, {
+        recordingId: "rec1",
+        seconds: 30,
+        endedAt: "2026-10-09T10:00:00.000Z",
+        deviceId: "device-1",
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
 
@@ -123,7 +203,7 @@ describe("settleRecordingContextRequest", () => {
     },
   );
 
-  it("retains the origin after a retryable request failure", async () => {
+  it("does not turn a retryable request failure into an absent item", async () => {
     const forgetOrigin = vi.fn();
     const onError = vi.fn();
     const error = new ClipsActionError("temporary server failure", 503);
@@ -135,9 +215,27 @@ describe("settleRecordingContextRequest", () => {
         forgetOrigin,
         onError,
       ),
-    ).resolves.toBeNull();
+    ).rejects.toBe(error);
 
     expect(forgetOrigin).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+  });
+
+  it("forgets the origin after a permanent non-terminal request failure", async () => {
+    const forgetOrigin = vi.fn();
+    const onError = vi.fn();
+    const error = new ClipsActionError("not allowed", 403);
+
+    await expect(
+      settleRecordingContextRequest(
+        Promise.reject(error),
+        "rec1",
+        forgetOrigin,
+        onError,
+      ),
+    ).resolves.toBeNull();
+
+    expect(forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
     expect(onError).toHaveBeenCalledExactlyOnceWith(error);
   });
 });

@@ -33,6 +33,7 @@ export interface LookbackWorkerDeps {
   createRecording(input: {
     hasAudio: boolean;
     startedAt: string;
+    signal: AbortSignal;
   }): Promise<{ id: string; uploadMode: UploadMode }>;
   uploadWindow(input: {
     requestId: string;
@@ -42,13 +43,19 @@ export interface LookbackWorkerDeps {
     uploadMode: UploadMode;
     includeMic: boolean;
     includeSystemAudio: boolean;
+    signal: AbortSignal;
   }): Promise<{
     durationMs: number;
     width?: number | null;
     height?: number | null;
   }>;
+  cancelUpload(recordingId: string): Promise<void>;
   trashRecording(id: string): Promise<unknown>;
 }
+
+export const LOOKBACK_RECORDING_CREATE_TIMEOUT_MS = 30_000;
+export const LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS = 15 * 60_000;
+const LOOKBACK_UPLOAD_CANCEL_TIMEOUT_MS = 5_000;
 
 export function lookbackOriginForItem(
   item: RecordingContextItem,
@@ -87,6 +94,74 @@ export function lookbackOriginForItem(
 export type LookbackWorkerOutcome = "skipped" | "ready" | "failed";
 
 const FALLBACK_ERROR = "Earlier screen time couldn't be saved.";
+
+function runLookbackOperation<T>(
+  description: string,
+  timeoutMs: number,
+  operation: (signal: AbortSignal) => Promise<T>,
+  onTimeout?: () => Promise<void>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutError = new Error(
+    `${description} timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`,
+  );
+  timeoutError.name = "TimeoutError";
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      callback();
+    };
+
+    const timeout = async () => {
+      timedOut = true;
+      controller.abort(timeoutError);
+      if (onTimeout) {
+        let cancelTimer: ReturnType<typeof setTimeout> | null = null;
+        try {
+          await Promise.race([
+            onTimeout(),
+            new Promise<void>((_, rejectCancel) => {
+              cancelTimer = setTimeout(
+                () => rejectCancel(new Error("native upload cancel timed out")),
+                LOOKBACK_UPLOAD_CANCEL_TIMEOUT_MS,
+              );
+            }),
+          ]);
+        } catch (error) {
+          console.error(
+            "[lookback] cancelling a timed out native upload failed:",
+            error,
+          );
+        } finally {
+          if (cancelTimer) clearTimeout(cancelTimer);
+        }
+      }
+      finish(() => reject(timeoutError));
+    };
+
+    timer = setTimeout(() => void timeout(), timeoutMs);
+    void Promise.resolve()
+      .then(() => operation(controller.signal))
+      .then(
+        (value) => {
+          if (timedOut) return;
+          finish(() => resolve(value));
+        },
+        (error: unknown) => {
+          if (timedOut) return;
+          finish(() => reject(error));
+        },
+      );
+  });
+}
 
 export async function processRecordingContextItem(
   item: RecordingContextItem,
@@ -131,10 +206,16 @@ async function processRecordingContextItemWithOrigin(
   // any other recording, which binds the result to this claim.
   let recording: { id: string; uploadMode: UploadMode };
   try {
-    recording = await deps.createRecording({
-      hasAudio: origin.includeMicrophone || origin.includeSystemAudio,
-      startedAt: item.startedAt,
-    });
+    recording = await runLookbackOperation(
+      "Creating the earlier screen time recording",
+      LOOKBACK_RECORDING_CREATE_TIMEOUT_MS,
+      (signal) =>
+        deps.createRecording({
+          hasAudio: origin.includeMicrophone || origin.includeSystemAudio,
+          startedAt: item.startedAt,
+          signal,
+        }),
+    );
   } catch (error) {
     return failWithoutFootage(item, error, deps);
   }
@@ -162,15 +243,22 @@ async function processRecordingContextItemWithOrigin(
 
   let upload: Awaited<ReturnType<LookbackWorkerDeps["uploadWindow"]>>;
   try {
-    upload = await deps.uploadWindow({
-      requestId: `handoff-lookback-${item.id}`,
-      startedAt: item.startedAt,
-      endedAt: item.endedAt,
-      recordingId: recording.id,
-      uploadMode: recording.uploadMode,
-      includeMic: origin.includeMicrophone,
-      includeSystemAudio: origin.includeSystemAudio,
-    });
+    upload = await runLookbackOperation(
+      "Uploading the earlier screen time recording",
+      LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS,
+      (signal) =>
+        deps.uploadWindow({
+          requestId: `handoff-lookback-${recording.id}`,
+          startedAt: item.startedAt,
+          endedAt: item.endedAt,
+          recordingId: recording.id,
+          uploadMode: recording.uploadMode,
+          includeMic: origin.includeMicrophone,
+          includeSystemAudio: origin.includeSystemAudio,
+          signal,
+        }),
+      () => deps.cancelUpload(recording.id),
+    );
   } catch (error) {
     if (isNonRetryable(error))
       return failHeldClaim(item, recording.id, error, deps);
