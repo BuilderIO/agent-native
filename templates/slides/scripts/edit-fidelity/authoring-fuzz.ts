@@ -1659,7 +1659,8 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
           (corsUrl !== null && candidate.url === corsUrl)) &&
         !candidate.competingClaimStartedAfterFailure &&
         candidate.requestAgeMs >= 0 &&
-        candidate.requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
+        candidate.requestAgeMs <
+          cleanupNavigationBrowserSessionMaxRequestAgeMs &&
         candidate.failureAgeMs >= 0 &&
         candidate.failureAgeMs <= retiredBrowserSessionPollConsoleGraceMs &&
         (corsUrl === null || candidate.url === corsUrl),

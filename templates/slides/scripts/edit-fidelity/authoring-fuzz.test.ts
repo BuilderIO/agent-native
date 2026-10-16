@@ -2174,6 +2174,18 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
   ).toBe(true);
   expect(
     isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [{ ...candidate, requestAgeMs: 10_999 }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [{ ...candidate, requestAgeMs: 11_000 }],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
       "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
       [candidate],
     ),
