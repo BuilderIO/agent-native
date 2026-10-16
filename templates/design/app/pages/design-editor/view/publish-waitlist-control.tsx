@@ -192,7 +192,7 @@ export function renderPublishWaitlistControl({
       >
         <DialogContent className="sm:max-w-sm">
           <DialogTitle className="sr-only">
-            {"Publish app" /* i18n-ignore */}
+            {t("designEditor.publishApp")}
           </DialogTitle>
           <PublishWaitlistPanel
             editorCore={editorCore}
