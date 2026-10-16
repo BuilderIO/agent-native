@@ -60,6 +60,7 @@ describe("get-first-party-analytics-backend", () => {
   it("reports Postgres for every table when the scope has no backend setting", async () => {
     await expect(action.run({})).resolves.toEqual({
       sink: "postgres",
+      setting: "absent",
       tables: {
         analytics_events: "postgres",
         analytics_event_daily_rollups: "postgres",
@@ -82,12 +83,24 @@ describe("get-first-party-analytics-backend", () => {
 
     await expect(action.run({})).resolves.toEqual({
       sink: "bigquery",
+      setting: "recognized",
       tables: {
         analytics_events: "bigquery",
         analytics_event_daily_rollups: "bigquery",
         analytics_user_days: "bigquery",
         session_recordings: "postgres",
       },
+    });
+    expectNoBigQuery();
+  });
+
+  it("reports an unrecognized stored backend instead of passing it off as the default", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ sink: "BigQuery" });
+
+    await expect(action.run({})).resolves.toMatchObject({
+      sink: "postgres",
+      setting: "unrecognized",
+      tables: { analytics_events: "postgres" },
     });
     expectNoBigQuery();
   });

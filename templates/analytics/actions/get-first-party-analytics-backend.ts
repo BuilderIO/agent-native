@@ -12,10 +12,11 @@ const queryBackendSchema = z.enum(["postgres", "bigquery"]);
 
 export default defineAction({
   description:
-    "Report where first-party Analytics queries run for the current user/org, read from its stored backend setting; it never queries BigQuery or any warehouse. Returns `sink` (`postgres`; `dual`, which also writes to BigQuery but reads Postgres; or `bigquery`) and `tables`, the backend each query-agent-native-analytics table is read from. Fails with errorCode first_party_backend_unreadable when the setting cannot be read; that is unknown, not Postgres.",
+    "Report where first-party Analytics queries run for the current user/org, read from its stored backend setting; it never queries BigQuery or any warehouse. Returns `sink` (`postgres`; `dual`, which also writes to BigQuery but reads Postgres; or `bigquery`) and `tables`, the backend each query-agent-native-analytics table is read from. `setting` is `absent` (the Postgres default), `recognized`, or `unrecognized`: a stored value that is not a known backend, which also routes to Postgres; report that the setting needs fixing. Fails with errorCode first_party_backend_unreadable when the setting cannot be read; that is unknown, not Postgres.",
   schema: z.object({}),
   outputSchema: z.object({
     sink: z.enum(["postgres", "dual", "bigquery"]),
+    setting: z.enum(["absent", "recognized", "unrecognized"]),
     tables: z.object({
       analytics_events: queryBackendSchema,
       analytics_event_daily_rollups: queryBackendSchema,
@@ -34,12 +35,12 @@ export default defineAction({
         statusCode: 401,
       });
     }
-    let sink: Awaited<ReturnType<typeof getFirstPartyAnalyticsBackend>>["sink"];
+    let backend: Awaited<ReturnType<typeof getFirstPartyAnalyticsBackend>>;
     try {
-      ({ sink } = await getFirstPartyAnalyticsBackend({
+      backend = await getFirstPartyAnalyticsBackend({
         userEmail,
         orgId: getRequestOrgId() || null,
-      }));
+      });
     } catch (error) {
       console.warn("[first-party-analytics] Backend setting unreadable:", {
         errorType: error instanceof Error ? error.name : "non_error",
@@ -49,6 +50,10 @@ export default defineAction({
         { errorCode: "first_party_backend_unreadable", statusCode: 503 },
       );
     }
-    return { sink, tables: firstPartyAnalyticsTableBackends(sink) };
+    return {
+      sink: backend.sink,
+      setting: backend.sinkSetting,
+      tables: firstPartyAnalyticsTableBackends(backend.sink),
+    };
   },
 });
