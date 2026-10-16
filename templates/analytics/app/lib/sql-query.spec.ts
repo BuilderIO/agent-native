@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),
+  recordQueryCost: vi.fn(),
   callAction: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("./cost-tracker", () => ({
   addBytesProcessed: mocks.addBytesProcessed,
+  recordQueryCost: mocks.recordQueryCost,
 }));
 
 import {
@@ -30,6 +32,7 @@ import {
 describe("executeSqlQuery", () => {
   beforeEach(() => {
     mocks.addBytesProcessed.mockReset();
+    mocks.recordQueryCost.mockReset();
     mocks.callAction.mockReset();
   });
 
@@ -69,7 +72,9 @@ describe("executeSqlQuery", () => {
         timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
       }),
     );
-    expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
+    expect(mocks.recordQueryCost).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "success", bytesProcessed: 128 }),
+    );
   });
 
   it("requests a live result when refreshing a BigQuery panel", async () => {
