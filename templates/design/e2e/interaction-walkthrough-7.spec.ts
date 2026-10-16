@@ -367,7 +367,7 @@ test.describe("card and container interactions", () => {
   });
 
   // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
-  // fixme: product bug: Teleport: the rectangle is saved into index.html with no position/left/top, so it renders at the screen's top-left (Inspector X 0 Y 0)
+  // fixme: product bug, intermittent: drawing the rectangle on the board sometimes saves two extra board nodes (an-…, rectangle-…) besides the drawn one
   test.fixme("step 3 [overview, outside the screen -> crosses into the screen]: a rectangle drawn on the board and dragged into the screen lands at the drop point, and one undo puts it back on the board", async ({
     app,
     page,

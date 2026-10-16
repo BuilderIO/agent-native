@@ -10,7 +10,13 @@ import {
   trimToWidth,
   type CategoryAxisPlan,
 } from "@shared/chart-axis-labels";
-import type { DashboardFunnelRows } from "@shared/dashboard-funnel";
+import {
+  funnelOutcomeShare,
+  type DashboardFunnelItem,
+  type DashboardFunnelOutcomes,
+  type DashboardFunnelOutcomeSummary,
+  type DashboardFunnelRows,
+} from "@shared/dashboard-funnel";
 import { formatDollars } from "@shared/format-dollars";
 import {
   isNumericLikeValue,
@@ -20,6 +26,11 @@ import {
   type ChartPointLimit,
   type HeatmapKeys,
 } from "@shared/panel-render-contract";
+import {
+  FUNNEL_OUTCOME_FILLS,
+  FUNNEL_OUTCOME_SEGMENTS,
+  type FunnelOutcomeSegment,
+} from "@shared/tokens/funnel-outcome-colors";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -69,6 +80,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -103,6 +115,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip as HoverTooltip,
+  TooltipContent as HoverTooltipContent,
+  TooltipProvider as HoverTooltipProvider,
+  TooltipTrigger as HoverTooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -124,6 +142,7 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+import { renderEventMarkers } from "./event-markers";
 
 export { limitChartRows };
 
@@ -1222,6 +1241,13 @@ interface SqlChartProps {
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   /** Passing this makes a table's columns editable; omit it for read-only tables. */
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
+  /** One viewer's own column widths, drawn over the panel's saved ones. */
+  columnWidths?: Record<string, number>;
+  /**
+   * Passing this lets a viewer drag column widths for themselves; the drag
+   * calls this instead of `onSaveColumns`, and null resets the column.
+   */
+  onColumnWidthChange?: (columnKey: string, width: number | null) => void;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1239,6 +1265,8 @@ export function SqlChart({
   onExportCsvChange,
   onCopyTableChange,
   onSaveColumns,
+  columnWidths,
+  onColumnWidthChange,
   dashboardId,
   extensionContext,
 }: SqlChartProps) {
@@ -1541,6 +1569,8 @@ export function SqlChart({
         onExportCsvChange={onExportCsvChange}
         onCopyTableChange={onCopyTableChange}
         onSaveColumns={onSaveColumns}
+        columnWidths={columnWidths}
+        onColumnWidthChange={onColumnWidthChange}
       />,
     );
   }
@@ -2008,20 +2038,26 @@ function TableRenderer({
   onExportCsvChange,
   onCopyTableChange,
   onSaveColumns,
+  columnWidths,
+  onColumnWidthChange,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
+  columnWidths?: Record<string, number>;
+  onColumnWidthChange?: (columnKey: string, width: number | null) => void;
 }) {
   const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false;
   const editable = onSaveColumns !== undefined;
+  const personalResize = onColumnWidthChange !== undefined;
+  const resizable = editable || personalResize;
   const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
 
-  const columns = useMemo<TableColumnConfig[]>(() => {
+  const savedColumns = useMemo<TableColumnConfig[]>(() => {
     if (config?.columns?.length) {
       const configured = config.columns.filter(
         (c) => !c.hidden && rowKeys.has(c.key),
@@ -2030,6 +2066,18 @@ function TableRenderer({
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
   }, [config?.columns, rows, rowKeys]);
+
+  // A viewer's own widths are drawn over the saved ones but never saved:
+  // edits start from `editableColumns`, which reads the panel config.
+  const columns = useMemo<TableColumnConfig[]>(
+    () =>
+      columnWidths
+        ? savedColumns.map((c) =>
+            columnWidths[c.key] ? { ...c, width: columnWidths[c.key] } : c,
+          )
+        : savedColumns,
+    [savedColumns, columnWidths],
+  );
 
   // Edits start from the persisted list, hidden entries included, so a change
   // never drops a key the agent configured. Visible keys missing from it (the
@@ -2132,7 +2180,9 @@ function TableRenderer({
       MIN_TABLE_COLUMN_WIDTH,
       Math.round(resize.startWidth + event.clientX - resize.startX),
     );
-    if (width !== resize.startWidth) updateColumn(resize.key, { width });
+    if (width === resize.startWidth) return;
+    if (personalResize) onColumnWidthChange(resize.key, width);
+    else updateColumn(resize.key, { width });
   };
 
   const renderHeaderCell = (col: TableColumnConfig) => {
@@ -2184,7 +2234,7 @@ function TableRenderer({
         }
         className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
           sortable ? "cursor-pointer select-none hover:text-foreground" : ""
-        } ${editable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
+        } ${resizable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
         onClick={(event) => {
           // The second click of a double-click renames the column and must not
           // toggle the sort a second time.
@@ -2237,18 +2287,31 @@ function TableRenderer({
             </>
           )}
         </span>
-        {editable &&
+        {resizable &&
         !isRenaming &&
         col.key !== columns[columns.length - 1]?.key ? (
           <span
             role="separator"
             aria-orientation="vertical"
             aria-label={t("sqlDashboard.columnResize")}
+            title={
+              personalResize
+                ? t("dashboardMode.columnResizePersonal")
+                : t("dashboardMode.columnResizeShared")
+            }
             className="absolute inset-y-0 end-0 w-1.5 cursor-col-resize hover:bg-border"
             onPointerDown={(event) => handleResizeStart(col.key, event)}
             onPointerMove={handleResizeMove}
             onPointerUp={handleResizeEnd}
             onClick={(event) => event.stopPropagation()}
+            onDoubleClick={
+              personalResize
+                ? (event) => {
+                    event.stopPropagation();
+                    onColumnWidthChange(col.key, null);
+                  }
+                : undefined
+            }
           />
         ) : null}
       </th>
@@ -2781,6 +2844,7 @@ function BarRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2825,6 +2889,7 @@ function BarRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2854,6 +2919,13 @@ function BarRenderer({
               isAnimationActive={false}
             />
           ))}
+          {renderEventMarkers(
+            panel.config?.events,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </BarChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -2886,6 +2958,7 @@ function ComboRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2931,6 +3004,7 @@ function ComboRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2970,6 +3044,13 @@ function ComboRenderer({
               />
             ),
           )}
+          {renderEventMarkers(
+            panel.config?.events,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </ComposedChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -3001,6 +3082,7 @@ function TimeSeriesRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
@@ -3054,6 +3136,7 @@ function TimeSeriesRenderer({
               vertical={false}
             />
             <Tooltip
+              active={eventHovered ? false : undefined}
               {...CHART_TOOLTIP_PROPS}
               labelFormatter={xTooltipLabelFormatter}
               content={
@@ -3096,6 +3179,13 @@ function TimeSeriesRenderer({
                   isAnimationActive={false}
                 />
               ) : null,
+            )}
+            {renderEventMarkers(
+              panel.config?.events,
+              chartRows,
+              xKey,
+              dualAxis.enabled ? "left" : undefined,
+              setEventHovered,
             )}
           </LineChart>
         </ChartResponsiveContainer>
@@ -3157,6 +3247,7 @@ function TimeSeriesRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={xTooltipLabelFormatter}
             content={
@@ -3205,6 +3296,13 @@ function TimeSeriesRenderer({
               />
             ) : null,
           )}
+          {renderEventMarkers(
+            panel.config?.events,
+            chartRows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </AreaChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -3223,6 +3321,17 @@ function FunnelRenderer({
   const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
   const formatter = panel.config?.yFormatter;
   const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
+
+  if (funnel.outcomes) {
+    return (
+      <OutcomeFunnelRenderer
+        funnel={funnel}
+        outcomes={funnel.outcomes}
+        panel={panel}
+        colors={funnelColors}
+      />
+    );
+  }
 
   return (
     <div
@@ -3263,6 +3372,208 @@ function FunnelRenderer({
         );
       })}
     </div>
+  );
+}
+
+const FUNNEL_OUTCOME_LABEL_KEYS: Record<FunnelOutcomeSegment, string> = {
+  completed: "sqlDashboard.funnelCompleted",
+  skipped: "sqlDashboard.funnelSkipped",
+  movedOn: "sqlDashboard.funnelMovedOn",
+  left: "sqlDashboard.funnelLeft",
+};
+
+function formatShare(part: number, shown: number): string {
+  return `${funnelOutcomeShare(part, shown).toFixed(1)}%`;
+}
+
+function OutcomeFunnelRenderer({
+  funnel,
+  outcomes,
+  panel,
+  colors,
+}: {
+  funnel: DashboardFunnelRows;
+  outcomes: DashboardFunnelOutcomeSummary;
+  panel: SqlPanel;
+  colors: string[];
+}) {
+  const t = useT();
+  const formatter = panel.config?.yFormatter;
+  const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
+  const segments = FUNNEL_OUTCOME_SEGMENTS.filter(
+    (segment) => segment !== "skipped" || !!outcomes.keys.skippedKey,
+  );
+
+  return (
+    <HoverTooltipProvider delayDuration={100}>
+      <div
+        className="py-2"
+        role="group"
+        aria-label={panel.title}
+        data-dashboard-funnel="true"
+        data-funnel-outcomes="true"
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          {segments.map((segment) => (
+            <span key={segment} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{ background: FUNNEL_OUTCOME_FILLS[segment] }}
+              />
+              {t(FUNNEL_OUTCOME_LABEL_KEYS[segment])}
+            </span>
+          ))}
+          <span className="ml-auto">{t("sqlDashboard.funnelLeftHere")}</span>
+        </div>
+        <div className="space-y-3">
+          {funnel.items.map((item, index) => {
+            const shown = t("sqlDashboard.funnelShown", {
+              count: formatYValue(item.value, formatter),
+            });
+            if (!item.outcomes) {
+              const width =
+                item.value > 0 ? Math.max(2, (item.value / maxValue) * 100) : 0;
+              return (
+                <div key={`${item.label}-${index}`} className="space-y-1">
+                  <div className="flex items-baseline gap-2 text-xs">
+                    <span className="min-w-0 truncate font-medium text-foreground">
+                      {item.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {shown}
+                    </span>
+                  </div>
+                  <div className="h-[18px] overflow-hidden rounded-sm bg-muted/60">
+                    <div
+                      className="h-full rounded-sm"
+                      style={{
+                        width: `${width}%`,
+                        backgroundColor: colors[index % colors.length],
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <OutcomeFunnelStage
+                key={`${item.label}-${index}`}
+                item={item}
+                outcomes={item.outcomes}
+                segments={segments}
+                shown={shown}
+                formatter={formatter}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </HoverTooltipProvider>
+  );
+}
+
+function OutcomeFunnelStage({
+  item,
+  outcomes,
+  segments,
+  shown,
+  formatter,
+}: {
+  item: DashboardFunnelItem;
+  outcomes: DashboardFunnelOutcomes;
+  segments: FunnelOutcomeSegment[];
+  shown: string;
+  formatter?: "number" | "currency" | "percent";
+}) {
+  const t = useT();
+  const optionalTag = outcomes.optional ? (
+    <Badge
+      variant="outline"
+      className="shrink-0 px-1.5 py-0 text-[10px] font-medium leading-4"
+    >
+      {t("sqlDashboard.funnelOptional")}
+    </Badge>
+  ) : null;
+
+  return (
+    <HoverTooltip>
+      <HoverTooltipTrigger asChild>
+        <div
+          tabIndex={0}
+          className="space-y-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          data-funnel-stage={item.label}
+        >
+          <div className="flex items-baseline gap-2 text-xs">
+            <span className="min-w-0 truncate font-medium text-foreground">
+              {item.label}
+            </span>
+            {optionalTag}
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {shown}
+            </span>
+            <span
+              className="ml-auto shrink-0 text-sm font-semibold tabular-nums text-foreground"
+              data-funnel-left-share
+            >
+              {formatShare(outcomes.left, item.value)}
+            </span>
+          </div>
+          <div className="flex h-[18px] overflow-hidden rounded-sm bg-muted/60">
+            {segments.map((segment) =>
+              outcomes[segment] > 0 ? (
+                <div
+                  key={segment}
+                  className="h-full"
+                  data-funnel-segment={segment}
+                  style={{
+                    width: `${funnelOutcomeShare(outcomes[segment], item.value)}%`,
+                    background: FUNNEL_OUTCOME_FILLS[segment],
+                  }}
+                />
+              ) : null,
+            )}
+          </div>
+        </div>
+      </HoverTooltipTrigger>
+      <HoverTooltipContent
+        side="bottom"
+        align="start"
+        className="w-72 space-y-1 p-3 text-xs"
+      >
+        <div className="mb-2 flex items-center gap-2 font-medium">
+          <span className="min-w-0 truncate">{item.label}</span>
+          {optionalTag}
+        </div>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span>{t("sqlDashboard.funnelShownLabel")}</span>
+          <span className="ml-auto tabular-nums text-foreground">
+            {formatYValue(item.value, formatter)}
+          </span>
+        </div>
+        {segments.map((segment) => (
+          <div
+            key={segment}
+            className={`flex items-center gap-2 ${segment === "left" ? "font-semibold" : ""}`}
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-sm"
+              style={{ background: FUNNEL_OUTCOME_FILLS[segment] }}
+            />
+            <span>
+              {t(
+                segment === "left"
+                  ? "sqlDashboard.funnelLeftHere"
+                  : FUNNEL_OUTCOME_LABEL_KEYS[segment],
+              )}
+            </span>
+            <span className="ml-auto tabular-nums">
+              {formatYValue(outcomes[segment], formatter)} ·{" "}
+              {formatShare(outcomes[segment], item.value)}
+            </span>
+          </div>
+        ))}
+      </HoverTooltipContent>
+    </HoverTooltip>
   );
 }
 

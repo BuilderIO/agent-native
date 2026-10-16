@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   compareAndSetManyAppState,
@@ -8,12 +8,17 @@ import {
 } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { captureRouteError } from "@agent-native/core/server";
+import {
+  captureError,
+  captureRouteError,
+  getAppConfig,
+} from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
+import { retryableUploadInterruptionReason } from "@shared/upload-interruption.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -32,6 +37,7 @@ import {
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
 import {
+  hostedStorageAuthFailure,
   recordingTrackingSource,
   trackRecordingFailure,
 } from "../server/lib/recording-failures.js";
@@ -50,13 +56,18 @@ import {
 } from "../server/lib/resumable-session.js";
 import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
-import { fetchS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
+import {
+  clipsHostedFileUploadProvider,
+  deleteS3ObjectByUrl,
+  fetchS3ObjectByUrl,
+} from "../server/lib/s3-upload-provider.js";
 import {
   clearSeekableRepairPending,
   markSeekableRepairPending,
 } from "../server/lib/seekable-media-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
+  markHostedCleanupConfirmed,
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
 } from "../server/lib/upload-lease.js";
@@ -65,6 +76,9 @@ import {
   remuxWebmToSeekable,
 } from "../server/lib/video-remux.js";
 import {
+  consumeHostedClipRecording,
+  HOSTED_STORAGE_UNAVAILABLE_REASON,
+  releaseHostedClipRecording,
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
@@ -104,9 +118,21 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
 
 const RECORDING_TOO_LARGE_REASON =
   "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
+
+function recordingTooLargeReason(maxBytes: number): string {
+  return `Recording exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
+}
+
 const MEDIA_SERVE_VERIFICATION_TIMEOUT_MS = 8_000;
 const MEDIA_SERVE_VERIFICATION_ATTEMPTS = 3;
 const MEDIA_SERVE_VERIFICATION_BACKOFF_MS = 350;
+
+function notTakenDown() {
+  return or(
+    isNull(schema.recordings.failureCode),
+    ne(schema.recordings.failureCode, "taken_down"),
+  );
+}
 const MEDIA_VERIFICATION_MAX_DURABLE_ATTEMPTS = 10;
 const MEDIA_VERIFICATION_INITIAL_RETRY_DELAY_MS = 5_000;
 
@@ -244,6 +270,7 @@ async function verifyServedMediaUrl(
   recordingId: string,
   videoUrl: string,
   allowLegacyObjectKey = false,
+  storageMode?: "own" | "hosted" | null,
 ): Promise<number | null> {
   if (!shouldVerifyServedMediaUrl(videoUrl)) return null;
 
@@ -263,11 +290,17 @@ async function verifyServedMediaUrl(
         range: "bytes=0-1023",
         timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
         recordingId,
+        storageMode: storageMode === "hosted" ? "hosted" : "own",
         ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
       });
       let response = signedS3Response;
       if (response?.status !== 200 && response?.status !== 206) {
         await response?.body?.cancel().catch(() => undefined);
+        if (storageMode === "hosted") {
+          lastFailure =
+            "hosted media could not be read from its private bucket";
+          continue;
+        }
         response = await fetch(videoUrl, {
           method: "GET",
           headers: { Range: "bytes=0-1023" },
@@ -332,6 +365,8 @@ async function failStoredButUnservableRecording(params: {
   ownerEmail: string;
   uploadAttemptId: string | null;
   uploadGenerationId: string | null;
+  storageMode?: "own" | "hosted" | null;
+  videoUrl?: string;
   expectedUploadState: Record<string, unknown> | null;
   expectedVerificationState: Record<string, unknown> | null;
   failureReason: string;
@@ -342,6 +377,8 @@ async function failStoredButUnservableRecording(params: {
     ownerEmail,
     uploadAttemptId,
     uploadGenerationId,
+    storageMode,
+    videoUrl,
     expectedUploadState,
     expectedVerificationState,
     failureReason,
@@ -428,6 +465,48 @@ async function failStoredButUnservableRecording(params: {
     failureCode: "media_verification_failed",
     browserSessionId,
   });
+  if (storageMode === "hosted" && videoUrl) {
+    let deleted = false;
+    try {
+      deleted = await deleteS3ObjectByUrl(videoUrl, {
+        storageMode: "hosted",
+        recordingId: id,
+      });
+    } catch (error) {
+      console.error("[finalize] hosted failed media cleanup failed", {
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (deleted) {
+      await markHostedCleanupConfirmed(id, videoUrl);
+      const [cleared] = await db
+        .update(schema.recordings)
+        .set({
+          videoUrl: null,
+          videoSizeBytes: 0,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, id),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.status, "failed"),
+            eq(schema.recordings.videoUrl, videoUrl),
+            notTakenDown(),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (cleared) {
+        await releaseHostedClipRecording({
+          recordingId: id,
+          ownerEmail,
+        });
+      }
+    } else {
+      console.error("[finalize] hosted failed media remains reserved", { id });
+    }
+  }
   await writeAppState("refresh-signal", { ts: Date.now() });
   return true;
 }
@@ -818,6 +897,7 @@ async function markRecordingReady(params: {
   finalHasCamera: boolean;
   recordingAttemptId: string | null;
   recordingGenerationId: string | null;
+  storageMode?: "own" | "hosted" | null;
   existingTitle: string;
   seekableApplied: boolean;
   browserSessionId?: string;
@@ -836,6 +916,7 @@ async function markRecordingReady(params: {
     finalHasCamera,
     recordingAttemptId,
     recordingGenerationId,
+    storageMode,
     existingTitle,
     seekableApplied,
     browserSessionId,
@@ -900,6 +981,21 @@ async function markRecordingReady(params: {
       postUpdate?.uploadGenerationId === recordingGenerationId;
     const isReady = sameUpload && postUpdate?.status === "ready";
     if (isReady) {
+      if (
+        !(await consumeHostedAllowanceIfNeeded({
+          id,
+          ownerEmail,
+          storageMode,
+          videoUrl,
+          videoSizeBytes,
+        }))
+      ) {
+        return {
+          id,
+          status: "failed" as const,
+          transitionedToReady: false,
+        };
+      }
       await queueReadyRecordingThumbnail(id);
       await reconcileMeetingOnRecordingReady({
         recordingId: id,
@@ -929,6 +1025,22 @@ async function markRecordingReady(params: {
             durationMs: finalDurationMs,
           }
         : {}),
+    };
+  }
+
+  if (
+    !(await consumeHostedAllowanceIfNeeded({
+      id,
+      ownerEmail,
+      storageMode,
+      videoUrl,
+      videoSizeBytes,
+    }))
+  ) {
+    return {
+      id,
+      status: "failed" as const,
+      transitionedToReady: false,
     };
   }
 
@@ -1074,6 +1186,99 @@ async function markRecordingReady(params: {
   };
 }
 
+async function consumeHostedAllowanceIfNeeded(params: {
+  id: string;
+  ownerEmail: string;
+  storageMode?: "own" | "hosted" | null;
+  videoUrl: string;
+  videoSizeBytes: number;
+}): Promise<boolean> {
+  if (params.storageMode !== "hosted") return true;
+
+  const result = await consumeHostedClipRecording({
+    recordingId: params.id,
+    ownerEmail: params.ownerEmail,
+    actualBytes: params.videoSizeBytes,
+  });
+  if (result.ok) return true;
+
+  const now = new Date().toISOString();
+  const failureReason =
+    "This clip could not be retained because hosted Clips storage reached its limit.";
+  const [failed] = await getDb()
+    .update(schema.recordings)
+    .set({
+      status: "failed",
+      failureCode: result.reason,
+      failureReason,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.recordings.id, params.id),
+        ownerEmailMatches(schema.recordings.ownerEmail, params.ownerEmail),
+        eq(schema.recordings.status, "ready"),
+      ),
+    )
+    .returning({ id: schema.recordings.id });
+  if (!failed) return false;
+
+  await writeAppState(`recording-upload-${params.id}`, {
+    recordingId: params.id,
+    status: "failed",
+    failureCode: result.reason,
+    failureReason,
+    updatedAt: now,
+  });
+
+  let deleted = false;
+  try {
+    deleted = await deleteS3ObjectByUrl(params.videoUrl, {
+      storageMode: "hosted",
+      recordingId: params.id,
+    });
+  } catch (error) {
+    console.error(
+      "[finalize] could not remove hosted clip after quota denial",
+      {
+        id: params.id,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+  if (deleted) {
+    await markHostedCleanupConfirmed(params.id, params.videoUrl);
+    const [cleared] = await getDb()
+      .update(schema.recordings)
+      .set({
+        videoUrl: null,
+        videoSizeBytes: 0,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, params.id),
+          ownerEmailMatches(schema.recordings.ownerEmail, params.ownerEmail),
+          eq(schema.recordings.status, "failed"),
+          eq(schema.recordings.videoUrl, params.videoUrl),
+          notTakenDown(),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
+    if (cleared) {
+      await releaseHostedClipRecording({
+        recordingId: params.id,
+        ownerEmail: params.ownerEmail,
+      });
+    }
+  } else {
+    console.error("[finalize] hosted quota denial left media for cleanup", {
+      id: params.id,
+    });
+  }
+  return false;
+}
+
 async function retryPendingMediaVerification(params: {
   id: string;
   ownerEmail: string;
@@ -1082,6 +1287,7 @@ async function retryPendingMediaVerification(params: {
   retryAttempt: number;
   uploadAttemptId: string | null;
   uploadGenerationId: string | null;
+  storageMode?: "own" | "hosted" | null;
   expectedUploadState: Record<string, unknown> | null;
   expectedVerificationState: Record<string, unknown>;
   browserSessionId?: string;
@@ -1094,6 +1300,7 @@ async function retryPendingMediaVerification(params: {
     retryAttempt,
     uploadAttemptId,
     uploadGenerationId,
+    storageMode,
     expectedUploadState,
     expectedVerificationState,
     browserSessionId,
@@ -1106,6 +1313,7 @@ async function retryPendingMediaVerification(params: {
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
       editsJson: schema.recordings.editsJson,
+      storageMode: schema.recordings.storageMode,
     })
     .from(schema.recordings)
     .where(
@@ -1149,6 +1357,7 @@ async function retryPendingMediaVerification(params: {
         persistedUrl: recording.videoUrl,
         editsJson: recording.editsJson,
       }),
+      recording.storageMode,
     );
     const result = await markRecordingReady({
       id,
@@ -1165,6 +1374,7 @@ async function retryPendingMediaVerification(params: {
       finalHasCamera: candidate.finalHasCamera,
       recordingAttemptId: uploadAttemptId,
       recordingGenerationId: uploadGenerationId,
+      storageMode,
       seekableApplied: candidate.seekableApplied,
       browserSessionId,
     });
@@ -1190,6 +1400,8 @@ async function retryPendingMediaVerification(params: {
         ownerEmail,
         uploadAttemptId,
         uploadGenerationId,
+        storageMode,
+        videoUrl: candidate.videoUrl,
         expectedUploadState,
         expectedVerificationState,
         failureReason: terminalReason,
@@ -1336,6 +1548,9 @@ export default defineAction({
     debugLog("[finalize] starting", { id, ownerEmail });
 
     let chunkKeysToPurge: string[] = [];
+    let storageMode: "own" | "hosted" | null = null;
+    let uploadAttemptId: string | null = null;
+    let uploadGenerationId: string | null = null;
     try {
       let [existing] = await db
         .select()
@@ -1351,6 +1566,15 @@ export default defineAction({
         console.warn("[finalize] recording not found", { id, ownerEmail });
         chunkKeysToPurge = await listRecordingChunkKeys(ownerEmail, id);
         throw new Error(`Recording not found: ${id}`);
+      }
+      storageMode = existing.storageMode ?? null;
+      uploadAttemptId = existing.uploadAttemptId ?? null;
+      uploadGenerationId = existing.uploadGenerationId ?? null;
+      if (existing.failureCode === "taken_down") {
+        fail("Recording is no longer available", {
+          errorCode: "recording_taken_down",
+          statusCode: 409,
+        });
       }
 
       const generationId = args.uploadGenerationId ?? null;
@@ -1394,6 +1618,21 @@ export default defineAction({
 
       if (existing.status === "ready" && existing.videoUrl) {
         debugLog("[finalize] already finalized, returning existing", { id });
+        if (
+          !(await consumeHostedAllowanceIfNeeded({
+            id,
+            ownerEmail,
+            storageMode: existing.storageMode,
+            videoUrl: existing.videoUrl,
+            videoSizeBytes: existing.videoSizeBytes ?? 0,
+          }))
+        ) {
+          return {
+            id,
+            status: "failed" as const,
+            failureCode: "global_storage_cap",
+          };
+        }
         await queueReadyRecordingThumbnail(id);
         await deleteResumableSession(id, generationId).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
@@ -1472,6 +1711,7 @@ export default defineAction({
             ? args.uploadAttemptId
             : (existing.uploadAttemptId ?? null),
         recordingGenerationId: generationId,
+        storageMode: existing.storageMode,
         existingTitle: existing.title,
         browserSessionId:
           recordingUploadBrowserSessionId(uploadState, {
@@ -1519,6 +1759,7 @@ export default defineAction({
           retryAttempt,
           uploadAttemptId: existing.uploadAttemptId ?? null,
           uploadGenerationId: generationId,
+          storageMode: existing.storageMode,
           expectedUploadState: uploadState,
           expectedVerificationState: claimed,
           browserSessionId:
@@ -1562,6 +1803,7 @@ export default defineAction({
                 eq(schema.recordings.id, id),
                 ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
                 eq(schema.recordings.status, "failed"),
+                notTakenDown(),
                 eq(schema.recordings.failureReason, existing.failureReason),
                 existing.uploadAttemptId
                   ? eq(
@@ -1620,6 +1862,7 @@ export default defineAction({
                 eq(schema.recordings.id, id),
                 ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
                 eq(schema.recordings.status, existing.status),
+                notTakenDown(),
               ),
             );
         }
@@ -1643,6 +1886,62 @@ export default defineAction({
                 deleteErr,
               ),
             );
+            if (existing.storageMode === "hosted") {
+              const now = new Date().toISOString();
+              const failureReason = retryableUploadInterruptionReason(
+                "Recording upload contained no video bytes",
+              );
+              const [failed] = await db
+                .update(schema.recordings)
+                .set({
+                  status: "failed",
+                  failureCode: "empty_upload",
+                  failureReason,
+                  uploadProgress: 0,
+                  updatedAt: now,
+                })
+                .where(
+                  and(
+                    eq(schema.recordings.id, id),
+                    ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                    eq(schema.recordings.status, existing.status),
+                    notTakenDown(),
+                    existing.uploadAttemptId
+                      ? eq(
+                          schema.recordings.uploadAttemptId,
+                          existing.uploadAttemptId,
+                        )
+                      : isNull(schema.recordings.uploadAttemptId),
+                    generationId
+                      ? eq(schema.recordings.uploadGenerationId, generationId)
+                      : isNull(schema.recordings.uploadGenerationId),
+                  ),
+                )
+                .returning({ id: schema.recordings.id });
+              if (failed) {
+                const failedUploadState = {
+                  ...(uploadState ?? {}),
+                  recordingId: id,
+                  status: "failed",
+                  failureCode: "empty_upload",
+                  failureReason,
+                  retryableInterruption: true,
+                  updatedAt: now,
+                };
+                const statePublished = await compareAndSetAppState(
+                  `recording-upload-${id}`,
+                  uploadState,
+                  failedUploadState,
+                );
+                if (statePublished) {
+                  await markHostedCleanupConfirmed(id);
+                  await releaseHostedClipRecording({
+                    recordingId: id,
+                    ownerEmail,
+                  });
+                }
+              }
+            }
           }
           throw new Error(
             "Upload completion failed: Recording upload contained no video bytes",
@@ -1666,24 +1965,36 @@ export default defineAction({
             provider: uploadProvider,
             label: `finalize-${id}`,
           });
-          if (cleaned) {
+          if (cleaned && existing.storageMode !== "hosted") {
             await deleteResumableSession(id, generationId).catch((deleteErr) =>
               console.warn(
                 "[finalize] failed to retire aborted resumable session:",
                 deleteErr,
               ),
             );
+          } else if (existing.storageMode === "hosted") {
+            console.error(
+              "[finalize] hosted completion outcome is ambiguous; keeping its reservation and session state",
+              { id, sessionCleanupConfirmed: cleaned },
+            );
           }
           console.error("[finalize] resumable complete failed:", err);
-          throw new Error(
+          const wrapped = new Error(
             `Upload completion failed: ${err instanceof Error ? err.message : String(err)}`,
           );
+          Object.assign(wrapped, { cause: err });
+          throw wrapped;
         }
 
         debugLog("[finalize] resumable upload completed", { id, videoUrl });
         let servedBytes: number | null;
         try {
-          servedBytes = await verifyServedMediaUrl(id, videoUrl, true);
+          servedBytes = await verifyServedMediaUrl(
+            id,
+            videoUrl,
+            true,
+            existing.storageMode,
+          );
         } catch (err) {
           const failureReason =
             err instanceof Error ? err.message : String(err);
@@ -1777,6 +2088,7 @@ export default defineAction({
             eq(schema.recordings.id, id),
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
             eq(schema.recordings.status, existing.status),
+            notTakenDown(),
             existing.uploadAttemptId
               ? eq(schema.recordings.uploadAttemptId, existing.uploadAttemptId)
               : isNull(schema.recordings.uploadAttemptId),
@@ -1880,6 +2192,13 @@ export default defineAction({
             platform: failedRecording?.recordingPlatform,
             failureCode,
           });
+        if (failedRecording && existing.storageMode === "hosted") {
+          await markHostedCleanupConfirmed(id);
+          await releaseHostedClipRecording({
+            recordingId: id,
+            ownerEmail,
+          });
+        }
         if (failedRecording)
           await compareAndSetAppState(
             `recording-upload-${id}`,
@@ -1956,9 +2275,15 @@ export default defineAction({
         parts.push(bytes);
       }
       const assembled = concatBytes(parts);
-      if (assembled.byteLength > MAX_RECORDING_UPLOAD_BYTES) {
+      const maxUploadBytes =
+        existing.storageMode === "hosted"
+          ? getAppConfig().clips.hostedStorage.maxClipBytes
+          : MAX_RECORDING_UPLOAD_BYTES;
+      if (assembled.byteLength > maxUploadBytes) {
         await failChunkAssembly(
-          RECORDING_TOO_LARGE_REASON,
+          existing.storageMode === "hosted"
+            ? recordingTooLargeReason(maxUploadBytes)
+            : RECORDING_TOO_LARGE_REASON,
           "recording_too_large",
         );
       }
@@ -2093,39 +2418,47 @@ export default defineAction({
 
       let upload: Awaited<ReturnType<typeof uploadFile>>;
       try {
-        upload = await uploadFile({
+        const uploadInput = {
           data: uploadData,
           filename: `${id}.${videoFormat}`,
           mimeType,
           ownerEmail,
           stableUrl: true,
           recordAsset: false,
-        });
+        };
+        upload =
+          existing.storageMode === "hosted"
+            ? await clipsHostedFileUploadProvider.upload(uploadInput)
+            : await uploadFile(uploadInput);
       } catch (err) {
-        try {
-          captureRouteError(err, {
-            route: "finalize-recording",
-            tags: {
-              uploadStep: "finalize-upload",
-              videoFormat,
-            },
-            extra: {
-              recordingId: id,
-              dataBytes: uploadData.byteLength,
-              mimeType,
-              videoFormat,
-              ownerEmail,
-              originalBytes:
-                compressionMeta?.originalBytes ?? assembled.byteLength,
-              compressedBytes: compressionMeta?.compressedBytes,
-              compressionRatio: compressionMeta?.ratio,
-              compressionElapsedMs: compressionMeta?.elapsedMs,
-              compressionOutputMimeType: compressionMeta?.outputMimeType,
-              compressionRan: !!compressionMeta,
-            },
-          });
-        } catch {
-          // Sentry must never mask the real upload error.
+        if (
+          !(existing.storageMode === "hosted" && hostedStorageAuthFailure(err))
+        ) {
+          try {
+            captureRouteError(err, {
+              route: "finalize-recording",
+              tags: {
+                uploadStep: "finalize-upload",
+                videoFormat,
+              },
+              extra: {
+                recordingId: id,
+                dataBytes: uploadData.byteLength,
+                mimeType,
+                videoFormat,
+                ownerEmail,
+                originalBytes:
+                  compressionMeta?.originalBytes ?? assembled.byteLength,
+                compressedBytes: compressionMeta?.compressedBytes,
+                compressionRatio: compressionMeta?.ratio,
+                compressionElapsedMs: compressionMeta?.elapsedMs,
+                compressionOutputMimeType: compressionMeta?.outputMimeType,
+                compressionRan: !!compressionMeta,
+              },
+            });
+          } catch {
+            // Sentry must never mask the real upload error.
+          }
         }
         throw err;
       }
@@ -2351,7 +2684,12 @@ export default defineAction({
       });
       let servedBytes: number | null;
       try {
-        servedBytes = await verifyServedMediaUrl(id, upload.url, true);
+        servedBytes = await verifyServedMediaUrl(
+          id,
+          upload.url,
+          true,
+          existing.storageMode,
+        );
       } catch (err) {
         const failureReason = err instanceof Error ? err.message : String(err);
         return await leaveRecordingProcessingForMediaVerification({
@@ -2406,6 +2744,67 @@ export default defineAction({
         });
       }
       return result;
+    } catch (error) {
+      const authFailure =
+        storageMode === "hosted" ? hostedStorageAuthFailure(error) : null;
+      if (!authFailure) throw error;
+
+      const failedAt = new Date().toISOString();
+      try {
+        captureError(error, {
+          route: "/_agent-native/actions/finalize-recording",
+          errorMessagePolicy: "omit",
+          tags: {
+            area: "clips-storage",
+            source: "clips-hosted-storage",
+            storageMode: "hosted",
+            errorCode: "hosted_storage_unavailable",
+            reportExpected: "true",
+            ...(authFailure.status
+              ? { providerStatus: String(authFailure.status) }
+              : {}),
+          },
+          extra: { recordingId: id },
+        });
+      } catch {
+        // Error reporting must never change the upload result.
+      }
+      try {
+        await db
+          .update(schema.recordings)
+          .set({
+            failureCode: "hosted_storage_unavailable",
+            failureReason: HOSTED_STORAGE_UNAVAILABLE_REASON,
+            updatedAt: failedAt,
+          })
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              inArray(schema.recordings.status, ["uploading", "processing"]),
+              uploadAttemptId === null
+                ? isNull(schema.recordings.uploadAttemptId)
+                : eq(schema.recordings.uploadAttemptId, uploadAttemptId),
+              uploadGenerationId === null
+                ? isNull(schema.recordings.uploadGenerationId)
+                : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
+            ),
+          );
+      } catch (persistError) {
+        console.error("[finalize] hosted storage failure could not be saved", {
+          id,
+          error:
+            persistError instanceof Error
+              ? persistError.message
+              : String(persistError),
+        });
+      }
+
+      throw Object.assign(new Error(HOSTED_STORAGE_UNAVAILABLE_REASON), {
+        cause: error,
+        errorCode: "hosted_storage_unavailable",
+        statusCode: 503,
+      });
     } finally {
       if (chunkKeysToPurge.length > 0) {
         let purged = 0;

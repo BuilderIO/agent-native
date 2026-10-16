@@ -4,6 +4,7 @@ const messages = {
     includeLast: "Letzte einbeziehen",
     whatIsThis: "Was ist das?",
     off: "Aus",
+    none: "Keine",
     custom: "Benutzerdefiniert…",
     customLabel: "Benutzerdefinierte Dauer",
     customAmount: "Dauer",
@@ -15,6 +16,27 @@ const messages = {
     customErrorInvalid: "Gib eine ganze Zahl in Sekunden oder Minuten ein.",
     customErrorTooLong: "Höchstens 5 Min.",
     turnOnRewind: "Rewind aktivieren",
+    turnOffRewind: "Ausschalten",
+    turnOffRewindFailed:
+      "Rewind konnte nicht deaktiviert werden. Beende die Aufnahme und versuche es erneut.",
+    turnOnRewindFailed:
+      "Rewind konnte nicht aktiviert werden. Versuch es erneut.",
+    turnOnRewindPermissionFailed:
+      "Erlaube Clips die Bildschirmaufnahme unter Systemeinstellungen > Datenschutz & Sicherheit > Bildschirm- und Systemaudioaufnahme. Starte Clips danach neu und versuche es erneut.",
+    turnOnRewindUnsupported:
+      "Die Bildschirmaufnahme mit Rewind ist nur unter macOS verfügbar.",
+    turnOnRewindNoSpace:
+      "Es ist nicht genug Speicherplatz vorhanden, um Rewind zu starten. Gib Speicherplatz frei und versuche es erneut.",
+    turnOnRewindStopClip:
+      "Beende den aktuellen Clip, bevor du Rewind aktivierst.",
+    turnOnRewindStorageFailed:
+      "Auf den Rewind-Speicher konnte nicht zugegriffen werden. Prüfe den freien Speicherplatz und die Ordnerberechtigungen und versuche es erneut.",
+    rewindConsentTitle: "Rewind aktivieren?",
+    rewindConsentBody:
+      "Clips zeichnet fortlaufend deinen Bildschirm auf und speichert ihn auf diesem Gerät. Agents erhalten Textauszüge, und Videos werden nur mit deiner Zustimmung geteilt.",
+    rewindConsentCancel: "Nicht jetzt",
+    rewindConsentConfirm: "Rewind aktivieren",
+    rewindConsentBusy: "Rewind wird aktiviert…",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
       "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",
@@ -1591,6 +1613,8 @@ const messages = {
       "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
     statusUnavailable:
       "Der Status des Videospeichers konnte nicht geprüft werden.",
+    hostedStorageUnavailable:
+      "Der Clips-Hostingspeicher ist vorübergehend nicht verfügbar. Dein kostenloses Clip-Kontingent bleibt unverändert. Versuche den Upload später erneut.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
@@ -1890,6 +1914,18 @@ const messages = {
     validWebUrl: "Gib eine gültige http://- oder https://-Adresse ein.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
+    freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    hostedClipsExhaustedTitle:
+      "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
+    hostedClipsExhaustedDescription:
+      "Du hast alle kostenlosen gehosteten Clips verwendet. Verbinde den Builder.io-Speicher, um weitere Clips in deiner Bibliothek zu speichern.",
+    clipExceedsSizeLimit:
+      "Dieser Clip überschreitet das aktuelle Upload-Größenlimit.",
+    clipExceedsMaxDuration:
+      "Dieser Clip überschreitet die aktuelle maximale Aufnahmedauer.",
+    maxClipDurationReached:
+      "Die maximale Cliplänge ist erreicht. Aufnahme wird gespeichert.",
     pageTitle: "New recording — Clips (Lokalisiert)",
     uploadFailed: "Upload failed (Lokalisiert)",
     uploadFailedAtChunk:
@@ -2079,6 +2115,11 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
     cleanupComplete: "Diktat bereinigt",
     cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    undoCleanup: "Rückgängig",
+    restoreOriginal: "Original wiederherstellen",
+    cleanupRestored: "Ursprüngliches Diktat wiederhergestellt",
+    cleanupRestoreFailed:
+      "Ursprüngliches Diktat konnte nicht wiederhergestellt werden",
     startFirst: "Verwandle deine Gedanken in Text",
     recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:
@@ -2126,6 +2167,10 @@ const messages = {
     vocabularyRemoveFailed: "Begriff konnte nicht entfernt werden",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Der gehostete Clips-Speicher ist voll. Verbinde den Builder.io-Speicher, um weiterhin Clips zu speichern.",
+    hostedRecordingTakenDown:
+      "Diese Aufnahme wurde aus dem gehosteten Clips-Speicher entfernt.",
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
     selectAll: "Alle auswählen",
@@ -2308,9 +2353,15 @@ const messages = {
     issues: "Probleme",
     consoleSource: "Konsole",
     networkSource: "Netzwerk",
+    appSource: "App-Aktivität",
+    appEvent: "Ereignis",
+    appData: "Daten",
+    appFailureSummary: "{{count}} App-Fehler",
+    appUnavailable: "Die App-Aktivität konnte nicht geladen werden.",
     consoleCount: "Konsole {{count}}",
     networkCount: "Netzwerk {{count}}",
     afterRecording: "Nach der Aufnahme",
+    beforeRecording: "Vor der Aufnahme",
     seekToTime: "Zu {{time}} springen",
     occurrences: "Vorkommen",
     message: "Meldung",
@@ -2322,6 +2373,7 @@ const messages = {
     noIssuesTitle: "Keine Browserprobleme erkannt",
     noConsoleTitle: "Keine Konsolenereignisse",
     noNetworkTitle: "Keine Netzwerkanfragen",
+    noAppTitle: "Keine App-Aktivität",
     capturedDescription: "Für diese Aufnahme wurden Diagnosedaten erfasst.",
   },
   timeline: { clipStartedHere: "Clip begann hier" },

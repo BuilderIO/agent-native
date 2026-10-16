@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
@@ -46,32 +47,69 @@ import {
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
+  usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterPreset } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
-/** Check if any filter param in the URL differs from the defaults */
-function hasActiveFilters(
+export interface DashboardSavedView {
+  id: string;
+  filters: Record<string, string>;
+  isDefault?: boolean;
+}
+
+// Reset returns to the saved view open in the URL (filter edits keep `view`), so
+// editing a view and resetting lands back on it. With no view open it goes where
+// a fresh load does: the default view, otherwise each filter's own default.
+export function resetTargetView(
+  views: readonly DashboardSavedView[],
+  searchParams: URLSearchParams,
+): DashboardSavedView | undefined {
+  const viewId = searchParams.get("view");
+  return (
+    views.find((view) => view.id === viewId) ??
+    views.find((view) => view.isDefault)
+  );
+}
+
+const NO_VIEWS: readonly DashboardSavedView[] = [];
+
+// Compare resolved values, not param presence: a URL that spells out a default
+// (f_timeRange=30d) still matches.
+export function filtersMatchView(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
+  view: DashboardSavedView | undefined,
 ): boolean {
-  for (const f of filters) {
-    if (f.type === "date-range") {
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start")) return true;
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "End")) return true;
-    } else {
-      if (
-        isDateRangePresetFilter(f) &&
-        (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start") ||
-          searchParams.has(FILTER_PARAM_PREFIX + f.id + "End"))
-      ) {
-        return true;
-      }
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id)) return true;
-    }
+  const current = resolveFilterVars(
+    filters,
+    (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
+  );
+  const target = resolveFilterVars(
+    filters,
+    (key) => view?.filters[FILTER_PARAM_PREFIX + key] ?? "",
+  );
+  return Object.keys(target).every((key) => current[key] === target[key]);
+}
+
+export function resetFilterParams(
+  prev: URLSearchParams,
+  view: DashboardSavedView | undefined,
+): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  for (const key of Array.from(next.keys())) {
+    if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
   }
-  return false;
+  if (view) {
+    for (const [key, value] of Object.entries(view.filters)) {
+      if (value) next.set(key, value);
+    }
+    next.set("view", view.id);
+  } else {
+    next.delete("view");
+  }
+  return next;
 }
 
 export function extractFilterParams(
@@ -103,6 +141,8 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
+  views?: readonly DashboardSavedView[] | null;
   onSaveView?: (
     name: string,
     filters: Record<string, string>,
@@ -112,6 +152,7 @@ interface DashboardFilterBarProps {
 
 export function DashboardFilterBar({
   filters,
+  views = NO_VIEWS,
   onSaveView,
 }: DashboardFilterBarProps) {
   const t = useT();
@@ -162,18 +203,12 @@ export function DashboardFilterBar({
     [setSearchParams],
   );
 
-  const clearAllFilters = useCallback(() => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      const keysToRemove: string[] = [];
-      next.forEach((_, k) => {
-        if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
-      });
-      keysToRemove.forEach((k) => next.delete(k));
-      next.delete("view");
-      return next;
-    });
-  }, [setSearchParams]);
+  const resetFilters = useCallback(() => {
+    if (!views) return;
+    setSearchParams((prev) =>
+      resetFilterParams(prev, resetTargetView(views, prev)),
+    );
+  }, [views, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
     if (!viewName.trim() || !onSaveView || savingView) return;
@@ -211,7 +246,18 @@ export function DashboardFilterBar({
     [uniqueFilters, getParam],
   );
 
-  const filtersActive = hasActiveFilters(uniqueFilters, searchParams);
+  const canReset =
+    views !== null &&
+    !filtersMatchView(
+      uniqueFilters,
+      searchParams,
+      resetTargetView(views, searchParams),
+    );
+  const filtersChanged = !filtersMatchView(
+    uniqueFilters,
+    searchParams,
+    views?.find((view) => view.isDefault),
+  );
 
   return (
     <>
@@ -239,49 +285,54 @@ export function DashboardFilterBar({
               ))}
             </div>
           </CollapsibleContent>
-          <div className="flex shrink-0 items-center gap-1 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
-            {onSaveView && filtersActive && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
-                onClick={() => setSaveDialogOpen(true)}
-              >
-                <IconDeviceFloppy className="h-3 w-3 mr-1" />
-                {t("sqlDashboard.saveView")}
-              </Button>
-            )}
-            {filtersActive && (
+          <div className="flex shrink-0 items-center gap-1 self-center">
+            <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
+              {onSaveView && filtersChanged && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setSaveDialogOpen(true)}
+                >
+                  <IconDeviceFloppy className="h-3 w-3 mr-1" />
+                  {t("sqlDashboard.saveView")}
+                </Button>
+              )}
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  aria-label={
+                    filtersOpen
+                      ? t("sqlDashboard.collapseFilters")
+                      : t("sqlDashboard.expandFilters")
+                  }
+                >
+                  {filtersOpen
+                    ? t("sqlDashboard.hide")
+                    : t("sqlDashboard.show")}
+                  <IconChevronDown
+                    className={cn(
+                      "ml-1 h-3 w-3 transition-transform",
+                      filtersOpen && "rotate-180",
+                    )}
+                  />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
+            {canReset && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={clearAllFilters}
+                onClick={resetFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />
-                {t("sqlDashboard.clearAll")}
+                {t("sqlDashboard.resetFilters")}
               </Button>
             )}
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                aria-label={
-                  filtersOpen
-                    ? t("sqlDashboard.collapseFilters")
-                    : t("sqlDashboard.expandFilters")
-                }
-              >
-                {filtersOpen ? t("sqlDashboard.hide") : t("sqlDashboard.show")}
-                <IconChevronDown
-                  className={cn(
-                    "ml-1 h-3 w-3 transition-transform",
-                    filtersOpen && "rotate-180",
-                  )}
-                />
-              </Button>
-            </CollapsibleTrigger>
           </div>
         </div>
       </Collapsible>
@@ -422,6 +473,11 @@ function MultiSelectFilter({
       options.find((option) => option.value === selectedValue)?.label ??
       selectedValue,
   );
+  const presets = usableFilterPresets(filter.presets, seenOptionValues);
+  const presetSelected = (preset: FilterPreset) =>
+    new Set(preset.values).size === selectedSet.size &&
+    preset.values.every((presetValue) => selectedSet.has(presetValue));
+  const selectedPreset = presets.find(presetSelected);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = normalizedQuery
     ? options.filter(
@@ -448,6 +504,11 @@ function MultiSelectFilter({
         ]),
       ),
     );
+  const applyPreset = (preset: FilterPreset) => {
+    setSelected(Array.from(new Set(preset.values)));
+    setOpen(false);
+    setQuery("");
+  };
   const toggle = (optionValue: string, checked: boolean) =>
     setSelected(
       checked
@@ -478,13 +539,19 @@ function MultiSelectFilter({
             <span className="min-w-0 truncate">
               {allOptionsSelected
                 ? t("sqlDashboard.allValues")
-                : selectedLabels.length > 0
-                  ? selectedLabels.join(", ")
-                  : t("sqlDashboard.allValues")}
+                : selectedPreset
+                  ? selectedPreset.label
+                  : selectedLabels.length > 0
+                    ? selectedLabels.join(", ")
+                    : t("sqlDashboard.allValues")}
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-64">
+        <PopoverContent
+          align="start"
+          // Room for Select all, a preset and Clear all on one row.
+          className={presets.length > 0 ? "w-72" : "w-64"}
+        >
           <MenuSearchInput
             aria-controls={optionsListId}
             aria-label={t("sqlDashboard.searchValues")}
@@ -492,7 +559,7 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1.5">
             <Button
               type="button"
               variant="ghost"
@@ -502,12 +569,39 @@ function MultiSelectFilter({
             >
               {t("sqlDashboard.selectAll")}
             </Button>
+            {presets.length > 0 && !normalizedQuery && (
+              <div
+                role="group"
+                aria-label={t("sqlDashboard.presets")}
+                className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1"
+              >
+                {presets.map((preset) => {
+                  const active = presetSelected(preset);
+                  return (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      aria-pressed={active}
+                      className={cn(
+                        "min-w-0 max-w-full",
+                        active && "bg-accent",
+                      )}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      {active && <IconCheck />}
+                      <span className="min-w-0 truncate">{preset.label}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
             {selected.length > 0 && (
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="w-full justify-start"
                 onClick={() => setSelected([])}
               >
                 {t("sqlDashboard.clearAll")}

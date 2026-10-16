@@ -6,6 +6,7 @@ const messages = {
     includeLast: "直前を含める",
     whatIsThis: "これは何ですか？",
     off: "オフ",
+    none: "なし",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",
@@ -17,6 +18,26 @@ const messages = {
     customErrorInvalid: "秒または分の整数で入力してください。",
     customErrorTooLong: "5分以内にしてください。",
     turnOnRewind: "Rewindをオンにする",
+    turnOffRewind: "オフにする",
+    turnOffRewindFailed:
+      "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
+    turnOnRewindFailed:
+      "Rewindをオンにできませんでした。もう一度お試しください。",
+    turnOnRewindPermissionFailed:
+      "システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ収録でClipsの画面収録を許可し、Clipsを再起動してからもう一度お試しください。",
+    turnOnRewindUnsupported: "Rewindの画面収録はmacOSでのみ利用できます。",
+    turnOnRewindNoSpace:
+      "Rewindを開始するためのディスク空き容量が不足しています。空き容量を確保して、もう一度お試しください。",
+    turnOnRewindStopClip:
+      "Rewindをオンにする前に、現在のClipを停止してください。",
+    turnOnRewindStorageFailed:
+      "Rewindの保存領域にアクセスできません。ディスクの空き容量とフォルダのアクセス権を確認して、もう一度お試しください。",
+    rewindConsentTitle: "Rewindをオンにしますか？",
+    rewindConsentBody:
+      "Clipsは画面を継続的に録画し、このデバイスに保存します。エージェントにはテキストの抜粋が提供され、動画は承認した場合にのみ共有されます。",
+    rewindConsentCancel: "今はしない",
+    rewindConsentConfirm: "Rewindをオンにする",
+    rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
       "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
@@ -1565,6 +1586,8 @@ const messages = {
     builderGrantAskAdmin:
       "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
     statusUnavailable: "動画ストレージの状態を確認できませんでした。",
+    hostedStorageUnavailable:
+      "Clips のホストストレージは一時的に利用できません。無料クリップの残り枠は変わりません。時間をおいて再度アップロードしてください。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
@@ -1863,6 +1886,16 @@ const messages = {
     validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
+    freeClipsLeft_one: "無料クリップの残り {{count}} 本",
+    freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
+    hostedClipsExhaustedDescription:
+      "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
+    clipExceedsSizeLimit:
+      "このクリップは現在のアップロード容量制限を超えています。",
+    clipExceedsMaxDuration: "このクリップは現在の録画時間制限を超えています。",
+    maxClipDurationReached:
+      "クリップの最大時間に達しました。録画を保存しています。",
     pageTitle: "New recording — Clips (ローカライズ済み)",
     uploadFailed: "Upload failed (ローカライズ済み)",
     uploadFailedAtChunk:
@@ -2052,6 +2085,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
     cleanupComplete: "ディクテーションをクリーンアップしました",
     cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    undoCleanup: "元に戻す",
+    restoreOriginal: "元に戻す",
+    cleanupRestored: "元のディクテーションを復元しました",
+    cleanupRestoreFailed: "元のディクテーションを復元できませんでした",
     startFirst: "考えをテキストに変えましょう",
     recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:
@@ -2102,6 +2139,10 @@ const messages = {
     vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips のホストストレージがいっぱいです。クリップを保存し続けるには Builder.io ストレージを接続してください。",
+    hostedRecordingTakenDown:
+      "この録画は Clips のホストストレージから削除されました。",
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
     selectAll: "すべて選択",
@@ -2283,9 +2324,15 @@ const messages = {
     issues: "問題",
     consoleSource: "コンソール",
     networkSource: "ネットワーク",
+    appSource: "アプリのアクティビティ",
+    appEvent: "イベント",
+    appData: "データ",
+    appFailureSummary: "アプリの失敗 {{count}} 件",
+    appUnavailable: "アプリのアクティビティを読み込めませんでした。",
     consoleCount: "コンソール {{count}}",
     networkCount: "ネットワーク {{count}}",
     afterRecording: "録画終了後",
+    beforeRecording: "録画開始前",
     seekToTime: "{{time}} に移動",
     occurrences: "発生時刻",
     message: "メッセージ",
@@ -2297,6 +2344,7 @@ const messages = {
     noIssuesTitle: "ブラウザの問題は検出されませんでした",
     noConsoleTitle: "コンソールイベントはありません",
     noNetworkTitle: "ネットワークリクエストはありません",
+    noAppTitle: "アプリのアクティビティはありません",
     capturedDescription: "この録画の診断情報を取得しました。",
   },
   timeline: { clipStartedHere: "クリップはここから開始" },

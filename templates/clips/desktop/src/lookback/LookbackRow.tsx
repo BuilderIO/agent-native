@@ -48,6 +48,7 @@ export interface LookbackRowProps {
   disabled?: boolean;
   onSecondsChange: (seconds: number) => void;
   onTurnOnRewind: () => void;
+  onTurnOffRewind: () => void;
   openUrl?: (url: string) => Promise<void>;
 }
 
@@ -58,6 +59,7 @@ export function LookbackRow({
   disabled = false,
   onSecondsChange,
   onTurnOnRewind,
+  onTurnOffRewind,
   openUrl = openExternal,
 }: LookbackRowProps) {
   const t = useT();
@@ -74,7 +76,9 @@ export function LookbackRow({
 
   const shownSeconds = rewindOn ? seconds : 0;
   const valueLabel =
-    shownSeconds > 0 ? lookbackLabel(shownSeconds) : t("lookbackContext.off");
+    shownSeconds > 0
+      ? lookbackLabel(shownSeconds)
+      : t(rewindOn ? "lookbackContext.none" : "lookbackContext.off");
   const customErrorText = customError
     ? {
         empty: t("lookbackContext.customErrorEmpty"),
@@ -154,7 +158,7 @@ export function LookbackRow({
           onValueChange={(value) => onSecondsChange(Number(value))}
         >
           <DropdownMenuRadioItem value="0">
-            {t("lookbackContext.off")}
+            {t("lookbackContext.none")}
           </DropdownMenuRadioItem>
           {SCREEN_HISTORY_PRESETS.map((preset) => (
             <DropdownMenuRadioItem key={preset} value={String(preset)}>
@@ -175,6 +179,10 @@ export function LookbackRow({
         <DropdownMenuSeparator />
         <DropdownMenuItem inset onSelect={openCustom}>
           {t("lookbackContext.custom")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem inset onSelect={onTurnOffRewind}>
+          {t("lookbackContext.turnOffRewind")}
         </DropdownMenuItem>
         <DropdownMenuItem inset onSelect={openHelp}>
           {t("lookbackContext.whatIsThis")}

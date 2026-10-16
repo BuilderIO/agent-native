@@ -15,6 +15,11 @@ import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-st
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { motionNativeStyleWithPositionTrack } from "@shared/motion-native-style-runtime";
+import {
+  motionSourceReadCapabilityForSource,
+  motionSourceReadAllowsWrites,
+  type MotionSourceReadCapability,
+} from "@shared/motion-source-read";
 import type {
   MotionTextAnimation,
   MotionTextDocument,
@@ -267,6 +272,9 @@ export function useEditorContentAndComponents({
     motionAutoKeyframeEnabled,
     motionTracksDirty,
     setMotionTracksDirty,
+    motionSourceVersionHashRef,
+    motionSourceVersionCapturedRef,
+    captureMotionSourceVersion,
     motionAutosaveRevision,
     setMotionAutosaveRevision,
     setMotionHydrationFingerprint,
@@ -274,6 +282,7 @@ export function useEditorContentAndComponents({
     motionAutosaveFailedRevisionRef,
     lastScheduledMotionAutosaveFileVersionRef,
     lastScheduledMotionAutosaveRevisionRef,
+    motionFileActivationEpochRef,
     previousMotionFileIdRef,
     collabContentRef,
     collabContentFileIdRef,
@@ -286,6 +295,7 @@ export function useEditorContentAndComponents({
     replacePreviewContent,
     sourceCapabilities,
     activeRuntimeCodeLayerProjection,
+    motionSourceReadCapability,
   } = editorLiveEditsAndPresence;
   const selectedMotionProofNodeId =
     selectedMotionTargetNodeId ??
@@ -311,13 +321,22 @@ export function useEditorContentAndComponents({
           motionProofTargetNodeIds,
         )
       : null;
+  const motionPreviewScreenId = activeFile?.id;
+  const motionPreviewModulePath = localhostMotionProof?.modulePath;
+  const motionPreviewVersionHash = localhostMotionProof?.moduleVersionHash;
+  const motionSourceConflictRef = useRef(false);
+  useEffect(() => {
+    motionSourceConflictRef.current = false;
+  }, [activeFile?.id]);
   const { data: motionSourceCapabilityResult } = useActionQuery<{
     sourceWriteCapability?: MotionSourceWriteCapabilitySnapshot | null;
+    sourceReadCapability?: MotionSourceReadCapability | null;
   }>(
     "get-motion-timeline",
     {
       designId: id ?? "",
       sourceRef: activeFile?.id ?? "",
+      passiveRead: true,
       targetNodeIds: motionProofTargetNodeIds,
       ...(localhostMotionProof
         ? {
@@ -339,6 +358,38 @@ export function useEditorContentAndComponents({
       refetchOnMount: "always",
     },
   );
+  const observedMotionSourceProofRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!motionPreviewModulePath || !motionPreviewVersionHash) {
+      observedMotionSourceProofRef.current = null;
+      return;
+    }
+    const proofKey = `${motionPreviewModulePath}\u0000${motionPreviewVersionHash}`;
+    if (observedMotionSourceProofRef.current === proofKey) return;
+    observedMotionSourceProofRef.current = proofKey;
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-motion-timeline"],
+    });
+  }, [motionPreviewModulePath, motionPreviewVersionHash, queryClient]);
+  useEffect(() => {
+    if (!motionPreviewScreenId || activeCanvasSourceType !== "localhost") {
+      return;
+    }
+    const onPreviewFrameLoad = (event: Event) => {
+      const frame = event.target;
+      if (
+        !(frame instanceof HTMLIFrameElement) ||
+        frame.dataset.screenIframeId !== motionPreviewScreenId
+      ) {
+        return;
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-motion-timeline"],
+      });
+    };
+    document.addEventListener("load", onPreviewFrameLoad, true);
+    return () => document.removeEventListener("load", onPreviewFrameLoad, true);
+  }, [activeCanvasSourceType, motionPreviewScreenId, queryClient]);
   const motionSourceTargetsWritable =
     activeCanvasSourceType !== "localhost" ||
     motionSourceWriteCapabilityAllowsTargets(
@@ -346,19 +397,34 @@ export function useEditorContentAndComponents({
       localhostMotionProof,
       motionProofTargetNodeIds,
     );
+  const activeMotionSourceReadCapability = motionSourceReadCapabilityForSource(
+    [
+      motionSourceReadCapability,
+      motionSourceCapabilityResult?.sourceReadCapability,
+    ],
+    activeFile?.id,
+  );
+  const motionSourceReadUnavailableReason = activeMotionSourceReadCapability
+    ? t("designEditor.motion.sourceReadUnavailable")
+    : null;
+  const motionSourceReadable = motionSourceReadAllowsWrites(
+    activeMotionSourceReadCapability,
+  );
   const motionControlsWritable =
-    (activeCanvasSourceType === "inline" &&
+    motionSourceReadable &&
+    ((activeCanvasSourceType === "inline" &&
       sourceCapabilities.includes("writeMotion")) ||
-    (activeCanvasSourceType === "localhost" &&
-      Boolean(activeCodeLayerProjection.source.connectionId) &&
-      Boolean(localhostMotionProof) &&
-      motionSourceTargetsWritable);
+      (activeCanvasSourceType === "localhost" &&
+        Boolean(activeCodeLayerProjection.source.connectionId) &&
+        Boolean(localhostMotionProof) &&
+        motionSourceTargetsWritable));
   const writeMotionAvailable =
-    (activeCanvasSourceType === "inline" &&
+    motionSourceReadable &&
+    ((activeCanvasSourceType === "inline" &&
       sourceCapabilities.includes("writeMotion")) ||
-    (activeCanvasSourceType === "localhost" &&
-      Boolean(activeCodeLayerProjection.source.connectionId) &&
-      Boolean(localhostMotionProof));
+      (activeCanvasSourceType === "localhost" &&
+        Boolean(activeCodeLayerProjection.source.connectionId) &&
+        Boolean(localhostMotionProof)));
   const requestLocalhostWriteRef = useRef<RequestLocalhostWrite | null>(null);
   const [uiHidden, setUiHidden] = useState(false);
   const motionLivePlayheadRef = useRef<number | null>(null);
@@ -553,6 +619,7 @@ export function useEditorContentAndComponents({
   ]);
 
   const markMotionTracksDirty = useCallback(() => {
+    captureMotionSourceVersion(localhostMotionProof?.moduleVersionHash);
     setMotionTracksDirty(true);
     setMotionAutosaveRevision((revision) => {
       const next = revision + 1;
@@ -560,7 +627,7 @@ export function useEditorContentAndComponents({
       motionAutosaveFailedRevisionRef.current = null;
       return next;
     });
-  }, []);
+  }, [captureMotionSourceVersion, localhostMotionProof?.moduleVersionHash]);
 
   const pruneMotionTracksByNodeId = useCallback(
     (nodeIdsToRemove: Set<string>) => {
@@ -1481,6 +1548,10 @@ export function useEditorContentAndComponents({
         motionProofTargetNodeIds,
         motionTextDocument,
         motionTracksDirty,
+        motionSourceVersionHashRef,
+        motionSourceVersionCapturedRef,
+        motionSourceConflictRef,
+        motionFileActivationEpochRef,
         previousMotionFileIdRef,
         queryClient,
         removeMotionTimeline,
@@ -1491,9 +1562,11 @@ export function useEditorContentAndComponents({
         requestLocalhostWrite: (opts) =>
           requestLocalhostWriteRef.current?.(opts) ?? "not-editable",
         writeMotionAvailable,
-        sourceWriteUnavailableMessage: t(
-          "designEditor.motion.sourceWriteUnavailable",
-        ),
+        sourceWriteUnavailableMessage:
+          motionSourceReadUnavailableReason ??
+          t("designEditor.motion.sourceWriteUnavailable"),
+        motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
+        motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
       }),
     [
       activeFile?.id,
@@ -1521,6 +1594,10 @@ export function useEditorContentAndComponents({
       motionProofTargetNodeIds,
       motionTextDocument,
       motionTracksDirty,
+      motionSourceReadUnavailableReason,
+      motionSourceVersionHashRef,
+      motionSourceVersionCapturedRef,
+      motionSourceConflictRef,
       writeMotionAvailable,
       queryClient,
       t,
@@ -1827,6 +1904,7 @@ export function useEditorContentAndComponents({
     markMotionTracksDirty,
     pruneMotionTracksByNodeId,
     motionControlsWritable,
+    motionSourceReadUnavailableReason,
     handleMotionTracksChange,
     handleMotionDockTracksChange,
     handleMotionAudioClipsChange,

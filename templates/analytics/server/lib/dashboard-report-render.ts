@@ -15,9 +15,13 @@ import type {
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
-import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
+import {
+  describeFunnelOutcomeProblems,
+  resolveDashboardFunnelRows,
+} from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { formatDollars } from "../../shared/format-dollars";
+import { resolvePanelEvents } from "../../shared/panel-events";
 import {
   chartPointLimit,
   limitChartRows,
@@ -41,6 +45,7 @@ import {
   renderReportChartSvg,
   renderFunnelChartSvg,
   REPORT_CHART_FONT_FAMILY,
+  type ReportChartEvent,
   type ReportChartSeries,
   type ReportChartType,
   type ReportChartValueFormatter,
@@ -430,6 +435,7 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
   area: "area",
+  combo: "combo",
   pie: "pie",
   funnel: "funnel",
   "stacked-bar": "bar",
@@ -450,6 +456,7 @@ function pivotPanelRows(
 }
 
 type ChartInput = {
+  events: ReportChartEvent[];
   labels: string[];
   series: ReportChartSeries[];
   pointLimit: ChartPointLimit | null;
@@ -485,8 +492,17 @@ function buildChartInput(
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
+  const barKeys = new Set(config?.barKeys ?? []);
+
+  const events =
+    chartType === "pie"
+      ? []
+      : resolvePanelEvents(config?.events, visible.map((row) => row[xKey])).map(
+          ({ index, label, color }) => ({ index, label, color }),
+        );
 
   return {
+    events,
     labels,
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
@@ -494,6 +510,9 @@ function buildChartInput(
       color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
+      ...(chartType === "combo"
+        ? { mark: barKeys.has(key) ? ("bar" as const) : ("line" as const) }
+        : {}),
     })),
     pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };
@@ -883,6 +902,7 @@ async function renderChartBlock(args: {
       type: chartType,
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
+      events: input.events,
       ...(panel.config?.stacked === true ? { stacked: true } : {}),
     });
     const png = await rasterizeChartPng(svg, CHART_WIDTH * CHART_RASTER_SCALE);
@@ -926,6 +946,7 @@ async function renderFunnelChartBlock(args: {
     rows,
     panel.config?.xKey,
     panel.config?.yKey,
+    panel.config?.funnelOutcomes,
   );
   if (funnel.items.length === 0) {
     const table = renderTableHtml(panel, rows);
@@ -946,6 +967,7 @@ async function renderFunnelChartBlock(args: {
       title: "",
       subtitle,
       rows: funnel.items,
+      ...(funnel.outcomes ? { outcomes: funnel.outcomes } : {}),
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       formatter: panel.config?.yFormatter,
@@ -955,13 +977,16 @@ async function renderFunnelChartBlock(args: {
     const slug =
       panel.id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "panel";
     const contentId = `dashboard-report-panel-${index}-${slug}`;
+    const outcomeProblems = funnel.outcomes
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
     return {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />`,
+        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />${outcomeProblems ? noteHtml(outcomeProblems) : ""}`,
       ),
-      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}${outcomeProblems ? `\n${outcomeProblems}` : ""}`,
       attachment: {
         filename: `${slug}.png`,
         content: png,

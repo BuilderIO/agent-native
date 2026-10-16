@@ -75,6 +75,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-st
 import type { BuilderConnectTransport } from "../settings/index.js";
 import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
+import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -417,6 +418,7 @@ export function AgentSidebar({
   const resolvedBrowserTabId =
     browserTabId ??
     (typeof window === "undefined" ? undefined : getBrowserTabId());
+  useRegisterAgentChatSurface(enabled);
   const staticHostedHarnessEnabled = isHostedHarnessConfigured(
     injectedAgentNativeConfig().harness,
   );
@@ -485,6 +487,7 @@ export function AgentSidebar({
         ignoreUrlOverride: !enabled,
       }),
   );
+  const openRef = useRef(open);
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
   const [isWideDrawer, setIsWideDrawer] = useState(() => {
@@ -542,16 +545,22 @@ export function AgentSidebar({
     [],
   );
 
+  const setOpenCurrent = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const value = typeof next === "function" ? next(openRef.current) : next;
+      openRef.current = value;
+      setOpen(value);
+      return value;
+    },
+    [],
+  );
   const setOpenPersisted = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
       if (!enabled) return;
-      setOpen((prev) => {
-        const value = typeof next === "function" ? next(prev) : next;
-        setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
-        return value;
-      });
+      const value = setOpenCurrent(next);
+      setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
     },
-    [enabled, sidebarOpenStorageKey],
+    [enabled, setOpenCurrent, sidebarOpenStorageKey],
   );
 
   useEffect(() => {
@@ -598,8 +607,10 @@ export function AgentSidebar({
   }, [applyUrlOpenOverride, enabled]);
 
   useEffect(() => {
-    if (enabled && openOnChatRunning && !isPerAppChatHosted) setOpen(true);
-  }, [enabled, isPerAppChatHosted, openOnChatRunning]);
+    if (enabled && openOnChatRunning && !isPerAppChatHosted) {
+      setOpenCurrent(true);
+    }
+  }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenCurrent]);
 
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
     shouldParentFrameOwnAgentPanel(),
@@ -1011,7 +1022,7 @@ export function AgentSidebar({
           : "__default__";
 
       if (detail?.isRunning === true) {
-        if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
+        if (openOnChatRunning && !isPerAppChatHosted) setOpenCurrent(true);
         setRunningTabIds((prev) => {
           const next = new Set(prev);
           next.add(tabId);
@@ -1037,7 +1048,13 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
-  }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
+  }, [
+    enabled,
+    isPerAppChatHosted,
+    openOnChatRunning,
+    setOpenCurrent,
+    setOpenPersisted,
+  ]);
 
   // Child composers announce readiness in passive effects, including ownership remounts.
   useLayoutEffect(() => {

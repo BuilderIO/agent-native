@@ -970,6 +970,12 @@ async function resumeRecoveredPauses(
             {
               ownerEmail: identity.identity.userEmail,
               orgId: identity.identity.orgId,
+              ...(identity.identity.orgScope === "personal"
+                ? { orgScope: "personal" as const }
+                : {}),
+              ...(identity.identity.defaultAgentEngineScope === "deployment"
+                ? { defaultAgentEngineScope: "deployment" as const }
+                : {}),
             },
             deps,
             meta.model,
@@ -1340,8 +1346,14 @@ async function executeJob(
     }
   }
 
-  const requestContext =
-    meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
+  const requestContext = {
+    ...(identity.identity.orgScope === "personal"
+      ? { orgScope: "personal" as const }
+      : {}),
+    ...(identity.identity.defaultAgentEngineScope === "deployment"
+      ? { defaultAgentEngineScope: "deployment" as const }
+      : {}),
+    ...(meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
       ? {
           isIntegrationCaller: true as const,
           integration: {
@@ -1364,7 +1376,8 @@ async function executeJob(
             },
           },
         }
-      : undefined;
+      : {}),
+  };
 
   let result: BackgroundAutomationRunResult;
   try {

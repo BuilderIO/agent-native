@@ -1,11 +1,21 @@
+import postcss from "postcss";
+
 import {
   assertMotionAnimationStyleDefinitions,
   type MotionAnimationStyleDefinition,
 } from "./motion-animation-styles";
-import { compile, hashCss } from "./motion-compiler";
+import {
+  compile,
+  hashCss,
+  MotionCssSourceParseError,
+  parse,
+  parsePlaybackMode,
+  parseTimelineSpanMs,
+} from "./motion-compiler";
 import {
   assertValidMotionEasingVariables,
   isMotionEaseVariableReference,
+  motionEaseToCss,
   resolveMotionEase,
 } from "./motion-easing";
 import type { MotionEasingVariable } from "./motion-easing";
@@ -15,6 +25,8 @@ import {
 } from "./motion-native-style";
 import {
   motionNativeStyleEndTimeMs,
+  motionNativeStyleWithPathTrimTrack,
+  motionNativeStyleWithPositionTrack,
   motionNativeStylesToTracks,
 } from "./motion-native-style-runtime";
 import type {
@@ -256,6 +268,641 @@ export function withMotionCodeMetadata(
 
   if (css.length === 0) return marker;
   return `${css}${/[\t\n\f\r ]$/.test(css) ? "" : "\n"}${marker}`;
+}
+
+/** Reads editable Motion values from CSS while retaining data CSS cannot encode. */
+export function reconcileMotionCodeDocument(
+  css: string,
+  stored: MotionCodeDocument,
+): MotionCodeDocument {
+  const root = postcss.parse(css);
+  assertManagedMotionCssShape(root);
+  const keyframeNames: string[] = [];
+  const referencedMotionNames: string[] = [];
+  const playbackModes = new Set<MotionPlaybackMode>();
+  const cssEasingVariables = new Map<string, string>();
+
+  root.walkAtRules((rule) => {
+    if (!/^(?:-webkit-)?keyframes$/i.test(rule.name)) return;
+    const name = rule.params.trim().split(/\s+/)[0] ?? "";
+    if (name.startsWith("an-motion-")) keyframeNames.push(name);
+  });
+
+  root.walkRules((rule) => {
+    const nodeIdMatch =
+      /\[data-agent-native-node-id\s*=\s*(["'])([^"']+)\1\]/.exec(
+        rule.selector,
+      );
+    const declarations = rule.nodes?.filter(
+      (node): node is postcss.Declaration => node.type === "decl",
+    );
+    if (!declarations) return;
+
+    if (rule.selector.trim() === ":root") {
+      for (const declaration of declarations) {
+        const variable = /^--an-motion-ease-([a-z0-9][a-z0-9-]{0,63})$/.exec(
+          declaration.prop,
+        );
+        if (!variable) continue;
+        const previous = cssEasingVariables.get(variable[1]!);
+        if (previous !== undefined && previous !== declaration.value.trim()) {
+          throw invalidMotionCss(
+            `Motion easing variable "${variable[1]}" has conflicting CSS definitions.`,
+          );
+        }
+        cssEasingVariables.set(variable[1]!, declaration.value.trim());
+      }
+    }
+
+    if (!nodeIdMatch) return;
+    const animationNames = declarations.find(
+      (declaration) => declaration.prop.toLowerCase() === "animation-name",
+    );
+    const shorthand = declarations.find(
+      (declaration) => declaration.prop.toLowerCase() === "animation",
+    );
+    if (
+      shorthand &&
+      shorthand.value.trim().toLowerCase() !== "none" &&
+      !animationNames
+    ) {
+      throw invalidMotionCss(
+        "Motion CSS animation shorthand cannot be mapped to timeline tracks. Use animation-name, duration, delay, and keyframes declarations.",
+      );
+    }
+    if (!animationNames) return;
+
+    const names = splitCssList(animationNames.value);
+    const motionNames = names.filter((name) => name.startsWith("an-motion-"));
+    if (
+      names.some((name) => name !== "none" && !name.startsWith("an-motion-"))
+    ) {
+      throw invalidMotionCss(
+        "Managed Motion CSS contains a custom animation name that cannot be mapped to a Motion layer. Keep timeline keyframes named with the an-motion- prefix.",
+      );
+    }
+    if (motionNames.length === 0) return;
+    const fillModes = declarationValues(declarations, "animation-fill-mode");
+    if (
+      fillModes.length === 0 ||
+      fillModes.some((mode) => mode.toLowerCase() !== "both")
+    ) {
+      throw invalidMotionCss(
+        "Managed Motion CSS supports animation-fill-mode: both only. Repair the CSS before editing it in Motion.",
+      );
+    }
+    referencedMotionNames.push(...motionNames);
+
+    const durations = declarationValues(declarations, "animation-duration");
+    if (
+      durations.length === 0 ||
+      durations.some((value) => parseCssTime(value) === null)
+    ) {
+      throw invalidMotionCss(
+        "Managed Motion CSS has an animation duration that cannot be read as a fixed millisecond or second value.",
+      );
+    }
+    const delays = declarationValues(declarations, "animation-delay");
+    if (delays.some((value) => parseCssTime(value) === null)) {
+      throw invalidMotionCss(
+        "Managed Motion CSS has an animation delay that cannot be read as a fixed millisecond or second value.",
+      );
+    }
+
+    const iterations = declarationValues(
+      declarations,
+      "animation-iteration-count",
+    );
+    const directions = declarationValues(declarations, "animation-direction");
+    for (let index = 0; index < names.length; index += 1) {
+      const iteration = iterations[index] ?? iterations[0] ?? "1";
+      const direction = directions[index] ?? directions[0] ?? "normal";
+      if (!/^(?:1|1\.0+|infinite)$/i.test(iteration)) {
+        throw invalidMotionCss(
+          "Managed Motion CSS supports one iteration or infinite playback only.",
+        );
+      }
+      if (!/^(?:normal|alternate)$/i.test(direction)) {
+        throw invalidMotionCss(
+          "Managed Motion CSS supports normal or alternate animation direction only.",
+        );
+      }
+      playbackModes.add(
+        iteration.toLowerCase() === "infinite"
+          ? direction.toLowerCase() === "alternate"
+            ? "ping-pong"
+            : "loop"
+          : "once",
+      );
+    }
+  });
+
+  const keyframeNameSet = [...keyframeNames].sort();
+  const referencedNameSet = [...referencedMotionNames].sort();
+  if (
+    keyframeNameSet.length !== referencedNameSet.length ||
+    keyframeNameSet.some((name, index) => name !== referencedNameSet[index])
+  ) {
+    throw invalidMotionCss(
+      "Managed Motion CSS keyframes and animation-name declarations do not match. Repair the CSS before editing it in Motion.",
+    );
+  }
+  if (playbackModes.size > 1) {
+    throw invalidMotionCss(
+      "Managed Motion CSS uses different playback modes for different tracks, which Motion cannot represent as one timeline.",
+    );
+  }
+
+  let parsedTracks: MotionTrack[];
+  try {
+    parsedTracks = parse(css);
+  } catch (error) {
+    if (error instanceof MotionCssSourceParseError) {
+      throw invalidMotionCss(error.message);
+    }
+    throw error;
+  }
+  if (parsedTracks.length !== keyframeNames.length) {
+    throw invalidMotionCss(
+      "Managed Motion CSS contains a keyframe block that cannot be mapped to one editable Motion track.",
+    );
+  }
+  const cssDurations = animationDurationsByName(root);
+  parsedTracks = parsedTracks.map((track, index) => {
+    const name = keyframeNames[index];
+    const durationMs = name ? cssDurations.get(name) : undefined;
+    const storedTrack = stored.tracks.find(
+      (candidate) =>
+        candidate.targetNodeId === track.targetNodeId &&
+        candidate.property === track.property,
+    );
+    if (
+      durationMs === undefined ||
+      !storedTrack ||
+      (storedTrack.durationMs === undefined && durationMs === stored.durationMs)
+    ) {
+      return track;
+    }
+    return { ...track, durationMs };
+  });
+  if (
+    parsedTracks.some(
+      (track) =>
+        track.keyframes.length === 0 ||
+        track.keyframes.some((keyframe) => !keyframe.value.trim()),
+    )
+  ) {
+    throw invalidMotionCss(
+      "Managed Motion CSS contains a keyframe with no readable property value.",
+    );
+  }
+
+  const timelineDuration = parseTimelineSpanMs(css);
+  const easingVariables = [...cssEasingVariables.entries()].map(
+    ([id, value]) => {
+      const metadata = stored.easingVariables?.find(
+        (variable) => variable.id === id,
+      );
+      return {
+        ...(metadata ?? { id, name: id }),
+        value,
+      };
+    },
+  );
+  try {
+    assertValidMotionEasingVariables(easingVariables);
+  } catch (error) {
+    throw invalidMotionCss(
+      error instanceof Error
+        ? error.message
+        : "Managed Motion CSS contains an invalid easing variable.",
+    );
+  }
+
+  const nativeStyles: MotionNativeStyleInstance[] = [];
+  const consumedTrackIndices = new Set<number>();
+  for (const style of stored.nativeStyles ?? []) {
+    let projection: MotionTrack[];
+    try {
+      projection = motionNativeStylesToTracks([style]);
+    } catch (error) {
+      throw invalidMotionCss(
+        error instanceof Error
+          ? error.message
+          : "A stored Motion style cannot be projected onto editable tracks.",
+      );
+    }
+    if (style.enabled === false || projection.length === 0) {
+      nativeStyles.push(style);
+      continue;
+    }
+
+    const exactMatches = projection.map((projected) =>
+      matchingTrackIndices(parsedTracks, (track) =>
+        motionTracksMatch(
+          projected,
+          track,
+          timelineDuration,
+          stored.defaultEase,
+          easingVariables,
+        ),
+      ),
+    );
+    if (
+      exactMatches.every((matches) => matches.length === 1) &&
+      new Set(exactMatches.map(([index]) => index)).size ===
+        projection.length &&
+      exactMatches.every(([index]) => !consumedTrackIndices.has(index!))
+    ) {
+      exactMatches.forEach(([index]) => consumedTrackIndices.add(index!));
+      nativeStyles.push(style);
+      continue;
+    }
+
+    const propertyMatches = projection.map((projected) =>
+      matchingTrackIndices(
+        parsedTracks,
+        (track) =>
+          track.targetNodeId === projected.targetNodeId &&
+          track.property === projected.property,
+      ),
+    );
+    if (propertyMatches.every((matches) => matches.length === 0)) {
+      const hasUnexpectedTargetTrack = parsedTracks.some(
+        (track) =>
+          track.targetNodeId === style.targetNodeId &&
+          !stored.tracks.some(
+            (storedTrack) =>
+              storedTrack.enabled !== false &&
+              storedTrack.keyframes.length > 0 &&
+              storedTrack.targetNodeId === track.targetNodeId &&
+              storedTrack.property === track.property,
+          ),
+      );
+      if (hasUnexpectedTargetTrack) {
+        throw invalidMotionCss(
+          `The ${style.styleKey} source animation no longer maps to its existing target tracks. Repair its CSS before editing it in Motion.`,
+        );
+      }
+      continue;
+    }
+    if (
+      projection.length !== 1 ||
+      propertyMatches[0]?.length !== 1 ||
+      consumedTrackIndices.has(propertyMatches[0]![0]!)
+    ) {
+      throw invalidMotionCss(
+        `The ${style.styleKey} source animation no longer has one unambiguous track. Repair its CSS before editing it in Motion.`,
+      );
+    }
+
+    const trackIndex = propertyMatches[0]![0]!;
+    const sourceTrack = parsedTracks[trackIndex]!;
+    let updatedStyle: MotionNativeStyleInstance;
+    try {
+      switch (style.styleKey) {
+        case "Position":
+          updatedStyle = motionNativeStyleWithPositionTrack(style, sourceTrack);
+          break;
+        case "Path":
+          updatedStyle = motionNativeStyleWithPathTrimTrack(style, sourceTrack);
+          break;
+        default:
+          throw new Error(
+            `Source edits to ${style.styleKey} are not yet representable in the Motion timeline.`,
+          );
+      }
+    } catch (error) {
+      throw invalidMotionCss(
+        error instanceof Error
+          ? error.message
+          : `The ${style.styleKey} source animation cannot be represented in the Motion timeline.`,
+      );
+    }
+
+    let updatedProjection: MotionTrack[];
+    try {
+      updatedProjection = motionNativeStylesToTracks([updatedStyle]);
+    } catch (error) {
+      throw invalidMotionCss(
+        error instanceof Error
+          ? error.message
+          : `The edited ${style.styleKey} source animation cannot be represented in the Motion timeline.`,
+      );
+    }
+    if (
+      updatedProjection.length !== 1 ||
+      !motionTracksMatch(
+        updatedProjection[0]!,
+        sourceTrack,
+        timelineDuration,
+        stored.defaultEase,
+        easingVariables,
+      )
+    ) {
+      throw invalidMotionCss(
+        `The edited ${style.styleKey} source animation changes timing or values the Motion timeline cannot represent. Repair its CSS before editing it in Motion.`,
+      );
+    }
+    consumedTrackIndices.add(trackIndex);
+    nativeStyles.push(updatedStyle);
+  }
+  parsedTracks = parsedTracks.filter(
+    (_track, index) => !consumedTrackIndices.has(index),
+  );
+
+  const disabledTracks = stored.tracks.filter(
+    (track) => track.enabled === false,
+  );
+  const playbackMode = parsePlaybackMode(css);
+  const document: MotionCodeDocument = {
+    ...stored,
+    durationMs: Math.max(stored.durationMs, timelineDuration ?? 0),
+    ...((playbackMode ??
+    (playbackModes.size === 1 ? [...playbackModes][0] : null))
+      ? { playbackMode: playbackMode ?? [...playbackModes][0]! }
+      : {}),
+    tracks: [...parsedTracks, ...disabledTracks],
+    nativeStyles,
+    easingVariables,
+  };
+  try {
+    assertMotionCodeDocument(document);
+  } catch (error) {
+    throw invalidMotionCss(
+      error instanceof Error
+        ? error.message
+        : "Managed Motion CSS could not be represented as a Motion document.",
+    );
+  }
+  return document;
+}
+
+function invalidMotionCss(message: string): MotionSourceDocumentError {
+  return new MotionSourceDocumentError("invalid-document", message);
+}
+
+function assertManagedMotionCssShape(root: postcss.Root): void {
+  const targetProperties = new Set([
+    "animation-name",
+    "animation-duration",
+    "animation-timing-function",
+    "animation-fill-mode",
+    "animation-delay",
+    "animation-iteration-count",
+    "animation-direction",
+    "offset-path",
+    "offset-anchor",
+    "offset-rotate",
+    "translate",
+  ]);
+  const rejectUnmanagedCss = (): never => {
+    throw invalidMotionCss(
+      "Managed Motion CSS contains authored rules the timeline cannot represent. Move those rules outside the managed Motion style before editing it.",
+    );
+  };
+  const nodeIdSelectorSource = String.raw`\[data-agent-native-node-id\s*=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\]`;
+  const isNodeIdSelector = (selector: string) =>
+    new RegExp(String.raw`^\s*${nodeIdSelectorSource}\s*$`).test(selector);
+  const isNodeIdSelectorList = (selector: string) =>
+    new RegExp(
+      String.raw`^\s*${nodeIdSelectorSource}(?:\s*,\s*${nodeIdSelectorSource})*\s*$`,
+    ).test(selector);
+  const assertDeclarations = (
+    rule: postcss.Rule,
+    allowedProperties: ReadonlySet<string> | null,
+    validateDeclaration?: (declaration: postcss.Declaration) => boolean,
+  ) => {
+    const seenProperties = new Set<string>();
+    for (const child of rule.nodes ?? []) {
+      if (child.type !== "decl") return rejectUnmanagedCss();
+      const property = child.prop.toLowerCase();
+      if (
+        (allowedProperties && !allowedProperties.has(property)) ||
+        seenProperties.has(property) ||
+        (validateDeclaration && !validateDeclaration(child))
+      ) {
+        return rejectUnmanagedCss();
+      }
+      seenProperties.add(property);
+    }
+  };
+  const assertKeyframes = (rule: postcss.AtRule) => {
+    const name = rule.params.trim();
+    const match = /^an-motion-.+--(-?[a-zA-Z][a-zA-Z0-9-]*)$/.exec(name);
+    if (!match) return rejectUnmanagedCss();
+    const property = match[1]!.toLowerCase();
+    const allowedProperties = new Set([
+      "animation-timing-function",
+      property,
+      ...(property === "translate" ? ["offset-distance"] : []),
+      ...(property === "path-trim"
+        ? ["--an-motion-path-trim", "stroke-dasharray", "stroke-dashoffset"]
+        : []),
+    ]);
+
+    for (const child of rule.nodes ?? []) {
+      if (child.type !== "rule") return rejectUnmanagedCss();
+      if (
+        !/^(?:from|to|(?:\d+(?:\.\d*)?|\.\d+)%)$/.test(child.selector.trim())
+      ) {
+        return rejectUnmanagedCss();
+      }
+      let propertyCount = 0;
+      assertDeclarations(child, allowedProperties, (declaration) => {
+        if (declaration.important) return false;
+        if (declaration.prop.toLowerCase() === "animation-timing-function") {
+          return true;
+        }
+        propertyCount += 1;
+        return true;
+      });
+      if (propertyCount !== (property === "path-trim" ? 3 : 1)) {
+        rejectUnmanagedCss();
+      }
+    }
+  };
+  const assertReducedMotion = (rule: postcss.AtRule) => {
+    if (
+      rule.params.replace(/\s+/g, " ").trim().toLowerCase() !==
+      "(prefers-reduced-motion: reduce)"
+    ) {
+      rejectUnmanagedCss();
+    }
+    for (const child of rule.nodes ?? []) {
+      if (child.type === "comment" && child.text.trim() === "no animations") {
+        continue;
+      }
+      if (child.type !== "rule") return rejectUnmanagedCss();
+      if (!isNodeIdSelectorList(child.selector)) return rejectUnmanagedCss();
+      let declarationCount = 0;
+      assertDeclarations(child, new Set(["animation"]), (declaration) => {
+        declarationCount += 1;
+        return (
+          declaration.value.trim().toLowerCase() === "none" &&
+          declaration.important
+        );
+      });
+      if (declarationCount !== 1) rejectUnmanagedCss();
+    }
+  };
+
+  for (const node of root.nodes) {
+    if (node.type === "comment") {
+      const comment = node.text.trim();
+      if (
+        comment === "no animations" ||
+        comment.startsWith(`${MOTION_SOURCE_MARKER_NAME}:v`)
+      ) {
+        continue;
+      }
+      rejectUnmanagedCss();
+    }
+    if (node.type === "rule") {
+      if (node.selector.trim() === ":root") {
+        assertDeclarations(node, null, (declaration) =>
+          /^--an-motion-ease-[a-z0-9][a-z0-9-]{0,63}$/i.test(declaration.prop),
+        );
+      } else if (isNodeIdSelector(node.selector)) {
+        assertDeclarations(node, targetProperties);
+      } else {
+        rejectUnmanagedCss();
+      }
+      continue;
+    }
+    if (node.type === "atrule") {
+      const name = node.name.toLowerCase();
+      if (name === "keyframes") {
+        assertKeyframes(node);
+      } else if (name === "media") {
+        assertReducedMotion(node);
+      } else {
+        rejectUnmanagedCss();
+      }
+      continue;
+    }
+    rejectUnmanagedCss();
+  }
+}
+
+function splitCssList(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function declarationValues(
+  declarations: postcss.Declaration[],
+  property: string,
+): string[] {
+  const value = declarations.find(
+    (declaration) => declaration.prop.toLowerCase() === property,
+  )?.value;
+  return value === undefined ? [] : splitCssList(value);
+}
+
+function animationDurationsByName(root: postcss.Root): Map<string, number> {
+  const durationsByName = new Map<string, number>();
+  root.walkRules((rule) => {
+    const declarations = rule.nodes?.filter(
+      (node): node is postcss.Declaration => node.type === "decl",
+    );
+    if (!declarations) return;
+    const names = declarationValues(declarations, "animation-name");
+    const durations = declarationValues(declarations, "animation-duration");
+    names.forEach((name, index) => {
+      const duration = parseCssTime(durations[index] ?? durations[0] ?? "");
+      if (duration !== null) durationsByName.set(name, duration);
+    });
+  });
+  return durationsByName;
+}
+
+function parseCssTime(value: string): number | null {
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(ms|s)$/i.exec(value.trim());
+  if (!match) return null;
+  const time = Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
+  return Number.isFinite(time) && time >= 0 ? Math.round(time) : null;
+}
+
+function motionTracksMatch(
+  expected: MotionTrack,
+  actual: MotionTrack,
+  timelineDurationMs: number | null,
+  defaultEase: string,
+  easingVariables: readonly MotionEasingVariable[],
+): boolean {
+  if (
+    expected.targetNodeId !== actual.targetNodeId ||
+    expected.property !== actual.property ||
+    (expected.delayMs ?? 0) !== (actual.delayMs ?? 0) ||
+    (expected.durationMs ?? timelineDurationMs) !==
+      (actual.durationMs ?? timelineDurationMs) ||
+    expected.keyframes.length !== actual.keyframes.length
+  ) {
+    return false;
+  }
+
+  return expected.keyframes.every((keyframe, index) => {
+    const parsed = actual.keyframes[index];
+    if (
+      !parsed ||
+      keyframe.t !== parsed.t ||
+      keyframe.value !== parsed.value ||
+      !motionPathsMatch(
+        keyframe.motionPath,
+        parsed.motionPath,
+        keyframe.value,
+        expected.keyframes[index + 1]?.value,
+      )
+    ) {
+      return false;
+    }
+    const ease = keyframe.ease ?? defaultEase;
+    const expectedEase = isMotionEaseVariableReference(ease)
+      ? ease
+      : motionEaseToCss(resolveMotionEase(ease, easingVariables));
+    return (parsed.ease ?? "ease") === expectedEase;
+  });
+}
+
+function matchingTrackIndices(
+  tracks: readonly MotionTrack[],
+  predicate: (track: MotionTrack) => boolean,
+): number[] {
+  return tracks.flatMap((track, index) => (predicate(track) ? [index] : []));
+}
+
+function motionPathsMatch(
+  expected: MotionTrack["keyframes"][number]["motionPath"],
+  actual: MotionTrack["keyframes"][number]["motionPath"],
+  startValue: string,
+  endValue: string | undefined,
+): boolean {
+  if (!expected || !actual) {
+    const path = expected ?? actual;
+    if (!path) return true;
+    if (!endValue) return false;
+    const start = parseMotionPosition(startValue);
+    const end = parseMotionPosition(endValue);
+    if (!start || !end) return false;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    return (
+      Math.hypot(path.control1.x - dx / 3, path.control1.y - dy / 3) <=
+        0.0001 &&
+      Math.hypot(path.control2.x + dx / 3, path.control2.y + dy / 3) <= 0.0001
+    );
+  }
+  return (
+    expected.version === actual.version &&
+    expected.type === actual.type &&
+    expected.control1.x === actual.control1.x &&
+    expected.control1.y === actual.control1.y &&
+    expected.control2.x === actual.control2.x &&
+    expected.control2.y === actual.control2.y
+  );
 }
 
 function encodePayload(json: string): string {

@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   parseQueueMessageInput,
   type AgentRunOptions,
 } from "@agent-native/agentkit/protocol";
 
+import { normalizeSubmissionDeadlineMetadata } from "../agent/submission-deadline.js";
 import {
   extractThreadMeta,
   mergeThreadDataForClientSave,
@@ -25,7 +27,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 import {
@@ -42,8 +44,6 @@ import {
   CHAT_THREAD_SHARES_CREATE_SQL,
   CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
 } from "./schema.js";
-
-let _initPromise: Promise<void> | undefined;
 
 /**
  * Per-thread async mutex. Read-modify-write on the `thread_data` JSON blob
@@ -84,10 +84,13 @@ export function withThreadDataLock<T>(
   return next as Promise<T>;
 }
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
+export const chatThreadsStore = defineStore({
+  id: "chat_threads",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS chat_threads (
           id TEXT PRIMARY KEY,
           owner_email TEXT NOT NULL,
@@ -111,7 +114,6 @@ async function ensureTable(): Promise<void> {
         )
       `;
 
-      {
         // Hot path: the `chat_threads` table and its indexes are virtually
         // always already present in production. Issuing `CREATE TABLE`/
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
@@ -150,6 +152,11 @@ async function ensureTable(): Promise<void> {
           "chat_thread_shares",
           CHAT_THREAD_SHARES_CREATE_SQL,
         );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
         // overflows int4. No-op once widened / on fresh BIGINT databases.
@@ -159,6 +166,11 @@ async function ensureTable(): Promise<void> {
           "pinned_at",
           "archived_at",
         ]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
         // Indexes for the hot read paths. Both the sidebar list and the
         // scoped/per-resource list filter on owner_email (and optionally
         // scope) and sort by updated_at. Probe pg_indexes first (no lock)
@@ -205,16 +217,13 @@ async function ensureTable(): Promise<void> {
           "chat_thread_shares_resource_idx",
           CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
         );
-        return;
-      }
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+function ensureTable(): Promise<void> {
+  return chatThreadsStore.ready();
 }
 
 /**
@@ -909,8 +918,8 @@ export function registerChatThreadsShareable(): void {
   });
 }
 
-export async function ensureChatThreadTables(): Promise<void> {
-  await ensureTable();
+export function ensureChatThreadTables(): Promise<void> {
+  return chatThreadsStore.ready();
 }
 
 /**
@@ -1699,11 +1708,35 @@ export interface ThreadQueuedMessageMutationResult {
   message?: QueuedMessage;
   claimedMessage?: QueuedMessage;
   claimBusy?: boolean;
+  submissionExpired?: boolean;
   promotionBusy?: boolean;
   released?: boolean;
 }
 
 const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
+
+function queuedSubmissionExpired(message: QueuedMessage, now: number): boolean {
+  const custom = message.metadata?.custom;
+  if (
+    !custom ||
+    typeof custom !== "object" ||
+    Array.isArray(custom) ||
+    !Object.prototype.hasOwnProperty.call(
+      custom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    return false;
+  }
+  const expiresAt = (custom as Record<string, unknown>)[
+    AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
+  ];
+  return (
+    typeof expiresAt !== "number" ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= now
+  );
+}
 
 /** Applies a queue operation to the latest durable thread state on every CAS retry. */
 export async function mutateThreadQueuedMessages(
@@ -1711,6 +1744,17 @@ export async function mutateThreadQueuedMessages(
   mutation: ThreadQueuedMessageMutation,
 ): Promise<ThreadQueuedMessageMutationResult | null> {
   if (mutation.type === "append") {
+    const metadata = normalizeSubmissionDeadlineMetadata(
+      mutation.message.metadata,
+      Date.now(),
+    );
+    mutation = {
+      type: "append",
+      message: {
+        ...mutation.message,
+        ...(metadata ? { metadata } : {}),
+      },
+    };
     try {
       assertNoInlineImageBytes(
         { type: "file", metadata: mutation.message.metadata },
@@ -1770,6 +1814,10 @@ export async function mutateThreadQueuedMessages(
 
         switch (mutation.type) {
           case "append": {
+            if (queuedSubmissionExpired(mutation.message, Date.now())) {
+              response = { submissionExpired: true };
+              break;
+            }
             const existing = current.find(
               (message) => message.id === mutation.message.id,
             );
@@ -1795,7 +1843,8 @@ export async function mutateThreadQueuedMessages(
             const message = current[index];
             if (
               message?.promotionClaim &&
-              message.promotionClaim.expiresAt > Date.now()
+              message.promotionClaim.expiresAt > Date.now() &&
+              !queuedSubmissionExpired(message, Date.now())
             ) {
               response = { promotionBusy: true };
               break;
@@ -1836,6 +1885,13 @@ export async function mutateThreadQueuedMessages(
             }
             const message = current[index]!;
             const now = Date.now();
+            if (queuedSubmissionExpired(message, now)) {
+              queuedMessages = current.filter(
+                (candidate) => candidate.id !== mutation.messageId,
+              );
+              response = { submissionExpired: true };
+              break;
+            }
             if (
               message.promotionClaim &&
               message.promotionClaim.id !== mutation.claimId &&
