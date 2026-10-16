@@ -1,4 +1,4 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const jaJP = {
   campaign: {
@@ -34,6 +34,7 @@ const jaJP = {
     usedFor: "用途",
     whereItBreaks: "限界となる点",
     updatedDate: "更新日：{{date}}",
+    publishedDate: "公開日：{{date}}",
     allArticles: "すべての記事",
     useCases: "ユースケース",
     useCasesDescription: "繰り返しの仕事のためのページをアプリ別に紹介",
@@ -47,8 +48,7 @@ const jaJP = {
     articlesIntro:
       "AI エージェントと取り組む繰り返しの仕事についての実践的な回答。個別の仕事をステップごとに解説するページは、{{useCases}}をご覧ください。",
     useCasesLink: "ユースケース",
-    articleCountOne: "{{count}} 件の記事",
-    articleCountOther: "{{count}} 件の記事",
+    articleCount_other: "{{count}} 件の記事",
     moreOnTopic: "{{topic}}についてもっと読む",
     oldWay: "従来の方法",
     newWay: "新しい方法",
@@ -62,7 +62,7 @@ const jaJP = {
     copied: "コピーしました",
     copyFailed: "コピーできませんでした。もう一度お試しください。",
     breadcrumb: "パンくずリスト",
-    readTime: "読了 {{count}} 分",
+    readTime_other: "読了 {{count}} 分",
     partOf: "関連するユースケース：",
     relatedResources: "関連リソース",
     moreArticles: "{{category}} のその他の記事",
@@ -2831,6 +2831,6 @@ const jaJP = {
     docsComponents: "Docs Components",
     formsDevelopers: "開発者ガイド",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default jaJP;

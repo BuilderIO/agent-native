@@ -35,11 +35,11 @@ A chatbot hands you text. In an agent-native app, the agent's work lands in the 
 
 ## When is an agent-native app the right fit?
 
-| Your situation | Better fit |
-| --- | --- |
-| The agent does real work, and people need to inspect, edit, approve, or share it | An agent-native app |
-| You need a single generated response | Call a model directly |
-| The work follows a fixed, predictable sequence | Ordinary application logic or automation |
+| Your situation                                                                   | Better fit                               |
+| -------------------------------------------------------------------------------- | ---------------------------------------- |
+| The agent does real work, and people need to inspect, edit, approve, or share it | An agent-native app                      |
+| You need a single generated response                                             | Call a model directly                    |
+| The work follows a fixed, predictable sequence                                   | Ordinary application logic or automation |
 
 ## What can you start from?
 

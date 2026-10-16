@@ -50,7 +50,11 @@ frequency: per-project
 how_often_label: "Every feature"
 roles: [engineering]
 connects_to: ["Claude Code", "Codex"]
-next_jobs: [understand-what-your-coding-agent-changed, spec-your-coding-agent-builds-from]
+next_jobs:
+  [
+    understand-what-your-coding-agent-changed,
+    spec-your-coding-agent-builds-from,
+  ]
 recipes:
   - id: install-once
     title: "Add the planning skills once"

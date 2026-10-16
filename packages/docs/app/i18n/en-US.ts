@@ -32,6 +32,7 @@ const enUS = {
     usedFor: "For",
     whereItBreaks: "Where it breaks",
     updatedDate: "Updated {{date}}",
+    publishedDate: "Published {{date}}",
     allArticles: "All articles",
     useCases: "Use cases",
     useCasesDescription: "Pages for recurring jobs, by app",
@@ -45,8 +46,8 @@ const enUS = {
     articlesIntro:
       "Practical answers about recurring work with AI agents. For step-by-step pages on a single job, browse the {{useCases}}.",
     useCasesLink: "use cases",
-    articleCountOne: "{{count}} article",
-    articleCountOther: "{{count}} articles",
+    articleCount_one: "{{count}} article",
+    articleCount_other: "{{count}} articles",
     moreOnTopic: "More on {{topic}}",
     oldWay: "The old way",
     newWay: "The new way",
@@ -60,7 +61,8 @@ const enUS = {
     copied: "Copied",
     copyFailed: "Could not copy. Please try again.",
     breadcrumb: "Breadcrumb",
-    readTime: "{{count}} min read",
+    readTime_one: "{{count}} min read",
+    readTime_other: "{{count}} min read",
     partOf: "Part of:",
     relatedResources: "Related resources",
     moreArticles: "More {{category}} articles",
@@ -2821,6 +2823,18 @@ const enUS = {
     formsIntegrations: "Cross-App Use",
     formsDevelopers: "Developer Guide",
   },
+};
+
+type PluralKey =
+  `${string}_${"zero" | "one" | "two" | "few" | "many" | "other"}`;
+
+/** Locales supply only the plural categories their language uses. */
+export type PluralLocaleMessages = Omit<typeof enUS, "campaign"> & {
+  campaign: {
+    [K in keyof typeof enUS.campaign as K extends PluralKey
+      ? never
+      : K]: (typeof enUS.campaign)[K];
+  } & Record<PluralKey, string>;
 };
 
 export default enUS;

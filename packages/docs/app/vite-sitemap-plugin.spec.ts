@@ -99,7 +99,9 @@ describe("docs agent web generation", () => {
       for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
         expect(paths).not.toContain(sitePathForLocale(path, locale));
     }
-    const index = campaignPages.find((page) => page.path === `${ARTICLES_BASE}/`)!;
+    const index = campaignPages.find(
+      (page) => page.path === `${ARTICLES_BASE}/`,
+    )!;
     expect(index.markdown).toContain(`](${ARTICLES_BASE}/test-0/)`);
     const detail = campaignPages.find(
       (page) => page.path === `${ARTICLES_BASE}/test-0/`,
@@ -133,7 +135,7 @@ describe("docs agent web generation", () => {
     expect(new Set(mirrors).size).toBe(mirrors.length);
   });
 
-  it("publishes precisely the six populated real topic pages and counts in every locale", () => {
+  it("publishes precisely the six populated real topic pages and counts at English canonical paths only", () => {
     const content = loadCampaignContentFromDisk(rootDir);
     const summaries = getArticleTopics(content.articles);
     expect(summaries.map(({ slug, count }) => [slug, count])).toEqual([
@@ -145,35 +147,37 @@ describe("docs agent web generation", () => {
       ["presentations", 1],
     ]);
     const campaignPages = buildCampaignPages(content);
-    for (const locale of DOCS_LOCALES) {
-      for (const summary of summaries) {
-        const topic = campaignPages.find(
-          (page) =>
-            page.path ===
-            sitePathForLocale(`${ARTICLES_BASE}/topic/${summary.slug}`, locale),
-        )!;
-        const articles = content.articles.filter(
-          (article) => article.topic === summary.slug,
+    for (const summary of summaries) {
+      const topic = campaignPages.find(
+        (page) => page.path === `${ARTICLES_BASE}/topic/${summary.slug}/`,
+      )!;
+      const articles = content.articles.filter(
+        (article) => article.topic === summary.slug,
+      );
+      expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(summary.count);
+      expect(topic.title).toBe(summary.name);
+      expect(topic.lastmod).toEqual(
+        new Date(
+          `${articles
+            .map((article) => article.updated ?? article.published)
+            .sort()
+            .at(-1)}T00:00:00Z`,
+        ),
+      );
+      for (const article of articles)
+        expect(topic.markdown).toContain(
+          `](${ARTICLES_BASE}/${article.slug}/)`,
         );
-        expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(summary.count);
-        expect(topic.title).toBe(summary.name);
-        expect(topic.lastmod).toEqual(
-          new Date(
-            `${articles
-              .map((article) => article.updated ?? article.published)
-              .sort()
-              .at(-1)}T00:00:00Z`,
-          ),
-        );
-        for (const article of articles)
-          expect(topic.markdown).toContain(
-            `](${sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`, locale)})`,
-          );
-      }
     }
     expect(
       campaignPages.filter((page) => page.path.includes("/topic/")),
-    ).toHaveLength(summaries.length * DOCS_LOCALES.length);
+    ).toHaveLength(summaries.length);
+    for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
+      expect(
+        campaignPages.some((page) =>
+          page.path.startsWith(`/${locale.toLowerCase()}/`),
+        ),
+      ).toBe(false);
     expect(campaignPages.some((page) => page.path.includes("/category/"))).toBe(
       false,
     );
@@ -188,7 +192,7 @@ describe("docs agent web generation", () => {
     expect(pages.some((page) => page.path.startsWith("/fr-fr/"))).toBe(false);
   });
 
-  it("uses the latest updated-or-published date for topic and article sitemap entries in every locale", () => {
+  it("uses the latest updated-or-published date for topic and article sitemap entries", () => {
     const original = loadCampaignContentFromDisk(rootDir).articles[0];
     const articles = [
       {
@@ -205,26 +209,20 @@ describe("docs agent web generation", () => {
       },
     ];
     const pages = buildCampaignPages({ useCases: [], articles });
-    for (const locale of DOCS_LOCALES) {
-      const topic = pages.find(
-        (page) =>
-          page.path ===
-          sitePathForLocale(`${ARTICLES_BASE}/topic/${original.topic}`, locale),
+    const topic = pages.find(
+      (page) => page.path === `${ARTICLES_BASE}/topic/${original.topic}/`,
+    )!;
+    expect(topic.lastmod).toEqual(new Date("2026-09-01T00:00:00Z"));
+    for (const article of articles) {
+      const detail = pages.find(
+        (page) => page.path === `${ARTICLES_BASE}/${article.slug}/`,
       )!;
-      expect(topic.lastmod).toEqual(new Date("2026-09-01T00:00:00Z"));
-      for (const article of articles) {
-        const detail = pages.find(
-          (page) =>
-            page.path ===
-            sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`, locale),
-        )!;
-        expect(detail.lastmod).toEqual(
-          new Date(`${article.updated ?? article.published}T00:00:00Z`),
-        );
-      }
-      const xml = buildSitemapXml([topic.path]);
-      expect(xml).toContain(`<loc>${SITE_URL}${topic.path}</loc>`);
+      expect(detail.lastmod).toEqual(
+        new Date(`${article.updated ?? article.published}T00:00:00Z`),
+      );
     }
+    const xml = buildSitemapXml([topic.path]);
+    expect(xml).toContain(`<loc>${SITE_URL}${topic.path}</loc>`);
   });
 
   it(
@@ -334,7 +332,9 @@ describe("docs agent web generation", () => {
         expect(englishUrls).toContain(`${SITE_URL}${path}`);
         expect(pages.find((page) => page.path === path)?.markdown).toBeTruthy();
       }
-      for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US")) {
+      for (const locale of DOCS_LOCALES.filter(
+        (locale) => locale !== "en-US",
+      )) {
         const urls = locsIn(
           fs.readFileSync(
             path.join(clientDir, `sitemap-${locale.toLowerCase()}.xml`),
@@ -342,7 +342,9 @@ describe("docs agent web generation", () => {
           ),
         );
         for (const path of paths)
-          expect(urls).not.toContain(`${SITE_URL}${sitePathForLocale(path, locale)}`);
+          expect(urls).not.toContain(
+            `${SITE_URL}${sitePathForLocale(path, locale)}`,
+          );
       }
     });
 
@@ -402,7 +404,9 @@ describe("docs agent web generation", () => {
         for (const page of pages.filter((page) => page.path.startsWith(base)))
           expect(page.markdown, page.path).not.toContain(oldSlug);
       }
-      for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US")) {
+      for (const locale of DOCS_LOCALES.filter(
+        (locale) => locale !== "en-US",
+      )) {
         const localizedSitemap = fs.readFileSync(
           path.join(clientDir, `sitemap-${locale.toLowerCase()}.xml`),
           "utf8",

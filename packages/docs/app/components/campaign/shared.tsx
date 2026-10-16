@@ -160,19 +160,30 @@ export function faqSchema(items: { q: string; a: string }[]) {
   };
 }
 
-export function CampaignDate({ date }: { date: string }) {
+export function CampaignDate({
+  date,
+  kind = "updated",
+}: {
+  date: string;
+  kind?: "updated" | "published";
+}) {
   const t = useT();
   const format = useFormatters();
   return (
     <time dateTime={date}>
-      {t("campaign.updatedDate", {
-        date: format.formatDate(new Date(date), {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          timeZone: "UTC",
-        }),
-      })}
+      {t(
+        kind === "published"
+          ? "campaign.publishedDate"
+          : "campaign.updatedDate",
+        {
+          date: format.formatDate(new Date(date), {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            timeZone: "UTC",
+          }),
+        },
+      )}
     </time>
   );
 }

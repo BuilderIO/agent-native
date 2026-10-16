@@ -31,14 +31,14 @@ Most bad reports fail in one place: the engineer has to ask a question before th
 
 ## What should a bug report include?
 
-| Field | What to write |
-| --- | --- |
-| Title | What broke and where, in one line. "Save button stays disabled after editing a field," not "Bug on settings page." |
-| Steps to reproduce | The exact actions, in order, starting from a known state. |
-| Expected result | What you thought would happen. |
-| Actual result | What happened instead, including any error message on screen. |
-| Environment | Browser and version, device, account type, and the page URL. |
-| Evidence | Console errors, failed requests with their status codes, and a screenshot or recording. |
+| Field              | What to write                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Title              | What broke and where, in one line. "Save button stays disabled after editing a field," not "Bug on settings page." |
+| Steps to reproduce | The exact actions, in order, starting from a known state.                                                          |
+| Expected result    | What you thought would happen.                                                                                     |
+| Actual result      | What happened instead, including any error message on screen.                                                      |
+| Environment        | Browser and version, device, account type, and the page URL.                                                       |
+| Evidence           | Console errors, failed requests with their status codes, and a screenshot or recording.                            |
 
 ## What's a bug report template you can copy?
 
@@ -74,11 +74,11 @@ Clips does this for you. With its Chrome extension, it saves console messages an
 
 ## When should you record the bug instead of writing it?
 
-| Your situation | Option | What to check |
-| --- | --- | --- |
-| The bug is one line and the cause is obvious | A written report using the template | Fast, but the reader can't see what you saw. |
-| The bug depends on sequence or state | A written report with a screen recording attached | The recording shows the order of actions. Check who can open the link before you share it. |
-| A coding agent will investigate | A recording through a tool that gives agents a readable link, such as Clips | Clips gives the agent a transcript and timestamped images. Check that your agent can open the link and read images. |
+| Your situation                               | Option                                                                      | What to check                                                                                                       |
+| -------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| The bug is one line and the cause is obvious | A written report using the template                                         | Fast, but the reader can't see what you saw.                                                                        |
+| The bug depends on sequence or state         | A written report with a screen recording attached                           | The recording shows the order of actions. Check who can open the link before you share it.                          |
+| A coding agent will investigate              | A recording through a tool that gives agents a readable link, such as Clips | Clips gives the agent a transcript and timestamped images. Check that your agent can open the link and read images. |
 
 Agent-Native publishes Clips, so weigh the last row accordingly. The first two work fine when the bug is simple or your team already has a process.
 

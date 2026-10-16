@@ -118,6 +118,7 @@ function inline(tokens: Token[] | undefined, locale: unknown): ReactNode {
             alt={token.text}
             title={token.title ?? undefined}
             loading="lazy"
+            decoding="async"
             className="max-w-full"
           />
         ) : (

@@ -29,12 +29,12 @@ Record the meeting and let an AI note-taker write the transcript, a summary, and
 
 ## What does AI handle, and what still needs you?
 
-| AI handles | You still own |
-| --- | --- |
-| Transcribing what was said | Telling participants you're recording |
-| A first-pass summary | Checking names, numbers, and decisions against the transcript |
-| Pulling out action items | Confirming each owner and date |
-| Finding a past meeting later | Deciding when a meeting shouldn't be recorded at all |
+| AI handles                   | You still own                                                 |
+| ---------------------------- | ------------------------------------------------------------- |
+| Transcribing what was said   | Telling participants you're recording                         |
+| A first-pass summary         | Checking names, numbers, and decisions against the transcript |
+| Pulling out action items     | Confirming each owner and date                                |
+| Finding a past meeting later | Deciding when a meeting shouldn't be recorded at all          |
 
 ## How do you take meeting notes with AI in Clips?
 
@@ -49,12 +49,12 @@ Record the meeting and let an AI note-taker write the transcript, a summary, and
 
 ## How do you choose an AI note-taker?
 
-| What to check | Why it matters |
-| --- | --- |
-| Where the notes live | Notes you can't find again don't help anyone. |
-| What it connects to | A calendar connection decides how much setup each meeting takes. |
-| How you check the summary | You need the transcript next to the summary to verify it. |
-| Who can see the recordings | Meetings often include things not everyone should hear. |
+| What to check              | Why it matters                                                   |
+| -------------------------- | ---------------------------------------------------------------- |
+| Where the notes live       | Notes you can't find again don't help anyone.                    |
+| What it connects to        | A calendar connection decides how much setup each meeting takes. |
+| How you check the summary  | You need the transcript next to the summary to verify it.        |
+| Who can see the recordings | Meetings often include things not everyone should hear.          |
 
 Agent-Native publishes Clips, so weigh this list with that in mind. Clips keeps meetings in the same searchable library as your screen recordings and dictations.
 

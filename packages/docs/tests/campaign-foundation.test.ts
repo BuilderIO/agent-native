@@ -878,7 +878,6 @@ describe("campaign content", () => {
   });
 
   it("normalizes YAML dates and rejects impossible dates", () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     // A block YAML scalar exercises gray-matter's Date parser rather than JSON strings.
     const dated = `slug: sample\nupdated: 2026-09-01\n${Object.entries(useCase)
       .filter(([key]) => !["slug", "updated"].includes(key))

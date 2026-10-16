@@ -1,4 +1,4 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const arSA = {
   campaign: {
@@ -34,6 +34,7 @@ const arSA = {
     usedFor: "الغرض",
     whereItBreaks: "أوجه القصور",
     updatedDate: "آخر تحديث: {{date}}",
+    publishedDate: "تاريخ النشر: {{date}}",
     allArticles: "جميع المقالات",
     useCases: "حالات الاستخدام",
     useCasesDescription: "صفحات للمهام المتكررة، حسب التطبيق",
@@ -47,8 +48,12 @@ const arSA = {
     articlesIntro:
       "إجابات عملية حول العمل المتكرر مع وكلاء الذكاء الاصطناعي. للاطلاع على صفحات تشرح مهمة واحدة خطوة بخطوة، تصفّح {{useCases}}.",
     useCasesLink: "حالات الاستخدام",
-    articleCountOne: "{{count}} مقال",
-    articleCountOther: "{{count}} مقالات",
+    articleCount_zero: "{{count}} مقالات",
+    articleCount_one: "{{count}} مقال",
+    articleCount_two: "{{count}} مقالان",
+    articleCount_few: "{{count}} مقالات",
+    articleCount_many: "{{count}} مقالًا",
+    articleCount_other: "{{count}} مقال",
     moreOnTopic: "المزيد حول {{topic}}",
     oldWay: "الطريقة القديمة",
     newWay: "الطريقة الجديدة",
@@ -62,7 +67,12 @@ const arSA = {
     copied: "تم النسخ",
     copyFailed: "تعذّر النسخ. حاول مرة أخرى.",
     breadcrumb: "مسار التنقل",
-    readTime: "{{count}} دقيقة للقراءة",
+    readTime_zero: "{{count}} دقيقة للقراءة",
+    readTime_one: "{{count}} دقيقة للقراءة",
+    readTime_two: "{{count}} دقيقتان للقراءة",
+    readTime_few: "{{count}} دقائق للقراءة",
+    readTime_many: "{{count}} دقيقة للقراءة",
+    readTime_other: "{{count}} دقيقة للقراءة",
     partOf: "جزء من:",
     relatedResources: "موارد ذات صلة",
     moreArticles: "المزيد من مقالات {{category}}",
@@ -2806,6 +2816,6 @@ const arSA = {
     docsComponents: "Docs Components",
     formsDevelopers: "دليل المطور",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default arSA;

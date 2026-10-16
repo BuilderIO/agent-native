@@ -57,7 +57,8 @@ internal:
 frequency: weekly
 how_often_label: "Weekly"
 roles: [founders, product, finance]
-connects_to: ["Stripe", "HubSpot", "BigQuery", "PostHog", "Mixpanel", "Amplitude"]
+connects_to:
+  ["Stripe", "HubSpot", "BigQuery", "PostHog", "Mixpanel", "Amplitude"]
 next_jobs: [find-where-users-drop-off, startup-pitch-deck]
 recipes:
   - id: revenue-question

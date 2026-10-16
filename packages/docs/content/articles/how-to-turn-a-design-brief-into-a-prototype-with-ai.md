@@ -30,13 +30,13 @@ Write a short brief, ask an AI design tool for a few directions, and refine the 
 
 ## What does the AI need from your brief?
 
-| Put in the brief | Why the AI needs it |
-| --- | --- |
-| The goal | It decides what the screen has to get someone to do. |
-| The audience | It shapes the language, the density, and what to explain. |
-| Scope and deliverables | It tells the AI which screens and states to draw, and which to skip. |
-| Brand and style | It keeps the draft on brand instead of generic. |
-| Constraints | It rules out directions you can't ship, like a deadline or a technical limit. |
+| Put in the brief       | Why the AI needs it                                                           |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| The goal               | It decides what the screen has to get someone to do.                          |
+| The audience           | It shapes the language, the density, and what to explain.                     |
+| Scope and deliverables | It tells the AI which screens and states to draw, and which to skip.          |
+| Brand and style        | It keeps the draft on brand instead of generic.                               |
+| Constraints            | It rules out directions you can't ship, like a deadline or a technical limit. |
 
 ## What's a brief template you can paste into an AI tool?
 

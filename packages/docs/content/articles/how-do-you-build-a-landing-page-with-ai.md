@@ -39,12 +39,12 @@ Put those in a short brief. Everything the AI draws or writes should trace back 
 
 ## What are your options for building one?
 
-| Your situation | Option | What to check |
-| --- | --- | --- |
-| You want the page live today | A page builder that generates and publishes | Check how much you can edit, who owns the code, and what you pay. |
-| You want to compare directions first, then build | A prototype tool like Design, then deploy it yourself | The prototype isn't a live page. Deployment and forms are still yours. |
-| You have a repo and an engineer | A coding agent building it in your codebase | You review code instead of a design. Direction changes cost another run. |
-| You're short on time and the page is simple | Start from a template | Fast, but it looks like everyone else's. |
+| Your situation                                   | Option                                                | What to check                                                            |
+| ------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| You want the page live today                     | A page builder that generates and publishes           | Check how much you can edit, who owns the code, and what you pay.        |
+| You want to compare directions first, then build | A prototype tool like Design, then deploy it yourself | The prototype isn't a live page. Deployment and forms are still yours.   |
+| You have a repo and an engineer                  | A coding agent building it in your codebase           | You review code instead of a design. Direction changes cost another run. |
+| You're short on time and the page is simple      | Start from a template                                 | Fast, but it looks like everyone else's.                                 |
 
 Agent-Native publishes Design, so weigh the second row accordingly. If you need the page live today, a publishing page builder fits better.
 

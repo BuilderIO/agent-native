@@ -29,15 +29,15 @@ Writing it down is cheap. Finding out halfway through a build that two people pi
 
 ## What goes in a technical design document?
 
-| Section | What to write |
-| --- | --- |
-| Context and problem | What's broken or missing, and who it affects. |
-| Goals and non-goals | What this change must do, and what it deliberately won't. |
-| Proposed design | The approach, with a diagram of the data flow if more than one system is involved. |
-| Alternatives considered | What else you looked at and why you didn't choose it. |
-| Data model and interfaces | Tables, APIs, events, or files that change. |
-| Risks and open questions | What could go wrong, and what you haven't decided. |
-| Rollout and testing | How you'll ship it and how you'll know it works. |
+| Section                   | What to write                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| Context and problem       | What's broken or missing, and who it affects.                                      |
+| Goals and non-goals       | What this change must do, and what it deliberately won't.                          |
+| Proposed design           | The approach, with a diagram of the data flow if more than one system is involved. |
+| Alternatives considered   | What else you looked at and why you didn't choose it.                              |
+| Data model and interfaces | Tables, APIs, events, or files that change.                                        |
+| Risks and open questions  | What could go wrong, and what you haven't decided.                                 |
+| Rollout and testing       | How you'll ship it and how you'll know it works.                                   |
 
 ## What's a technical design document template you can copy?
 

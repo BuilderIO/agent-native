@@ -29,15 +29,15 @@ Most dashboards fail by showing everything. Pick the numbers you'd check every w
 
 ## What should it include?
 
-| Metric | What it tells you | Where it usually comes from |
-| --- | --- | --- |
-| MRR (monthly recurring revenue) | The monthly value of your active subscriptions. | Your billing system |
-| New, expansion, and churned MRR | Where the change in MRR came from. | Your billing system |
-| Customer churn rate | The share of customers you lost in a period. | Your billing system or CRM |
-| Net revenue retention | Revenue from existing customers now, compared with a period ago. | Your billing system |
-| Activation | The share of new signups who reach a key action you define. | Your product events |
-| Retention | The share of a cohort still active after a set number of weeks. | Your product events |
-| Pipeline | Open deals and the stage they're in. | Your CRM |
+| Metric                          | What it tells you                                                | Where it usually comes from |
+| ------------------------------- | ---------------------------------------------------------------- | --------------------------- |
+| MRR (monthly recurring revenue) | The monthly value of your active subscriptions.                  | Your billing system         |
+| New, expansion, and churned MRR | Where the change in MRR came from.                               | Your billing system         |
+| Customer churn rate             | The share of customers you lost in a period.                     | Your billing system or CRM  |
+| Net revenue retention           | Revenue from existing customers now, compared with a period ago. | Your billing system         |
+| Activation                      | The share of new signups who reach a key action you define.      | Your product events         |
+| Retention                       | The share of a cohort still active after a set number of weeks.  | Your product events         |
+| Pipeline                        | Open deals and the stage they're in.                             | Your CRM                    |
 
 ## What does MRR mean?
 

@@ -7,8 +7,8 @@ import {
   newestArticles,
   publicArticle,
 } from "../components/campaign/public-content";
-import { campaignMeta } from "../lib/campaign-seo";
 import { sitePathForLocale } from "../components/docs-locale";
+import { campaignMeta } from "../lib/campaign-seo";
 
 export function loader({ params }: LoaderFunctionArgs) {
   const content = loadCampaignContent();

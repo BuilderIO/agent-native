@@ -64,12 +64,12 @@ There isn't one correct order, but most good decks cover the same ground in abou
 
 ## What are your options?
 
-| Your situation | Option | What to check |
-| --- | --- | --- |
-| You want a proven structure | Start from a template | You get the outline. You still fill it in and restyle it. |
-| You have last round's deck | Copy and edit it | Stale numbers are easy to leave behind. Check every slide. |
-| You want the story drafted | Ask a general AI chat for an outline | You get the narrative. Building slides in your brand is still manual. |
-| You want an on-brand draft you can edit | Slides | Check every claim and number, and open the export before you send it. |
+| Your situation                          | Option                               | What to check                                                         |
+| --------------------------------------- | ------------------------------------ | --------------------------------------------------------------------- |
+| You want a proven structure             | Start from a template                | You get the outline. You still fill it in and restyle it.             |
+| You have last round's deck              | Copy and edit it                     | Stale numbers are easy to leave behind. Check every slide.            |
+| You want the story drafted              | Ask a general AI chat for an outline | You get the narrative. Building slides in your brand is still manual. |
+| You want an on-brand draft you can edit | Slides                               | Check every claim and number, and open the export before you send it. |
 
 Agent-Native publishes Slides, so weigh the last row accordingly.
 

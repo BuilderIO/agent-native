@@ -1,4 +1,4 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const esES = {
   campaign: {
@@ -35,6 +35,7 @@ const esES = {
     usedFor: "Para",
     whereItBreaks: "Dónde falla",
     updatedDate: "Actualizado el {{date}}",
+    publishedDate: "Publicado el {{date}}",
     allArticles: "Todos los artículos",
     useCases: "Casos de uso",
     useCasesDescription: "Páginas para tareas recurrentes, por app",
@@ -48,8 +49,9 @@ const esES = {
     articlesIntro:
       "Respuestas prácticas sobre el trabajo recurrente con agentes de IA. Para ver páginas que explican una tarea concreta paso a paso, explora los {{useCases}}.",
     useCasesLink: "casos de uso",
-    articleCountOne: "{{count}} artículo",
-    articleCountOther: "{{count}} artículos",
+    articleCount_one: "{{count}} artículo",
+    articleCount_many: "{{count}} de artículos",
+    articleCount_other: "{{count}} artículos",
     moreOnTopic: "Más sobre {{topic}}",
     oldWay: "La forma anterior",
     newWay: "La nueva forma",
@@ -63,7 +65,9 @@ const esES = {
     copied: "Copiado",
     copyFailed: "No se pudo copiar. Inténtalo de nuevo.",
     breadcrumb: "Ruta de navegación",
-    readTime: "{{count}} min de lectura",
+    readTime_one: "{{count}} min de lectura",
+    readTime_many: "{{count}} min de lectura",
+    readTime_other: "{{count}} min de lectura",
     partOf: "Parte de:",
     relatedResources: "Recursos relacionados",
     moreArticles: "Más artículos de {{category}}",
@@ -2855,6 +2859,6 @@ const esES = {
     docsComponents: "Docs Components",
     formsDevelopers: "Guía para desarrolladores",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default esES;

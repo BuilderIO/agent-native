@@ -54,7 +54,8 @@ frequency: per-project
 how_often_label: "Every bug"
 roles: [engineering, product]
 connects_to: ["Claude", "Claude Code", "Codex"]
-next_jobs: [understand-what-your-coding-agent-changed, dictate-instead-of-typing]
+next_jobs:
+  [understand-what-your-coding-agent-changed, dictate-instead-of-typing]
 recipes:
   - id: record-with-logs
     title: "Record a bug with its logs"

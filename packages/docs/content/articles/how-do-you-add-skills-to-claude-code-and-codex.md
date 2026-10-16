@@ -32,12 +32,12 @@ A skill is a Markdown file that gives your agent deep knowledge of a specific wo
 
 ## How do you install a skill?
 
-| What you want | How |
-| --- | --- |
-| An Agent-Native app-backed skill, like visual-plan or assets | `npx @agent-native/core@latest skills add <name>` |
-| Instructions only, through the open Skills CLI | `npx skills@latest add BuilderIO/agent-native --skill assets`. This doesn't register MCP connectors. |
-| A plugin for your coding agent | Agent-Native has a Claude Code marketplace plugin and a Codex plugin. |
-| A portable bundle | `npx @agent-native/core@latest plugin import` |
+| What you want                                                | How                                                                                                  |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| An Agent-Native app-backed skill, like visual-plan or assets | `npx @agent-native/core@latest skills add <name>`                                                    |
+| Instructions only, through the open Skills CLI               | `npx skills@latest add BuilderIO/agent-native --skill assets`. This doesn't register MCP connectors. |
+| A plugin for your coding agent                               | Agent-Native has a Claude Code marketplace plugin and a Codex plugin.                                |
+| A portable bundle                                            | `npx @agent-native/core@latest plugin import`                                                        |
 
 ## Which skills can you add?
 

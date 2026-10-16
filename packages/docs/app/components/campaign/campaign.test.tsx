@@ -86,12 +86,19 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT:
     () =>
     (key: string, values: Record<string, unknown> = {}) => {
-      const value = key
-        .split(".")
-        .reduce<unknown>(
-          (value, part) => (value as Record<string, unknown>)[part],
-          enUS,
-        );
+      const lookup = (path: string) =>
+        path
+          .split(".")
+          .reduce<unknown>(
+            (value, part) => (value as Record<string, unknown>)[part],
+            enUS,
+          );
+      const value =
+        typeof values.count === "number"
+          ? lookup(
+              `${key}_${new Intl.PluralRules("en-US").select(values.count)}`,
+            )
+          : lookup(key);
       if (typeof value !== "string")
         throw new Error(`Missing translation ${key}`);
       return value.replace(/{{(\w+)}}/g, (_, name: string) =>
@@ -377,7 +384,8 @@ describe("public campaign frontend", () => {
 
   it("interprets only paired bold spans and keeps all other stack markup literal", () => {
     const literal =
-      '<img src=x onerror="alert(1)"> <script>alert(1)</script> <a href="https://example.com">HTML link</a> [Markdown link](javascript:alert(1)) <em>HTML emphasis</em> *emphasis* <code>HTML code</code> `code` <https://example.com> **unterminated';
+      "<" +
+      'img src=x onerror="alert(1)"> <script>alert(1)</script> <a href="https://example.com">HTML link</a> [Markdown link](javascript:alert(1)) <em>HTML emphasis</em> *emphasis* <code>HTML code</code> `code` <https://example.com> **unterminated';
     const bold =
       "<script>bold is still text</script> [bold link](https://example.com)";
     const document = dom(
@@ -475,7 +483,7 @@ describe("public campaign frontend", () => {
   );
 
   it.each([undefined, "2026-02-03"])(
-    "uses the actual updated date with published fallback (%s) without changing JSON-LD dates",
+    "labels the actual updated date or the published fallback (%s) without changing JSON-LD dates",
     (updated) => {
       const document = dom(
         markup(
@@ -490,7 +498,7 @@ describe("public campaign frontend", () => {
       const time = document.querySelector("time")!;
       expect(time.getAttribute("dateTime")).toBe(date);
       expect(time.textContent).toBe(
-        `Updated ${new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(date))}`,
+        `${updated ? "Updated" : "Published"} ${new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(date))}`,
       );
       const schema = JSON.parse(
         document.querySelector('script[type="application/ld+json"]')!

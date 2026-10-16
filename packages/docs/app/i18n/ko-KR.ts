@@ -1,4 +1,4 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const koKR = {
   campaign: {
@@ -34,6 +34,7 @@ const koKR = {
     usedFor: "용도",
     whereItBreaks: "한계점",
     updatedDate: "업데이트: {{date}}",
+    publishedDate: "게시: {{date}}",
     allArticles: "모든 글",
     useCases: "사용 사례",
     useCasesDescription: "앱별 반복 업무 페이지",
@@ -46,8 +47,7 @@ const koKR = {
     articlesIntro:
       "AI 에이전트와 함께하는 반복 업무에 대한 실용적인 답변입니다. 개별 업무를 단계별로 설명하는 페이지는 {{useCases}}에서 찾아보세요.",
     useCasesLink: "사용 사례",
-    articleCountOne: "글 {{count}}개",
-    articleCountOther: "글 {{count}}개",
+    articleCount_other: "글 {{count}}개",
     moreOnTopic: "{{topic}} 관련 글 더 보기",
     oldWay: "기존 방식",
     newWay: "새로운 방식",
@@ -61,7 +61,7 @@ const koKR = {
     copied: "복사됨",
     copyFailed: "복사하지 못했습니다. 다시 시도하세요.",
     breadcrumb: "탐색 경로",
-    readTime: "읽는 시간 {{count}}분",
+    readTime_other: "읽는 시간 {{count}}분",
     partOf: "관련 사용 사례:",
     relatedResources: "관련 리소스",
     moreArticles: "{{category}} 글 더 보기",
@@ -2808,6 +2808,6 @@ const koKR = {
     docsComponents: "Docs Components",
     formsDevelopers: "개발자 가이드",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default koKR;

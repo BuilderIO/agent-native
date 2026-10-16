@@ -132,12 +132,7 @@ export function ArticlesList({
                       {item.description}
                     </p>
                     <span className="campaign-label">
-                      {t(
-                        item.count === 1
-                          ? "campaign.articleCountOne"
-                          : "campaign.articleCountOther",
-                        { count: item.count },
-                      )}
+                      {t("campaign.articleCount", { count: item.count })}
                     </span>
                   </Link>
                 </li>
@@ -217,6 +212,8 @@ export function ArticlePage({
               <img
                 src={avatar}
                 alt={article.author}
+                loading="lazy"
+                decoding="async"
                 className="size-10 rounded-full object-cover"
               />
             ) : null}
@@ -229,7 +226,10 @@ export function ArticlePage({
               ) : null}
             </div>
             <span className="text-sm text-[var(--fg-secondary)]">
-              <CampaignDate date={article.updated ?? article.published} />
+              <CampaignDate
+                date={article.updated ?? article.published}
+                kind={article.updated ? "updated" : "published"}
+              />
             </span>
             <span className="text-sm text-[var(--fg-secondary)]">
               {t("campaign.readTime", { count: minutes })}

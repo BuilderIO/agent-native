@@ -31,22 +31,22 @@ The reason to care is simple. If you dictate prompts, tickets, and messages all 
 
 ## What should you look for?
 
-| What to check | The question to ask |
-| --- | --- |
-| Your vocabulary | Does it learn names, product terms, and library names, or does it guess? |
-| Where it works | Does it type into any text field, or only inside its own window? |
-| What it does to your text | Do you get your raw words, a cleaned-up version, or both? |
-| History | Can you search past dictations? |
-| Cost and ownership | Is it free or paid, closed or open source? |
+| What to check             | The question to ask                                                      |
+| ------------------------- | ------------------------------------------------------------------------ |
+| Your vocabulary           | Does it learn names, product terms, and library names, or does it guess? |
+| Where it works            | Does it type into any text field, or only inside its own window?         |
+| What it does to your text | Do you get your raw words, a cleaned-up version, or both?                |
+| History                   | Can you search past dictations?                                          |
+| Cost and ownership        | Is it free or paid, closed or open source?                               |
 
 ## What are your options?
 
-| Your situation | Option | What to check |
-| --- | --- | --- |
-| You dictate now and then | Your operating system's built-in dictation | Free and already there. Check how it handles technical terms and whether it works in every app. |
-| You dictate all day | A dedicated dictation app | Check vocabulary support, which apps it works in, and the price. |
-| You have a finished recording | A transcription tool | That's transcription, not dictation. You speak first and get the text later. |
-| You want dictation, history, and meeting and screen-recording transcripts in one place | Clips | Needs the desktop app. Check that your operating system is supported. |
+| Your situation                                                                         | Option                                     | What to check                                                                                   |
+| -------------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| You dictate now and then                                                               | Your operating system's built-in dictation | Free and already there. Check how it handles technical terms and whether it works in every app. |
+| You dictate all day                                                                    | A dedicated dictation app                  | Check vocabulary support, which apps it works in, and the price.                                |
+| You have a finished recording                                                          | A transcription tool                       | That's transcription, not dictation. You speak first and get the text later.                    |
+| You want dictation, history, and meeting and screen-recording transcripts in one place | Clips                                      | Needs the desktop app. Check that your operating system is supported.                           |
 
 Agent-Native publishes Clips, so weigh the last row accordingly. Built-in dictation is a good place to start if you only dictate occasionally.
 

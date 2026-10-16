@@ -31,7 +31,8 @@ todays_stack:
 frequency: weekly
 how_often_label: "Weekly"
 roles: [product, engineering, founders]
-connects_to: ["PostHog", "Amplitude", "Mixpanel", "Google Analytics (GA4)", "BigQuery"]
+connects_to:
+  ["PostHog", "Amplitude", "Mixpanel", "Google Analytics (GA4)", "BigQuery"]
 next_jobs: [startup-kpi-dashboard, bug-reports-with-console-logs]
 recipes:
   - id: ask-where

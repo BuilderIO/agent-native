@@ -1,4 +1,4 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const frFR = {
   campaign: {
@@ -35,6 +35,7 @@ const frFR = {
     usedFor: "Pour",
     whereItBreaks: "Les limites",
     updatedDate: "Mis à jour le {{date}}",
+    publishedDate: "Publié le {{date}}",
     allArticles: "Tous les articles",
     useCases: "Cas d’usage",
     useCasesDescription: "Pages pour les tâches récurrentes, par app",
@@ -48,8 +49,9 @@ const frFR = {
     articlesIntro:
       "Des réponses pratiques sur le travail récurrent avec des agents IA. Pour des pages qui détaillent une tâche précise étape par étape, parcourez les {{useCases}}.",
     useCasesLink: "cas d’usage",
-    articleCountOne: "{{count}} article",
-    articleCountOther: "{{count}} articles",
+    articleCount_one: "{{count}} article",
+    articleCount_many: "{{count}} d’articles",
+    articleCount_other: "{{count}} articles",
     moreOnTopic: "En savoir plus sur {{topic}}",
     oldWay: "L’ancienne méthode",
     newWay: "La nouvelle méthode",
@@ -63,7 +65,9 @@ const frFR = {
     copied: "Copié",
     copyFailed: "Impossible de copier. Réessayez.",
     breadcrumb: "Fil d’Ariane",
-    readTime: "{{count}} min de lecture",
+    readTime_one: "{{count}} min de lecture",
+    readTime_many: "{{count}} min de lecture",
+    readTime_other: "{{count}} min de lecture",
     partOf: "Fait partie de :",
     relatedResources: "Ressources associées",
     moreArticles: "Plus d’articles {{category}}",
@@ -2866,6 +2870,6 @@ const frFR = {
     docsComponents: "Docs Components",
     formsDevelopers: "Guide développeur",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default frFR;

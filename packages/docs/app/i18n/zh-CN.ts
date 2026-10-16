@@ -1,4 +1,4 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const zhCN = {
   campaign: {
@@ -34,6 +34,7 @@ const zhCN = {
     usedFor: "用途",
     whereItBreaks: "不足之处",
     updatedDate: "更新于 {{date}}",
+    publishedDate: "发布于 {{date}}",
     allArticles: "所有文章",
     useCases: "使用场景",
     useCasesDescription: "按应用分类的重复工作页面",
@@ -46,8 +47,7 @@ const zhCN = {
     articlesIntro:
       "关于与 AI 智能体一起完成重复工作的实用解答。如需查看针对单项工作的分步指南，请浏览{{useCases}}。",
     useCasesLink: "使用场景",
-    articleCountOne: "{{count}} 篇文章",
-    articleCountOther: "{{count}} 篇文章",
+    articleCount_other: "{{count}} 篇文章",
     moreOnTopic: "更多关于{{topic}}的内容",
     oldWay: "旧方式",
     newWay: "新方式",
@@ -61,7 +61,7 @@ const zhCN = {
     copied: "已复制",
     copyFailed: "无法复制，请重试。",
     breadcrumb: "面包屑导航",
-    readTime: "阅读需 {{count}} 分钟",
+    readTime_other: "阅读需 {{count}} 分钟",
     partOf: "所属场景：",
     relatedResources: "相关资源",
     moreArticles: "更多 {{category}} 文章",
@@ -2761,6 +2761,6 @@ const zhCN = {
     docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default zhCN;

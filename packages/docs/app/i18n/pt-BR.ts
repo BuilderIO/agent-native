@@ -1,4 +1,4 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const ptBR = {
   campaign: {
@@ -35,6 +35,7 @@ const ptBR = {
     usedFor: "Para",
     whereItBreaks: "Onde falha",
     updatedDate: "Atualizado em {{date}}",
+    publishedDate: "Publicado em {{date}}",
     allArticles: "Todos os artigos",
     useCases: "Casos de uso",
     useCasesDescription: "Páginas para tarefas recorrentes, por app",
@@ -48,8 +49,9 @@ const ptBR = {
     articlesIntro:
       "Respostas práticas sobre trabalho recorrente com agentes de IA. Para ver páginas que explicam uma tarefa específica passo a passo, explore os {{useCases}}.",
     useCasesLink: "casos de uso",
-    articleCountOne: "{{count}} artigo",
-    articleCountOther: "{{count}} artigos",
+    articleCount_one: "{{count}} artigo",
+    articleCount_many: "{{count}} de artigos",
+    articleCount_other: "{{count}} artigos",
     moreOnTopic: "Mais sobre {{topic}}",
     oldWay: "A forma antiga",
     newWay: "A nova forma",
@@ -63,7 +65,9 @@ const ptBR = {
     copied: "Copiado",
     copyFailed: "Não foi possível copiar. Tente novamente.",
     breadcrumb: "Caminho de navegação",
-    readTime: "{{count}} min de leitura",
+    readTime_one: "{{count}} min de leitura",
+    readTime_many: "{{count}} min de leitura",
+    readTime_other: "{{count}} min de leitura",
     partOf: "Parte de:",
     relatedResources: "Recursos relacionados",
     moreArticles: "Mais artigos de {{category}}",
@@ -2846,6 +2850,6 @@ const ptBR = {
     docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default ptBR;
