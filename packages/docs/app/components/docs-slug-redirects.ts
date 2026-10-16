@@ -21,6 +21,7 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   client: "client-overview",
   routing: "client-routing",
   actions: "actions-overview",
+  "template-chat-first-edits": "template-chat-developers",
   "template-calendar-scheduling": "template-calendar-features",
   "template-calendar-booking-links": "template-calendar-features",
   "template-dispatch-messaging-routing": "template-dispatch-features",

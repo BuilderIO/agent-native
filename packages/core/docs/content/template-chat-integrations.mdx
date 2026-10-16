@@ -1,0 +1,66 @@
+---
+title: "Chat in a Multi-App Workspace"
+description: "How Chat connects to Dispatch and other apps, and how its agent finds the apps in a workspace and asks them to do work."
+---
+
+# Chat in a Multi-App Workspace
+
+Chat is one app among many in a [Dispatch](/docs/template-dispatch)
+workspace. This page covers what that means in practice: how the connection
+works, and how Chat's agent can reach the other apps around it. See
+[Chat](/docs/template-chat) for the overview.
+
+## How Chat connects to Dispatch
+
+Whether this is automatic depends on how Chat and Dispatch were set up
+together, not on whether either one is hosted or running locally.
+
+### Same workspace: automatic
+
+If Chat and Dispatch were generated or added together into one Agent Native
+workspace (via `create` or `add-app`) and deployed as one unit, they already
+share one `.env`, one `A2A_SECRET`, and one workspace registry. Discovery and
+authenticated A2A calling both just work, with nothing to set up, whether
+that workspace is running on your machine or in production.
+
+### Separate deployments: one manual step
+
+If Chat and Dispatch are two independently created Agent-Native projects,
+they don't share a secret and can't call each other yet. Connecting them
+takes one manual step on each side: add a `remote-agents/<id>.json` resource
+with a shared secret, from Settings → Agent → Sub-agents (Connect agent), or
+Dispatch → Agents → Add external agent. See
+[A2A Protocol](/docs/a2a-protocol) for the full walkthrough.
+
+To check which situation you're in, ask either app's agent "what apps can you
+see?" If Chat is missing from Dispatch's answer, you're in the second case.
+
+## Integration strategies
+
+**Asking other apps for help.** Chat's agent can look up which apps are in the
+workspace and what each one can do. It can then ask one of them to run a
+specific action and use the answer in the conversation. For example, in a
+workspace with Calendar, you could ask Chat "what's on my calendar tomorrow?"
+and the agent hands that question to Calendar instead of guessing. Chat
+doesn't need to hold Calendar's connection to Google. Calendar already has
+it.
+
+**Chat as a front door.** Because every app's agent is reachable the same
+way, a conversation in Chat is a natural place to start work that lives in
+other apps. You describe what you want in one place, and the agent decides
+which app should handle it. Chat works well here because it has no domain of
+its own to get in the way.
+
+**Staying decoupled.** Chat never needs another app's credentials, and no
+other app needs Chat's. Each app keeps its own connections and its own data.
+Chat only passes along a request and receives an answer.
+
+## What's next
+
+- [**Chat**](/docs/template-chat) — the overview
+- [**Features**](/docs/template-chat-features) — conversations, the example action, teams, and admin pages
+- [**Talk to the Agent**](/docs/template-chat-agent) — what the agent can see, and prompts to try
+- [**Developer Guide**](/docs/template-chat-developers) — quick start, actions, the chat route, and adding your first feature
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane these patterns run under
+- [**A2A Protocol**](/docs/a2a-protocol) — how apps discover, authenticate with, and call each other
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the general pattern of composing first-party apps instead of nesting them
