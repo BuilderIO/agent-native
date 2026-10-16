@@ -66,16 +66,20 @@ function context(
   continuation: {
     queryId?: string;
     querySpec?: Record<string, unknown>;
+    initialQuerySpec?: Record<string, unknown>;
     initialMetric?: Record<string, unknown> | null;
     continuationMetric?: Record<string, unknown> | null;
+    requestText?: string;
   } = {},
 ): AgentLoopFinalResponseGuardContext {
+  const initialQuerySpec = continuation.initialQuerySpec ?? querySpec;
   const requestText =
+    continuation.requestText ??
     "What was activation rate from 2026-10-05 to 2026-10-11 by organization by week?";
   const initialCall = {
     toolCallId: "initial-call",
     name: "query-dbt-semantic-metric",
-    input: { metricName: "activation_rate", ...querySpec },
+    input: { metricName: "activation_rate", ...initialQuerySpec },
   };
   const continuationCall = {
     toolCallId: "continuation-call",
@@ -117,7 +121,12 @@ function context(
     text: "The activation rate was 42% by organization, grouped by week.",
     toolCalls: [initialCall, continuationCall],
     toolResults: [
-      result("initial-call", "query-1", querySpec, continuation.initialMetric),
+      result(
+        "initial-call",
+        "query-1",
+        initialQuerySpec,
+        continuation.initialMetric,
+      ),
       result(
         "continuation-call",
         continuation.queryId ?? "query-1",
@@ -236,7 +245,7 @@ describe("dbt Semantic Layer continuation guard", () => {
       ...metric,
       dimensions: [
         ...metric.dimensions,
-        { name: "root_org_id", description: "Organization identifier" },
+        { name: "organization_name", description: "Organization name" },
       ],
       dimensionsCount: 3,
     };
@@ -244,6 +253,64 @@ describe("dbt Semantic Layer continuation guard", () => {
     expect(
       realDataFinalGuard(
         context({ initialMetric: definition, continuationMetric: definition }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a root organization breakdown when the request is unqualified", () => {
+    const definition = {
+      ...metric,
+      dimensions: [
+        ...metric.dimensions,
+        { name: "root_org_id", description: "Organization identifier" },
+      ],
+      dimensionsCount: 3,
+    };
+    const rootOrganizationQuery = {
+      ...querySpec,
+      groupBy: [groupBy[0], { name: "root_org_id" }],
+    };
+
+    expect(
+      realDataFinalGuard(
+        context({
+          initialQuerySpec: rootOrganizationQuery,
+          querySpec: rootOrganizationQuery,
+          initialMetric: definition,
+          continuationMetric: definition,
+        }),
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "same bounded date range and requested grouping",
+      ),
+    });
+  });
+
+  it("accepts a root organization breakdown when the request names that grain", () => {
+    const definition = {
+      ...metric,
+      dimensions: [
+        ...metric.dimensions,
+        { name: "root_org_id", description: "Organization identifier" },
+      ],
+      dimensionsCount: 3,
+    };
+    const rootOrganizationQuery = {
+      ...querySpec,
+      groupBy: [groupBy[0], { name: "root_org_id" }],
+    };
+
+    expect(
+      realDataFinalGuard(
+        context({
+          initialQuerySpec: rootOrganizationQuery,
+          querySpec: rootOrganizationQuery,
+          initialMetric: definition,
+          continuationMetric: definition,
+          requestText:
+            "What was activation rate from 2026-10-05 to 2026-10-11 by root organization by week?",
+        }),
       ),
     ).toBeNull();
   });

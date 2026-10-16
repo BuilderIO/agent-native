@@ -1873,6 +1873,16 @@ function dbtMetricTimeScopeMismatch(
     .match(/\b(day|week|month|quarter|year)s?\b/i)?.[1]
     ?.toUpperCase();
   const requestedDimensionMatches = new Set<string>();
+  const organizationHierarchyQualifier = (evidence: string) =>
+    evidence
+      .replace(/[_-]/g, " ")
+      .match(
+        /\b(root|parent|ancestor|top\s+level)\s+(?:organization|org|company|companies|account)\b/i,
+      )?.[1]
+      ?.replace(/\s+/g, " ")
+      .toLowerCase();
+  const requestedOrganizationQualifier =
+    organizationHierarchyQualifier(breakdownClause);
   const dimensionAliases = [
     {
       canonical: "organization",
@@ -1942,6 +1952,23 @@ function dbtMetricTimeScopeMismatch(
       ...new Set([...matchingNames, ...selectedMatches]),
     ].filter((name) => selectedDimensions.has(name));
     if (matchingSelectedNames.length === 0) return true;
+    if (canonical === "organization") {
+      for (const name of matchingSelectedNames) {
+        const dimension = dimensions.find(
+          (candidate) => String(candidate.name ?? "") === name,
+        );
+        const selectedQualifier = organizationHierarchyQualifier(
+          `${name} ${String(dimension?.description ?? "")}`,
+        );
+        if (
+          selectedQualifier !== requestedOrganizationQualifier &&
+          (selectedQualifier !== undefined ||
+            requestedOrganizationQualifier !== undefined)
+        ) {
+          return true;
+        }
+      }
+    }
     for (const name of matchingSelectedNames) {
       requestedDimensionMatches.add(name);
     }
