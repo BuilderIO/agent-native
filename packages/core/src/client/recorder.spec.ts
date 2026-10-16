@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./analytics.js", () => ({ trackEvent: vi.fn() }));
@@ -20,7 +23,7 @@ import {
   type RecorderEvent,
 } from "./recorder.js";
 import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
-import { callAction } from "./use-action.js";
+import { callAction, useActionQuery } from "./use-action.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -263,17 +266,37 @@ describe("recorder action events", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-
-    const results = await Promise.allSettled([
-      callAction("list-labels", { accountId: "a1" }, { method: "GET" }),
-      callAction("list-folders", { accountId: "a1" }, { method: "GET" }),
-    ]);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const names = ["list-labels", "list-folders"];
+    const queryKey = (name: string) => ["action", name, { accountId: "a1" }];
+    // Only a refetch of data a query already holds joins a batch.
+    const queryClient = new QueryClient();
+    for (const name of names) {
+      queryClient.setQueryData(queryKey(name), [], {
+        updatedAt: Date.now() - 60_000,
+      });
+    }
+    function Reader({ name }: { name: string }) {
+      useActionQuery(name, { accountId: "a1" }, { retry: false });
+      return null;
+    }
+    const root = createRoot(document.createElement("div"));
+    await act(async () =>
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          names.map((name) => createElement(Reader, { key: name, name })),
+        ),
+      ),
+    );
+    await act(() => vi.waitFor(() => expect(queryClient.isFetching()).toBe(0)));
+    act(() => root.unmount());
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(results.map((result) => result.status)).toEqual([
-      "fulfilled",
-      "rejected",
-    ]);
+    expect(
+      names.map((name) => queryClient.getQueryState(queryKey(name))?.status),
+    ).toEqual(["success", "error"]);
     expect(eventsOf("action")).toEqual([
       {
         type: "action",
