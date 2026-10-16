@@ -765,6 +765,73 @@ describe("content collection", () => {
       ]);
     });
 
+    it("rewrites only the days whose signups changed when the window is recomputed", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(article("a1", { publishDate: "2026-10-10T00:00:00.000Z" }));
+      mocks.dryRunQuerySchema.mockResolvedValue({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      const result = (rows: Array<Record<string, unknown>>) => ({
+        rows,
+        totalRows: rows.length,
+        schema: [],
+        bytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce(
+        result([
+          {
+            data_through: "2026-10-12",
+            handle: "post-a1",
+            day: "2026-10-11",
+            signups: 2,
+          },
+        ]),
+      );
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      // A later signup credits 10-12, an earlier visit day; 10-10 and 10-11 are unchanged.
+      mocks.runQuery.mockResolvedValueOnce(
+        result([
+          {
+            data_through: "2026-10-13",
+            handle: "post-a1",
+            day: "2026-10-11",
+            signups: 2,
+          },
+          {
+            data_through: "2026-10-13",
+            handle: "post-a1",
+            day: "2026-10-12",
+            signups: 1,
+          },
+        ]),
+      );
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+
+      const runs = await rows(
+        "SELECT id FROM analytics_content_collection_runs WHERE step = 'signups' ORDER BY started_at",
+      );
+      expect(runs).toHaveLength(2);
+      const [first, second] = runs.map((run) => run.id);
+      expect(
+        await rows(
+          "SELECT metric_date, value, run_id FROM analytics_content_metric_snapshots WHERE metric = 'signups_first_touch' ORDER BY metric_date",
+        ),
+      ).toEqual([
+        { metric_date: "2026-10-10", value: 0, run_id: first },
+        { metric_date: "2026-10-11", value: 2, run_id: first },
+        { metric_date: "2026-10-12", value: 1, run_id: second },
+        { metric_date: "2026-10-13", value: 0, run_id: second },
+      ]);
+    });
+
     it("parses a signups update without filling in what it leaves out", async () => {
       const { signupsSettingsUpdateSchema } = await import("./config.js");
       // configure-content-collection spreads this over the saved settings, so
