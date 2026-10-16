@@ -15,7 +15,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -65,6 +64,7 @@ import {
   usableFilterPresets,
 } from "./filter-vars";
 import type { DashboardFilter, FilterPreset } from "./types";
+import { useFilterSearchParams } from "./use-filter-search-params";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
@@ -181,7 +181,7 @@ export function DashboardFilterBar({
   shared = false,
 }: DashboardFilterBarProps) {
   const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useFilterSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
   const [setAsDefault, setSetAsDefault] = useState(false);
