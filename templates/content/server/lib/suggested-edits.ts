@@ -1,6 +1,7 @@
 import { fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
+  LiveCopyError,
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
@@ -9,6 +10,8 @@ import type {
   ResourceSuggestion,
   SuggestionAdapter,
   SuggestionContext,
+  SuggestionDecisionContext,
+  SuggestionDecisionRunOptions,
   SuggestionOperation,
 } from "@agent-native/core/review";
 import {
@@ -70,19 +73,74 @@ export { applyMarkdownSuggestionOperation } from "../../shared/suggestion-apply.
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
-const LIVE_COPY_ACCEPT_ATTEMPTS = 3;
+const ACCEPT_WRITER_ATTEMPTS = 3;
 
 /** The Page, when its body is written through its live copy. */
 async function liveCopyPage(documentId: string) {
-  // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
-  const [page] = await drizzleTransactionForExec(getDbExec())
-    .select(liveBodyWriterPageColumns)
-    .from(schema.documents)
-    .where(eq(schema.documents.id, documentId))
-    .limit(1);
-  return (await liveBodyWriterGateForRow(page)).writePath === "live_copy"
-    ? page
-    : undefined;
+  const exec = getDbExec();
+  if (!exec.transaction) {
+    throw new Error("Accepting a suggestion needs database transactions");
+  }
+  return exec.transaction(async (transaction) => {
+    // The gate reads this row and `_collab_docs` in two statements. A
+    // live-copy commit between them moves both, and the gate would read one
+    // without the other; the share lock holds that commit off.
+    // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+    const [page] = await drizzleTransactionForExec(transaction)
+      .select(liveBodyWriterPageColumns)
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId))
+      .limit(1)
+      .for("share");
+    const gate = await liveBodyWriterGateForRow(page, { transaction });
+    return gate.writePath === "live_copy" ? page : undefined;
+  });
+}
+
+/**
+ * The refusal of a writer that does not write the Page, which wrote nothing:
+ * the live copy's for a legacy Page, or the legacy writer's for a live copy.
+ */
+function writerRefusal(documentId: string, error: unknown): unknown {
+  if (error instanceof LiveCopyAcceptUnavailable) return error.refusal;
+  if (
+    error instanceof LiveCopyError &&
+    error.code === "write_refused" &&
+    error.reason === "withPreparedYDocMutation" &&
+    error.docId === documentId
+  )
+    return error;
+  return undefined;
+}
+
+async function acceptOnLegacyWriter<T>(
+  context: SuggestionDecisionContext,
+  run: (
+    coordination?: unknown,
+    options?: SuggestionDecisionRunOptions,
+  ) => Promise<T>,
+): Promise<T> {
+  const sync = await prepareTransactionalChange({
+    source: "action",
+    type: "change",
+    key: "decide-resource-suggestion",
+    owner: context.suggestion.ownerEmail ?? undefined,
+    orgId: context.suggestion.orgId ?? undefined,
+    resourceType: context.resourceType,
+    resourceId: context.resourceId,
+  });
+  const result = await withPreparedYDocMutation(
+    context.resourceId,
+    acceptedSuggestionRequestSource(context.ctx?.requestSource),
+    (ydoc) =>
+      run({
+        ydoc,
+        sync,
+        deferPersistence: context.proposalDecision === true,
+      } satisfies ContentDecisionCoordination),
+  );
+  publishPersistedAcceptedSuggestion(sync, result);
+  return result;
 }
 
 function validateOperations(
@@ -705,45 +763,25 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
-    // A Page can leave its live copy between reading the gate and writing; the
-    // writer then refuses, having written nothing, and the gate is read again
-    // to choose the writer.
+    // A Page can change writers between reading the gate and writing; the
+    // writer then refuses, and the gate is read again to choose the writer.
     for (let attempt = 1; ; attempt += 1) {
-      const page = await liveCopyPage(context.resourceId);
-      if (!page) break;
       try {
-        return await acceptOnLiveCopy(
-          context,
-          run,
-          page,
-          acceptedSuggestionRequestSource(context.ctx?.requestSource),
-        );
+        const page = await liveCopyPage(context.resourceId);
+        return page
+          ? await acceptOnLiveCopy(
+              context,
+              run,
+              page,
+              acceptedSuggestionRequestSource(context.ctx?.requestSource),
+            )
+          : await acceptOnLegacyWriter(context, run);
       } catch (error) {
-        if (!(error instanceof LiveCopyAcceptUnavailable)) throw error;
-        if (attempt === LIVE_COPY_ACCEPT_ATTEMPTS) throw error.refusal;
+        const refusal = writerRefusal(context.resourceId, error);
+        if (refusal === undefined) throw error;
+        if (attempt === ACCEPT_WRITER_ATTEMPTS) throw refusal;
       }
     }
-    const sync = await prepareTransactionalChange({
-      source: "action",
-      type: "change",
-      key: "decide-resource-suggestion",
-      owner: context.suggestion.ownerEmail ?? undefined,
-      orgId: context.suggestion.orgId ?? undefined,
-      resourceType: context.resourceType,
-      resourceId: context.resourceId,
-    });
-    const result = await withPreparedYDocMutation(
-      context.resourceId,
-      acceptedSuggestionRequestSource(context.ctx?.requestSource),
-      (ydoc) =>
-        run({
-          ydoc,
-          sync,
-          deferPersistence: context.proposalDecision === true,
-        } satisfies ContentDecisionCoordination),
-    );
-    publishPersistedAcceptedSuggestion(sync, result);
-    return result;
   },
   async finalizeProposalDecision(context) {
     // The live-copy edit's commit has written the body already.

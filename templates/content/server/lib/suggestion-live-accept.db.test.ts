@@ -21,6 +21,14 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
+vi.mock("./live-body-writer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./live-body-writer.js")>();
+  return {
+    ...actual,
+    liveBodyWriterGateForRow: vi.fn(actual.liveBodyWriterGateForRow),
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-suggestion-live-accept-${process.pid}-${Date.now()}.pglite`,
@@ -33,6 +41,11 @@ let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
 let collab: Collab;
 let binding: import("@agent-native/core/collab").LiveCopyBinding;
+let gateForRow: ReturnType<
+  typeof vi.mocked<
+    typeof import("./live-body-writer.js").liveBodyWriterGateForRow
+  >
+>;
 let switchPageToLiveCopy: typeof import("../live-copy/switch.js").switchPageToLiveCopy;
 let adapterKind: string;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
@@ -94,6 +107,9 @@ beforeAll(async () => {
   await setFlags(true);
   collab = await import("@agent-native/core/collab");
   binding = (await import("../live-copy/binding.js")).contentLiveCopy;
+  gateForRow = vi.mocked(
+    (await import("./live-body-writer.js")).liveBodyWriterGateForRow,
+  );
   switchPageToLiveCopy = (await import("../live-copy/switch.js"))
     .switchPageToLiveCopy;
   adapterKind = (await import("./suggested-edits.js"))
@@ -296,6 +312,54 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
       );
       expect((await liveCopy(documentId)).version).toBe(after.version);
       expect((await stored(documentId)).content).toBe(expected);
+    },
+  );
+
+  ownerIt(
+    "accepts on the live copy when the legacy writer refuses a Page the gate read as legacy",
+    async () => {
+      const documentId = await seedPage(page);
+      const suggestion = await suggest(documentId, "sets the scene", "opens");
+      const before = await liveCopy(documentId);
+      gateForRow.mockResolvedValueOnce({
+        writePath: "legacy",
+        reason: "stored_body_behind",
+      });
+
+      expect((await decide(suggestion, "accepted")).suggestion.status).toBe(
+        "accepted",
+      );
+      const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
+      const after = await liveCopy(documentId);
+      expect(after.text).toBe(expected);
+      expect(after.version).toBe(before.version + 1);
+      expect((await stored(documentId)).content).toBe(expected);
+    },
+  );
+
+  ownerIt(
+    "fails with the writer's refusal and writes nothing when every read of the gate misses",
+    async () => {
+      const documentId = await seedPage(page);
+      const suggestion = await suggest(documentId, "sets the scene", "opens");
+      const before = await liveCopy(documentId);
+      const storedBefore = await stored(documentId);
+      for (let read = 0; read < 3; read += 1)
+        gateForRow.mockResolvedValueOnce({
+          writePath: "legacy",
+          reason: "stored_body_behind",
+        });
+
+      await expect(decide(suggestion, "accepted")).rejects.toMatchObject({
+        name: "LiveCopyError",
+        code: "write_refused",
+      });
+      expect(await liveCopy(documentId)).toEqual(before);
+      expect(await stored(documentId)).toEqual(storedBefore);
+      // The suggestion stayed pending.
+      expect((await decide(suggestion, "accepted")).suggestion.status).toBe(
+        "accepted",
+      );
     },
   );
 
