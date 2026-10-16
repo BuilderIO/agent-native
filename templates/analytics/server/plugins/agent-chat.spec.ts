@@ -1376,6 +1376,65 @@ describe("realDataFinalGuard", () => {
     expect(comparedBareDates).toBeNull();
   });
 
+  it("matches date ranges without an introductory preposition", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate 2026-07-01 through 2026-07-07?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(range)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: range })],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("validates both sides of numeric rolling-window comparisons", () => {
+    const runStartedAt = Date.UTC(2026, 9, 1, 23, 59);
+    const recent = { startDate: "2026-07-01", endDate: "2026-10-01" };
+    const previous = { startDate: "2026-04-01", endDate: "2026-06-30" };
+    const recentCall = dbtMetricCall(recent, [], "recent");
+    const previousCall = dbtMetricCall(previous, [], "previous");
+    const recentResult = dbtMetricResult(
+      { groupBy: [], timeRange: recent },
+      undefined,
+      {},
+      "recent",
+    );
+    const previousResult = dbtMetricResult(
+      { groupBy: [], timeRange: previous },
+      undefined,
+      {},
+      "previous",
+    );
+    const evaluate = (
+      toolCalls: AgentLoopFinalResponseGuardContext["toolCalls"],
+      toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+    ) =>
+      realDataFinalGuard(
+        guardContext({
+          userText:
+            "Compare activation rate over the last 3 months vs the previous 3 months.",
+          draftText:
+            "The activation rate was 42% in the recent period and 39% before.",
+          runStartedAt,
+          toolCalls,
+          toolResults,
+        }),
+      );
+
+    expect(
+      evaluate([recentCall, previousCall], [recentResult, previousResult]),
+    ).toBeNull();
+    expect(
+      evaluate([previousCall, recentCall], [previousResult, recentResult]),
+    ).toBeNull();
+    expect(evaluate([recentCall], [recentResult])).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
   it("resolves past and within rolling periods and rejects vague or sub-day windows", () => {
     const runStartedAt = Date.UTC(2026, 9, 15, 19, 0);
     const rollingWeek = { startDate: "2026-10-09", endDate: "2026-10-15" };

@@ -1160,7 +1160,7 @@ function requestedExplicitDateRange(
   userText: string,
 ): DbtMetricTimeRange | null {
   const match = userText.match(
-    /\b(?:from|between|compare|compared\s+to)\s+(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/i,
+    /\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/i,
   );
   return match?.[1] && match[2]
     ? { startDate: match[1], endDate: match[2] }
@@ -1408,7 +1408,64 @@ function requestedComparisonCalendarRanges(
       ranges.map((range) => [`${range.startDate}/${range.endDate}`, range]),
     ).values(),
   ];
-  return uniqueRanges.length > 1 ? uniqueRanges : null;
+  if (uniqueRanges.length > 1) return uniqueRanges;
+
+  const rollingWindows = [
+    ...userText.matchAll(
+      /\b(last|past|previous|prior)\s+(\d+)\s+(days?|weeks?|months?|quarters?|years?)\b/gi,
+    ),
+  ].map((match) => ({
+    phrase: match[0],
+    modifier: match[1]?.toLowerCase(),
+    count: Number(match[2]),
+    unit: match[3]?.toLowerCase().replace(/s$/, ""),
+  }));
+  const currentWindows = rollingWindows.filter(
+    (window) => window.modifier === "last" || window.modifier === "past",
+  );
+  const previousWindows = rollingWindows.filter(
+    (window) => window.modifier === "previous" || window.modifier === "prior",
+  );
+  const [currentWindow] = currentWindows;
+  const [previousWindow] = previousWindows;
+  if (
+    rollingWindows.length !== 2 ||
+    currentWindows.length !== 1 ||
+    previousWindows.length !== 1 ||
+    !currentWindow ||
+    !previousWindow ||
+    currentWindow.count !== previousWindow.count ||
+    currentWindow.unit !== previousWindow.unit ||
+    !Number.isSafeInteger(currentWindow.count) ||
+    currentWindow.count < 1
+  ) {
+    return null;
+  }
+
+  const currentRange = requestedCalendarRange(currentWindow.phrase, now);
+  if (!currentRange) return null;
+  const currentStart = new Date(`${currentRange.startDate}T00:00:00.000Z`);
+  const previousEnd = addUtcDays(currentStart, -1);
+  const previousStart =
+    currentWindow.unit === "day" || currentWindow.unit === "week"
+      ? addUtcDays(
+          currentStart,
+          -currentWindow.count * (currentWindow.unit === "week" ? 7 : 1),
+        )
+      : addUtcMonths(
+          currentStart,
+          -currentWindow.count *
+            (currentWindow.unit === "quarter"
+              ? 3
+              : currentWindow.unit === "year"
+                ? 12
+                : 1),
+        );
+  const previousRange = dateRange(previousStart, previousEnd);
+  return `${currentRange.startDate}/${currentRange.endDate}` ===
+    `${previousRange.startDate}/${previousRange.endDate}`
+    ? null
+    : [currentRange, previousRange];
 }
 
 function dbtMetricTimeScopeMismatch(
