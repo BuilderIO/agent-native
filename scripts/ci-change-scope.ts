@@ -47,6 +47,12 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const RELATED_SCRIPT_TESTS = new Map([
+  [
+    ".github/workflows/deploy-canary.yml",
+    "scripts/deploy-alerts-workflow.test.ts",
+  ],
+]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",
 ]);
@@ -335,6 +341,8 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
+    const relatedTest = RELATED_SCRIPT_TESTS.get(path);
+    if (relatedTest && fileExists(relatedTest)) tests.add(relatedTest);
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
       continue;
