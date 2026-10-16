@@ -145,6 +145,7 @@ export async function processContentTrashPurge(operationId: string) {
     // One transaction per Trash unit. Each unit sorts only its own locks, so
     // holding one unit's pages while locking the next unit's collections
     // would break Content's row-lock order.
+    let authorizedIds: Set<string> | undefined;
     for (let pass = 0; pass < BATCH_UNITS; pass += 1) {
       const batchResult = await db.transaction(
         async (tx) => {
@@ -191,7 +192,10 @@ export async function processContentTrashPurge(operationId: string) {
                 eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
               ),
             );
-          const authorizedIds = await authorizedTrashDocumentIds(
+          // Checked once per call, as when one transaction ran every unit:
+          // the check reads the whole pending plan, so repeating it for each
+          // unit multiplies that read.
+          authorizedIds ??= await authorizedTrashDocumentIds(
             transactionDb,
             allPending.map(({ documentId }) => documentId),
           );
