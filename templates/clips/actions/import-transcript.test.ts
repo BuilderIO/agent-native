@@ -323,4 +323,9 @@ describe("import-transcript", () => {
     expect(result).toMatchObject({ followUpQueued: false });
     expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
   });
+
+  it("is listed in the compact MCP catalog without switching Clips to the connector tier", () => {
+    expect((importTranscript as any).mcpApp).toEqual({ compactCatalog: true });
+    expect((importTranscript as any).mcpTool).toBeUndefined();
+  });
 });
