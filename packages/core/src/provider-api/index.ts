@@ -542,6 +542,10 @@ interface ProviderApiHttpResponse {
   headers: Record<string, string>;
   contentType: string | null;
   size: number;
+  /** `size` counts only what was read before the cap; the body was longer. */
+  sizeIsLowerBound?: true;
+  /** The body was not read, so `size`, `text`, and `json` say nothing about it. */
+  bodyDiscarded?: true;
   truncated: boolean;
   text?: string;
   json?: unknown;
@@ -1983,6 +1987,7 @@ async function fetchPublicDocsPage(
     const response = await fetchWithTimeout(currentUrl, {
       method: "GET",
       maxBytes,
+      discardRedirectBody: true,
     });
     if (response.status < 300 || response.status >= 400) {
       return { response, finalUrl: currentUrl };
@@ -2060,6 +2065,7 @@ function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
     headers: response.headers,
     contentType: response.contentType,
     size: response.size,
+    ...(response.sizeIsLowerBound ? { sizeIsLowerBound: true as const } : {}),
     truncated: response.truncated,
   };
 }
@@ -2263,7 +2269,7 @@ export async function executeProviderApiRequest(
   if (args.saveToFile) {
     if (response.truncated) {
       throw new Error(
-        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+        `The response was cut at ${effectiveMaxBytes} bytes (${describeResponseSize(response)} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
       );
     }
     const rawText =
@@ -2313,7 +2319,7 @@ export async function executeProviderApiRequest(
     guidance: [
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. A data API returns records: when the provider can filter, search, or answer the question itself, make it do that instead of pulling records to filter locally.",
       response.truncated
-        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        ? truncatedResponseGuidance(response, effectiveMaxBytes)
         : null,
       providerAccessErrorGuidance(config, response.status),
     ]
@@ -2324,8 +2330,17 @@ export async function executeProviderApiRequest(
 
 // A truncated body is incomplete, not a smaller answer. Raising maxBytes and
 // paging the whole collection is the wrong recovery, so name the right ones.
-function truncatedResponseGuidance(size: number, maxBytes: number): string {
-  return `This response is incomplete: ${size} bytes came back and only the first ${maxBytes} are included. Do not raise maxBytes or page the whole collection to filter it locally. Add a server-side filter or query parameter, use the provider's own search or semantic tool, or run the scan with stageAs or provider-corpus-job. If none of those can express the question, say so or hand it to the app that owns this source.`;
+function describeResponseSize(response: ProviderApiHttpResponse): string {
+  return response.sizeIsLowerBound
+    ? `at least ${response.size}`
+    : String(response.size);
+}
+
+function truncatedResponseGuidance(
+  response: ProviderApiHttpResponse,
+  maxBytes: number,
+): string {
+  return `This response is incomplete: ${describeResponseSize(response)} bytes came back and only the first ${maxBytes} are included. Do not raise maxBytes or page the whole collection to filter it locally. Add a server-side filter or query parameter, use the provider's own search or semantic tool, or run the scan with stageAs or provider-corpus-job. If none of those can express the question, say so or hand it to the app that owns this source.`;
 }
 
 const PROVIDER_ACCESS_ERROR_STATUSES = new Set([401, 403, 404]);
@@ -3268,7 +3283,7 @@ async function executeCustomProviderApiRequest(
   if (args.saveToFile) {
     if (response.truncated) {
       throw new Error(
-        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+        `The response was cut at ${effectiveMaxBytes} bytes (${describeResponseSize(response)} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
       );
     }
     const rawText =
@@ -3322,7 +3337,7 @@ async function executeCustomProviderApiRequest(
     guidance: [
       "This was a raw provider API request to a custom provider. Use provider docs URLs to choose endpoints.",
       response.truncated
-        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        ? truncatedResponseGuidance(response, effectiveMaxBytes)
         : null,
     ]
       .filter(Boolean)
@@ -5936,6 +5951,7 @@ async function fetchWithTimeout(
     maxBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
+    discardRedirectBody?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const runOnce = async (): Promise<ProviderApiHttpResponse> => {
@@ -5960,6 +5976,7 @@ async function fetchWithTimeout(
         return await fetchProviderResponse(optionsUrl, fetchOptions, {
           maxBytes: options.maxBytes,
           secretValues,
+          discardRedirectBody: options.discardRedirectBody,
         });
       } catch (error) {
         if (dispatcher && isDispatcherCompatibilityError(error)) {
@@ -5968,6 +5985,7 @@ async function fetchWithTimeout(
           return await fetchProviderResponse(optionsUrl, fallbackOptions, {
             maxBytes: options.maxBytes,
             secretValues,
+            discardRedirectBody: options.discardRedirectBody,
           });
         }
         throw error;
@@ -6093,11 +6111,30 @@ async function fetchProviderResponse(
   options: {
     maxBytes?: number;
     secretValues: string[];
+    discardRedirectBody?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const startedAt = Date.now();
   const res = await fetch(url, fetchOptions);
   const elapsedMs = Date.now() - startedAt;
+  const headers = redactSecrets(
+    headersToObject(res.headers),
+    options.secretValues,
+  );
+  if (options.discardRedirectBody && res.status >= 300 && res.status < 400) {
+    await res.body?.cancel();
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      elapsedMs,
+      headers,
+      contentType: res.headers.get("content-type") ?? null,
+      size: 0,
+      bodyDiscarded: true,
+      truncated: false,
+    };
+  }
   const rawText = await readResponseTextWithLimit(
     res,
     clampMaxBytes(options.maxBytes),
@@ -6109,9 +6146,10 @@ async function fetchProviderResponse(
     statusText: res.statusText,
     ok: res.ok,
     elapsedMs,
-    headers: redactSecrets(headersToObject(res.headers), options.secretValues),
+    headers,
     contentType: res.headers.get("content-type") ?? null,
     size: rawText.size,
+    ...(rawText.sizeIsLowerBound ? { sizeIsLowerBound: true as const } : {}),
     truncated: rawText.truncated,
     text: parsed === undefined ? redactedText : undefined,
     json: parsed,
@@ -6195,7 +6233,12 @@ function describeProviderRequestTarget(
 async function readResponseTextWithLimit(
   response: Response,
   maxBytes: number,
-): Promise<{ text: string; truncated: boolean; size: number }> {
+): Promise<{
+  text: string;
+  truncated: boolean;
+  size: number;
+  sizeIsLowerBound?: true;
+}> {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
     return {
@@ -6204,11 +6247,10 @@ async function readResponseTextWithLimit(
       size: Number(contentLength),
     };
   }
-  // Count past the cap without keeping it: a missing or understated
-  // Content-Length must not let a response force an unbounded allocation,
-  // and callers still report how much was available.
+  // Stop at the cap: a missing or understated Content-Length must not let a
+  // response force an unbounded allocation or hold the request open while it
+  // streams bytes nobody keeps. The total past the cap is then unknown.
   const kept: Uint8Array[] = [];
-  let keptBytes = 0;
   let size = 0;
   if (response.body) {
     const reader = response.body.getReader();
@@ -6216,16 +6258,23 @@ async function readResponseTextWithLimit(
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (keptBytes < maxBytes) {
-        const chunk = value.subarray(0, maxBytes - keptBytes);
-        kept.push(chunk);
-        keptBytes += chunk.byteLength;
+      kept.push(value);
+      if (size > maxBytes) {
+        await reader.cancel();
+        return {
+          text: new TextDecoder().decode(
+            Buffer.concat(kept, size).subarray(0, maxBytes),
+          ),
+          truncated: true,
+          size,
+          sizeIsLowerBound: true,
+        };
       }
     }
   }
   return {
-    text: new TextDecoder().decode(Buffer.concat(kept, keptBytes)),
-    truncated: size > maxBytes,
+    text: new TextDecoder().decode(Buffer.concat(kept, size)),
+    truncated: false,
     size,
   };
 }

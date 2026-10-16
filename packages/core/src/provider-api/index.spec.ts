@@ -3798,26 +3798,34 @@ describe("provider API runtime", () => {
         { status: 200, headers: { "content-type": "text/html" } },
       );
 
-    it("keeps only the byte cap of a body with no Content-Length", async () => {
-      const streamed = (status: number, headers: Record<string, string>) => {
-        const chunk = new TextEncoder().encode("x".repeat(2_000));
+    it("stops reading at the byte cap and never reads a redirect body", async () => {
+      // An endless body with no Content-Length: reading it to the end would
+      // never finish, so the request only returns if the reader stops.
+      const endless = (status: number, headers: Record<string, string>) => {
+        const chunk = new TextEncoder().encode("x".repeat(600));
+        const body = { pulls: 0, cancelled: false };
         const response = new Response(
-          new ReadableStream({
-            start(controller) {
-              for (let i = 0; i < 3; i++) controller.enqueue(chunk);
-              controller.close();
+          new ReadableStream(
+            {
+              pull(controller) {
+                body.pulls++;
+                controller.enqueue(chunk);
+              },
+              cancel() {
+                body.cancelled = true;
+              },
             },
-          }),
+            { highWaterMark: 0 },
+          ),
           { status, headers },
         );
-        vi.spyOn(response, "arrayBuffer");
-        return response;
+        return { response, body };
       };
-      const hop = streamed(308, { location: "/docs/moved" });
-      const page = streamed(200, { "content-type": "text/plain" });
+      const hop = endless(308, { location: "/docs/moved" });
+      const page = endless(200, { "content-type": "text/plain" });
       vi.spyOn(globalThis, "fetch")
-        .mockResolvedValueOnce(hop)
-        .mockResolvedValueOnce(page);
+        .mockResolvedValueOnce(hop.response)
+        .mockResolvedValueOnce(page.response);
 
       const result = (await docsRuntime().fetchDocs({
         provider: "hubspot",
@@ -3826,9 +3834,13 @@ describe("provider API runtime", () => {
         responseMode: "raw",
       })) as any;
 
-      expect(hop.arrayBuffer).not.toHaveBeenCalled();
-      expect(page.arrayBuffer).not.toHaveBeenCalled();
-      expect(result.response).toMatchObject({ truncated: true, size: 6_000 });
+      expect(hop.body).toEqual({ pulls: 0, cancelled: true });
+      expect(page.body).toEqual({ pulls: 2, cancelled: true });
+      expect(result.response).toMatchObject({
+        truncated: true,
+        size: 1_200,
+        sizeIsLowerBound: true,
+      });
       expect(result.response.text).toHaveLength(1_000);
     });
 
