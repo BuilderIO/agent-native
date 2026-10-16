@@ -78,6 +78,24 @@ describe("detectTranscriptFormat", () => {
     },
   );
 
+  // It has the same shape as an SRT timing with prose after it, which must
+  // fail, so it fails too; the caller can say the file is text.
+  it("reads a file that opens with an arrow line as cues unless told it is text", () => {
+    const text = "0:05 --> 0:10 is the range we trim.\n0:12 Done.";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: false,
+      error: { code: "bad-timing", line: 1 },
+    });
+    expect(parseTranscriptImport(text, { format: "text" })).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 5000, text: "--> 0:10 is the range we trim." },
+        { startMs: 12_000, text: "Done." },
+      ],
+    });
+  });
+
   it("reads cue timings with no WEBVTT header as SRT", () => {
     const text =
       "00:05.000 --> 00:10.000\nHello\n\n00:10.000 --> 00:12.000\nWorld";
@@ -265,6 +283,12 @@ describe("parseTranscriptImport", () => {
       "WEBVTT\n\n00:01.000 --> 00:04.000\nThe range\n0:05 --> 0:10 is what we trim.",
       "bad-timing",
       5,
+    ],
+    [
+      "an unknown setting after a timing",
+      "1\n00:00:01,000 --> 00:00:04,000 Hi:there\nHello",
+      "bad-timing",
+      2,
     ],
     [
       "a cue that ends before it starts",

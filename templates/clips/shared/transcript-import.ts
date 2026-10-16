@@ -62,10 +62,12 @@ export type TranscriptImportResult =
 
 const TIME = String.raw`(?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?`;
 // Only settings can follow the end time: WebVTT's, such as align:start, or
-// SRT's X1:100 coordinates. Prose there makes a timing this parser can't
-// read, which fails on its line instead of becoming cue text.
+// SRT's X1:100 coordinates. Anything else, even "Hi:there", makes a timing
+// this parser can't read, which fails on its line instead of being dropped
+// or becoming cue text.
+const CUE_SETTING = String.raw`(?:vertical|line|position|size|align|region|[XY][12]):\S+`;
 const CUE_TIMING = new RegExp(
-  String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+[^\s:]+:\S+)*\s*$`,
+  String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+${CUE_SETTING})*\s*$`,
 );
 // In a cue file, a line that starts with a time and an arrow is a timing.
 const CUE_TIMING_START = new RegExp(String.raw`^\s*${TIME}\s*-->`);
