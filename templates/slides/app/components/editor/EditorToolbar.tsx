@@ -964,6 +964,25 @@ export default function EditorToolbar({
             />
           )}
 
+        {canEdit && currentSlide && onToggleLayers && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer hover:bg-accent ${layersOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
+                aria-label={t("editorToolbar.layers")}
+                aria-pressed={layersOpen}
+                onClick={onToggleLayers}
+              >
+                <IconLayersSubtract className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorToolbar.layers")}</TooltipContent>
+          </Tooltip>
+        )}
+
         {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
         <PresenceBar
           activeUsers={activeUsers ?? []}
@@ -998,10 +1017,7 @@ export default function EditorToolbar({
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
             {((canEdit &&
-              (onToggleAnimations ||
-                onToggleLayers ||
-                onToggleTweaks ||
-                onToggleDrawMode)) ||
+              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -1020,19 +1036,6 @@ export default function EditorToolbar({
                     >
                       <IconBolt className="size-4" />
                       {t("animations.title")}
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && currentSlide && onToggleLayers && (
-                    <DropdownMenuItem
-                      onSelect={onToggleLayers}
-                      className={
-                        layersOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconLayersSubtract className="size-4" />
-                      {t("editorToolbar.layers")}
                     </DropdownMenuItem>
                   )}
                   {canEdit && onToggleTweaks && (

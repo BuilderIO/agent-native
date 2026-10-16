@@ -15,6 +15,7 @@ import {
 } from "@agent-native/core/client/collab";
 import {
   actionErrorMessage,
+  setClientAppState,
   signOut,
   usePollLoop,
   useSession,
@@ -40,6 +41,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from "@dnd-kit/core";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
 import { nanoid } from "nanoid";
@@ -1009,6 +1011,16 @@ export default function DeckEditor() {
     setAnimationTarget(null);
     setLayersOpen((open) => !open);
   }, [layersOpen]);
+
+  useEffect(() => {
+    const state = { layersOpen, animationsOpen };
+    for (const key of [
+      appStateKeyForBrowserTab("slides-panels", TAB_ID),
+      "slides-panels",
+    ]) {
+      setClientAppState(key, state, { requestSource: TAB_ID }).catch(() => {});
+    }
+  }, [layersOpen, animationsOpen]);
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
