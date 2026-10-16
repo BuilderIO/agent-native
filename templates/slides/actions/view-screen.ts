@@ -380,6 +380,8 @@ export default defineAction({
         fallbackToGlobal: false,
       })) as { slideId?: string; panel?: string | null } | null;
       if (openPanel?.panel && openPanel.slideId === currentSlide?.id) {
+        lines.push(``);
+        lines.push(`### Open side panel`);
         lines.push(`openPanel: ${openPanel.panel}`);
       }
       const selectionSlide =
