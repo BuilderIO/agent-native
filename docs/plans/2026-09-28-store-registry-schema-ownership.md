@@ -383,15 +383,15 @@ stateDiagram-v2
 
 ### Readiness modes
 
-`store.ready()` is memoized per process and per mode. The mode is decided by
+`store.ready()` is memoized per mode: per database executor where it writes
+the ledger, per process otherwise. The mode is decided by
 who owns the schema, not by which platform we think we are on:
 
 | Mode              | When                                                                                                       | What `ready()` does                                                                                                                                                   |
 | ----------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **apply**         | Inside `withMigrationRuntime()` outside a hosted function: the release step                                | Creates the ledger once, skips the store if the shared ledger snapshot lists every migration, otherwise applies pending migrations and records each. The only writer. |
+| **apply**         | The release step, and any runtime that is not a hosted function: local dev, tests, self-hosted Node         | Creates the ledger once, skips the store if the ledger snapshot lists every migration, otherwise applies pending migrations and records each. Each migration runs once per database. |
 | **trust**         | A hosted function of an app that migrates at release (`appMigratesAtRelease()`)                            | Nothing. No DDL, no probe, no ledger read; the release step applied and verified the schema before this function was published.                                         |
 | **hosted-replay** | A hosted function of an app that does **not** migrate at release (the default)                            | `replay`, inside `withMigrationExecutionRuntime()`, exactly what `ddl-guard` already does for these apps on main. Never writes the ledger.                              |
-| **replay**        | Everything else: local dev (including against a remote database), tests, self-hosted Node                  | Runs every migration in order, as the old ensure body did. Idempotent. Never writes the ledger.                                                                        |
 | **skip**          | `AGENT_NATIVE_SKIP_ENSURE_TABLES` is set and the runtime is not the release step                           | Nothing, the operator opt-out `ddl-guard` already honors.                                                                                                              |
 
 ```mermaid
@@ -402,7 +402,7 @@ flowchart TD
   C -->|yes| TRUST["trust<br/>0 schema queries"]
   C -->|no| H{"Hosted function?"}
   H -->|yes| HREPLAY["hosted-replay<br/>as main does today,<br/>no ledger writes"]
-  H -->|no| REPLAY["replay<br/>no ledger writes"]
+  H -->|no| APPLY
   APPLY --> V{"After every store:<br/>ledger covers the registry?"}
   V -->|yes| OK["publish functions"]
   V -->|no| ERR["release fails:<br/>SchemaNotMigratedError"]
@@ -412,7 +412,7 @@ flowchart TD
   classDef gap fill:#fdecec,stroke:#c33,color:#600
   class APPLY release
   class TRUST,OK hosted
-  class REPLAY,HREPLAY local
+  class HREPLAY local
   class ERR gap
 ```
 
@@ -757,9 +757,8 @@ migrates at release, and `resources` runs its learn-shared content migration
 once per process.
 
 Local development is where a new user meets this first: `agent-native create`,
-then `pnpm dev` on a fresh `pglite:` database. There, Phase 1 keeps `replay`, so
-every store migration runs on first use in **every** process, not once per
-database.
+then `pnpm dev` on a fresh `pglite:` database. Phase 1 replayed every store
+migration in every process there; step 1 below made it once per database.
 
 ### Approach: a squashed schema snapshot
 
@@ -793,11 +792,17 @@ them; marking them applied would leave fresh installs without default rows.
 
 ### Steps, in order
 
-1. **Ledger in local dev (Q1).** `replay` becomes `apply` for local databases,
-   so each migration runs once per database instead of once per process. A
-   warm dev boot becomes the shared ledger read. Unit tests that mock
-   `getDbExec` need a ledger stub. *Exit:* a warm `pnpm dev` boot issues no
-   per-migration statements.
+1. **Ledger in local dev (Q1). Done.** Every runtime that is not a hosted
+   function applies through the ledger, so each migration runs once per
+   database instead of once per process; a warm dev boot reads the ledger once
+   per store executor. Hosted requests still never write it. Ledger state and
+   store readiness are keyed by database executor, so a transaction
+   (`withDbExec(tx, …)`) that rolls back cannot leave the process believing its
+   migrations happened, and a test that hands each case a fresh database gets
+   a fresh ledger view. Specs that mock `getDbExec` answer ledger statements
+   with `db/store-ledger.test-helpers.ts`. This had to come before step 2:
+   versioned entries are not idempotent, so they cannot move into stores
+   while any runtime still replays them.
 2. **One ledger (Q6).** Move the 112 versioned entries (`ORG_MIGRATIONS`,
    `AGENT_RUN_MIGRATIONS` and the rest) into store migrations, so one runner and
    one ledger cover all framework schema. Without this, a snapshot has to fill
@@ -884,8 +889,7 @@ flowchart LR
   class P2,P3 next
 ```
 
-1. **Should replay mode use the ledger too?** *(Phase 2, step 1. Recommended
-   yes.)* Today replay re-runs every
+1. **Should replay mode use the ledger too?** *(Done: Phase 2, step 1.)* Today replay re-runs every
    migration once per process, which matches the old behavior, keeps tests that
    mock `getDbExec` unchanged, and avoids a ledger table in unit-test fakes. Using
    the ledger locally would make backfills run once per database everywhere, at

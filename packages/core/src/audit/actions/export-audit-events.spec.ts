@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
 import type { AuditEvent } from "../types.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -57,6 +58,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   seq = 0;
 });

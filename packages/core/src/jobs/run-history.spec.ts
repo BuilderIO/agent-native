@@ -6,9 +6,18 @@ import type { DbExec, DbExecStatement } from "../db/client.js";
 const executeMock = vi.hoisted(() => vi.fn());
 const transactionMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: executeMock, transaction: transactionMock }),
-}));
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const db = {
+    execute: async (q: string | { sql: string }) =>
+      storeLedgerResult(typeof q === "string" ? q : q.sql) ?? executeMock(q),
+    transaction: transactionMock,
+  };
+  return {
+    getDbExec: () => db,
+  };
+});
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn(),
