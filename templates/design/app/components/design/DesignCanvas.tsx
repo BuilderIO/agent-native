@@ -827,6 +827,7 @@ interface DesignCanvasProps {
       originalHtml?: string;
       routePath?: string;
       relativeOperations?: Record<string, RelativeStyleOperation>;
+      owedTextPending?: boolean;
     },
   ) => TextCommitStatus | void;
   onTextEditingStateChange?: (
@@ -4861,6 +4862,11 @@ export function DesignCanvas({
           }
           // The bridge sends inactive state before this content message; consume
           // the owner token now so later screen changes cannot erase its handoff.
+          // Text typed before this session opened has not landed yet: this commit holds
+          // only the rest, so the later commit that lands it creates the box.
+          const owedTextPending = Boolean(
+            owner && sourceId && peekPendingTextCapture(owner, sourceId),
+          );
           const isPendingCreation = consumePendingTextCreation(
             pendingTextCreationNodeOwnersRef.current,
             owner,
@@ -4884,6 +4890,7 @@ export function DesignCanvas({
                   originalHtml,
                   relativeOperations,
                   routePath,
+                  owedTextPending,
                 }),
               queueHostCommit: queuePendingTextHostCommit,
               cancelHostCommit: cancelPendingTextHostCommit,

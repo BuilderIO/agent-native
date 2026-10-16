@@ -897,6 +897,69 @@ it("commits owed text when Escape ends the session before the text lands, withou
   });
 });
 
+it("marks a commit made before the owed text lands so it does not create the box", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-owed-tail-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-tail");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-tail");
+  });
+  await act(async () => {
+    for (const char of "Bu") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: "text-tail",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: "text-tail",
+  });
+  const commit = (value: string, originalValue: string) =>
+    canvas.fromFrame(canvas.iframeWindow, {
+      type: "text-content-change",
+      selector: '[data-agent-native-node-id="text-tail"]',
+      value,
+      originalValue,
+      payload: { sourceId: "text-tail" },
+    });
+  await commit("tton", "");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenLastCalledWith(
+      '[data-agent-native-node-id="text-tail"]',
+      "tton",
+      { sourceId: "text-tail" },
+      expect.objectContaining({ owedTextPending: true }),
+    );
+  });
+
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId: "text-tail",
+    inserted: true,
+  });
+  await commit("Button", "tton");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenLastCalledWith(
+      '[data-agent-native-node-id="text-tail"]',
+      "Button",
+      { sourceId: "text-tail" },
+      expect.objectContaining({ owedTextPending: false }),
+    );
+  });
+});
+
 it("keeps text the host wrote on pointer-away when the session opened on the empty node commits empty", async () => {
   const onTextContentChange = vi.fn();
   const canvas = await mountCanvas(
