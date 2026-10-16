@@ -350,8 +350,9 @@ agent answers about browser recordings in the Analytics template.
   shared from another tenant never matches. It returns the paginated shape
   with `outputs` and `omittedOutputs` by recording id and
   `outputCoverageStartedAt`. Statuses are `used`, `unused`, `open` (window
-  still open), and `unmeasured`; `url` is the recording's app origin plus the
-  rule's `outputPath`, and the app checks access when it opens.
+  still open), and `unmeasured`; `url` is the recording's app origin, its
+  `/<app>` workspace mount when the recording ran under one, and the rule's
+  `outputPath`. The app checks access when it opens.
 - `getSessionRecordingOutputs` is the one reader. Per readable recording it
   gives `[]` for none, null for a recording from another tenant (a share grants
   the recording, not its events), and at most `MAX_OUTPUTS_PER_RECORDING`

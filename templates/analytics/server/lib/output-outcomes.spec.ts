@@ -21,6 +21,7 @@ vi.mock("../db/index.js", async () => {
 import {
   MAX_OUTPUTS_PER_RECORDING,
   MIN_PRESENTATION_MS,
+  outputUrl,
 } from "../../shared/output-use";
 import { schema } from "../db/index.js";
 import {
@@ -126,6 +127,26 @@ const exported = (
     slide_count: 4,
     ...properties,
   });
+
+describe("outputUrl", () => {
+  it("links a deck on the host its session was recorded on", () => {
+    expect(
+      outputUrl("slides", "deck-1", "https://slides.example.com/deck/new?x=1"),
+    ).toBe("https://slides.example.com/deck/deck-1");
+  });
+
+  it("keeps the mount path of a workspace deploy", () => {
+    expect(
+      outputUrl("slides", "deck-1", "https://team.example.com/slides/home"),
+    ).toBe("https://team.example.com/slides/deck/deck-1");
+    expect(
+      outputUrl("slides", "deck-1", "https://team.example.com/slides"),
+    ).toBe("https://team.example.com/slides/deck/deck-1");
+    expect(
+      outputUrl("slides", "deck-1", "https://team.example.com/slideshow/x"),
+    ).toBe("https://team.example.com/deck/deck-1");
+  });
+});
 
 describe("aggregateOutputOutcomeRows", () => {
   it("counts only a real presentation or a finished export of a deck with slides", () => {

@@ -103,8 +103,8 @@ export function outputIdOf(properties: EventProperties): string | null {
 }
 
 /**
- * Where a session's output opens: the app origin the session was recorded on
- * plus the output's page. The app checks access when it opens.
+ * Where a session's output opens: the app origin the session was recorded on,
+ * its mount path, and the output's page. The app checks access when it opens.
  */
 export function outputUrl(
   app: string,
@@ -113,15 +113,20 @@ export function outputUrl(
 ): string | null {
   const rule = outputUseRule(app);
   if (!rule || !recordingUrl) return null;
-  let origin: string;
+  let url: URL;
   try {
-    origin = new URL(recordingUrl).origin;
+    url = new URL(recordingUrl);
     // coercion-ok: a recording without a parseable URL has no app to link to; the output id still shows.
   } catch {
     return null;
   }
-  if (origin === "null") return null;
-  return `${origin}${rule.outputPath(outputId)}`;
+  if (url.origin === "null") return null;
+  // A workspace deploy mounts each app at `/<app id>`. Reading that prefix as
+  // the mount assumes the app has no route of its own there (Slides has none).
+  const mount = `/${app}`;
+  const mounted =
+    url.pathname === mount || url.pathname.startsWith(`${mount}/`);
+  return `${url.origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
 }
 
 /**
