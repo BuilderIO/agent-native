@@ -5542,7 +5542,14 @@ export default function SlideEditor({
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
-  }, [deckId, getClipboardSelection, pasteSlideObjects, readOnly, slide.id]);
+  }, [
+    deckId,
+    getClipboardSelection,
+    onPasteSlideClipboard,
+    pasteSlideObjects,
+    readOnly,
+    slide.id,
+  ]);
 
   // Appearance clipboard shortcuts are deliberately separate from object
   // copy/paste. The Alt modifier keeps Cmd/Ctrl+C/V available for duplicating

@@ -5,11 +5,15 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  getSlideClipboardNativeMarker,
+  getSlideClipboardNativeMarkerHtml,
   getSlideClipboardStorageKey,
+  hasImageClipboardPayload,
   normalizeSlideClipboard,
   normalizeSlideClipboards,
   readSlideClipboard,
   readSlideClipboards,
+  readSlideClipboardNativeMarker,
   resolveSlideClipboardForPaste,
   resolveSlideClipboardsForPaste,
   shouldHandleSlideClipboardPaste,
@@ -67,67 +71,15 @@ describe("isSlideClipboardStillArmed", () => {
 });
 
 describe("slide thumbnail shortcuts", () => {
-  it("does not intercept native paste on keydown", () => {
+  it("limits rail shortcuts to focused thumbnails and leaves paste native", () => {
     expect(shouldHandleSlideClipboardShortcut("v", false)).toBe(false);
     expect(shouldHandleSlideClipboardShortcut("v", true)).toBe(false);
     expect(shouldHandleSlideClipboardShortcut("c", false)).toBe(false);
     expect(shouldHandleSlideClipboardShortcut("x", false)).toBe(false);
     expect(shouldHandleSlideClipboardShortcut("d", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("x", true)).toBe(true);
+    expect(shouldHandleSlideClipboardShortcut("d", true)).toBe(true);
     expect(shouldHandleSlideClipboardShortcut("c", true)).toBe(true);
-  });
-
-  it("routes slide clipboard shortcuts through the focused thumbnail", () => {
-    expect(deckEditorSource).toContain(
-      'if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;',
-    );
-    expect(deckEditorSource).toContain(
-      "selectedSlideIds.includes(activeSlideId)",
-    );
-    expect(deckEditorSource).toContain("selectedSlideIds : [activeSlideId]");
-    expect(deckEditorSource).toContain(
-      "handleDuplicateSlideFromRail(slideIds);",
-    );
-  });
-
-  it("cuts the focused slide selection without removing every slide", () => {
-    const shortcutStart = deckEditorSource.indexOf(
-      "const key = e.key.toLowerCase();",
-    );
-    const shortcutEnd = deckEditorSource.indexOf(
-      'document.addEventListener("keydown", handleKeyDown)',
-      shortcutStart,
-    );
-    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
-
-    expect(shortcutBody).toContain("if (!activeSlideId) return;");
-    expect(shortcutBody).toContain(
-      "selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId]",
-    );
-    expect(shortcutBody).toContain(
-      "if (slideIds.length >= deck.slides.length) return;",
-    );
-    expect(shortcutBody).toContain("cutSlides(slideIds);");
-  });
-
-  it("lets focused thumbnails own shortcuts while canvas selection remains visible", () => {
-    const shortcutStart = deckEditorSource.indexOf(
-      "const key = e.key.toLowerCase();",
-    );
-    const shortcutEnd = deckEditorSource.indexOf(
-      'document.addEventListener("keydown", handleKeyDown)',
-      shortcutStart,
-    );
-    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
-
-    expect(shortcutBody).toContain(
-      "const focusedThumbnail = document.activeElement?.closest(",
-    );
-    expect(shortcutBody).toContain(
-      "shouldHandleSlideClipboardShortcut(key, Boolean(focusedThumbnail))",
-    );
-    expect(shortcutBody).toContain(
-      "!focusedThumbnail &&\n        document.querySelector(\"[data-slide-element-selected='true']\")",
-    );
   });
 
   it("persists multi-slide copies for another deck tab to paste", () => {
@@ -139,8 +91,10 @@ describe("slide thumbnail shortcuts", () => {
 });
 
 describe("slide paste event decision", () => {
+  const copiedSlides = [{ id: "source-slide-1" }, { id: "source-slide-2" }];
+  const marker = getSlideClipboardNativeMarker(copiedSlides, 1_000);
   const canvasPaste = {
-    hasArmedSlideClipboard: true,
+    hasMatchingSlideClipboardMarker: true,
     hasImage: false,
     isTextEntrySurface: false,
     hasSelectedCanvasElement: false,
@@ -148,17 +102,49 @@ describe("slide paste event decision", () => {
     isSlideToolActive: false,
   };
 
-  it("pastes an armed slide clipboard on the canvas", () => {
+  it("pastes only when the native clipboard proves the slide copy is current", () => {
     expect(shouldHandleSlideClipboardPaste(canvasPaste)).toBe(true);
+    expect(
+      shouldHandleSlideClipboardPaste({
+        ...canvasPaste,
+        hasMatchingSlideClipboardMarker: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("preserves object paste when a canvas element is selected", () => {
+    expect(
+      shouldHandleSlideClipboardPaste({
+        ...canvasPaste,
+        hasSelectedCanvasElement: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("round-trips a native marker without adding visible clipboard text", () => {
+    const html = getSlideClipboardNativeMarkerHtml(marker);
+    expect(readSlideClipboardNativeMarker(html)).toBe(marker);
+    expect(readSlideClipboardNativeMarker("<p>newer native text</p>")).toBe(
+      null,
+    );
   });
 
   it.each([
     ["image paste", { hasImage: true }],
+    [
+      "HTML-only image paste",
+      {
+        hasImage: hasImageClipboardPayload({
+          types: ["text/html"],
+          itemTypes: [],
+          fileTypes: [],
+          html: '<img src="data:image/png;base64,AA==">',
+        }),
+      },
+    ],
     ["text entry", { isTextEntrySurface: true }],
-    ["selected canvas element", { hasSelectedCanvasElement: true }],
     ["blocking overlay", { hasBlockingOverlay: true }],
     ["pin or draw mode", { isSlideToolActive: true }],
-    ["unarmed clipboard", { hasArmedSlideClipboard: false }],
   ])("preserves %s", (_name, context) => {
     expect(
       shouldHandleSlideClipboardPaste({ ...canvasPaste, ...context }),

@@ -12,6 +12,7 @@ import type {
 } from "@/context/DeckContext";
 
 export const SLIDE_CLIPBOARD_STORAGE_PREFIX = "slides:slide-clipboard";
+const SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX = "agent-native-slide-clipboard:";
 
 export function shouldHandleSlideClipboardShortcut(
   key: string,
@@ -21,14 +22,14 @@ export function shouldHandleSlideClipboardShortcut(
 }
 
 export function shouldHandleSlideClipboardPaste({
-  hasArmedSlideClipboard,
+  hasMatchingSlideClipboardMarker,
   hasImage,
   isTextEntrySurface,
   hasSelectedCanvasElement,
   hasBlockingOverlay,
   isSlideToolActive,
 }: {
-  hasArmedSlideClipboard: boolean;
+  hasMatchingSlideClipboardMarker: boolean;
   hasImage: boolean;
   isTextEntrySurface: boolean;
   hasSelectedCanvasElement: boolean;
@@ -36,12 +37,57 @@ export function shouldHandleSlideClipboardPaste({
   isSlideToolActive: boolean;
 }): boolean {
   return (
-    hasArmedSlideClipboard &&
+    hasMatchingSlideClipboardMarker &&
     !hasImage &&
     !isTextEntrySurface &&
     !hasSelectedCanvasElement &&
     !hasBlockingOverlay &&
     !isSlideToolActive
+  );
+}
+
+export function getSlideClipboardNativeMarker(
+  slides: readonly Pick<Slide, "id">[],
+  copiedAt: number,
+): string {
+  const slideIds = slides
+    .map(({ id }) => encodeURIComponent(id).replaceAll("-", "%2D"))
+    .join(",");
+  return `${SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX}${copiedAt}:${slideIds}`;
+}
+
+export function getSlideClipboardNativeMarkerHtml(marker: string): string {
+  return `<!--${marker}-->`;
+}
+
+export function readSlideClipboardNativeMarker(html: string): string | null {
+  const prefix = `<!--${SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX}`;
+  const start = html.indexOf(prefix);
+  if (start < 0) return null;
+  const valueStart = start + 4;
+  const end = html.indexOf("-->", valueStart);
+  if (end < 0) return null;
+  const marker = html.slice(valueStart, end).trim();
+  return marker.startsWith(SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX)
+    ? marker
+    : null;
+}
+
+export function hasImageClipboardPayload({
+  types,
+  itemTypes,
+  fileTypes,
+  html,
+}: {
+  types: readonly string[];
+  itemTypes: readonly string[];
+  fileTypes: readonly string[];
+  html: string;
+}): boolean {
+  return (
+    [...types, ...itemTypes, ...fileTypes].some((type) =>
+      type.toLowerCase().startsWith("image/"),
+    ) || /<(?:img|picture|svg|image)\b|data:image\//i.test(html)
   );
 }
 

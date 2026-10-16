@@ -193,9 +193,13 @@ import {
 } from "@/lib/pending-deck-changes";
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
+  getSlideClipboardNativeMarker,
+  getSlideClipboardNativeMarkerHtml,
+  hasImageClipboardPayload,
   getSlideClipboardStorageKey,
   normalizeSlideClipboards,
   readSlideClipboards,
+  readSlideClipboardNativeMarker,
   resolveSlideClipboardsForPaste,
   shouldHandleSlideClipboardPaste,
   shouldHandleSlideClipboardShortcut,
@@ -430,6 +434,32 @@ function hasBlockingSlideClipboardOverlay(): boolean {
   return Array.from(
     document.querySelectorAll("[data-radix-popper-content-wrapper]"),
   ).some(isBlockingSlideClipboardPopper);
+}
+
+function writeSlideClipboardMarkerToNativeClipboard(
+  slides: readonly Pick<Slide, "id">[],
+  copiedAt: number,
+): void {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.clipboard?.write ||
+    typeof ClipboardItem === "undefined" ||
+    typeof Blob === "undefined"
+  ) {
+    return;
+  }
+  const marker = getSlideClipboardNativeMarker(slides, copiedAt);
+  try {
+    const item = new ClipboardItem({
+      "text/html": new Blob([getSlideClipboardNativeMarkerHtml(marker)], {
+        type: "text/html",
+      }),
+      "text/plain": new Blob([""], { type: "text/plain" }),
+    });
+    void navigator.clipboard.write([item]).catch(() => {});
+  } catch {
+    // The in-app clipboard remains available if this browser blocks clipboard writes.
+  }
 }
 
 export function getAltDragPlacement(
@@ -3675,6 +3705,7 @@ export default function DeckEditor() {
       slideClipboardSlidesRef.current = snapshots;
       slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
+      writeSlideClipboardMarkerToNativeClipboard(snapshots, copiedAt);
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
         slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
@@ -3797,14 +3828,14 @@ export default function DeckEditor() {
     [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
-  // Copy, cut, and duplicate stay scoped to the focused rail. Native paste is
-  // handled separately so image and text editors keep their paste events.
+  // Copy, cut, and duplicate stay scoped to the focused rail. Copy writes an
+  // app-owned native marker so later paste can distinguish it from newer text.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;
+      if (key !== "x" && key !== "d") return;
       if (pinMode || drawMode) return;
       const focusedThumbnail = document.activeElement?.closest(
         "[data-slide-thumbnail-id]",
@@ -3813,10 +3844,7 @@ export default function DeckEditor() {
         return;
       }
 
-      if (
-        (key === "c" || key === "x") &&
-        (window.getSelection()?.toString().length ?? 0) > 0
-      ) {
+      if ((window.getSelection()?.toString().length ?? 0) > 0) {
         return;
       }
 
@@ -3828,16 +3856,6 @@ export default function DeckEditor() {
         document.querySelector("[data-slide-element-selected='true']")
       )
         return;
-
-      if (key === "c") {
-        if (!activeSlideId) return;
-        e.preventDefault();
-        e.stopPropagation();
-        copySlides(
-          selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId],
-        );
-        return;
-      }
 
       if (key === "x") {
         if (!activeSlideId) return;
@@ -3861,8 +3879,57 @@ export default function DeckEditor() {
         return;
       }
     };
+    const handleCopy = (event: ClipboardEvent) => {
+      if (
+        !deck ||
+        !id ||
+        !canEdit ||
+        pinMode ||
+        drawMode ||
+        event.defaultPrevented
+      ) {
+        return;
+      }
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (!shouldHandleSlideClipboardShortcut("c", Boolean(focusedThumbnail))) {
+        return;
+      }
+      if ((window.getSelection()?.toString().length ?? 0) > 0) return;
+      if (isSlideClipboardTextEntrySurface(event.target as Element | null)) {
+        return;
+      }
+      if (isSlideClipboardTextEntrySurface(document.activeElement)) return;
+      if (hasBlockingSlideClipboardOverlay()) return;
+      if (!activeSlideId) return;
+
+      const slideIds =
+        selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
+      event.preventDefault();
+      event.stopPropagation();
+      copySlides(slideIds);
+
+      const copiedSlides = slideClipboardSlidesRef.current;
+      const copiedAt = slideClipboardArmedAtRef.current;
+      if (!event.clipboardData || !copiedSlides || copiedAt === null) return;
+      const marker = getSlideClipboardNativeMarker(copiedSlides, copiedAt);
+      try {
+        event.clipboardData.setData(
+          "text/html",
+          getSlideClipboardNativeMarkerHtml(marker),
+        );
+        event.clipboardData.setData("text/plain", "");
+      } catch {
+        // Clipboard API writes from saveSlidesToClipboard are the fallback.
+      }
+    };
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    document.addEventListener("copy", handleCopy, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("copy", handleCopy, true);
+    };
   }, [
     deck,
     id,
@@ -3883,31 +3950,47 @@ export default function DeckEditor() {
         !id ||
         !canEdit ||
         !activeSlideId ||
-        event.defaultPrevented ||
-        !syncSlideClipboard() ||
-        !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
+        event.defaultPrevented
       ) {
         return false;
       }
 
-      const hasImage = [
-        ...Array.from(event.clipboardData?.types ?? []),
-        ...Array.from(event.clipboardData?.items ?? []).map(
+      const clipboard = syncSlideClipboard();
+      const copiedAt = slideClipboardArmedAtRef.current;
+      if (
+        !clipboard ||
+        copiedAt === null ||
+        !isSlideClipboardStillArmed(copiedAt)
+      ) {
+        return false;
+      }
+
+      const html = event.clipboardData?.getData("text/html") ?? "";
+      const expectedMarker = getSlideClipboardNativeMarker(clipboard, copiedAt);
+      const hasMatchingSlideClipboardMarker =
+        readSlideClipboardNativeMarker(html) === expectedMarker;
+      if (!hasMatchingSlideClipboardMarker) return false;
+
+      const hasImage = hasImageClipboardPayload({
+        types: Array.from(event.clipboardData?.types ?? []),
+        itemTypes: Array.from(event.clipboardData?.items ?? []).map(
           (item) => item.type,
         ),
-        ...Array.from(event.clipboardData?.files ?? []).map(
+        fileTypes: Array.from(event.clipboardData?.files ?? []).map(
           (file) => file.type,
         ),
-      ].some((type) => type.toLowerCase().startsWith("image/"));
+        html,
+      });
+      const isTextEntrySurface =
+        isSlideClipboardTextEntrySurface(event.target as Element | null) ||
+        isSlideClipboardTextEntrySurface(document.activeElement);
       const focusedThumbnail = document.activeElement?.closest(
         "[data-slide-thumbnail-id]",
       );
       const shouldPasteSlide = shouldHandleSlideClipboardPaste({
-        hasArmedSlideClipboard: true,
+        hasMatchingSlideClipboardMarker,
         hasImage,
-        isTextEntrySurface:
-          isSlideClipboardTextEntrySurface(event.target as Element | null) ||
-          isSlideClipboardTextEntrySurface(document.activeElement),
+        isTextEntrySurface,
         hasSelectedCanvasElement:
           !focusedThumbnail &&
           Boolean(
@@ -3916,7 +3999,14 @@ export default function DeckEditor() {
         hasBlockingOverlay: hasBlockingSlideClipboardOverlay(),
         isSlideToolActive: pinMode || drawMode,
       });
-      if (!shouldPasteSlide) return false;
+      if (!shouldPasteSlide) {
+        if (isTextEntrySurface && !hasImage) {
+          event.preventDefault();
+          event.stopPropagation();
+          return true;
+        }
+        return false;
+      }
 
       event.preventDefault();
       event.stopPropagation();
@@ -3934,6 +4024,15 @@ export default function DeckEditor() {
       drawMode,
     ],
   );
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      handlePasteSlideClipboard(event);
+    };
+    document.addEventListener("paste", handlePaste, true);
+    return () => document.removeEventListener("paste", handlePaste, true);
+  }, [handlePasteSlideClipboard]);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
