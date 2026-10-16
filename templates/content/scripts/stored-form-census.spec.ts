@@ -59,6 +59,7 @@ function cli(
   argv: string[],
   env: Record<string, string | undefined>,
   connect: (url: string) => Promise<DbExec>,
+  closeAll?: () => Promise<void>,
 ) {
   const events: string[] = [];
   const stdout: string[] = [];
@@ -71,6 +72,7 @@ function cli(
       events.push("connect");
       return connect(url);
     },
+    closeAll,
   });
   return { run, events, stdout };
 }
@@ -189,6 +191,55 @@ describe("stored-form census guards (SF-09)", () => {
     expect(events[events.length - 1]).toContain(
       `${PRODUCTION_HOSTS_ENV} is not set, so a remote target cannot be shown not to be production`,
     );
+  });
+
+  it("refuses a production list entry that names no host, without printing it", async () => {
+    const pasted = "pasted-secret-not-real";
+    for (const entry of [
+      targetUrl("owner", PRODUCTION_HOST, "neondb", pasted),
+      `${PRODUCTION_HOST}:5432`,
+      `${PRODUCTION_HOST}/neondb`,
+      PRODUCTION_HOST.replace(".neon.tech", ".neon.tch"),
+    ]) {
+      const { run, events } = cli(
+        [
+          "--database-url-env=CENSUS_URL",
+          "--neon-project=project-fixture",
+          "--neon-branch=mislabelled-child",
+        ],
+        {
+          CENSUS_URL: targetUrl("owner", PRODUCTION_HOST, "neondb"),
+          [PRODUCTION_HOSTS_ENV]: `other.example.com, ${entry}`,
+        },
+        neverConnect,
+      );
+      expect(await run, entry).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1]).toBe(
+        `log Refused: ${PRODUCTION_HOSTS_ENV} must list only host names or Neon endpoint IDs, with no scheme, user, port or path`,
+      );
+      expect(events.join("\n")).not.toContain(pasted);
+    }
+  });
+
+  it("refuses a pglite: target shaped like a URL, without printing it", async () => {
+    const pasted = "pasted-secret-not-real";
+    for (const url of [
+      `pglite:${targetUrl("reader", "localhost", "content", pasted)}`,
+      `pglite:./data?token=${pasted}`,
+    ]) {
+      const { run, events } = cli(
+        ["--database-url-env=CENSUS_URL"],
+        { CENSUS_URL: url },
+        neverConnect,
+      );
+      expect(await run, url).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1]).toContain(
+        "must name a local directory after pglite:",
+      );
+      expect(events.join("\n")).not.toContain(pasted);
+    }
   });
 
   it("refuses any host but a Neon endpoint, loopback included", async () => {
@@ -434,6 +485,41 @@ describe("stored-form census guards (SF-09)", () => {
     const closeFailure = closing.events[closing.events.length - 1];
     expect(closeFailure).toContain("Closing the database connection failed");
     expect(closeFailure).not.toContain(PASSWORD);
+
+    // Closing every client at exit hides the decoded password too.
+    const decoded = "fixture-pass@word-not-real";
+    const cleanup = cli(
+      BRANCH_ARGS,
+      {
+        CENSUS_URL: targetUrl("reader", BRANCH_HOST, "neondb", decoded),
+        [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+      },
+      async () => {
+        throw new Error("stop after connect");
+      },
+      async () => {
+        throw new Error(`could not close the client for ${decoded}`);
+      },
+    );
+    expect(await cleanup.run).toBe(1);
+    const cleanupFailure = cleanup.events[cleanup.events.length - 1];
+    expect(cleanupFailure).toContain("Closing database clients failed");
+    expect(cleanupFailure).not.toContain(decoded);
+  });
+
+  it("refuses a page ID count that is not written in digits", async () => {
+    for (const value of ["", "1e3", "0x10", "-1", "2.5", "100001"]) {
+      const { run, events } = cli(
+        ["--database-url-env=CENSUS_URL", `--max-ids=${value}`],
+        { CENSUS_URL: "pglite:memory" },
+        neverConnect,
+      );
+      expect(await run, value).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1]).toBe(
+        "log --max-ids must be a whole number from 0 to 100000",
+      );
+    }
   });
 
   it("reads its target only from the named variable and requires Neon labels", async () => {

@@ -86,8 +86,8 @@ export function parseCensusArgs(argv: readonly string[]): CensusOptions {
     );
   }
   const rawMaxIds = values.get("max-ids") ?? "50";
-  const maxIds = Number(rawMaxIds);
-  if (!Number.isInteger(maxIds) || maxIds < 0 || maxIds > 100_000) {
+  // `Number` reads "" as 0 and "1e3" as 1000, so only digits are a count.
+  if (!/^\d{1,6}$/.test(rawMaxIds) || Number(rawMaxIds) > 100_000) {
     throw new CensusRefusal(
       `--max-ids must be a whole number from 0 to 100000`,
     );
@@ -96,7 +96,7 @@ export function parseCensusArgs(argv: readonly string[]): CensusOptions {
     databaseUrlEnv,
     neonProject: values.get("neon-project") || null,
     neonBranch: values.get("neon-branch") || null,
-    maxIds,
+    maxIds: Number(rawMaxIds),
   };
 }
 
@@ -150,6 +150,13 @@ export function resolveCensusTarget(
     );
   }
   if (url.toLowerCase().startsWith("pglite:")) {
+    // Its directory is printed, so a value shaped like a URL or a credential
+    // is refused unprinted.
+    if (/[@?#=&%]/.test(url)) {
+      throw new CensusRefusal(
+        `${options.databaseUrlEnv} must name a local directory after pglite:, without @, ?, #, =, & or %`,
+      );
+    }
     return {
       url,
       sourceEnv: options.databaseUrlEnv,
@@ -238,10 +245,22 @@ export function productionRefusal(
   }
   const declared = (env[PRODUCTION_HOSTS_ENV] ?? "")
     .split(",")
-    .map((entry) => entry.trim())
+    .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ""))
     .filter(Boolean);
   if (declared.length === 0) {
     return `${PRODUCTION_HOSTS_ENV} is not set, so a remote target cannot be shown not to be production`;
+  }
+  // An entry that names no host, such as a URL, a host with a port or an
+  // endpoint on a mistyped domain, matches nothing, and its silence would pass
+  // the target as not production. It is not printed: it could be a pasted URL
+  // with its password.
+  const namesNoHost = (entry: string) =>
+    !PLAIN_HOSTNAME.test(entry) ||
+    (entry.startsWith("ep-") &&
+      entry.includes(".") &&
+      !entry.endsWith(".neon.tech"));
+  if (declared.some(namesNoHost)) {
+    return `${PRODUCTION_HOSTS_ENV} must list only host names or Neon endpoint IDs, with no scheme, user, port or path`;
   }
   const identity = databaseHostIdentity(target.host);
   return declared.some((entry) => databaseHostIdentity(entry) === identity)
@@ -348,6 +367,7 @@ export type CensusCliDependencies = {
   log: (line: string) => void;
   out: (text: string) => void;
   connect: (url: string) => Promise<DbExec>;
+  closeAll?: () => Promise<void>;
 };
 
 // The whole user info: a URL without a password can still carry a secret as
@@ -446,6 +466,12 @@ export async function runStoredFormCensusCli(
     logFailure(`Closing the database connection failed: ${messageOf(error)}`);
     exitCode = 1;
   }
+  try {
+    await deps.closeAll?.();
+  } catch (error) {
+    logFailure(`Closing database clients failed: ${messageOf(error)}`);
+    exitCode = 1;
+  }
   return exitCode;
 }
 
@@ -453,21 +479,13 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  try {
-    process.exitCode = await runStoredFormCensusCli({
-      argv: process.argv.slice(2),
-      env: process.env,
-      log: (line) => process.stderr.write(`${line}\n`),
-      out: (text) => process.stdout.write(text),
-      connect: (url) => createDbExec({ url }),
-    });
-  } finally {
+  process.exitCode = await runStoredFormCensusCli({
+    argv: process.argv.slice(2),
+    env: process.env,
+    log: (line) => process.stderr.write(`${line}\n`),
+    out: (text) => process.stdout.write(text),
+    connect: (url) => createDbExec({ url }),
     // A pglite: client has no per-exec close and would keep the process alive.
-    await closeDbExec().catch((error: unknown) => {
-      process.stderr.write(
-        `${redactCredentials(`Closing database clients failed: ${messageOf(error)}`)}\n`,
-      );
-      process.exitCode = 1;
-    });
-  }
+    closeAll: closeDbExec,
+  });
 }
