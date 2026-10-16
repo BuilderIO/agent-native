@@ -189,6 +189,7 @@ export {
   useChatThreadList,
   type UseChatThreadListOptions,
   type UseChatThreadListResult,
+  type ChatThreadListRefreshOutcome,
 } from "../use-chat-thread-list.js";
 export {
   ChatThreadListError,

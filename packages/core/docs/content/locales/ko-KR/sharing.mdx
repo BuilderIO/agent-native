@@ -357,3 +357,7 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**인증**](/docs/authentication) — 세션, 조직, 요청 컨텍스트로 ID가 전달되는 방식
 - [**Extensions**](/docs/extensions#sharing) — 샌드박스 미니 앱 표면에서의 공유
 - [**템플릿 만들기**](/docs/creating-templates) — 새 템플릿 스키마에 `ownableColumns` 연결하기
+
+## 공유 채팅 기록
+
+`@agent-native/toolkit/app/chat/ownership-history`는 내 채팅과 공유된 채팅을 별도 섹션으로 표시하는 사이드바용 `useOwnershipChatHistory()`와 `OwnershipChatHistoryRail`을 제공합니다. 공유 행에는 소유자와 접근 근거가 표시됩니다. 각 섹션은 독립적으로 페이지를 불러오며 새로고침이 실패해도 로드된 행과 로컬 변경을 유지합니다.

@@ -357,3 +357,7 @@ Die gemeinsame Nutzung erfolgt auf dem umfassenderen Datenscoping-Modell des Fra
 - [**Authentifizierung**](/docs/authentication) – Sitzungen, Organisationen und wie Identität in den Anfragekontext fließt
 - [**Erweiterungen**](/docs/extensions#sharing) – Teilen in der Sandbox-Mini-App-Oberfläche
 - [**Vorlagen erstellen**](/docs/creating-templates) – `ownableColumns` mit dem Schema einer neuen Vorlage verbinden
+
+## Geteilten Chatverlauf
+
+`@agent-native/toolkit/app/chat/ownership-history` stellt `useOwnershipChatHistory()` und `OwnershipChatHistoryRail` für eine Chat-Seitenleiste mit getrennten Bereichen für eigene und geteilte Chats bereit. Geteilte Zeilen zeigen Eigentümer und Zugriffsgrund. Jeder Bereich wird separat paginiert. Bei fehlgeschlagenen Aktualisierungen bleiben geladene Zeilen und lokale Änderungen erhalten.

@@ -1,11 +1,16 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import {
-  useActionMutation,
-  useActionQuery,
-  useSession,
-} from "@agent-native/core/client/hooks";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useShareButtonController,
+  type ShareButtonController,
+} from "@agent-native/core/client/sharing/useShareButtonController";
+import {
+  ShareGeneralAccessRow,
+  SharePeopleInvite,
+  SharePeopleList,
+} from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentDestinationActions,
@@ -41,14 +46,8 @@ import {
 } from "@/components/agent-destination-logos";
 import {
   CopyButton,
-  GeneralAccessSelect,
-  InvitePeopleField,
-  PeopleAccessSection,
   ShareSectionLabel,
   nestedLayerDismissGuards,
-  useResourceVisibilityMutation,
-  type SharesQuery,
-  type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
@@ -326,19 +325,22 @@ function ShareRecordingContent({
     setShareMode("people");
   }, [recordingId]);
 
-  const sharesQuery = useActionQuery<SharesResponse>(
-    "list-resource-shares",
-    { resourceType: "recording", resourceId: recordingId },
-    { enabled: !viewerReshareOnly },
-  );
-
-  const data = viewerReshareOnly ? undefined : sharesQuery.data;
+  const controller = useShareButtonController({
+    resourceType: "recording",
+    resourceId: recordingId,
+    defaultOpen: !viewerReshareOnly,
+    shareUrl: absoluteAppUrl(`/r/${recordingId}`),
+  });
+  const sharesQuery = controller.sharesQuery;
+  const data = viewerReshareOnly ? undefined : controller.data;
   const role = data?.role ?? initialRole;
-  const canManage = role === "owner" || role === "admin";
+  const canManage = !viewerReshareOnly && controller.canManage;
   const canViewShares =
     role === "owner" || role === "admin" || role === "editor";
   const visibility =
-    (data?.visibility as Visibility | null | undefined) ??
+    (viewerReshareOnly
+      ? null
+      : (controller.visibilityOverride ?? data?.visibility)) ??
     initialVisibility ??
     null;
   const canEmbed = canViewShares || visibility === "public";
@@ -355,9 +357,8 @@ function ShareRecordingContent({
           ownerViaId,
         );
 
-  const { setResourceVisibility, isPending: visibilityMutationPending } =
-    useResourceVisibilityMutation("recording", recordingId, sharesQuery);
-  const visibilityPending = visibilityMutationPending || sharesQuery.isLoading;
+  const visibilityPending =
+    controller.visibilityTransition.submitting || sharesQuery.isLoading;
   const sharesLoaded = visibility !== null;
   const viewTitle =
     view === "social"
@@ -368,11 +369,8 @@ function ShareRecordingContent({
   const peopleTab = (
     <PeopleTab
       recordingId={recordingId}
-      sharesQuery={sharesQuery}
+      controller={controller}
       visibility={visibility}
-      visibilityPending={visibilityPending}
-      onVisibilityChange={setResourceVisibility}
-      canManage={canManage}
       hasPassword={passwordProtected}
       expiresAt={currentExpiry}
       onPasswordChange={setPasswordProtected}
@@ -462,7 +460,7 @@ function ShareRecordingContent({
         ) : (
           <ClipsEmbedConfigurator
             recordingId={recordingId}
-            sharesQuery={sharesQuery}
+            controller={controller}
             visibility={visibility}
             canManage={canManage}
             ownerViaId={ownerViaId}
@@ -498,11 +496,8 @@ function ShareOptionRow({
 
 function PeopleTab({
   recordingId,
-  sharesQuery,
+  controller,
   visibility,
-  visibilityPending,
-  onVisibilityChange,
-  canManage,
   hasPassword,
   expiresAt,
   onPasswordChange,
@@ -514,14 +509,8 @@ function PeopleTab({
   onOpenEmbed,
 }: {
   recordingId: string;
-  sharesQuery: SharesQuery;
+  controller: ShareButtonController;
   visibility: Visibility | null;
-  visibilityPending: boolean;
-  onVisibilityChange: (
-    next: Visibility,
-    options?: { onSuccess?: () => void },
-  ) => void;
-  canManage: boolean;
   hasPassword?: boolean;
   expiresAt: string | null;
   onPasswordChange: (hasPassword: boolean) => void;
@@ -556,55 +545,36 @@ function PeopleTab({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-3">
-        {/* `share-resource` requires owner/admin, so anyone else would only
-              get a rejected submission. */}
-        {canManage ? (
-          <InvitePeopleField
-            resourceType="recording"
-            resourceId={recordingId}
-            resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
-            sharesQuery={sharesQuery}
-            onError={(err) =>
-              toast.error(
-                err instanceof Error
-                  ? err.message
-                  : t("clipsFinalRaw.inviteFailed"),
-              )
-            }
-          />
-        ) : null}
+        <SharePeopleInvite
+          controller={controller}
+          roleCopy={{
+            commenter: {
+              label: t("shareUi.recordingCommenter.label"),
+              description: t("shareUi.recordingCommenter.description"),
+            },
+          }}
+        />
 
         {canViewShares ? (
           visibility ? (
             <div className="flex flex-col gap-1.5">
               <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
               <div className="flex flex-col gap-0.5">
-                <PeopleAccessSection
-                  resourceType="recording"
-                  resourceId={recordingId}
-                  sharesQuery={sharesQuery}
-                  canManage={canManage}
-                  roleCopy={{
-                    commenter: {
-                      label: t("shareUi.recordingCommenter.label"),
-                      description: t("shareUi.recordingCommenter.description"),
-                    },
-                  }}
-                  onError={(err, action) =>
-                    toast.error(
-                      err instanceof Error
-                        ? err.message
-                        : action === "permission"
-                          ? t("clipsFinalRaw.permissionUpdateFailed")
-                          : t("clipsFinalRaw.removePersonFailed"),
-                    )
-                  }
-                />
-                <GeneralAccessSelect
-                  visibility={visibility}
-                  canManage={canManage}
-                  isPending={visibilityPending}
-                  onChange={onVisibilityChange}
+                <div className="max-h-72 overflow-y-auto">
+                  <SharePeopleList
+                    controller={controller}
+                    roleCopy={{
+                      commenter: {
+                        label: t("shareUi.recordingCommenter.label"),
+                        description: t(
+                          "shareUi.recordingCommenter.description",
+                        ),
+                      },
+                    }}
+                  />
+                </div>
+                <ShareGeneralAccessRow
+                  controller={{ ...controller, visibility }}
                 />
                 <RecordingAccessControls
                   recordingId={recordingId}
@@ -1133,13 +1103,13 @@ function SocialTab({
 
 function ClipsEmbedConfigurator({
   recordingId,
-  sharesQuery,
+  controller,
   visibility,
   canManage,
   ownerViaId,
 }: {
   recordingId: string;
-  sharesQuery: SharesQuery;
+  controller: ShareButtonController;
   visibility: Visibility | null;
   canManage: boolean;
   ownerViaId?: string;
@@ -1156,12 +1126,8 @@ function ClipsEmbedConfigurator({
   const visibilityLabel = visibility
     ? t(`shareUi.visibility.${visibility}.label`)
     : "";
-  const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
-    "recording",
-    recordingId,
-    sharesQuery,
-  );
-  const makePublic = () => setResourceVisibility("public");
+  const isPending = controller.visibilityTransition.submitting;
+  const makePublic = () => controller.handleVisibility("public");
 
   const src = useMemo(() => {
     const params: string[] = [];
@@ -1216,6 +1182,12 @@ function ClipsEmbedConfigurator({
               {t("shareDialog.askOwnerPublic")}
             </p>
           )}
+        </div>
+      ) : null}
+
+      {controller.shareError ? (
+        <div role="alert" className="text-xs text-destructive">
+          {controller.shareError}
         </div>
       ) : null}
 

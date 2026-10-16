@@ -357,3 +357,7 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**Authentication**](/docs/authentication) — セッション、組織、リクエストコンテキストへの ID の流れ
 - [**Extensions**](/docs/extensions#sharing) — サンドボックス化されたミニアプリサーフェスでの共有
 - [**Creating Templates**](/docs/creating-templates) — 新しいテンプレートのスキーマへの `ownableColumns` の組み込み
+
+## 共有チャット履歴
+
+`@agent-native/toolkit/app/chat/ownership-history` は、自分のチャットと共有されたチャットを別々に表示するサイドバー向けに `useOwnershipChatHistory()` と `OwnershipChatHistoryRail` を提供します。共有行には所有者とアクセス根拠が表示されます。各セクションは個別にページングされ、更新に失敗しても読み込み済みの行とローカル変更が保持されます。

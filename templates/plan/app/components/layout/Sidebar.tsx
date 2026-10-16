@@ -2,7 +2,6 @@ import {
   navigateWithAgentChatViewTransition,
   sendToAgentChat,
   useChatThreads,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
@@ -10,6 +9,11 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import {
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+  ownDraftRows,
+} from "@agent-native/toolkit/app/chat/ownership-history";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
@@ -21,10 +25,6 @@ import {
 } from "@agent-native/toolkit/app/shared";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
-import {
-  ChatHistoryRail,
-  type ChatHistoryItem,
-} from "@agent-native/toolkit/chat-history";
 import { planPathForKind } from "@shared/plan-routes";
 import {
   IconClipboardCheck,
@@ -34,14 +34,7 @@ import {
   IconRefresh,
   IconNews,
 } from "@tabler/icons-react";
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useState,
-  type MouseEvent,
-} from "react";
+import { lazy, Suspense, useMemo, useState, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -121,40 +114,6 @@ function formatPlanAge(value: string) {
   });
 }
 
-function formatThreadAge(updatedAt: number) {
-  const diffMs = Math.max(0, Date.now() - updatedAt);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(updatedAt).toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function threadTitle(thread: ChatThreadSummary) {
-  return thread.title || thread.preview || "Untitled chat";
-}
-
-function threadUpdatedAt(thread: ChatThreadSummary) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
-}
-
-function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  const aPinned = a.pinnedAt ?? 0;
-  const bPinned = b.pinnedAt ?? 0;
-  if (aPinned || bPinned) return bPinned - aPinned;
-  return threadUpdatedAt(b) - threadUpdatedAt(a);
-}
-
 function persistedActiveThreadId() {
   try {
     return localStorage.getItem(
@@ -182,53 +141,33 @@ function PlanChatsSection({
     pinThread,
     archiveThread,
     renameThread,
-    refreshThreads,
+    isNewThread,
   } = useChatThreads(undefined, PLAN_CHAT_STORAGE_KEY, undefined, {
+    ownership: "mine",
     autoCreate: false,
     restoreActiveThread: false,
   });
 
-  const visibleThreads = useMemo(
-    () =>
-      threads
-        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
-        .sort(compareThreads)
-        .slice(0, 15),
-    [threads],
-  );
-  const chatItems = useMemo<ChatHistoryItem[]>(
-    () =>
-      visibleThreads.map((thread) => ({
-        id: thread.id,
-        title: threadTitle(thread),
-        titleText: threadTitle(thread),
-        timestamp:
-          thread.id === activeThreadId
-            ? undefined
-            : formatThreadAge(threadUpdatedAt(thread)),
-        pinned: Boolean(thread.pinnedAt),
-      })),
-    [activeThreadId, visibleThreads],
-  );
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (typeof detail?.isRunning === "boolean") refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
+  const history = useOwnershipChatHistory({
+    activeId: activeThreadId,
+    localMineRows: ownDraftRows({ threads, isNewThread }),
+    mutations: {
+      pin: pinThread,
+      rename: renameThread,
+      archive: archiveThread,
+    },
+    onMutationFailed: (kind) => {
+      toast.error(
+        t(
+          kind === "archive"
+            ? "raw.sidebar.archiveChatFailed"
+            : kind === "rename"
+              ? "raw.sidebar.renameChatFailed"
+              : "agentChat.common.saveFailed",
+        ),
+      );
+    },
+  });
 
   if (collapsed) return null;
 
@@ -252,20 +191,12 @@ function PlanChatsSection({
   async function handleArchiveThread(threadId: string) {
     const wasActive =
       threadId === activeThreadId || threadId === persistedActiveThreadId();
-    const archived = await archiveThread(threadId);
-    if (!archived) {
-      toast.error(t("raw.sidebar.archiveChatFailed"));
-      return;
-    }
+    const archived = await history.listProps.onDelete!(threadId);
+    if (!archived) return false;
     if (wasActive) {
       await handleNewChat();
     }
-  }
-
-  function handleRenameThread(threadId: string, title: string) {
-    void renameThread(threadId, title).then((renamed) => {
-      if (!renamed) toast.error(t("raw.sidebar.renameChatFailed"));
-    });
+    return true;
   }
 
   return (
@@ -275,8 +206,8 @@ function PlanChatsSection({
       aria-hidden={!open}
     >
       <div className="ms-4">
-        <ChatHistoryRail
-          items={chatItems}
+        <OwnershipChatHistoryRail
+          {...history}
           activeId={activeThreadId}
           onSelect={(threadId) => openThread(threadId)}
           onNewChat={() => void handleNewChat()}
@@ -286,11 +217,6 @@ function PlanChatsSection({
             showLess: t("sidebar.chats"),
           }}
           renameMaxLength={160}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
           onDelete={(threadId) => void handleArchiveThread(threadId)}
           labels={{
             options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,

@@ -15,7 +15,7 @@ vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: () => <button aria-label="share">share</button>,
 }));
 
-vi.mock("@agent-native/toolkit/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing/VisibilityBadge", () => ({
   VisibilityBadge: () => null,
 }));
 

@@ -1,11 +1,15 @@
 import {
   navigateWithAgentChatViewTransition,
   useChatThreads,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import {
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+  ownDraftRows,
+} from "@agent-native/toolkit/app/chat/ownership-history";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
@@ -15,10 +19,6 @@ import {
   AppSidebarNavItem,
 } from "@agent-native/toolkit/app/shared";
 import {
-  ChatHistoryRail,
-  type ChatHistoryItem,
-} from "@agent-native/toolkit/chat-history";
-import {
   IconClipboardList,
   IconLayoutGrid,
   IconPhotoPlus,
@@ -26,7 +26,7 @@ import {
   IconShare3,
   IconTemplate,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -52,40 +52,6 @@ const auditNavItem = {
 
 const COLLAPSE_KEY = "assets.sidebar.collapsed";
 const ASSETS_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${ASSETS_CHAT_STORAGE_KEY}`;
-
-function formatThreadAge(updatedAt: number) {
-  const diffMs = Math.max(0, Date.now() - updatedAt);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(updatedAt).toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function threadTitle(thread: ChatThreadSummary) {
-  return thread.title || thread.preview || "Untitled chat";
-}
-
-function threadUpdatedAt(thread: ChatThreadSummary) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
-}
-
-function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  const aPinned = a.pinnedAt ?? 0;
-  const bPinned = b.pinnedAt ?? 0;
-  if (aPinned || bPinned) return bPinned - aPinned;
-  return threadUpdatedAt(b) - threadUpdatedAt(a);
-}
 
 function persistedActiveThreadId() {
   try {
@@ -129,55 +95,36 @@ function AssetsChatsSection({ open }: { open: boolean }) {
     archiveThread,
     renameThread,
     createThreadShareLink,
-    refreshThreads,
+    isNewThread,
   } = useChatThreads(undefined, ASSETS_CHAT_STORAGE_KEY, undefined, {
+    ownership: "mine",
     autoCreate: false,
     restoreActiveThread: false,
   });
 
-  const visibleThreads = useMemo(
-    () =>
-      threads
-        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
-        .sort(compareThreads),
-    [threads],
-  );
   const displayedActiveThreadId =
     threadIdFromPath(location.pathname) ??
     (location.pathname === "/home" ? null : activeThreadId);
-  const chatItems = useMemo<ChatHistoryItem[]>(
-    () =>
-      visibleThreads.map((thread) => ({
-        id: thread.id,
-        title: threadTitle(thread),
-        titleText: threadTitle(thread),
-        timestamp:
-          thread.id === displayedActiveThreadId
-            ? undefined
-            : formatThreadAge(threadUpdatedAt(thread)),
-        pinned: Boolean(thread.pinnedAt),
-      })),
-    [displayedActiveThreadId, visibleThreads],
-  );
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (typeof detail?.isRunning === "boolean") refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
+  const history = useOwnershipChatHistory({
+    activeId: displayedActiveThreadId,
+    localMineRows: ownDraftRows({ threads, isNewThread }),
+    mutations: {
+      pin: pinThread,
+      rename: renameThread,
+      archive: archiveThread,
+    },
+    onMutationFailed: (kind) => {
+      toast.error(
+        t(
+          kind === "archive"
+            ? "chat.archiveFailed"
+            : kind === "rename"
+              ? "chat.renameFailed"
+              : "agentChat.common.saveFailed",
+        ),
+      );
+    },
+  });
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -203,14 +150,12 @@ function AssetsChatsSection({ open }: { open: boolean }) {
   async function handleArchiveThread(threadId: string) {
     const wasActive =
       threadId === activeThreadId || threadId === persistedActiveThreadId();
-    const archived = await archiveThread(threadId);
-    if (!archived) {
-      toast.error(t("chat.archiveFailed"));
-      return;
-    }
+    const archived = await history.listProps.onDelete!(threadId);
+    if (!archived) return false;
     if (wasActive) {
       await handleNewChat();
     }
+    return true;
   }
 
   async function handleCopyShareLink(threadId: string) {
@@ -233,12 +178,6 @@ function AssetsChatsSection({ open }: { open: boolean }) {
     }
   }
 
-  function handleRenameThread(threadId: string, title: string) {
-    void renameThread(threadId, title).then((renamed) => {
-      if (!renamed) toast.error(t("chat.renameFailed"));
-    });
-  }
-
   return (
     <div
       className="an-chat-history-rail__collapse"
@@ -246,8 +185,8 @@ function AssetsChatsSection({ open }: { open: boolean }) {
       aria-hidden={!open}
     >
       <div className="ms-4">
-        <ChatHistoryRail
-          items={chatItems}
+        <OwnershipChatHistoryRail
+          {...history}
           activeId={displayedActiveThreadId}
           onSelect={openThread}
           onNewChat={() => void handleNewChat()}
@@ -256,13 +195,6 @@ function AssetsChatsSection({ open }: { open: boolean }) {
             showMore: t("chat.chats"),
             showLess: t("chat.chats"),
           }}
-          previewCount={5}
-          expandedCount={15}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
           renameMaxLength={160}
           onDelete={(threadId) => void handleArchiveThread(threadId)}
           renderAdditionalRowActions={(item, closeMenu) => (

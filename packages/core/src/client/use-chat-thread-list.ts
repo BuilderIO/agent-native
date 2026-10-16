@@ -27,6 +27,12 @@ export interface UseChatThreadListOptions {
   apiUrl?: string;
 }
 
+export type ChatThreadListRefreshOutcome =
+  | "success"
+  | "error"
+  | "superseded"
+  | "disabled";
+
 export interface UseChatThreadListResult {
   threads: ChatThreadListRow[];
   /** True until the first page of the current list settles. */
@@ -38,6 +44,8 @@ export interface UseChatThreadListResult {
   hasMore: boolean;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** Reports whether this invocation applied the complete refreshed window. */
+  refreshWithResult: () => Promise<ChatThreadListRefreshOutcome>;
 }
 
 /** `pageSize` is not an integer between 1 and the server's page cap. */
@@ -135,7 +143,7 @@ export function useChatThreadList(
   // them in only once every page has arrived. A failure part-way leaves the
   // rows and offset already on screen untouched.
   const replace = useCallback(
-    async (window: number): Promise<void> => {
+    async (window: number): Promise<ChatThreadListRefreshOutcome> => {
       const requestId = ++requestRef.current;
       inFlightRef.current = "replace";
       setLoadingMore(false);
@@ -148,7 +156,7 @@ export function useChatThreadList(
             offset: consumed,
             limit: Math.min(CHAT_THREADS_MAX_PAGE_SIZE, window - consumed),
           });
-          if (requestId !== requestRef.current) return;
+          if (requestId !== requestRef.current) return "superseded";
           for (const thread of page.threads) {
             if (!rows.has(thread.id)) rows.set(thread.id, thread);
           }
@@ -159,9 +167,11 @@ export function useChatThreadList(
         setThreads([...rows.values()]);
         setHasMore(more);
         setError(null);
+        return "success";
       } catch (failure) {
-        if (requestId !== requestRef.current) return;
+        if (requestId !== requestRef.current) return "superseded";
         setError(asError(failure));
+        return "error";
       } finally {
         if (requestId === requestRef.current) {
           inFlightRef.current = null;
@@ -172,12 +182,17 @@ export function useChatThreadList(
     [request],
   );
 
+  const refreshWithResult =
+    useCallback(async (): Promise<ChatThreadListRefreshOutcome> => {
+      if (!enabled) return "disabled";
+      // Reload every row already on screen so a mutation does not collapse a
+      // list the person has paged through.
+      return replace(Math.max(pageSize, nextOffsetRef.current));
+    }, [enabled, pageSize, replace]);
+
   const refresh = useCallback(async (): Promise<void> => {
-    if (!enabled) return;
-    // Reload every row already on screen so a mutation does not collapse a
-    // list the person has paged through.
-    await replace(Math.max(pageSize, nextOffsetRef.current));
-  }, [enabled, pageSize, replace]);
+    await refreshWithResult();
+  }, [refreshWithResult]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (inFlightRef.current || !hasMoreRef.current) return;
@@ -241,5 +256,14 @@ export function useChatThreadList(
       window.removeEventListener(CHAT_THREADS_UPDATED_EVENT, onUpdated);
   }, [enabled, refresh]);
 
-  return { threads, loading, loadingMore, error, hasMore, loadMore, refresh };
+  return {
+    threads,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+    refreshWithResult,
+  };
 }

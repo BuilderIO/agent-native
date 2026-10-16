@@ -357,3 +357,7 @@ O compartilhamento depende do modelo mais amplo de escopo de dados da estrutura:
 - [**Autenticação**](/docs/authentication) — sessões, organizações e como a identidade flui para o contexto da solicitação
 - [**Extensões**](/docs/extensions#sharing) — compartilhamento na superfície de miniaplicativos em sandbox
 - [**Criação de modelos**](/docs/creating-templates) — conexão de `ownableColumns` ao esquema de um novo modelo
+
+## Histórico de chats compartilhados
+
+`@agent-native/toolkit/app/chat/ownership-history` oferece `useOwnershipChatHistory()` e `OwnershipChatHistoryRail` para uma barra lateral com seções separadas para seus chats e os compartilhados com você. As linhas compartilhadas mostram o proprietário e a base de acesso. Cada seção é paginada separadamente e mantém as linhas carregadas e as alterações locais quando a atualização falha.

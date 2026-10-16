@@ -220,6 +220,15 @@ export {
 } from "@agent-native/core/client/agent-chat";
 export {
   useChatThreads,
+  useChatThreadList,
+  notifyChatThreadsUpdated,
+  type ChatThreadListRow,
+  type ChatThreadAccessBasis,
+  type ChatThreadOwnership,
+  type ChatThreadVisibility,
+  type ChatThreadListRefreshOutcome,
+  type UseChatThreadListOptions,
+  type UseChatThreadListResult,
   type ChatThreadScope,
   type ChatThreadSnapshot,
   type ChatThreadSummary,

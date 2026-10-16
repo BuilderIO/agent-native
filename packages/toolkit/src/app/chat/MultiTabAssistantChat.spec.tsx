@@ -34,6 +34,7 @@ import React, { act } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
+import { toast } from "sonner";
 import {
   afterEach,
   beforeEach,
@@ -7874,6 +7875,7 @@ describe("MultiTabAssistantChat page overlay", () => {
 describe("MultiTabAssistantChat history popover", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let sharedHistoryRows: ChatThreadSummary[];
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -7882,6 +7884,7 @@ describe("MultiTabAssistantChat history popover", () => {
       return 0;
     });
     resetThreadMocks();
+    sharedHistoryRows = [];
     const now = Date.now();
     threadMocks.activeThreadId = "thread-1";
     const historyThreads: ChatThreadSummary[] = [
@@ -7917,7 +7920,32 @@ describe("MultiTabAssistantChat history popover", () => {
     threadMocks.threads = historyThreads;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ value: null })),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://test.local");
+        const ownership = url.searchParams.get("ownership");
+        if (ownership) {
+          const source =
+            ownership === "mine"
+              ? threadMocks.threads.map((thread) => ({
+                  ...thread,
+                  ownerEmail: "me@example.com",
+                  accessBasis: "owner",
+                  visibility: "private",
+                }))
+              : sharedHistoryRows;
+          const query = url.searchParams.get("q") ?? "";
+          const matching = source.filter((row) =>
+            row.title.toLowerCase().includes(query.toLowerCase()),
+          );
+          const offset = Number(url.searchParams.get("offset") ?? 0);
+          const limit = Number(url.searchParams.get("limit") ?? 50);
+          return Response.json({
+            threads: matching.slice(offset, offset + limit),
+            hasMore: matching.length > offset + limit,
+          });
+        }
+        return Response.json({ value: null });
+      }),
     );
     window.localStorage.clear();
     window.localStorage.setItem(
@@ -7947,7 +7975,7 @@ describe("MultiTabAssistantChat history popover", () => {
       'button[aria-label="All chats"]',
     );
     expect(historyButton).not.toBeNull();
-    act(() => {
+    await act(async () => {
       historyButton!.click();
     });
   }
@@ -7965,13 +7993,132 @@ describe("MultiTabAssistantChat history popover", () => {
     });
   }
 
+  it("loads both ownership lists only while open and debounces search to both", async () => {
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="history-test" />);
+    });
+    const fetchMock = vi.mocked(fetch);
+    const ownershipRequests = () =>
+      fetchMock.mock.calls
+        .map(([input]) => new URL(String(input), "http://test.local"))
+        .filter((url) => url.searchParams.has("ownership"));
+    expect(ownershipRequests()).toHaveLength(0);
+    await openHistory();
+    expect(
+      ownershipRequests().map((url) => url.searchParams.get("ownership")),
+    ).toEqual(["mine", "shared"]);
+    vi.useFakeTimers();
+    try {
+      const input = container.querySelector<HTMLInputElement>(
+        ".an-chat-history__search-input",
+      )!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "Other");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(ownershipRequests()).toHaveLength(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(
+        ownershipRequests()
+          .slice(-2)
+          .map((url) => [
+            url.searchParams.get("ownership"),
+            url.searchParams.get("q"),
+          ]),
+      ).toEqual([
+        ["mine", "Other"],
+        ["shared", "Other"],
+      ]);
+      expect(threadMocks.searchThreads).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("previews five shared rows without owner pins or menus and switches through history", async () => {
+    sharedHistoryRows = Array.from({ length: 51 }, (_, index) => ({
+      id: `shared-${index}`,
+      title: `Shared ${index}`,
+      preview: "",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: null,
+      accessBasis: index === 0 ? "organization" : "direct",
+      ownerEmail: "pat@example.com",
+      visibility: "org",
+      pinnedAt: 10,
+    }));
+    await openHistory();
+    const sharedSection = container.querySelector(
+      '.an-chat-history__section[data-section-id="shared"]',
+    )!;
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      5,
+    );
+    expect(sharedSection.textContent).toContain("Owner: pat@example.com");
+    expect(sharedSection.textContent).toContain(
+      "Shared with your organization",
+    );
+    expect(
+      sharedSection.querySelector(".an-chat-history-row__menu-trigger"),
+    ).toBeNull();
+    expect(
+      sharedSection.querySelector(".an-chat-history-row--pinned"),
+    ).toBeNull();
+    expect(container.querySelector(".an-chat-history-rail__footer")).toBeNull();
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(
+          ".an-chat-history-rail__section-toggle",
+        )!
+        .click();
+    });
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      50,
+    );
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(".an-chat-history-rail__load-more")!
+        .click();
+    });
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      51,
+    );
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(
+          ".an-chat-history-rail__section-toggle",
+        )!
+        .click();
+    });
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      5,
+    );
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(".an-chat-history-row__button")!
+        .click();
+    });
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("shared-0");
+    expect(container.querySelector(".an-chat-history")).toBeNull();
+    expect(
+      chatThreadHookMocks.useChatThreads.mock.calls.at(-1)?.[3]?.ownership,
+    ).toBeUndefined();
+  });
+
   it("groups pinned threads into a dedicated section, sorted ahead of the rest", async () => {
     await openHistory();
 
     const labels = Array.from(
       container.querySelectorAll(".an-chat-history__section-label"),
     ).map((el) => el.textContent);
-    expect(labels).toEqual(["Pinned"]);
+    expect(labels).toEqual(["Pinned", "My chats"]);
 
     const titles = Array.from(
       container.querySelectorAll(".an-chat-history-row__title"),
@@ -8053,6 +8200,32 @@ describe("MultiTabAssistantChat history popover", () => {
     });
 
     expect(threadMocks.pinThread).toHaveBeenCalledWith("thread-3", true);
+  });
+
+  it("shows the localized save failure when a history pin fails", async () => {
+    const toastError = vi
+      .spyOn(toast, "error")
+      .mockReturnValue("failure-toast");
+    threadMocks.pinThread.mockResolvedValue(false);
+    try {
+      await openHistory();
+      const row = container.querySelectorAll(".an-chat-history-row")[2];
+      await openRowMenu(
+        row.querySelector<HTMLButtonElement>(
+          ".an-chat-history-row__menu-trigger",
+        )!,
+      );
+      const pinItem = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          ".an-chat-history-row__menu-item",
+        ),
+      ).find((element) => element.textContent?.includes("Pin to top"))!;
+      await act(async () => pinItem.click());
+      expect(threadMocks.pinThread).toHaveBeenCalledWith("thread-3", true);
+      expect(toastError).toHaveBeenCalledExactlyOnceWith("Save failed");
+    } finally {
+      toastError.mockRestore();
+    }
   });
 
   it("unpins an already-pinned thread via the row action menu", async () => {

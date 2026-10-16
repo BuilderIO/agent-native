@@ -1,0 +1,926 @@
+// @vitest-environment happy-dom
+
+import type {
+  ChatThreadListRow,
+  ChatThreadSummary,
+} from "@agent-native/core/client/agent-chat";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  OwnershipChatHistoryRail,
+  chatThreadToHistoryItem,
+  ownDraftRows,
+  useOwnershipChatHistory,
+  type UseOwnershipChatHistoryOptions,
+  type UseOwnershipChatHistoryResult,
+} from "./index.js";
+
+function row(
+  id: string,
+  overrides: Partial<ChatThreadListRow> = {},
+): ChatThreadListRow {
+  return {
+    id,
+    title: id,
+    preview: "",
+    messageCount: 1,
+    createdAt: 1,
+    updatedAt: 1,
+    scope: null,
+    ownerEmail: "owner@example.com",
+    accessBasis: "owner",
+    visibility: "private",
+    ...overrides,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+const t = (key: string, options?: Record<string, unknown>) =>
+  `${key}${options?.name ? `:${options.name}` : ""}`;
+
+describe("ownership history row boundary", () => {
+  it("maps owner organization visibility as Mine without attribution", () => {
+    const item = chatThreadToHistoryItem(
+      row("mine", { visibility: "org", pinnedAt: 2 }),
+      { t, activeId: "mine" },
+    );
+    expect(item).toMatchObject({
+      id: "mine",
+      accessBasis: "owner",
+      pinned: true,
+    });
+    expect(item.ownerLabel).toBeUndefined();
+    expect(item.accessLabel).toBeUndefined();
+    expect(item.timestamp).toBeUndefined();
+  });
+
+  it.each(["direct", "organization"] as const)(
+    "attributes %s rows, dropping inherited pins and actions",
+    (accessBasis) => {
+      const item = chatThreadToHistoryItem(
+        row("shared", { accessBasis, pinnedAt: 20 }),
+        { t, now: 60_001 },
+      );
+      expect(item).toMatchObject({
+        title: "shared",
+        pinned: false,
+        hideActions: true,
+        accessBasis,
+        ownerLabel: "agentChat.history.ownedBy:owner@example.com",
+        accessLabel:
+          accessBasis === "direct"
+            ? "agentChat.history.accessDirect"
+            : "agentChat.history.accessOrganization",
+      });
+      expect(item.timestamp).toBe(
+        new Intl.RelativeTimeFormat("en-US", {
+          style: "narrow",
+          numeric: "auto",
+        }).format(-1, "minute"),
+      );
+    },
+  );
+
+  it("falls back from title to preview to localized untitled copy", () => {
+    expect(
+      chatThreadToHistoryItem(row("a", { title: "", preview: "Preview" }), {
+        t,
+      }).titleText,
+    ).toBe("Preview");
+    expect(
+      chatThreadToHistoryItem(row("a", { title: "" }), { t }).titleText,
+    ).toBe("agentChat.history.untitledChat");
+  });
+
+  it("admits only started owned drafts, including observed local starts", () => {
+    const local = (
+      id: string,
+      overrides: Partial<ChatThreadSummary> = {},
+    ): ChatThreadSummary => ({
+      id,
+      title: "",
+      preview: "",
+      messageCount: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: null,
+      ...overrides,
+    });
+    const threads = [
+      local("untouched"),
+      local("started", { messageCount: 1 }),
+      local("observed"),
+      local("unproven", { messageCount: 2 }),
+      local("partial", { messageCount: 1, ownerEmail: "owner@example.com" }),
+      row("confirmed"),
+      row("archived", { archivedAt: 4 }),
+      row("direct", { accessBasis: "direct" }),
+      row("organization", { accessBasis: "organization" }),
+    ];
+    const result = ownDraftRows({
+      threads,
+      isNewThread: (id) =>
+        ["untouched", "started", "observed", "partial", "synthesized"].includes(
+          id,
+        ),
+      observedThreadStarts: new Map([
+        ["observed", 3],
+        ["synthesized", 5],
+        ["stranger", 6],
+        ["direct", 7],
+        ["archived", 8],
+      ]),
+    });
+    expect(result.map((item) => item.id)).toEqual([
+      "started",
+      "observed",
+      "confirmed",
+      "synthesized",
+    ]);
+    expect(result.at(-1)).toEqual({
+      id: "synthesized",
+      title: "",
+      messageCount: 0,
+      createdAt: 5,
+      updatedAt: 5,
+    });
+    expect(result.every((item) => !("accessBasis" in item))).toBe(true);
+  });
+});
+
+describe("ownership history adapter", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: UseOwnershipChatHistoryResult;
+  let mine: ChatThreadListRow[];
+  let shared: ChatThreadListRow[];
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let failMine: boolean;
+  let failShared: boolean;
+  let renderRail: boolean;
+  const selected = vi.fn();
+  const newChat = vi.fn();
+
+  function pageResponse(urlValue: unknown): Response {
+    const url = new URL(String(urlValue), "http://test.local");
+    const ownership = url.searchParams.get("ownership");
+    if (
+      (ownership === "mine" && failMine) ||
+      (ownership === "shared" && failShared)
+    )
+      return new Response("unavailable", { status: 503 });
+    const source = ownership === "mine" ? mine : shared;
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const limit = Number(url.searchParams.get("limit"));
+    return Response.json({
+      threads: source.slice(offset, offset + limit),
+      hasMore: source.length > offset + limit,
+    });
+  }
+
+  function Probe(props: UseOwnershipChatHistoryOptions) {
+    latest = useOwnershipChatHistory(props);
+    return renderRail ? (
+      <OwnershipChatHistoryRail
+        {...latest}
+        activeId={props.activeId}
+        onSelect={selected}
+        onNewChat={newChat}
+        showNewChat={false}
+      />
+    ) : null;
+  }
+
+  async function render(options: UseOwnershipChatHistoryOptions = {}) {
+    await act(async () => {
+      root.render(<Probe {...options} />);
+    });
+  }
+
+  function section(id: string) {
+    return latest.sections.find((section) => section.id === id)!;
+  }
+  function item(id: string) {
+    return latest.sections
+      .flatMap((section) => section.items)
+      .find((item) => item.id === id);
+  }
+  function sectionElement(id: string) {
+    return container.querySelector(
+      `[data-section-id="${id}"].an-chat-history__section`,
+    )!;
+  }
+  function clickText(element: Element, text: string) {
+    const button = [...element.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === text,
+    );
+    expect(button).toBeDefined();
+    return act(async () => {
+      button!.click();
+    });
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mine = [];
+    shared = [];
+    failMine = false;
+    failShared = false;
+    renderRail = false;
+    fetchMock = vi.fn(async (url) => pageResponse(url));
+    vi.stubGlobal("fetch", fetchMock);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    selected.mockClear();
+    newChat.mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("forwards two ownership queries before independent pagination and preserves attribution", async () => {
+    mine = [row("mine-org", { visibility: "org" }), row("mine-second")];
+    shared = [
+      row("direct", { accessBasis: "direct", pinnedAt: 12 }),
+      row("shared-second", { accessBasis: "organization" }),
+    ];
+    await render({
+      apiUrl: "/test-chat",
+      pageSize: 1,
+      query: "term",
+      scope: { type: "project", id: "p" },
+      includeExternal: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [urlValue] of fetchMock.mock.calls) {
+      const url = new URL(String(urlValue), "http://test.local");
+      expect(url.pathname).toBe("/test-chat/threads");
+      expect(url.searchParams.get("q")).toBe("term");
+      expect(url.searchParams.get("includeExternal")).toBe("1");
+      expect(url.searchParams.get("scopeId")).toBe("p");
+    }
+    expect(item("mine-org")?.ownerLabel).toBeUndefined();
+    expect(item("direct")).toMatchObject({
+      pinned: false,
+      hideActions: true,
+      ownerLabel: "Owner: owner@example.com",
+      accessLabel: "Shared with you",
+    });
+    await act(async () => {
+      await section("shared").onLoadMore!();
+    });
+    expect(latest.sharedRows.map((row) => row.id)).toEqual([
+      "direct",
+      "shared-second",
+    ]);
+    expect(latest.mineRows.map((row) => row.id)).toEqual(["mine-org"]);
+    await act(async () => {
+      await section("mine").onLoadMore!();
+    });
+    expect(latest.mineRows.map((row) => row.id)).toEqual([
+      "mine-org",
+      "mine-second",
+    ]);
+  });
+
+  it("previews five Shared rows, discloses all loaded pages, and collapses back to five", async () => {
+    renderRail = true;
+    shared = Array.from({ length: 14 }, (_, i) =>
+      row(`shared-${i}`, { accessBasis: "direct" }),
+    );
+    await render({ pageSize: 7, activeId: "shared-12" });
+    expect(
+      sectionElement("shared").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(5);
+    expect(
+      container.querySelectorAll(".an-chat-history-row--active"),
+    ).toHaveLength(0);
+    await clickText(sectionElement("shared"), "Show all");
+    expect(
+      sectionElement("shared").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(7);
+    await clickText(sectionElement("shared"), "Load more");
+    expect(
+      sectionElement("shared").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(14);
+    expect(
+      container.querySelectorAll(".an-chat-history-row--active"),
+    ).toHaveLength(1);
+    await act(async () => {
+      sectionElement("shared")
+        .querySelectorAll<HTMLButtonElement>(".an-chat-history-row__button")[12]
+        .click();
+    });
+    expect(selected).toHaveBeenCalledWith("shared-12");
+    await act(async () => {
+      await latest.refresh();
+    });
+    expect(
+      sectionElement("shared").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(14);
+    await clickText(sectionElement("shared"), "Show less");
+    expect(
+      sectionElement("shared").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(5);
+    expect(newChat).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.every(([url]) => String(url).includes("/threads?")),
+    ).toBe(true);
+  });
+
+  it("keeps paging reachable when every loaded Mine row is pinned", async () => {
+    renderRail = true;
+    mine = Array.from({ length: 8 }, (_, i) =>
+      row(`pin-${i}`, { pinnedAt: i + 1 }),
+    );
+    await render({ pageSize: 3, pinned: true });
+    expect(section("mine").items).toEqual([]);
+    expect(section("mine").emptyLabel).toBeUndefined();
+    expect(
+      sectionElement("pinned").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(3);
+    await clickText(sectionElement("mine"), "Show all");
+    await clickText(sectionElement("mine"), "Load more");
+    expect(
+      sectionElement("pinned").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(6);
+    await clickText(sectionElement("mine"), "Load more");
+    expect(
+      sectionElement("pinned").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(8);
+    expect(sectionElement("pinned").textContent).not.toContain("Show all");
+    expect(section("pinned").onLoadMore).toBeUndefined();
+  });
+
+  it("lets server rows win draft duplicates and never manufactures active shared rows", async () => {
+    mine = [row("owned", { title: "Server title", pinnedAt: 1 })];
+    shared = [row("shared", { accessBasis: "direct" })];
+    const drafts = ownDraftRows({
+      threads: [row("owned"), row("shared"), row("local")],
+      isNewThread: () => true,
+    });
+    await render({
+      localMineRows: drafts,
+      pinned: true,
+      activeId: "unloaded-shared",
+    });
+    expect(section("mine").items.map((item) => item.id)).toEqual(["local"]);
+    expect(item("owned")?.title).toBe("Server title");
+    expect(item("shared")?.hideActions).toBe(true);
+    expect(item("unloaded-shared")).toBeUndefined();
+    expect(latest.findMine("shared")).toBeUndefined();
+  });
+
+  it("moves optimistic pins, retitles, and archives, then reconciles successful persistence", async () => {
+    mine = [row("owned")];
+    const pendingPin = deferred<boolean>();
+    const pin = vi.fn(() => pendingPin.promise);
+    const rename = vi.fn(async (_id, title) => {
+      mine = [row("owned", { title, pinnedAt: 2 })];
+      return true;
+    });
+    const archive = vi.fn(async () => {
+      mine = [];
+      return true;
+    });
+    await render({ pinned: true, mutations: { pin, rename, archive } });
+    let pinResult!: Promise<boolean>;
+    act(() => {
+      pinResult = latest.listProps.onTogglePin!("owned");
+    });
+    expect(section("pinned").items[0].id).toBe("owned");
+    expect(pin).toHaveBeenCalledWith("owned", true);
+    mine = [row("owned", { pinnedAt: 2 })];
+    await act(async () => {
+      pendingPin.resolve(true);
+      expect(await pinResult).toBe(true);
+    });
+    await act(async () => {
+      expect(await latest.listProps.onRename!("owned", "New title")).toBe(true);
+    });
+    expect(item("owned")?.title).toBe("New title");
+    await act(async () => {
+      expect(await latest.listProps.onDelete!("owned")).toBe(true);
+    });
+    expect(item("owned")).toBeUndefined();
+    expect(latest.mineRows).toEqual([]);
+  });
+
+  it.each(["false", "throw"])(
+    "rolls back %s mutations and reports failure",
+    async (failure) => {
+      mine = [row("owned")];
+      const pending = deferred<boolean>();
+      const onMutationFailed = vi.fn();
+      const rename = vi.fn(() => pending.promise);
+      await render({ mutations: { rename }, onMutationFailed });
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onRename!("owned", "Optimistic");
+      });
+      expect(item("owned")?.title).toBe("Optimistic");
+      const cause = new Error("Could not persist");
+      await act(async () => {
+        if (failure === "throw") pending.reject(cause);
+        else pending.resolve(false);
+        expect(await result).toBe(false);
+      });
+      expect(item("owned")?.title).toBe("owned");
+      expect(onMutationFailed).toHaveBeenCalledWith(
+        "rename",
+        "owned",
+        ...(failure === "throw" ? [cause] : []),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("an older failure cannot roll back a newer optimistic intent", async () => {
+    mine = [row("owned")];
+    const first = deferred<boolean>();
+    const second = deferred<boolean>();
+    const rename = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    await render({ mutations: { rename } });
+    let oldResult!: Promise<boolean>;
+    let newResult!: Promise<boolean>;
+    act(() => {
+      oldResult = latest.listProps.onRename!("owned", "First");
+    });
+    act(() => {
+      newResult = latest.listProps.onRename!("owned", "Second");
+    });
+    await act(async () => {
+      first.resolve(false);
+      await oldResult;
+    });
+    expect(item("owned")?.title).toBe("Second");
+    mine = [row("owned", { title: "Second" })];
+    await act(async () => {
+      second.resolve(true);
+      await newResult;
+    });
+    expect(item("owned")?.title).toBe("Second");
+  });
+
+  it.each(["false", "throw"])(
+    "suppresses an older %s failure callback after a newer same-id rename succeeds",
+    async (failure) => {
+      mine = [row("owned")];
+      const first = deferred<boolean>();
+      const second = deferred<boolean>();
+      const rename = vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      const onMutationFailed = vi.fn();
+      await render({ mutations: { rename }, onMutationFailed });
+      let oldResult!: Promise<boolean>;
+      let newResult!: Promise<boolean>;
+      act(() => {
+        oldResult = latest.listProps.onRename!("owned", "First");
+      });
+      act(() => {
+        newResult = latest.listProps.onRename!("owned", "Second");
+      });
+      mine = [row("owned", { title: "Second" })];
+      await act(async () => {
+        second.resolve(true);
+        expect(await newResult).toBe(true);
+      });
+      const requestCount = fetchMock.mock.calls.length;
+      await act(async () => {
+        if (failure === "throw") first.reject(new Error("Older rename failed"));
+        else first.resolve(false);
+        expect(await oldResult).toBe(false);
+      });
+      expect(item("owned")?.title).toBe("Second");
+      expect(latest.mineRows[0].title).toBe("Second");
+      expect(onMutationFailed).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(requestCount);
+    },
+  );
+
+  it("keeps pending changes through stale refreshes and settled changes through failed authoritative refreshes", async () => {
+    mine = [row("owned")];
+    const pending = deferred<boolean>();
+    await render({ mutations: { rename: () => pending.promise } });
+    let result!: Promise<boolean>;
+    act(() => {
+      result = latest.listProps.onRename!("owned", "Optimistic");
+    });
+    await act(async () => {
+      await latest.refresh();
+    });
+    expect(item("owned")?.title).toBe("Optimistic");
+    failMine = true;
+    await act(async () => {
+      pending.resolve(true);
+      expect(await result).toBe(true);
+    });
+    expect(item("owned")?.title).toBe("Optimistic");
+    expect(latest.mineRows[0].title).toBe("owned");
+    expect(latest.error?.message).toContain("503");
+    failMine = false;
+    mine = [row("owned", { title: "Optimistic" })];
+    await act(async () => {
+      await latest.refresh();
+    });
+    mine = [row("owned", { title: "Later server title" })];
+    await act(async () => {
+      await latest.refresh();
+    });
+    expect(item("owned")?.title).toBe("Later server title");
+  });
+
+  it("accepts a conflicting authoritative post-persistence value after exactly one own refresh", async () => {
+    mine = [row("owned")];
+    await render({ mutations: { rename: async () => true } });
+    await act(async () => {
+      expect(await latest.listProps.onRename!("owned", "Optimistic")).toBe(
+        true,
+      );
+    });
+    expect(item("owned")?.title).toBe("owned");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("Retry accepts a conflicting server value after a failed post-persistence refresh", async () => {
+    mine = [row("owned")];
+    await render({ mutations: { rename: async () => true } });
+    failMine = true;
+    await act(async () => {
+      await latest.listProps.onRename!("owned", "Optimistic");
+    });
+    expect(item("owned")?.title).toBe("Optimistic");
+    failMine = false;
+    mine = [row("owned", { title: "Changed elsewhere" })];
+    await act(async () => {
+      await section("mine").onRetry!();
+    });
+    expect(item("owned")?.title).toBe("Changed elsewhere");
+    expect(latest.error).toBeNull();
+  });
+
+  it("retains rows and paging on a failed refresh and exposes retry", async () => {
+    renderRail = true;
+    mine = [row("one"), row("two"), row("three")];
+    await render({ pageSize: 1 });
+    await act(async () => {
+      await section("mine").onLoadMore!();
+    });
+    failMine = true;
+    await act(async () => {
+      await latest.refresh();
+    });
+    expect(latest.mineRows.map((row) => row.id)).toEqual(["one", "two"]);
+    expect(section("mine").hasMore).toBe(true);
+    expect(section("mine").error).toBe("Couldn't load more chats");
+    expect(
+      sectionElement("mine").querySelectorAll(".an-chat-history-row"),
+    ).toHaveLength(2);
+    expect(
+      sectionElement("mine").querySelector('[role="alert"]')?.textContent,
+    ).toContain("Couldn't load more chats");
+    failMine = false;
+    await act(async () => {
+      await section("mine").onRetry!();
+    });
+    expect(latest.error).toBeNull();
+  });
+
+  it("hides Shared during its initial empty load, then shows recoverable errors", async () => {
+    const initial = deferred<Response>();
+    fetchMock.mockImplementation((url) =>
+      String(url).includes("ownership=shared")
+        ? initial.promise
+        : Promise.resolve(pageResponse(url)),
+    );
+    await render();
+    expect(latest.sections.map((section) => section.id)).toEqual(["mine"]);
+    await act(async () => {
+      initial.resolve(new Response("failed", { status: 503 }));
+    });
+    expect(section("shared").error).toBe("Couldn't load chats");
+  });
+
+  it("rejects mutations on Shared and unknown ids even if a decorator exposes actions", async () => {
+    shared = [row("shared", { accessBasis: "direct" })];
+    const pin = vi.fn();
+    const rename = vi.fn();
+    const archive = vi.fn();
+    await render({
+      mutations: { pin, rename, archive },
+      decorateItem: (item) => ({ ...item, pinned: true, hideActions: false }),
+    });
+    expect(item("shared")).toMatchObject({ pinned: false, hideActions: true });
+    await act(async () => {
+      expect(await latest.listProps.onTogglePin!("shared")).toBe(false);
+      expect(await latest.listProps.onRename!("shared", "title")).toBe(false);
+      expect(await latest.listProps.onDelete!("unknown")).toBe(false);
+    });
+    expect(pin).not.toHaveBeenCalled();
+    expect(rename).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch while disabled or refresh after unmount", async () => {
+    await render({ enabled: false });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false },
+        }),
+      );
+      await latest.refresh();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(latest.loading).toBe(false);
+    await render({ enabled: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const refresh = latest.refresh;
+    act(() => {
+      root.render(null);
+    });
+    await refresh();
+    window.dispatchEvent(new Event("focus"));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces focus and run-end refreshes for ten seconds without another thread-update subscription", async () => {
+    await render();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false },
+        }),
+      );
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    clock.mockReturnValue(20_001);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true },
+        }),
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false },
+        }),
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:threads-updated"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+
+  it("ignores old mutation completion after a scope change or unmount", async () => {
+    mine = [row("owned")];
+    const pending = deferred<boolean>();
+    const onMutationFailed = vi.fn();
+    await render({
+      scope: { type: "project", id: "old" },
+      mutations: { rename: () => pending.promise },
+      onMutationFailed,
+    });
+    let result!: Promise<boolean>;
+    act(() => {
+      result = latest.listProps.onRename!("owned", "Old scope title");
+    });
+    mine = [row("new-scope")];
+    await render({ scope: { type: "project", id: "new" }, onMutationFailed });
+    const requests = fetchMock.mock.calls.length;
+    await act(async () => {
+      pending.resolve(true);
+      await result;
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(requests);
+    expect(item("new-scope")?.title).toBe("new-scope");
+    expect(item("owned")).toBeUndefined();
+    expect(onMutationFailed).not.toHaveBeenCalled();
+  });
+
+  it("late list responses cannot replace the current scope", async () => {
+    const oldMine = deferred<Response>();
+    const oldShared = deferred<Response>();
+    fetchMock
+      .mockImplementationOnce(() => oldMine.promise)
+      .mockImplementationOnce(() => oldShared.promise);
+    await render({ scope: { type: "project", id: "old" } });
+    mine = [row("current")];
+    await render({ scope: { type: "project", id: "current" } });
+    await act(async () => {
+      oldMine.resolve(
+        Response.json({ threads: [row("stale")], hasMore: false }),
+      );
+      oldShared.resolve(
+        Response.json({
+          threads: [row("stale-shared", { accessBasis: "direct" })],
+          hasMore: false,
+        }),
+      );
+    });
+    expect(latest.mineRows.map((row) => row.id)).toEqual(["current"]);
+    expect(latest.sharedRows).toEqual([]);
+    expect(item("stale")).toBeUndefined();
+    expect(item("stale-shared")).toBeUndefined();
+  });
+
+  it("does not clear a settled override when its authoritative request is superseded", async () => {
+    mine = [row("owned")];
+    const pending = deferred<boolean>();
+    await render({ mutations: { rename: () => pending.promise } });
+    let mutation!: Promise<boolean>;
+    act(() => {
+      mutation = latest.listProps.onRename!("owned", "Optimistic");
+    });
+    const oldMineRefresh = deferred<Response>();
+    const oldSharedRefresh = deferred<Response>();
+    fetchMock
+      .mockImplementationOnce(() => oldMineRefresh.promise)
+      .mockImplementationOnce(() => oldSharedRefresh.promise);
+    await act(async () => {
+      pending.resolve(true);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:threads-updated"));
+    });
+    await act(async () => {
+      oldMineRefresh.resolve(pageResponse("/threads?ownership=mine&limit=50"));
+      oldSharedRefresh.resolve(
+        pageResponse("/threads?ownership=shared&limit=50"),
+      );
+      expect(await mutation).toBe(true);
+    });
+    expect(item("owned")?.title).toBe("Optimistic");
+    mine = [row("owned", { title: "Optimistic" })];
+    await act(async () => {
+      await latest.refresh();
+    });
+    mine = [row("owned", { title: "Changed later" })];
+    await act(async () => {
+      await latest.refresh();
+    });
+    expect(item("owned")?.title).toBe("Changed later");
+  });
+
+  it("a pending mutation cannot notify or refetch after unmount", async () => {
+    mine = [row("owned")];
+    const pending = deferred<boolean>();
+    const onMutationFailed = vi.fn();
+    await render({
+      mutations: { rename: () => pending.promise },
+      onMutationFailed,
+    });
+    let mutation!: Promise<boolean>;
+    act(() => {
+      mutation = latest.listProps.onRename!("owned", "Pending");
+    });
+    act(() => {
+      root.render(null);
+    });
+    await act(async () => {
+      pending.reject(new Error("Late failure"));
+      expect(await mutation).toBe(false);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onMutationFailed).not.toHaveBeenCalled();
+  });
+
+  it.each(["scope", "apiUrl", "enabled", "unmount"] as const)(
+    "returns false when %s is invalidated during the post-persistence refresh",
+    async (invalidation) => {
+      mine = [row("owned")];
+      const persistence = deferred<boolean>();
+      const onMutationFailed = vi.fn();
+      await render({
+        mutations: { archive: () => persistence.promise },
+        onMutationFailed,
+      });
+      const oldMineRefresh = deferred<Response>();
+      const oldSharedRefresh = deferred<Response>();
+      fetchMock
+        .mockImplementationOnce(() => oldMineRefresh.promise)
+        .mockImplementationOnce(() => oldSharedRefresh.promise);
+      const navigate = vi.fn();
+      let completion!: Promise<boolean>;
+      act(() => {
+        completion = latest.listProps.onDelete!("owned").then((succeeded) => {
+          if (succeeded) navigate();
+          return succeeded;
+        });
+      });
+      await act(async () => {
+        persistence.resolve(true);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(navigate).not.toHaveBeenCalled();
+
+      mine = [row("current")];
+      if (invalidation === "unmount") {
+        act(() => {
+          root.render(null);
+        });
+      } else {
+        await render({
+          ...(invalidation === "scope"
+            ? { scope: { type: "project", id: "current" } }
+            : {}),
+          ...(invalidation === "apiUrl" ? { apiUrl: "/current-chat" } : {}),
+          ...(invalidation === "enabled" ? { enabled: false } : {}),
+          onMutationFailed,
+        });
+      }
+      const requestsAfterInvalidation = fetchMock.mock.calls.length;
+      await act(async () => {
+        oldMineRefresh.resolve(Response.json({ threads: [], hasMore: false }));
+        oldSharedRefresh.resolve(
+          Response.json({ threads: [], hasMore: false }),
+        );
+        expect(await completion).toBe(false);
+      });
+      expect(navigate).not.toHaveBeenCalled();
+      expect(onMutationFailed).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(requestsAfterInvalidation);
+      if (invalidation === "scope" || invalidation === "apiUrl") {
+        expect(latest.mineRows.map((row) => row.id)).toEqual(["current"]);
+      } else if (invalidation === "enabled") {
+        expect(latest.mineRows).toEqual([]);
+      }
+    },
+  );
+
+  it("does not let an older successful refresh clear a newer intent", async () => {
+    mine = [row("owned")];
+    const first = deferred<boolean>();
+    const second = deferred<boolean>();
+    const rename = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    await render({ mutations: { rename } });
+    const oldMineRefresh = deferred<Response>();
+    const oldSharedRefresh = deferred<Response>();
+    let oldMutation!: Promise<boolean>;
+    let newMutation!: Promise<boolean>;
+    act(() => {
+      oldMutation = latest.listProps.onRename!("owned", "First");
+    });
+    fetchMock
+      .mockImplementationOnce(() => oldMineRefresh.promise)
+      .mockImplementationOnce(() => oldSharedRefresh.promise);
+    await act(async () => {
+      first.resolve(true);
+    });
+    act(() => {
+      newMutation = latest.listProps.onRename!("owned", "Second");
+    });
+    await act(async () => {
+      oldMineRefresh.resolve(pageResponse("/threads?ownership=mine&limit=50"));
+      oldSharedRefresh.resolve(
+        pageResponse("/threads?ownership=shared&limit=50"),
+      );
+      await oldMutation;
+    });
+    expect(item("owned")?.title).toBe("Second");
+    mine = [row("owned", { title: "Second" })];
+    await act(async () => {
+      second.resolve(true);
+      await newMutation;
+    });
+    expect(item("owned")?.title).toBe("Second");
+  });
+});

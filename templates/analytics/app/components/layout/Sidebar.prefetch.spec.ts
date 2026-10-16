@@ -3,6 +3,12 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/toolkit/app/chat/ownership-history", () => ({
+  useOwnershipChatHistory: vi.fn(),
+  OwnershipChatHistoryRail: () => null,
+  ownDraftRows: () => [],
+}));
+
 const callAction = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({

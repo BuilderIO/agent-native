@@ -357,3 +357,7 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**प्रमाणीकरण**](/docs/authentication) — सत्र, संगठन और अनुरोध संदर्भ में पहचान का प्रवाह
 - [**Extensions**](/docs/extensions#sharing) — सैंडबॉक्स किए गए मिनी-ऐप सतह में साझाकरण
 - [**टेम्पलेट बनाना**](/docs/creating-templates) — नए टेम्पलेट की स्कीमा में `ownableColumns` जोड़ना
+
+## साझा चैट इतिहास
+
+`@agent-native/toolkit/app/chat/ownership-history` आपकी चैट और आपके साथ साझा की गई चैट के लिए अलग अनुभागों वाली साइडबार हेतु `useOwnershipChatHistory()` और `OwnershipChatHistoryRail` देता है। साझा पंक्तियाँ मालिक और पहुँच का आधार दिखाती हैं। हर अनुभाग अलग पेज होता है। रीफ़्रेश विफल होने पर लोड की गई पंक्तियाँ और स्थानीय बदलाव बने रहते हैं।

@@ -5,14 +5,14 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import {
+  ownDraftRows,
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+} from "@agent-native/toolkit/app/chat/ownership-history";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
-import {
-  ChatHistoryList,
-  type ChatHistoryItem,
-  type ChatHistorySection,
-} from "@agent-native/toolkit/chat-history/ChatHistoryList";
 import {
   IconApps,
   IconClock,
@@ -24,7 +24,7 @@ import {
   IconPin,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -39,7 +39,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
-import { visibleChatThreads } from "@/lib/sidebar-thread-state";
+import { optimisticStartedThreads } from "@/lib/sidebar-thread-state";
 import { cn } from "@/lib/utils";
 
 const CHAT_STORAGE_KEY = "chat";
@@ -51,24 +51,12 @@ interface SidebarProps {
   onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-function threadTitle(thread: ChatThreadSummary, untitledLabel: string) {
-  return thread.title || untitledLabel;
-}
-
 function threadUpdatedAt(thread: ChatThreadSummary) {
   return Number.isFinite(thread.updatedAt)
     ? thread.updatedAt
     : Number.isFinite(thread.createdAt)
       ? thread.createdAt
       : 0;
-}
-
-function compareRecentThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  return threadUpdatedAt(b) - threadUpdatedAt(a);
-}
-
-function comparePinnedThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  return (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0);
 }
 
 function formatRelativeTime(timestamp: number) {
@@ -267,7 +255,7 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
     pinThread,
     archiveThread,
     renameThread,
-    refreshThreads,
+    isNewThread,
   } = useChatThreads(undefined, CHAT_STORAGE_KEY, undefined, {
     autoCreate: false,
     restoreActiveThread: false,
@@ -275,21 +263,37 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
   const { workingThreadIds, observedThreadStarts } =
     useAgentChatRunningThreads();
 
-  const visibleThreads = useMemo(
-    () => visibleChatThreads(threads, observedThreadStarts),
-    [observedThreadStarts, threads],
+  const optimisticStarts = optimisticStartedThreads(
+    threads,
+    observedThreadStarts,
   );
-  const displayedActiveThreadId =
-    threadIdFromPath(location.pathname) ??
-    activeThreadId ??
-    persistedActiveThreadId();
-
-  const historySections = useMemo<ChatHistorySection[]>(() => {
-    const untitledLabel = t("chat.untitledChat");
-    const toItem = (thread: ChatThreadSummary): ChatHistoryItem => {
-      const title = threadTitle(thread, untitledLabel);
+  const localMineRows = ownDraftRows({
+    threads,
+    isNewThread,
+    observedThreadStarts: optimisticStarts,
+  });
+  const history = useOwnershipChatHistory({
+    activeId:
+      threadIdFromPath(location.pathname) ??
+      activeThreadId ??
+      persistedActiveThreadId(),
+    localMineRows,
+    pinned: { label: t("chat.pinned") },
+    mutations: {
+      pin: pinThread,
+      rename: renameThread,
+      archive: archiveThread,
+    },
+    onMutationFailed: (kind) => {
+      if (kind === "archive") toast.error(t("chat.archiveFailed"));
+      if (kind === "rename") toast.error(t("chat.renameFailed"));
+    },
+    decorateItem: (item, row) => {
+      if (!("scope" in row)) return item;
+      const thread = row as ChatThreadSummary;
+      const title = thread.title || thread.preview || t("chat.untitledChat");
       return {
-        id: thread.id,
+        ...item,
         title: (
           <ThreadHistoryTitle
             thread={thread}
@@ -297,44 +301,13 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
             running={workingThreadIds.has(thread.id)}
           />
         ),
-        titleText: title,
-        pinned: Boolean(thread.pinnedAt),
       };
-    };
-    const pinned = visibleThreads
-      .filter((thread) => Boolean(thread.pinnedAt))
-      .sort(comparePinnedThreads)
-      .map(toItem);
-    const recent = visibleThreads
-      .filter((thread) => !thread.pinnedAt)
-      .sort(compareRecentThreads)
-      .slice(0, 30)
-      .map(toItem);
-
-    return [
-      { id: "pinned", label: t("chat.pinned"), items: pinned },
-      { id: "recents", label: t("chat.recents"), items: recent },
-    ];
-  }, [t, visibleThreads, workingThreadIds]);
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (typeof detail?.isRunning === "boolean") refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
+    },
+  });
+  const displayedActiveThreadId =
+    threadIdFromPath(location.pathname) ??
+    activeThreadId ??
+    persistedActiveThreadId();
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -360,23 +333,6 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
   async function handleNewChat() {
     const threadId = await createThread();
     if (threadId) openThread(threadId, { isNew: true });
-  }
-
-  async function handleArchiveThread(threadId: string) {
-    const wasActive =
-      threadId === activeThreadId || threadId === persistedActiveThreadId();
-    const archived = await archiveThread(threadId);
-    if (!archived) {
-      toast.error(t("chat.archiveFailed"));
-      return;
-    }
-    if (wasActive) await handleNewChat();
-  }
-
-  function handleRenameThread(threadId: string, title: string) {
-    void renameThread(threadId, title).then((renamed) => {
-      if (!renamed) toast.error(t("chat.renameFailed"));
-    });
   }
 
   const newChatButton = (
@@ -410,17 +366,20 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-2 pb-3">{newChatButton}</div>
-      <ChatHistoryList
-        sections={historySections}
+      <OwnershipChatHistoryRail
+        {...history}
+        onNewChat={() => void handleNewChat()}
+        showNewChat={false}
         activeId={displayedActiveThreadId}
         onSelect={openThread}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        onDelete={async (threadId) => {
+          const wasActive =
+            threadId === activeThreadId ||
+            threadId === persistedActiveThreadId();
+          const archived = await history.listProps.onDelete?.(threadId);
+          if (archived && wasActive) await handleNewChat();
         }}
-        onRename={handleRenameThread}
         renameMaxLength={160}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
         labels={{
           options: (item) =>
             t("chat.optionsFor", { title: item.titleText ?? "" }),
@@ -431,8 +390,9 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
           unpin: t("chat.unpinChat"),
           delete: t("chat.archiveChat"),
         }}
-        variant="rail"
-        emptyLabel={null}
+        railLabels={{
+          newChat: t("chat.newChat"),
+        }}
         className="chat-sidebar-history min-h-0 flex-1"
         listClassName="pb-4"
       />

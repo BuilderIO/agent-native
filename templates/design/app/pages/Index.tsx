@@ -36,13 +36,13 @@ import {
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
 import { ClientOnly } from "@agent-native/toolkit/app/shared";
+import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconArrowRight,
   IconChecks,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconPlus,
@@ -91,8 +91,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -608,11 +606,6 @@ export default function Index() {
       ? chosenDesignSystemId
       : templateDesignSystemId;
 
-  const ownerFilterLabels: Record<DesignFilter, string> = {
-    all: t("home.ownedByAnyone"),
-    mine: t("home.ownedByMe"),
-    "not-mine": t("home.sharedWithMe"),
-  };
   const showAuthors = designFilter !== "mine";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
@@ -735,17 +728,19 @@ export default function Index() {
     );
   }, []);
 
-  const handleDesignFilterChange = useCallback((next: string) => {
-    if (next !== "all" && next !== "mine" && next !== "not-mine") return;
-    designFilterWasSelectedRef.current = true;
-    const nextFilter: DesignFilter = next;
-    setDesignFilter(nextFilter);
-    writeStoredDesignFilter(nextFilter);
-    setPage(1);
-    setSelectedDesignIds((current) =>
-      current.size === 0 ? current : new Set(),
-    );
-  }, []);
+  const handleDesignFilterChange = useCallback(
+    (next: "all" | "mine" | "shared") => {
+      designFilterWasSelectedRef.current = true;
+      const nextFilter: DesignFilter = next === "shared" ? "not-mine" : next;
+      setDesignFilter(nextFilter);
+      writeStoredDesignFilter(nextFilter);
+      setPage(1);
+      setSelectedDesignIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
@@ -1524,51 +1519,10 @@ export default function Index() {
             }
             search={searchInput}
             recentActions={
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={ownerFilterLabels[designFilter]}
-                    className="h-9 shrink-0 gap-2"
-                  >
-                    <span className="grid">
-                      {Object.entries(ownerFilterLabels).map(
-                        ([filter, label]) => (
-                          <span
-                            key={filter}
-                            aria-hidden="true"
-                            className="invisible col-start-1 row-start-1 whitespace-nowrap"
-                          >
-                            {label}
-                          </span>
-                        ),
-                      )}
-                      <span className="col-start-1 row-start-1 whitespace-nowrap">
-                        {ownerFilterLabels[designFilter]}
-                      </span>
-                    </span>
-                    <IconChevronDown className="size-4" aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuRadioGroup
-                    value={designFilter}
-                    onValueChange={handleDesignFilterChange}
-                  >
-                    <DropdownMenuRadioItem value="all" indicator="check">
-                      {ownerFilterLabels.all}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="mine" indicator="check">
-                      {ownerFilterLabels.mine}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="not-mine" indicator="check">
-                      {ownerFilterLabels["not-mine"]}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <OwnershipFilter
+                value={designFilter === "not-mine" ? "shared" : designFilter}
+                onChange={handleDesignFilterChange}
+              />
             }
             templates={
               templatesError ? (

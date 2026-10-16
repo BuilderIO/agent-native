@@ -92,4 +92,76 @@ describe("ChatFirstChatHistory", () => {
 
     expect(onOpenChats).toHaveBeenCalledOnce();
   });
+
+  it("uses the section rail with independent disclosure and no New chat footer", () => {
+    const onSelect = vi.fn();
+    const onNewChat = vi.fn();
+    act(() => {
+      root.render(
+        <ChatFirstChatHistory
+          sections={[
+            {
+              id: "shared",
+              label: "Shared with you",
+              previewCount: 5,
+              items: Array.from({ length: 6 }, (_, index) => ({
+                id: `shared-${index}`,
+                title: `Shared ${index}`,
+                hideActions: true,
+                ownerLabel: "Owned by Pat",
+                accessLabel: "Shared directly",
+              })),
+            },
+          ]}
+          onSelect={onSelect}
+          onNewChat={onNewChat}
+          showNewChat={false}
+          railLabels={{ newChat: "Start a chat" }}
+        />,
+      );
+    });
+    expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
+    expect(container.querySelector(".an-chat-history-rail__footer")).toBeNull();
+    expect(
+      container.querySelector(".an-chat-history-row__menu-trigger"),
+    ).toBeNull();
+    expect(container.textContent).toContain("Owned by Pat");
+    expect(container.textContent).toContain("Shared directly");
+    const toggle = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-rail__section-toggle",
+    )!;
+    expect(toggle.textContent).toBe("Show all");
+    act(() => toggle.click());
+    expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(6);
+    expect(toggle.textContent).toBe("Show less");
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".an-chat-history-row__button")!
+        .click();
+    });
+    expect(onSelect).toHaveBeenCalledWith("shared-0");
+    expect(onNewChat).not.toHaveBeenCalled();
+  });
+
+  it("keeps the required New chat action on the common section footer", () => {
+    const onNewChat = vi.fn();
+    act(() => {
+      root.render(
+        <ChatFirstChatHistory
+          sections={[{ id: "mine", items: [], emptyLabel: "No owned chats" }]}
+          onSelect={() => {}}
+          onNewChat={onNewChat}
+          railLabels={{ newChat: "Start a chat" }}
+        />,
+      );
+    });
+    expect(container.textContent).toContain("No owned chats");
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".an-chat-history-rail__new-chat",
+    );
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe("Start a chat");
+    act(() => buttons[0].click());
+    expect(onNewChat).toHaveBeenCalledOnce();
+  });
 });

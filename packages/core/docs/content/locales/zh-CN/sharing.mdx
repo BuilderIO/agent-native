@@ -357,3 +357,7 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**身份验证**](/docs/authentication) — 会话、组织以及身份如何流入请求上下文
 - [**Extensions**](/docs/extensions#sharing) — 沙盒化迷你应用表面中的共享
 - [**创建模板**](/docs/creating-templates) — 将 `ownableColumns` 接入新模板的架构
+
+## 共享聊天记录
+
+`@agent-native/toolkit/app/chat/ownership-history` 提供 `useOwnershipChatHistory()` 和 `OwnershipChatHistoryRail`，用于分别显示自己的聊天和共享聊天的侧边栏。共享行会显示所有者和访问依据。每个分区独立分页，刷新失败时仍保留已加载的行和本地更改。

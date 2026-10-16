@@ -1,29 +1,9 @@
-import type { ChatThreadSummary } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
+import type { ChatThreadSummary } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
 
-export function visibleChatThreads(
-  threads: ChatThreadSummary[],
+export function optimisticStartedThreads(
+  threads: readonly ChatThreadSummary[],
   observedThreadStarts: ReadonlyMap<string, number>,
-): ChatThreadSummary[] {
+): ReadonlyMap<string, number> {
   const knownIds = new Set(threads.map((thread) => thread.id));
-  const optimistic: ChatThreadSummary[] = [...observedThreadStarts].flatMap(
-    ([id, startedAt]) =>
-      knownIds.has(id)
-        ? []
-        : [
-            {
-              id,
-              title: "",
-              preview: "",
-              messageCount: 0,
-              createdAt: startedAt,
-              updatedAt: startedAt,
-              scope: null,
-            },
-          ],
-  );
-  return [...threads, ...optimistic].filter(
-    (thread) =>
-      !thread.archivedAt &&
-      (thread.messageCount > 0 || observedThreadStarts.has(thread.id)),
-  );
+  return new Map([...observedThreadStarts].filter(([id]) => !knownIds.has(id)));
 }

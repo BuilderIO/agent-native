@@ -30,6 +30,7 @@ import {
   LazyChunkErrorBoundary,
   LazyChunkRetryFallback,
 } from "@agent-native/toolkit/app/shared";
+import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
@@ -62,7 +63,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import DeckCard from "@/components/deck/DeckCard";
-import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import { ImportDeckButton } from "@/components/editor/ImportDeckButton";
 import {
@@ -2926,7 +2926,12 @@ export default function Index({ active = true }: { active?: boolean }) {
             />
           }
           recentActions={
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+            <OwnershipFilter
+              value={deckFilter === "not-mine" ? "shared" : deckFilter}
+              onChange={(value) =>
+                setDeckFilter(value === "shared" ? "not-mine" : value)
+              }
+            />
           }
           templates={<DeckTemplateLibrary enabled={isHome} />}
           recent={
