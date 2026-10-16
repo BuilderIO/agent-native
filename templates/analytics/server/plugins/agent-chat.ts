@@ -1497,6 +1497,7 @@ function requestedComparisonCalendarRanges(
       /\b(?:this|current|last|previous|prior)\s+(?:week|month|quarter|year)\b/gi,
     ),
   ].map(([phrase]) => phrase);
+  const namedPeriodRanges = requestedNamedPeriodRanges(userText, now);
   const ranges = periodPhrases.flatMap((phrase) => {
     const range = requestedCalendarRange(phrase, now);
     return range ? [range] : [];
@@ -1518,6 +1519,14 @@ function requestedComparisonCalendarRanges(
     count: Number(match[2]),
     unit: match[3]?.toLowerCase().replace(/s$/, ""),
   }));
+  if (
+    namedPeriodRanges.length > 1 &&
+    (periodPhrases.length > 0 ||
+      rollingWindows.length > 0 ||
+      /\b(?:today|yesterday)\b/i.test(userText))
+  ) {
+    return [];
+  }
   const currentWindows = rollingWindows.filter(
     (window) => window.modifier === "last" || window.modifier === "past",
   );
@@ -1574,6 +1583,7 @@ function requestedComparisonCalendarRanges(
 
   const explicitDateRanges = requestedExplicitDateRanges(userText);
   if (explicitDateRanges.length > 1) {
+    if (namedPeriodRanges.length > 0) return [];
     const distinctRanges = new Map(
       explicitDateRanges.map((range) => [
         `${range.startDate}/${range.endDate}`,
@@ -1585,7 +1595,6 @@ function requestedComparisonCalendarRanges(
       : [];
   }
 
-  const namedPeriodRanges = requestedNamedPeriodRanges(userText, now);
   if (namedPeriodRanges.length > 1) {
     const distinctRanges = new Map(
       namedPeriodRanges.map((range) => [
