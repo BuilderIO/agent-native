@@ -54,6 +54,16 @@ export type LiveCopyTaskFailureCode =
   | "build_refused"
   | "build_failed";
 
+/**
+ * What brings a client up to date without decoding on the request thread:
+ * the state's vector, compared by bytes, and the deletions a client at that
+ * vector may still lack, since deleting never moves a state vector.
+ */
+export interface LiveCopyCatchUp {
+  stateVector: Uint8Array;
+  deletions: Uint8Array;
+}
+
 export type LiveCopyTaskResult =
   | {
       kind: "failed";
@@ -61,10 +71,15 @@ export type LiveCopyTaskResult =
       reason: string;
       message: string;
     }
-  | { kind: "unseeded" }
-  | { kind: "live"; text?: string }
+  | ({ kind: "unseeded" } & LiveCopyCatchUp)
+  | ({ kind: "live"; text?: string } & LiveCopyCatchUp)
   | { kind: "unchanged"; text?: string }
-  | { kind: "changed"; state: Uint8Array; text: string; update?: Uint8Array };
+  | ({
+      kind: "changed";
+      state: Uint8Array;
+      text: string;
+      update?: Uint8Array;
+    } & LiveCopyCatchUp);
 
 interface TaskInput {
   field: string;
@@ -184,6 +199,11 @@ function readWhole(doc: Y.Doc, bytes: Uint8Array): boolean {
   const decoder = { arr: bytes, pos: 0 };
   Y.readUpdate(decoder as never, doc, null);
   return decoder.pos === bytes.length;
+}
+
+function catchUp(doc: Y.Doc): LiveCopyCatchUp {
+  const stateVector = Y.encodeStateVector(doc);
+  return { stateVector, deletions: Y.encodeStateAsUpdate(doc, stateVector) };
 }
 
 function load(state: Uint8Array | null, field: string): Y.Doc {
@@ -340,9 +360,15 @@ export function defineLiveCopyTasks(
     [LIVE_COPY_TASK.read]: guarded(async (input: LiveCopyReadInput) => {
       const doc = load(input.state, input.field);
       try {
-        if (!fieldHasContent(doc, input.field)) return { kind: "unseeded" };
-        if (!input.derive) return { kind: "live" };
-        return { kind: "live", text: await derive(handlers, doc, input.field) };
+        if (!fieldHasContent(doc, input.field)) {
+          return { kind: "unseeded", ...catchUp(doc) };
+        }
+        if (!input.derive) return { kind: "live", ...catchUp(doc) };
+        return {
+          kind: "live",
+          ...catchUp(doc),
+          text: await derive(handlers, doc, input.field),
+        };
       } finally {
         doc.destroy();
       }
@@ -365,8 +391,9 @@ export function defineLiveCopyTasks(
           );
         }
         const state = encode(doc, input.maxStateBytes);
+        const caughtUp = catchUp(doc);
         const text = await derive(handlers, doc, input.field);
-        return { kind: "changed", state, text };
+        return { kind: "changed", state, text, ...caughtUp };
       } finally {
         doc.destroy();
       }
@@ -382,6 +409,7 @@ export function defineLiveCopyTasks(
         if (fieldHasContent(doc, input.field)) {
           return {
             kind: "live",
+            ...catchUp(doc),
             text: await derive(handlers, doc, input.field),
           };
         }
@@ -408,8 +436,9 @@ export function defineLiveCopyTasks(
         }
         const state = encode(doc, input.maxStateBytes);
         const update = Y.encodeStateAsUpdate(doc, before);
+        const caughtUp = catchUp(doc);
         const text = await derive(handlers, doc, input.field);
-        return { kind: "changed", state, text, update };
+        return { kind: "changed", state, text, update, ...caughtUp };
       } finally {
         doc.destroy();
       }
@@ -458,8 +487,9 @@ export function defineLiveCopyTasks(
         }
         const state = encode(doc, input.maxStateBytes);
         const update = Y.encodeStateAsUpdate(doc, before);
+        const caughtUp = catchUp(doc);
         const text = await derive(handlers, doc, input.field);
-        return { kind: "changed", state, text, update };
+        return { kind: "changed", state, text, update, ...caughtUp };
       } finally {
         doc.destroy();
       }

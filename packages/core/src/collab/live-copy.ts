@@ -8,6 +8,7 @@ import { BoundedTaskError, type BoundedTaskRunner } from "./bounded-tasks.js";
 import {
   LIVE_COPY_TASK,
   type LiveCopyApplyInput,
+  type LiveCopyCatchUp,
   type LiveCopyEditInput,
   type LiveCopyReadInput,
   type LiveCopySeedInput,
@@ -99,6 +100,12 @@ export interface LiveCopyOutcome {
 }
 
 export interface LiveCopyOptions {
+  /**
+   * Stable identity. Defining a binding under the same name again, as a dev
+   * server does when it evaluates the app's module again, replaces the old
+   * one.
+   */
+  name: string;
   /** Which collab documents are live copies. Checked on every write. */
   appliesTo(docId: string): boolean | Promise<boolean>;
   /**
@@ -125,6 +132,7 @@ export interface LiveCopyOptions {
 }
 
 export interface LiveCopyBinding {
+  readonly name: string;
   readonly appliesTo: (docId: string) => boolean | Promise<boolean>;
   readonly runner: BoundedTaskRunner;
   readonly field: string;
@@ -135,12 +143,14 @@ export interface LiveCopyBinding {
   ) => Promise<void | LiveCopyPersistOutcome>;
 }
 
-const LIVE_COPY_BINDINGS_KEY = "__agentNativeLiveCopyBindings__";
+const LIVE_COPY_BINDINGS_KEY = "__agentNativeLiveCopies__";
 const bindingsGlobal = globalThis as typeof globalThis & {
-  [LIVE_COPY_BINDINGS_KEY]?: Set<LiveCopyBinding>;
+  [LIVE_COPY_BINDINGS_KEY]?: Map<string, LiveCopyBinding>;
 };
-const bindings = (bindingsGlobal[LIVE_COPY_BINDINGS_KEY] ??=
-  new Set<LiveCopyBinding>());
+const bindings = (bindingsGlobal[LIVE_COPY_BINDINGS_KEY] ??= new Map<
+  string,
+  LiveCopyBinding
+>());
 
 /**
  * Declares which collab documents are live copies and how their text is
@@ -149,6 +159,9 @@ const bindings = (bindingsGlobal[LIVE_COPY_BINDINGS_KEY] ??=
  * documents it covers.
  */
 export function defineLiveCopy(options: LiveCopyOptions): LiveCopyBinding {
+  if (typeof options.name !== "string" || options.name.length === 0) {
+    throw new TypeError("defineLiveCopy needs a name");
+  }
   if (typeof options.appliesTo !== "function") {
     throw new TypeError("defineLiveCopy needs an appliesTo(docId) function");
   }
@@ -160,13 +173,14 @@ export function defineLiveCopy(options: LiveCopyOptions): LiveCopyBinding {
     throw new RangeError("defineLiveCopy maxStateBytes must be positive");
   }
   const binding: LiveCopyBinding = Object.freeze({
+    name: options.name,
     appliesTo: options.appliesTo,
     runner: options.runner,
     field: options.field ?? LIVE_COPY_DEFAULT_FIELD,
     maxStateBytes,
     ...(options.persist ? { persist: options.persist } : {}),
   });
-  bindings.add(binding);
+  bindings.set(binding.name, binding);
   return binding;
 }
 
@@ -175,16 +189,19 @@ export function liveCopiesDefined(): boolean {
   return bindings.size > 0;
 }
 
-/** Removes a binding so its documents take ordinary collab writes again. */
+/**
+ * Removes a binding so its documents take ordinary collab writes again. A
+ * binding already replaced under its name leaves the replacement in place.
+ */
 export function releaseLiveCopy(binding: LiveCopyBinding): void {
-  bindings.delete(binding);
+  if (bindings.get(binding.name) === binding) bindings.delete(binding.name);
 }
 
 export async function liveCopyBindingFor(
   docId: string,
 ): Promise<LiveCopyBinding | null> {
   if (bindings.size === 0) return null;
-  for (const binding of bindings) {
+  for (const binding of bindings.values()) {
     if (await binding.appliesTo(docId)) return binding;
   }
   return null;
@@ -391,12 +408,24 @@ const isString = (value: unknown): value is string => typeof value === "string";
 const isBytes = (value: unknown): value is Uint8Array =>
   value instanceof Uint8Array;
 
+function catchUpOf(
+  docId: string,
+  result: TaskOutput,
+  failure: "derive_failed" | "build_failed",
+): LiveCopyCatchUp {
+  return {
+    stateVector: required(docId, result.stateVector, isBytes, failure),
+    deletions: required(docId, result.deletions, isBytes, failure),
+  };
+}
+
 export interface LiveCopyChange {
   kind: "changed";
   state: Uint8Array;
   text: string;
   /** What this change added to the state it started from. */
   update: Uint8Array;
+  catchUp: LiveCopyCatchUp;
 }
 
 /** Validates stored state in the runner; derives its text when asked. */
@@ -405,7 +434,10 @@ export async function readLiveCopyState(
   docId: string,
   state: Uint8Array,
   derive: boolean,
-): Promise<{ kind: "unseeded" } | { kind: "live"; text: string | null }> {
+): Promise<
+  | { kind: "unseeded"; catchUp: LiveCopyCatchUp }
+  | { kind: "live"; text: string | null; catchUp: LiveCopyCatchUp }
+> {
   const input: Omit<LiveCopyReadInput, "field" | "maxStateBytes"> = {
     state,
     derive,
@@ -418,12 +450,14 @@ export async function readLiveCopyState(
     "derive_failed",
     ["unseeded", "live"],
   );
-  if (result.kind === "unseeded") return { kind: "unseeded" };
+  const catchUp = catchUpOf(docId, result, "derive_failed");
+  if (result.kind === "unseeded") return { kind: "unseeded", catchUp };
   return {
     kind: "live",
     text: derive
       ? required(docId, result.text, isString, "derive_failed")
       : null,
+    catchUp,
   };
 }
 
@@ -434,7 +468,13 @@ export async function applyLiveCopyUpdate(
   state: Uint8Array | null,
   update: Uint8Array,
 ): Promise<
-  { kind: "unchanged" } | { kind: "changed"; state: Uint8Array; text: string }
+  | { kind: "unchanged" }
+  | {
+      kind: "changed";
+      state: Uint8Array;
+      text: string;
+      catchUp: LiveCopyCatchUp;
+    }
 > {
   const input: Omit<LiveCopyApplyInput, "field" | "maxStateBytes"> = {
     state,
@@ -453,6 +493,7 @@ export async function applyLiveCopyUpdate(
     kind: "changed",
     state: result.state as Uint8Array,
     text: result.text as string,
+    catchUp: catchUpOf(docId, result, "derive_failed"),
   };
 }
 
@@ -486,6 +527,7 @@ export async function seedLiveCopyState(
     state: result.state as Uint8Array,
     text: result.text as string,
     update: required(docId, result.update, isBytes, "build_failed"),
+    catchUp: catchUpOf(docId, result, "build_failed"),
   };
 }
 
@@ -521,6 +563,7 @@ export async function editLiveCopyState(
     state: result.state as Uint8Array,
     text: result.text as string,
     update: required(docId, result.update, isBytes, "build_failed"),
+    catchUp: catchUpOf(docId, result, "build_failed"),
   };
 }
 
