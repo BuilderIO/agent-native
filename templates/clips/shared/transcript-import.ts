@@ -65,11 +65,13 @@ const TIME = String.raw`${CLOCK}(?:[.,]\d{1,3})?`;
 const CUE_TIMING = new RegExp(
   String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+.*)?$`,
 );
-// A start time with a fraction right before the arrow, as every SRT and
-// WebVTT cue timing has: timestamped prose such as "0:05 Use a --> b" or
-// "0:05 --> 0:10 is the range" is still text, while a cue with a bad end time
-// is SRT and gets SRT's line-specific error.
-const CUE_TIMING_START = new RegExp(String.raw`^\s*${CLOCK}[.,]\d{1,3}\s*-->`);
+// A cue timing is a start time with a fraction right before the arrow, or a
+// whole timing followed by nothing but WebVTT cue settings. Timestamped prose
+// such as "0:05 Use a --> b" or "0:05 --> 0:10 is the range" is still text,
+// while a cue with a bad end time is SRT and gets SRT's line-specific error.
+const CUE_TIMING_START = new RegExp(
+  String.raw`^\s*(?:${CLOCK}[.,]\d{1,3}\s*-->|${TIME}\s*-->\s*${TIME}(?:\s+[a-z]+:\S+)*\s*$)`,
+);
 // Text can follow a closing bracket or bold marker directly, as in
 // "[0:21]The chart."; a bare time needs a space after it, so "3:45pm" in
 // prose isn't read as a start time. A separator dash can't start an arrow,

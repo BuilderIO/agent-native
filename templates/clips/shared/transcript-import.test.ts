@@ -82,6 +82,19 @@ describe("detectTranscriptFormat", () => {
       ],
     });
   });
+
+  it("reads SRT whose timings have no fraction", () => {
+    const text =
+      "1\n00:00:01 --> 00:00:04\nHello\n\n2\n00:00:04 --> 00:00:06\nWorld";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 1000, endMs: 4000, text: "Hello" },
+        { startMs: 4000, endMs: 6000, text: "World" },
+      ],
+    });
+  });
 });
 
 describe("parseTranscriptImport", () => {
@@ -407,6 +420,40 @@ describe("parseTranscriptImport", () => {
       segments: [
         { startMs: 1000, endMs: 2000, text: "Hello" },
         { startMs: 2000, endMs: 3000, text: "x --> y" },
+      ],
+    });
+  });
+
+  it("starts a new cue at a timing with no fraction and no blank line before it", () => {
+    const result = parseTranscriptImport(
+      "1\n00:00:01 --> 00:00:02\nHello\n2\n00:00:02 --> 00:00:03\nWorld",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      format: "srt",
+      segments: [
+        { startMs: 1000, endMs: 2000, text: "Hello" },
+        { startMs: 2000, endMs: 3000, text: "World" },
+      ],
+    });
+  });
+
+  it("reads a timing with no fraction followed by cue settings", () => {
+    const result = parseTranscriptImport(
+      [
+        "WEBVTT",
+        "",
+        "00:01 --> 00:02 align:start",
+        "Hello",
+        "00:02 --> 00:03 line:0 position:50%",
+        "World",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 1000, endMs: 2000, text: "Hello" },
+        { startMs: 2000, endMs: 3000, text: "World" },
       ],
     });
   });
