@@ -25,6 +25,24 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
+// After typing overtakes an automatic save, the next one waits for a pause,
+// as the editor's autosave does, but never longer than the cap.
+const AUTOMATIC_SAVE_IDLE_MS = 1_000;
+const AUTOMATIC_SAVE_MAX_WAIT_MS = 5_000;
+
+async function untilTypingPauses(getIdentity: () => string): Promise<void> {
+  const deadline = Date.now() + AUTOMATIC_SAVE_MAX_WAIT_MS;
+  let identity = getIdentity();
+  for (;;) {
+    const wait = Math.min(AUTOMATIC_SAVE_IDLE_MS, deadline - Date.now());
+    if (wait <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    const next = getIdentity();
+    if (next === identity) return;
+    identity = next;
+  }
+}
+
 interface AutomaticSave {
   generation: number;
   newerBase: ReconcileSaveBase | null;
@@ -220,6 +238,8 @@ export function useDocumentReconcileRecovery({
           // A save that landed while typing continued is not a retry: counting
           // those turns steady typing in another tab into a conflict notice.
           refused = !persisted;
+          if (persisted)
+            await untilTypingPauses(() => callbacks.current.getSaveIdentity());
           draft = latestDraft();
           saveBase = undefined;
         }

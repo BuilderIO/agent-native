@@ -54,6 +54,7 @@ import {
 import {
   clearPageDraftJournal,
   listPageDraftJournal,
+  liveDraftWriterIds,
   PageDraftJournalError,
   readPageDraftJournal,
   writePageDraftJournal,
@@ -274,6 +275,18 @@ export function retryCreateAfterIntentWrite<T>(
 ): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
   writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
   return retryCreateAfterDraftRead(read, create);
+}
+
+/**
+ * Reads the draft to replay into a page this tab creates for a pending intent.
+ * An editor open in another tab saves its own draft, and replaying that draft
+ * here would race its save, so its entries are skipped.
+ */
+export async function readReplayableDraft(
+  scope: Parameters<typeof readPageDraftJournal>[0],
+): Promise<() => PageDraftJournalEntry | null> {
+  const liveWriters = await liveDraftWriterIds();
+  return () => readPageDraftJournal(scope, liveWriters ?? undefined);
 }
 
 export async function readDocumentBeforeCreateDiscard(
@@ -2224,7 +2237,7 @@ export function DocumentSidebar({
                   showRetry();
                   return;
                 }
-                const read = () => readPageDraftJournal(draftScope);
+                const read = await readReplayableDraft(draftScope);
                 const { created, draft } = await retryCreateAfterIntentWrite(
                   scope,
                   currentIntent,
