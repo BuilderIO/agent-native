@@ -857,6 +857,24 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     isError: false,
     content: JSON.stringify({ query_status: "timeout", rows: [] }),
   };
+  const dbtNotReadyStatus = {
+    name: "data-source-status",
+    isError: false,
+    content: JSON.stringify({
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        providers: [
+          {
+            id: "dbt",
+            label: "dbt Cloud",
+            grantState: "connected",
+            dbtReadiness: "token_missing",
+          },
+        ],
+      },
+    }),
+  };
   const draft = "Active accounts were 10 last month.";
   const disclosed =
     "Active accounts were 10 last month. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
@@ -876,6 +894,25 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       exhaustedDraftPrefix: expect.stringContaining(
         "not the owner-approved Semantic Layer definition",
       ),
+    });
+  });
+
+  it("requires the fallback disclosure when dbt is unavailable but BigQuery answers", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotReadyStatus, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 1,
+      retryMessage: expect.stringContaining("warehouse-derived from BigQuery"),
+      fallbackMessage: expect.stringContaining(
+        "not the owner-approved Semantic Layer definition",
+      ),
+      exhaustedDraftPrefix: expect.stringContaining("Semantic Layer page"),
     });
   });
 

@@ -579,8 +579,7 @@ function dbtFallbackGuard(
     DBT_FALLBACK_NOT_APPROVED.test(context.text);
   if (disclosed) return null;
   return {
-    retryMessage:
-      `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer. ${dbtNote}`,
+    retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer. ${dbtNote}`,
     fallbackMessage: `${DBT_FALLBACK_DISCLOSURE} ${dbtNote}`,
     exhaustedDraftPrefix: `${DBT_FALLBACK_DISCLOSURE} ${dbtNote}`,
     maxRetries: 1,
