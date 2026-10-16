@@ -1,7 +1,9 @@
 import type { ClipsActionTarget } from "../lib/clips-action";
-import { ClipsActionError } from "../lib/clips-action";
 import { originForServer } from "../lib/desktop-auth-token";
-import type { RecordingContextRequestInput } from "./context-api";
+import {
+  isTerminalRecordingContextRequestFailure,
+  type RecordingContextRequestInput,
+} from "./context-api";
 import {
   pendingLookbackRemovalStorageKey,
   lookbackRetryDelayMs,
@@ -137,15 +139,6 @@ function writeIntents(
   else storage.setItem(key, JSON.stringify(intents));
 }
 
-function isTerminalRequestRecoveryFailure(error: unknown): boolean {
-  return (
-    error instanceof ClipsActionError &&
-    ((error.status === 400 &&
-      error.code === "recording_context_invalid_window") ||
-      (error.status === 404 && error.code === "recording_unavailable"))
-  );
-}
-
 export function persistPendingLookbackCleanupIntent(
   storage: LookbackRemovalStorage,
   serverUrl: string,
@@ -279,7 +272,7 @@ export async function retryPendingLookbackCleanupIntents(input: {
         try {
           item = await input.requestItem(input.target, intent.request);
         } catch (error) {
-          if (!isTerminalRequestRecoveryFailure(error)) throw error;
+          if (!isTerminalRecordingContextRequestFailure(error)) throw error;
           clearPendingLookbackCleanupIntent(
             input.storage,
             input.serverUrl,

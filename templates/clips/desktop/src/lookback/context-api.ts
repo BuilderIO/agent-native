@@ -73,6 +73,47 @@ export function requestRecordingContext(
   );
 }
 
+export function isTerminalRecordingContextRequestFailure(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof ClipsActionError &&
+    ((error.status === 400 &&
+      error.code === "recording_context_invalid_window") ||
+      (error.status === 404 && error.code === "recording_unavailable"))
+  );
+}
+
+export function settleRecordingContextRequest<
+  T extends Pick<
+    RecordingContextItem,
+    "includeMicrophone" | "includeSystemAudio"
+  >,
+>(
+  request: Promise<T>,
+  recordingId: string,
+  forgetOrigin: (recordingId: string) => void,
+  onError: (error: unknown) => void,
+): Promise<T | null> {
+  return request
+    .then((result) => {
+      if (
+        typeof result.includeMicrophone === "boolean" &&
+        typeof result.includeSystemAudio === "boolean"
+      ) {
+        forgetOrigin(recordingId);
+      }
+      return result;
+    })
+    .catch((error: unknown) => {
+      if (isTerminalRecordingContextRequestFailure(error)) {
+        forgetOrigin(recordingId);
+      }
+      onError(error);
+      return null;
+    });
+}
+
 export async function removeRecordingContext(
   target: ClipsActionTarget,
   id: string,

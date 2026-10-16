@@ -381,6 +381,13 @@ export function forgetRewindClipOrigin(recordingId: string): void {
     forgottenRewindClipOrigins.delete(recordingId);
 }
 
+export function forgetRewindClipOriginIfNoRequest(
+  recordingId: string | null,
+  seconds: number,
+): void {
+  if (recordingId && !(seconds > 0)) forgetRewindClipOrigin(recordingId);
+}
+
 function rememberRewindClipOriginForStart(
   recordingId: string,
   params: StartParams,

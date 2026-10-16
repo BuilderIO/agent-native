@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ClipsActionError } from "../lib/clips-action";
 import {
   getRecordingContextItem,
+  isTerminalRecordingContextRequestFailure,
   listPendingRecordingContext,
   removeRecordingContext,
   requestRecordingContext,
+  settleRecordingContextRequest,
 } from "./context-api";
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
@@ -53,6 +56,112 @@ describe("requestRecordingContext", () => {
       includeMicrophone: true,
       includeSystemAudio: false,
     });
+  });
+});
+
+describe("settleRecordingContextRequest", () => {
+  it("keeps the origin while a request is pending and forgets it on success", async () => {
+    let resolve!: (value: {
+      includeMicrophone: boolean;
+      includeSystemAudio: boolean;
+    }) => void;
+    const request = new Promise<{
+      includeMicrophone: boolean;
+      includeSystemAudio: boolean;
+    }>((res) => {
+      resolve = res;
+    });
+    const forgetOrigin = vi.fn();
+    const onError = vi.fn();
+    const settled = settleRecordingContextRequest(
+      request,
+      "rec1",
+      forgetOrigin,
+      onError,
+    );
+
+    expect(forgetOrigin).not.toHaveBeenCalled();
+    resolve({ includeMicrophone: true, includeSystemAudio: false });
+
+    await expect(settled).resolves.toEqual({
+      includeMicrophone: true,
+      includeSystemAudio: false,
+    });
+    expect(forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["recording_context_invalid_window", 400],
+    ["recording_unavailable", 404],
+  ])(
+    "forgets the origin after terminal request failure %s",
+    async (code, status) => {
+      const forgetOrigin = vi.fn();
+      const onError = vi.fn();
+      const error = new ClipsActionError(
+        "terminal request failure",
+        status,
+        code,
+      );
+
+      await expect(
+        settleRecordingContextRequest(
+          Promise.reject(error),
+          "rec1",
+          forgetOrigin,
+          onError,
+        ),
+      ).resolves.toBeNull();
+
+      expect(forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+      expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+    },
+  );
+
+  it("retains the origin after a retryable request failure", async () => {
+    const forgetOrigin = vi.fn();
+    const onError = vi.fn();
+    const error = new ClipsActionError("temporary server failure", 503);
+
+    await expect(
+      settleRecordingContextRequest(
+        Promise.reject(error),
+        "rec1",
+        forgetOrigin,
+        onError,
+      ),
+    ).resolves.toBeNull();
+
+    expect(forgetOrigin).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+  });
+});
+
+describe("isTerminalRecordingContextRequestFailure", () => {
+  it("requires the matching typed status and error code", () => {
+    expect(
+      isTerminalRecordingContextRequestFailure(
+        new ClipsActionError(
+          "invalid window",
+          400,
+          "recording_context_invalid_window",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isTerminalRecordingContextRequestFailure(
+        new ClipsActionError("gone", 404, "recording_unavailable"),
+      ),
+    ).toBe(true);
+    expect(
+      isTerminalRecordingContextRequestFailure(
+        new ClipsActionError("forbidden", 403, "recording_forbidden"),
+      ),
+    ).toBe(false);
+    expect(isTerminalRecordingContextRequestFailure(new Error("offline"))).toBe(
+      false,
+    );
   });
 });
 

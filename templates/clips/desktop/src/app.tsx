@@ -172,6 +172,7 @@ import {
   createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
   forgetRewindClipOrigin,
+  forgetRewindClipOriginIfNoRequest,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
   queueRecordFirstUpload,
@@ -268,6 +269,7 @@ import {
   getRecordingContextItem,
   listPendingRecordingContext,
   requestRecordingContext,
+  settleRecordingContextRequest,
   type PendingRecordingContextCursor,
   type RecordingContextRequestInput,
   removeRecordingContext,
@@ -2070,8 +2072,11 @@ export function App({
   // Runs beside the recording, never ahead of it: a failed request only raises
   // the notice, and the recording continues.
   function requestLookbackForRecording(seconds: number) {
-    if (seconds <= 0) return;
     const recordingId = sessionRecordingIdRef.current;
+    if (!(seconds > 0)) {
+      forgetRewindClipOriginIfNoRequest(recordingId, seconds);
+      return;
+    }
     if (!recordingId) {
       setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
       return;
@@ -2110,20 +2115,12 @@ export function App({
         includeMicrophone: origin.includeMicrophone,
         includeSystemAudio: origin.includeSystemAudio,
       };
-      const item = requestRecordingContext(target, request)
-        .then((result) => {
-          if (
-            typeof result.includeMicrophone === "boolean" &&
-            typeof result.includeSystemAudio === "boolean"
-          ) {
-            forgetRewindClipOrigin(recordingId);
-          }
-          return result;
-        })
-        .catch((error: unknown) => {
-          onRequestError(error);
-          return null;
-        });
+      const item = settleRecordingContextRequest(
+        requestRecordingContext(target, request),
+        recordingId,
+        forgetRewindClipOrigin,
+        onRequestError,
+      );
       lookbackContextRef.current.set(recordingId, {
         recordingId,
         request,
@@ -4241,6 +4238,11 @@ export function App({
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
+      const lookbackSecondsForRecording = effectiveLookbackSeconds({
+        labEnabled: lookbackLabEnabled,
+        rewindOn,
+        seconds: lookbackSeconds,
+      });
       const recordingPromise = startRecording(
         {
           serverUrl,
@@ -4255,7 +4257,7 @@ export function App({
           micOn,
           systemAudioOn,
           voiceCleanupEnabled,
-          lookbackEnabled: lookbackLabEnabled && rewindOn,
+          lookbackEnabled: lookbackSecondsForRecording > 0,
           localRecordingMode: recordingLocalMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
@@ -4278,13 +4280,7 @@ export function App({
             }
             sessionRecordingIdRef.current = recordingId;
             sessionCaptureIdentityRef.current = captureIdentity ?? recordingId;
-            requestLookbackForRecording(
-              effectiveLookbackSeconds({
-                labEnabled: lookbackLabEnabled,
-                rewindOn,
-                seconds: lookbackSeconds,
-              }),
-            );
+            requestLookbackForRecording(lookbackSecondsForRecording);
           },
           onCaptureStartFailed: (recordingId) =>
             removeLookbackContext(recordingId),

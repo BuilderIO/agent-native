@@ -33,6 +33,7 @@ vi.mock("./local-export", async (importOriginal) => {
 
 import { requestRecordingContext } from "../lookback/context-api";
 import {
+  forgetRewindClipOriginIfNoRequest,
   getRewindClipOrigin,
   rememberRewindClipOrigin,
   startRecording,
@@ -365,6 +366,21 @@ describe("native recording startup", () => {
 
     expect(getRewindClipOrigin("recording-0")).not.toBeNull();
     expect(getRewindClipOrigin("recording-50")).not.toBeNull();
+  });
+
+  it("forgets an origin when no earlier screen-time request is needed", () => {
+    const now = new Date().toISOString();
+    rememberRewindClipOrigin({
+      recordingId: "recording-no-request",
+      startedAt: now,
+      includeMicrophone: true,
+      includeSystemAudio: false,
+      rememberedAt: now,
+    });
+
+    forgetRewindClipOriginIfNoRequest("recording-no-request", 0);
+
+    expect(getRewindClipOrigin("recording-no-request")).toBeNull();
   });
 
   it("retains origins until the pending request is completed or removed", () => {
