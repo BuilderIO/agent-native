@@ -605,11 +605,7 @@ export function buildRecordingErrorToastOptions(
   ) => string,
   openRecoveryUrl: (url: string, fallbackToCurrentFrame: boolean) => boolean,
   onPopupBlocked: () => void,
-): {
-  description: string;
-  duration: number;
-  action?: { label: string; onClick: () => void };
-} {
+) {
   const uploadFailure = isUploadFailureError(message);
   const embeddedCapturePolicyUnknownError =
     isEmbeddedCapturePolicyUnknownError(message);
