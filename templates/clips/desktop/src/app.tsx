@@ -267,8 +267,9 @@ import { whisperModelOptionLabel } from "./lib/whisper-model-picker";
 import {
   getRecordingContextItem,
   listPendingRecordingContext,
-  removeRecordingContext,
   requestRecordingContext,
+  type RecordingContextRequestInput,
+  removeRecordingContext,
   type RecordingContextItem,
   updateRecordingContext,
 } from "./lookback/context-api";
@@ -281,20 +282,31 @@ import {
 } from "./lookback/lookback-settings";
 import { LookbackRow } from "./lookback/LookbackRow";
 import {
+  clearPendingLookbackCleanupIntent,
+  hasPendingLookbackCleanupIntentWarning,
+  persistPendingLookbackCleanupIntent,
+  readPendingLookbackCleanupIntents,
+  retryPendingLookbackCleanupIntents,
+} from "./lookback/pending-lookback-cleanup-intent";
+import {
   hasPendingFailedLookbackRemoval,
   isLookbackContextAwaitingStop,
   pendingFailedLookbackContexts,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContextAfterStop,
+  type PendingLookbackCleanupLifecycle,
   type PendingLookbackContext,
 } from "./lookback/pending-lookback-context";
 import {
   hasPendingLookbackRemovalWarning,
+  pendingLookbackRemovalRetryIds,
   persistPendingLookbackRemoval,
+  recordLookbackRemovalRetryFailure,
   readPendingLookbackRemovals,
   retryPendingLookbackRemovals,
   sameLookbackRemovalScope,
   shouldProcessLookbackItem,
+  type LookbackRemovalRetry,
   type LookbackRemovalStorage,
 } from "./lookback/pending-lookback-removal";
 import { processRecordingContextItem } from "./lookback/worker";
@@ -1236,6 +1248,9 @@ export function App({
   // Failed starts can settle after a newer request begins, so keep each
   // cleanup target keyed until its recording fails, is cancelled, or stops.
   const lookbackContextRef = useRef(new Map<string, PendingLookbackContext>());
+  const lookbackRemovalRetriesRef = useRef(
+    new Map<string, LookbackRemovalRetry>(),
+  );
   const processingLookbackIdsRef = useRef<Set<string>>(new Set());
   // Pending items whose footage was captured on another device. Session-scoped,
   // so a restart checks them against local origins again.
@@ -1924,6 +1939,35 @@ export function App({
     };
   }
 
+  function lookbackCleanupLifecycle(
+    storage: LookbackRemovalStorage,
+  ): PendingLookbackCleanupLifecycle {
+    return {
+      persistIntent: (context, itemId) =>
+        persistPendingLookbackCleanupIntent(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          context.request,
+          itemId,
+        ),
+      persistRemovalItem: (context, itemId) =>
+        persistPendingLookbackRemoval(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          itemId,
+        ),
+      clearIntent: (context) =>
+        clearPendingLookbackCleanupIntent(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          context.recordingId,
+        ),
+    };
+  }
+
   const updateLookbackRemovalWarning = useCallback(() => {
     const activeServerUrl = authServerUrlRef.current;
     const activeAccount = signedInAsRef.current;
@@ -1937,9 +1981,15 @@ export function App({
       activeServerUrl,
       activeAccount,
     );
+    const cleanupIntents = readPendingLookbackCleanupIntents(
+      lookbackRemovalStorage(),
+      activeServerUrl,
+      activeAccount,
+    );
     setLookbackRemovalFailed(
       hasPendingFailedLookbackRemoval(lookbackContextRef.current, scope) ||
-        hasPendingLookbackRemovalWarning(stored),
+        hasPendingLookbackRemovalWarning(stored) ||
+        hasPendingLookbackCleanupIntentWarning(cleanupIntents),
     );
   }, []);
 
@@ -1970,11 +2020,40 @@ export function App({
       storage,
       serverUrl: target.serverUrl,
       account,
-      target,
-      removeItem: removeRecordingContext,
+      target: {
+        serverUrl: target.serverUrl,
+        authToken: loadDesktopAuthToken(target.serverUrl),
+      },
+      skipIds: pendingLookbackRemovalRetryIds(
+        lookbackRemovalRetriesRef.current,
+      ),
+      removeItem: retryLookbackRemoval,
     });
-    if (state.status !== "ready" || state.pendingIds.has(itemId)) {
+    if (state.status === "unreadable") {
       throw new Error("Earlier screen time removal is still pending.");
+    }
+  }
+
+  async function retryLookbackRemoval(
+    target: { serverUrl: string; authToken: string },
+    itemId: string,
+  ) {
+    try {
+      const item = await removeRecordingContext(
+        {
+          serverUrl: target.serverUrl,
+          authToken: loadDesktopAuthToken(target.serverUrl),
+        },
+        itemId,
+      );
+      lookbackRemovalRetriesRef.current.delete(itemId);
+      return item;
+    } catch (error) {
+      recordLookbackRemovalRetryFailure(
+        lookbackRemovalRetriesRef.current,
+        itemId,
+      );
+      throw error;
     }
   }
 
@@ -2003,17 +2082,21 @@ export function App({
     }
     try {
       const target = lookbackTarget();
-      const item = requestRecordingContext(target, {
+      const request: RecordingContextRequestInput = {
         recordingId,
         seconds,
         endedAt: origin.startedAt,
         deviceId: clipsDeviceId(),
-      }).catch((error: unknown) => {
-        onRequestError(error);
-        return null;
-      });
+      };
+      const item = requestRecordingContext(target, request).catch(
+        (error: unknown) => {
+          onRequestError(error);
+          return null;
+        },
+      );
       lookbackContextRef.current.set(recordingId, {
         recordingId,
+        request,
         target,
         account: signedInAs,
         item,
@@ -2028,23 +2111,23 @@ export function App({
     recordingId: string | null | undefined,
     stopSucceeded: boolean,
   ) {
-    if (!stopSucceeded && recordingId) {
-      forgetRewindClipOrigin(recordingId);
-    }
-    void settlePendingLookbackContextAfterStop(
+    const storage = lookbackRemovalStorage();
+    const settling = settlePendingLookbackContextAfterStop(
       lookbackContextRef.current,
       recordingId,
       stopSucceeded,
       removeFailedLookbackItem,
-    )
-      .then(updateLookbackRemovalWarning)
-      .catch((error: unknown) => {
-        console.error(
-          "[clips-popover] removing earlier screen time failed:",
-          error,
-        );
-        updateLookbackRemovalWarning();
-      });
+      lookbackCleanupLifecycle(storage),
+    );
+    if (!stopSucceeded && recordingId) forgetRewindClipOrigin(recordingId);
+    updateLookbackRemovalWarning();
+    void settling.then(updateLookbackRemovalWarning).catch((error: unknown) => {
+      console.error(
+        "[clips-popover] removing earlier screen time failed:",
+        error,
+      );
+      updateLookbackRemovalWarning();
+    });
   }
 
   function removeLookbackContext(recordingId?: string) {
@@ -2116,11 +2199,22 @@ export function App({
               context.recordingId,
               false,
               removeFailedLookbackItem,
+              lookbackCleanupLifecycle(lookbackRemovalStorage()),
             ),
           ),
         );
         if (cancelled) return;
         const storage = lookbackRemovalStorage();
+        const activeRecordingIds = new Set(lookbackContextRef.current.keys());
+        const cleanupIntents = await retryPendingLookbackCleanupIntents({
+          storage,
+          serverUrl,
+          account: signedInAs,
+          target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          skipRecordingIds: activeRecordingIds,
+          requestItem: requestRecordingContext,
+        });
+        if (cancelled) return;
         const storedRemovals = readPendingLookbackRemovals(
           storage,
           serverUrl,
@@ -2130,7 +2224,9 @@ export function App({
           hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
             serverUrl,
             account: signedInAs,
-          }) || hasPendingLookbackRemovalWarning(storedRemovals),
+          }) ||
+            hasPendingLookbackRemovalWarning(storedRemovals) ||
+            hasPendingLookbackCleanupIntentWarning(cleanupIntents),
         );
         if (storedRemovals.status === "unreadable") return;
         const pendingRemovalIds = new Set(
@@ -2141,36 +2237,60 @@ export function App({
             .map((context) => context.removalItemId)
             .filter((id): id is string => Boolean(id)),
         );
+        const retryLaterIds = pendingLookbackRemovalRetryIds(
+          lookbackRemovalRetriesRef.current,
+        );
+        for (const id of retryLaterIds) pendingRemovalIds.add(id);
         const pendingRemovals = await retryPendingLookbackRemovals({
           storage,
           serverUrl,
           account: signedInAs,
           target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           skipIds: pendingRemovalIds,
-          removeItem: removeRecordingContext,
+          removeItem: retryLookbackRemoval,
         });
         if (cancelled) return;
         setLookbackRemovalFailed(
           hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
             serverUrl,
             account: signedInAs,
-          }) || hasPendingLookbackRemovalWarning(pendingRemovals),
+          }) ||
+            hasPendingLookbackRemovalWarning(pendingRemovals) ||
+            hasPendingLookbackCleanupIntentWarning(cleanupIntents),
         );
-        if (pendingRemovals.status === "unreadable") return;
+        if (
+          cleanupIntents.status === "unreadable" ||
+          pendingRemovals.status === "unreadable"
+        ) {
+          return;
+        }
         if (!lookbackLabEnabled || !rewindOn) return;
 
+        const cleanupRemovalIds = cleanupIntents.intents.flatMap((intent) =>
+          intent.itemId ? [intent.itemId] : [],
+        );
+        const excludeIds = [
+          ...new Set([
+            ...pendingRemovalIds,
+            ...pendingRemovals.pendingIds,
+            ...cleanupRemovalIds,
+            ...skippedLookbackIdsRef.current,
+          ]),
+        ].slice(0, 100);
         const items = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           {
             deviceId: clipsDeviceId(),
-            // The server accepts at most 100 excludeIds; any beyond that stay
-            // in the oldest-first batch.
-            excludeIds: [...skippedLookbackIdsRef.current].slice(0, 100),
+            // Keep cleanup IDs ahead of unrelated-device skips so failed
+            // removals do not starve newer work in the oldest-first batch.
+            excludeIds,
           },
         );
         if (cancelled) return;
         for (const item of items) {
           if (!shouldProcessLookbackItem(item.id, pendingRemovals)) continue;
+          if (cleanupIntents.pendingRecordingIds.has(item.recordingId))
+            continue;
           if (processingLookbackIdsRef.current.has(item.id)) continue;
           if (
             isLookbackContextAwaitingStop(
@@ -5105,11 +5225,14 @@ export function App({
           <LocalRecordingModeBanner mode={localRecordingMode} />
         ) : null}
 
-        {lookbackNotice || lookbackRemovalFailed ? (
+        {lookbackNotice ? (
           <p role="status" className="setup-warning">
-            {lookbackRemovalFailed
-              ? t("lookbackContext.removeFailed")
-              : lookbackNotice}
+            {lookbackNotice}
+          </p>
+        ) : null}
+        {lookbackRemovalFailed ? (
+          <p role="status" className="setup-warning">
+            {t("lookbackContext.removeFailed")}
           </p>
         ) : null}
 

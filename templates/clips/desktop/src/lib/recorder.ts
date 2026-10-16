@@ -4484,7 +4484,6 @@ export async function startRecording(
     void invoke("hide_recording_chrome").catch(() => {});
   };
   const cleanupFailedCaptureStart = (recordingId: string) => {
-    forgetRewindClipOrigin(recordingId);
     try {
       params.onCaptureStartFailed?.(recordingId);
     } catch (cleanupError) {
@@ -4492,6 +4491,8 @@ export async function startRecording(
         "[clips-recorder] failed to clear context after startup failure:",
         cleanupError,
       );
+    } finally {
+      forgetRewindClipOrigin(recordingId);
     }
   };
   const startPromise = startRecordingInner(

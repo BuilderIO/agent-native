@@ -12,6 +12,40 @@ export type PendingLookbackRemovalState =
   | { status: "ready"; pendingIds: Set<string>; failed: boolean }
   | { status: "unreadable"; pendingIds: Set<string>; failed: true };
 
+export interface LookbackRemovalRetry {
+  attempts: number;
+  retryAt: number;
+}
+
+const INITIAL_RETRY_DELAY_MS = 3_000;
+const MAX_RETRY_DELAY_MS = 5 * 60_000;
+
+export function pendingLookbackRemovalRetryIds(
+  retries: ReadonlyMap<string, LookbackRemovalRetry>,
+  now = Date.now(),
+): Set<string> {
+  return new Set(
+    [...retries].flatMap(([id, retry]) => (retry.retryAt > now ? [id] : [])),
+  );
+}
+
+export function recordLookbackRemovalRetryFailure(
+  retries: Map<string, LookbackRemovalRetry>,
+  id: string,
+  now = Date.now(),
+): void {
+  const attempts = (retries.get(id)?.attempts ?? 0) + 1;
+  retries.set(id, {
+    attempts,
+    retryAt:
+      now +
+      Math.min(
+        INITIAL_RETRY_DELAY_MS * 2 ** (attempts - 1),
+        MAX_RETRY_DELAY_MS,
+      ),
+  });
+}
+
 export function pendingLookbackRemovalStorageKey(
   serverUrl: string,
   account: string | null | undefined,

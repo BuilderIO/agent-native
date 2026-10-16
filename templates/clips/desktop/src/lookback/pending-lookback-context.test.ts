@@ -14,6 +14,12 @@ import {
 function pending(recordingId: string): PendingLookbackContext {
   return {
     recordingId,
+    request: {
+      recordingId,
+      seconds: 300,
+      endedAt: "2026-10-15T12:00:00.000Z",
+      deviceId: "device-1",
+    },
     target: { serverUrl: "https://clips.example.test", authToken: "" },
     account: "person@example.test",
     item: Promise.resolve(null),
@@ -134,6 +140,43 @@ describe("takePendingLookbackContextAfterStop", () => {
 });
 
 describe("settlePendingLookbackContextAfterStop", () => {
+  it("persists cleanup intent before waiting for the context response", async () => {
+    const context = pending("recording-a");
+    let resolveItem!: (item: RecordingContextItem) => void;
+    context.item = new Promise((resolve) => {
+      resolveItem = resolve;
+    });
+    const contexts = new Map([[context.recordingId, context]]);
+    const events: string[] = [];
+    const settling = settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      false,
+      async () => {
+        events.push("remove");
+      },
+      {
+        persistIntent: (_context, itemId) =>
+          events.push(itemId ? `intent:${itemId}` : "intent:recording"),
+        persistRemovalItem: (_context, itemId) =>
+          events.push(`queue:${itemId}`),
+        clearIntent: () => events.push("clear-intent"),
+      },
+    );
+
+    expect(events).toEqual(["intent:recording"]);
+    resolveItem({ id: "context-1" } as RecordingContextItem);
+    await settling;
+
+    expect(events).toEqual([
+      "intent:recording",
+      "intent:context-1",
+      "queue:context-1",
+      "clear-intent",
+      "remove",
+    ]);
+  });
+
   it("removes the server request when recording stop fails", async () => {
     const context = pendingWithItem("recording-a");
     const contexts = new Map([[context.recordingId, context]]);

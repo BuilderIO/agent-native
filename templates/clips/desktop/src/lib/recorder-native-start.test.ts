@@ -1798,7 +1798,9 @@ describe("browser recording startup cancellation", () => {
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     rejectMediaRecorderStop = true;
     const controller = new AbortController();
-    const onCaptureStartFailed = vi.fn();
+    const onCaptureStartFailed = vi.fn((recordingId: string) => {
+      expect(getRewindClipOrigin(recordingId)).not.toBeNull();
+    });
     const pending = startRecording(
       {
         ...params,

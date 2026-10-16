@@ -41,14 +41,16 @@ export type RecordingContextUpdate = {
   error?: string;
 };
 
+export type RecordingContextRequestInput = {
+  recordingId: string;
+  seconds: number;
+  endedAt: string;
+  deviceId: string;
+};
+
 export function requestRecordingContext(
   target: ClipsActionTarget,
-  input: {
-    recordingId: string;
-    seconds: number;
-    endedAt: string;
-    deviceId: string;
-  },
+  input: RecordingContextRequestInput,
 ): Promise<RecordingContextItem> {
   return callClipsActionFor<RecordingContextItem>(
     target,

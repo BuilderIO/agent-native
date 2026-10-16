@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   hasPendingLookbackRemovalWarning,
+  pendingLookbackRemovalRetryIds,
   pendingLookbackRemovalStorageKey,
   persistPendingLookbackRemoval,
+  recordLookbackRemovalRetryFailure,
   retryPendingLookbackRemovals,
   shouldProcessLookbackItem,
+  type LookbackRemovalRetry,
   type LookbackRemovalStorage,
 } from "./pending-lookback-removal";
 
@@ -22,6 +25,22 @@ function memoryStorage(): LookbackRemovalStorage & {
 }
 
 describe("pending lookback removal storage", () => {
+  it("backs off failed removals and lets them retry when due", () => {
+    const retries = new Map<string, LookbackRemovalRetry>();
+
+    recordLookbackRemovalRetryFailure(retries, "context-1", 1_000);
+    expect(pendingLookbackRemovalRetryIds(retries, 3_999)).toEqual(
+      new Set(["context-1"]),
+    );
+    expect(pendingLookbackRemovalRetryIds(retries, 4_000).size).toBe(0);
+
+    recordLookbackRemovalRetryFailure(retries, "context-1", 4_000);
+    expect(pendingLookbackRemovalRetryIds(retries, 9_999)).toEqual(
+      new Set(["context-1"]),
+    );
+    expect(pendingLookbackRemovalRetryIds(retries, 10_000).size).toBe(0);
+  });
+
   it("scopes saved IDs by server origin and normalized account", () => {
     const key = pendingLookbackRemovalStorageKey(
       "https://clips.example.test/path",
