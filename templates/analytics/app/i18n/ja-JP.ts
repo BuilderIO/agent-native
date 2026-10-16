@@ -824,6 +824,7 @@ export default {
     bigQueryHealthUnavailable:
       "ファーストパーティ Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
     analyticsEventCount: "観測イベント",
+    analyticsRecentEventCount: "観測イベント（過去30日間）",
     slowQueries24h: "遅いクエリ（24 時間）",
     maxQueryDuration: "最大クエリ時間",
     defaultKeyName: "ホストされたテンプレート",

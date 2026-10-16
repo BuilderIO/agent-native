@@ -809,6 +809,7 @@ export default {
     bigQueryHealthUnavailable:
       "퍼스트파티 Analytics 부담을 확인하지 못했습니다. 백엔드를 바꾸기 전에 다시 로드하세요.",
     analyticsEventCount: "관측된 이벤트",
+    analyticsRecentEventCount: "관측된 이벤트 (최근 30일)",
     slowQueries24h: "느린 쿼리 (24시간)",
     maxQueryDuration: "최대 쿼리 시간",
     defaultKeyName: "호스팅된 템플릿",

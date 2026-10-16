@@ -835,6 +835,7 @@ export default {
     bigQueryHealthUnavailable:
       "No se pudo comprobar la presión de Analytics propio. Recarga e inténtalo de nuevo antes de cambiar de backend.",
     analyticsEventCount: "Eventos observados",
+    analyticsRecentEventCount: "Eventos observados (últimos 30 días)",
     slowQueries24h: "Consultas lentas (24 h)",
     maxQueryDuration: "Tiempo máximo de consulta",
     defaultKeyName: "Plantillas alojadas",

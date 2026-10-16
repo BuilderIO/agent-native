@@ -1362,6 +1362,7 @@ export default {
     bigQueryHealthUnavailable:
       "We could not check first-party analytics pressure right now. Reload and try again before changing backends.",
     analyticsEventCount: "Observed events",
+    analyticsRecentEventCount: "Observed events (last 30 days)",
     slowQueries24h: "Slow queries (24h)",
     maxQueryDuration: "Max query time",
     defaultKeyName: "Hosted templates",

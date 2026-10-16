@@ -152,7 +152,8 @@ interface FirstPartyAnalyticsHealthResponse {
   status: "healthy" | "monitor" | "recommend_bigquery" | "unavailable";
   externalBackendRecommendation?: "none" | "connect" | "use" | "unknown";
   metrics: {
-    eventCount: number;
+    coverage: { kind: "all_time" | "recent_window" | "unavailable" };
+    eventCount: number | null;
     slowQueryCount24h: number;
     maxQueryDurationMs24h: number;
   };
@@ -1828,10 +1829,16 @@ function FirstPartyAnalyticsDetail() {
             <div className="mt-4 grid grid-cols-3 gap-2">
               <div>
                 <div className="text-muted-foreground">
-                  {t("dataSources.analyticsEventCount")}
+                  {t(
+                    health.metrics.coverage.kind === "recent_window"
+                      ? "dataSources.analyticsRecentEventCount"
+                      : "dataSources.analyticsEventCount",
+                  )}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.eventCount)}
+                  {health.metrics.eventCount === null
+                    ? t("dataSources.statusUnknown")
+                    : formatNumber(health.metrics.eventCount)}
                 </div>
               </div>
               <div>
