@@ -381,6 +381,9 @@ const LAST_TOUCH_COOKIE: AttributionCookieSpec = {
 let _firstTouchCaptured = false;
 // Bounds the resend after a response race; see `syncFirstTouchToServer`.
 let _firstTouchSyncsLeft = 2;
+// Set when this page wrote `an_ft` or `an_lt`, which the server then writes
+// again: Safari keeps a cookie page JavaScript wrote for seven days at most.
+let _attributionCookieWritten = false;
 
 export interface FirstTouchAttribution {
   ref?: string;
@@ -828,6 +831,7 @@ function writeAttributionCookie(
   const encodedValue = fitAttributionCookieValue(value, spec);
   try {
     document.cookie = attributionCookieAssignment(spec.name, encodedValue);
+    _attributionCookieWritten = true;
   } catch {
     // best-effort
   }
@@ -901,18 +905,25 @@ function readLocalFirstTouch(): FirstTouchAttribution | null {
 
 /**
  * Ask our server to keep `firstTouch` in its year-long cookie, unless it
- * already holds that visit. Two tabs can each send a touch before either
+ * already holds that visit and this page wrote no attribution cookie; the
+ * same request has the server write `an_ft` and `an_lt` again. Two tabs can each send a touch before either
  * response lands, and the later response wins the cookie, so when ours
  * leaves a worse touch there than this browser holds, send the better one
  * again. Until the server holds it, signup still reads `an_ft`.
  */
 function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
-  if (isSameFirstTouch(readServerFirstTouch(), firstTouch)) return;
+  if (
+    !_attributionCookieWritten &&
+    isSameFirstTouch(readServerFirstTouch(), firstTouch)
+  ) {
+    return;
+  }
   // An embed that must not call our API (the Builder shell canvas) keeps only
   // the browser's copies.
   if (agentNativeApiDisabledReason()) return;
   if (_firstTouchSyncsLeft <= 0 || typeof fetch !== "function") return;
   _firstTouchSyncsLeft -= 1;
+  _attributionCookieWritten = false;
   void fetch(agentNativePath(FIRST_TOUCH_SERVER_PATH), {
     method: "POST",
     credentials: "same-origin",
@@ -997,8 +1008,8 @@ function storeTouches(
     } else {
       storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, firstTouch);
     }
-    syncFirstTouchToServer(firstTouch);
     captureLastTouchAttribution(current, forwarded, forwardedAt);
+    syncFirstTouchToServer(firstTouch);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
   }

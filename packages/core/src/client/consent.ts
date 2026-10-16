@@ -1,7 +1,9 @@
 import {
   CONSENT_COOKIE_LIFETIME_SECONDS,
   CONSENT_COOKIE_NAME,
+  CONSENT_PATH,
   CONSENT_REGION_PATH,
+  consentCookieDomain,
   isConsentRegionTimeZone,
   parseConsent,
   serializeConsent,
@@ -74,10 +76,26 @@ export function getConsentChoice(): ConsentChoice | null {
 
 function cookieDomain(): string {
   const host = typeof window === "undefined" ? "" : window.location.hostname;
-  // One choice covers the site and every app on agent-native.com.
-  return host === "agent-native.com" || host.endsWith(".agent-native.com")
-    ? "; domain=agent-native.com"
-    : "";
+  const domain = consentCookieDomain(host);
+  return domain ? `; domain=${domain}` : "";
+}
+
+/**
+ * Safari keeps a cookie page JavaScript wrote for seven days at most, so the
+ * server writes the choice again for its full year.
+ */
+function storeChoiceOnServer(choice: ConsentChoice): void {
+  if (agentNativeApiDisabledReason() || typeof fetch !== "function") return;
+  void fetch(agentNativePath(CONSENT_PATH), {
+    method: "POST",
+    credentials: "same-origin",
+    keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ choice: serializeConsent(choice) }),
+  }).catch(() => {
+    // coercion-ok: the browser's own copy still holds the choice, for seven
+    // days in Safari; the visitor is asked again after that.
+  });
 }
 
 function readCachedRegion(): ConsentRegion | null {
@@ -224,6 +242,7 @@ export function setConsentChoice(choice: ConsentChoice): void {
     // coercion-ok: a sandboxed iframe can't store the choice; it still
     // applies to this page.
   }
+  storeChoiceOnServer(choice);
   state().settingsOpen = false;
   if (!state().region) state().region = "consent";
   settle();
