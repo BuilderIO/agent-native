@@ -1152,6 +1152,160 @@ describe("dashboard filter feedback during navigation", () => {
   );
 
   it.each(
+    ["multi-select", "date"].flatMap((portal) =>
+      ["foreign", "POST"].flatMap((method) =>
+        ["before close", "after detach"].map((timing) => ({
+          portal,
+          method,
+          timing,
+        })),
+      ),
+    ),
+  )(
+    "preserves outside focus $timing of $portal during $method",
+    async ({ portal, method, timing }) => {
+      barFilters = [
+        ...filters,
+        { id: "day", label: "Day", type: "date", default: "2026-10-01" },
+      ];
+      await render("/dashboards/test?id=selected", undefined, true);
+      const outside = document.createElement("input");
+      container.append(outside);
+      const trigger =
+        portal === "multi-select" ? appTrigger() : button("Oct 1, 2026");
+      act(() => trigger.click());
+      const content = document.querySelector<HTMLElement>('[role="dialog"]')!;
+      act(() =>
+        (
+          content.querySelector<HTMLElement>("input, button") ?? content
+        ).focus(),
+      );
+      let closeEvent: Event | undefined;
+      let detached = false;
+      content.addEventListener(
+        "focusScope.autoFocusOnUnmount",
+        (event) => {
+          closeEvent = event;
+          detached = !content.isConnected;
+          if (timing === "after detach") outside.focus();
+        },
+        { once: true },
+      );
+      act(() => {
+        if (timing === "before close") outside.focus();
+        void router.navigate(
+          "/dashboards/other?id=foreign#target",
+          method === "POST"
+            ? { formMethod: "POST", formData: new FormData() }
+            : undefined,
+        );
+      });
+      const pending = router.state.navigation.location;
+      await vi.waitFor(() => expect(closeEvent).toBeDefined());
+      expect(detached).toBe(true);
+      expect(closeEvent!.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(outside);
+      expect(trigger.disabled).toBe(true);
+      expect(router.state.navigation.location).toBe(pending);
+      if (method === "POST") {
+        expect(submission.signal.aborted).toBe(false);
+        await act(async () => submission.resolve());
+        expect(router.state.navigation.state).toBe("loading");
+        expect(router.state.navigation.location).toBe(pending);
+        expect(document.activeElement).toBe(outside);
+      }
+      await act(async () => loads[1].reject(new Error("foreign failed")));
+      expect(document.activeElement).toBe(outside);
+      expect(trigger.disabled).toBe(false);
+      expect(filterBarMounts).toBe(1);
+    },
+  );
+
+  it.each(
+    ["multi-select", "date"].flatMap((portal) =>
+      ["foreign", "POST"].map((method) => ({ portal, method })),
+    ),
+  )(
+    "recovers genuinely lost $portal focus during $method",
+    async ({ portal, method }) => {
+      barFilters = [
+        ...filters,
+        { id: "day", label: "Day", type: "date", default: "2026-10-01" },
+      ];
+      await render("/dashboards/test?id=selected");
+      act(() =>
+        (portal === "multi-select"
+          ? appTrigger()
+          : button("Oct 1, 2026")
+        ).click(),
+      );
+      const content = document.querySelector<HTMLElement>('[role="dialog"]')!;
+      act(() =>
+        (
+          content.querySelector<HTMLElement>("input, button") ?? content
+        ).focus(),
+      );
+      let closeEvent: Event | undefined;
+      content.addEventListener(
+        "focusScope.autoFocusOnUnmount",
+        (event) => {
+          (document.activeElement as HTMLElement).blur();
+          expect(document.activeElement).toBe(document.body);
+          closeEvent = event;
+        },
+        { once: true },
+      );
+      act(() => {
+        void router.navigate(
+          "/dashboards/other?id=foreign",
+          method === "POST"
+            ? { formMethod: "POST", formData: new FormData() }
+            : undefined,
+        );
+      });
+      await vi.waitFor(() => expect(closeEvent).toBeDefined());
+      expect(closeEvent!.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(
+        container.querySelector('[aria-busy="true"]'),
+      );
+      if (method === "POST") await act(async () => submission.resolve());
+    },
+  );
+
+  it.each(["multi-select", "date"])(
+    "keeps ordinary enabled %s Escape focus restoration",
+    async (portal) => {
+      barFilters = [
+        ...filters,
+        { id: "day", label: "Day", type: "date", default: "2026-10-01" },
+      ];
+      await render();
+      const trigger =
+        portal === "multi-select" ? appTrigger() : button("Oct 1, 2026");
+      act(() => {
+        trigger.focus();
+        trigger.click();
+      });
+      const content = document.querySelector<HTMLElement>('[role="dialog"]')!;
+      act(() =>
+        (
+          content.querySelector<HTMLElement>("input, button") ?? content
+        ).focus(),
+      );
+      act(() =>
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
+      );
+      await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(trigger.disabled).toBe(false);
+      expect(router.state.navigation.state).toBe("idle");
+      expect(loads).toHaveLength(1);
+    },
+  );
+
+  it.each(
     [
       "/dashboards/other?id=selected&tab=other&view=foreign&f_app=slides#target",
       "/dashboards/test?id=other&tab=other&view=foreign&f_app=slides#target",

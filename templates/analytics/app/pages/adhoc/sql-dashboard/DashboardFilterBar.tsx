@@ -231,9 +231,17 @@ export function DashboardFilterBar({
   const barRef = useRef<HTMLDivElement>(null);
   const restoreBusyFocus = (event: Event) => {
     // An overlay's unmount callback can retain its pre-navigation render.
-    if (barRef.current?.getAttribute("aria-busy") !== "true") return;
+    const bar = barRef.current;
+    if (bar?.getAttribute("aria-busy") !== "true") return;
     event.preventDefault();
-    barRef.current?.focus();
+    const active = bar.ownerDocument.activeElement;
+    // Radix dispatches on the closing focus scope, possibly after it detaches.
+    if (
+      active === bar.ownerDocument.body ||
+      (event.target instanceof HTMLElement && event.target.contains(active))
+    ) {
+      bar.focus({ preventScroll: true });
+    }
   };
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
