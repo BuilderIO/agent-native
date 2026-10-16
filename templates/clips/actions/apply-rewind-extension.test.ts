@@ -238,17 +238,55 @@ describe("apply-rewind-extension transcript timeline", () => {
     ]);
   });
 
+  it("extends past a saved transcript restore would refuse, leaving it as stored", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { tx, updates } = fakeTx({
+      transcript: [
+        {
+          segmentsJson: JSON.stringify([
+            { startMs: 0, endMs: 4000, text: "Current words." },
+          ]),
+        },
+      ],
+      versions: [
+        {
+          id: "version-1",
+          segmentsJson: JSON.stringify([{ text: "No times." }]),
+        },
+        {
+          id: "version-2",
+          segmentsJson: JSON.stringify([
+            { startMs: 1000, endMs: 5000, text: "Earlier words." },
+          ]),
+        },
+      ],
+    });
+    mocks.transaction.mockImplementation(
+      async (runTx: (t: unknown) => unknown) => runTx(tx),
+    );
+
+    await run();
+
+    const versionWrites = updates
+      .filter((u) => Array.isArray(u.where) && u.where[0] === "versions.id")
+      .map((u) => [
+        (u.where as unknown[])[1],
+        JSON.parse(String(u.values.segmentsJson)),
+      ]);
+    expect(versionWrites).toEqual([
+      [
+        "version-2",
+        [{ startMs: 31_000, endMs: 35_000, text: "Earlier words." }],
+      ],
+    ]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("version-1"));
+    warn.mockRestore();
+  });
+
   it.each([
     [
       "the transcript",
       { transcript: [{ segmentsJson: "{not json" }], versions: [] },
-    ],
-    [
-      "a saved transcript",
-      {
-        transcript: [],
-        versions: [{ id: "version-1", segmentsJson: "{not json" }],
-      },
     ],
     [
       "one cue's times",
