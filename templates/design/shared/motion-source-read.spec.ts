@@ -25,6 +25,26 @@ describe("passiveMotionSourceReadCapability", () => {
     });
   });
 
+  it("reports a linked stylesheet it cannot resolve as unsupported, not a failed read", () => {
+    // The Text tool links a Google Fonts stylesheet into every screen it
+    // touches, so this is an ordinary screen state, not a broken request.
+    expect(
+      passiveMotionSourceReadCapability(
+        {
+          errorCode: "motion_html_source_unresolved_stylesheet",
+          message: "Resolve the linked stylesheet before editing Motion.",
+          statusCode: 422,
+        },
+        "screen-1",
+      ),
+    ).toEqual({
+      status: "unsupported",
+      sourceRef: "screen-1",
+      errorCode: "motion_html_source_unresolved_stylesheet",
+      reason: "Resolve the linked stylesheet before editing Motion.",
+    });
+  });
+
   it("does not reinterpret unrelated validation, access, or transport failures", () => {
     expect(
       passiveMotionSourceReadCapability(
