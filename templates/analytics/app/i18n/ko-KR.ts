@@ -29,8 +29,7 @@ export default {
     label: "대시보드 모드",
     view: "보기",
     edit: "편집",
-    viewHint:
-      "아무것도 변경하지 않고 봅니다. 드래그한 열 너비는 나에게만 적용됩니다.",
+    viewHint: "편집이 꺼져 있습니다. 드래그한 열 너비는 나에게만 적용됩니다.",
     editHint: "변경 사항이 모두에게 저장됩니다",
     columnResizePersonal:
       "드래그하면 나에게만 크기가 바뀝니다. 더블클릭하면 초기화됩니다.",
@@ -1079,6 +1078,14 @@ export default {
     hintSaveView:
       "필터를 바꿔도 다른 사람의 대시보드는 바뀌지 않습니다. 공유하려면 보기를 저장하거나 링크를 보내세요.",
   },
+  dashboardSaveStatus: {
+    saved: "저장됨",
+    savedShared: "모두에게 저장됨",
+    saving: "저장 중…",
+    savingShared: "모두에게 저장 중…",
+    oneOtherViewer: "다른 1명이 열어 두었습니다",
+    otherViewers: "다른 {{count}}명이 열어 두었습니다",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "대시보드 기록",
@@ -1314,6 +1321,14 @@ export default {
     chartPointLimitNewest: "{{total}}개 중 최신 {{shown}}개 포인트 표시 중",
     chartPointLimitFirst: "{{total}}개 중 처음 {{shown}}개 포인트 표시 중",
     chartPointLimitLast: "{{total}}개 중 마지막 {{shown}}개 포인트 표시 중",
+    funnelCompleted: "완료",
+    funnelSkipped: "건너뜀",
+    funnelMovedOn: "둘 다 하지 않고 넘어감",
+    funnelLeft: "앱을 떠남",
+    funnelLeftHere: "여기서 앱을 떠남",
+    funnelOptional: "선택 사항",
+    funnelShown: "{{count}}명에게 표시",
+    funnelShownLabel: "표시됨",
     exportToGoogleSheets: "Google Sheets로 내보내기",
     exportingToGoogleSheets: "Google Sheets로 내보내는 중...",
     googleSheetsExported: "Google Sheets로 내보냈습니다",

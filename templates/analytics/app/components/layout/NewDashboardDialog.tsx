@@ -25,7 +25,7 @@ const DASHBOARD_CONTEXT =
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'demo' | 'prometheus'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie' | 'funnel' | 'heatmap' | 'callout' | 'section'), width (1 or 2). " +
   "Optional tab labels can use 'Group / Tab' for primary and secondary dashboard tabs. " +
-  "Optional config: { xKey, yKey, yKeys, colors (series colors), color (heatmap only: the row-dimension column name, never a color), yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order. " +
+  "Optional config: { xKey, yKey, yKeys, colors (series colors), color (heatmap only: the row-dimension column name, never a color), yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order; when people can skip stages, funnelOutcomes { completedKey, leftKey, skippedKey?, optionalKey? } names per-stage count columns that split each bar into completed, skipped, moved on and left the app. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
   "For the built-in demo dashboard, source is 'demo' and sql uses the same Prometheus JSON descriptor shape as source 'prometheus': { promql, mode, range, step }. " +
   "Call `data-source-status` if you need to see which data sources are connected. " +

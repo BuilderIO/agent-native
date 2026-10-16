@@ -15,7 +15,10 @@ import type {
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
-import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
+import {
+  describeFunnelOutcomeProblems,
+  resolveDashboardFunnelRows,
+} from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { formatDollars } from "../../shared/format-dollars";
 import { resolvePanelEvents } from "../../shared/panel-events";
@@ -943,6 +946,7 @@ async function renderFunnelChartBlock(args: {
     rows,
     panel.config?.xKey,
     panel.config?.yKey,
+    panel.config?.funnelOutcomes,
   );
   if (funnel.items.length === 0) {
     const table = renderTableHtml(panel, rows);
@@ -963,6 +967,7 @@ async function renderFunnelChartBlock(args: {
       title: "",
       subtitle,
       rows: funnel.items,
+      ...(funnel.outcomes ? { outcomes: funnel.outcomes } : {}),
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       formatter: panel.config?.yFormatter,
@@ -972,13 +977,16 @@ async function renderFunnelChartBlock(args: {
     const slug =
       panel.id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "panel";
     const contentId = `dashboard-report-panel-${index}-${slug}`;
+    const outcomeProblems = funnel.outcomes
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
     return {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />`,
+        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />${outcomeProblems ? noteHtml(outcomeProblems) : ""}`,
       ),
-      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}${outcomeProblems ? `\n${outcomeProblems}` : ""}`,
       attachment: {
         filename: `${slug}.png`,
         content: png,

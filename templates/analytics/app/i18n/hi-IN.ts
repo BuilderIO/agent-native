@@ -29,8 +29,7 @@ export default {
     label: "डैशबोर्ड मोड",
     view: "देखें",
     edit: "संपादित करें",
-    viewHint:
-      "बिना कुछ बदले देखें। आप जो कॉलम चौड़ाई खींचते हैं, वह सिर्फ़ आपके लिए रहती है।",
+    viewHint: "संपादन बंद है। आप जो कॉलम चौड़ाई खींचते हैं, वह सिर्फ़ आपके लिए रहती है।",
     editHint: "बदलाव सभी के लिए सहेजे जाते हैं",
     columnResizePersonal:
       "सिर्फ़ अपने लिए आकार बदलने को खींचें। रीसेट करने के लिए डबल-क्लिक करें।",
@@ -1066,6 +1065,14 @@ export default {
     hintSaveView:
       "फ़िल्टर बदलने से डैशबोर्ड किसी और के लिए नहीं बदलता। इन्हें साझा करने के लिए दृश्य सहेजें या लिंक भेजें।",
   },
+  dashboardSaveStatus: {
+    saved: "सहेजा गया",
+    savedShared: "सबके लिए सहेजा गया",
+    saving: "सहेजा जा रहा है…",
+    savingShared: "सबके लिए सहेजा जा रहा है…",
+    oneOtherViewer: "1 और व्यक्ति ने इसे खोला हुआ है",
+    otherViewers: "{{count}} और लोगों ने इसे खोला हुआ है",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "डैशबोर्ड इतिहास",
@@ -1299,6 +1306,14 @@ export default {
     chartPointLimitNewest: "{{total}} में से नवीनतम {{shown}} बिंदु दिखाए जा रहे हैं",
     chartPointLimitFirst: "{{total}} में से पहले {{shown}} बिंदु दिखाए जा रहे हैं",
     chartPointLimitLast: "{{total}} में से अंतिम {{shown}} बिंदु दिखाए जा रहे हैं",
+    funnelCompleted: "पूरा किया",
+    funnelSkipped: "छोड़ा",
+    funnelMovedOn: "दोनों के बिना आगे बढ़े",
+    funnelLeft: "ऐप छोड़ दिया",
+    funnelLeftHere: "यहाँ ऐप छोड़ दिया",
+    funnelOptional: "वैकल्पिक",
+    funnelShown: "{{count}} को दिखाया गया",
+    funnelShownLabel: "दिखाया गया",
     exportToGoogleSheets: "Google Sheets में निर्यात करें",
     exportingToGoogleSheets: "Google Sheets में निर्यात किया जा रहा है...",
     googleSheetsExported: "Google Sheets में निर्यात किया गया",

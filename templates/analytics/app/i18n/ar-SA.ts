@@ -29,7 +29,7 @@ export default {
     label: "وضع لوحة المعلومات",
     view: "عرض",
     edit: "تحرير",
-    viewHint: "تصفّح دون تغيير أي شيء. عروض الأعمدة التي تسحبها تبقى لك وحدك.",
+    viewHint: "التحرير متوقف. عروض الأعمدة التي تسحبها تبقى لك وحدك.",
     editHint: "تُحفظ التغييرات للجميع",
     columnResizePersonal:
       "اسحب لتغيير الحجم لك وحدك. انقر نقرًا مزدوجًا لإعادة التعيين.",
@@ -1076,6 +1076,14 @@ export default {
     hintSaveView:
       "تغيير عوامل التصفية لا يغيّر لوحة المعلومات لأي شخص آخر. لمشاركتها، احفظ عرضًا أو أرسل الرابط.",
   },
+  dashboardSaveStatus: {
+    saved: "تم الحفظ",
+    savedShared: "تم الحفظ للجميع",
+    saving: "جارٍ الحفظ…",
+    savingShared: "جارٍ الحفظ للجميع…",
+    oneOtherViewer: "شخص آخر يفتحها الآن",
+    otherViewers: "{{count}} آخرون يفتحونها الآن",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "سجل لوحة المعلومات",
@@ -1309,6 +1317,14 @@ export default {
     chartPointLimitNewest: "عرض أحدث {{shown}} من أصل {{total}} نقطة",
     chartPointLimitFirst: "عرض أول {{shown}} من أصل {{total}} نقطة",
     chartPointLimitLast: "عرض آخر {{shown}} من أصل {{total}} نقطة",
+    funnelCompleted: "أكمل",
+    funnelSkipped: "تخطّى",
+    funnelMovedOn: "تابع دون أيٍّ منهما",
+    funnelLeft: "غادر التطبيق",
+    funnelLeftHere: "غادر التطبيق هنا",
+    funnelOptional: "اختياري",
+    funnelShown: "عُرضت على {{count}}",
+    funnelShownLabel: "عُرضت على",
     exportToGoogleSheets: "تصدير إلى Google Sheets",
     exportingToGoogleSheets: "جارٍ التصدير إلى Google Sheets...",
     googleSheetsExported: "تم التصدير إلى Google Sheets",

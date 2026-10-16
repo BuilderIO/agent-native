@@ -6,8 +6,17 @@ import {
   planCategoryAxis,
   trimToWidth,
 } from "../../shared/chart-axis-labels";
-import type { DashboardFunnelItem } from "../../shared/dashboard-funnel";
+import {
+  funnelOutcomeShare,
+  type DashboardFunnelItem,
+  type DashboardFunnelOutcomeSummary,
+} from "../../shared/dashboard-funnel";
 import { formatDollars } from "../../shared/format-dollars";
+import {
+  FUNNEL_OUTCOME_REPORT_COLORS,
+  FUNNEL_OUTCOME_SEGMENTS,
+  type FunnelOutcomeSegment,
+} from "../../shared/tokens/funnel-outcome-colors";
 
 export { estimateTextWidth };
 
@@ -1070,10 +1079,31 @@ function renderPieChartSvg({
 </svg>`;
 }
 
-export function renderFunnelChartSvg({
+const FUNNEL_OUTCOME_LEGEND: Record<FunnelOutcomeSegment, string> = {
+  completed: "Completed",
+  skipped: "Skipped",
+  movedOn: "Moved on without either",
+  left: "Left the app",
+};
+const FUNNEL_LEFT_HERE = "Left the app here";
+const FUNNEL_SKIPPED_PATTERN_ID = "funnel-skipped";
+
+function outcomeFill(segment: FunnelOutcomeSegment): string {
+  return segment === "skipped"
+    ? `url(#${FUNNEL_SKIPPED_PATTERN_ID})`
+    : FUNNEL_OUTCOME_REPORT_COLORS[segment];
+}
+
+/**
+ * The emailed form of a funnel with `config.funnelOutcomes`: every stage is a
+ * full-width bar split by what the people shown it did, led by the share who
+ * left the app there. A stage whose outcomes don't add up draws a plain bar.
+ */
+function renderOutcomeFunnelSvg({
   title,
   subtitle,
   rows,
+  outcomes,
   width,
   height,
   formatter,
@@ -1082,11 +1112,158 @@ export function renderFunnelChartSvg({
   title?: string;
   subtitle?: string;
   rows: DashboardFunnelItem[];
+  outcomes: DashboardFunnelOutcomeSummary;
   width: number;
   height: number;
   formatter?: ReportChartValueFormatter;
   colors?: string[];
 }): string {
+  const theme = CHART_THEMES.light;
+  const palette = CHART_PALETTES.light;
+  const font = REPORT_CHART_FONT_FAMILY;
+  const safeWidth = clampSize(width, 360, 2000);
+  const header = renderChartHeader({
+    title: title ?? "",
+    subtitle: subtitle ?? "",
+    width: safeWidth,
+    theme,
+    fontFamily: font,
+    fit: true,
+  });
+  const left = HEADER_INSET;
+  const right = safeWidth - HEADER_INSET;
+  const barWidth = Math.max(1, right - left);
+  const segments = FUNNEL_OUTCOME_SEGMENTS.filter(
+    (segment) => segment !== "skipped" || !!outcomes.keys.skippedKey,
+  );
+
+  const legendY = header.headerBottom + 26;
+  let cursor = left;
+  const legend = segments
+    .map((segment) => {
+      const label = FUNNEL_OUTCOME_LEGEND[segment];
+      const markup = `<rect x="${cursor.toFixed(1)}" y="${(legendY - 9).toFixed(1)}" width="10" height="10" rx="2" fill="${outcomeFill(segment)}"/><text x="${(cursor + 15).toFixed(1)}" y="${legendY.toFixed(1)}" font-size="11" fill="${theme.tickColor}">${escapeXml(label)}</text>`;
+      cursor += 15 + estimateTextWidth(label, 11) + 16;
+      return markup;
+    })
+    .join("");
+  const leftHere = `<text x="${right.toFixed(1)}" y="${legendY.toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${FUNNEL_LEFT_HERE}</text>`;
+
+  const top = legendY + 18;
+  const rowHeight = 40;
+  // Grows past `height` to fit every stage, up to the size cap.
+  const safeHeight = clampSize(
+    Math.max(height, top + rows.length * rowHeight + 24),
+    240,
+    1200,
+  );
+  const maxRows = Math.max(1, Math.floor((safeHeight - 24 - top) / rowHeight));
+  const visible = rows.slice(0, maxRows);
+  const hidden = rows.length - visible.length;
+  const maxValue = Math.max(...rows.map((row) => row.value), 1);
+  const stages = visible
+    .map((row, index) => {
+      const y = top + index * rowHeight;
+      const textY = y + 13;
+      const barY = y + 19;
+      const shownText = `${formatTick(row.value, formatter)} shown`;
+      const share = row.outcomes
+        ? `${funnelOutcomeShare(row.outcomes.left, row.value).toFixed(1)}%`
+        : "";
+      const shareWidth = share ? estimateTextWidth(share, 13) + 16 : 0;
+      const pillWidth = row.outcomes?.optional ? 56 : 0;
+      const labelRoom =
+        barWidth -
+        shareWidth -
+        pillWidth -
+        estimateTextWidth(shownText, 11) -
+        16;
+      // Labels are semibold, wider than the regular-weight estimate at 12px.
+      const label = trimToWidth(row.label, 13, Math.max(40, labelRoom));
+      let x = left + estimateTextWidth(label, 13) + 8;
+      const pill = row.outcomes?.optional
+        ? `<rect x="${x.toFixed(1)}" y="${(textY - 11).toFixed(1)}" width="50" height="15" rx="7.5" fill="none" stroke="${theme.gridColor}"/><text x="${(x + 25).toFixed(1)}" y="${(textY - 0.5).toFixed(1)}" text-anchor="middle" font-size="10" fill="${theme.labelColor}">Optional</text>`
+        : "";
+      x += pillWidth;
+      const head = `<text x="${left}" y="${textY.toFixed(1)}" font-size="12" font-weight="600" fill="${theme.labelColor}">${escapeXml(label)}</text>${pill}<text x="${x.toFixed(1)}" y="${textY.toFixed(1)}" font-size="11" fill="${theme.tickColor}">${escapeXml(shownText)}</text>${share ? `<text x="${right.toFixed(1)}" y="${(textY + 1).toFixed(1)}" text-anchor="end" font-size="13" font-weight="700" fill="${theme.labelColor}">${share}</text>` : ""}`;
+      const track = `<rect x="${left}" y="${barY}" width="${barWidth.toFixed(1)}" height="16" rx="4" fill="${theme.gridColor}"/>`;
+      if (!row.outcomes) {
+        const fillWidth = row.value > 0 ? (row.value / maxValue) * barWidth : 0;
+        const color = safeColor(
+          colors?.[index],
+          palette[index % palette.length],
+        );
+        return `${head}${track}<rect x="${left}" y="${barY}" width="${fillWidth.toFixed(1)}" height="16" rx="4" fill="${color}"/>`;
+      }
+      const stageOutcomes = row.outcomes;
+      let segmentX = left;
+      const parts = segments
+        .map((segment) => {
+          const partWidth =
+            (funnelOutcomeShare(stageOutcomes[segment], row.value) / 100) *
+            barWidth;
+          if (partWidth <= 0) return "";
+          const markup = `<rect x="${segmentX.toFixed(1)}" y="${barY}" width="${partWidth.toFixed(1)}" height="16" fill="${outcomeFill(segment)}"/>`;
+          segmentX += partWidth;
+          return markup;
+        })
+        .join("");
+      const clipId = `funnel-stage-${index}`;
+      return `${head}<clipPath id="${clipId}"><rect x="${left}" y="${barY}" width="${barWidth.toFixed(1)}" height="16" rx="4"/></clipPath>${track}<g clip-path="url(#${clipId})">${parts}</g>`;
+    })
+    .join("");
+  const overflow =
+    hidden > 0
+      ? `<text x="${left}" y="${(top + visible.length * rowHeight + 14).toFixed(1)}" font-size="12" fill="${theme.tickColor}">${escapeXml(`+${hidden} more stages`)}</text>`
+      : "";
+  const skipped = FUNNEL_OUTCOME_REPORT_COLORS.skipped;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}" font-family="${font}" role="img" aria-label="${escapeXml(title ?? "Funnel chart")}">
+  <defs><pattern id="${FUNNEL_SKIPPED_PATTERN_ID}" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="4" height="8" fill="${skipped}" fill-opacity="0.55"/><rect x="4" width="4" height="8" fill="${skipped}" fill-opacity="0.25"/></pattern></defs>
+  <rect width="${safeWidth}" height="${safeHeight}" rx="8" fill="${theme.background}"/>
+  ${header.titleMarkup}
+  ${header.subtitleMarkup}
+  <g font-family="${font}">
+    ${legend}
+    ${leftHere}
+    ${stages}
+    ${overflow}
+  </g>
+</svg>`;
+}
+
+export function renderFunnelChartSvg({
+  title,
+  subtitle,
+  rows,
+  outcomes,
+  width,
+  height,
+  formatter,
+  colors,
+}: {
+  title?: string;
+  subtitle?: string;
+  rows: DashboardFunnelItem[];
+  /** The resolved `config.funnelOutcomes`; splits each stage when set. */
+  outcomes?: DashboardFunnelOutcomeSummary;
+  width: number;
+  height: number;
+  formatter?: ReportChartValueFormatter;
+  colors?: string[];
+}): string {
+  if (outcomes) {
+    return renderOutcomeFunnelSvg({
+      title,
+      subtitle,
+      rows,
+      outcomes,
+      width,
+      height,
+      formatter,
+      colors,
+    });
+  }
   const theme = CHART_THEMES.light;
   const palette = CHART_PALETTES.light;
   const safeWidth = clampSize(width, 360, 2000);

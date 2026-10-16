@@ -59,6 +59,14 @@ Every meaningful dashboard save snapshots the previous state into
 points and `restore-dashboard-revision` to restore one; restore snapshots the
 current state first, then syncs open dashboard editors.
 
+On the page, each of an editor's own saves shows a toast: "Saved for everyone"
+(org or public visibility; "Saved" when private), how many others have the
+dashboard open, and Undo. That Undo restores the revision its save left (a
+full-config `update-dashboard` save returns it as `revisionId`), but only while
+the dashboard is as that save left it: once someone else has saved, it fails
+rather than taking their change back. For "undo my last change" in chat,
+restore the newest revision from `list-dashboard-revisions`.
+
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
@@ -268,6 +276,17 @@ Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous
 stage. Keep the intended stage order in SQL with `ORDER BY`.
+
+When people can skip a stage or go around it (onboarding, setup flows), add
+`config.funnelOutcomes` so a skip never reads as drop-off. It names result
+columns of per-stage people counts, not shares: `completedKey` and `leftKey`
+are required, `skippedKey` is optional, and `optionalKey` names a boolean
+column that tags a stage Optional. `yKey` stays the people shown the stage, and
+completed + skipped + left must not exceed it; the rest are "moved on without
+either". Each bar then splits into those outcomes and the stage leads with the
+share who left the app there. A missing column draws the usual warning; a
+stage whose counts are not numbers or add up to more than shown draws a plain
+bar, and the panel check reports it under `funnelOutcomes`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it

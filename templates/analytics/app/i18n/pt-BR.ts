@@ -30,7 +30,7 @@ export default {
     view: "Ver",
     edit: "Editar",
     viewHint:
-      "Veja sem alterar nada. As larguras de coluna que você arrastar ficam só para você.",
+      "A edição está desativada. As larguras de coluna que você arrastar ficam só para você.",
     editHint: "As alterações são salvas para todos",
     columnResizePersonal:
       "Arraste para redimensionar só para você. Clique duas vezes para redefinir.",
@@ -1113,6 +1113,14 @@ export default {
     hintSaveView:
       "Mudar os filtros não muda o painel para mais ninguém. Para compartilhá-los, salve uma visualização ou envie o link.",
   },
+  dashboardSaveStatus: {
+    saved: "Salvo",
+    savedShared: "Salvo para todos",
+    saving: "Salvando…",
+    savingShared: "Salvando para todos…",
+    oneOtherViewer: "1 outra pessoa está com ele aberto",
+    otherViewers: "{{count}} outras pessoas estão com ele aberto",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Histórico do painel",
@@ -1355,6 +1363,14 @@ export default {
     chartPointLimitFirst:
       "Mostrando os primeiros {{shown}} de {{total}} pontos",
     chartPointLimitLast: "Mostrando os últimos {{shown}} de {{total}} pontos",
+    funnelCompleted: "Concluíram",
+    funnelSkipped: "Pularam",
+    funnelMovedOn: "Seguiram sem nenhum dos dois",
+    funnelLeft: "Saíram do app",
+    funnelLeftHere: "Saíram do app aqui",
+    funnelOptional: "Opcional",
+    funnelShown: "{{count}} viram",
+    funnelShownLabel: "Viram",
     exportToGoogleSheets: "Exportar para o Google Sheets",
     exportingToGoogleSheets: "Exportando para o Google Sheets...",
     googleSheetsExported: "Exportado para o Google Sheets",

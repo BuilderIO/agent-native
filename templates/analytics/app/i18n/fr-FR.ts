@@ -30,7 +30,7 @@ export default {
     view: "Afficher",
     edit: "Modifier",
     viewHint:
-      "Consultez sans rien modifier. Les largeurs de colonne que vous ajustez restent les vôtres.",
+      "La modification est désactivée. Les largeurs de colonne que vous ajustez restent les vôtres.",
     editHint: "Les modifications sont enregistrées pour tout le monde",
     columnResizePersonal:
       "Faites glisser pour redimensionner pour vous seul. Double-cliquez pour réinitialiser.",
@@ -1124,6 +1124,14 @@ export default {
     hintSaveView:
       "Modifier les filtres ne change le tableau de bord pour personne d'autre. Pour les partager, enregistrez une vue ou envoyez le lien.",
   },
+  dashboardSaveStatus: {
+    saved: "Enregistré",
+    savedShared: "Enregistré pour tout le monde",
+    saving: "Enregistrement…",
+    savingShared: "Enregistrement pour tout le monde…",
+    oneOtherViewer: "1 autre personne l'a ouvert",
+    otherViewers: "{{count}} autres personnes l'ont ouvert",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Historique du tableau de bord",
@@ -1365,6 +1373,14 @@ export default {
       "Affichage des {{shown}} premiers points sur {{total}}",
     chartPointLimitLast:
       "Affichage des {{shown}} derniers points sur {{total}}",
+    funnelCompleted: "Terminé",
+    funnelSkipped: "Ignoré",
+    funnelMovedOn: "Continué sans l'un ni l'autre",
+    funnelLeft: "A quitté l'app",
+    funnelLeftHere: "A quitté l'app ici",
+    funnelOptional: "Facultatif",
+    funnelShown: "{{count}} l'ont vu",
+    funnelShownLabel: "L'ont vu",
     exportToGoogleSheets: "Exporter vers Google Sheets",
     exportingToGoogleSheets: "Exportation vers Google Sheets...",
     googleSheetsExported: "Exporté vers Google Sheets",
