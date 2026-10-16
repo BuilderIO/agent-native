@@ -202,6 +202,7 @@ import {
 } from "./context-xray/manifest.js";
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
@@ -932,6 +933,12 @@ export async function getOwnerActiveApiKey(
     const engineSetting = await readDefaultAgentEngineSetting({
       userEmail: ownerEmail ?? getRequestUserEmail(),
       orgId: getRequestOrgId(),
+      ...(getRequestContext()?.orgScope === "personal"
+        ? { orgScope: "personal" as const }
+        : {}),
+      ...(getRequestContext()?.defaultAgentEngineScope === "deployment"
+        ? { defaultAgentEngineScope: "deployment" as const }
+        : {}),
     });
     const activeEngine =
       (engineSetting?.engine as string | undefined) ?? "anthropic";
@@ -984,8 +991,9 @@ export async function resolveOwnerEngineApiKey(input: {
     if (resolved.apiKey) return resolved;
   } else {
     try {
-      const { getSetting } = await import("../settings/store.js");
-      const engineSetting = await getSetting("agent-engine");
+      const { readDefaultAgentEngineSetting } =
+        await import("./default-agent-engine.js");
+      const engineSetting = await readDefaultAgentEngineSetting();
       activeEngineSetting = {
         status: "available",
         engine: (engineSetting?.engine as string | undefined) ?? "anthropic",
@@ -11181,6 +11189,15 @@ export function createProductionAgentHandler(
       // A client can submit this private field, so overwrite it at the boundary.
       mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
         getRequestContext()?.browserSessionId ?? null;
+      const requestContext = getRequestContext();
+      mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
+        requestOrigin: requestContext?.requestOrigin ?? null,
+        isLoopbackRequest:
+          !dispatchToBackground && requestContext?.isLoopbackRequest === true,
+        isDirectLoopbackRequest:
+          !dispatchToBackground &&
+          requestContext?.isDirectLoopbackRequest === true,
+      };
       delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
     }
     if (dispatchToBackground) {
@@ -13899,12 +13916,39 @@ export function createProductionAgentHandler(
             return;
           }
           if (exactApprovedToolCall && approvedToolCallsForExecution) {
+            let pausedResult:
+              | Extract<EngineContentPart, { type: "tool-result" }>
+              | undefined;
+            if (!isBackgroundWorker) {
+              const pausedResults = agentLoopOpts.messages.flatMap((message) =>
+                message.content.filter(
+                  (part) =>
+                    part.type === "tool-result" &&
+                    part.toolCallId === exactApprovedToolCall.callId &&
+                    part.approvalPause === true,
+                ),
+              );
+              if (pausedResults.length !== 1) {
+                send({
+                  type: "error",
+                  error: "The agent run failed.",
+                  errorCode: "approved_tool_call_result_missing",
+                  recoverable: false,
+                });
+                return;
+              }
+              const [candidate] = pausedResults;
+              if (candidate?.type !== "tool-result") {
+                throw new Error("Approved tool result changed unexpectedly.");
+              }
+              pausedResult = candidate;
+            }
             send({
               type: "activity",
               label: `Running approved ${exactApprovedToolCall.name} action`,
               tool: exactApprovedToolCall.name,
             });
-            await executeAgentToolCall({
+            const approvedExecution = await executeAgentToolCall({
               actions: requestActions,
               name: exactApprovedToolCall.name,
               input: exactApprovedToolCall.input,
@@ -13926,7 +13970,27 @@ export function createProductionAgentHandler(
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
               send,
             });
-            return;
+            if (
+              approvedExecution.status === "approval_required" ||
+              (approvedExecution.status === "failed" &&
+                approvedExecution.terminalError)
+            ) {
+              return;
+            }
+            if (isBackgroundWorker) return;
+            if (!pausedResult) {
+              throw new Error("Approved tool result was not validated.");
+            }
+            pausedResult.content = approvedExecution.output;
+            if (approvedExecution.status === "failed") {
+              pausedResult.isError = true;
+            } else {
+              delete pausedResult.isError;
+            }
+            delete pausedResult.approvalPause;
+            delete pausedResult.approvalAskId;
+            delete agentLoopOpts.approvedToolCalls;
+            delete agentLoopOpts.approvedToolCallAskId;
           }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =

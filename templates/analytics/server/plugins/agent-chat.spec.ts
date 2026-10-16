@@ -831,6 +831,18 @@ describe("realDataFinalGuard", () => {
     expect(result).not.toBeNull();
   });
 
+  it("judges a question the user wrapped in context tags", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "<context>How many sessions did we record in the last 24 hours?</context>",
+        draftText: "We recorded 41,208 sessions in the last 24 hours.",
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("retries a dashboard build that pauses after creating an extension shell", () => {
     const result = realDataFinalGuard(
       guardContext({

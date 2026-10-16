@@ -14559,6 +14559,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function isFreeformDropContainer(el) {
+      if (isAutoLayoutElement(el)) return false;
+      var hasChild = false;
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (isOverlayElement(child)) continue;
+        var childStyle = window.getComputedStyle(child);
+        if (childStyle.display === "none") continue;
+        if (childStyle.position !== "absolute" && childStyle.position !== "fixed") {
+          return false;
+        }
+        hasChild = true;
+      }
+      return hasChild || window.getComputedStyle(el).position !== "static";
+    }
     function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
@@ -15056,7 +15071,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag) && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag)) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;
@@ -18749,12 +18764,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
         if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
-          return nearestChildInsertionTarget(
+          var besideContainer = nearestChildInsertionTarget(
             document.body,
             pointerX,
             pointerY,
             excluded
           );
+          if (besideContainer && isFreeformDropContainer(document.body)) {
+            besideContainer.dropMode = "absolute-container";
+          }
+          return besideContainer;
         }
         return null;
       }

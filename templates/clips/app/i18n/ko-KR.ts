@@ -633,6 +633,32 @@ const messages = {
     waiting: "대기 중…",
     nativeSpeechPrimary: "네이티브 음성이 기본 전사 소스로 유지됩니다.",
   },
+  transcriptImport: {
+    addFile: "스크립트 파일 추가",
+    imported: "가져옴",
+    replaceTitle: "스크립트를 교체할까요?",
+    replaceDescription: "{{fileName}}이(가) 현재 스크립트를 대체합니다.",
+    replace: "교체",
+    regenerateOverImportTitle: "가져온 스크립트를 교체할까요?",
+    regenerateOverImportDescription:
+      "녹화 오디오로 만든 새 스크립트가 파일에서 가져온 스크립트를 대체합니다.",
+    added: "스크립트를 추가했습니다",
+    replaced: "스크립트를 교체했습니다",
+    failed: "스크립트를 추가하지 못했습니다",
+    invalidFile: "{{fileName}}을(를) 읽지 못했습니다",
+    errorEmpty: "파일에 스크립트 텍스트가 없습니다.",
+    errorTooLarge: "파일이 너무 커서 가져올 수 없습니다.",
+    errorNotUtf8:
+      "파일이 UTF-8 텍스트가 아닙니다. UTF-8로 저장한 후 다시 시도하세요.",
+    errorMissingTiming:
+      "{{line}}번째 줄: 00:00:01.000 --> 00:00:04.000 같은 자막 타이밍 줄이 필요합니다.",
+    errorBadTiming: "{{line}}번째 줄: 자막 타이밍을 읽을 수 없습니다.",
+    errorBadRange: "{{line}}번째 줄: 자막이 시작하기 전에 끝납니다.",
+    errorMissingTimestamp:
+      "{{line}}번째 줄: 0:21 또는 [0:21] 같은 시작 시간이 필요합니다.",
+    errorOutOfOrder: "{{line}}번째 줄: 이 시간이 바로 앞의 시간보다 이릅니다.",
+    errorPastEnd: "{{line}}번째 줄: 이 시간이 동영상 끝보다 늦습니다.",
+  },
   thumbnailPicker: {
     failedCapture: "프레임을 캡처하지 못했습니다.",
     failedGif: "GIF 생성 실패 — 더 짧은 범위를 시도해보세요",
@@ -1564,6 +1590,8 @@ const messages = {
     builderGrantAskAdmin:
       "소유자 또는 관리자에게 클립 업로드 권한으로 Builder.io를 연결해 달라고 요청하세요.",
     statusUnavailable: "비디오 저장소 상태를 확인할 수 없습니다.",
+    hostedStorageUnavailable:
+      "Clips 호스팅 저장소를 일시적으로 사용할 수 없습니다. 무료 클립 할당량은 그대로 유지됩니다. 나중에 다시 업로드해 주세요.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout:
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
@@ -1858,6 +1886,14 @@ const messages = {
     validWebUrl: "유효한 http:// 또는 https:// 주소를 입력하세요.",
   },
   recordRoute: {
+    freeClipsLeft_one: "무료 클립 {{count}}개 남음",
+    freeClipsLeft_other: "무료 클립 {{count}}개 남음",
+    hostedClipsExhaustedTitle: "Builder.io에 무료로 연결하고 계속 녹화하세요",
+    hostedClipsExhaustedDescription:
+      "무료 호스팅 클립을 모두 사용했습니다. Builder.io 저장소를 연결하면 라이브러리에 클립을 계속 저장할 수 있습니다.",
+    clipExceedsSizeLimit: "이 클립이 현재 업로드 크기 제한을 초과합니다.",
+    clipExceedsMaxDuration: "이 클립이 현재 녹화 시간 제한을 초과합니다.",
+    maxClipDurationReached: "클립 최대 길이에 도달했습니다. 녹화를 저장합니다.",
     pageTitle: "New recording — Clips (현지화됨)",
     uploadFailed: "Upload failed (현지화됨)",
     uploadFailedAtChunk:
@@ -2093,6 +2129,10 @@ const messages = {
     vocabularyRemoveFailed: "용어를 삭제하지 못했습니다",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 호스팅 저장 공간이 가득 찼습니다. 클립을 계속 저장하려면 Builder.io 저장소를 연결하세요.",
+    hostedRecordingTakenDown:
+      "이 녹화는 Clips 호스팅 저장 공간에서 삭제되었습니다.",
     splitAtPlayhead: "재생 위치에서 분할 (S)",
     selectedCount: "{{count}}개 선택됨",
     selectAll: "모두 선택",
@@ -2273,9 +2313,15 @@ const messages = {
     issues: "문제",
     consoleSource: "콘솔",
     networkSource: "네트워크",
+    appSource: "앱 활동",
+    appEvent: "이벤트",
+    appData: "데이터",
+    appFailureSummary: "앱 실패 {{count}}개",
+    appUnavailable: "앱 활동을 불러올 수 없습니다.",
     consoleCount: "콘솔 {{count}}",
     networkCount: "네트워크 {{count}}",
     afterRecording: "녹화 종료 후",
+    beforeRecording: "녹화 시작 전",
     seekToTime: "{{time}}로 이동",
     occurrences: "발생 시각",
     message: "메시지",
@@ -2287,6 +2333,7 @@ const messages = {
     noIssuesTitle: "브라우저 문제가 감지되지 않음",
     noConsoleTitle: "콘솔 이벤트 없음",
     noNetworkTitle: "네트워크 요청 없음",
+    noAppTitle: "앱 활동 없음",
     capturedDescription: "이 녹화의 진단 정보를 캡처했습니다.",
   },
   timeline: { clipStartedHere: "클립이 여기서 시작됨" },

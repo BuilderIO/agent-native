@@ -93,9 +93,9 @@ describe("dictate page composition", () => {
   });
 
   it("keeps dictionary management available before the first dictation", () => {
-    expect(routeSource).toContain("<VocabularyManager />");
+    expect(routeSource).toContain("<VocabularyManager disabled={listening} />");
     expect(routeSource).toMatch(
-      /<VocabularyManager \/>\s+\{\(dictations.length > 0 \|\| hasCaptureActivity\) && \(\s+<PageHeaderPrimaryAction/,
+      /<VocabularyManager disabled=\{listening\} \/>\s+\{\(dictations.length > 0 \|\| hasCaptureActivity\) && \(\s+<PageHeaderPrimaryAction/,
     );
     expect(routeSource).not.toContain("<VocabularySection");
   });

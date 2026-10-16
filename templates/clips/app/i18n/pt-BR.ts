@@ -648,6 +648,33 @@ const messages = {
     nativeSpeechPrimary:
       "A fala nativa continua sendo a principal fonte de transcrição.",
   },
+  transcriptImport: {
+    addFile: "Adicionar arquivo de transcrição",
+    imported: "Importada",
+    replaceTitle: "Substituir a transcrição?",
+    replaceDescription: "{{fileName}} substituirá a transcrição atual.",
+    replace: "Substituir",
+    regenerateOverImportTitle: "Substituir a transcrição importada?",
+    regenerateOverImportDescription:
+      "Uma nova transcrição feita a partir do áudio da gravação substituirá a importada de um arquivo.",
+    added: "Transcrição adicionada",
+    replaced: "Transcrição substituída",
+    failed: "Não foi possível adicionar a transcrição",
+    invalidFile: "Não foi possível ler {{fileName}}",
+    errorEmpty: "O arquivo não tem texto de transcrição.",
+    errorTooLarge: "O arquivo é grande demais para importar.",
+    errorNotUtf8:
+      "O arquivo não está em texto UTF-8. Salve-o como UTF-8 e tente novamente.",
+    errorMissingTiming:
+      "Linha {{line}}: era esperada uma linha de tempo da legenda como 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "Linha {{line}}: não foi possível ler o tempo da legenda.",
+    errorBadRange: "Linha {{line}}: a legenda termina antes de começar.",
+    errorMissingTimestamp:
+      "Linha {{line}}: era esperado um horário de início como 0:21 ou [0:21].",
+    errorOutOfOrder:
+      "Linha {{line}}: este horário vem antes do horário anterior.",
+    errorPastEnd: "Linha {{line}}: este horário é posterior ao fim do vídeo.",
+  },
   thumbnailPicker: {
     failedCapture: "Falha ao capturar o quadro",
     failedGif: "Falha ao gerar GIF — tente um intervalo menor",
@@ -1598,6 +1625,8 @@ const messages = {
       "Peça a um proprietário ou administrador para conectar o Builder.io com permissão para enviar clipes.",
     statusUnavailable:
       "Não foi possível verificar se o armazenamento de vídeo está pronto.",
+    hostedStorageUnavailable:
+      "O armazenamento hospedado do Clips está temporariamente indisponível. Sua cota gratuita de clipes não mudou; tente enviar novamente mais tarde.",
     checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
       "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",
@@ -1892,6 +1921,19 @@ const messages = {
     validWebUrl: "Insira um endereço http:// ou https:// válido.",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} clipe grátis restante",
+    freeClipsLeft_other: "{{count}} clipes grátis restantes",
+    freeClipsLeft_many: "{{count}} clipes grátis restantes",
+    hostedClipsExhaustedTitle:
+      "Conecte o Builder.io gratuitamente para continuar gravando",
+    hostedClipsExhaustedDescription:
+      "Você já usou todos os clipes hospedados gratuitos. Conecte o armazenamento do Builder.io para continuar salvando clipes na sua biblioteca.",
+    clipExceedsSizeLimit:
+      "Este clipe excede o limite atual de tamanho de envio.",
+    clipExceedsMaxDuration:
+      "Este clipe excede o limite atual de duração da gravação.",
+    maxClipDurationReached:
+      "O clipe atingiu a duração máxima. Salvando a gravação.",
     pageTitle: "New recording — Clips",
     uploadFailed: "Upload failed",
     uploadFailedAtChunk:
@@ -2128,6 +2170,10 @@ const messages = {
     vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "O armazenamento hospedado do Clips está cheio. Conecte o armazenamento do Builder.io para continuar salvando clipes.",
+    hostedRecordingTakenDown:
+      "Esta gravação foi removida do armazenamento hospedado do Clips.",
     splitAtPlayhead: "Dividir no cursor (S)",
     selectedCount: "{{count}} selecionados",
     selectAll: "Selecionar tudo",
@@ -2308,9 +2354,15 @@ const messages = {
     issues: "Problemas",
     consoleSource: "Console",
     networkSource: "Rede",
+    appSource: "Atividade do app",
+    appEvent: "Evento",
+    appData: "Dados",
+    appFailureSummary: "{{count}} falhas do app",
+    appUnavailable: "Não foi possível carregar a atividade do app.",
     consoleCount: "Console {{count}}",
     networkCount: "Rede {{count}}",
     afterRecording: "Após a gravação",
+    beforeRecording: "Antes da gravação",
     seekToTime: "Ir para {{time}}",
     occurrences: "Ocorrências",
     message: "Mensagem",
@@ -2322,6 +2374,7 @@ const messages = {
     noIssuesTitle: "Nenhum problema do navegador detectado",
     noConsoleTitle: "Nenhum evento de console",
     noNetworkTitle: "Nenhuma solicitação de rede",
+    noAppTitle: "Nenhuma atividade do app",
     capturedDescription: "Os diagnósticos foram capturados para esta gravação.",
   },
   timeline: { clipStartedHere: "O clipe começou aqui" },

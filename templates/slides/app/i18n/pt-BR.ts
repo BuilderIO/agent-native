@@ -719,6 +719,15 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Navegação por voz",
+    voiceNavigationNextCommand: "Próximo slide",
+    voiceNavigationPreviousCommand: "Slide anterior",
+    voiceNavigationHint: "Diga “{{next}}” ou “{{previous}}” para navegar.",
+    voiceNavigationListening: "Ouvindo “{{next}}” ou “{{previous}}”.",
+    voiceNavigationUnavailable:
+      "A navegação por voz não está disponível neste navegador.",
+    voiceNavigationError:
+      "A navegação por voz parou. Verifique a permissão e a conexão do microfone e tente novamente.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -810,6 +819,8 @@ const messages = {
       "Os slides não foram criados. Confira os detalhes no chat e tente novamente.",
     generationOutcomeUnresolved:
       "Não foi possível confirmar se os slides foram criados. Confira a apresentação antes de tentar novamente.",
+    generationOutcomeUnresolvedWithSlides:
+      "Não foi possível confirmar se a criação dos slides terminou. Confira os slides exibidos aqui antes de continuar.",
     partialGenerationFailed:
       "Não foi possível terminar de criar os slides. Confira os slides já criados e seu pedido original antes de continuar.",
     originalPrompt: "O que você pediu",
@@ -833,6 +844,10 @@ const messages = {
     leaveWithoutSaving: "Sair sem salvar",
     editorMarkupNotSaved:
       "Esta edição não foi salva porque adicionaria marcação do editor ao slide.",
+    historyStepConflict:
+      "Esta etapa do histórico foi ignorada porque entra em conflito com a apresentação atual.",
+    historyStepFailed:
+      "Esta etapa do histórico foi ignorada porque não foi possível aplicá-la.",
     textEditConflictNotSaved:
       "Sua edição de texto não foi salva porque o mesmo texto foi alterado em outro lugar ao mesmo tempo.",
   },

@@ -2558,6 +2558,7 @@ const zhCN = {
     auditLog: "审计日志",
     doctorCodeChecks: "Doctor（代码检查）",
     observability: "可观测性",
+    recorder: "记录器",
     observationalMemory: "观测记忆",
     ciEvalGate: "CI 评测门禁",
     usingYourAgentOverview: "概览",

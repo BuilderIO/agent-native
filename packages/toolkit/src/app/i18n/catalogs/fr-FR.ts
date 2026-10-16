@@ -3316,6 +3316,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fermer",
   "observability.insights.rawTrace":
     "Trace brute (tous les spans, avec entrées et sorties)",
+  "reportProblem.menuItem": "Signaler un problème",
+  "reportProblem.title_one":
+    "Joindre ce que l'app a fait au cours de la dernière {{count}} seconde ?",
+  "reportProblem.title_many":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.title_other":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.noEvents": "Rien n'a encore été enregistré.",
+  "reportProblem.send": "Envoyer à l'agent",
+  "reportProblem.copy": "Copier le rapport de problème",
+  "reportProblem.attaching": "Ajout en cours…",
+  "reportProblem.notAttached": "Le rapport n'a pas été joint.",
+  "reportProblem.agentMessage":
+    "Un problème est survenu dans l'app. Utilisez le rapport de problème joint pour expliquer ce qui s'est passé.",
 };
 
 export default messages;
