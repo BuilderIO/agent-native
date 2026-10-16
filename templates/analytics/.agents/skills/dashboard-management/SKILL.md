@@ -125,6 +125,14 @@ collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
 `searchConsoleSites` and turn it on.
 
+The catalog's "Content" dashboard (`content-view`) is the reference for these
+tables: start from its panels before writing new content SQL. Its Articles
+panel shows why a metric is missing (`failed`, `not set up`, `still
+arriving`) in a column next to the blank number; keep that pattern. The
+first-party SQL policy rejects functions outside its allow-list (for example
+`concat_ws`) and reads `CASE (` as a function call, so join a status column
+instead of a scalar subquery inside `CASE`.
+
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
 filter in the SQL. The allowed values are:
