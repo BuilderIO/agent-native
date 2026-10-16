@@ -273,14 +273,16 @@ describe("document reconcile recovery", () => {
     });
   });
 
-  it("falls back to recovery after three automatic saves race with typing", async () => {
+  it("keeps saving while typing overtakes each automatic save", async () => {
     const save = vi.fn(async () => true);
     const retain = vi.fn(async () => undefined);
     let identity = 0;
     mount(save, () => String(identity), retain, false);
     save.mockImplementation(async () => {
-      identity += 1;
-      draft = `typing generation ${identity}`;
+      if (save.mock.calls.length <= 3) {
+        identity += 1;
+        draft = `typing generation ${identity}`;
+      }
       return true;
     });
 
@@ -292,18 +294,16 @@ describe("document reconcile recovery", () => {
       );
     });
 
-    expect(result).toBe(false);
-    expect(save).toHaveBeenCalledTimes(3);
-    expect(retain).toHaveBeenCalledWith({
-      localDraft: "typing generation 3",
-      localTitle: "",
+    expect({ result, state: recovery.state }).toEqual({
+      result: true,
+      state: null,
     });
-    expect(recovery.state).toEqual({
-      reason: "conflict",
-      localDraft: "typing generation 3",
-      localTitle: "",
-      saving: false,
-    });
+    expect(save).toHaveBeenCalledTimes(4);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "typing generation 3", localTitle: "" },
+      undefined,
+    );
+    expect(retain).not.toHaveBeenCalled();
   });
 
   it("saves text typed during recovery before clearing the banner", async () => {
