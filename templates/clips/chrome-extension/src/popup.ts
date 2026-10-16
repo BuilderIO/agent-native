@@ -108,6 +108,13 @@ export function recordingControlVisibility(
   };
 }
 
+export function popupStartAuthDecision(
+  authStatus: AuthStatus,
+): "start" | "sign-in" | "retry" {
+  if (authStatus === "signed-in") return "start";
+  return authStatus === "signed-out" ? "sign-in" : "retry";
+}
+
 type StoredAuth = {
   token: string;
   email?: string;
@@ -1275,9 +1282,15 @@ async function init(): Promise<void> {
     setStatus("");
     try {
       authStatus = await readAuthStatus(settings);
-      if (authStatus === "signed-out") {
-        renderActiveRecording(activeRecording, arming, authStatus);
-        setStatus("");
+      const authDecision = popupStartAuthDecision(authStatus);
+      if (authDecision !== "start") {
+        if (authDecision === "sign-in") {
+          renderActiveRecording(activeRecording, arming, authStatus);
+          setStatus("");
+        } else {
+          start.disabled = false;
+          setStatus("Couldn't verify Clips sign-in. Try again.", "error");
+        }
         return;
       }
       // Recording never waits on storage: without it, record in the Clips

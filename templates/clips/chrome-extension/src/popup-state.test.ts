@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyAuthProbe,
+  popupStartAuthDecision,
   recordFirstUrl,
   recordingControlVisibility,
 } from "./popup";
@@ -123,5 +124,14 @@ describe("recording controls", () => {
       startHidden: true,
       signInHidden: true,
     });
+  });
+});
+
+describe("popup start auth recheck", () => {
+  it("starts only when the recheck confirms a signed-in session", () => {
+    expect(popupStartAuthDecision("signed-in")).toBe("start");
+    expect(popupStartAuthDecision("signed-out")).toBe("sign-in");
+    expect(popupStartAuthDecision("unavailable")).toBe("retry");
+    expect(popupStartAuthDecision("checking")).toBe("retry");
   });
 });

@@ -1,4 +1,12 @@
 import { readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
+
+type Handoff = {
+  scope: string;
+  owner: string;
+  action: string;
+  ticketUrl?: string;
+};
 
 type Parent = {
   ts: string;
@@ -20,12 +28,8 @@ type Parent = {
     ticket: { state: "present" | "none"; reason: string };
   };
   fixedScopes?: Array<{ scope: string; verification: string }>;
-  handoff?: {
-    scope: string;
-    owner: string;
-    action: string;
-    ticketUrl?: string;
-  };
+  handoff?: Handoff;
+  handoffs?: Handoff[];
 };
 
 type Page = {
@@ -41,6 +45,8 @@ type Channel = {
   channelId: string;
   oldestQuery: string | null;
   pages: Page[];
+  // Actual Slack root timestamps fetched for replies whose roots are off-page.
+  threadRoots?: string[];
 };
 
 type Inventory = {
@@ -56,13 +62,94 @@ function slackTimestamp(value: unknown, label: string): bigint {
   return BigInt(match[1]) * 1_000_000n + BigInt(match[2].padEnd(6, "0"));
 }
 
+function isSlackUserId(value: unknown): value is string {
+  return typeof value === "string" && /^[UW][A-Z0-9]+$/.test(value);
+}
+
+function validateReactionOwners(
+  parentName: string,
+  reactionSummary: string,
+  reactionOwners: Record<string, string[]>,
+): void {
+  const summary = reactionSummary.trim();
+  if (summary === "none") {
+    if (Object.keys(reactionOwners).length > 0) {
+      throw new Error(
+        `${parentName}: reactionOwners must be empty when the observed reaction state is none`,
+      );
+    }
+    return;
+  }
+
+  const observed = new Map<string, string[]>();
+  for (const [reactionIndex, entry] of summary.split(/;\s*/).entries()) {
+    const match = /^(.+?)\s+\((\d+)\):\s*(.+)$/.exec(entry);
+    if (!match) {
+      throw new Error(
+        `${parentName}: reactionSummary must list each emoji, count, and exact owner IDs`,
+      );
+    }
+    const emoji = match[1].trim();
+    const count = Number(match[2]);
+    const summaryOwners = match[3].split(/,\s*/);
+    if (!emoji || observed.has(emoji)) {
+      throw new Error(
+        `${parentName}: reactionSummary has a missing or duplicate emoji entry at ${reactionIndex + 1}`,
+      );
+    }
+    if (
+      !Number.isInteger(count) ||
+      count < 1 ||
+      summaryOwners.length !== count ||
+      summaryOwners.some((owner) => !isSlackUserId(owner)) ||
+      new Set(summaryOwners).size !== summaryOwners.length
+    ) {
+      throw new Error(
+        `${parentName}: reactionSummary counts and owner IDs must agree`,
+      );
+    }
+    observed.set(emoji, summaryOwners);
+  }
+
+  for (const [emoji, summaryOwners] of observed) {
+    const owners = reactionOwners[emoji];
+    if (!Array.isArray(owners)) {
+      throw new Error(
+        `${parentName}: reactionOwners is missing the observed ${emoji} owners`,
+      );
+    }
+    if (
+      owners.some((owner) => !isSlackUserId(owner)) ||
+      new Set(owners).size !== owners.length ||
+      owners.length !== summaryOwners.length ||
+      owners.some((owner) => !summaryOwners.includes(owner))
+    ) {
+      throw new Error(
+        `${parentName}: reactionOwners must match every exact owner in reactionSummary`,
+      );
+    }
+  }
+
+  for (const [emoji, owners] of Object.entries(reactionOwners)) {
+    if (!observed.has(emoji) || !Array.isArray(owners) || owners.length === 0) {
+      throw new Error(
+        `${parentName}: reactionOwners has an unobserved or empty ${emoji} entry`,
+      );
+    }
+  }
+}
+
+function normalizeScope(scope: string): string {
+  return scope.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 function validateInventory(inventory: Inventory): string[] {
   if (!inventory || !Array.isArray(inventory.channels)) {
     throw new Error("Expected { cutoffTs, channels } in the inventory JSON");
   }
 
   const cutoff = slackTimestamp(inventory.cutoffTs, "cutoffTs");
-  if (!/^U[A-Z0-9]+$/.test(inventory.sweepActorId || "")) {
+  if (!isSlackUserId(inventory.sweepActorId)) {
     throw new Error(
       "sweepActorId must be the exact Slack user ID used by the connector",
     );
@@ -100,6 +187,14 @@ function validateInventory(inventory: Inventory): string[] {
         `${name}: record every Slack page, including an empty page`,
       );
     }
+    if (
+      channel.threadRoots !== undefined &&
+      !Array.isArray(channel.threadRoots)
+    ) {
+      throw new Error(
+        `${name}: threadRoots must be an array of Slack timestamps`,
+      );
+    }
 
     let expectedCursor: string | null = null;
     let previousTimestamp: bigint | null = null;
@@ -107,11 +202,26 @@ function validateInventory(inventory: Inventory): string[] {
     let overlapCount = 0;
     let cursorOverlapCount = 0;
     const seen = new Set<string>();
+    const seenCursors = new Set<string>();
+    const uniqueInWindow = new Set<string>();
+    const parentsByTimestamp = new Map<string, Parent>();
 
     for (const [pageIndex, page] of channel.pages.entries()) {
       const pageName = `${name} page ${pageIndex + 1}`;
-      if ((page.cursor ?? null) !== expectedCursor) {
+      const cursor = page.cursor ?? null;
+      if (cursor !== expectedCursor) {
         throw new Error(`${pageName}: cursor does not follow the prior page`);
+      }
+      if (cursor !== null) {
+        if (typeof cursor !== "string" || !cursor) {
+          throw new Error(`${pageName}: cursor must be a non-empty string`);
+        }
+        if (seenCursors.has(cursor)) {
+          throw new Error(
+            `${pageName}: cursor was already used by an earlier page`,
+          );
+        }
+        seenCursors.add(cursor);
       }
       if (
         !Number.isInteger(page.messageCount) ||
@@ -222,17 +332,11 @@ function validateInventory(inventory: Inventory): string[] {
             `${parentName}: record exact user IDs for every reaction`,
           );
         }
-        for (const [emoji, owners] of Object.entries(parent.reactionOwners)) {
-          if (
-            !emoji ||
-            !Array.isArray(owners) ||
-            owners.some((owner) => !/^U[A-Z0-9]+$/.test(owner))
-          ) {
-            throw new Error(
-              `${parentName}: reaction owners must be Slack user IDs`,
-            );
-          }
-        }
+        validateReactionOwners(
+          parentName,
+          parent.reactionSummary,
+          parent.reactionOwners,
+        );
 
         const ownsEye = (parent.reactionOwners.eyes ?? []).includes(
           inventory.sweepActorId,
@@ -247,12 +351,24 @@ function validateInventory(inventory: Inventory): string[] {
         if (!Array.isArray(fixedScopes)) {
           throw new Error(`${parentName}: fixedScopes must be an array`);
         }
+        const fixedScopeNames = new Set<string>();
         for (const [scopeIndex, fixedScope] of fixedScopes.entries()) {
-          if (!fixedScope.scope?.trim() || !fixedScope.verification?.trim()) {
+          if (
+            !fixedScope ||
+            typeof fixedScope.scope !== "string" ||
+            !fixedScope.scope.trim() ||
+            typeof fixedScope.verification !== "string" ||
+            !fixedScope.verification.trim()
+          ) {
             throw new Error(
               `${parentName}: fixed scope ${scopeIndex + 1} needs scope and verification evidence`,
             );
           }
+          const normalizedScope = normalizeScope(fixedScope.scope);
+          if (fixedScopeNames.has(normalizedScope)) {
+            throw new Error(`${parentName}: fixed scopes must be distinct`);
+          }
+          fixedScopeNames.add(normalizedScope);
         }
         if (ownsEye) {
           const reactionDecision = parent.reactionDecision;
@@ -289,7 +405,12 @@ function validateInventory(inventory: Inventory): string[] {
               `${parentName}: status reply must be newer than its parent`,
             );
           }
-          if (reply.threadParentTs !== parent.threadParentTs) {
+          if (
+            slackTimestamp(
+              reply.threadParentTs,
+              `${parentName}.statusReply.threadParentTs`,
+            ) !== threadParentTimestamp
+          ) {
             throw new Error(
               `${parentName}: status reply must belong to the source message's root thread`,
             );
@@ -303,9 +424,7 @@ function validateInventory(inventory: Inventory): string[] {
             reply.disposition !== parent.disposition ||
             !reply.evidence?.trim() ||
             !reply.text?.trim() ||
-            !reply.text
-              .toLocaleLowerCase()
-              .includes(reply.disposition.toLocaleLowerCase())
+            !reply.text.toLowerCase().includes(reply.disposition.toLowerCase())
           ) {
             throw new Error(
               `${parentName}: status reply must state the current disposition and its evidence`,
@@ -330,6 +449,14 @@ function validateInventory(inventory: Inventory): string[] {
             `${parentName}: Fixed disposition needs verified fixed-scope evidence`,
           );
         }
+        if (
+          parent.disposition === "Partially fixed" &&
+          fixedScopes.length === 0
+        ) {
+          throw new Error(
+            `${parentName}: Partially fixed disposition needs verified fixed-scope evidence`,
+          );
+        }
         if (hasCheckmark && fixedScopes.length === 0) {
           throw new Error(
             `${parentName}: this actor's ✅ needs a verified fixed scope`,
@@ -343,45 +470,88 @@ function validateInventory(inventory: Inventory): string[] {
             `${parentName}: this actor's ✅ requires Fixed or Partially fixed disposition`,
           );
         }
-        if (parent.handoff) {
+        if (parent.handoff && parent.handoffs !== undefined) {
+          throw new Error(`${parentName}: use handoff or handoffs, not both`);
+        }
+        if (parent.handoffs !== undefined && !Array.isArray(parent.handoffs)) {
+          throw new Error(`${parentName}: handoffs must be an array`);
+        }
+        const handoffs =
+          parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
+        const handoffScopes = new Set<string>();
+        for (const [handoffIndex, handoff] of handoffs.entries()) {
           if (
-            !parent.handoff.scope?.trim() ||
-            !parent.handoff.owner?.trim() ||
-            !parent.handoff.action?.trim() ||
-            !hasTicket
+            !handoff ||
+            typeof handoff.scope !== "string" ||
+            !handoff.scope.trim() ||
+            typeof handoff.owner !== "string" ||
+            !handoff.owner.trim() ||
+            typeof handoff.action !== "string" ||
+            !handoff.action.trim()
           ) {
             throw new Error(
-              `${parentName}: 🎫 needs a distinct handoff scope, owner, and action`,
+              `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, owner, and action`,
             );
           }
-          if (
-            fixedScopes.some(({ scope }) => scope === parent.handoff?.scope)
-          ) {
+          const normalizedScope = normalizeScope(handoff.scope);
+          if (handoffScopes.has(normalizedScope)) {
+            throw new Error(`${parentName}: handoff scopes must be distinct`);
+          }
+          handoffScopes.add(normalizedScope);
+          if (fixedScopeNames.has(normalizedScope)) {
             throw new Error(
-              `${parentName}: 🎫 handoff scope must be distinct from the verified fixed scope`,
+              `${parentName}: 🎫 handoff scope must be distinct from verified fixed scopes`,
             );
           }
-        } else if (hasTicket) {
+        }
+        if (handoffs.length > 0 && !hasTicket) {
+          throw new Error(`${parentName}: every handoff needs this actor's 🎫`);
+        }
+        if (handoffs.length === 0 && hasTicket) {
           throw new Error(
             `${parentName}: this actor's 🎫 needs a distinct handoff owner and action`,
           );
         }
 
-        seen.add(key);
+        if (seen.has(key)) {
+          const previousParent = parentsByTimestamp.get(key);
+          if (!isCursorOverlap || !isDeepStrictEqual(previousParent, parent)) {
+            throw new Error(
+              `${parentName}: cursor-overlap row must exactly match the prior page's last source row`,
+            );
+          }
+        } else {
+          seen.add(key);
+          parentsByTimestamp.set(key, parent);
+        }
         previousTimestamp = timestamp;
         parentCount += 1;
         if (isCursorOverlap) cursorOverlapCount += 1;
+        if (timestamp >= cutoff) uniqueInWindow.add(key);
         if (permalink !== null && timestamp === permalink)
           permalinkFound = true;
         if (timestamp < cutoff) overlapCount += 1;
       }
 
       const nextCursor = page.nextCursor || null;
+      if (nextCursor !== null && typeof nextCursor !== "string") {
+        throw new Error(`${pageName}: nextCursor must be a string`);
+      }
       const isLastPage = pageIndex === channel.pages.length - 1;
+      if (nextCursor && seenCursors.has(nextCursor)) {
+        throw new Error(
+          `${pageName}: nextCursor repeats a cursor already used`,
+        );
+      }
       if (!isLastPage) {
         if (!nextCursor) {
           throw new Error(
             `${pageName}: missing nextCursor before another page`,
+          );
+        }
+        if (page.exhausted === true) {
+          throw new Error(
+            `${pageName}: exhausted page cannot have a next page`,
           );
         }
         expectedCursor = nextCursor;
@@ -402,8 +572,56 @@ function validateInventory(inventory: Inventory): string[] {
       }
     }
 
+    const supplementalRoots = new Set<string>();
+    for (const [rootIndex, root] of (channel.threadRoots ?? []).entries()) {
+      const rootTimestamp = slackTimestamp(
+        root,
+        `${name}.threadRoots[${rootIndex}]`,
+      ).toString();
+      if (supplementalRoots.has(rootTimestamp)) {
+        throw new Error(`${name}: threadRoots contains a duplicate root`);
+      }
+      if (parentsByTimestamp.has(rootTimestamp)) {
+        throw new Error(
+          `${name}: threadRoots must include only roots outside page manifests`,
+        );
+      }
+      supplementalRoots.add(rootTimestamp);
+    }
+
+    const referencedSupplementalRoots = new Set<string>();
+    for (const [timestamp, parent] of parentsByTimestamp) {
+      const rootTimestamp = slackTimestamp(
+        parent.threadParentTs,
+        `${name} source ${parent.ts}.threadParentTs`,
+      ).toString();
+      if (rootTimestamp === timestamp) continue;
+      const root = parentsByTimestamp.get(rootTimestamp);
+      if (root) {
+        if (
+          slackTimestamp(
+            root.threadParentTs,
+            `${name} root ${root.ts}.threadParentTs`,
+          ) !== slackTimestamp(root.ts, `${name} root ${root.ts}.ts`)
+        ) {
+          throw new Error(
+            `${name} source ${parent.ts}: threadParentTs resolves to a reply, not the actual root`,
+          );
+        }
+      } else if (supplementalRoots.has(rootTimestamp)) {
+        referencedSupplementalRoots.add(rootTimestamp);
+      } else {
+        throw new Error(
+          `${name} source ${parent.ts}: threadParentTs does not resolve to an in-page root or verified threadRoots entry`,
+        );
+      }
+    }
+    if (referencedSupplementalRoots.size !== supplementalRoots.size) {
+      throw new Error(`${name}: threadRoots contains an unreferenced root`);
+    }
+
     summaries.push(
-      `${channel.channelId}: ${parentCount} source occurrences, ${parentCount - overlapCount - cursorOverlapCount} unique in window, ${overlapCount} cutoff overlap, ${cursorOverlapCount} page overlap, ${channel.pages.length} page(s)`,
+      `${channel.channelId}: ${parentCount} source occurrences, ${uniqueInWindow.size} unique in window, ${overlapCount} cutoff overlap, ${cursorOverlapCount} page overlap, ${channel.pages.length} page(s)`,
     );
   }
 
@@ -446,11 +664,11 @@ if (args[0] === "--self-test" && args.length === 1) {
                 ts: "10.000000",
                 threadParentTs: "10.000000",
                 reactionChecked: true,
-                reactionSummary: "eyes (1)",
+                reactionSummary:
+                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
                 reactionOwners: {
                   eyes: ["USWEEPER"],
                   white_check_mark: ["USWEEPER"],
-                  ticket: [],
                 },
                 disposition: "Fixed",
                 reactionDecision: {
@@ -483,7 +701,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                 ts: "9.500000",
                 threadParentTs: "9.500000",
                 reactionChecked: true,
-                reactionSummary: "eyes (1) — another person",
+                reactionSummary: "eyes (1): UOTHER",
                 reactionOwners: { eyes: ["UOTHER"] },
                 disposition: "owned by another actor; skipped",
               },
@@ -493,6 +711,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     ],
   };
+  const firstPage = valid.channels[0].pages[0];
   const invalid = [
     {
       name: "missing disposition row",
@@ -561,6 +780,28 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "reaction owner map omits an observed eye",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    reactionOwners: {
+                      white_check_mark: ["USWEEPER"],
+                    },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
       name: "status reply from a different actor",
       inventory: {
         ...valid,
@@ -592,6 +833,50 @@ if (args[0] === "--self-test" && args.length === 1) {
               parent.ts === "10.000000"
                 ? { ...parent, threadParentTs: "9.500000" }
                 : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "reply root is missing from page rows and threadRoots",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "9.500000"
+                ? { ...parent, threadParentTs: "8.500000" }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "reply points to an in-page reply instead of its root",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          threadRoots: ["9.000000"],
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    threadParentTs: "9.500000",
+                    statusReply: {
+                      ...parent.statusReply!,
+                      threadParentTs: "9.500000",
+                    },
+                  }
+                : parent.ts === "9.500000"
+                  ? { ...parent, threadParentTs: "9.000000" }
+                  : parent,
             ),
           })),
         })),
@@ -632,7 +917,18 @@ if (args[0] === "--self-test" && args.length === 1) {
               parent.ts === "10.000000"
                 ? {
                     ...parent,
-                    reactionOwners: { eyes: ["USWEEPER"], ticket: [] },
+                    reactionSummary: "eyes (1): USWEEPER",
+                    reactionOwners: { eyes: ["USWEEPER"] },
+                    reactionDecision: {
+                      checkmark: {
+                        state: "none",
+                        reason: "No verified fixed scope",
+                      },
+                      ticket: {
+                        state: "none",
+                        reason: "No separate human-owned action remains",
+                      },
+                    },
                   }
                 : parent,
             ),
@@ -658,6 +954,44 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "partially fixed without verified fixed-scope evidence",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    reactionSummary: "eyes (1): USWEEPER",
+                    reactionOwners: { eyes: ["USWEEPER"] },
+                    reactionDecision: {
+                      checkmark: {
+                        state: "none",
+                        reason: "No verified scope is complete yet",
+                      },
+                      ticket: {
+                        state: "none",
+                        reason: "No separate human-owned action remains",
+                      },
+                    },
+                    disposition: "Partially fixed",
+                    statusReply: {
+                      ...parent.statusReply!,
+                      disposition: "Partially fixed",
+                      text: "Partially fixed: further work remains in progress.",
+                    },
+                    fixedScopes: [],
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
       name: "ticket reaction without a human handoff",
       inventory: {
         ...valid,
@@ -673,6 +1007,18 @@ if (args[0] === "--self-test" && args.length === 1) {
                       eyes: ["USWEEPER"],
                       white_check_mark: ["USWEEPER"],
                       ticket: ["USWEEPER"],
+                    },
+                    reactionSummary:
+                      "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
+                    reactionDecision: {
+                      checkmark: {
+                        state: "present",
+                        reason: "Verified initial route screen fix",
+                      },
+                      ticket: {
+                        state: "present",
+                        reason: "A separate human-owned action remains",
+                      },
                     },
                   }
                 : parent,
@@ -705,6 +1051,106 @@ if (args[0] === "--self-test" && args.length === 1) {
         })),
       },
     },
+    {
+      name: "duplicate handoff scopes are not distinct",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    handoffs: [
+                      {
+                        scope: "remaining setup",
+                        owner: "Owner A",
+                        action: "finish setup",
+                      },
+                      {
+                        scope: "  Remaining   setup ",
+                        owner: "Owner B",
+                        action: "verify setup",
+                      },
+                    ],
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "cursor overlap row differs from the prior page snapshot",
+      inventory: {
+        ...valid,
+        channels: [
+          {
+            ...valid.channels[0],
+            pages: [
+              {
+                ...firstPage,
+                cursor: null,
+                nextCursor: "next-page",
+                exhausted: false,
+                messageCount: 2,
+                sourceTimestamps: ["11.000000", "10.000000"],
+                parents: firstPage.parents.slice(0, 2),
+              },
+              {
+                cursor: "next-page",
+                nextCursor: null,
+                exhausted: true,
+                messageCount: 2,
+                sourceTimestamps: ["10.000000", "9.500000"],
+                parents: [
+                  {
+                    ...firstPage.parents[1],
+                    statusReply: {
+                      ...firstPage.parents[1].statusReply!,
+                      evidence: "A different snapshot was observed",
+                    },
+                  },
+                  firstPage.parents[2],
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      name: "cursor cycle",
+      inventory: {
+        ...valid,
+        channels: [
+          {
+            ...valid.channels[0],
+            pages: [
+              {
+                ...firstPage,
+                cursor: null,
+                nextCursor: "next-page",
+                exhausted: false,
+                messageCount: 2,
+                sourceTimestamps: ["11.000000", "10.000000"],
+                parents: firstPage.parents.slice(0, 2),
+              },
+              {
+                cursor: "next-page",
+                nextCursor: "next-page",
+                exhausted: true,
+                messageCount: 2,
+                sourceTimestamps: ["10.000000", "9.500000"],
+                parents: [firstPage.parents[1], firstPage.parents[2]],
+              },
+            ],
+          },
+        ],
+      },
+    },
   ];
   try {
     validateInventory(valid);
@@ -715,7 +1161,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         oldestQuery: null,
       })),
     });
-    const firstPage = valid.channels[0].pages[0];
     validateInventory({
       ...valid,
       channels: [
@@ -741,11 +1186,20 @@ if (args[0] === "--self-test" && args.length === 1) {
                         white_check_mark: ["USWEEPER"],
                         ticket: ["USWEEPER"],
                       },
-                      handoff: {
-                        scope: "secondary request",
-                        owner: "Analytics product owner",
-                        action: "choose the remaining behavior",
-                      },
+                      reactionSummary:
+                        "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
+                      handoffs: [
+                        {
+                          scope: "secondary request",
+                          owner: "Analytics product owner",
+                          action: "choose the remaining behavior",
+                        },
+                        {
+                          scope: "release timing",
+                          owner: "Release owner",
+                          action: "schedule the rollout",
+                        },
+                      ],
                       reactionDecision: {
                         checkmark: {
                           state: "present",
@@ -764,7 +1218,104 @@ if (args[0] === "--self-test" && args.length === 1) {
         },
       ],
     });
+    const sweepActorWInventory: Inventory = {
+      ...valid,
+      sweepActorId: "WACTOR",
+      channels: valid.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  reactionSummary: parent.reactionSummary
+                    .split("USWEEPER")
+                    .join("WACTOR"),
+                  reactionOwners: Object.fromEntries(
+                    Object.entries(parent.reactionOwners).map(
+                      ([emoji, owners]) => [
+                        emoji,
+                        owners.map((owner) =>
+                          owner === "USWEEPER" ? "WACTOR" : owner,
+                        ),
+                      ],
+                    ),
+                  ),
+                  statusReply: {
+                    ...parent.statusReply!,
+                    actorId: "WACTOR",
+                  },
+                }
+              : parent,
+          ),
+        })),
+      })),
+    };
+    validateInventory(sweepActorWInventory);
     validateInventory({
+      ...valid,
+      channels: valid.channels.map((channel) => ({
+        ...channel,
+        threadRoots: ["8.500000"],
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "9.500000"
+              ? { ...parent, threadParentTs: "8.500000" }
+              : parent,
+          ),
+        })),
+      })),
+    });
+    const cutoffOverlapSummary = validateInventory({
+      ...valid,
+      channels: [
+        {
+          ...valid.channels[0],
+          oldestQuery: null,
+          pages: [
+            {
+              ...firstPage,
+              cursor: null,
+              nextCursor: "next-page",
+              exhausted: false,
+              messageCount: 3,
+              sourceTimestamps: ["11.000000", "10.000000", "9.500000"],
+              parents: firstPage.parents,
+            },
+            {
+              cursor: "next-page",
+              nextCursor: null,
+              exhausted: true,
+              messageCount: 2,
+              sourceTimestamps: ["9.500000", "9.000000"],
+              parents: [
+                firstPage.parents[2],
+                {
+                  ts: "9.000000",
+                  threadParentTs: "9.000000",
+                  reactionChecked: true,
+                  reactionSummary: "none",
+                  reactionOwners: {},
+                  disposition: "reviewed",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    if (
+      !cutoffOverlapSummary[0].includes(
+        "5 source occurrences, 2 unique in window, 3 cutoff overlap, 1 page overlap",
+      )
+    ) {
+      throw new Error(
+        "self-test failed to count cursor and cutoff overlaps independently",
+      );
+    }
+    const paginatedSummary = validateInventory({
       ...valid,
       channels: [
         {
@@ -790,6 +1341,13 @@ if (args[0] === "--self-test" && args.length === 1) {
         },
       ],
     });
+    if (
+      !paginatedSummary[0].includes(
+        "4 source occurrences, 2 unique in window, 1 cutoff overlap, 1 page overlap",
+      )
+    ) {
+      throw new Error("self-test failed to count an inclusive cutoff overlap");
+    }
     for (const testCase of invalid) {
       try {
         validateInventory(testCase.inventory as Inventory);
@@ -804,7 +1362,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 4 positive cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 7 positive cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

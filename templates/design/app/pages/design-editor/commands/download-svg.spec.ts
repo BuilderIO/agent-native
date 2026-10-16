@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { buildStaticForeignObjectSvg } from "../export-capture";
+import { runDownloadAllScreensPdf } from "./download-all-screens-pdf";
 import { resolveSvgExportIframe, runDownloadSvg } from "./download-svg";
 
 vi.mock("@/lib/design-export-tracking", () => ({
@@ -66,6 +67,7 @@ describe("runDownloadSvg", () => {
         exportScreenId: "screen-b",
         exportScreenSourceType: "localhost",
         fallbackExportName: (extension) => `design.${extension}`,
+        pngExportingRef: { current: false },
         prepareScreenForExport: (screenId) => {
           events.push(`promote:${screenId}`);
           window.setTimeout(() => {
@@ -117,6 +119,7 @@ describe("runDownloadSvg", () => {
         exportScreenId: "screen-1",
         exportScreenSourceType: "localhost",
         fallbackExportName: (extension) => `design.${extension}`,
+        pngExportingRef: { current: false },
         prepareScreenForExport: (screenId) => {
           events.push(`promote:${screenId}`);
           const requested = document.createElement("iframe");
@@ -142,6 +145,104 @@ describe("runDownloadSvg", () => {
       consoleError.mockRestore();
       document.body.replaceChildren();
     }
+  });
+
+  it("does not overlap an all-screens PDF while SVG owns the preview lease", async () => {
+    document.body.replaceChildren();
+    const pngExportingRef = { current: false };
+    const events: string[] = [];
+    const requested = document.createElement("iframe");
+    requested.setAttribute("data-screen-iframe-id", "screen-1");
+    document.body.append(requested);
+    requested.contentDocument!.body.innerHTML = "<main>Target</main>";
+
+    const svgTask = runDownloadSvg({
+      activePreviewFrameId: "screen-1",
+      design: null,
+      exportScreenId: "screen-1",
+      fallbackExportName: (extension) => `design.${extension}`,
+      pngExportingRef,
+      prepareScreenForExport: () => {
+        events.push("svg:prepare");
+      },
+      releaseScreenFromExport: () => events.push("svg:release"),
+      selectedElement: null,
+      setSvgExporting: () => undefined,
+      t: (key) => key,
+      triggerBlobDownload: () => events.push("svg:download"),
+    });
+
+    const pdfPrepare = vi.fn();
+    const pdfRelease = vi.fn();
+    await runDownloadAllScreensPdf({
+      activeCanvasSourceType: "inline",
+      canEditDesign: true,
+      canvasFrameGeometryById: {},
+      fallbackExportName: (extension) => `design.${extension}`,
+      overviewScreens: [
+        {
+          id: "screen-a",
+          filename: "screen-a.html",
+          content: "",
+          updatedAt: "",
+          width: 100,
+          height: 100,
+          heightPinned: false,
+        },
+        {
+          id: "screen-b",
+          filename: "screen-b.html",
+          content: "",
+          updatedAt: "",
+          width: 100,
+          height: 100,
+          heightPinned: false,
+        },
+      ],
+      prepareScreenForExport: pdfPrepare,
+      releaseScreenFromExport: pdfRelease,
+      pngExportingRef,
+      setPngExporting: () => undefined,
+      showRasterCaptureError: () => undefined,
+      t: (key) => key,
+      triggerBlobDownload: vi.fn(),
+    });
+
+    expect(pngExportingRef.current).toBe(true);
+    expect(pdfPrepare).not.toHaveBeenCalled();
+    expect(pdfRelease).not.toHaveBeenCalled();
+
+    await svgTask;
+
+    expect(events).toEqual(["svg:prepare", "svg:download", "svg:release"]);
+    expect(pngExportingRef.current).toBe(false);
+    document.body.replaceChildren();
+  });
+
+  it("does not release an existing all-screens PDF preview lease", async () => {
+    const pngExportingRef = { current: true };
+    const prepareScreenForExport = vi.fn();
+    const releaseScreenFromExport = vi.fn();
+    const setSvgExporting = vi.fn();
+
+    await runDownloadSvg({
+      activePreviewFrameId: "screen-1",
+      design: null,
+      exportScreenId: "screen-1",
+      fallbackExportName: (extension) => `design.${extension}`,
+      pngExportingRef,
+      prepareScreenForExport,
+      releaseScreenFromExport,
+      selectedElement: null,
+      setSvgExporting,
+      t: (key) => key,
+      triggerBlobDownload: vi.fn(),
+    });
+
+    expect(prepareScreenForExport).not.toHaveBeenCalled();
+    expect(releaseScreenFromExport).not.toHaveBeenCalled();
+    expect(setSvgExporting).not.toHaveBeenCalled();
+    expect(pngExportingRef.current).toBe(true);
   });
 
   it("downloads parseable XML when the preview contains Alpine directives", async () => {
@@ -181,6 +282,7 @@ describe("runDownloadSvg", () => {
         activePreviewFrameId: "screen-1",
         design: null,
         fallbackExportName: (extension) => `design.${extension}`,
+        pngExportingRef: { current: false },
         selectedElement: null,
         setSvgExporting: () => undefined,
         t: (key) => key,

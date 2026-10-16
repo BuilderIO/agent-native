@@ -22,17 +22,28 @@ place of Slack source messages.
   `exhausted`, the full Slack `messageCount`, the complete `sourceTimestamps`
   list copied from that response, and one disposition row per source message.
   Each row records `ts` and the verified `threadParentTs` (equal to `ts` for a
-  root message), `reactionChecked: true`, `reactionSummary` (`none` if empty),
-  exact `reactionOwners` user IDs by emoji, and `disposition`. If the connector
-  hides `thread_ts`, resolve the row's permalink before recording it; never
-  infer the root from a message timestamp.
+  root message), `reactionChecked: true`, `reactionSummary`, exact
+  `reactionOwners` user IDs by emoji, and `disposition`. Use exactly `none`
+  with an empty owner map when there are no reactions. Otherwise serialize every
+  reaction as `emoji (count): ID, ID`, separated by semicolons; counts must
+  equal the listed unique actor IDs, and the summary and owner map must agree.
+  If the connector truncates the owner list, leave the row unreconciled rather
+  than infer missing actors. If the connector hides `thread_ts`, resolve the
+  row's permalink before recording it; never
+  infer the root from a message timestamp. For each reply whose verified root
+  predates or otherwise falls outside every page's source manifest, add that
+  exact root timestamp to the channel's `threadRoots` array. Read the reply's
+  actual `thread_ts` or resolve its permalink to establish the root; do not
+  guess from nearby timestamps. A root present in a page must have its own row
+  with `ts === threadParentTs` and must not be duplicated in `threadRoots`.
 - For each source message with `eyes` owned by `sweepActorId`, record a current
   status reply in that message's root thread, after the eyed message. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
   evidence, and read-back text. Record an explicit decision for both `✅` and
   `🎫`: `present` with its scope, or `none` with the reason no mark applies.
   Record each verified `fixedScopes` entry with its proof; record every
-  distinct `handoff` with scope, owner, and action. Finish the reply and both
+  distinct human handoff in `handoffs[]`, with scope, owner, and action. Finish
+  the reply and both
   reaction decisions for each owned eye before advancing to the next one. A
   verified fixed scope requires this actor's `✅` even when the overall
   disposition is `Partially fixed`; a distinct human handoff requires this
@@ -50,12 +61,14 @@ place of Slack source messages.
   recapping. It rejects an owned eye without a current same-actor reply, a
   missing or inconsistent `✅`/`🎫` decision, a verified fixed scope without
   that actor's `✅`, a `✅` without verified scope, and a `🎫` without a distinct
-  handoff owner/action. A partial fixed scope is
-  valid with disposition `Partially fixed` and its own `✅`; a human handoff for
+  handoff owner/action. It also checks that `reactionSummary` and
+  `reactionOwners` contain the same emoji and exact unique actor IDs. A partial
+  fixed scope is valid with disposition `Partially fixed` and its own `✅`; a human handoff for
   another scope can additionally carry `🎫`. It also checks that a
-  reply row maps back to its actual root thread, boundary overlap, page/cursor
-  order, count parity, timestamps, reaction state, and dispositions. A failed
-  check means the sweep is not reconciled. Include each channel's top-level
+  reply row maps to an in-page self-root or a verified `threadRoots` entry,
+  along with boundary overlap, page/cursor order, count parity, timestamps,
+  reaction state, and dispositions. A failed check means the sweep is not
+  reconciled. Include each channel's top-level
   report, source-message, and page counts in the recap.
 
 At recap, count this actor's `👀`, `✅`, and `🎫` separately. Account for every

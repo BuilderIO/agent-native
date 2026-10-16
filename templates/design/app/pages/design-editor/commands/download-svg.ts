@@ -1,5 +1,5 @@
 import { normalizeDesignSourceType } from "@shared/source-mode";
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { ExportSettingsValue } from "@/components/design/inspector";
@@ -30,6 +30,7 @@ export interface DownloadSvgArgs {
   /** Join keys for the `design_exported` this command reports. */
   exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
+  pngExportingRef: RefObject<boolean>;
   prepareScreenForExport?: (screenId: string) => void;
   releaseScreenFromExport?: () => void;
   selectedElement: ElementInfo | null;
@@ -119,6 +120,7 @@ export async function runDownloadSvg(
     exportScreenId,
     exportScreenSourceType,
     fallbackExportName,
+    pngExportingRef,
     prepareScreenForExport,
     releaseScreenFromExport,
     selectedElement,
@@ -128,9 +130,11 @@ export async function runDownloadSvg(
   }: DownloadSvgArgs,
   settings?: Partial<ExportSettingsValue>,
 ) {
+  if (pngExportingRef.current) return;
+  pngExportingRef.current = true;
   let preparedScreen = false;
-  setSvgExporting(true);
   try {
+    setSvgExporting(true);
     if (exportScreenId && prepareScreenForExport) {
       preparedScreen = true;
       prepareScreenForExport(exportScreenId);
@@ -262,7 +266,11 @@ export async function runDownloadSvg(
     try {
       if (preparedScreen) releaseScreenFromExport?.();
     } finally {
-      setSvgExporting(false);
+      try {
+        pngExportingRef.current = false;
+      } finally {
+        setSvgExporting(false);
+      }
     }
   }
 }
