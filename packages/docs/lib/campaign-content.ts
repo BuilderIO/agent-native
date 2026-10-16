@@ -187,7 +187,7 @@ function parseFiles<T extends { slug: string }>(
 ): T[] {
   return Object.entries(sources)
     .sort(([a], [b]) => a.localeCompare(b))
-    .flatMap(([filename, raw]) => {
+    .map(([filename, raw]) => {
       try {
         const parsed = matter(markdown ? raw : `---\n${raw}\n---\n`);
         const result = schema.parse(
@@ -199,9 +199,9 @@ function parseFiles<T extends { slug: string }>(
           ?.replace(/\.(?:yaml|md)$/, "");
         if (result.slug !== fileSlug)
           throw new Error(`slug must match filename ${fileSlug}`);
-        return [result];
+        return result;
       } catch (error) {
-        // Log only validation paths/messages, never private frontmatter or YAML excerpts.
+        // Report only validation paths/messages, never private frontmatter or YAML excerpts.
         const message =
           error instanceof z.ZodError
             ? error.issues
@@ -210,10 +210,9 @@ function parseFiles<T extends { slug: string }>(
             : error instanceof Error && /^slug must match/.test(error.message)
               ? error.message
               : "Unable to parse campaign content";
-        console.error(
-          `[campaign-content] ${filename}: invalid content skipped (${message})`,
+        throw new Error(
+          `[campaign-content] ${filename}: invalid content (${message})`,
         );
-        return [];
       }
     });
 }
@@ -224,15 +223,15 @@ export function parseCampaignContent(
   const useCases = parseFiles(sources.useCases, useCaseSchema, false);
   const bySlug = new Map(useCases.map((item) => [item.slug, item]));
   const articles = parseFiles(sources.articles, articleSchema, true)
-    .filter((article) => {
+    .map((article) => {
       const linked = article.use_case
         ? bySlug.get(article.use_case)
         : undefined;
-      if (!linked || linked.job_id === article.job_id) return true;
-      console.error(
-        `[campaign-content] ${article.slug}: job_id does not match use_case; article skipped`,
-      );
-      return false;
+      if (linked && linked.job_id !== article.job_id)
+        throw new Error(
+          `[campaign-content] ${article.slug}: invalid content (job_id does not match use_case)`,
+        );
+      return article;
     })
     .sort(
       (a, b) =>

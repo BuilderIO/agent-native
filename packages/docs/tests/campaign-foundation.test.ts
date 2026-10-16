@@ -288,15 +288,12 @@ describe("campaign content", () => {
         { tool: "A doc", used_for: "Taking notes", breaks: "Notes get lost" },
       ],
     },
-  ])("skips malformed todays_stack explicitly (%#)", (stack) => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const content = parseCampaignContent(
-      sources({ "sample.yaml": yaml({ ...useCase, todays_stack: stack }) }),
-    );
-    expect(content.useCases).toEqual([]);
-    expect(error).toHaveBeenCalledExactlyOnceWith(
-      expect.stringMatching(/invalid content skipped \(todays_stack/),
-    );
+  ])("throws on malformed todays_stack explicitly (%#)", (stack) => {
+    expect(() =>
+      parseCampaignContent(
+        sources({ "sample.yaml": yaml({ ...useCase, todays_stack: stack }) }),
+      ),
+    ).toThrow(/sample\.yaml: invalid content \(todays_stack/);
   });
 
   it("accepts absent and populated optional workflow fields without inventing defaults", () => {
@@ -478,25 +475,24 @@ describe("campaign content", () => {
       value: [{ ...angle, old_way_body: value }],
     })),
   ])(
-    "logs and skips malformed $field (%#) without discarding valid siblings",
+    "throws on malformed $field (%#) even alongside valid siblings",
     ({ field, value }) => {
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      const content = parseCampaignContent(
-        sources(
-          {
-            "sample.yaml": yaml({ ...useCase, [field]: value }),
-            "valid.yaml": yaml({ ...useCase, slug: "valid" }),
-          },
-          {},
-        ),
-      );
-      expect(content.useCases.map((item) => item.slug)).toEqual(["valid"]);
-      expect(error).toHaveBeenCalledExactlyOnceWith(
-        expect.stringContaining(
-          `sample.yaml: invalid content skipped (${field}`,
-        ),
-      );
-      expect(JSON.stringify(error.mock.calls)).not.toContain("PRIVATE");
+      let message = "";
+      try {
+        parseCampaignContent(
+          sources(
+            {
+              "sample.yaml": yaml({ ...useCase, [field]: value }),
+              "valid.yaml": yaml({ ...useCase, slug: "valid" }),
+            },
+            {},
+          ),
+        );
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain(`sample.yaml: invalid content (${field}`);
+      expect(message).not.toContain("PRIVATE");
     },
   );
 
@@ -534,19 +530,16 @@ describe("campaign content", () => {
   );
 
   it.each([undefined, null, "", "clips", "unknown", [], 1])(
-    "logs and skips an absent or invalid required article topic (%j)",
+    "throws on an absent or invalid required article topic (%j)",
     (topic) => {
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      const content = parseCampaignContent(
-        sources(undefined, {
-          "sample.md": markdown({ ...article, topic, category: "clips" }),
-          "valid.md": markdown({ ...article, slug: "valid" }),
-        }),
-      );
-      expect(content.articles.map((item) => item.slug)).toEqual(["valid"]);
-      expect(error).toHaveBeenCalledExactlyOnceWith(
-        expect.stringContaining("sample.md: invalid content skipped (topic"),
-      );
+      expect(() =>
+        parseCampaignContent(
+          sources(undefined, {
+            "sample.md": markdown({ ...article, topic, category: "clips" }),
+            "valid.md": markdown({ ...article, slug: "valid" }),
+          }),
+        ),
+      ).toThrow(/sample\.md: invalid content \(topic/);
     },
   );
 
@@ -614,18 +607,14 @@ describe("campaign content", () => {
     ["clips", "unknown"],
     [1],
     [null],
-  ])("logs and skips invalid article apps (%j)", (apps) => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(
+  ])("throws on invalid article apps (%j)", (apps) => {
+    expect(() =>
       parseCampaignContent(
         sources(undefined, {
           "sample.md": markdown({ ...article, apps }),
         }),
-      ).articles,
-    ).toEqual([]);
-    expect(error).toHaveBeenCalledExactlyOnceWith(
-      expect.stringContaining("sample.md: invalid content skipped (apps"),
-    );
+      ),
+    ).toThrow(/sample\.md: invalid content \(apps/);
   });
 
   it("summarizes only populated configured topics, in configuration order, without mutating input", () => {
@@ -899,39 +888,45 @@ describe("campaign content", () => {
       parseCampaignContent(sources({ "sample.yaml": dated })).useCases[0]
         .updated,
     ).toBe("2026-09-01");
-    expect(
+    expect(() =>
       parseCampaignContent(
         sources({ "sample.yaml": yaml({ ...useCase, updated: "2026-02-30" }) }),
-      ).useCases,
-    ).toEqual([]);
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining("invalid content skipped"),
-    );
+      ),
+    ).toThrow(/sample\.yaml: invalid content \(updated/);
   });
 
-  it("skips invalid files, filename mismatches, unsafe URLs and mismatched jobs explicitly", () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(
-      parseCampaignContent(sources({ "wrong.yaml": yaml(useCase) })).useCases,
-    ).toEqual([]);
-    expect(
-      parseCampaignContent(sources({ "sample.yaml": "[broken" })).useCases,
-    ).toEqual([]);
-    expect(
+  it("throws on invalid files, filename mismatches, unsafe URLs and mismatched jobs without leaking input", () => {
+    expect(() =>
+      parseCampaignContent(sources({ "wrong.yaml": yaml(useCase) })),
+    ).toThrow("wrong.yaml: invalid content (slug must match filename wrong)");
+    expect(() =>
+      parseCampaignContent(
+        sources({ "sample.yaml": "title: PRIVATE-SECRET\n[broken" }),
+      ),
+    ).toThrow(
+      "sample.yaml: invalid content (Unable to parse campaign content)",
+    );
+    try {
+      parseCampaignContent(
+        sources({ "sample.yaml": "title: PRIVATE-SECRET\n[broken" }),
+      );
+    } catch (error) {
+      expect((error as Error).message).not.toContain("PRIVATE-SECRET");
+    }
+    expect(() =>
       parseCampaignContent(
         sources({
           "sample.yaml": yaml({ ...useCase, app_cta_url: "javascript:evil()" }),
         }),
-      ).useCases,
-    ).toEqual([]);
-    expect(
+      ),
+    ).toThrow(/sample\.yaml: invalid content \(app_cta_url/);
+    expect(() =>
       parseCampaignContent(
         sources(undefined, {
           "sample.md": markdown({ ...article, job_id: "wrong" }),
         }),
-      ).articles,
-    ).toEqual([]);
-    expect(error).toHaveBeenCalledTimes(4);
+      ),
+    ).toThrow("sample: invalid content (job_id does not match use_case)");
   });
 
   it("allows an absent matching use case and valid content without screenshot warnings", () => {

@@ -1,4 +1,4 @@
-import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
 import { getArticleTopics } from "../../lib/article-topics";
 import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/campaign-content";
@@ -8,6 +8,7 @@ import {
   newestArticles,
   publicArticle,
 } from "../components/campaign/public-content";
+import { sitePathForLocale } from "../components/docs-locale";
 import enUS from "../i18n/en-US";
 import { campaignMeta } from "../lib/campaign-seo";
 
@@ -15,6 +16,8 @@ export function loader({ params }: LoaderFunctionArgs) {
   if (!params.page || !/^[1-9]\d*$/.test(params.page))
     throw new Response(null, { status: 404 });
   const page = Number(params.page);
+  if (page === 1)
+    throw redirect(sitePathForLocale(ARTICLES_BASE, params.locale), 301);
   const articles = newestArticles(loadCampaignContent().articles);
   const start = (page - 1) * ARTICLES_PAGE_SIZE;
   if (!Number.isSafeInteger(page) || start >= articles.length)

@@ -766,6 +766,22 @@ describe("public campaign frontend", () => {
     expect(() => articleLoader(args({ slug: "absent" }))).toThrow();
   });
 
+  it("permanently redirects page 1 to the locale-aware articles index", () => {
+    for (const [params, location] of [
+      [{ page: "1" }, "/articles/"],
+      [{ page: "1", locale: "fr-fr" }, "/fr-fr/articles/"],
+    ] as const) {
+      try {
+        pageLoader(args(params));
+        throw new Error("Expected redirect");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Response);
+        expect((error as Response).status).toBe(301);
+        expect((error as Response).headers.get("Location")).toBe(location);
+      }
+    }
+  });
+
   it("prioritizes same-topic recommendations, then newest remaining articles, capped at three", () => {
     const fixtures: Article[] = [
       article,
@@ -923,7 +939,6 @@ describe("public campaign frontend", () => {
     expect(JSON.stringify(data)).not.toContain("PRIVATE");
     for (const list of [
       articlesLoader(),
-      pageLoader(args({ page: "1" })),
       topicLoader(args({ topic: article.topic })),
     ]) {
       expect(JSON.stringify(list)).not.toContain("PRIVATE");
