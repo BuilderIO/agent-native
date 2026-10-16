@@ -21,9 +21,9 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Reply in-thread for every workflow reaction added this run;
-continuing work gets a concrete progress reply, and resolved work gets a final
-reply after verification. Follow
+Output is fixes. Reply in-thread only when the reporter's situation changes: a
+question they must answer, a verified fix, or a handoff that needs their action.
+Never post a reply that only restates reactions, ledger status, or tickets. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
@@ -45,6 +45,28 @@ and reactions, then continue only its scope. Handoffs require the current
 owner's explicit reply naming the new task and scope. Claims never expire. Ask
 Steve if ownership is unclear; stop if another mark appears. For continuing
 work, post one status reply with task link and remaining scope.
+
+**Person-assigned threads are not ours.** Skip a thread where a person is
+explicitly asked to look into it (an @-mention, or a team or group ping asking
+for help) or says they will or are looking into it. Do not add `👀`, investigate,
+or reply, even when the item looks like a clear defect. This holds in every
+phase, including answering questions in that thread.
+
+**Only Steve's `:mag:` and `:yes-party:` count.** Other people's reactions of
+these kinds change nothing. Find Steve's (user `U0GCV21HC`, `steve@builder.io`)
+with `slack_search: hasmy::mag: in:<#CHANNEL>` and
+`hasmy::yes-party: in:<#CHANNEL>` when Steve is the invoking identity, or check
+`slack_get_reactions` users otherwise.
+
+- `:mag:` means do not take it on. Skip it: no `👀`, no investigation, no reply.
+  It wins over `:yes-party:`. If it appears on an item we already hold, stop,
+  keep our `👀` (reactions are never removed), and post nothing more.
+- `:yes-party:` means pick it up and do it, even when it is the kind of change
+  this workflow would normally route to review, such as a subjective UX update.
+  It authorizes the item like an `:upvote:` from the invoking identity and
+  overrides the subjective-UX and out-of-scope rules for that item. It does not
+  override the person-assigned skip or another task's claim: those stay skipped,
+  and the recap names the item for Steve.
 
 ## Phase 0: claim what you are taking
 
@@ -73,9 +95,8 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 reported symptom separately. For partial fixes, pair `✅` for verified scope
 with `🎫` for any distinct unfinished scope that needs a human to take
 ownership or act, whether or not a ticket exists. Link a verified ticket and
-name its owner/action; without one, keep the handoff explicit in the reply and
-ledger and say that an owner or ticket still needs to be assigned. Do not
-create or promise a ticket without authorization. No `🎫` for fixed scope,
+name its owner/action; without one, record the handoff in the recap only, not in
+the thread. Do not create or promise a ticket without authorization. No `🎫` for fixed scope,
 routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
 Follow the reply reference before marking an item replied.
@@ -481,8 +502,10 @@ don't request a new link when the current one works. Follow
 `address-feedback-with-replies`. End Slack replies with
 `this was sent from a bot.`.
 
-Short replies: say the change, limits, and next step. Link merged PRs and say
-they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
+Replies are succinct: one or two sentences with the change or question, its
+limit, and the next step. Never explain reactions, ledgers, or ticket status to
+the reporter. Link merged PRs and say they're merged. Keep hashes, branches, CI,
+publisher, and run details in recap.
 Beta fixes follow reference for timing and live status; state other availability
 plainly.
 
@@ -578,7 +601,7 @@ Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <ti
 Messages: product N · QA N · dev N (total N)
 Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
 Release lanes: N inspected · failed/stale N · target verified N
-Reaction-gated skips: N · claimed N · answered N
+Gated skips (reactions, person-assigned threads, Steve's `:mag:`): N · claimed N · answered N
 Questions asked: N · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
