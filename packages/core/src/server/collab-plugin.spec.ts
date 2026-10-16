@@ -190,8 +190,14 @@ describe("createCollabPlugin live copies", () => {
     ["derive_failed", "queue_full", 503],
     ["derive_failed", "unavailable", 503],
     ["build_failed", "queue_timeout", 503],
-    ["derive_failed", "deadline_exceeded", 422],
-    ["build_failed", "invalid_update", 422],
+    ["derive_failed", "deadline_exceeded", 503],
+    ["derive_failed", "memory_exceeded", 503],
+    ["build_failed", "worker_crashed", 503],
+    ["derive_failed", "startup_failed", 503],
+    ["derive_failed", "output_too_large", 413],
+    ["derive_failed", "task_threw", 500],
+    ["derive_failed", "invalid_output", 500],
+    ["build_failed", "invalid_update", 500],
   ] as const)("maps %s (%s) to HTTP %i", (code, reason, status) => {
     expect(
       liveCopyErrorStatus(

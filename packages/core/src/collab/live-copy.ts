@@ -1,7 +1,18 @@
-import * as Y from "yjs";
-
-import { getDbExec, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getScopedDbExec,
+  withDbExec,
+  type DbExec,
+} from "../db/client.js";
 import { BoundedTaskError, type BoundedTaskRunner } from "./bounded-tasks.js";
+import {
+  LIVE_COPY_TASK,
+  type LiveCopyApplyInput,
+  type LiveCopyEditInput,
+  type LiveCopyReadInput,
+  type LiveCopySeedInput,
+  type LiveCopyTaskFailureCode,
+} from "./live-copy-tasks.js";
 import {
   CollabStateMalformedError,
   ensureTable,
@@ -10,9 +21,10 @@ import {
 } from "./storage.js";
 
 // A live copy is a collab document whose Yjs state is the only writable copy
-// of a body. Every commit derives the body's text from that state in a
-// bounded worker and writes both in one transaction, so the stored text is
-// always derive(live copy) at the stored version.
+// of a body. Every commit derives the body's text from that state and writes
+// both in one transaction, so the stored text is always derive(live copy) at
+// the stored version. This side only moves bytes: the Yjs work runs in the
+// binding's bounded runner (see live-copy-tasks.ts).
 
 export const LIVE_COPY_DEFAULT_FIELD = "default";
 const DEFAULT_MAX_STATE_BYTES = 4 * 1024 * 1024;
@@ -21,6 +33,7 @@ export type LiveCopyErrorCode =
   | "not_live_copy"
   | "not_seeded"
   | "write_refused"
+  | "read_refused"
   | "malformed_state"
   | "unsupported_content"
   | "state_too_large"
@@ -35,7 +48,7 @@ export class LiveCopyError extends Error {
   readonly docId: string;
   /**
    * Refusal reason from the task, the malformed-state reason, the bounded
-   * task error code, or the refused write path, depending on `code`.
+   * task error code, or the refused path, depending on `code`.
    */
   readonly reason?: string;
 
@@ -67,33 +80,59 @@ export interface LiveCopyCommit {
   readonly requestSource?: string;
 }
 
+/**
+ * What `persist` reports. Returning nothing means the app's rows were
+ * derived; `derived: false` means it left them alone (say the document went
+ * back to its legacy writer), and the Yjs state still commits.
+ */
+export type LiveCopyPersistOutcome =
+  | { derived: true }
+  | { derived: false; reason: string };
+
+/**
+ * How a write left the app's derived rows. `unchanged` means nothing was
+ * committed, so persist did not run.
+ */
+export interface LiveCopyOutcome {
+  liveCopy: "derived" | "not_derived" | "unchanged";
+  liveCopyReason?: string;
+}
+
 export interface LiveCopyOptions {
   /** Which collab documents are live copies. Checked on every write. */
   appliesTo(docId: string): boolean | Promise<boolean>;
-  /** Hosts the derive task and any seed or edit tasks. */
+  /**
+   * Hosts the live-copy tasks: its module exports
+   * `tasks = defineLiveCopyTasks({ derive, seed, edits })`.
+   */
   runner: BoundedTaskRunner;
-  /** Task returning `{ kind: "text", text }` or `{ kind: "refused", reason }`. Default "derive". */
-  deriveTask?: string;
   /** The one root type a live copy may hold. Default "default". */
   field?: string;
-  /** Encoded state above this is refused before any task runs. Default 4 MiB. */
+  /** Encoded state above this is refused. Default 4 MiB. */
   maxStateBytes?: number;
   /**
    * Writes the app's derived stores inside the commit transaction. It runs
    * before core updates `_collab_docs`, so app row locks are always taken
    * first. A throw rolls the commit back and reaches the caller unchanged.
    * It may run more than once per write when a version conflict retries.
+   * It runs in the caller's async context, and `getDbExec()` inside it is
+   * `tx`; a Drizzle `getDb()` handle is not, so query through `tx`.
    */
-  persist?(tx: DbExec, commit: LiveCopyCommit): Promise<void>;
+  persist?(
+    tx: DbExec,
+    commit: LiveCopyCommit,
+  ): Promise<void | LiveCopyPersistOutcome>;
 }
 
 export interface LiveCopyBinding {
   readonly appliesTo: (docId: string) => boolean | Promise<boolean>;
   readonly runner: BoundedTaskRunner;
-  readonly deriveTask: string;
   readonly field: string;
   readonly maxStateBytes: number;
-  readonly persist?: (tx: DbExec, commit: LiveCopyCommit) => Promise<void>;
+  readonly persist?: (
+    tx: DbExec,
+    commit: LiveCopyCommit,
+  ) => Promise<void | LiveCopyPersistOutcome>;
 }
 
 const LIVE_COPY_BINDINGS_KEY = "__agentNativeLiveCopyBindings__";
@@ -123,13 +162,17 @@ export function defineLiveCopy(options: LiveCopyOptions): LiveCopyBinding {
   const binding: LiveCopyBinding = Object.freeze({
     appliesTo: options.appliesTo,
     runner: options.runner,
-    deriveTask: options.deriveTask ?? "derive",
     field: options.field ?? LIVE_COPY_DEFAULT_FIELD,
     maxStateBytes,
     ...(options.persist ? { persist: options.persist } : {}),
   });
   bindings.add(binding);
   return binding;
+}
+
+/** Synchronous, so a caller can keep main's behavior when none is defined. */
+export function liveCopiesDefined(): boolean {
+  return bindings.size > 0;
 }
 
 /** Removes a binding so its documents take ordinary collab writes again. */
@@ -147,20 +190,26 @@ export async function liveCopyBindingFor(
   return null;
 }
 
-/** Throws `write_refused` when a live copy covers `docId`. */
-export async function refuseLiveCopyWrite(
+/**
+ * Throws `write_refused` when a live copy covers `docId`. With no binding
+ * defined it returns synchronously, so a write that has not taken its lock
+ * yet keeps its place in line.
+ */
+export function refuseLiveCopyWrite(
   docId: string,
   path: string,
-): Promise<void> {
-  if (bindings.size === 0) return;
-  if (await liveCopyBindingFor(docId)) {
-    throw new LiveCopyError(
-      "write_refused",
-      docId,
-      `Document ${docId} is a live copy; ${path} would write it without deriving its text.`,
-      { reason: path },
-    );
-  }
+): Promise<void> | undefined {
+  if (bindings.size === 0) return undefined;
+  return liveCopyBindingFor(docId).then((binding) => {
+    if (binding) {
+      throw new LiveCopyError(
+        "write_refused",
+        docId,
+        `Document ${docId} is a live copy; ${path} would write it without deriving its text.`,
+        { reason: path },
+      );
+    }
+  });
 }
 
 export async function assertLiveCopy(
@@ -176,21 +225,35 @@ export async function assertLiveCopy(
   }
 }
 
-export type ClassifiedLiveCopy =
-  | { kind: "absent"; doc: Y.Doc }
-  | { kind: "unseeded"; doc: Y.Doc; version: number }
-  | { kind: "live"; doc: Y.Doc; version: number };
+/**
+ * A commit updates this instance's cache and notifies connected editors as
+ * soon as it lands, so it must own its transaction: inside a caller's, a
+ * later rollback would leave editors holding state that was never saved.
+ */
+export function assertOwnTransaction(docId: string, path: string): void {
+  if (getScopedDbExec() === undefined) return;
+  throw new LiveCopyError(
+    "write_refused",
+    docId,
+    `${path} was called for live copy ${docId} inside a database transaction. Call it outside the transaction and write the app's rows in the binding's persist hook.`,
+    { reason: "caller_transaction" },
+  );
+}
+
+export type StoredLiveCopy =
+  | { kind: "absent" }
+  | { kind: "stored"; state: Uint8Array; version: number };
 
 /**
- * Reads the stored state strictly. Absent is no row; unseeded is a row whose
- * field holds nothing (including a zero-byte state); malformed state throws
- * `malformed_state` and is never treated as either.
+ * The stored bytes, read strictly: unreadable base64 or a bad version throws
+ * `malformed_state` instead of reading as empty. The bytes are not decoded
+ * as Yjs here; the tasks do that in the runner.
  */
-export async function readClassifiedLiveCopy(
+export async function readStoredLiveCopy(
   binding: LiveCopyBinding,
   client: DbExec,
   docId: string,
-): Promise<ClassifiedLiveCopy> {
+): Promise<StoredLiveCopy> {
   let record;
   try {
     record = await loadYDocRecordStrict(client, docId);
@@ -205,119 +268,61 @@ export async function readClassifiedLiveCopy(
     }
     throw error;
   }
-  if (
-    record.kind === "present" &&
-    record.state.length > binding.maxStateBytes
-  ) {
-    throw new LiveCopyError(
-      "state_too_large",
-      docId,
-      `Stored live copy ${docId} is ${record.state.length} bytes; the limit is ${binding.maxStateBytes}.`,
-      { reason: String(record.state.length) },
-    );
-  }
-  const doc = new Y.Doc();
-  if (record.kind === "absent") return { kind: "absent", doc };
-  if (record.state.length > 0) {
-    try {
-      Y.applyUpdate(doc, record.state);
-    } catch (error) {
-      doc.destroy();
-      throw new LiveCopyError(
-        "malformed_state",
-        docId,
-        `Stored live copy for ${docId} is not a Yjs update.`,
-        { reason: "yjs", cause: error },
-      );
-    }
-  }
-  try {
-    assertIntegrated(docId, doc, "stored state");
-    assertOnlyField(binding, docId, doc);
-  } catch (error) {
-    doc.destroy();
-    throw error;
-  }
-  return fieldHasContent(doc, binding.field)
-    ? { kind: "live", doc, version: record.version }
-    : { kind: "unseeded", doc, version: record.version };
+  if (record.kind === "absent") return { kind: "absent" };
+  assertStateSize(binding, docId, record.state, "Stored live copy");
+  return { kind: "stored", state: record.state, version: record.version };
 }
 
-function hasLiveContent(type: Y.AbstractType<Y.YEvent<any>>): boolean {
-  for (let item = type._start; item !== null; item = item.right) {
-    if (!item.deleted) return true;
-  }
-  for (const item of type._map.values()) {
-    if (!item.deleted) return true;
-  }
-  return false;
-}
-
-export function fieldHasContent(doc: Y.Doc, field: string): boolean {
-  const type = doc.share.get(field);
-  return type !== undefined && hasLiveContent(type);
-}
-
-/**
- * Content outside the field would be invisible to the derive task, so the
- * stored text would silently omit it. Refuse instead.
- */
-export function assertOnlyField(
+function assertStateSize(
   binding: LiveCopyBinding,
   docId: string,
-  doc: Y.Doc,
+  state: Uint8Array,
+  what: string,
 ): void {
-  const stray: string[] = [];
-  for (const [name, type] of doc.share) {
-    if (name !== binding.field && hasLiveContent(type)) stray.push(name);
-  }
-  if (stray.length > 0) {
-    throw new LiveCopyError(
-      "unsupported_content",
-      docId,
-      `Live copy ${docId} holds content outside "${binding.field}": ${stray.join(", ")}.`,
-      { reason: stray.join(",") },
-    );
-  }
-}
-
-export function encodeLiveCopyState(
-  binding: LiveCopyBinding,
-  docId: string,
-  doc: Y.Doc,
-): Uint8Array {
-  const state = Y.encodeStateAsUpdate(doc);
   if (state.length > binding.maxStateBytes) {
     throw new LiveCopyError(
       "state_too_large",
       docId,
-      `Live copy ${docId} is ${state.length} bytes; the limit is ${binding.maxStateBytes}.`,
+      `${what} ${docId} is ${state.length} bytes; the limit is ${binding.maxStateBytes}.`,
       { reason: String(state.length) },
     );
   }
-  return state;
 }
 
-type TaskRefusal = { kind: "refused"; reason: string; detail?: string };
+const TASK_FAILURE_CODES: ReadonlySet<string> =
+  new Set<LiveCopyTaskFailureCode>([
+    "malformed_state",
+    "unsupported_content",
+    "state_too_large",
+    "not_seeded",
+    "derive_refused",
+    "derive_failed",
+    "build_refused",
+    "build_failed",
+  ]);
 
-function isRefusal(value: unknown): value is TaskRefusal {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { kind?: unknown }).kind === "refused" &&
-    typeof (value as { reason?: unknown }).reason === "string"
-  );
-}
+type TaskOutput = { kind: string } & Record<string, unknown>;
 
-async function runTask(
+/**
+ * Runs a live-copy task and returns its result once it has a shape `kinds`
+ * allows. Runner failures become `failure` with the runner's error code as
+ * the reason; a task's typed failure becomes a `LiveCopyError` with its code.
+ */
+async function runLiveCopyTask(
   binding: LiveCopyBinding,
   docId: string,
   task: string,
-  input: unknown,
+  input: object,
   failure: "derive_failed" | "build_failed",
-): Promise<unknown> {
+  kinds: readonly string[],
+): Promise<TaskOutput> {
+  let output: unknown;
   try {
-    return await binding.runner.run(task, input);
+    output = await binding.runner.run(task, {
+      ...input,
+      field: binding.field,
+      maxStateBytes: binding.maxStateBytes,
+    });
   } catch (error) {
     if (error instanceof BoundedTaskError) {
       throw new LiveCopyError(
@@ -329,142 +334,237 @@ async function runTask(
     }
     throw error;
   }
+  const result = output as Partial<TaskOutput> | null;
+  const kind = typeof result === "object" && result ? result.kind : undefined;
+  if (kind === "failed") {
+    const { code, reason, message } = result as Record<string, unknown>;
+    if (
+      typeof code === "string" &&
+      TASK_FAILURE_CODES.has(code) &&
+      typeof reason === "string"
+    ) {
+      throw new LiveCopyError(
+        code as LiveCopyTaskFailureCode,
+        docId,
+        `Live copy ${docId} ${String(message)}.`,
+        { reason },
+      );
+    }
+  } else if (typeof kind === "string" && kinds.includes(kind)) {
+    const checked = result as TaskOutput;
+    const { state, text, update } = checked;
+    const textOk = text === undefined || typeof text === "string";
+    if (kind !== "changed" && textOk) return checked;
+    if (
+      state instanceof Uint8Array &&
+      typeof text === "string" &&
+      (update === undefined || update instanceof Uint8Array)
+    ) {
+      assertStateSize(binding, docId, state, "Live copy");
+      return checked;
+    }
+  }
+  throw new LiveCopyError(
+    failure,
+    docId,
+    `Live copy task ${task} for ${docId} returned a result it may not; build the runner's module with defineLiveCopyTasks.`,
+    { reason: "invalid_output" },
+  );
 }
 
-/** derive(state), in the binding's bounded runner. */
-export async function deriveLiveCopyText(
+function required<T>(
+  docId: string,
+  value: unknown,
+  check: (value: unknown) => value is T,
+  failure: "derive_failed" | "build_failed",
+): T {
+  if (check(value)) return value;
+  throw new LiveCopyError(
+    failure,
+    docId,
+    `Live copy task for ${docId} left out part of its result.`,
+    { reason: "invalid_output" },
+  );
+}
+
+const isString = (value: unknown): value is string => typeof value === "string";
+const isBytes = (value: unknown): value is Uint8Array =>
+  value instanceof Uint8Array;
+
+export interface LiveCopyChange {
+  kind: "changed";
+  state: Uint8Array;
+  text: string;
+  /** What this change added to the state it started from. */
+  update: Uint8Array;
+}
+
+/** Validates stored state in the runner; derives its text when asked. */
+export async function readLiveCopyState(
   binding: LiveCopyBinding,
   docId: string,
   state: Uint8Array,
-): Promise<string> {
-  const output = await runTask(
+  derive: boolean,
+): Promise<{ kind: "unseeded" } | { kind: "live"; text: string | null }> {
+  const input: Omit<LiveCopyReadInput, "field" | "maxStateBytes"> = {
+    state,
+    derive,
+  };
+  const result = await runLiveCopyTask(
     binding,
     docId,
-    binding.deriveTask,
-    { state, field: binding.field },
+    LIVE_COPY_TASK.read,
+    input,
     "derive_failed",
+    ["unseeded", "live"],
   );
-  if (isRefusal(output)) {
-    throw new LiveCopyError(
-      "derive_refused",
-      docId,
-      `Live copy ${docId} cannot be derived: ${output.reason}${output.detail ? ` (${output.detail})` : ""}.`,
-      { reason: output.reason },
-    );
-  }
-  if (
-    typeof output !== "object" ||
-    output === null ||
-    (output as { kind?: unknown }).kind !== "text" ||
-    typeof (output as { text?: unknown }).text !== "string"
-  ) {
-    throw new LiveCopyError(
-      "derive_failed",
-      docId,
-      `Live copy derive task ${binding.deriveTask} returned neither text nor a refusal.`,
-      { reason: "invalid_output" },
-    );
-  }
-  return (output as { text: string }).text;
-}
-
-/**
- * Runs a seed or edit task that returns a Yjs update. `unchanged` is only
- * accepted when `allowUnchanged` is set.
- */
-export async function runLiveCopyUpdateTask(
-  binding: LiveCopyBinding,
-  docId: string,
-  task: string,
-  input: unknown,
-  allowUnchanged: boolean,
-): Promise<Uint8Array | null> {
-  const output = await runTask(binding, docId, task, input, "build_failed");
-  if (isRefusal(output)) {
-    throw new LiveCopyError(
-      "build_refused",
-      docId,
-      `Live copy task ${task} for ${docId} refused: ${output.reason}${output.detail ? ` (${output.detail})` : ""}.`,
-      { reason: output.reason },
-    );
-  }
-  const kind =
-    typeof output === "object" && output !== null
-      ? (output as { kind?: unknown }).kind
-      : undefined;
-  if (kind === "unchanged" && allowUnchanged) return null;
-  const update =
-    kind === "update" ? (output as { update?: unknown }).update : undefined;
-  if (!(update instanceof Uint8Array)) {
-    throw new LiveCopyError(
-      "build_failed",
-      docId,
-      `Live copy task ${task} returned neither an update${allowUnchanged ? ", unchanged," : ""} nor a refusal.`,
-      { reason: "invalid_output" },
-    );
-  }
-  return update;
-}
-
-/**
- * Yjs parks structs and deletions whose dependencies are missing instead of
- * applying them; the derive task would never see them.
- */
-function assertIntegrated(docId: string, doc: Y.Doc, what: string): void {
-  if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) {
-    throw new LiveCopyError(
-      "malformed_state",
-      docId,
-      `The ${what} for live copy ${docId} depends on changes it does not have.`,
-      { reason: "missing_dependencies" },
-    );
-  }
-}
-
-/** Applies an update that must fully integrate into `doc`. */
-export function applyLiveCopyUpdate(
-  binding: LiveCopyBinding,
-  docId: string,
-  doc: Y.Doc,
-  update: Uint8Array,
-): boolean {
-  let changed = false;
-  const onUpdate = () => {
-    changed = true;
+  if (result.kind === "unseeded") return { kind: "unseeded" };
+  return {
+    kind: "live",
+    text: derive
+      ? required(docId, result.text, isString, "derive_failed")
+      : null,
   };
-  doc.on("update", onUpdate);
-  try {
-    Y.applyUpdate(doc, update);
-  } catch (error) {
-    throw new LiveCopyError(
-      "malformed_state",
-      docId,
-      `Update for live copy ${docId} is not a Yjs update.`,
-      { reason: "update", cause: error },
-    );
-  } finally {
-    doc.off("update", onUpdate);
+}
+
+/** Merges a client update in the runner; null state means absent. */
+export async function applyLiveCopyUpdate(
+  binding: LiveCopyBinding,
+  docId: string,
+  state: Uint8Array | null,
+  update: Uint8Array,
+): Promise<
+  { kind: "unchanged" } | { kind: "changed"; state: Uint8Array; text: string }
+> {
+  const input: Omit<LiveCopyApplyInput, "field" | "maxStateBytes"> = {
+    state,
+    update,
+  };
+  const result = await runLiveCopyTask(
+    binding,
+    docId,
+    LIVE_COPY_TASK.apply,
+    input,
+    "derive_failed",
+    ["unchanged", "changed"],
+  );
+  if (result.kind === "unchanged") return { kind: "unchanged" };
+  return {
+    kind: "changed",
+    state: result.state as Uint8Array,
+    text: result.text as string,
+  };
+}
+
+/** Seeds an absent or unseeded copy; a live one comes back with its text. */
+export async function seedLiveCopyState(
+  binding: LiveCopyBinding,
+  docId: string,
+  state: Uint8Array | null,
+  source: string,
+): Promise<{ kind: "live"; text: string } | LiveCopyChange> {
+  const input: Omit<LiveCopySeedInput, "field" | "maxStateBytes"> = {
+    state,
+    source,
+  };
+  const result = await runLiveCopyTask(
+    binding,
+    docId,
+    LIVE_COPY_TASK.seed,
+    input,
+    "build_failed",
+    ["live", "changed"],
+  );
+  if (result.kind === "live") {
+    return {
+      kind: "live",
+      text: required(docId, result.text, isString, "build_failed"),
+    };
   }
-  assertIntegrated(docId, doc, "update");
-  assertOnlyField(binding, docId, doc);
-  return changed;
+  return {
+    kind: "changed",
+    state: result.state as Uint8Array,
+    text: result.text as string,
+    update: required(docId, result.update, isBytes, "build_failed"),
+  };
+}
+
+/** Runs a named edit from the runner's module on seeded state. */
+export async function editLiveCopyState(
+  binding: LiveCopyBinding,
+  docId: string,
+  state: Uint8Array,
+  edit: string,
+  editInput: unknown,
+): Promise<{ kind: "unchanged"; text: string } | LiveCopyChange> {
+  const input: Omit<LiveCopyEditInput, "field" | "maxStateBytes"> = {
+    state,
+    edit,
+    input: editInput,
+  };
+  const result = await runLiveCopyTask(
+    binding,
+    docId,
+    LIVE_COPY_TASK.edit,
+    input,
+    "build_failed",
+    ["unchanged", "changed"],
+  );
+  if (result.kind === "unchanged") {
+    return {
+      kind: "unchanged",
+      text: required(docId, result.text, isString, "build_failed"),
+    };
+  }
+  return {
+    kind: "changed",
+    state: result.state as Uint8Array,
+    text: result.text as string,
+    update: required(docId, result.update, isBytes, "build_failed"),
+  };
 }
 
 class CommitVersionConflict extends Error {}
 
+function persistOutcome(docId: string, value: unknown): LiveCopyOutcome {
+  if (value === undefined) return { liveCopy: "derived" };
+  if (typeof value === "object" && value !== null) {
+    const { derived, reason } = value as {
+      derived?: unknown;
+      reason?: unknown;
+    };
+    if (derived === true) return { liveCopy: "derived" };
+    if (derived === false && typeof reason === "string" && reason !== "") {
+      return { liveCopy: "not_derived", liveCopyReason: reason };
+    }
+  }
+  throw new TypeError(
+    `Live copy persist for ${docId} must return nothing, { derived: true }, or { derived: false, reason }.`,
+  );
+}
+
 /**
  * Commits a derived state: the binding's persist hook, then the versioned
- * `_collab_docs` write, in one transaction. Returns false when another
+ * `_collab_docs` write, in one transaction. Returns null when another
  * writer moved the version first; nothing is written in that case.
  */
 export async function commitLiveCopy(
   binding: LiveCopyBinding,
   commit: LiveCopyCommit,
-): Promise<boolean> {
+): Promise<LiveCopyOutcome | null> {
+  assertOwnTransaction(commit.docId, "commitLiveCopy");
   await ensureTable();
   const exec = getDbExec();
+  let outcome: LiveCopyOutcome = { liveCopy: "derived" };
   const write = async (tx: DbExec) => {
-    if (binding.persist) await binding.persist(tx, commit);
+    const persist = binding.persist;
+    if (persist) {
+      // The pool's own transaction does not scope getDbExec(); without this,
+      // app helpers inside persist query a second connection, outside the
+      // row locks persist holds.
+      const value = await withDbExec(tx, () => persist(tx, commit));
+      outcome = persistOutcome(commit.docId, value);
+    }
     const saved = await trySaveYDocStateWithClient(
       tx,
       commit.docId,
@@ -475,28 +575,19 @@ export async function commitLiveCopy(
     if (!saved) throw new CommitVersionConflict();
   };
 
-  if (typeof exec.transaction === "function") {
-    try {
-      await exec.transaction(write);
-      return true;
-    } catch (error) {
-      if (error instanceof CommitVersionConflict) return false;
-      throw error;
-    }
+  if (typeof exec.transaction !== "function") {
+    throw new LiveCopyError(
+      "write_refused",
+      commit.docId,
+      `Live copy ${commit.docId} needs a database that supports transactions.`,
+      { reason: "no_transactions" },
+    );
   }
-
-  // Already inside a caller's transaction (a scoped exec has no
-  // .transaction). A savepoint lets a version conflict undo the hook's
-  // writes without aborting the caller.
-  await exec.execute("SAVEPOINT agent_native_live_copy_commit");
   try {
-    await write(exec);
+    await exec.transaction(write);
+    return outcome;
   } catch (error) {
-    await exec.execute("ROLLBACK TO SAVEPOINT agent_native_live_copy_commit");
-    await exec.execute("RELEASE SAVEPOINT agent_native_live_copy_commit");
-    if (error instanceof CommitVersionConflict) return false;
+    if (error instanceof CommitVersionConflict) return null;
     throw error;
   }
-  await exec.execute("RELEASE SAVEPOINT agent_native_live_copy_commit");
-  return true;
 }

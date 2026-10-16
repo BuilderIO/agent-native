@@ -4,6 +4,7 @@ import {
   BOUNDED_TASK_GLOBAL,
   BoundedTaskError,
   createBoundedTaskRunner,
+  measureBoundedPayload,
   type BoundedTaskRunner,
   type BoundedTaskRunnerOptions,
   type BoundedTaskSource,
@@ -245,6 +246,132 @@ describe("createBoundedTaskRunner", () => {
     const waited = await failure(tasks.run("echo", "queued"));
     expect(waited.code).toBe("queue_timeout");
     await expect(blocker).resolves.toBe("done");
+  });
+
+  it("does not count worker startup against queueTimeoutMs", async () => {
+    const slowStart = createBoundedTaskRunner({
+      source: source(
+        `var started = Date.now(); while (Date.now() - started < 400) {}\n${TASKS}`,
+        "slow-start",
+      ),
+      queueTimeoutMs: 50,
+      memoryLimitMb: 64,
+    });
+    runners.push(slowStart);
+    await expect(
+      Promise.all([slowStart.run("echo", 1), slowStart.run("echo", 2)]),
+    ).resolves.toEqual([1, 2]);
+  });
+
+  it("keeps a killed worker under maxWorkers until it has exited", async () => {
+    const real = await import("node:worker_threads");
+    let alive = 0;
+    let peak = 0;
+    class CountingWorker extends real.Worker {
+      constructor(...args: ConstructorParameters<typeof real.Worker>) {
+        super(...args);
+        alive += 1;
+        peak = Math.max(peak, alive);
+        this.once("exit", () => {
+          alive -= 1;
+        });
+      }
+    }
+    vi.resetModules();
+    vi.doMock("../shared/optional-node-builtins.js", () => ({
+      getWorkerThreads: () => ({ ...real, Worker: CountingWorker }),
+    }));
+    const isolated = await import("./bounded-tasks.js");
+    const tasks = isolated.createBoundedTaskRunner({
+      source: source(),
+      maxWorkers: 1,
+      deadlineMs: 150,
+      queueTimeoutMs: 10_000,
+      memoryLimitMb: 64,
+    });
+    runners.push(tasks);
+    const codes = await Promise.all(
+      ["spin", "spin", "echo"].map((task) =>
+        tasks.run(task, 1).then(
+          () => "ok",
+          (error: { code: string }) => error.code,
+        ),
+      ),
+    );
+    expect(codes).toEqual(["deadline_exceeded", "deadline_exceeded", "ok"]);
+    expect(peak).toBe(1);
+
+    const killed = tasks.run("spin", 1).catch(() => undefined);
+    await vi.waitFor(() => expect(tasks.stats().running).toBe(1), {
+      timeout: 5_000,
+    });
+    await killed;
+    await tasks.close();
+    expect(alive).toBe(0);
+  });
+
+  it("measures a typed-array view by the whole buffer it copies", async () => {
+    const view = new Uint8Array(new ArrayBuffer(64 * 1024), 0, 1);
+    expect(measureBoundedPayload(view, Infinity)).toBe(64 * 1024);
+    expect(
+      measureBoundedPayload(new Uint8Array(new SharedArrayBuffer(8)), Infinity),
+    ).toBe(-1);
+    const tasks = runner({ maxInputBytes: 4_096 });
+    expect((await failure(tasks.run("echo", view))).code).toBe(
+      "input_too_large",
+    );
+    expect(
+      (
+        await failure(
+          tasks.run("echo", new Uint8Array(new SharedArrayBuffer(8))),
+        )
+      ).code,
+    ).toBe("invalid_input");
+  });
+
+  it("checks a queued input again before sending it", async () => {
+    const tasks = runner({
+      maxWorkers: 1,
+      maxInputBytes: 4_096,
+      queueTimeoutMs: 5_000,
+    });
+    await tasks.run("echo", "warm");
+    const blocker = tasks.run("later", { ms: 150 });
+    const input = { text: "tiny" };
+    const queued = failure(tasks.run("echo", input));
+    input.text = "x".repeat(20_000);
+    expect((await queued).code).toBe("input_too_large");
+    await expect(blocker).resolves.toBe("done");
+  });
+
+  it("stops a worker that comes up after the task it was started for gave up", async () => {
+    const slowStart = createBoundedTaskRunner({
+      source: source(
+        `var started = Date.now(); while (Date.now() - started < 300) {}
+${TASKS}`,
+        "slow-start",
+      ),
+      maxWorkers: 2,
+      deadlineMs: 10_000,
+      queueTimeoutMs: 50,
+      idleTimeoutMs: 100,
+      memoryLimitMb: 64,
+    });
+    runners.push(slowStart);
+    const busy = slowStart.run("later", { ms: 4_000 }).catch(() => undefined);
+    await vi.waitFor(() => expect(slowStart.stats().running).toBe(1), {
+      timeout: 5_000,
+    });
+    expect((await failure(slowStart.run("echo", 1))).code).toBe(
+      "queue_timeout",
+    );
+    expect(slowStart.stats().workers).toBe(2);
+    await vi.waitFor(() => expect(slowStart.stats().workers).toBe(1), {
+      timeout: 3_000,
+    });
+    expect(slowStart.stats().running).toBe(1);
+    await slowStart.close();
+    await busy;
   });
 
   it("maps task errors, unknown tasks and non-plain output to typed codes", async () => {

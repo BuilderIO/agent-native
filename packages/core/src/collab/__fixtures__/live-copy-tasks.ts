@@ -1,19 +1,10 @@
 import * as Y from "yjs";
 
+import { defineLiveCopyTasks } from "../live-copy-tasks.js";
+
 // A tiny live-copy task module for the live-copy spec: a body is a list of
-// paragraphs, and anything else is refused rather than dropped.
-
-interface StateInput {
-  state: Uint8Array;
-  field: string;
-  input?: { text?: string };
-}
-
-function load(state: Uint8Array): Y.Doc {
-  const doc = new Y.Doc();
-  Y.applyUpdate(doc, state);
-  return doc;
-}
+// paragraphs, and anything else is refused rather than dropped. Paragraphs
+// and seed sources starting with "!" drive the failure cases.
 
 function paragraph(text: string): Y.XmlElement {
   const element = new Y.XmlElement("paragraph");
@@ -23,17 +14,20 @@ function paragraph(text: string): Y.XmlElement {
   return element;
 }
 
-function edit(state: Uint8Array, change: (doc: Y.Doc) => void) {
-  const doc = load(state);
-  const before = Y.encodeStateVector(doc);
-  change(doc);
-  return { kind: "update", update: Y.encodeStateAsUpdate(doc, before) };
+/** An update whose base this document never had. */
+function orphanUpdate(): Uint8Array {
+  const elsewhere = new Y.Doc();
+  elsewhere.getXmlFragment("default").insert(0, [paragraph("unknown base")]);
+  const before = Y.encodeStateVector(elsewhere);
+  const fragment = elsewhere.getXmlFragment("default");
+  fragment.insert(1, [paragraph("orphan")]);
+  return Y.encodeStateAsUpdate(elsewhere, before);
 }
 
-export const tasks = {
-  derive({ state, field }: StateInput) {
+export const tasks = defineLiveCopyTasks({
+  derive(doc, field) {
     const lines: string[] = [];
-    for (const node of load(state).getXmlFragment(field).toArray()) {
+    for (const node of doc.getXmlFragment(field).toArray()) {
       if (!(node instanceof Y.XmlElement) || node.nodeName !== "paragraph") {
         return {
           kind: "refused",
@@ -41,53 +35,56 @@ export const tasks = {
           detail: node instanceof Y.XmlElement ? node.nodeName : "text",
         };
       }
-      lines.push(
-        node
-          .toArray()
-          .map((child) => child.toString())
-          .join(""),
-      );
+      const text = node
+        .toArray()
+        .map((child) => child.toString())
+        .join("");
+      if (text === "!spin") {
+        for (;;) {
+          // never returns
+        }
+      }
+      if (text === "!html") return { kind: "html" } as never;
+      if (text === "!edit")
+        doc.getXmlFragment(field).insert(0, [paragraph("")]);
+      lines.push(text);
     }
-    return { kind: "text", text: lines.join("\n") };
+    return lines.join("\n");
   },
-  seed({ source, field }: { source: string; field: string }) {
-    const doc = new Y.Doc();
+  seed(doc, field, source) {
+    if (source === "!refuse") return { kind: "refused", reason: "too_complex" };
+    if (source === "!empty") return;
+    if (source === "!junk") return { kind: "update" } as never;
+    if (source === "!stray") doc.getText("other").insert(0, "hidden");
     doc.getXmlFragment(field).insert(0, source.split("\n").map(paragraph));
-    return { kind: "update", update: Y.encodeStateAsUpdate(doc) };
   },
-  emptySeed() {
-    return { kind: "update", update: Y.encodeStateAsUpdate(new Y.Doc()) };
-  },
-  append({ state, field, input }: StateInput) {
-    return edit(state, (doc) => {
+  edits: {
+    append(doc, field, input) {
       const fragment = doc.getXmlFragment(field);
-      fragment.insert(fragment.length, [paragraph(input?.text ?? "")]);
-    });
-  },
-  clear({ state, field }: StateInput) {
-    return edit(state, (doc) => {
+      const text = (input as { text?: string } | undefined)?.text ?? "";
+      fragment.insert(fragment.length, [paragraph(text)]);
+    },
+    clear(doc, field) {
       const fragment = doc.getXmlFragment(field);
       fragment.delete(0, fragment.length);
-    });
+    },
+    stray(doc) {
+      doc.getText("other").insert(0, "hidden");
+    },
+    unchanged() {},
+    refuse() {
+      return { kind: "refused", reason: "too_complex" };
+    },
+    junk() {
+      return { kind: "update" } as never;
+    },
+    dependent(doc) {
+      Y.applyUpdate(doc, orphanUpdate());
+    },
+    dependentAndValid(doc, field) {
+      Y.applyUpdate(doc, orphanUpdate());
+      const fragment = doc.getXmlFragment(field);
+      fragment.insert(fragment.length, [paragraph("valid")]);
+    },
   },
-  stray({ state }: StateInput) {
-    return edit(state, (doc) => doc.getText("other").insert(0, "hidden"));
-  },
-  unchanged() {
-    return { kind: "unchanged" };
-  },
-  refuse() {
-    return { kind: "refused", reason: "too_complex" };
-  },
-  notAnUpdate() {
-    return { kind: "update", update: new Uint8Array([255, 255, 255]) };
-  },
-  neitherTextNorRefusal() {
-    return { kind: "html", html: "<p></p>" };
-  },
-  spin() {
-    for (;;) {
-      // never returns
-    }
-  },
-};
+});

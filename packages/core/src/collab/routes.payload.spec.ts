@@ -47,6 +47,7 @@ import {
   postCollabSearchReplace,
 } from "./routes.js";
 import { postCollabJson, postCollabPatch } from "./struct-routes.js";
+import * as manager from "./ydoc-manager.js";
 
 function event(params: Record<string, string>, maxPayloadBytes?: number): any {
   return {
@@ -144,6 +145,26 @@ describe("postCollabUpdate payload limit", () => {
     const ev = event({ docId: "doc-1" }, customLimit);
     const res = await postCollabUpdate(ev);
     expect(ev._status).toBe(413);
+  });
+});
+
+describe("postCollabUpdate live-copy ack", () => {
+  it("echoes the live-copy outcome, and keeps the plain ack without one", async () => {
+    const update = Buffer.alloc(4).toString("base64");
+    mockReadBody.mockResolvedValue({ update });
+    vi.mocked(manager.applyUpdate).mockResolvedValueOnce({
+      liveCopy: "not_derived",
+      liveCopyReason: "legacy_writer",
+    });
+    expect(await postCollabUpdate(event({ docId: "doc-1" }))).toEqual({
+      ok: true,
+      liveCopy: "not_derived",
+      liveCopyReason: "legacy_writer",
+    });
+    vi.mocked(manager.applyUpdate).mockResolvedValueOnce(undefined);
+    expect(await postCollabUpdate(event({ docId: "doc-1" }))).toEqual({
+      ok: true,
+    });
   });
 });
 

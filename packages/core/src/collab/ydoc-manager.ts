@@ -12,23 +12,26 @@ import {
 import {
   applyLiveCopyUpdate,
   assertLiveCopy,
-  assertOnlyField,
+  assertOwnTransaction,
   commitLiveCopy,
-  deriveLiveCopyText,
-  encodeLiveCopyState,
-  fieldHasContent,
+  editLiveCopyState,
+  liveCopiesDefined,
   liveCopyBindingFor,
   LiveCopyError,
-  readClassifiedLiveCopy,
+  readLiveCopyState,
+  readStoredLiveCopy,
   refuseLiveCopyWrite,
-  runLiveCopyUpdateTask,
+  seedLiveCopyState,
   type LiveCopyBinding,
+  type LiveCopyOutcome,
+  type StoredLiveCopy,
 } from "./live-copy.js";
 import {
   ensureTable,
   loadYDocRecord,
   loadYDocRecordWithClient,
   loadYDocVersion,
+  saveYDocState as saveStoredYDocState,
   trySaveYDocState,
   trySaveYDocStateWithClient,
 } from "./storage.js";
@@ -127,6 +130,7 @@ function evictIfNeeded(): void {
 async function withDocWriteLock<T>(
   docId: string,
   fn: () => Promise<T>,
+  refusePath?: string,
 ): Promise<T> {
   const previous = _writeLocks.get(docId) ?? Promise.resolve();
   let release!: () => void;
@@ -138,6 +142,11 @@ async function withDocWriteLock<T>(
 
   await previous.catch(() => {});
   try {
+    // Checked under the lock so a refused write never changes who goes next.
+    if (refusePath !== undefined) {
+      const refusal = refuseLiveCopyWrite(docId, refusePath);
+      if (refusal) await refusal;
+    }
     return await fn();
   } finally {
     release();
@@ -152,64 +161,67 @@ export async function withPreparedYDocMutation<T>(
   requestSource: string | undefined,
   run: (lease: PreparedYDocMutationLease) => Promise<T>,
 ): Promise<T> {
-  await refuseLiveCopyWrite(docId, "withPreparedYDocMutation");
-  return withDocWriteLock(docId, async () => {
-    const current = await getDocForWrite(docId);
-    const latest = await loadYDocRecord(docId);
-    if (latest?.state.length) Y.applyUpdate(current, latest.state);
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const current = await getDocForWrite(docId);
+      const latest = await loadYDocRecord(docId);
+      if (latest?.state.length) Y.applyUpdate(current, latest.state);
 
-    const candidate = new Y.Doc();
-    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
-    const baseVector = Y.encodeStateVector(candidate);
-    const baseVersion = latest?.version ?? null;
-    let persisted = false;
-    const lease: PreparedYDocMutationLease = {
-      doc: candidate,
-      baseVersion,
-      persist: async (transaction, textSnapshot) => {
-        if (persisted) {
-          throw new Error("Prepared Yjs mutation was already persisted");
-        }
-        const saved = await trySaveYDocStateWithClient(
-          transaction,
-          docId,
-          Y.encodeStateAsUpdate(candidate),
-          textSnapshot,
-          baseVersion,
-        );
-        if (!saved) {
-          throw new CollabBaseVersionConflictError(
-            `Document ${docId} changed while the prepared mutation was committing.`,
-          );
-        }
-        persisted = true;
-      },
-    };
-
-    try {
-      const result = await run(lease);
-      if (!persisted) {
-        candidate.destroy();
-        return result;
-      }
-      const update = Y.encodeStateAsUpdate(candidate, baseVector);
-      const previous = _cache.get(docId);
-      previous?.doc.destroy();
-      _cache.set(docId, {
+      const candidate = new Y.Doc();
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
+      const baseVector = Y.encodeStateVector(candidate);
+      const baseVersion = latest?.version ?? null;
+      let persisted = false;
+      const lease: PreparedYDocMutationLease = {
         doc: candidate,
-        lastAccess: Date.now(),
-        syncedVersion: baseVersion === null ? 0 : baseVersion + 1,
-      });
-      evictIfNeeded();
-      if (update.length > 0) {
-        emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+        baseVersion,
+        persist: async (transaction, textSnapshot) => {
+          if (persisted) {
+            throw new Error("Prepared Yjs mutation was already persisted");
+          }
+          const saved = await trySaveYDocStateWithClient(
+            transaction,
+            docId,
+            Y.encodeStateAsUpdate(candidate),
+            textSnapshot,
+            baseVersion,
+          );
+          if (!saved) {
+            throw new CollabBaseVersionConflictError(
+              `Document ${docId} changed while the prepared mutation was committing.`,
+            );
+          }
+          persisted = true;
+        },
+      };
+
+      try {
+        const result = await run(lease);
+        if (!persisted) {
+          candidate.destroy();
+          return result;
+        }
+        const update = Y.encodeStateAsUpdate(candidate, baseVector);
+        const previous = _cache.get(docId);
+        previous?.doc.destroy();
+        _cache.set(docId, {
+          doc: candidate,
+          lastAccess: Date.now(),
+          syncedVersion: baseVersion === null ? 0 : baseVersion + 1,
+        });
+        evictIfNeeded();
+        if (update.length > 0) {
+          emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+        }
+        return result;
+      } catch (error) {
+        candidate.destroy();
+        throw error;
       }
-      return result;
-    } catch (error) {
-      candidate.destroy();
-      throw error;
-    }
-  });
+    },
+    "withPreparedYDocMutation",
+  );
 }
 
 function buildStateToStore(doc: Y.Doc, storedByteCount: number): Uint8Array {
@@ -369,30 +381,54 @@ async function awaitPendingWrite(docId: string): Promise<void> {
   if (pending) await pending.catch(() => {});
 }
 
-export async function getDoc(docId: string): Promise<Y.Doc> {
+type ReadTarget =
+  | { kind: "doc"; doc: Y.Doc }
+  | { kind: "live"; binding: LiveCopyBinding };
+
+async function readTarget(docId: string): Promise<ReadTarget> {
   await awaitPendingWrite(docId);
-  const liveCopy = await liveCopyBindingFor(docId);
-  if (liveCopy) return getLiveCopyDoc(liveCopy, docId);
+  const binding = await liveCopyBindingFor(docId);
+  if (binding) return { kind: "live", binding };
   const cached = _cache.get(docId);
   if (cached) {
     cached.lastAccess = Date.now();
     await mergeNewerStoredState(docId, cached);
-    return cached.doc;
+    return { kind: "doc", doc: cached.doc };
   }
-
-  return loadDoc(docId);
+  return { kind: "doc", doc: await loadDoc(docId) };
 }
 
+/** The cached document, for callers that only read it. */
+async function readDoc(docId: string, path: string): Promise<Y.Doc> {
+  const target = await readTarget(docId);
+  if (target.kind === "doc") return target.doc;
+  throw new LiveCopyError(
+    "read_refused",
+    docId,
+    `Document ${docId} is a live copy, which is never decoded on the request thread, so ${path} cannot read it; use readLiveCopy or getState.`,
+    { reason: path },
+  );
+}
+
+/** Refuses live copies with `read_refused`; read those with `readLiveCopy`. */
+export async function getDoc(docId: string): Promise<Y.Doc> {
+  return readDoc(docId, "getDoc");
+}
+
+/**
+ * Commits a client update. Once any live copy is defined, the result says
+ * whether the app's rows were derived from it; with none defined it is
+ * undefined, as before live copies existed.
+ */
 export async function applyUpdate(
   docId: string,
   update: Uint8Array,
   requestSource?: string,
-): Promise<void> {
+): Promise<LiveCopyOutcome | undefined> {
   return withDocWriteLock(docId, async () => {
     const liveCopy = await liveCopyBindingFor(docId);
     if (liveCopy) {
-      await commitLiveCopyUpdate(liveCopy, docId, update, requestSource);
-      return;
+      return commitLiveCopyUpdate(liveCopy, docId, update, requestSource);
     }
     const doc = await getDocForWrite(docId);
     Y.applyUpdate(doc, update);
@@ -402,20 +438,98 @@ export async function applyUpdate(
     );
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    return liveCopiesDefined()
+      ? { liveCopy: "not_derived", liveCopyReason: "not_live_copy" }
+      : undefined;
   });
 }
 
 const LIVE_COPY_COMMIT_ATTEMPTS = 5;
 
-function cacheCommittedLiveCopy(
+// An empty Yjs update: no structs, no deletions.
+const EMPTY_STATE = new Uint8Array([0, 0]);
+
+interface LiveCopyCacheEntry {
+  state: Uint8Array;
+  /** Null when the copy was absent. */
+  version: number | null;
+  lastAccess: number;
+}
+
+// Live copies are cached as validated bytes, never as a Y.Doc.
+const _liveCopyCache = new Map<string, LiveCopyCacheEntry>();
+
+function cacheLiveCopyState(
   docId: string,
-  doc: Y.Doc,
+  state: Uint8Array,
   version: number | null,
 ): void {
-  const previous = _cache.get(docId);
-  if (previous && previous.doc !== doc) previous.doc.destroy();
-  _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: version });
-  evictIfNeeded();
+  const stale = _cache.get(docId);
+  if (stale) {
+    stale.doc.destroy();
+    _cache.delete(docId);
+  }
+  _liveCopyCache.set(docId, { state, version, lastAccess: Date.now() });
+  if (_liveCopyCache.size <= MAX_CACHE) return;
+  let oldest: string | null = null;
+  let oldestTime = Infinity;
+  for (const [id, entry] of _liveCopyCache) {
+    if (entry.lastAccess < oldestTime) {
+      oldestTime = entry.lastAccess;
+      oldest = id;
+    }
+  }
+  if (oldest) _liveCopyCache.delete(oldest);
+}
+
+function servedState(state: Uint8Array): Uint8Array {
+  return state.length > 0 ? state.slice() : EMPTY_STATE.slice();
+}
+
+/**
+ * The stored copy to change. When this instance cached the stored version,
+ * its bytes are used instead of re-reading the row; the tasks get a copy, so
+ * a refused or conflicting attempt never touches the cache.
+ */
+async function loadLiveCopyState(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<StoredLiveCopy> {
+  const cached = _liveCopyCache.get(docId);
+  if (cached && cached.version === (await loadYDocVersion(docId))) {
+    cached.lastAccess = Date.now();
+    return cached.version === null
+      ? { kind: "absent" }
+      : { kind: "stored", state: cached.state, version: cached.version };
+  }
+  return readStoredLiveCopy(binding, getDbExec(), docId);
+}
+
+/**
+ * The bytes a live copy serves to editors. A version this instance has not
+ * seen is checked in the runner first, so malformed state fails here instead
+ * of reaching an editor as an empty or broken document.
+ */
+async function liveCopyStateForRead(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<Uint8Array> {
+  await ensureTable();
+  const version = await loadYDocVersion(docId);
+  const cached = _liveCopyCache.get(docId);
+  if (cached && cached.version === version) {
+    cached.lastAccess = Date.now();
+    return cached.state;
+  }
+  const stored = await readStoredLiveCopy(binding, getDbExec(), docId);
+  if (stored.kind === "absent") {
+    cacheLiveCopyState(docId, EMPTY_STATE, null);
+    return EMPTY_STATE;
+  }
+  await readLiveCopyState(binding, docId, stored.state, false);
+  const state = stored.state.length > 0 ? stored.state : EMPTY_STATE;
+  cacheLiveCopyState(docId, state, stored.version);
+  return state;
 }
 
 async function commitLiveCopyUpdate(
@@ -423,68 +537,40 @@ async function commitLiveCopyUpdate(
   docId: string,
   update: Uint8Array,
   requestSource: string | undefined,
-): Promise<void> {
+): Promise<LiveCopyOutcome> {
+  assertOwnTransaction(docId, "applyUpdate");
   await ensureTable();
   for (let attempt = 0; attempt < LIVE_COPY_COMMIT_ATTEMPTS; attempt += 1) {
-    const stored = await readClassifiedLiveCopy(binding, getDbExec(), docId);
-    const doc = stored.doc;
-    let committed = false;
-    try {
-      if (!applyLiveCopyUpdate(binding, docId, doc, update)) return;
-      const state = encodeLiveCopyState(binding, docId, doc);
-      const text = await deriveLiveCopyText(binding, docId, state);
-      const previousVersion = stored.kind === "absent" ? null : stored.version;
-      const version = previousVersion === null ? 0 : previousVersion + 1;
-      committed = await commitLiveCopy(binding, {
-        docId,
-        origin: "update",
-        previousVersion,
-        version,
-        text,
-        state,
-        ...(requestSource ? { requestSource } : {}),
-      });
-      if (!committed) continue;
-      cacheCommittedLiveCopy(docId, doc, version);
-      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-      return;
-    } catch (error) {
-      releaseDoc(docId);
-      throw error;
-    } finally {
-      if (!committed) doc.destroy();
-    }
+    const stored = await loadLiveCopyState(binding, docId);
+    const result = await applyLiveCopyUpdate(
+      binding,
+      docId,
+      stored.kind === "absent" ? null : stored.state,
+      update,
+    );
+    if (result.kind === "unchanged") return { liveCopy: "unchanged" };
+    const previousVersion = stored.kind === "absent" ? null : stored.version;
+    const version = previousVersion === null ? 0 : previousVersion + 1;
+    const outcome = await commitLiveCopy(binding, {
+      docId,
+      origin: "update",
+      previousVersion,
+      version,
+      text: result.text,
+      state: result.state,
+      ...(requestSource ? { requestSource } : {}),
+    });
+    if (!outcome) continue;
+    cacheLiveCopyState(docId, result.state, version);
+    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    return outcome;
   }
-  releaseDoc(docId);
   throw new LiveCopyError(
     "version_conflict",
     docId,
     `Live copy ${docId} kept changing while the update was being committed; it was not saved.`,
     { reason: String(LIVE_COPY_COMMIT_ATTEMPTS) },
   );
-}
-
-/**
- * The lenient loader decodes unreadable base64 as zero bytes, which would
- * serve a malformed live copy as an empty document; read it strictly.
- */
-async function getLiveCopyDoc(
-  binding: LiveCopyBinding,
-  docId: string,
-): Promise<Y.Doc> {
-  await ensureTable();
-  const cached = _cache.get(docId);
-  if (cached && cached.syncedVersion === (await loadYDocVersion(docId))) {
-    cached.lastAccess = Date.now();
-    return cached.doc;
-  }
-  const stored = await readClassifiedLiveCopy(binding, getDbExec(), docId);
-  cacheCommittedLiveCopy(
-    docId,
-    stored.doc,
-    stored.kind === "absent" ? null : stored.version,
-  );
-  return stored.doc;
 }
 
 export type LiveCopyRead =
@@ -502,42 +588,35 @@ export async function readLiveCopy(
   docId: string,
 ): Promise<LiveCopyRead> {
   await ensureTable();
-  const stored = await readClassifiedLiveCopy(binding, getDbExec(), docId);
-  try {
-    if (stored.kind === "absent") return { kind: "absent" };
-    if (stored.kind === "unseeded") {
-      return {
-        kind: "unseeded",
-        version: stored.version,
-        state: Y.encodeStateAsUpdate(stored.doc),
-      };
-    }
-    const state = encodeLiveCopyState(binding, docId, stored.doc);
-    const text = await deriveLiveCopyText(binding, docId, state);
-    return { kind: "live", version: stored.version, state, text };
-  } finally {
-    stored.doc.destroy();
+  const stored = await loadLiveCopyState(binding, docId);
+  if (stored.kind === "absent") return { kind: "absent" };
+  const result = await readLiveCopyState(binding, docId, stored.state, true);
+  const state = servedState(stored.state);
+  if (result.kind === "unseeded") {
+    return { kind: "unseeded", version: stored.version, state };
   }
+  return {
+    kind: "live",
+    version: stored.version,
+    state,
+    text: result.text as string,
+  };
 }
-
-export type LiveCopyEdit =
-  | ((doc: Y.Doc) => void | Promise<void>)
-  | { task: string; input?: unknown };
 
 export interface MutateLiveCopyOptions {
   /**
-   * The change, re-run against fresh state after each version conflict. A
-   * function runs on this thread and must stay cheap; heavy work (parsing,
-   * diffing large trees) belongs in a task, which gets
-   * `{ state, field, input }` and returns `{ kind: "update", update }`,
-   * `{ kind: "unchanged" }` or `{ kind: "refused", reason }`.
+   * The name of an edit in the runner's module
+   * (`defineLiveCopyTasks({ edits })`). It runs in the runner and is re-run
+   * against fresh state after each version conflict.
    */
-  edit: LiveCopyEdit;
+  edit: string;
+  /** Passed to the edit. */
+  input?: unknown;
   requestSource?: string;
   maxAttempts?: number;
 }
 
-export interface LiveCopyMutationResult {
+export interface LiveCopyMutationResult extends LiveCopyOutcome {
   changed: boolean;
   /** The stored version after the call; an unchanged edit leaves it as is. */
   version: number;
@@ -550,7 +629,7 @@ export interface LiveCopyMutationResult {
 }
 
 /**
- * Applies an edit to a seeded live copy and commits it with its derived
+ * Applies a named edit to a seeded live copy and commits it with its derived
  * text, retrying on `_collab_docs.version` conflicts. Throws `not_seeded`
  * for an absent or unseeded copy; seed it with `seedLiveCopy` first.
  */
@@ -565,110 +644,74 @@ export async function mutateLiveCopy(
       "mutateLiveCopy maxAttempts must be a positive integer",
     );
   }
+  if (typeof options.edit !== "string") {
+    throw new TypeError(
+      "mutateLiveCopy edit must name an edit in the runner's module",
+    );
+  }
   await assertLiveCopy(binding, docId);
+  assertOwnTransaction(docId, "mutateLiveCopy");
   await ensureTable();
   return withDocWriteLock(docId, async () => {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const stored = await readClassifiedLiveCopy(binding, getDbExec(), docId);
-      const doc = stored.doc;
-      let committed = false;
-      try {
-        if (stored.kind !== "live") {
-          throw new LiveCopyError(
-            "not_seeded",
-            docId,
-            `Live copy ${docId} is ${stored.kind}; seed it before editing.`,
-            { reason: stored.kind },
-          );
-        }
-        const baseVector = Y.encodeStateVector(doc);
-        const baseState = Y.encodeStateAsUpdate(doc);
-        let changed = false;
-        if (typeof options.edit === "function") {
-          const onUpdate = () => {
-            changed = true;
-          };
-          doc.on("update", onUpdate);
-          try {
-            await options.edit(doc);
-          } finally {
-            doc.off("update", onUpdate);
-          }
-          if (changed) assertOnlyField(binding, docId, doc);
-        } else {
-          const update = await runLiveCopyUpdateTask(
-            binding,
-            docId,
-            options.edit.task,
-            {
-              state: baseState,
-              field: binding.field,
-              input: options.edit.input,
-            },
-            true,
-          );
-          changed =
-            update !== null && applyLiveCopyUpdate(binding, docId, doc, update);
-        }
-        if (changed && !fieldHasContent(doc, binding.field)) {
-          throw new LiveCopyError(
-            "build_refused",
-            docId,
-            `The edit would leave live copy ${docId} with an empty "${binding.field}".`,
-            { reason: "empty" },
-          );
-        }
-        const state = changed
-          ? encodeLiveCopyState(binding, docId, doc)
-          : baseState;
-        const text = await deriveLiveCopyText(binding, docId, state);
-        if (!changed) {
-          return {
-            changed: false,
-            version: stored.version,
-            state,
-            text,
-            update: new Uint8Array(0),
-            attempts: attempt,
-          };
-        }
-        const version = stored.version + 1;
-        committed = await commitLiveCopy(binding, {
+      const stored = await loadLiveCopyState(binding, docId);
+      if (stored.kind === "absent") {
+        throw new LiveCopyError(
+          "not_seeded",
           docId,
-          origin: "mutation",
-          previousVersion: stored.version,
-          version,
-          text,
-          state,
-          ...(options.requestSource
-            ? { requestSource: options.requestSource }
-            : {}),
-        });
-        if (!committed) continue;
-        const update = Y.encodeStateAsUpdate(doc, baseVector);
-        cacheCommittedLiveCopy(docId, doc, version);
-        emitCollabUpdate(
-          docId,
-          uint8ArrayToBase64(update),
-          options.requestSource,
+          `Live copy ${docId} is absent; seed it before editing.`,
+          { reason: "absent" },
         );
-        touchAgentPresence(docId, options.requestSource, {
-          descriptor: { kind: "doc" },
-        });
+      }
+      const result = await editLiveCopyState(
+        binding,
+        docId,
+        stored.state,
+        options.edit,
+        options.input,
+      );
+      if (result.kind === "unchanged") {
         return {
-          changed: true,
-          version,
-          state,
-          text,
-          update,
+          changed: false,
+          liveCopy: "unchanged",
+          version: stored.version,
+          state: servedState(stored.state),
+          text: result.text,
+          update: new Uint8Array(0),
           attempts: attempt,
         };
-      } catch (error) {
-        releaseDoc(docId);
-        throw error;
-      } finally {
-        if (!committed) doc.destroy();
       }
+      const version = stored.version + 1;
+      const outcome = await commitLiveCopy(binding, {
+        docId,
+        origin: "mutation",
+        previousVersion: stored.version,
+        version,
+        text: result.text,
+        state: result.state,
+        ...(options.requestSource
+          ? { requestSource: options.requestSource }
+          : {}),
+      });
+      if (!outcome) continue;
+      cacheLiveCopyState(docId, result.state, version);
+      emitCollabUpdate(
+        docId,
+        uint8ArrayToBase64(result.update),
+        options.requestSource,
+      );
+      touchAgentPresence(docId, options.requestSource, {
+        descriptor: { kind: "doc" },
+      });
+      return {
+        ...outcome,
+        changed: true,
+        version,
+        state: result.state.slice(),
+        text: result.text,
+        update: result.update,
+        attempts: attempt,
+      };
     }
     throw new LiveCopyError(
       "version_conflict",
@@ -680,14 +723,12 @@ export async function mutateLiveCopy(
 }
 
 export interface SeedLiveCopyOptions {
-  /** Passed to the task as `{ source, field }`. */
+  /** Passed to the seed handler in the runner's module. */
   source: string;
-  /** Returns `{ kind: "update", update }` or `{ kind: "refused", reason }`. Default "seed". */
-  task?: string;
   requestSource?: string;
 }
 
-export interface LiveCopySeedResult {
+export interface LiveCopySeedResult extends LiveCopyOutcome {
   seeded: boolean;
   version: number;
   state: Uint8Array;
@@ -706,52 +747,61 @@ export async function seedLiveCopy(
   options: SeedLiveCopyOptions,
 ): Promise<LiveCopySeedResult> {
   await assertLiveCopy(binding, docId);
+  assertOwnTransaction(docId, "seedLiveCopy");
   await ensureTable();
   return withDocWriteLock(docId, async () => {
-    let seedUpdate: Uint8Array | null = null;
     for (let attempt = 0; attempt < LIVE_COPY_COMMIT_ATTEMPTS; attempt += 1) {
-      const stored = await readClassifiedLiveCopy(binding, getDbExec(), docId);
-      const doc = stored.doc;
-      let committed = false;
-      try {
-        if (stored.kind === "live") {
-          const state = encodeLiveCopyState(binding, docId, doc);
-          const text = await deriveLiveCopyText(binding, docId, state);
-          return { seeded: false, version: stored.version, state, text };
+      const stored = await loadLiveCopyState(binding, docId);
+      const result = await seedLiveCopyState(
+        binding,
+        docId,
+        stored.kind === "absent" ? null : stored.state,
+        options.source,
+      );
+      if (result.kind === "live") {
+        if (stored.kind === "absent") {
+          throw new LiveCopyError(
+            "build_failed",
+            docId,
+            `The seed task for ${docId} called an absent copy live.`,
+            { reason: "invalid_output" },
+          );
         }
-        seedUpdate ??= await buildLiveCopySeed(binding, docId, options);
-        const beforeVector = Y.encodeStateVector(doc);
-        applyLiveCopyUpdate(binding, docId, doc, seedUpdate);
-        const state = encodeLiveCopyState(binding, docId, doc);
-        const text = await deriveLiveCopyText(binding, docId, state);
-        const previousVersion =
-          stored.kind === "absent" ? null : stored.version;
-        const version = previousVersion === null ? 0 : previousVersion + 1;
-        committed = await commitLiveCopy(binding, {
-          docId,
-          origin: "seed",
-          previousVersion,
-          version,
-          text,
-          state,
-          ...(options.requestSource
-            ? { requestSource: options.requestSource }
-            : {}),
-        });
-        if (!committed) continue;
-        cacheCommittedLiveCopy(docId, doc, version);
-        emitCollabUpdate(
-          docId,
-          uint8ArrayToBase64(Y.encodeStateAsUpdate(doc, beforeVector)),
-          options.requestSource,
-        );
-        return { seeded: true, version, state, text };
-      } catch (error) {
-        releaseDoc(docId);
-        throw error;
-      } finally {
-        if (!committed) doc.destroy();
+        return {
+          seeded: false,
+          liveCopy: "unchanged",
+          version: stored.version,
+          state: servedState(stored.state),
+          text: result.text,
+        };
       }
+      const previousVersion = stored.kind === "absent" ? null : stored.version;
+      const version = previousVersion === null ? 0 : previousVersion + 1;
+      const outcome = await commitLiveCopy(binding, {
+        docId,
+        origin: "seed",
+        previousVersion,
+        version,
+        text: result.text,
+        state: result.state,
+        ...(options.requestSource
+          ? { requestSource: options.requestSource }
+          : {}),
+      });
+      if (!outcome) continue;
+      cacheLiveCopyState(docId, result.state, version);
+      emitCollabUpdate(
+        docId,
+        uint8ArrayToBase64(result.update),
+        options.requestSource,
+      );
+      return {
+        ...outcome,
+        seeded: true,
+        version,
+        state: result.state.slice(),
+        text: result.text,
+      };
     }
     throw new LiveCopyError(
       "version_conflict",
@@ -760,54 +810,6 @@ export async function seedLiveCopy(
       { reason: String(LIVE_COPY_COMMIT_ATTEMPTS) },
     );
   });
-}
-
-async function buildLiveCopySeed(
-  binding: LiveCopyBinding,
-  docId: string,
-  options: SeedLiveCopyOptions,
-): Promise<Uint8Array> {
-  const update = (await runLiveCopyUpdateTask(
-    binding,
-    docId,
-    options.task ?? "seed",
-    { source: options.source, field: binding.field },
-    false,
-  ))!;
-  let deletions: number;
-  try {
-    deletions = Y.decodeUpdate(update).ds.clients.size;
-  } catch (error) {
-    throw new LiveCopyError(
-      "build_failed",
-      docId,
-      `The seed task for ${docId} returned bytes that are not a Yjs update.`,
-      { reason: "invalid_update", cause: error },
-    );
-  }
-  if (deletions > 0) {
-    throw new LiveCopyError(
-      "build_failed",
-      docId,
-      `The seed task for ${docId} returned an update with deletions.`,
-      { reason: "seed_has_deletions" },
-    );
-  }
-  const check = new Y.Doc();
-  try {
-    applyLiveCopyUpdate(binding, docId, check, update);
-    if (!fieldHasContent(check, binding.field)) {
-      throw new LiveCopyError(
-        "build_refused",
-        docId,
-        `The seed task for ${docId} produced an empty "${binding.field}".`,
-        { reason: "empty" },
-      );
-    }
-  } finally {
-    check.destroy();
-  }
-  return update;
 }
 
 function isEmptyXmlSeedTarget(fragment: Y.XmlFragment): boolean {
@@ -831,7 +833,6 @@ export async function seedXmlFragmentIfEmpty(
   seedUpdate: Uint8Array,
   requestSource?: string,
 ): Promise<{ seeded: boolean; state: Uint8Array }> {
-  await refuseLiveCopyWrite(docId, "seedXmlFragmentIfEmpty");
   const candidate = new Y.Doc();
   try {
     const decoded = Y.decodeUpdate(seedUpdate);
@@ -853,53 +854,60 @@ export async function seedXmlFragmentIfEmpty(
     candidate.destroy();
   }
 
-  return withDocWriteLock(docId, async () => {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const stored = await loadYDocRecord(docId);
-      const committed = new Y.Doc();
-      try {
-        if (stored?.state.length) Y.applyUpdate(committed, stored.state);
-        const fragment = committed.getXmlFragment("default");
-        if (!isEmptyXmlSeedTarget(fragment)) {
-          return { seeded: false, state: Y.encodeStateAsUpdate(committed) };
-        }
+  return withDocWriteLock(
+    docId,
+    async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const stored = await loadYDocRecord(docId);
+        const committed = new Y.Doc();
+        try {
+          if (stored?.state.length) Y.applyUpdate(committed, stored.state);
+          const fragment = committed.getXmlFragment("default");
+          if (!isEmptyXmlSeedTarget(fragment)) {
+            return { seeded: false, state: Y.encodeStateAsUpdate(committed) };
+          }
 
-        const beforeVector = Y.encodeStateVector(committed);
-        if (fragment.length === 1) fragment.delete(0, 1);
-        Y.applyUpdate(committed, seedUpdate);
-        if (isEmptyXmlSeedTarget(fragment)) {
-          throw new Error(
-            "Initial XmlFragment seed did not populate the default fragment",
+          const beforeVector = Y.encodeStateVector(committed);
+          if (fragment.length === 1) fragment.delete(0, 1);
+          Y.applyUpdate(committed, seedUpdate);
+          if (isEmptyXmlSeedTarget(fragment)) {
+            throw new Error(
+              "Initial XmlFragment seed did not populate the default fragment",
+            );
+          }
+          const state = Y.encodeStateAsUpdate(committed);
+          const committedUpdate = Y.encodeStateAsUpdate(
+            committed,
+            beforeVector,
           );
-        }
-        const state = Y.encodeStateAsUpdate(committed);
-        const committedUpdate = Y.encodeStateAsUpdate(committed, beforeVector);
-        const textSnapshot =
-          committed.getText(DEFAULT_FIELD).toString() ||
-          extractTextFromYXml(fragment);
-        const saved = await trySaveYDocState(
-          docId,
-          state,
-          textSnapshot,
-          stored?.version ?? null,
-        );
-        if (!saved) continue;
+          const textSnapshot =
+            committed.getText(DEFAULT_FIELD).toString() ||
+            extractTextFromYXml(fragment);
+          const saved = await trySaveYDocState(
+            docId,
+            state,
+            textSnapshot,
+            stored?.version ?? null,
+          );
+          if (!saved) continue;
 
-        releaseDoc(docId);
-        emitCollabUpdate(
-          docId,
-          uint8ArrayToBase64(committedUpdate),
-          requestSource,
-        );
-        return { seeded: true, state };
-      } finally {
-        committed.destroy();
+          releaseDoc(docId);
+          emitCollabUpdate(
+            docId,
+            uint8ArrayToBase64(committedUpdate),
+            requestSource,
+          );
+          return { seeded: true, state };
+        } finally {
+          committed.destroy();
+        }
       }
-    }
-    throw new CollabBaseVersionConflictError(
-      `Document ${docId} kept changing while its initial XmlFragment seed was being committed.`,
-    );
-  });
+      throw new CollabBaseVersionConflictError(
+        `Document ${docId} kept changing while its initial XmlFragment seed was being committed.`,
+      );
+    },
+    "seedXmlFragmentIfEmpty",
+  );
 }
 
 export async function applyText(
@@ -912,51 +920,54 @@ export async function applyText(
     validateSnapshot?: (snapshot: string) => void;
   } = {},
 ): Promise<string> {
-  await refuseLiveCopyWrite(docId, "applyText");
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    const validatedBaseVersion = options.validateBase
-      ? cachedVersionFor(docId, doc)
-      : undefined;
-    const oldText = doc.getText(fieldName).toString();
-    if (options.validateBase && validatedBaseVersion === undefined) {
-      throw new CollabBaseVersionConflictError(
-        `Document ${docId} has no known base version to validate against; re-read the file and retry.`,
-      );
-    }
-    options.validateBase?.(oldText);
-    const update = applyTextToYDoc(doc, fieldName, newText, "server");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const validatedBaseVersion = options.validateBase
+        ? cachedVersionFor(docId, doc)
+        : undefined;
+      const oldText = doc.getText(fieldName).toString();
+      if (options.validateBase && validatedBaseVersion === undefined) {
+        throw new CollabBaseVersionConflictError(
+          `Document ${docId} has no known base version to validate against; re-read the file and retry.`,
+        );
+      }
+      options.validateBase?.(oldText);
+      const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
-    if (update.length === 0) {
-      const snapshot = doc.getText(fieldName).toString();
+      if (update.length === 0) {
+        const snapshot = doc.getText(fieldName).toString();
+        try {
+          options.validateSnapshot?.(snapshot);
+        } catch (error) {
+          releaseDoc(docId);
+          throw error;
+        }
+        return snapshot;
+      }
+
       try {
-        options.validateSnapshot?.(snapshot);
+        await persistMergedState(
+          docId,
+          doc,
+          () => doc.getText(fieldName).toString(),
+          options.validateSnapshot,
+          validatedBaseVersion,
+        );
       } catch (error) {
         releaseDoc(docId);
         throw error;
       }
-      return snapshot;
-    }
 
-    try {
-      await persistMergedState(
-        docId,
-        doc,
-        () => doc.getText(fieldName).toString(),
-        options.validateSnapshot,
-        validatedBaseVersion,
-      );
-    } catch (error) {
-      releaseDoc(docId);
-      throw error;
-    }
-
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, {
-      descriptor: computeTextEditDescriptor(oldText, newText),
-    });
-    return doc.getText(fieldName).toString();
-  });
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, {
+        descriptor: computeTextEditDescriptor(oldText, newText),
+      });
+      return doc.getText(fieldName).toString();
+    },
+    "applyText",
+  );
 }
 
 export async function searchAndReplace(
@@ -965,60 +976,68 @@ export async function searchAndReplace(
   replace: string,
   requestSource?: string,
 ): Promise<{ found: boolean; update: Uint8Array }> {
-  await refuseLiveCopyWrite(docId, "searchAndReplace");
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    const fragment = doc.getXmlFragment("default");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const fragment = doc.getXmlFragment("default");
 
-    let update: Uint8Array = new Uint8Array(0);
-    const handler = (u: Uint8Array) => {
-      update = u;
-    };
-    doc.on("update", handler);
+      let update: Uint8Array = new Uint8Array(0);
+      const handler = (u: Uint8Array) => {
+        update = u;
+      };
+      doc.on("update", handler);
 
-    let found = false;
-    doc.transact(() => {
-      found = searchAndReplaceInYXml(fragment, find, replace);
-    }, "agent");
+      let found = false;
+      doc.transact(() => {
+        found = searchAndReplaceInYXml(fragment, find, replace);
+      }, "agent");
 
-    doc.off("update", handler);
+      doc.off("update", handler);
 
-    if (!found || update.length === 0) {
-      return { found: false, update: new Uint8Array(0) };
-    }
+      if (!found || update.length === 0) {
+        return { found: false, update: new Uint8Array(0) };
+      }
 
-    await persistMergedState(docId, doc, () => extractTextFromYXml(fragment));
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, {
-      descriptor: {
-        kind: "text",
-        quote: (replace || find).slice(0, 120),
-      },
-    });
+      await persistMergedState(docId, doc, () => extractTextFromYXml(fragment));
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, {
+        descriptor: {
+          kind: "text",
+          quote: (replace || find).slice(0, 120),
+        },
+      });
 
-    return { found: true, update };
-  });
+      return { found: true, update };
+    },
+    "searchAndReplace",
+  );
 }
 
 export async function getText(
   docId: string,
   fieldName: string = DEFAULT_FIELD,
 ): Promise<string> {
-  const doc = await getDoc(docId);
+  const doc = await readDoc(docId, "getText");
   return doc.getText(fieldName).toString();
 }
 
 export async function getState(docId: string): Promise<Uint8Array> {
-  const doc = await getDoc(docId);
-  return Y.encodeStateAsUpdate(doc);
+  const target = await readTarget(docId);
+  if (target.kind === "doc") return Y.encodeStateAsUpdate(target.doc);
+  return (await liveCopyStateForRead(target.binding, docId)).slice();
 }
 
 export async function getIncUpdate(
   docId: string,
   clientStateVector: Uint8Array,
 ): Promise<Uint8Array> {
-  const doc = await getDoc(docId);
-  return Y.encodeStateAsUpdate(doc, clientStateVector);
+  const target = await readTarget(docId);
+  if (target.kind === "doc") {
+    return Y.encodeStateAsUpdate(target.doc, clientStateVector);
+  }
+  const state = await liveCopyStateForRead(target.binding, docId);
+  return Y.diffUpdate(state, clientStateVector);
 }
 
 export async function seedFromText(
@@ -1027,49 +1046,52 @@ export async function seedFromText(
   fieldName: string = DEFAULT_FIELD,
   client?: DbExec,
 ): Promise<void> {
-  await refuseLiveCopyWrite(docId, "seedFromText");
-  return withDocWriteLock(docId, async () => {
-    const existing = client
-      ? await loadYDocRecordWithClient(client, docId)
-      : await loadYDocRecord(docId);
-    if (existing && existing.state.length > 0) return;
-    const expectedVersion = existing ? existing.version : null;
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const existing = client
+        ? await loadYDocRecordWithClient(client, docId)
+        : await loadYDocRecord(docId);
+      if (existing && existing.state.length > 0) return;
+      const expectedVersion = existing ? existing.version : null;
 
-    const { doc, state } = initYDocWithText(fieldName, text);
-    let saved: boolean;
-    try {
-      saved = client
-        ? await trySaveYDocStateWithClient(
-            client,
-            docId,
-            state,
-            text,
-            expectedVersion,
-          )
-        : await trySaveYDocState(docId, state, text, expectedVersion);
-    } catch (error) {
-      doc.destroy();
-      throw error;
-    }
-    if (!saved) {
+      const { doc, state } = initYDocWithText(fieldName, text);
+      let saved: boolean;
+      try {
+        saved = client
+          ? await trySaveYDocStateWithClient(
+              client,
+              docId,
+              state,
+              text,
+              expectedVersion,
+            )
+          : await trySaveYDocState(docId, state, text, expectedVersion);
+      } catch (error) {
+        doc.destroy();
+        throw error;
+      }
+      if (!saved) {
+        releaseDoc(docId);
+        doc.destroy();
+        return;
+      }
+
       releaseDoc(docId);
-      doc.destroy();
-      return;
-    }
+      if (client) {
+        doc.destroy();
+        return;
+      }
 
-    releaseDoc(docId);
-    if (client) {
-      doc.destroy();
-      return;
-    }
-
-    evictIfNeeded();
-    _cache.set(docId, {
-      doc,
-      lastAccess: Date.now(),
-      syncedVersion: existing ? existing.version + 1 : 0,
-    });
-  });
+      evictIfNeeded();
+      _cache.set(docId, {
+        doc,
+        lastAccess: Date.now(),
+        syncedVersion: existing ? existing.version + 1 : 0,
+      });
+    },
+    "seedFromText",
+  );
 }
 
 export async function applyJson(
@@ -1079,20 +1101,23 @@ export async function applyJson(
   _type: "map" | "array" = "map",
   requestSource?: string,
 ): Promise<void> {
-  await refuseLiveCopyWrite(docId, "applyJson");
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    const update = applyJsonDiff(doc, fieldName, newJson, "server");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const update = applyJsonDiff(doc, fieldName, newJson, "server");
 
-    if (update.length === 0) return;
+      if (update.length === 0) return;
 
-    await persistMergedState(docId, doc, () =>
-      JSON.stringify(yDocToJson(doc, fieldName)),
-    );
+      await persistMergedState(docId, doc, () =>
+        JSON.stringify(yDocToJson(doc, fieldName)),
+      );
 
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, { descriptor: { kind: "doc" } });
-  });
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, { descriptor: { kind: "doc" } });
+    },
+    "applyJson",
+  );
 }
 
 export async function applyPatchOps(
@@ -1101,32 +1126,35 @@ export async function applyPatchOps(
   fieldName: string = "data",
   requestSource?: string,
 ): Promise<void> {
-  await refuseLiveCopyWrite(docId, "applyPatchOps");
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    const update = applyJsonPatch(doc, fieldName, ops, "server");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const update = applyJsonPatch(doc, fieldName, ops, "server");
 
-    if (update.length === 0) return;
+      if (update.length === 0) return;
 
-    await persistMergedState(docId, doc, () =>
-      JSON.stringify(yDocToJson(doc, fieldName)),
-    );
+      await persistMergedState(docId, doc, () =>
+        JSON.stringify(yDocToJson(doc, fieldName)),
+      );
 
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, {
-      descriptor: {
-        kind: "paths",
-        paths: ops.slice(0, 5).map((op) => op.path),
-      },
-    });
-  });
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, {
+        descriptor: {
+          kind: "paths",
+          paths: ops.slice(0, 5).map((op) => op.path),
+        },
+      });
+    },
+    "applyPatchOps",
+  );
 }
 
 export async function getJson(
   docId: string,
   fieldName: string = "data",
 ): Promise<any> {
-  const doc = await getDoc(docId);
+  const doc = await readDoc(docId, "getJson");
   return yDocToJson(doc, fieldName);
 }
 
@@ -1137,57 +1165,72 @@ export async function seedFromJson(
   type: "map" | "array" = "map",
   client?: DbExec,
 ): Promise<void> {
-  await refuseLiveCopyWrite(docId, "seedFromJson");
-  return withDocWriteLock(docId, async () => {
-    const existing = client
-      ? await loadYDocRecordWithClient(client, docId)
-      : await loadYDocRecord(docId);
-    if (existing && existing.state.length > 0) return;
-    const expectedVersion = existing ? existing.version : null;
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const existing = client
+        ? await loadYDocRecordWithClient(client, docId)
+        : await loadYDocRecord(docId);
+      if (existing && existing.state.length > 0) return;
+      const expectedVersion = existing ? existing.version : null;
 
-    const { doc, state } = initYDocWithJson(fieldName, json, type);
-    let saved: boolean;
-    try {
-      saved = client
-        ? await trySaveYDocStateWithClient(
-            client,
-            docId,
-            state,
-            JSON.stringify(json),
-            expectedVersion,
-          )
-        : await trySaveYDocState(
-            docId,
-            state,
-            JSON.stringify(json),
-            expectedVersion,
-          );
-    } catch (error) {
-      doc.destroy();
-      throw error;
-    }
-    if (!saved) {
+      const { doc, state } = initYDocWithJson(fieldName, json, type);
+      let saved: boolean;
+      try {
+        saved = client
+          ? await trySaveYDocStateWithClient(
+              client,
+              docId,
+              state,
+              JSON.stringify(json),
+              expectedVersion,
+            )
+          : await trySaveYDocState(
+              docId,
+              state,
+              JSON.stringify(json),
+              expectedVersion,
+            );
+      } catch (error) {
+        doc.destroy();
+        throw error;
+      }
+      if (!saved) {
+        releaseDoc(docId);
+        doc.destroy();
+        return;
+      }
+
       releaseDoc(docId);
-      doc.destroy();
-      return;
-    }
+      if (client) {
+        doc.destroy();
+        return;
+      }
 
-    releaseDoc(docId);
-    if (client) {
-      doc.destroy();
-      return;
-    }
+      evictIfNeeded();
+      _cache.set(docId, {
+        doc,
+        lastAccess: Date.now(),
+        syncedVersion: existing ? existing.version + 1 : 0,
+      });
+    },
+    "seedFromJson",
+  );
+}
 
-    evictIfNeeded();
-    _cache.set(docId, {
-      doc,
-      lastAccess: Date.now(),
-      syncedVersion: existing ? existing.version + 1 : 0,
-    });
-  });
+/** Overwrites a document's stored state and text. Refuses live copies. */
+export function saveYDocState(
+  docId: string,
+  state: Uint8Array,
+  textSnapshot: string,
+): Promise<void> {
+  const refusal = refuseLiveCopyWrite(docId, "saveYDocState");
+  if (!refusal) return saveStoredYDocState(docId, state, textSnapshot);
+  return refusal.then(() => saveStoredYDocState(docId, state, textSnapshot));
 }
 
 export function releaseDoc(docId: string): void {
+  _liveCopyCache.delete(docId);
   const entry = _cache.get(docId);
   if (entry) {
     entry.doc.destroy();

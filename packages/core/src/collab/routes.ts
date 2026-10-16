@@ -98,9 +98,9 @@ export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
   }
 
   const binary = base64ToUint8Array(update);
-  await manager.applyUpdate(docId, binary, requestSource);
+  const outcome = await manager.applyUpdate(docId, binary, requestSource);
 
-  return { ok: true };
+  return outcome ? { ok: true, ...outcome } : { ok: true };
 });
 
 export const postCollabText = defineEventHandler(async (event: H3Event) => {

@@ -219,25 +219,44 @@ export function createCollabSourceSeeder(options: {
   };
 }
 
+// Worker and capacity failures are the server's, so a client may retry them;
+// a task that broke its contract is a server bug, not a bad edit.
+const RETRYABLE_TASK_FAILURES = new Set([
+  "unavailable",
+  "closed",
+  "queue_full",
+  "queue_timeout",
+  "deadline_exceeded",
+  "memory_exceeded",
+  "worker_crashed",
+  "startup_failed",
+]);
+
 export function liveCopyErrorStatus(error: LiveCopyError): number {
   switch (error.code) {
     case "write_refused":
+    case "read_refused":
     case "not_live_copy":
     case "not_seeded":
     case "version_conflict":
       return 409;
     case "state_too_large":
       return 413;
+    case "malformed_state":
+    case "unsupported_content":
+    case "derive_refused":
+    case "build_refused":
+      return 422;
     case "derive_failed":
     case "build_failed":
-      return error.reason === "unavailable" ||
-        error.reason === "queue_full" ||
-        error.reason === "queue_timeout" ||
-        error.reason === "closed"
-        ? 503
-        : 422;
-    default:
-      return 422;
+      if (RETRYABLE_TASK_FAILURES.has(error.reason ?? "")) return 503;
+      if (
+        error.reason === "input_too_large" ||
+        error.reason === "output_too_large"
+      ) {
+        return 413;
+      }
+      return 500;
   }
 }
 
