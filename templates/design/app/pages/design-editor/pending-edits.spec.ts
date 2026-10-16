@@ -107,6 +107,24 @@ describe("resolveOverviewScreenSourceType", () => {
       }),
     ).toBe("inline");
   });
+
+  it("keeps an unannotated markup screen inline in a localhost design", () => {
+    expect(
+      resolveOverviewScreenSourceType(
+        { content: "<main>Inline design</main>" },
+        "localhost",
+      ),
+    ).toBe("inline");
+  });
+
+  it("keeps an unannotated URL screen on the localhost fallback", () => {
+    expect(
+      resolveOverviewScreenSourceType(
+        { content: " https://127.0.0.1:3000/ " },
+        "localhost",
+      ),
+    ).toBe("localhost");
+  });
 });
 
 describe("relative selected-screen style intent", () => {

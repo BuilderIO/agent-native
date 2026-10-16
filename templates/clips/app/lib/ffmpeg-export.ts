@@ -119,13 +119,14 @@ export async function exportMp4(
     });
   };
   ffmpeg.on("progress", handleProgress);
+  const inputName = `input.${recording.videoFormat ?? "webm"}`;
+  const outputName = "output.mp4";
+  let exportFailed = false;
 
   try {
     onProgress?.({ progress: 0, stage: "preparing" });
 
     const { fetchFile } = await import("@ffmpeg/util");
-    const inputName = `input.${recording.videoFormat ?? "webm"}`;
-    const outputName = "output.mp4";
     await ffmpeg.writeFile(inputName, await fetchFile(recording.videoUrl));
 
     const kept = getKeptRanges(recording.durationMs, edits);
@@ -136,7 +137,7 @@ export async function exportMp4(
       kept[0].startMs === 0 &&
       kept[0].endMs === recording.durationMs
     ) {
-      await ffmpeg.exec([
+      const exitCode = await ffmpeg.exec([
         "-i",
         inputName,
         "-c:v",
@@ -153,6 +154,9 @@ export async function exportMp4(
         "+faststart",
         outputName,
       ]);
+      if (exitCode !== 0) {
+        throw new Error(`ffmpeg MP4 export failed with exit code ${exitCode}`);
+      }
     } else {
       const filterParts: string[] = [];
       const concatInputs: string[] = [];
@@ -172,7 +176,7 @@ export async function exportMp4(
       );
       const filterComplex = filterParts.join(";");
 
-      await ffmpeg.exec([
+      const exitCode = await ffmpeg.exec([
         "-i",
         inputName,
         "-filter_complex",
@@ -195,18 +199,14 @@ export async function exportMp4(
         "+faststart",
         outputName,
       ]);
+      if (exitCode !== 0) {
+        throw new Error(`ffmpeg MP4 export failed with exit code ${exitCode}`);
+      }
     }
 
     onProgress?.({ progress: 1, stage: "finalizing" });
     const data = (await ffmpeg.readFile(outputName)) as Uint8Array;
     const blob = new Blob([data as BlobPart], { type: "video/mp4" });
-
-    try {
-      await ffmpeg.deleteFile(inputName);
-      await ffmpeg.deleteFile(outputName);
-    } catch {
-      // noop
-    }
 
     const safeTitle = (recording.title ?? `clip-${recording.id}`).replace(
       /[^a-z0-9-_]+/gi,
@@ -217,9 +217,31 @@ export async function exportMp4(
       durationMs: effective,
       filename: `${safeTitle}.mp4`,
     };
+  } catch (error) {
+    exportFailed = true;
+    throw error;
   } finally {
+    const cleanupErrors: unknown[] = [];
+    for (const name of [inputName, outputName]) {
+      try {
+        await ffmpeg.deleteFile(name);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
     ffmpeg.off("progress", handleProgress);
     removeFfmpegLogListener(onLog);
+    if (cleanupErrors.length > 0) {
+      const cleanupError = new AggregateError(
+        cleanupErrors,
+        "Failed to clean up ffmpeg export files",
+      );
+      if (exportFailed) {
+        console.warn(cleanupError);
+      } else {
+        throw cleanupError;
+      }
+    }
   }
 }
 

@@ -48,8 +48,14 @@ place of Slack source messages.
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
   evidence, and read-back text. For each human handoff, the visible reply must
   name its recorded owner and action; include the scope when the report
-  context does not make it clear. Reuse a qualifying reply while disposition
-  and evidence remain current; update it when either materially changes. Do
+  context does not make it clear. A person being named or assigned is not
+  acceptance: each `handoffs[]` entry must also record the owner's exact Slack
+  ID and an explicit accepting reply read from the source thread. The accepting
+  actor must match the owner, differ from `sweepActorId`, and reply after the
+  root and before the status reply. Do not create a ticket or use **Blocked on
+  human owner** until this acceptance exists; never assign the handoff to
+  yourself. Reuse a qualifying reply while disposition and evidence remain
+  current; update it when either materially changes. Do
   not send a new message on every sweep. For a recent unanswered question, do
   not repeat the question; if no qualifying reply exists, send at most one
   status update that points to the existing ask, then wait silently. Record an
@@ -63,8 +69,10 @@ place of Slack source messages.
   reply. If a human answers later, update the disposition and status before
   reconciling it.
   Record each verified `fixedScopes` entry with its proof; record every
-  distinct human handoff in `handoffs[]`, with scope, assigned individual, and
-  action. A role or unassigned team is not an owner. Finish
+  distinct human handoff in `handoffs[]`, with scope, assigned individual,
+  owner Slack ID, action, and an `acceptanceReply` containing exact `ts`,
+  `threadParentTs`, `actorId`, and verbatim `text`. A role or unassigned team
+  is not an owner. Finish
   the reply and both
   reaction decisions for each owned eye before advancing to the next one. A
   verified fixed scope requires this actor's `✅` even when the overall
@@ -81,7 +89,8 @@ place of Slack source messages.
   reports exhaustion.
 - Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json` before
   recapping. It rejects an owned eye without a current same-actor reply, a
-  handoff reply omitting its recorded owner/action, a missing or
+  handoff without the named owner's explicit acceptance, a handoff reply
+  omitting its recorded owner/action, a missing or
   inconsistent `✅`/`🎫` decision, a verified fixed scope without that actor's
   `✅`, a `✅` without verified scope, and a `🎫` without a distinct handoff
   owner/action. It rejects supplemental roots at or after the cutoff and checks
@@ -98,10 +107,14 @@ fixed` and its own `✅`; a human handoff for another scope can additionally
   reconciled. Include each channel's top-level
   report, source-message, and page counts in the recap.
 
-At recap, count this actor's `👀`, `✅`, and `🎫` separately. Account for every
-owned eye as a verified fixed scope, a named human handoff, or an explicit
-waiting, unresolved, or skipped reason. An eye-only row is still pending; do
-not count it as handled without naming why it has no checkmark or ticket.
+At recap, count current-window top-level report roots separately from the
+source-message and reply-row totals. Count this actor's `👀`, `✅`, and `🎫` on
+those roots separately; list in-scope reply-row marks and pre-cutoff boundary
+audits apart from report totals. Never include older cutoff-overlap rows in
+current report counts. Account for every owned eye as a verified fixed scope,
+an accepted human handoff, or an explicit waiting, unresolved, or skipped
+reason. An eye-only row is still pending. If most roots are eye-only, inspect
+each one again for a fix that can be verified now.
 
 A grouped CI report or attachment is a discovery index, never a replacement for
 the channel-message inventory.
