@@ -568,6 +568,28 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       "<table>\n<tr>\n<td>a</td>\n</tr>\n<tr>\n<td>b</td>\n</tr>\n</table>",
   },
   {
+    id: "html-table-row-left-open",
+    origin: "agent",
+    markdown: "<table>\n<tr>\n<td>a</td>\n<tr>\n<td>b</td>\n</tr>\n</table>",
+    canonical:
+      "<table>\n<tr>\n<td>a</td>\n</tr>\n<tr>\n<td>b</td>\n</tr>\n</table>",
+    note: "HTML ends a row where the next one starts. Main read both rows as one.",
+  },
+  {
+    id: "html-table-row-left-open-one-line",
+    origin: "agent",
+    markdown: "<table>\n<tr><td>a</td><tr><td>b</td></tr>\n</table>",
+    canonical:
+      "<table>\n<tr>\n<td>a</td>\n</tr>\n<tr>\n<td>b</td>\n</tr>\n</table>",
+  },
+  {
+    id: "html-table-row-left-open-at-end",
+    origin: "agent",
+    markdown: "<table>\n<tr>\n<td>a</td>\n</table>",
+    canonical: "<table>\n<tr>\n<td>a</td>\n</tr>\n</table>",
+    note: "Main read this table as its literal tags.",
+  },
+  {
     id: "html-table-cell-edge-spaces",
     origin: "editor",
     markdown: "<table>\n<tr>\n<td> a </td>\n</tr>\n</table>",
@@ -692,6 +714,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     markdown: "<table>\n<tr>\n<td>a\n<td>b</td>\n</tr>\n</table>",
     unrepresentable: "A cell closes before the next one opens.",
     losses: ["dropped-source"],
+  },
+  {
+    id: "refuse-span-underline-not-boolean",
+    origin: "agent",
+    markdown: '<span color="red" underline="yes">x</span>',
+    unrepresentable: 'A span\'s underline is "true" or "false".',
+    losses: ["dropped-attribute"],
   },
   {
     id: "refuse-table-header-flag-not-boolean",
