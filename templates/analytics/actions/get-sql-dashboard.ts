@@ -8,17 +8,22 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import type { DashboardAnnotations } from "../app/pages/adhoc/sql-dashboard/types";
 import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
   isAgentContextCaller,
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
+import { dataNotesForReader } from "../server/lib/dashboard-data-notes";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import {
   getDashboard,
   getDashboardForReview,
 } from "../server/lib/dashboards-store";
+import { listDataNotes } from "../server/lib/data-notes-store";
+import { listKeyDateSets } from "../server/lib/key-dates-store";
+import { keyDateEvents } from "../shared/key-dates";
 
 export default defineAction({
   description:
@@ -141,6 +146,22 @@ export default defineAction({
       config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
         .config,
     };
-    return buildDashboardAgentContext(dashboard, detail);
+    const context = buildDashboardAgentContext(dashboard, detail);
+    if (!args.reviewPreview) return context;
+    // The reviewer may be in another organization, so list-key-dates and
+    // list-data-notes would return theirs, not the ones this dashboard draws.
+    const owner = { email: dashboard.ownerEmail, orgId: dashboard.orgId };
+    const [sets, notes] = await Promise.all([
+      listKeyDateSets(owner),
+      listDataNotes(owner),
+    ]);
+    return {
+      ...context,
+      keyDates: keyDateEvents(
+        sets,
+        dashboard.config.annotations as DashboardAnnotations | undefined,
+      ),
+      dataNotes: dataNotesForReader(notes, dashboard),
+    };
   },
 });
