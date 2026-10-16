@@ -226,14 +226,18 @@ function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
   );
 }
 
+function replyExplicitlyRefusesHandoff(text: string): boolean {
+  const normalized = text
+    .normalize("NFKC")
+    .replace(/[’‘]/g, "'")
+    .toLowerCase();
+  return /\b(?:(?:i|we)\s+(?:will|can|could|would|am|are|do)\s+not|(?:i|we)'(?:ll|m|re|d|ve)\s+not|(?:i|we)\s+(?:won't|can't|cannot|wouldn't|shouldn't|don't)|(?:can't|cannot|won't|wouldn't|shouldn't)|not\s+going\s+to|declin(?:e|ed|ing))\b/.test(
+    normalized,
+  );
+}
+
 function replyExplicitlyAcceptsHandoff(text: string): boolean {
-  if (
-    /\b(?:i(?: will not| won't| cannot| can't| am not going to|['’]m not going to|['’]m not taking)|not going to take|decline(?:d)?)\b/i.test(
-      text,
-    )
-  ) {
-    return false;
-  }
+  if (replyExplicitlyRefusesHandoff(text)) return false;
   return /\b(?:i(?:['’]ll| will| can| am going to|['’]m going to| am taking|['’]m taking)|taking (?:a look|this|it)|will do|happy to (?:take|handle|do|test|fix|review|investigate)|i(?:['’]m| am) on it)\b/i.test(
     text,
   );
@@ -246,6 +250,7 @@ function validateHandoffAcceptance(
   threadParentTs: bigint,
   statusReplyTs: bigint,
   latestHumanReplyTs: bigint | null,
+  latestHumanReply: Parent["latestRelevantHumanReply"],
   sweepActorId: string,
 ): void {
   const acceptance = handoff.acceptanceReply;
@@ -280,6 +285,17 @@ function validateHandoffAcceptance(
   ) {
     throw new Error(
       `${parentName}: handoff acceptance must be a read-back reply by the assigned owner in this thread, before the status reply`,
+    );
+  }
+
+  if (
+    latestHumanReply &&
+    latestHumanReply.actorId === handoff.ownerSlackId &&
+    latestHumanReplyTs > acceptanceTs &&
+    replyExplicitlyRefusesHandoff(latestHumanReply.text)
+  ) {
+    throw new Error(
+      `${parentName}: the assigned owner withdrew the handoff after accepting it`,
     );
   }
 }
@@ -399,6 +415,7 @@ function validateOwnedDispositionScopes(
   parentName: string,
   parent: Parent,
   hasOwnedReaction: boolean,
+  hasEye: boolean,
   hasCheckmark: boolean,
   fixedScopeNames: Set<string>,
   unfinishedScopeNames: Set<string>,
@@ -431,6 +448,11 @@ function validateOwnedDispositionScopes(
   ) {
     throw new Error(
       `${parentName}: Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed`,
+    );
+  }
+  if (parent.disposition === "Fixed" && hasEye) {
+    throw new Error(
+      `${parentName}: fully Fixed work must remove this actor's 👀 and keep ✅`,
     );
   }
   if (
@@ -655,6 +677,7 @@ function validateSupplementalRootAudit(
     parentName,
     parent,
     hasOwnedReaction,
+    ownsEye,
     hasCheckmark,
     fixedScopeNames,
     unfinishedScopeNames,
@@ -669,6 +692,7 @@ function validateSupplementalRootAudit(
       timestamp,
       replyTs,
       humanReplyTs,
+      humanReply,
       sweepActorId,
     );
   }
@@ -1107,6 +1131,7 @@ function validateInventory(inventory: Inventory): string[] {
               threadParentTimestamp,
               replyTs,
               latestRelevantHumanReplyTs,
+              latestRelevantHumanReply,
               inventory.sweepActorId,
             );
             const normalizedScope = normalizeScope(handoff.scope);
@@ -1134,6 +1159,7 @@ function validateInventory(inventory: Inventory): string[] {
             parentName,
             parent,
             reconcilesOwnedStatus,
+            ownsEye,
             hasCheckmark,
             fixedScopeNames,
             unfinishedScopeNames,
@@ -1412,12 +1438,8 @@ if (args[0] === "--self-test" && args.length === 1) {
                 ts: "10.000000",
                 threadParentTs: "10.000000",
                 reactionChecked: true,
-                reactionSummary:
-                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
-                reactionOwners: {
-                  eyes: ["USWEEPER"],
-                  white_check_mark: ["USWEEPER"],
-                },
+                reactionSummary: "white_check_mark (1): USWEEPER",
+                reactionOwners: { white_check_mark: ["USWEEPER"] },
                 disposition: "Fixed",
                 latestRelevantHumanReply: null,
                 latestOwnedReply: {
@@ -1910,6 +1932,8 @@ if (args[0] === "--self-test" && args.length === 1) {
               parent.ts === "10.000000"
                 ? {
                     ...parent,
+                    reactionSummary:
+                      "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
                     reactionOwners: {
                       white_check_mark: ["USWEEPER"],
                     },
@@ -1960,6 +1984,16 @@ if (args[0] === "--self-test" && args.length === 1) {
     {
       name: "checkmark without an owned eye still needs a status reply",
       inventory: withUnownedCheckmark({ statusReply: undefined }),
+    },
+    {
+      name: "fully fixed work releases this actor's eye",
+      inventory: withSweepOwnedParent({
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+      }),
     },
     {
       name: "checkmark without an owned eye still needs its recorded evidence",
@@ -2679,7 +2713,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         latestRelevantHumanReply: {
           ts: "11.500000",
           actorId: "UOTHER",
-          text: "I will not take this on.",
+          text: "I’ll not take this on.",
         },
         handoffs: [
           {
@@ -2691,10 +2725,42 @@ if (args[0] === "--self-test" && args.length === 1) {
               ts: "11.500000",
               threadParentTs: "10.000000",
               actorId: "UOTHER",
-              text: "I will not take this on.",
+              text: "I’ll not take this on.",
             },
           },
         ],
+      }),
+    },
+    {
+      name: "later owner refusal withdraws an accepted handoff",
+      inventory: withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "12.500000",
+          actorId: "UOTHER",
+          text: "I can’t take this after all.",
+        },
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "choose the remaining behavior",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will choose the remaining behavior.",
+            },
+          },
+        ],
+        statusReply: {
+          ts: "13.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "In progress",
+          evidence: "Alex Rivera will choose the remaining behavior",
+          text: "In progress: Alex Rivera will choose the remaining behavior. Handoff: Alex Rivera — choose the remaining behavior.",
+        },
       }),
     },
     {
@@ -3220,7 +3286,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     }
     if (
       !cutoffOverlapSummary[1].includes(
-        "in-scope report roots 2; owned 👀 1, ✅ marks 1 for 1 verified scopes",
+        "in-scope report roots 2; owned 👀 0, ✅ marks 1 for 1 verified scopes",
       ) ||
       !cutoffOverlapSummary[2].includes("in-scope reply rows 0") ||
       !cutoffOverlapSummary[3].includes(

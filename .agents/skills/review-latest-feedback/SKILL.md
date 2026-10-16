@@ -13,12 +13,13 @@ metadata:
 
 # Review Latest Feedback
 
-Read this source skill from the current task checkout, never a stale copy;
-generated workspace skills are sync outputs. Claim only eyes you can reconcile
-this run: each needs a current same-thread reply, written/read-back reaction
-decisions, and an inventory row before another batch. A recorded decision
-without the Slack write is not reconciliation. `👀` remains ownership beside
-`✅` while other work stays open.
+Read this source skill from the current task checkout; generated workspace
+skills are sync outputs. A Slack `👀` is owned work, not a completion mark.
+Before ending a run, reply in every owned root with exact fixed and open scopes,
+evidence, and the next owner. React `✅` only for post-change verified scopes;
+keep your `👀` while any scope remains open, then remove it when all scopes
+close. Add `🎫` only after a different named human accepts a specific action in
+that thread. Read back each reply and reaction after writing it.
 
 Four phases. Phase 0 comes before investigation.
 
@@ -28,15 +29,9 @@ Four phases. Phase 0 comes before investigation.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Reconcile every owned eye—including inherited and reply-row
-eyes—with a current disposition reply, scoped `✅`, and distinct-human `🎫`.
-Follow
+Output is fixes. Reconcile inherited and reply-row eyes with the same mark
+lifecycle. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
-
-An owned eye is pending work until you investigate its distinct symptoms,
-record fixed/open scopes, post a current reply, decide both marks, and read
-back the owners. Many eyes without checkmarks or tickets are valid only when
-the evidence explains why no fix or accepted handoff applies.
 
 ## Slack channels
 
@@ -99,8 +94,10 @@ Finish one eye before taking another:
 3. Add `🎫` only after a named person other than you accepts that exact
    unfinished action in the source thread. A name, tag, role assignment, or
    request to take a look is not acceptance. Record their Slack ID and exact
-   accepting reply; verify it is in-thread and predates your status. Otherwise
-   keep **In progress**/`👀`; never ticket yourself.
+   accepting reply; verify it is in-thread and predates your status. A later
+   refusal by that owner withdraws the handoff: remove only your stale `🎫`,
+   keep `👀`, and report the new blocker. Otherwise keep **In progress**/`👀`;
+   never ticket yourself.
 4. Save the disposition, reply, both decisions, and read-back in the inventory.
 
 A reply alone is not reconciliation. Explain absent marks and resolve missed
