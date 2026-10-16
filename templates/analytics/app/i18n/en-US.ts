@@ -926,6 +926,8 @@ export default {
     groupName: "Group name",
     saveForEveryone: "Save for everyone",
     groupNameTaken: "A group with this name already exists",
+    renameGroup: "Rename group…",
+    deleteGroup: "Delete group",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

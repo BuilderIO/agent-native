@@ -198,6 +198,7 @@ import {
   parseDashboardCertification,
   type FetchedDashboard,
 } from "./fetch-dashboard";
+import { editFilterPresets } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
@@ -207,7 +208,7 @@ import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
   type DashboardFilter,
-  type FilterPreset,
+  type FilterPresetEdit,
   type SqlDashboardConfig,
   type SqlPanel,
   type TableColumnConfig,
@@ -215,6 +216,12 @@ import {
 import { ViewsMenu } from "./ViewsMenu";
 
 const TAB_ID = generateTabId();
+
+const FILTER_PRESET_EVENTS = {
+  add: "dashboard_filter_preset_saved",
+  rename: "dashboard_filter_preset_renamed",
+  delete: "dashboard_filter_preset_deleted",
+} as const satisfies Record<FilterPresetEdit["kind"], string>;
 
 type DashboardTabGroup = {
   name: string;
@@ -1660,28 +1667,23 @@ function SqlDashboardPageContent({
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
 
-  const handleSaveFilterPreset = useCallback(
-    (filterId: string, preset: FilterPreset) => {
+  const handleEditFilterPreset = useCallback(
+    (filterId: string, edit: FilterPresetEdit) => {
       if (!dashboard?.filters) return;
       persist({
         ...dashboard,
         filters: dashboard.filters.map((filter) =>
           filter.id === filterId
-            ? {
-                ...filter,
-                // The page reads config unvalidated, and the filter bar already
-                // skips a hand-edited `presets` that isn't a list.
-                presets: Array.isArray(filter.presets)
-                  ? [...filter.presets, preset]
-                  : [preset],
-              }
+            ? { ...filter, presets: editFilterPresets(filter.presets, edit) }
             : filter,
         ),
       });
-      trackEvent("dashboard_filter_preset_saved", {
+      trackEvent(FILTER_PRESET_EVENTS[edit.kind], {
         app_name: "analytics",
         template_name: "analytics",
-        value_count: preset.values.length,
+        ...(edit.kind === "add"
+          ? { value_count: edit.preset.values.length }
+          : {}),
       });
     },
     [dashboard, persist],
@@ -2716,7 +2718,7 @@ function SqlDashboardPageContent({
             views={dashboardViewsLoaded ? views : null}
             viewsRefreshing={dashboardViewsState === "loading"}
             onSaveView={canEdit ? handleSaveView : undefined}
-            onSavePreset={editing ? handleSaveFilterPreset : undefined}
+            onEditPreset={editing ? handleEditFilterPreset : undefined}
             shared={dashboardShared}
           />
         )}

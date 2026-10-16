@@ -1319,6 +1319,8 @@ export default {
     groupName: "Nome do grupo",
     saveForEveryone: "Salvar para todos",
     groupNameTaken: "Já existe um grupo com este nome",
+    renameGroup: "Renomear grupo…",
+    deleteGroup: "Excluir grupo",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",

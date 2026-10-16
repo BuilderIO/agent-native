@@ -4,7 +4,9 @@ import {
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
+  IconPencil,
   IconPlus,
+  IconTrash,
   IconUser,
 } from "@tabler/icons-react";
 import {
@@ -64,7 +66,7 @@ import {
   resolveFilterVars,
   usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter, FilterPreset } from "./types";
+import type { DashboardFilter, FilterPreset, FilterPresetEdit } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
@@ -167,8 +169,8 @@ interface DashboardFilterBarProps {
     isDefault: boolean,
   ) => void | Promise<void>;
   // Passed only in edit mode: a preset changes the dashboard for everyone who
-  // can see it, so view mode never offers one.
-  onSavePreset?: (filterId: string, preset: FilterPreset) => void;
+  // can see it, so view mode never offers to add, rename or delete one.
+  onEditPreset?: (filterId: string, edit: FilterPresetEdit) => void;
   shared?: boolean;
 }
 
@@ -177,7 +179,7 @@ export function DashboardFilterBar({
   views = NO_VIEWS,
   viewsRefreshing = false,
   onSaveView,
-  onSavePreset,
+  onEditPreset,
   shared = false,
 }: DashboardFilterBarProps) {
   const t = useT();
@@ -303,8 +305,8 @@ export function DashboardFilterBar({
                     searchParams.has(FILTER_PARAM_PREFIX + key)
                   }
                   setValue={(updates) => setParam(updates)}
-                  onSavePreset={
-                    onSavePreset && ((preset) => onSavePreset(f.id, preset))
+                  onEditPreset={
+                    onEditPreset && ((edit) => onEditPreset(f.id, edit))
                   }
                   shared={shared}
                 />
@@ -488,17 +490,20 @@ function MultiSelectOption({
   );
 }
 
+// What the name form is open for: a new group, or the group named label.
+type GroupNaming = { kind: "add" } | { kind: "rename"; label: string };
+
 function MultiSelectFilter({
   filter,
   value,
   setValue,
-  onSavePreset,
+  onEditPreset,
   shared,
 }: {
   filter: DashboardFilter;
   value: string;
   setValue: (updates: Record<string, string>) => void;
-  onSavePreset?: (preset: FilterPreset) => void;
+  onEditPreset?: (edit: FilterPresetEdit) => void;
   shared: boolean;
 }) {
   const t = useT();
@@ -507,14 +512,16 @@ function MultiSelectFilter({
   const optionsListId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [naming, setNaming] = useState(false);
+  const [naming, setNaming] = useState<GroupNaming | null>(null);
   const [groupName, setGroupName] = useState("");
-  const saveAsGroupRef = useRef<HTMLButtonElement>(null);
-  const refocusSaveAsGroupRef = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // Save as group or Rename group, whichever opened the name form.
+  const namingButtonRef = useRef<HTMLButtonElement | null>(null);
+  const refocusNamingButtonRef = useRef(false);
   useEffect(() => {
-    if (naming || !refocusSaveAsGroupRef.current) return;
-    refocusSaveAsGroupRef.current = false;
-    saveAsGroupRef.current?.focus();
+    if (naming || !refocusNamingButtonRef.current) return;
+    refocusNamingButtonRef.current = false;
+    namingButtonRef.current?.focus();
   }, [naming]);
   // A save unmounts the name form, and a rejected save then unmounts the group
   // it showed. Until the dropdown closes, focus that falls to the page goes to
@@ -587,31 +594,76 @@ function MultiSelectFilter({
 
   // A save rejects a value with no option, so a URL-only value rules a group out.
   const canSaveGroup =
-    onSavePreset !== undefined &&
+    onEditPreset !== undefined &&
     presets.length < MAX_FILTER_PRESETS &&
     !normalizedQuery &&
     selectedSet.size >= 2 &&
     !allOptionsSelected &&
     !selectedPreset &&
     selected.every((selectedValue) => seenOptionValues.has(selectedValue));
+  // Rename and delete act on the group the selection matches, as Save as group
+  // acts on a selection that matches none.
+  const canEditGroup =
+    onEditPreset !== undefined &&
+    !normalizedQuery &&
+    selectedPreset !== undefined;
+  // Rename stays on the group it opened on: a selection that moves to another
+  // group closes the form rather than renaming that group.
+  const renaming =
+    naming?.kind === "rename" &&
+    canEditGroup &&
+    selectedPreset?.label === naming.label
+      ? selectedPreset
+      : undefined;
+  const nameFormOpen =
+    (naming?.kind === "add" && canSaveGroup) || renaming !== undefined;
   const trimmedGroupName = groupName.trim();
   const groupNameTaken = presets.some(
-    (preset) => preset.label === trimmedGroupName,
+    (preset) => preset !== renaming && preset.label === trimmedGroupName,
   );
+  const groupNameUnchanged = renaming?.label === trimmedGroupName;
   const stopNaming = () => {
-    setNaming(false);
+    setNaming(null);
     setGroupName("");
   };
-  const saveGroup = () => {
-    if (!onSavePreset || !trimmedGroupName || groupNameTaken) return;
-    savedPresetLabelRef.current = trimmedGroupName;
-    onSavePreset({
-      label: trimmedGroupName,
-      values: options
-        .filter((option) => selectedSet.has(option.value))
-        .map((option) => option.value),
-    });
+  // A name form that can no longer show is over, so coming back to its
+  // selection never brings back a draft the user walked away from.
+  if (naming && !nameFormOpen) stopNaming();
+  const saveGroupName = () => {
+    if (
+      !onEditPreset ||
+      !trimmedGroupName ||
+      groupNameTaken ||
+      groupNameUnchanged
+    ) {
+      return;
+    }
+    if (renaming) {
+      refocusNamingButtonRef.current = true;
+      onEditPreset({
+        kind: "rename",
+        label: renaming.label,
+        newLabel: trimmedGroupName,
+      });
+    } else {
+      savedPresetLabelRef.current = trimmedGroupName;
+      onEditPreset({
+        kind: "add",
+        preset: {
+          label: trimmedGroupName,
+          values: options
+            .filter((option) => selectedSet.has(option.value))
+            .map((option) => option.value),
+        },
+      });
+    }
     stopNaming();
+  };
+  const deleteGroup = () => {
+    if (!onEditPreset || !selectedPreset) return;
+    // Delete group unmounts with the group, so focus moves first.
+    searchInputRef.current?.focus();
+    onEditPreset({ kind: "delete", label: selectedPreset.label });
   };
 
   return (
@@ -653,14 +705,15 @@ function MultiSelectFilter({
           // Room for Select all, a preset and Clear all on one row.
           className={presets.length > 0 ? "w-72" : "w-64"}
           onEscapeKeyDown={(event) => {
-            if (!naming) return;
+            if (!nameFormOpen) return;
             // Escape in the name field backs out of naming, not the dropdown.
             event.preventDefault();
-            refocusSaveAsGroupRef.current = true;
+            refocusNamingButtonRef.current = true;
             stopNaming();
           }}
         >
           <MenuSearchInput
+            ref={searchInputRef}
             aria-controls={optionsListId}
             aria-label={t("sqlDashboard.searchValues")}
             placeholder={t("sqlDashboard.searchValues")}
@@ -759,14 +812,14 @@ function MultiSelectFilter({
               {noFilteredOptions ? t("sqlDashboard.noValuesFound") : ""}
             </div>
           </div>
-          {canSaveGroup && (
+          {(canSaveGroup || canEditGroup) && (
             <div className="border-t p-1">
-              {naming ? (
+              {nameFormOpen ? (
                 <form
                   className="flex flex-col gap-1 p-0.5"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    saveGroup();
+                    saveGroupName();
                   }}
                 >
                   {/* The name gets the full width: beside "Save for everyone"
@@ -774,6 +827,7 @@ function MultiSelectFilter({
                   <Input
                     size="sm"
                     autoFocus
+                    onFocus={(event) => event.currentTarget.select()}
                     value={groupName}
                     onChange={(event) => setGroupName(event.target.value)}
                     placeholder={t("sqlDashboard.groupName")}
@@ -789,17 +843,19 @@ function MultiSelectFilter({
                     type="submit"
                     size="sm"
                     className="self-end"
-                    disabled={!trimmedGroupName || groupNameTaken}
+                    disabled={
+                      !trimmedGroupName || groupNameTaken || groupNameUnchanged
+                    }
                   >
                     {shared
                       ? t("sqlDashboard.saveForEveryone")
                       : t("explorer.save")}
                   </Button>
                 </form>
-              ) : (
+              ) : canSaveGroup ? (
                 <Button
                   ref={(button) => {
-                    saveAsGroupRef.current = button;
+                    namingButtonRef.current = button;
                     if (savedPresetLabelRef.current !== null) {
                       focusIfLost(button);
                     }
@@ -808,11 +864,42 @@ function MultiSelectFilter({
                   variant="ghost"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => setNaming(true)}
+                  onClick={() => setNaming({ kind: "add" })}
                 >
                   <IconPlus />
                   {t("sqlDashboard.saveAsGroup")}
                 </Button>
+              ) : (
+                <>
+                  <Button
+                    ref={namingButtonRef}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => {
+                      if (!selectedPreset) return;
+                      setGroupName(selectedPreset.label);
+                      setNaming({
+                        kind: "rename",
+                        label: selectedPreset.label,
+                      });
+                    }}
+                  >
+                    <IconPencil />
+                    {t("sqlDashboard.renameGroup")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-destructive hover:text-destructive"
+                    onClick={deleteGroup}
+                  >
+                    <IconTrash />
+                    {t("sqlDashboard.deleteGroup")}
+                  </Button>
+                </>
               )}
             </div>
           )}
@@ -827,7 +914,7 @@ interface FilterControlProps {
   vars: Record<string, string>;
   hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
-  onSavePreset?: (preset: FilterPreset) => void;
+  onEditPreset?: (edit: FilterPresetEdit) => void;
   shared: boolean;
 }
 
@@ -836,7 +923,7 @@ function FilterControl({
   vars,
   hasParam,
   setValue,
-  onSavePreset,
+  onEditPreset,
   shared,
 }: FilterControlProps) {
   const t = useT();
@@ -939,7 +1026,7 @@ function FilterControl({
         filter={filter}
         value={vars[filter.id] || ""}
         setValue={setValue}
-        onSavePreset={onSavePreset}
+        onEditPreset={onEditPreset}
         shared={shared}
       />
     );

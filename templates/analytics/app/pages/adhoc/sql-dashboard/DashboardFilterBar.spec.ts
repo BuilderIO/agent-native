@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
 import {
+  editFilterPresets,
   isDateRangePresetFilter,
   normalizeMultiSelectValue,
 } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterPreset } from "./types";
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -646,5 +647,30 @@ describe("multi-select filters", () => {
         { source: "bigquery" },
       ),
     ).toBe(String.raw`WHERE plan IN ('o\'brien', 'pro')`);
+  });
+});
+
+describe("editFilterPresets", () => {
+  it("renames and deletes by label, leaving entries the filter bar skips as stored", () => {
+    const stored = [
+      null,
+      { label: "Paid", values: ["pro"] },
+      { label: "Empty", values: [] },
+    ] as unknown as FilterPreset[];
+
+    expect(
+      editFilterPresets(stored, {
+        kind: "rename",
+        label: "Paid",
+        newLabel: "Paying",
+      }),
+    ).toEqual([
+      null,
+      { label: "Paying", values: ["pro"] },
+      { label: "Empty", values: [] },
+    ]);
+    expect(
+      editFilterPresets(stored, { kind: "delete", label: "Paid" }),
+    ).toEqual([null, { label: "Empty", values: [] }]);
   });
 });

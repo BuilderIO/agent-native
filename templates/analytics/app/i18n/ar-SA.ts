@@ -1278,6 +1278,8 @@ export default {
     groupName: "اسم المجموعة",
     saveForEveryone: "حفظ للجميع",
     groupNameTaken: "توجد مجموعة بهذا الاسم بالفعل",
+    renameGroup: "إعادة تسمية المجموعة…",
+    deleteGroup: "حذف المجموعة",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",

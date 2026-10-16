@@ -1313,6 +1313,8 @@ export default {
     groupName: "群組名稱",
     saveForEveryone: "為所有人儲存",
     groupNameTaken: "已有同名群組",
+    renameGroup: "重新命名群組…",
+    deleteGroup: "刪除群組",
     untitledDashboard: "無標題儀表板",
     dashboardFallback: "儀表板",
     viewOnly: "您對此儀表板只有檢視權限。",
