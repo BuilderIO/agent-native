@@ -1462,6 +1462,20 @@ function requestedComparisonCalendarRanges(
     return [currentRange, previousRange];
   }
 
+  if (
+    /\b(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?|(?:same|equivalent)\s+period\s+)?(?:one|1)\s+year\s+ago\b/i.test(
+      userText,
+    )
+  ) {
+    const currentRange = requestedCalendarRange(userText, now);
+    if (!currentRange) return [];
+    const previousRange = dateRange(
+      addUtcMonths(new Date(`${currentRange.startDate}T00:00:00.000Z`), -12),
+      addUtcMonths(new Date(`${currentRange.endDate}T00:00:00.000Z`), -12),
+    );
+    return [currentRange, previousRange];
+  }
+
   const explicitDateRanges = requestedExplicitDateRanges(userText);
   if (explicitDateRanges.length > 1) {
     const distinctRanges = new Map(
@@ -1474,6 +1488,8 @@ function requestedComparisonCalendarRanges(
       ? explicitDateRanges
       : [];
   }
+
+  if (/\b(?:ago|earlier|before)\b/i.test(userText)) return [];
 
   return null;
 }

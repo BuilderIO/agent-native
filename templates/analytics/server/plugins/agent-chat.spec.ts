@@ -1462,6 +1462,35 @@ describe("realDataFinalGuard", () => {
     ).toMatchObject({
       retryMessage: expect.stringContaining("same bounded date range"),
     });
+    const equivalentPreviousYear = {
+      startDate: "2025-07-01",
+      endDate: "2025-10-01",
+    };
+    const equivalentPreviousCall = dbtMetricCall(
+      equivalentPreviousYear,
+      [],
+      "equivalent-previous-year",
+    );
+    const equivalentPreviousResult = dbtMetricResult(
+      { groupBy: [], timeRange: equivalentPreviousYear },
+      undefined,
+      {},
+      "equivalent-previous-year",
+    );
+    const equivalentYearText =
+      "Compare activation rate over the last 3 months vs the equivalent period one year ago.";
+    expect(
+      evaluate(
+        [recentCall, equivalentPreviousCall],
+        [recentResult, equivalentPreviousResult],
+        equivalentYearText,
+      ),
+    ).toBeNull();
+    expect(
+      evaluate([recentCall], [recentResult], equivalentYearText),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
     expect(
       evaluate(
         [recentCall, previousCall],
