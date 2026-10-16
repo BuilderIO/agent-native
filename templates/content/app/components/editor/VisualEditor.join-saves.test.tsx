@@ -137,7 +137,7 @@ describe("a joining editor's saves", () => {
                 editable: true,
                 discoverCollabPeers: () =>
                   join === "pending"
-                    ? new Promise(() => {})
+                    ? new Promise<never>(() => {})
                     : Promise.resolve({
                         status: "failed" as const,
                         error: new Error("presence failed"),
