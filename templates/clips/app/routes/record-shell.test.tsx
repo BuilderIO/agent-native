@@ -667,6 +667,69 @@ describe("record route lifecycle shell", () => {
     });
   });
 
+  it("uses tab recovery for explicit policy toast actions", () => {
+    const directUrl = "https://clips.test/record?mode=screen";
+
+    expect(
+      recordingErrorToastRecoveryAction(
+        "Screen capture blocked by Permissions-Policy.",
+        "screen",
+        directUrl,
+      ),
+    ).toEqual({
+      labelKey: "recordRoute.openRecorderInTab",
+      url: directUrl,
+    });
+  });
+
+  it("uses tab recovery for embedded screen-capture toast actions", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const directUrl = "https://clips.test/record?mode=screen";
+
+    expect(
+      recordingErrorToastRecoveryAction(
+        "Screen capture is blocked by this app frame.",
+        "screen",
+        directUrl,
+      ),
+    ).toEqual({
+      labelKey: "recordRoute.openRecorderInTab",
+      url: directUrl,
+    });
+  });
+
+  it("preserves the failed mode and surface in card tab recovery", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    window.history.replaceState({}, "", "/record?spaceId=space-1");
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Screen capture is blocked by this app frame."
+          mode="screen"
+          displaySurface="window"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    const openInTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "recordRoute.openRecorderInTab",
+    );
+    act(() => openInTab?.click());
+
+    const openedUrl = new URL(String(open.mock.calls[0]?.[0]));
+    expect(openedUrl.searchParams.get("mode")).toBe("screen");
+    expect(openedUrl.searchParams.get("surface")).toBe("window");
+    expect(openedUrl.searchParams.get("spaceId")).toBe("space-1");
+    open.mockRestore();
+  });
+
   it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/routes/record.tsx"),

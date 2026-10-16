@@ -402,13 +402,15 @@ function getPolicyBlockedCaptureLabel(opts: {
 }
 
 function directRecorderUrl(opts?: {
-  mode: RecordingMode;
-  displaySurface: DisplaySurface;
+  mode?: RecordingMode;
+  displaySurface?: DisplaySurface;
 }): string {
   if (typeof window === "undefined") return "/record";
   const url = new URL(window.location.href);
-  if (opts) {
+  if (opts?.mode) {
     url.searchParams.set("mode", opts.mode);
+  }
+  if (opts?.displaySurface) {
     url.searchParams.set("surface", opts.displaySurface);
   }
   return url.toString();
@@ -461,6 +463,16 @@ function isEmbeddedCapturePolicyUnknownError(message: string): boolean {
     return captureFeaturePolicyState("microphone") === "unknown";
   }
   return false;
+}
+
+function shouldOpenRecorderInTab(message: string): boolean {
+  return (
+    isPolicyPermissionError(message) ||
+    isEmbeddedCapturePolicyUnknownError(message) ||
+    (isEmbeddedWindow() &&
+      getCaptureHostApp().kind !== "desktop" &&
+      isScreenPermissionError(message))
+  );
 }
 
 function wantsMicrophone(micDeviceId?: string | null): boolean {
@@ -565,10 +577,10 @@ export function recordingErrorToastRecoveryAction(
   labelKey: "recordRoute.openRecorderInTab" | "recordRoute.openSettings";
   url: string;
 } | null {
-  if (isEmbeddedCapturePolicyUnknownError(message)) {
+  if (isUploadFailureError(message)) return null;
+  if (shouldOpenRecorderInTab(message)) {
     return { labelKey: "recordRoute.openRecorderInTab", url: directUrl };
   }
-  if (isUploadFailureError(message)) return null;
 
   const url = permissionSettingsUrl(message, mode);
   return url ? { labelKey: "recordRoute.openSettings", url } : null;
@@ -978,6 +990,7 @@ function RecorderRouteViewport({ children }: { children: ReactNode }) {
 export function RecordingErrorCard({
   error,
   mode,
+  displaySurface,
   micDeviceId,
   canRetryUpload,
   canDownloadRecording,
@@ -986,6 +999,7 @@ export function RecordingErrorCard({
 }: {
   error: string;
   mode: RecordingMode;
+  displaySurface?: DisplaySurface;
   micDeviceId: string | null;
   canRetryUpload: boolean;
   canDownloadRecording: boolean;
@@ -1002,19 +1016,13 @@ export function RecordingErrorCard({
       : permissionGuidance(error, { mode, micDeviceId });
   const permissionError = !uploadFailure && isPermissionError(error);
   const policyError = !uploadFailure && isPolicyPermissionError(error);
-  const embeddedScreenError =
-    !uploadFailure &&
-    isEmbeddedWindow() &&
-    getCaptureHostApp().kind !== "desktop" &&
-    isScreenPermissionError(error);
+  const openDirectly = !uploadFailure && shouldOpenRecorderInTab(error);
   const settings = permissionError
     ? getModePermissionLabels(mode, micDeviceId)
     : [];
-  const directUrl = directRecorderUrl();
+  const directUrl = directRecorderUrl({ mode, displaySurface });
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
-  const openDirectly =
-    policyError || embeddedScreenError || embeddedCapturePolicyUnknownError;
   const downloadIsPrimary = canDownloadRecording && !canRetryUpload;
 
   return (
@@ -4605,6 +4613,7 @@ export default function RecordRoute() {
             <RecordingErrorCard
               error={error}
               mode={recordingMode}
+              displaySurface={pendingStartOptsRef.current?.displaySurface}
               micDeviceId={pendingStartOptsRef.current?.micDeviceId ?? null}
               canRetryUpload={!!engineRef.current?.canRetryUpload()}
               canDownloadRecording={
