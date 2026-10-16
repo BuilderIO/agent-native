@@ -18,14 +18,17 @@ const ORPHAN_BATCH = 1000;
 // Larger bodies and live copies are counted without being parsed. Parsing has
 // no deadline: Content's parser is quadratic in the length of a line that
 // holds a long run of spaces or `[` (about 1.5 seconds per parse at 40 KiB),
-// and the GFM reader in how deeply one line nests (`- - - …`, `> > > …`),
-// overflowing the stack past a few thousand levels. These caps are what keep
-// one page inside the snapshot's 10-minute idle limit: the slowest page found
-// under them takes about a minute to classify.
+// and the GFM reader in how deeply a line nests (`- - - …`, `> > > …`, or a
+// list indented one more level per line), overflowing the stack past a few
+// thousand levels. These caps are what keep one page inside the snapshot's
+// 10-minute idle limit: the slowest page found under them takes about a
+// minute to classify.
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_LINE_CHARS = 32 * 1024;
 const MAX_NESTING = 100;
-const CONTAINER_MARKER = /[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))/y;
+// Matches only spaces, tabs and marker characters, so it never runs past the
+// end of a line.
+const CONTAINER_MARKER = /([ \t]*)(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))/y;
 const PAST_PARSER_LIMITS = `over ${MAX_BODY_BYTES} characters, or with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels`;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
 const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
@@ -254,7 +257,12 @@ type LiveCopyOutcome =
   | "missing"
   | "bodyNotRead";
 
-/** Whether the census's parsers can read `text` within the caps above. */
+/**
+ * Whether the census's parsers can read `text` within the caps above. A line
+ * is as deep as its container markers plus the list levels the indentation
+ * before them can continue, at two columns each and up to four per tab, so a
+ * list cannot pass by nesting one level per line.
+ */
 export function withinParserLimits(text: string): boolean {
   if (text.length > MAX_BODY_BYTES) return false;
   for (let start = 0; start <= text.length; ) {
@@ -263,8 +271,10 @@ export function withinParserLimits(text: string): boolean {
     if (stop - start > MAX_LINE_CHARS) return false;
     CONTAINER_MARKER.lastIndex = start;
     let depth = 0;
-    while (CONTAINER_MARKER.lastIndex < stop && CONTAINER_MARKER.test(text))
-      if (++depth > MAX_NESTING) return false;
+    for (let marker; (marker = CONTAINER_MARKER.exec(text)); ) {
+      depth += 1 + marker[1].replace(/\t/g, "    ").length / 2;
+      if (depth > MAX_NESTING) return false;
+    }
     start = stop + 1;
   }
   return true;
