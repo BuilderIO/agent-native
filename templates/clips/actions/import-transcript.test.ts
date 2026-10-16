@@ -228,6 +228,9 @@ describe("import-transcript", () => {
     await expect(run({ text: VTT })).rejects.toMatchObject({
       errorCode: "transcript_exists",
       statusCode: 409,
+      message: expect.stringContaining(
+        "replace: true and replaceImportId: null",
+      ),
       details: { source: "automatic", importId: null },
     });
     expect(await readTranscript()).toMatchObject({
@@ -313,6 +316,8 @@ describe("import-transcript", () => {
     ).rejects.toMatchObject({
       errorCode: "transcript_exists",
       statusCode: 409,
+      // Agents never see `details`, so the message has to name the id.
+      message: expect.stringContaining(`replaceImportId: "${newer}"`),
       details: { source: "imported", importId: newer },
     });
     expect(await readTranscript()).toMatchObject({

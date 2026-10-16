@@ -153,8 +153,8 @@ an imported transcript; `request-transcript` with `regenerate: true` does, so
 ask the user first and pass `replaceImportId` set to `transcript.importId` from
 `get-recording-player-data`. Importing over a ready transcript fails with
 `transcript_exists`, so nothing is replaced by accident. When the user wants
-the file to replace it, call again with `replace: true` and `replaceImportId`
-set to the error's `details.importId`; if a different transcript took its
+the file to replace it, call again with `replace: true` and the
+`replaceImportId` the error message names; if a different transcript took its
 place in the meantime, that fails with `transcript_exists` again, naming the
 new one, so tell the user before calling again with the new ID. A replace keeps
 the transcript it replaced: `restore-transcript-version` with the result's

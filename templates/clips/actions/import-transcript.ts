@@ -25,7 +25,7 @@ import { booleanParam } from "./lib/cli-params.js";
 
 export default defineAction({
   description:
-    "Import a transcript file for a recording instead of transcribing its audio: WebVTT, SRT, or timestamped text (a 0:21 or [0:21] start on each line or line pair, as copied from YouTube's transcript panel). Stores the file's own timings, labels the transcript as imported, and automatic transcription never replaces it. Importing over a ready transcript fails with transcript_exists, so nothing is replaced by accident; when the user wants this file to replace it, call again with replace: true and replaceImportId set to the error's details.importId. The replaced transcript is kept: pass the result's savedVersionId to restore-transcript-version to bring it back. Leaves chapters alone; set those with set-chapters.",
+    "Import a transcript file for a recording instead of transcribing its audio: WebVTT, SRT, or timestamped text (a 0:21 or [0:21] start on each line or line pair, as copied from YouTube's transcript panel). Stores the file's own timings, labels the transcript as imported, and automatic transcription never replaces it. Importing over a ready transcript fails with transcript_exists, so nothing is replaced by accident; when the user wants this file to replace it, call again with replace: true and the replaceImportId the error names. The replaced transcript is kept: pass the result's savedVersionId to restore-transcript-version to bring it back. Leaves chapters alone; set those with set-chapters.",
   // Advertised up front like create-recording-upload: an outside agent holding a
   // transcript file has no other way to hand it to Clips.
   mcpApp: { compactCatalog: true },
@@ -58,7 +58,7 @@ export default defineAction({
       .nullable()
       .optional()
       .describe(
-        "With replace: details.importId from the transcript_exists error, or transcript.importId from get-recording-player-data, for the transcript being replaced (null when it was not imported). A different transcript found there fails with transcript_exists again.",
+        "With replace: the replaceImportId named in the transcript_exists error, or transcript.importId from get-recording-player-data, for the transcript being replaced (null when it was not imported). A different transcript found there fails with transcript_exists again.",
       ),
   }),
   run: async (args) => {
@@ -169,10 +169,13 @@ export default defineAction({
       return { written: true as const, replaced: ready, savedVersionId };
     });
     if (!outcome.written) {
+      // The id goes in the message: agents over MCP and in chat see only the
+      // message and errorCode, never `details`.
+      const retry = `replace: true and replaceImportId: ${JSON.stringify(outcome.importId)}`;
       fail(
         args.replace
-          ? "The transcript changed since you read it. Call again with replaceImportId set to details.importId if the user still wants this file to replace it."
-          : "This recording already has a ready transcript. If the user asked for this file to replace it, call again with replace: true and replaceImportId set to details.importId.",
+          ? `The transcript changed since you read it. If the user still wants this file to replace it, call again with ${retry}.`
+          : `This recording already has a ready transcript. If the user asked for this file to replace it, call again with ${retry}.`,
         {
           errorCode: TRANSCRIPT_EXISTS_ERROR_CODE,
           statusCode: 409,
