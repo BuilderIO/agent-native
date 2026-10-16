@@ -52,6 +52,7 @@ import {
   lastKeptMs,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+import { stepVideoFrame, VideoFrameClock } from "@/lib/video-frame-stepping";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
@@ -180,6 +181,8 @@ export interface VideoPlayerHandle {
   pause: () => void;
   seek: (ms: number) => void;
   getCurrentOriginalMs: () => number;
+  /** Steps one frame while paused; the first press during playback pauses. */
+  stepFrame: (direction: 1 | -1, repeat?: boolean) => void;
   setSpeed: (rate: number) => void;
   toggleMute: () => void;
   toggleCaptions: () => void;
@@ -1065,6 +1068,77 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [currentMs, edits, seekToVisibleMs],
     );
 
+    const frameClockRef = useRef<VideoFrameClock | null>(null);
+    useEffect(() => {
+      if (!playbackVideoEl) return;
+      const clock = VideoFrameClock.attach(playbackVideoEl);
+      frameClockRef.current = clock;
+      return () => {
+        clock?.dispose();
+        if (frameClockRef.current === clock) frameClockRef.current = null;
+      };
+    }, [playbackVideoEl]);
+
+    const seekToVisibleMsRef = useRef(seekToVisibleMs);
+    seekToVisibleMsRef.current = seekToVisibleMs;
+    const excludedRangesRef = useRef(excludedRanges);
+    excludedRangesRef.current = excludedRanges;
+    const frameStepRef = useRef({
+      running: false,
+      pending: [] as Array<1 | -1>,
+      pausedByPress: false,
+    });
+    // Embedded players expose no frames to step through.
+    const hasFrameAccess = !embedProvider && !isLoomEmbed;
+
+    const stepFrame = useCallback(
+      (direction: 1 | -1, repeat = false) => {
+        const v = videoRef.current;
+        if (!v || !hasFrameAccess) return;
+        const queue = frameStepRef.current;
+        if (!v.paused) {
+          pauseVideo();
+          // The press that paused only pauses, even while its key is held.
+          queue.pausedByPress = true;
+          return;
+        }
+        if (repeat && queue.pausedByPress) return;
+        queue.pausedByPress = false;
+        if (queue.running) {
+          // A held key repeats faster than seeks settle, so only separate
+          // presses queue up. They run in order rather than netting out: at
+          // either end of the clip a step can't move to undo the next one.
+          if (!repeat) queue.pending.push(direction);
+          return;
+        }
+        queue.running = true;
+        void (async () => {
+          try {
+            let next: 1 | -1 | undefined = direction;
+            while (next !== undefined && videoRef.current === v && v.paused) {
+              const kept = await stepVideoFrame(
+                {
+                  video: v,
+                  clock: frameClockRef.current,
+                  seekMs: (ms) => seekToVisibleMsRef.current(ms),
+                  excludedRanges: excludedRangesRef.current,
+                },
+                next,
+              );
+              // A step that couldn't run from the frame on screen drops the
+              // steps queued behind it.
+              if (!kept) break;
+              next = queue.pending.shift();
+            }
+          } finally {
+            queue.running = false;
+            queue.pending = [];
+          }
+        })();
+      },
+      [hasFrameAccess, pauseVideo],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -1078,6 +1152,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pause: pauseVideo,
         seek: seekToVisibleMs,
         getCurrentOriginalMs: () => {
+          const presented = frameClockRef.current?.presentedFrameTimeMs(
+            excludedRangesRef.current,
+          );
+          if (presented != null) return presented;
           const v = videoRef.current;
           const liveOriginalMs =
             v &&
@@ -1088,6 +1166,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               : currentMsRef.current;
           return liveOriginalMs;
         },
+        stepFrame,
         setSpeed: applySpeed,
         toggleMute: () => {
           if (videoRef.current) {
@@ -1100,7 +1179,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         toggleFullscreen: () => void toggleFullscreenInternal(),
         togglePip: () => togglePipInternal(),
       }),
-      [applySpeed, pauseVideo, requestPlay, seekToVisibleMs],
+      [applySpeed, pauseVideo, requestPlay, seekToVisibleMs, stepFrame],
     );
 
     useEffect(() => {

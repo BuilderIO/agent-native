@@ -25,6 +25,17 @@ export default {
     templateCatalog: "टेम्पलेट कैटलॉग",
     semanticLayer: "सिमेंटिक लेयर",
   },
+  dashboardMode: {
+    label: "डैशबोर्ड मोड",
+    view: "देखें",
+    edit: "संपादित करें",
+    viewHint:
+      "बिना कुछ बदले देखें। आप जो कॉलम चौड़ाई खींचते हैं, वह सिर्फ़ आपके लिए रहती है।",
+    editHint: "बदलाव सभी के लिए सहेजे जाते हैं",
+    columnResizePersonal:
+      "सिर्फ़ अपने लिए आकार बदलने को खींचें। रीसेट करने के लिए डबल-क्लिक करें।",
+    columnResizeShared: "सभी के लिए आकार बदलने को खींचें",
+  },
   dashboardHeader: {
     updated: "{{date}} को अपडेट किया गया",
     created: "{{date}} को बनाया गया",

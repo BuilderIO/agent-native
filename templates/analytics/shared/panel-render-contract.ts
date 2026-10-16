@@ -11,6 +11,7 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import { isValidPanelEvent, panelEventProblem } from "./panel-events";
 import {
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
@@ -51,6 +52,7 @@ interface PanelConfigKeyInfo {
 // SqlPanelConfig gains a key the renderer contract has not registered.
 export const PANEL_CONFIG_KEYS = {
   timeScope: {},
+  events: { onlyFor: ["line", "area", "bar", "combo"] },
   xKey: {},
   yKey: {},
   yKeys: {},
@@ -244,6 +246,8 @@ function unknownConfigKeyIssue(
 interface ConfigValueShape {
   valid: (value: unknown) => boolean;
   expected: string;
+  /** Names what is wrong with an invalid value, when the shape can tell. */
+  problem?: (value: unknown) => string | null;
 }
 
 const STRING_ARRAY_SHAPE: ConfigValueShape = {
@@ -256,6 +260,19 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   yKeys: STRING_ARRAY_SHAPE,
   rightYKeys: STRING_ARRAY_SHAPE,
   barKeys: STRING_ARRAY_SHAPE,
+  events: {
+    valid: (value) => Array.isArray(value) && value.every(isValidPanelEvent),
+    expected:
+      'an array of { date: "YYYY-MM-DD", label: non-empty string, time?: "HH:MM", timeZone?: IANA zone (with time), color?: string }',
+    problem: (value) => {
+      if (!Array.isArray(value)) return null;
+      for (let index = 0; index < value.length; index += 1) {
+        const problem = panelEventProblem(value[index]);
+        if (problem) return `config.events[${index}]: ${problem}`;
+      }
+      return null;
+    },
+  },
   pivot: {
     valid: (value) =>
       isRecord(value) &&
@@ -367,12 +384,15 @@ export function unknownPanelConfigKeys(
       }
       const shape = CONFIG_VALUE_SHAPES[key];
       if (shape && !shape.valid(value) && changedConfig(key, panel.config)) {
+        const problem = shape.problem?.(value);
         issues.push({
           panelId,
           path: `config.${key}`,
           key,
           kind: "invalid-value",
-          message: `${label} config.${key} must be ${shape.expected}, not ${clipHead(stableStringify(value), 60)}.`,
+          message:
+            `${label} config.${key} must be ${shape.expected}, not ${clipHead(stableStringify(value), 60)}.` +
+            (problem ? ` ${problem}.` : ""),
         });
       }
       const onlyFor = CONFIG_KEY_INFO[key].onlyFor;

@@ -116,11 +116,16 @@ export default defineAction({
     if (Math.abs(args.durationMs - expectedDuration) > 2_000) {
       throw new Error("The combined Clip duration does not match its sources.");
     }
+    const storageMode = recording.storageMode === "hosted" ? "hosted" : "own";
     const rewindMediaIsBound = await isS3ObjectUrlBoundToRecording(
       args.videoUrl,
       args.recordingId,
+      { storageMode },
     );
-    if (rewindMediaIsBound === false) {
+    if (
+      rewindMediaIsBound === false ||
+      (storageMode === "hosted" && rewindMediaIsBound !== true)
+    ) {
       throw new Error("The Rewind upload is not bound to its recording.");
     }
 

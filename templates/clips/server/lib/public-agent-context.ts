@@ -47,6 +47,7 @@ import { resolveTranscriptPresentation } from "../../shared/transcript-status.js
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
+import { fetchS3ObjectByUrl } from "./s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
   verifySharePassword,
@@ -387,6 +388,12 @@ export async function loadPublicAgentAccess(
   }
 
   if (recording.trashedAt || recording.archivedAt) {
+    return {
+      ok: false,
+      failure: { status: 404, body: { error: "Not found" } },
+    };
+  }
+  if (recording.failureCode === "taken_down") {
     return {
       ok: false,
       failure: { status: 404, body: { error: "Not found" } },
@@ -908,7 +915,7 @@ export function buildPublicAgentContext({
         : frameMode === "video"
           ? [
               "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
-              "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
+              "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task. Pass a comment's videoTimestampMs as atMs to see the frame its author was looking at. Older comments were saved rounded down to the whole second, so their frame can be up to a second early.",
             ]
           : []),
   ];
@@ -1063,7 +1070,39 @@ function isLocalRecordingBlob(videoUrl: string): boolean {
 
 async function fetchRecordingMediaResponse(
   videoUrl: string,
+  options: {
+    recordingId?: string;
+    storageMode?: "own" | "hosted" | null;
+  } = {},
 ): Promise<Response> {
+  if (options.storageMode === "hosted") {
+    if (!options.recordingId) {
+      throw new RecordingMediaFetchError(
+        "Hosted recording media has no recording id.",
+        500,
+      );
+    }
+    const response = await fetchS3ObjectByUrl(videoUrl, {
+      recordingId: options.recordingId,
+      storageMode: "hosted",
+      timeoutMs: 30_000,
+    });
+    if (!response) {
+      throw new RecordingMediaFetchError(
+        "Hosted recording media could not be found.",
+        404,
+      );
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      throw new RecordingMediaFetchError(
+        `Hosted recording media fetch failed: HTTP ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+    return response;
+  }
+
   let resolvedVideoUrl = videoUrl;
   const isAppRelativeUrl =
     resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
@@ -1162,7 +1201,10 @@ export async function loadRecordingMediaBytes(
     };
   }
 
-  const response = await fetchRecordingMediaResponse(videoUrl);
+  const response = await fetchRecordingMediaResponse(videoUrl, {
+    recordingId: recording.id,
+    storageMode: recording.storageMode,
+  });
 
   const bytes = await readResponseBytesWithLimit(response);
   return {
@@ -1203,7 +1245,10 @@ export async function loadRecordingMediaFile(
       return { path, mimeType: media.mimeType, cleanup };
     }
 
-    const response = await fetchRecordingMediaResponse(videoUrl);
+    const response = await fetchRecordingMediaResponse(videoUrl, {
+      recordingId: recording.id,
+      storageMode: recording.storageMode,
+    });
     await writeResponseBodyToFileWithLimit(response, path);
     return {
       path,

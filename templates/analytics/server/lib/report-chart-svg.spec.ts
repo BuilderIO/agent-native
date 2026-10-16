@@ -681,3 +681,274 @@ describe("report category axis", () => {
     expect(svg).not.toContain("rotate(");
   });
 });
+
+describe("renderReportChartSvg events", () => {
+  it("draws a labelled badge on the x-axis for each event", () => {
+    const svg = renderReportChartSvg({
+      labels: ["2026-10-12", "2026-10-13", "2026-10-14"],
+      series: [{ label: "WAU", data: [1, 2, 3] }],
+      type: "area",
+      width: 720,
+      height: 320,
+      events: [{ index: 2, label: "Beta launch" }],
+    });
+    expect(svg).toContain("Beta launch");
+    expect(svg).toContain('stroke-dasharray="3 3"');
+  });
+
+  const days = Array.from(
+    { length: 30 },
+    (_, index) => `2026-09-${String(index + 15).padStart(2, "0")}`,
+  );
+  const eventLabels = (svg: string) =>
+    [
+      ...svg.matchAll(
+        /<text x="([\d.]+)" y="([\d.]+)" text-anchor="(start|end)" font-size="10"[^>]*>([^<]*)<\/text>/g,
+      ),
+    ].map(([, x, y, anchor, text]) => ({
+      x: Number(x),
+      y: Number(y),
+      anchor,
+      text,
+    }));
+
+  it("joins same-day labels into one instead of printing them on top of each other", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 29, label: "Product Hunt live" },
+        { index: 29, label: "Launch posts on X, LinkedIn" },
+      ],
+    });
+    const labels = eventLabels(svg);
+    expect(labels).toHaveLength(1);
+    expect(labels[0].text).toBe(
+      "Product Hunt live · Launch posts on X, LinkedIn",
+    );
+    expect(svg.match(/stroke-dasharray="3 3"/g)).toHaveLength(1);
+  });
+
+  it("opens a label near the right edge toward the chart", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 1, label: "Role step first" },
+        { index: 29, label: "Agent-Native launch" },
+      ],
+    });
+    expect(eventLabels(svg).map((label) => label.anchor)).toEqual([
+      "start",
+      "end",
+    ]);
+  });
+
+  it("moves a label to a new row when it would overlap its neighbor", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 7, label: "Role step moved before Connect" },
+        { index: 9, label: "One-click Builder.io accounts" },
+        { index: 20, label: "Apart" },
+      ],
+    });
+    const [first, second, apart] = eventLabels(svg);
+    expect(second.y).toBeGreaterThan(first.y);
+    expect(apart.y).toBe(first.y);
+  });
+
+  const launches = [
+    "Product Hunt live",
+    "YouTube launch video",
+    "Introducing Agent-Native Beta blog post",
+    "Launch posts on X, LinkedIn",
+  ];
+  const plotTop = (svg: string) =>
+    Math.min(
+      ...[
+        ...svg.matchAll(/<line [^>]*y1="([\d.]+)"[^>]*stroke-width="0.8"/g),
+      ].map(([, y]) => Number(y)),
+    );
+
+  it("wraps a long same-day label onto more lines instead of cutting it", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 16, label: "One-click account setup" },
+        ...launches.map((label) => ({ index: 29, label })),
+      ],
+    });
+    const lines = eventLabels(svg).slice(1);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.map((line) => line.text).join(" · ")).toBe(
+      launches.join(" · "),
+    );
+    expect(svg).not.toMatch(/font-size="10"[^>]*>[^<]*(\.\.\.|…)</);
+    expect(new Set(lines.map((line) => line.anchor))).toEqual(new Set(["end"]));
+  });
+
+  it("puts event labels in their own rows above the plot", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: launches.map((label) => ({ index: 29, label })),
+    });
+    const top = plotTop(svg);
+    for (const label of eventLabels(svg)) {
+      expect(label.y).toBeLessThan(top);
+    }
+    const withoutEvents = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+    });
+    expect(plotTop(withoutEvents)).toBeLessThan(top);
+  });
+
+  it("counts the same-day labels that don't fit instead of dropping them", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 360,
+      height: 320,
+      events: [...launches, ...launches].map((label) => ({ index: 29, label })),
+    });
+    const lines = eventLabels(svg).map((line) => line.text);
+    expect(lines).toHaveLength(3);
+    const shown = lines.slice(0, -1).join(" · ").split(" · ").length;
+    expect(lines[lines.length - 1]).toBe(`+${8 - shown} more`);
+  });
+
+  it("never prints a label over another when the rows run out, and counts the days left unlabeled", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: days.map((_, index) => ({
+        index,
+        label: `Release ${index} shipped to every workspace`,
+      })),
+    });
+    const labels = eventLabels(svg);
+    const boxes = labels.map(({ x, y, anchor, text }) => {
+      const width = estimateTextWidth(text, 10);
+      const left = anchor === "end" ? x - width : x;
+      return { text, left, right: left + width, top: y - 10, bottom: y + 3 };
+    });
+    const overlaps = boxes.flatMap((a, index) =>
+      boxes
+        .slice(index + 1)
+        .filter(
+          (b) =>
+            a.left < b.right &&
+            b.left < a.right &&
+            a.top < b.bottom &&
+            b.top < a.bottom,
+        )
+        .map((b) => [a.text, b.text]),
+    );
+    expect(overlaps).toEqual([]);
+
+    const notice = labels.find((label) => label.text.endsWith("not labeled"));
+    const unlabeled = Number(
+      notice?.text.match(/^\+(\d+) dates not labeled$/)?.[1],
+    );
+    expect(unlabeled).toBeGreaterThan(0);
+    const labeledDays = new Set(
+      labels.filter((label) => label !== notice).map((label) => label.x),
+    ).size;
+    expect(labeledDays + unlabeled).toBe(days.length);
+    // Every day keeps its rule and dot, labeled or not.
+    expect(svg.match(/stroke-dasharray="3 3"/g)).toHaveLength(days.length);
+  });
+
+  it("shortens a day to one line when its full labels find no clear rows", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        ...[0, 1, 2, 3, 4].map((index) => ({
+          index,
+          label: `Release ${index} shipped to every workspace`,
+        })),
+        ...launches.map((label) => ({ index: 5, label })),
+      ],
+    });
+    const lines = eventLabels(svg).map((line) => line.text);
+    expect(lines[lines.length - 1]).toBe("Product Hunt live +3 more");
+    expect(svg).not.toContain("not labeled");
+  });
+
+  it("ends a lone label that is too long for its lines on a whole word", () => {
+    const words = Array.from({ length: 40 }, (_, index) => `word${index}`);
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 360,
+      height: 320,
+      events: [{ index: 3, label: words.join(" ") }],
+    });
+    const lines = eventLabels(svg).map((line) => line.text);
+    expect(lines).toHaveLength(3);
+    expect(lines[lines.length - 1]).toMatch(/ …$/);
+    for (const word of lines.join(" ").replace(/ …$/, "").split(" ")) {
+      expect(words).toContain(word);
+    }
+  });
+});
+
+describe("renderReportChartSvg combo", () => {
+  it("draws bar series as bars and the rest as a line, with markers", () => {
+    const labels = ["2026-10-12", "2026-10-13", "2026-10-14"];
+    const svg = renderReportChartSvg({
+      labels,
+      series: [
+        { label: "Signups", data: [10, 12, 30], mark: "bar" },
+        {
+          label: "Conversion",
+          data: [0.8, 0.82, 0.9],
+          mark: "line",
+          axis: "right",
+        },
+      ],
+      type: "combo",
+      width: 720,
+      height: 320,
+      events: [{ index: 2, label: "Launch" }],
+    });
+    expect(
+      svg.match(
+        /<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" rx="4"/g,
+      ),
+    ).toHaveLength(3);
+    expect(svg).toMatch(/<path d="M [^"]+" fill="none" stroke=/);
+    expect(svg).toContain("Launch");
+  });
+});
