@@ -9,6 +9,12 @@ describe("callAppBundleIdsForJoinUrl", () => {
     ).toContain("com.google.Chrome");
   });
 
+  it("watches browser microphone activity for Webex", () => {
+    expect(
+      callAppBundleIdsForJoinUrl("https://customer.webex.com/meet/abc"),
+    ).toContain("com.google.Chrome");
+  });
+
   it("watches both native and browser bundles for Zoom", () => {
     for (const url of [
       "https://zoom.us/j/123",
@@ -28,6 +34,51 @@ describe("callAppBundleIdsForJoinUrl", () => {
       "com.microsoft.teams2",
       "com.microsoft.teams",
     ]);
+  });
+
+  it("uses the exact browser bundle set for URL-less web meetings", () => {
+    const browserBundles = [
+      "com.google.Chrome",
+      "company.thebrowser.Browser",
+      "com.apple.Safari",
+      "org.mozilla.firefox",
+    ];
+
+    expect(callAppBundleIdsForJoinUrl(null, "meet")).toEqual(browserBundles);
+    expect(callAppBundleIdsForJoinUrl(null, "webex")).toEqual(browserBundles);
+  });
+
+  it("prefers the browser process that confirmed an adhoc call", () => {
+    expect(
+      callAppBundleIdsForJoinUrl(null, "meet", "com.google.chrome"),
+    ).toEqual(["com.google.Chrome"]);
+    expect(
+      callAppBundleIdsForJoinUrl(
+        "https://teams.microsoft.com/meet/123",
+        "teams",
+        "company.thebrowser.browser",
+      ),
+    ).toEqual(["company.thebrowser.Browser"]);
+  });
+
+  it("uses native and browser bundles for URL-less Zoom and Teams", () => {
+    const nativeAndBrowserBundles = [
+      "us.zoom.xos",
+      "us.zoom.ZoomClips",
+      "com.microsoft.teams2",
+      "com.microsoft.teams",
+      "com.google.Chrome",
+      "company.thebrowser.Browser",
+      "com.apple.Safari",
+      "org.mozilla.firefox",
+    ];
+
+    expect(callAppBundleIdsForJoinUrl(null, "zoom")).toEqual(
+      nativeAndBrowserBundles,
+    );
+    expect(callAppBundleIdsForJoinUrl(null, "teams")).toEqual(
+      nativeAndBrowserBundles,
+    );
   });
 
   it("does not treat an arbitrary browser URL as a meeting call", () => {

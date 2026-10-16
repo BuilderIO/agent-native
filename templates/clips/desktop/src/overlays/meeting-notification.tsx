@@ -30,6 +30,7 @@ interface NotificationData {
   meetingId: string;
   joinUrl?: string | null;
   platform?: string | null;
+  browserBundleId?: string | null;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
   autoStart?: boolean;
@@ -444,6 +445,8 @@ export function MeetingNotification() {
     emit("meetings:start-transcription", {
       meetingId: data.meetingId,
       joinUrl: data.joinUrl,
+      platform: data.platform,
+      browserBundleId: data.browserBundleId,
       reason: "user",
       scheduledStart: data.scheduledStart,
     }).catch((err) => {

@@ -1,3 +1,17 @@
+const BROWSER_CALL_APP_BUNDLE_IDS: &[&str] = &[
+    "com.google.chrome",
+    "company.thebrowser.browser",
+    "com.apple.safari",
+    "org.mozilla.firefox",
+];
+
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn supported_browser_bundle_id(bundle_id: &str) -> Option<&'static str> {
+    BROWSER_CALL_APP_BUNDLE_IDS
+        .iter()
+        .copied()
+        .find(|candidate| candidate.eq_ignore_ascii_case(bundle_id))
+}
 
 #[cfg(target_os = "macos")]
 pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
@@ -22,16 +36,11 @@ pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
     if candidate == "us.zoom.xos" {
         return bundle_id.starts_with("us.zoom.");
     }
-    !matches!(
-        candidate,
-        "com.google.chrome"
-            | "company.thebrowser.browser"
-            | "com.apple.safari"
-            | "org.mozilla.firefox"
-    ) && bundle_id
-        .strip_prefix(candidate)
-        .map(|suffix| suffix.starts_with('.'))
-        .unwrap_or(false)
+    !BROWSER_CALL_APP_BUNDLE_IDS.contains(&candidate)
+        && bundle_id
+            .strip_prefix(candidate)
+            .map(|suffix| suffix.starts_with('.'))
+            .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
@@ -152,7 +161,7 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::bundle_id_matches;
+    use super::{bundle_id_matches, supported_browser_bundle_id, BROWSER_CALL_APP_BUNDLE_IDS};
 
     #[test]
     fn matches_native_helpers_but_only_exact_browser_processes() {
@@ -187,5 +196,26 @@ mod tests {
             "com.microsoft.teams2",
             "com.microsoft.teams"
         ));
+    }
+
+    #[test]
+    fn supported_browser_bundle_ids_are_exact_and_case_insensitive() {
+        for bundle_id in BROWSER_CALL_APP_BUNDLE_IDS {
+            assert_eq!(
+                supported_browser_bundle_id(bundle_id),
+                Some(*bundle_id),
+                "{bundle_id} is a supported browser"
+            );
+            assert!(bundle_id_matches(bundle_id, bundle_id));
+            assert!(!bundle_id_matches(
+                &format!("{bundle_id}.helper"),
+                bundle_id
+            ));
+        }
+        assert_eq!(
+            supported_browser_bundle_id("COM.GOOGLE.CHROME"),
+            Some("com.google.chrome")
+        );
+        assert_eq!(supported_browser_bundle_id("com.google.chromium"), None);
     }
 }

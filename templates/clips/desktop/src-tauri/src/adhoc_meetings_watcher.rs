@@ -1,13 +1,12 @@
-//! Granola-style adhoc Zoom / Teams detection.
+//! Detects native and browser-based ad hoc calls.
 //!
-//! Samples every known call app every few seconds and asks one question: is a
-//! call underway? A live audio input stream held by Zoom or Teams answers yes
-//! wherever their window sits, so detection survives joining a call and then
-//! working in another app — the common case that foreground dwell alone missed
-//! entirely. Foreground dwell remains the fallback for machines whose OS cannot
-//! report input state at all. On a yes, creates a meeting row via
-//! `create-meeting` (matched to a calendar event when one lines up) and shows
-//! the same meeting-notification overlay used for calendar reminders.
+//! Samples supported conferencing apps and browsers every few seconds and asks
+//! whether a call is underway. Native call apps use their process microphone
+//! signal; browser calls also require the focused page to match a supported
+//! provider host. Browser associations persist while the user works in another
+//! app as long as the browser microphone remains active. On confirmation, the
+//! watcher creates a meeting row via `create-meeting` (matched to a calendar
+//! event when one lines up) and shows the existing meeting-notification overlay.
 //!
 //! Reuses `MeetingsWatcherState` session (server URL + cookie + auth token)
 //! so the popover only needs to push credentials once, and its rejection
@@ -29,7 +28,7 @@ use crate::meetings_watcher::{
 
 const POLL_SECS: u64 = 2;
 
-const MIC_DWELL: Duration = Duration::from_secs(5);
+const MIC_DWELL: Duration = Duration::from_secs(3);
 
 const FRONT_DWELL: Duration = Duration::from_secs(9);
 
@@ -62,6 +61,13 @@ const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
     ("com.microsoft.teams", "teams", "Teams meeting detected"),
 ];
 
+const BROWSER_PLATFORM_TITLES: &[(&str, &str)] = &[
+    ("meet", "Google Meet meeting detected"),
+    ("teams", "Teams meeting detected"),
+    ("zoom", "Zoom meeting detected"),
+    ("webex", "Webex meeting detected"),
+];
+
 #[derive(Default)]
 pub struct AdhocMeetingsWatcherState {
     inner: Mutex<AdhocMeetingsWatcherInner>,
@@ -72,6 +78,7 @@ struct AdhocMeetingsWatcherInner {
     prompt_cooldown_until: HashMap<String, i64>,
     dismissed_until: HashMap<String, i64>,
     evidence: HashMap<String, CallEvidence>,
+    browser_associations: HashMap<&'static str, BrowserCallAssociation>,
     session_notified: HashMap<String, bool>,
     create_in_doubt_since: HashMap<String, i64>,
 }
@@ -122,6 +129,29 @@ enum CallState {
     Live,
     Pending,
     Idle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BrowserCallCandidate {
+    pid: i32,
+    bundle_id: &'static str,
+    platform: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct BrowserCallAssociation {
+    pid: i32,
+    bundle_id: &'static str,
+    platform: &'static str,
+    evidence: CallEvidence,
+}
+
+#[derive(Debug, Default)]
+struct BrowserCallUpdates {
+    live_platforms: Vec<&'static str>,
+    live_browser_bundle_ids: HashMap<&'static str, &'static str>,
+    ended_platforms: Vec<&'static str>,
+    abstained_platforms: Vec<&'static str>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -303,6 +333,7 @@ impl AdhocMeetingsWatcherInner {
 
     fn clear_tracking(&mut self, now_ts: i64) {
         self.evidence.clear();
+        self.browser_associations.clear();
         self.create_in_doubt_since.clear();
         let notified: Vec<String> = self.session_notified.drain().map(|(p, _)| p).collect();
         for platform in notified {
@@ -347,6 +378,74 @@ impl AdhocMeetingsWatcherInner {
                 .get(platform)
                 .copied()
                 .unwrap_or(false)
+    }
+
+    fn browser_bundle_ids(&self) -> Vec<&'static str> {
+        self.browser_associations
+            .values()
+            .map(|association| association.bundle_id)
+            .collect()
+    }
+
+    fn observe_browser_calls(
+        &mut self,
+        now: Instant,
+        candidate: Option<BrowserCallCandidate>,
+        mic_by_bundle: &HashMap<String, Option<bool>>,
+    ) -> BrowserCallUpdates {
+        if let Some(candidate) = candidate.filter(|candidate| {
+            mic_by_bundle.get(candidate.bundle_id).copied().flatten() == Some(true)
+        }) {
+            let association = self
+                .browser_associations
+                .entry(candidate.platform)
+                .or_insert_with(|| BrowserCallAssociation {
+                    pid: candidate.pid,
+                    bundle_id: candidate.bundle_id,
+                    platform: candidate.platform,
+                    evidence: CallEvidence::default(),
+                });
+            if association.pid != candidate.pid || association.bundle_id != candidate.bundle_id {
+                *association = BrowserCallAssociation {
+                    pid: candidate.pid,
+                    bundle_id: candidate.bundle_id,
+                    platform: candidate.platform,
+                    evidence: CallEvidence::default(),
+                };
+            }
+        }
+
+        let mut updates = BrowserCallUpdates::default();
+        let mut expired = Vec::new();
+        for (platform, association) in &mut self.browser_associations {
+            let mic = mic_by_bundle.get(association.bundle_id).copied().flatten();
+            association.evidence.observe(now, mic, false);
+
+            if association.evidence.take_call_ended() {
+                updates.ended_platforms.push(*platform);
+                expired.push(*platform);
+                continue;
+            }
+            if association.evidence.take_mic_abstained() {
+                updates.abstained_platforms.push(*platform);
+                expired.push(*platform);
+                continue;
+            }
+            if mic != Some(true) && !association.evidence.mic_is_authoritative(now) {
+                expired.push(*platform);
+                continue;
+            }
+            if association.evidence.classify(now, mic, false) == CallState::Live {
+                updates.live_platforms.push(association.platform);
+                updates
+                    .live_browser_bundle_ids
+                    .insert(association.platform, association.bundle_id);
+            }
+        }
+        for platform in expired {
+            self.browser_associations.remove(platform);
+        }
+        updates
     }
 }
 
@@ -420,6 +519,61 @@ fn bundles_for_platform(platform: &str) -> Vec<String> {
         .collect()
 }
 
+fn platform_for_browser_host(host: &str) -> Option<&'static str> {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    match host.as_str() {
+        "meet.google.com" => Some("meet"),
+        "teams.microsoft.com" | "teams.live.com" => Some("teams"),
+        _ if is_provider_host(&host, "zoom.us")
+            || is_provider_host(&host, "zoom.com")
+            || is_provider_host(&host, "zoomgov.com") =>
+        {
+            Some("zoom")
+        }
+        _ if is_provider_host(&host, "webex.com") || is_provider_host(&host, "webex.us") => {
+            Some("webex")
+        }
+        _ => None,
+    }
+}
+
+fn is_provider_host(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
+fn platform_for_browser_url(url: &str) -> Option<&'static str> {
+    let url = url::Url::parse(url).ok()?;
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return None;
+    }
+    platform_for_browser_host(url.host_str()?)
+}
+
+#[cfg(target_os = "macos")]
+fn active_browser_candidate(frontmost_bundle_id: Option<&str>) -> Option<BrowserCallCandidate> {
+    let bundle_id = crate::call_activity::supported_browser_bundle_id(frontmost_bundle_id?)?;
+    let (context, pid) = crate::accessibility::macos::active_window_context_with_pid_impl();
+    let pid = pid?;
+    if !context
+        .bundle_id
+        .as_deref()
+        .is_some_and(|owner| owner.eq_ignore_ascii_case(bundle_id))
+    {
+        return None;
+    }
+    let fingerprint = crate::accessibility::macos::semantic_fingerprint_for_pid_impl(pid)?;
+    let url = fingerprint.document?.url?;
+    Some(BrowserCallCandidate {
+        pid,
+        bundle_id,
+        platform: platform_for_browser_url(&url)?,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AdhocNotificationPlan {
     show_widget: bool,
@@ -483,10 +637,34 @@ async fn tick_macos(
 
     let front = crate::util::frontmost_bundle_id();
     let front_platform = front.as_deref().and_then(match_vc_bundle).map(|(p, _)| p);
+    let browser_candidate = active_browser_candidate(front.as_deref());
     let now = Instant::now();
     let now_ts = chrono::Utc::now().timestamp();
 
-    let mut confirmed: Option<(&'static str, &'static str)> = None;
+    let mut browser_bundle_ids = {
+        let state = app
+            .try_state::<AdhocMeetingsWatcherState>()
+            .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
+        let g = state.inner.lock().map_err(|e| e.to_string())?;
+        g.browser_bundle_ids()
+    };
+    if let Some(candidate) = browser_candidate {
+        browser_bundle_ids.push(candidate.bundle_id);
+    }
+    browser_bundle_ids.sort_unstable();
+    browser_bundle_ids.dedup();
+    let browser_mic_by_bundle: HashMap<String, Option<bool>> = browser_bundle_ids
+        .into_iter()
+        .map(|bundle_id| {
+            let bundle_id_string = bundle_id.to_string();
+            let mic = crate::call_activity::call_app_uses_microphone(std::slice::from_ref(
+                &bundle_id_string,
+            ));
+            (bundle_id_string, mic)
+        })
+        .collect();
+
+    let mut confirmed: Option<(&'static str, &'static str, Option<&'static str>)> = None;
     let mut deferred: Vec<&'static str> = Vec::new();
     for (platform, fallback) in platform_titles() {
         let mic = crate::call_activity::call_app_uses_microphone(&bundles_for_platform(platform));
@@ -522,14 +700,53 @@ async fn tick_macos(
 
         if call_state == CallState::Live && !g.is_suppressed(platform, now_ts) {
             if confirmed.is_none() {
-                confirmed = Some((platform, fallback));
+                confirmed = Some((platform, fallback, None));
             } else {
                 deferred.push(platform);
             }
         }
     }
 
-    let Some((platform, fallback_title)) = confirmed else {
+    let browser_confirmed = {
+        let state = app
+            .try_state::<AdhocMeetingsWatcherState>()
+            .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
+        let mut g = state.inner.lock().map_err(|e| e.to_string())?;
+        g.retain_live_cooldowns(now_ts);
+        let updates = g.observe_browser_calls(now, browser_candidate, &browser_mic_by_bundle);
+        for platform in &updates.ended_platforms {
+            g.end_call_session(platform);
+        }
+        for platform in &updates.abstained_platforms {
+            g.session_notified.remove(*platform);
+        }
+        updates
+            .live_platforms
+            .into_iter()
+            .filter(|platform| !g.is_suppressed(platform, now_ts))
+            .filter_map(|platform| {
+                BROWSER_PLATFORM_TITLES
+                    .iter()
+                    .find(|(known, _)| *known == platform)
+                    .map(|(_, title)| {
+                        (
+                            platform,
+                            *title,
+                            updates.live_browser_bundle_ids.get(platform).copied(),
+                        )
+                    })
+            })
+            .collect::<Vec<_>>()
+    };
+    for (platform, title, browser_bundle_id) in browser_confirmed {
+        if confirmed.is_none() {
+            confirmed = Some((platform, title, browser_bundle_id));
+        } else {
+            deferred.push(platform);
+        }
+    }
+
+    let Some((platform, fallback_title, browser_bundle_id)) = confirmed else {
         return Ok(());
     };
 
@@ -647,6 +864,7 @@ async fn tick_macos(
             Some(notify_platform),
             Some(auto_start),
             meeting.source.clone().or_else(|| Some("adhoc".to_string())),
+            browser_bundle_id.map(str::to_string),
         )
         .await
         {
@@ -664,6 +882,8 @@ async fn tick_macos(
             serde_json::json!({
                 "meetingId": meeting.id,
                 "joinUrl": meeting.join_url,
+                "platform": platform,
+                "browserBundleId": browser_bundle_id,
                 "reason": "adhoc-auto",
                 "scheduledStart": meeting.scheduled_start,
             }),
@@ -709,6 +929,88 @@ mod tests {
         assert!(bundles_for_platform("webex").is_empty());
     }
 
+    #[test]
+    fn browser_meeting_hosts_require_an_exact_provider_domain() {
+        for (url, platform) in [
+            ("https://meet.google.com/abc-defg-hij", "meet"),
+            ("https://teams.microsoft.com/v2/", "teams"),
+            ("https://teams.live.com/meet/123", "teams"),
+            ("https://zoom.us/wc/123/join", "zoom"),
+            ("https://us02web.zoom.us/j/123", "zoom"),
+            ("https://customer.webex.com/meet/alex", "webex"),
+            ("https://webex.us/meet/alex", "webex"),
+        ] {
+            assert_eq!(platform_for_browser_url(url), Some(platform), "{url}");
+        }
+
+        for url in [
+            "http://meet.google.com/abc-defg-hij",
+            "https://meet.google.com.attacker.test/abc-defg-hij",
+            "https://teams.microsoft.com.attacker.test/meet/123",
+            "https://zoom.us.attacker.test/j/123",
+            "https://notzoom.us/j/123",
+            "https://webex.com.attacker.test/meet/alex",
+            "https://webex.com:8443/meet/alex",
+            "not a url",
+        ] {
+            assert_eq!(platform_for_browser_url(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn a_browser_microphone_without_a_matched_meeting_host_is_not_associated() {
+        let now = Instant::now();
+        let mut state = AdhocMeetingsWatcherInner::default();
+        let mic = HashMap::from([("com.google.chrome".to_string(), Some(true))]);
+
+        let updates = state.observe_browser_calls(now, None, &mic);
+
+        assert!(state.browser_associations.is_empty());
+        assert!(updates.live_platforms.is_empty());
+    }
+
+    #[test]
+    fn browser_association_survives_app_switch_while_its_mic_is_active() {
+        let start = Instant::now();
+        let candidate = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let mic = HashMap::from([("com.google.chrome".to_string(), Some(true))]);
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        let first = state.observe_browser_calls(start, Some(candidate), &mic);
+        assert!(first.live_platforms.is_empty());
+        assert_eq!(state.browser_associations["meet"].pid, candidate.pid);
+
+        let second = state.observe_browser_calls(start + Duration::from_secs(2), None, &mic);
+        assert!(second.live_platforms.is_empty());
+        assert!(state.browser_associations.contains_key("meet"));
+
+        let third = state.observe_browser_calls(start + Duration::from_secs(4), None, &mic);
+        assert_eq!(third.live_platforms, vec!["meet"]);
+        assert_eq!(
+            third.live_browser_bundle_ids.get("meet"),
+            Some(&candidate.bundle_id)
+        );
+        assert_eq!(state.browser_associations["meet"].pid, candidate.pid);
+
+        let mic_stopped = HashMap::from([("com.google.chrome".to_string(), Some(false))]);
+        let still_active =
+            state.observe_browser_calls(start + Duration::from_secs(5), None, &mic_stopped);
+        assert!(still_active.ended_platforms.is_empty());
+        assert!(state.browser_associations.contains_key("meet"));
+
+        let ended = state.observe_browser_calls(
+            start + Duration::from_secs(5) + CALL_END,
+            None,
+            &mic_stopped,
+        );
+        assert_eq!(ended.ended_platforms, vec!["meet"]);
+        assert!(state.browser_associations.is_empty());
+    }
+
     fn ago(now: Instant, secs: u64) -> Instant {
         now.checked_sub(Duration::from_secs(secs)).unwrap_or(now)
     }
@@ -746,6 +1048,25 @@ mod tests {
             evidence.classify(now, Some(true), false),
             CallState::Pending
         );
+    }
+
+    #[test]
+    fn mic_dwell_confirms_after_multiple_samples_and_three_seconds() {
+        let start = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(start, Some(true), false);
+        evidence.observe(start + Duration::from_secs(2), Some(true), false);
+        assert_eq!(
+            evidence.classify(start + Duration::from_secs(2), Some(true), false),
+            CallState::Pending
+        );
+
+        evidence.observe(start + Duration::from_secs(3), Some(true), false);
+        assert_eq!(
+            evidence.classify(start + Duration::from_secs(3), Some(true), false),
+            CallState::Live
+        );
+        assert_eq!(MIC_DWELL, Duration::from_secs(3));
     }
 
     #[test]
@@ -1607,10 +1928,12 @@ async fn create_adhoc_meeting(
     }
 
     let url = format!("{}/_agent-native/actions/create-meeting", server_url);
-    let row_title = if platform == "zoom" {
-        "Zoom meeting"
-    } else {
-        "Teams meeting"
+    let row_title = match platform {
+        "zoom" => "Zoom meeting",
+        "teams" => "Teams meeting",
+        "meet" => "Google Meet meeting",
+        "webex" => "Webex meeting",
+        _ => "Meeting",
     };
     let scheduled_start = chrono::Utc::now().to_rfc3339();
     let body = serde_json::json!({

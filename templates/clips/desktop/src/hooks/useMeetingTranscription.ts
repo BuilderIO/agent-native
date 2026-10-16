@@ -24,6 +24,8 @@ import { normalizeServerUrl } from "../lib/url";
 export interface MeetingTranscriptionPayload {
   meetingId: string;
   joinUrl?: string | null;
+  platform?: string | null;
+  browserBundleId?: string | null;
   reason?: "user" | "calendar-auto" | (string & {});
   scheduledStart?: string | null;
   includeFromMeetingStart?: boolean;
@@ -36,6 +38,8 @@ interface MeetingTranscriptionSession {
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
+  stopPending: boolean;
+  pendingStopReason: string | null;
   paused: boolean;
   engine: TranscriptionEngine;
   audioTransitionInFlight: Promise<void> | null;
@@ -156,6 +160,9 @@ export function useMeetingTranscription({
         await stopInFlightRef.current;
         return;
       }
+      const stopReason = session.stopPending
+        ? (session.pendingStopReason ?? reason)
+        : reason;
       session.stopping = true;
       const run = (async () => {
         if (session.flushTimer) {
@@ -170,36 +177,53 @@ export function useMeetingTranscription({
         }
         unlistenAll(session.unlisten.splice(0));
         await invoke("silence_detector_stop").catch(() => {});
-        await stopMeetingBeforeTranscriptFlush({
-          stopRecording: async () => {
-            await callClipsAction("stop-meeting-recording", {
-              meetingId: session.meetingId,
-              reason,
-            }).catch((err) => {
-              console.warn("[clips-popover] stop meeting action failed:", err);
-            });
-          },
-          waitForHistory: async () => {
-            if (reason !== "app-quit") {
-              await session.historyInFlight?.catch(() => {});
-            }
-          },
-          flushTranscript: async () => {
-            await flushTranscript().catch((err) => {
-              console.warn(
-                "[clips-popover] meeting transcript save failed:",
-                err,
-              );
-            });
-          },
-        });
+        try {
+          await stopMeetingBeforeTranscriptFlush({
+            stopRecording: async () => {
+              await callClipsAction("stop-meeting-recording", {
+                meetingId: session.meetingId,
+                reason: stopReason,
+              });
+            },
+            isStopped: async () => {
+              const result = await callClipsAction<{
+                meeting?: { actualEnd?: string | null } | null;
+              }>("get-meeting", { id: session.meetingId }, { method: "GET" });
+              if (!result?.meeting) {
+                throw new Error(
+                  "The meeting is unavailable for stop confirmation.",
+                );
+              }
+              return Boolean(result.meeting.actualEnd);
+            },
+            waitForHistory: async () => {
+              if (stopReason !== "app-quit") {
+                await session.historyInFlight?.catch(() => {});
+              }
+            },
+            flushTranscript: async () => {
+              await flushTranscript();
+            },
+          });
+        } catch (err) {
+          if (sessionRef.current === session) {
+            session.stopPending = true;
+            session.pendingStopReason = stopReason;
+            session.stopping = false;
+          }
+          console.warn(
+            "[clips-popover] meeting stop is incomplete; preserving session for retry:",
+            err,
+          );
+          throw err;
+        }
         if (session.lines.length) {
           const finalizePromise = callClipsAction("finalize-meeting", {
             meetingId: session.meetingId,
           }).catch((err) => {
             console.warn("[clips-popover] finalize meeting failed:", err);
           });
-          if (reason !== "app-quit") await finalizePromise;
+          if (stopReason !== "app-quit") await finalizePromise;
         }
         // Keep completed notes in Clips instead of interrupting the user by
         // opening a browser tab. On a normal stop the pill stays up and
@@ -210,7 +234,9 @@ export function useMeetingTranscription({
         // new start that slips in between awaits, and stale teardown must not
         // clobber the session that has since taken over.
         if (sessionRef.current === session) {
-          if (reason === "app-quit" || reason === "replaced") {
+          session.stopPending = false;
+          session.pendingStopReason = null;
+          if (stopReason === "app-quit" || stopReason === "replaced") {
             await invoke("recording_pill_hide").catch(() => {});
           }
           await invoke("set_recording_state", { active: false }).catch(
@@ -221,7 +247,7 @@ export function useMeetingTranscription({
         }
         emit("meetings:transcription-stopped", {
           meetingId: session.meetingId,
-          reason,
+          reason: stopReason,
         }).catch(() => {});
       })();
       stopInFlightRef.current = run;
@@ -247,7 +273,11 @@ export function useMeetingTranscription({
 
       const existing = sessionRef.current;
       if (existing) {
-        if (!existing.stopping && existing.meetingId === meetingId) {
+        if (
+          !existing.stopping &&
+          !existing.stopPending &&
+          existing.meetingId === meetingId
+        ) {
           await invoke("recording_pill_show", {
             meetingId: existing.meetingId,
             mode: "meeting",
@@ -329,6 +359,8 @@ export function useMeetingTranscription({
           unlisten: [],
           flushTimer: null,
           stopping: false,
+          stopPending: false,
+          pendingStopReason: null,
           paused: false,
           engine: "whisper",
           audioTransitionInFlight: null,
@@ -448,7 +480,11 @@ export function useMeetingTranscription({
           silenceThreshold: 0.05,
           silenceMs: 15 * 60 * 1000,
           callEndedMs: 30 * 1000,
-          callAppBundleIds: callAppBundleIdsForJoinUrl(payload.joinUrl),
+          callAppBundleIds: callAppBundleIdsForJoinUrl(
+            payload.joinUrl,
+            payload.platform,
+            payload.browserBundleId,
+          ),
           scheduledEndMs,
           watchSleep: true,
           watchCallEnded: true,
@@ -877,10 +913,16 @@ export function useMeetingTranscription({
   }, [enabled, startTranscription]);
 
   useEffect(() => {
-    if (!enabled) return;
     const timer = window.setInterval(() => {
       const session = sessionRef.current;
-      if (!session || session.stopping) return;
+      if (!session) return;
+      if (session.stopPending) {
+        stopTranscription(session.pendingStopReason ?? "manual").catch(
+          () => {},
+        );
+        return;
+      }
+      if (!enabled || session.stopping) return;
       callClipsAction<{ meeting?: { actualEnd?: string | null } }>(
         "get-meeting",
         { id: session.meetingId },

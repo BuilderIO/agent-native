@@ -16,10 +16,28 @@ function isHost(hostname: string, host: string): boolean {
   return hostname === host || hostname.endsWith(`.${host}`);
 }
 
-export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
-  if (!joinUrl) return [...NATIVE_CALL_APP_BUNDLE_IDS];
+export function callAppBundleIdsForJoinUrl(
+  joinUrl?: string | null,
+  platform?: string | null,
+  browserBundleId?: string | null,
+): string[] {
+  const exactBrowserBundleId = BROWSER_CALL_APP_BUNDLE_IDS.find(
+    (bundleId) => bundleId.toLowerCase() === browserBundleId?.toLowerCase(),
+  );
+  if (exactBrowserBundleId) return [exactBrowserBundleId];
 
-  try {
+  const normalizedPlatform = platform?.toLowerCase();
+  if (!joinUrl) {
+    if (normalizedPlatform === "meet" || normalizedPlatform === "webex") {
+      return [...BROWSER_CALL_APP_BUNDLE_IDS];
+    }
+    if (normalizedPlatform === "zoom" || normalizedPlatform === "teams") {
+      return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
+    }
+    return [...NATIVE_CALL_APP_BUNDLE_IDS];
+  }
+
+  if (URL.canParse(joinUrl)) {
     const hostname = new URL(joinUrl).hostname.toLowerCase();
     if (isHost(hostname, "meet.google.com")) {
       return [...BROWSER_CALL_APP_BUNDLE_IDS];
@@ -32,8 +50,16 @@ export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
     ) {
       return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
     }
-  } catch {
-    // Native Zoom and Teams remain the safe fallback for malformed URLs.
+    if (isHost(hostname, "webex.com") || isHost(hostname, "webex.us")) {
+      return [...BROWSER_CALL_APP_BUNDLE_IDS];
+    }
+  }
+
+  if (normalizedPlatform === "meet" || normalizedPlatform === "webex") {
+    return [...BROWSER_CALL_APP_BUNDLE_IDS];
+  }
+  if (normalizedPlatform === "zoom" || normalizedPlatform === "teams") {
+    return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
   }
 
   return [...NATIVE_CALL_APP_BUNDLE_IDS];

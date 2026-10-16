@@ -2319,6 +2319,7 @@ export function App({
       emit("meetings:start-transcription", {
         meetingId: meeting.id,
         joinUrl: meeting.joinUrl,
+        platform: meeting.platform,
         reason: "user",
         scheduledStart: meeting.scheduledStart,
         includeFromMeetingStart,
