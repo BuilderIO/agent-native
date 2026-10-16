@@ -3,6 +3,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { setupError } from "./_database-setup-mutation.js";
 import {
   assertPageLifecycleTarget,
@@ -105,6 +106,7 @@ async function restoreDocumentWithReceipt(
 }
 
 export default defineAction({
+  changeResource: (input) => documentChangeResource(input.id),
   description:
     "Restore one page and the sub-pages trashed with it from recoverable Trash, guarded by the item's exact trashedAt and an idempotency key. Pass the Trash root; returns a receipt with the restored page ids. Collections use restore-content-database.",
   mcpTool: true,

@@ -50,8 +50,9 @@ export interface ResourceAccessGateOptions {
    * Called once when the status says the viewer can open the resource: either
    * the read that failed should be tried again, or the owner shared it while
    * this screen was open. The status is checked again whenever the window
-   * regains focus, including switching back from another browser window, and
-   * every half minute while the viewer's request is open.
+   * regains focus, including switching back from another browser window,
+   * every half minute while the viewer's request is open, and every 12 seconds
+   * while the resource is in Trash.
    */
   onAccessGranted?: () => void;
 }
@@ -74,6 +75,10 @@ export interface ResourceAccessGateController {
 // While a request is open, approving it should open the resource without a
 // manual reload, even when the window never loses focus.
 const PENDING_REQUEST_POLL_MS = 30_000;
+// This screen replaces the resource's own view, and with it that view's sync
+// poll, so a restore made elsewhere would otherwise wait for focus or the
+// app-wide idle poll, which backs off to minutes. 12 s is that view's poll.
+const TRASHED_POLL_MS = 12_000;
 
 function requestFailure(error: Error): ResourceAccessRequestFailure {
   const failure = error as Error & {
@@ -112,7 +117,11 @@ export function useResourceAccessGate({
       refetchOnWindowFocus: "always",
       staleTime: 0,
       refetchInterval: (current) =>
-        current.state.data?.request ? PENDING_REQUEST_POLL_MS : false,
+        current.state.data?.state === "trashed"
+          ? TRASHED_POLL_MS
+          : current.state.data?.request
+            ? PENDING_REQUEST_POLL_MS
+            : false,
     },
   );
   const request = useActionMutation<
