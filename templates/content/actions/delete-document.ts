@@ -480,11 +480,28 @@ async function lockPermanentDeleteScope(
     throw new PermanentDeleteScopeChangedError();
   }
   // The children too: the delete detaches those in other Trash groups.
-  await lockDocumentRows(db, [
-    ...lockedScope.documentIds,
-    ...(await selectChildDocumentIds(db, lockedScope.documentIds, ownerEmail)),
-  ]);
-  return lockedScope;
+  const lockedPageIds = new Set(
+    await lockDocumentRows(db, [
+      ...lockedScope.documentIds,
+      ...(await selectChildDocumentIds(
+        db,
+        lockedScope.documentIds,
+        ownerEmail,
+      )),
+    ]),
+  );
+  // A move can change the scope while this waits on one of those pages.
+  const finalScope = await collectScope();
+  if (
+    !hasSameIds(lockedScope.documentIds, finalScope.documentIds) ||
+    !hasSameIds(lockedScope.ownedDatabaseIds, finalScope.ownedDatabaseIds) ||
+    (await selectChildDocumentIds(db, finalScope.documentIds, ownerEmail)).some(
+      (childId) => !lockedPageIds.has(childId),
+    )
+  ) {
+    throw new PermanentDeleteScopeChangedError();
+  }
+  return finalScope;
 }
 
 async function selectChildDocumentIds(
@@ -1163,6 +1180,7 @@ export async function deleteTrashedDocumentSubtree(
   }>,
   expectedScopeFingerprint?: string,
 ): Promise<string[]> {
+  let rootSeen = false;
   const collectScope = async () => {
     const [root] = await db
       .select({
@@ -1179,10 +1197,13 @@ export async function deleteTrashedDocumentSubtree(
       )
       .limit(1);
     if (!root) {
+      // In Trash a moment ago: it was restored while this waited on a lock.
+      if (rootSeen) throw new PermanentDeleteScopeChangedError();
       throw new Error(
         "Document must be in Trash and be a Trash root before permanent deletion",
       );
     }
+    rootSeen = true;
 
     const group = await db
       .select({

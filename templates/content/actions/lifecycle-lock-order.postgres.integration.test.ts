@@ -61,6 +61,7 @@ let editDocument: typeof import("./edit-document.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let restoreDocumentVersion: typeof import("./restore-document-version.js").default;
 let removeDatabaseItems: typeof import("./remove-database-items.js").default;
+let processContentTrashPurge: typeof import("../server/lib/content-trash-purge.js").processContentTrashPurge;
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -106,6 +107,8 @@ beforeAll(async () => {
   restoreDocumentVersion = (await import("./restore-document-version.js"))
     .default;
   removeDatabaseItems = (await import("./remove-database-items.js")).default;
+  ({ processContentTrashPurge } =
+    await import("../server/lib/content-trash-purge.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
   await getDb()
     .insert(schema.contentSpaces)
@@ -278,6 +281,51 @@ async function probeLockOrder(prepare: () => Promise<ProbeCase>) {
     if (error) throw error;
   }
   return { waitedOn, violations };
+}
+
+/**
+ * Runs `hold` in a second transaction, starts the action once it holds its
+ * rows, and commits `hold` once the action waits on it.
+ */
+async function raceAgainst(
+  hold: (tx: Db) => Promise<unknown>,
+  run: () => Promise<unknown>,
+) {
+  let proceed!: () => void;
+  const actionWaiting = new Promise<void>((resolve) => {
+    proceed = resolve;
+  });
+  let holding!: (pid: number) => void;
+  const holderPid = new Promise<number>((resolve) => {
+    holding = resolve;
+  });
+  const holder = getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as Db;
+    const pid = await backendPid(tx);
+    await hold(tx);
+    holding(pid);
+    await actionWaiting;
+  });
+  let action: Promise<unknown> | undefined;
+  let settled = false;
+  try {
+    const pid = await Promise.race([
+      holderPid,
+      holder.then(() => {
+        throw new Error("The holder ended before it held its rows.");
+      }),
+    ]);
+    action = run();
+    void action.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    expect(await waitUntilBlockedBy(pid, () => settled)).toBe(true);
+  } finally {
+    proceed();
+  }
+  await holder;
+  return { action: action! };
 }
 
 /**
@@ -711,6 +759,82 @@ const touchPage = (tx: Db, id: string) =>
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
     .where(eq(schema.documents.id, id));
 
+/**
+ * Two rows in Trash, each its own Trash unit, in two collections. The row in
+ * the collection with the higher id has the higher page id.
+ */
+async function seedPurgeUnits() {
+  const key = fixtureKey();
+  const ids = {
+    lowCollection: `${key}_c1`,
+    highCollection: `${key}_c2`,
+    lowItem: `${key}_m1`,
+    highItem: `${key}_m2`,
+    lowCollectionPage: `${key}_p0`,
+    highCollectionPage: `${key}_p1`,
+    lowRow: `${key}_p2`,
+    highRow: `${key}_p3`,
+  };
+  const db = getDb();
+  await db
+    .insert(schema.documents)
+    .values([
+      pageValues(ids.lowCollectionPage, null, "Low collection"),
+      pageValues(ids.highCollectionPage, null, "High collection"),
+      pageValues(ids.lowRow, ids.lowCollectionPage, "Low row"),
+      pageValues(ids.highRow, ids.highCollectionPage, "High row"),
+    ]);
+  const collection = (id: string, documentId: string, title: string) => ({
+    id,
+    ownerEmail: OWNER,
+    spaceId: SPACE_ID,
+    documentId,
+    title,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db
+    .insert(schema.contentDatabases)
+    .values([
+      collection(ids.lowCollection, ids.lowCollectionPage, "Low collection"),
+      collection(ids.highCollection, ids.highCollectionPage, "High collection"),
+    ]);
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values([
+      itemValues(ids.lowItem, ids.lowCollection, ids.lowRow, 0),
+      itemValues(ids.highItem, ids.highCollection, ids.highRow, 0),
+    ]);
+  await asOwner(() => deleteDocument.run({ id: ids.lowRow }));
+  await asOwner(() => deleteDocument.run({ id: ids.highRow }));
+  const plan = await asOwner(() =>
+    planContentTrashPurge.run({
+      mode: "selection",
+      documentIds: [ids.lowRow, ids.highRow],
+    }),
+  );
+  const operationId = `${key}_purge`;
+  await db.insert(schema.contentTrashPurgeOperations).values({
+    id: operationId,
+    planId: plan.planId,
+    actorEmail: OWNER,
+    idempotencyKey: operationId,
+    status: "queued",
+    eligibleCount: plan.eligibleCount,
+  });
+  const rows: LockedRow[] = [
+    { label: "low collection", kind: "collection", id: ids.lowCollection },
+    { label: "high collection", kind: "collection", id: ids.highCollection },
+    { label: "low membership", kind: "membership", id: ids.lowItem },
+    { label: "high membership", kind: "membership", id: ids.highItem },
+    { label: "low collection page", kind: "page", id: ids.lowCollectionPage },
+    { label: "high collection page", kind: "page", id: ids.highCollectionPage },
+    { label: "low row page", kind: "page", id: ids.lowRow },
+    { label: "high row page", kind: "page", id: ids.highRow },
+  ];
+  return { ids, rows, operationId };
+}
+
 async function readPage(id: string) {
   const [page] = await getDb()
     .select()
@@ -1075,6 +1199,41 @@ describe.skipIf(!POSTGRES_URL)(
         ]);
       });
 
+      it("a Trash purge of two units in two collections", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedPurgeUnits();
+          return {
+            rows: seed.rows,
+            run: async () => {
+              await asOwner(() => processContentTrashPurge(seed.operationId));
+              const [operation] = await getDb()
+                .select({
+                  status: schema.contentTrashPurgeOperations.status,
+                  lastError: schema.contentTrashPurgeOperations.lastError,
+                })
+                .from(schema.contentTrashPurgeOperations)
+                .where(
+                  eq(schema.contentTrashPurgeOperations.id, seed.operationId),
+                );
+              if (operation?.status !== "succeeded") {
+                throw new Error(
+                  `Purge ended ${operation?.status}: ${operation?.lastError}`,
+                );
+              }
+            },
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "low collection",
+          "high collection",
+          "low membership",
+          "high membership",
+          "low row page",
+          "high row page",
+        ]);
+      });
+
       it("removing a Favorite", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedFavorites();
@@ -1157,7 +1316,11 @@ describe.skipIf(!POSTGRES_URL)(
           };
         });
         expect(report.violations).toEqual([]);
-        expect(report.waitedOn).toEqual(["moved page", "otherChild page"]);
+        expect(report.waitedOn).toEqual([
+          "moved page",
+          "otherParent page",
+          "otherChild page",
+        ]);
       });
 
       it("move a collection's page", async () => {
@@ -1175,7 +1338,11 @@ describe.skipIf(!POSTGRES_URL)(
           };
         });
         expect(report.violations).toEqual([]);
-        expect(report.waitedOn).toEqual(["collection", "collection page"]);
+        expect(report.waitedOn).toEqual([
+          "collection",
+          "collection page",
+          "other parent page",
+        ]);
       });
 
       it("undo import", async () => {
@@ -1543,5 +1710,104 @@ describe.skipIf(!POSTGRES_URL)(
         });
       },
     );
+
+    it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {
+      const seed = await seedPageTree();
+      await asOwner(() => deleteDocument.run({ id: seed.ids.otherParent }));
+      const plan = await asOwner(() =>
+        planContentTrashPurge.run({
+          mode: "selection",
+          documentIds: [seed.ids.otherParent],
+        }),
+      );
+      const { action: purge } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.otherChild]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: seed.ids.parent })
+            .where(eq(schema.documents.id, seed.ids.otherChild));
+        },
+        () =>
+          asOwner(() =>
+            permanentlyDeleteDocument.run({
+              id: seed.ids.otherParent,
+              planId: plan.planId,
+              scopeToken: plan.scopeToken,
+            }),
+          ),
+      );
+      await expect(purge).rejects.toMatchObject({
+        errorCode: "scope_changed",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.otherChild)).toMatchObject({
+        parentId: seed.ids.parent,
+      });
+      await readPage(seed.ids.otherParent);
+    });
+
+    it("refuses a permanent delete whose page is restored while it waits", async () => {
+      const seed = await seedPageTree();
+      await asOwner(() => deleteDocument.run({ id: seed.ids.otherChild }));
+      const plan = await asOwner(() =>
+        planContentTrashPurge.run({
+          mode: "selection",
+          documentIds: [seed.ids.otherChild],
+        }),
+      );
+      const { action: purge } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.otherChild]);
+          await tx
+            .update(schema.documents)
+            .set({ trashedAt: null, trashRootId: null })
+            .where(eq(schema.documents.id, seed.ids.otherChild));
+        },
+        () =>
+          asOwner(() =>
+            permanentlyDeleteDocument.run({
+              id: seed.ids.otherChild,
+              planId: plan.planId,
+              scopeToken: plan.scopeToken,
+            }),
+          ),
+      );
+      await expect(purge).rejects.toMatchObject({
+        errorCode: "scope_changed",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.otherChild)).toMatchObject({
+        trashedAt: null,
+      });
+    });
+
+    it("refuses a move under a parent that moves to Trash while the move commits", async () => {
+      const seed = await seedPageTree();
+      const trashedAt = new Date().toISOString();
+      const { action: move } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.otherParent]);
+          await tx
+            .update(schema.documents)
+            .set({ trashedAt, trashRootId: seed.ids.otherParent })
+            .where(eq(schema.documents.id, seed.ids.otherParent));
+        },
+        () =>
+          asOwner(() =>
+            moveDocument.run({
+              id: seed.ids.moved,
+              parentId: seed.ids.otherParent,
+            }),
+          ),
+      );
+      await expect(move).rejects.toMatchObject({
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        parentId: seed.ids.parent,
+      });
+    });
   },
 );
