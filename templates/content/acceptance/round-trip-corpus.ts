@@ -15,6 +15,12 @@ export interface RoundTripSample {
    * A sample stored with loss fails here even when its bytes look canonical.
    */
   renders: ReadonlyArray<{ selector: string; text: string }>;
+  /**
+   * Why the stored form cannot hold this sample. A sample with a reason must be
+   * refused at write time with a typed fidelity error; one without must be
+   * stored, so refusing it fails SF-04 like losing it would.
+   */
+  unrepresentable?: string;
 }
 
 export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [

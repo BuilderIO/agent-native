@@ -93,16 +93,28 @@ async function savedBody(page: Page, id: string): Promise<string> {
 }
 
 /**
- * Create the sample over MCP as an agent would. Returns null when the server
- * refused it with a typed fidelity error, which is a pass for that sample.
+ * Create the sample over MCP as an agent would. Returns null when the sample
+ * is declared unrepresentable and the server refused it with a typed fidelity
+ * error, which is a pass for that sample.
  */
 async function createSample(
   agent: AgentClient,
+  sample: RoundTripSample,
   title: string,
   content: string,
 ): Promise<string | null> {
   const created = await agent.call("create-document", { title, content });
-  if (!created.isError) return createdPageId(created);
+  if (!sample.unrepresentable) {
+    expect(
+      created.isError,
+      `the server stores ${sample.id}, which it can represent: ${created.raw}`,
+    ).toBe(false);
+    return createdPageId(created);
+  }
+  expect(
+    created.isError,
+    `the server refuses ${sample.id} at write time: ${sample.unrepresentable}`,
+  ).toBe(true);
   expect(
     created.text,
     `a refused sample names its fidelity error: ${created.raw}`,
@@ -133,7 +145,12 @@ test.describe("SF-04 round trips keep every sample", { tag: "@SF-04" }, () => {
       details,
       async ({ page, context }) => {
         const sent = `${sample.markdown}\n\n${KEYSTROKE_PARAGRAPH}`;
-        const id = await createSample(agent, `SF-04 ${sample.id}`, sent);
+        const id = await createSample(
+          agent,
+          sample,
+          `SF-04 ${sample.id}`,
+          sent,
+        );
         if (id === null) return;
         await enterGateArm(page, id);
 
@@ -171,6 +188,7 @@ test.describe("SF-04 round trips keep every sample", { tag: "@SF-04" }, () => {
       async ({ page, context }) => {
         const id = await createSample(
           agent,
+          sample,
           `SF-04 ${sample.id} export`,
           sample.markdown,
         );
