@@ -863,8 +863,7 @@ test("a Hug screen keeps Hug on width resize and becomes Fixed on height resize"
   });
 });
 
-// fixme: product bug: The first render-export-png POST returns 403 ui_capability_required (Copy as PNG), succeeding only on a retry. One of two runs also timed
-test.fixme("Screen Appearance styles reveal the board and keep pinned versus Hug height in exported source", async ({
+test("Screen Appearance styles reveal the board and keep pinned versus Hug height in exported source", async ({
   app,
   page,
   request,
@@ -1258,8 +1257,7 @@ test.fixme("Screen Appearance styles reveal the board and keep pinned versus Hug
   });
 });
 
-// fixme: product bug: The first render-export-png POST returns 403 ui_capability_required before a retry succeeds.
-test.fixme("all-screens PDF mounts an offscreen Hug screen and exports its natural height", async ({
+test("all-screens PDF mounts an offscreen Hug screen and exports its natural height", async ({
   app,
   page,
   request,
