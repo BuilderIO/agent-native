@@ -341,6 +341,51 @@ describe("shared context URL dialog", () => {
     expect(dialog()!.textContent).toContain("Campaign deck");
   });
 
+  it("preserves pagination cursors when a search returns to the current query", async () => {
+    const load = vi.fn(({ page }: { page: number }) =>
+      Promise.resolve({
+        items: [{ id: `deck-${page}`, title: `Deck ${page}` }],
+        hasMore: page < 3,
+        nextCursor: page < 3 ? `cursor-${page + 1}` : undefined,
+      }),
+    );
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search decks",
+      load,
+      onSelect: vi.fn(),
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config);
+    await tick();
+    await click("agentChat.composer.contextNext");
+    await click("agentChat.composer.contextNext");
+    expect(load.mock.calls[2][0]).toMatchObject({
+      page: 3,
+      cursor: "cursor-3",
+    });
+
+    vi.useFakeTimers();
+    await type("temporary", 'input[type="search"]');
+    await type("", 'input[type="search"]');
+    expect(button("agentChat.composer.contextPrevious").disabled).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(load).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+    await click("agentChat.composer.contextPrevious");
+    expect(load.mock.calls[3][0]).toMatchObject({
+      page: 2,
+      cursor: "cursor-2",
+    });
+  });
+
   it("shows distinct preview cards for duplicate titles and retains selections through search", async () => {
     const onAttach = vi.fn().mockResolvedValue(undefined);
     const items = [

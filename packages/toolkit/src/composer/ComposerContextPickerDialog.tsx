@@ -44,8 +44,10 @@ export function ComposerContextPickerDialog({
   const input = useRef<HTMLInputElement>(null);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [search, setSearch] = useState(location.search);
+  const [searchDebouncing, setSearchDebouncing] = useState(false);
   const remoteGallery = gallery && Boolean(config.load);
-  const searchPending = remoteGallery && search !== location.search;
+  const searchPending =
+    remoteGallery && (search !== location.search || searchDebouncing);
   const [touched, setTouched] = useState(false);
   useEffect(() => {
     input.current?.focus();
@@ -146,19 +148,16 @@ export function ComposerContextPickerDialog({
                 value={remoteGallery ? search : location.search}
                 onChange={(event) => {
                   const value = event.target.value;
-                  picker.cursors.current = [undefined];
                   setSearch(value);
                   if (searchDebounce.current)
                     clearTimeout(searchDebounce.current);
                   if (remoteGallery) {
+                    setSearchDebouncing(true);
                     searchDebounce.current = setTimeout(() => {
                       searchDebounce.current = null;
-                      if (
-                        value === location.search &&
-                        location.page === 1 &&
-                        location.cursor === undefined
-                      )
-                        return;
+                      setSearchDebouncing(false);
+                      if (value === location.search) return;
+                      picker.cursors.current = [undefined];
                       picker.move({
                         search: value,
                         page: 1,
@@ -166,6 +165,7 @@ export function ComposerContextPickerDialog({
                       });
                     }, 200);
                   } else {
+                    picker.cursors.current = [undefined];
                     picker.move({ search: value, page: 1, url: location.url });
                   }
                 }}
