@@ -5462,6 +5462,12 @@ export default function DeckEditor() {
           </>
         )}
 
+        <div
+          ref={setLayersPanelSlot}
+          data-layers-panel-host="true"
+          className="flex h-full shrink-0"
+        />
+
         {generatingSlideSelected && generatingSlideVisible && (
           <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
             <div className="m-auto w-full max-w-6xl">
@@ -5794,12 +5800,6 @@ export default function DeckEditor() {
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}
-
-        <div
-          ref={setLayersPanelSlot}
-          data-layers-panel-host="true"
-          className="flex h-full shrink-0"
-        />
 
         {commentsOpen && (
           <SlideCommentsPanel
