@@ -137,11 +137,19 @@ export const PRESET_SHAPES: Record<
   vercel: {
     files: [
       ".vercel/output/config.json",
-      ".vercel/output/functions/__server.func",
+      ".vercel/output/functions/__server.func/index.mjs",
       ".vercel/output/static",
     ],
   },
 };
+
+// `vercel env rm` of a variable that is not there fails with this message (in
+// plain text, and in the JSON the CLI prints when it thinks an agent is
+// driving). It is the one failure a cleanup may treat as "already gone": the
+// removal runs before the write it undoes is known to have landed.
+export function isVercelEnvVarAbsent(output: string): boolean {
+  return /Environment Variable\b.*\bwas not found/i.test(output);
+}
 
 export function missingDocCommands(
   mdx: string,

@@ -20,6 +20,7 @@ import {
   dockerfileBaseImages,
   extractFencedBlock,
   findFileUrls,
+  isVercelEnvVarAbsent,
   missingDocCommands,
   PRESET_SHAPES,
   redactSecrets,
@@ -288,6 +289,34 @@ describe("selectReapable", () => {
   });
 });
 
+describe("removing a Vercel variable that may not be there", () => {
+  it("treats the CLI's own 'not found' answer as already removed", () => {
+    assert.equal(
+      isVercelEnvVarAbsent(
+        "Retrieving project…\nError: Environment Variable was not found.",
+      ),
+      true,
+    );
+    assert.equal(
+      isVercelEnvVarAbsent(
+        '{"status":"error","reason":"env_not_found","message":"Environment Variable DATABASE_URL was not found."}',
+      ),
+      true,
+    );
+  });
+
+  it("does not hide any other failure", () => {
+    for (const other of [
+      "Error: The specified token is not valid.",
+      "Error: Project was not found.",
+      "Error: Request timed out",
+      "",
+    ]) {
+      assert.equal(isVercelEnvVarAbsent(other), false, other);
+    }
+  });
+});
+
 describe("hosting presets", () => {
   it("names the files each host's deploy command reads", () => {
     assert.deepEqual(Object.keys(PRESET_SHAPES), ["netlify", "vercel"]);
@@ -298,6 +327,12 @@ describe("hosting presets", () => {
     );
     assert.ok(
       PRESET_SHAPES.vercel.files.includes(".vercel/output/config.json"),
+    );
+    // The function's file, not just its directory, which can exist empty.
+    assert.ok(
+      PRESET_SHAPES.vercel.files.includes(
+        ".vercel/output/functions/__server.func/index.mjs",
+      ),
     );
   });
 

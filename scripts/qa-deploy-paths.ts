@@ -65,6 +65,7 @@ import {
   dockerfileBaseImages,
   extractFencedBlock,
   findFileUrls,
+  isVercelEnvVarAbsent,
   PRESET_SHAPES,
   redactSecrets,
   secretsInUrl,
@@ -622,6 +623,7 @@ async function startNodeServer(
   const output: string[] = [];
 
   const launch = () => {
+    assertNotInterrupted();
     exitMessage = null;
     closed = false;
     const next = spawn("pnpm", ["start"], {
@@ -929,9 +931,11 @@ async function buildPresets(
 // way the run overwrites its two variables and removes them again, because the
 // credential that runs the check may not be allowed to delete a site, and the
 // database URL carries the CI role's password: it must not outlive the run. A
-// cleanup is registered once its variable is set, and a stale one from a run
-// that could not clean up is overwritten by the next. Netlify commands run in
-// `netlifyEnv()`, the only environment that carries the Netlify token.
+// cleanup is registered before each write, because a write the provider accepted
+// but whose answer was lost, or whose command was cancelled, still has to be
+// removed; `env:unset` of a variable that is not there succeeds, so registering
+// first is safe. Netlify commands run in `netlifyEnv()`, the only environment
+// that carries the Netlify token.
 async function useNetlifySite(
   appDir: string,
   databaseUrl: string,
@@ -971,13 +975,13 @@ async function useNetlifySite(
       ["DATABASE_URL", databaseUrl],
       ["BETTER_AUTH_SECRET", authSecret],
     ] as const) {
-      await netlify(["env:set", key, value], `netlify env:set ${key}`);
       onCleanup(`netlify ${key} on ${name}`, () => {
         runQuiet("npx", netlifyCliArgs(["env:unset", key, "--force"]), {
           cwd: appDir,
           env: netlifyEnv(),
         });
       });
+      await netlify(["env:set", key, value], `netlify env:set ${key}`);
     }
   });
   return name;
@@ -988,7 +992,9 @@ const vercelScopeArgs = vercelScope ? ["--scope", vercelScope] : [];
 // The guide's Step 3 for Vercel, reused the same way. `vercel link --yes`
 // links the project when it exists and creates it when it does not. `--force`
 // is the one flag the guide does not have: it overwrites a variable a run left
-// behind, which `env add` otherwise refuses to do. The values go in on stdin,
+// behind, which `env add` otherwise refuses to do. The cleanup is registered
+// before each write, as for Netlify, and treats only "variable not found" as
+// already removed. The values go in on stdin,
 // as the guide pipes them, so they never appear in a command line.
 async function useVercelProject(
   appDir: string,
@@ -1012,25 +1018,35 @@ async function useVercelProject(
       ["DATABASE_URL", databaseUrl],
       ["BETTER_AUTH_SECRET", authSecret],
     ] as const) {
+      onCleanup(`vercel ${key} on ${name}`, () => {
+        try {
+          runQuiet(
+            "npx",
+            vercelCliArgs([
+              "env",
+              "rm",
+              key,
+              "production",
+              "--yes",
+              ...vercelScopeArgs,
+            ]),
+            { cwd: appDir, env: vercelEnv() },
+          );
+        } catch (error) {
+          const { stdout, stderr } = error as {
+            stdout?: string;
+            stderr?: string;
+          };
+          if (!isVercelEnvVarAbsent(`${stdout ?? ""}${stderr ?? ""}`)) {
+            throw error;
+          }
+        }
+      });
       await vercel(
         ["env", "add", key, "production", "--force"],
         `vercel env add ${key}`,
         value,
       );
-      onCleanup(`vercel ${key} on ${name}`, () => {
-        runQuiet(
-          "npx",
-          vercelCliArgs([
-            "env",
-            "rm",
-            key,
-            "production",
-            "--yes",
-            ...vercelScopeArgs,
-          ]),
-          { cwd: appDir, env: vercelEnv() },
-        );
-      });
     }
   });
   return name;
