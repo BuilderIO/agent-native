@@ -244,7 +244,9 @@ describe("output outcomes on Postgres", () => {
         org_id text,
         visibility text NOT NULL DEFAULT 'private',
         first_url text,
-        started_at text NOT NULL
+        started_at text NOT NULL,
+        ended_at text,
+        last_ingested_at text
       )
     `);
     await client.query(`
@@ -518,6 +520,55 @@ describe("output outcomes on Postgres", () => {
       AFTER_WINDOW,
     );
     expect(result.outputs.r1?.[0]?.status).toBe("unmeasured");
+  });
+
+  it("reads a recording a lost batch overlapped as unknown and never matches it", async () => {
+    // r-known made an unused deck after a batch earlier in its recording was
+    // lost; r-lost's only making was in that batch; r-clear recorded later.
+    await ingest([
+      made("s-known", "deck-known", "2026-10-01T10:20:00.000Z"),
+      made("s-clear", "deck-clear", "2026-10-01T11:10:00.000Z"),
+    ]);
+    await recordLostOutputBatch(
+      db,
+      [made("s-lost", "deck-lost", "2026-10-01T10:05:00.000Z")],
+      "2026-10-01T10:05:01.000Z",
+    );
+    await addRecording("r-lost", "s-lost");
+    await addRecording("r-known", "s-known");
+    await addRecording("r-clear", "s-clear");
+    await client.query(
+      `UPDATE session_recordings SET ended_at = '2026-10-01T10:30:00.000Z'
+       WHERE id IN ('r-lost', 'r-known')`,
+    );
+    await client.query(
+      `UPDATE session_recordings
+       SET started_at = '2026-10-01T11:00:00.000Z', ended_at = '2026-10-01T11:30:00.000Z'
+       WHERE id = 'r-clear'`,
+    );
+
+    expect(await unusedRecordings(AFTER_WINDOW)).toEqual(["r-clear"]);
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r-lost", "r-known", "r-clear"],
+      AFTER_WINDOW,
+    );
+    expect(result.outputs["r-lost"]).toBeNull();
+    expect(result.outputs["r-known"]).toBeNull();
+    expect(result.outputs["r-clear"]).toMatchObject([
+      { outputId: "deck-clear", status: "unused" },
+    ]);
+  });
+
+  it("records one gap for a lost span however often it is reported", async () => {
+    const lost = [exported("deck-1", "2026-10-03T10:00:00.000Z")];
+    await recordLostOutputBatch(db, lost, "2026-10-03T10:00:01.000Z");
+    await recordLostOutputBatch(db, lost, "2026-10-03T10:05:00.000Z");
+
+    const gaps = await client.query(
+      "SELECT count(*)::int AS count FROM analytics_output_outcome_gaps",
+    );
+    expect(gaps.rows[0].count).toBe(1);
   });
 
   it("records nothing for a lost batch no rule reads", async () => {

@@ -347,7 +347,8 @@ agent answers about browser recordings in the Analytics template.
   null.
 - `unused` on `list-session-recordings` matches recordings whose own
   tenant's session made an output whose window has closed unused; a recording
-  shared from another tenant never matches. It returns the paginated shape
+  shared from another tenant never matches, nor does one a gap overlaps (a
+  lost batch may have held an output it made). It returns the paginated shape
   with `outputs` and `omittedOutputs` by recording id and
   `outputCoverageStartedAt`. Statuses are `used`, `unused`, `open` (window
   still open), and `unmeasured`; `url` is the recording's app origin, its
@@ -355,8 +356,8 @@ agent answers about browser recordings in the Analytics template.
   `outputPath`. The app checks access when it opens.
 - `getSessionRecordingOutputs` is the one reader. Per readable recording it
   gives `[]` for none, null when they are unknown (a recording from another
-  tenant, since a share grants the recording, not its events, or one whose
-  tenant has not started output tracking), and at most `MAX_OUTPUTS_PER_RECORDING`
+  tenant, since a share grants the recording, not its events, one whose
+  tenant has not started output tracking, or one a gap overlaps), and at most `MAX_OUTPUTS_PER_RECORDING`
   outputs, ranked unused first in SQL so a matched row always lists what it
   matched on; `omittedOutputs` counts the rest. Ids the viewer cannot read are
   absent. `list-session-outputs` returns that shape and rejects a failed read.

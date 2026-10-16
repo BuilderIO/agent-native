@@ -215,12 +215,7 @@ function outputGapRows(
   return sortedById(
     [...spans.values()].map((span) => ({
       ...span,
-      id: stableId("aoog", [
-        span.tenantKey,
-        span.firstAt,
-        span.lastAt,
-        recordedAt,
-      ]),
+      id: stableId("aoog", [span.tenantKey, span.firstAt, span.lastAt]),
     })),
   );
 }
@@ -321,6 +316,17 @@ function gapOverlapsOutputSql(o: typeof schema.analyticsOutputOutcomes) {
     and ${gaps.lastAt} >= ${o.madeAt}`;
 }
 
+/**
+ * A gap marker whose span overlaps the recording in `r`. The lost batch may
+ * have held an output that recording's session made, and no row records it.
+ */
+function gapOverlapsRecordingSql(r: typeof schema.sessionRecordings) {
+  const gaps = schema.analyticsOutputOutcomeGaps;
+  return sql`${gaps.tenantKey} = ${recordingTenantSql(r)}
+    and ${gaps.firstAt} <= coalesce(${r.endedAt}, ${r.lastIngestedAt}, ${r.startedAt})
+    and ${gaps.lastAt} >= ${r.startedAt}`;
+}
+
 /** An output stored in `o` that was made but not used once its window closed. */
 function unusedOutputSql(
   o: typeof schema.analyticsOutputOutcomes,
@@ -341,6 +347,7 @@ function unusedOutputSql(
  * with no qualifying use. Each lookup is correlated to the recording's own
  * tenant and sessions, so it never widens the recording access filter it is
  * combined with, and a recording shared from another tenant never matches.
+ * Nor does one a lost batch overlapped, whose outputs read as unknown.
  */
 export async function unusedOutputConditions(
   scope: SessionEventScope,
@@ -386,7 +393,11 @@ export async function unusedOutputConditions(
         )
       )`
     : madeUnusedIn(r.sessionId);
-  return [viewerReadsRecordingEventsSql(r, scope), match];
+  return [
+    viewerReadsRecordingEventsSql(r, scope),
+    match,
+    sql`not exists (select 1 from ${schema.analyticsOutputOutcomeGaps} where ${gapOverlapsRecordingSql(r)})`,
+  ];
 }
 
 /** Each of the viewer's tenants that has started output tracking, with its start. */
@@ -433,8 +444,8 @@ function outputStatus(
  * The outputs each recording's sessions made, for recordings the viewer can
  * read, such as one list page's rows. A share grants the recording, not its
  * tenant's events, so a recording shared from another tenant reads as null,
- * as does one whose tenant has not started output tracking: nothing says
- * whether either made anything.
+ * as do one whose tenant has not started output tracking and one a lost batch
+ * overlapped: nothing says whether any of them made anything.
  * Each recording lists at most `MAX_OUTPUTS_PER_RECORDING`, unused ones
  * first, so a row the unused filter matched always lists the output it
  * matched on; the rest are counted in `omittedOutputs`.
@@ -460,6 +471,7 @@ export async function getSessionRecordingOutputs(
     ownerEmail: string;
     orgId: string | null;
     firstUrl: string | null;
+    gapped?: boolean;
   }> = await db
     .select({
       id: r.id,
@@ -467,6 +479,15 @@ export async function getSessionRecordingOutputs(
       ownerEmail: r.ownerEmail,
       orgId: r.orgId,
       firstUrl: r.firstUrl,
+      // Coverage is created after the gap table, so it is safe to read here.
+      ...(coveredTenants.size
+        ? {
+            gapped: sql<boolean>`exists (
+              select 1 from ${schema.analyticsOutputOutcomeGaps}
+              where ${gapOverlapsRecordingSql(r)}
+            )`,
+          }
+        : {}),
     })
     .from(r)
     .where(
@@ -481,11 +502,12 @@ export async function getSessionRecordingOutputs(
     .limit(ids.length);
   const recordings: typeof readable = [];
   for (const recording of readable) {
-    const tracked = coveredTenants.has(
-      sessionEventTenantKey(recording.ownerEmail, recording.orgId),
-    );
-    outputs[recording.id] = tracked ? [] : null;
-    if (tracked) recordings.push(recording);
+    const known =
+      coveredTenants.has(
+        sessionEventTenantKey(recording.ownerEmail, recording.orgId),
+      ) && !recording.gapped;
+    outputs[recording.id] = known ? [] : null;
+    if (known) recordings.push(recording);
   }
   if (!recordings.length) {
     return { outputs, omittedOutputs, coverageStartedAt };
