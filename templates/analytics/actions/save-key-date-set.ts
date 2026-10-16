@@ -20,6 +20,12 @@ export default defineAction({
       .min(1)
       .max(80)
       .describe('Set name, for example "Launches" or "Product changes"'),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "The set's updatedAt from list-key-dates when the rename was made; refuses it if the set changed since",
+      ),
   }),
   run: async (input) => saveKeyDateSet(requireKeyDateScope(), input),
 });

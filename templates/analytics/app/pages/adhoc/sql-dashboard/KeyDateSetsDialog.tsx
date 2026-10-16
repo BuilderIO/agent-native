@@ -10,6 +10,7 @@ import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 
 import {
+  editedVersion,
   isPendingAnnotation,
   useDeleteKeyDate,
   useDeleteKeyDateSet,
@@ -43,11 +44,14 @@ import {
 function SetName({
   set,
   name,
+  openedAt,
   onNameChange,
 }: {
   set: KeyDateSet;
   /** The name being typed, or null when the set isn't being renamed. */
   name: string | null;
+  /** The set's updatedAt when the rename began. */
+  openedAt: string;
   onNameChange: (name: string | null) => void;
 }) {
   const t = useT();
@@ -57,7 +61,11 @@ function SetName({
     const next = name?.trim();
     onNameChange(null);
     if (!next || next === set.name) return;
-    rename.mutate({ id: set.id, name: next });
+    rename.mutate({
+      id: set.id,
+      name: next,
+      expectedUpdatedAt: editedVersion(set.id, openedAt),
+    });
   };
 
   if (name !== null) {
@@ -181,6 +189,7 @@ export function KeyDateSetsDialog({
   const [renaming, setRenaming] = useState<{
     setId: string;
     name: string;
+    openedAt: string;
   } | null>(null);
   const sets = data?.sets ?? [];
 
@@ -230,9 +239,23 @@ export function KeyDateSetsDialog({
                       <SetName
                         set={set}
                         name={renaming?.setId === set.id ? renaming.name : null}
+                        openedAt={
+                          renaming?.setId === set.id
+                            ? renaming.openedAt
+                            : set.updatedAt
+                        }
                         onNameChange={(name) =>
-                          setRenaming(
-                            name === null ? null : { setId: set.id, name },
+                          setRenaming((current) =>
+                            name === null
+                              ? null
+                              : {
+                                  setId: set.id,
+                                  name,
+                                  openedAt:
+                                    current?.setId === set.id
+                                      ? current.openedAt
+                                      : set.updatedAt,
+                                },
                           )
                         }
                       />

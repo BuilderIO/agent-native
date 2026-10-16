@@ -148,6 +148,30 @@ describe("KeyDateSetsDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("renames from the version the set had when the rename began", () => {
+    render();
+    act(() => button("Rename Launches").click());
+    const field = document.activeElement as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(field, "Launch posts");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(mocks.rename).toHaveBeenCalledWith({
+      id: "launches",
+      name: "Launch posts",
+      expectedUpdatedAt: "2026-10-14T12:00:00.000Z",
+    });
+  });
+
   it("drops a typed name on Escape, though removing the field blurs it", () => {
     render();
     act(() => button("Rename Launches").click());

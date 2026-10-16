@@ -372,6 +372,21 @@ describe("annotation writes", () => {
     ).toBe(CONNECT_UNDERCOUNT.updatedAt);
   });
 
+  it("keeps a key date's saved version while its edit is in flight", async () => {
+    await owner(useSaveKeyDate, {
+      id: LAUNCH.id,
+      setId: LAUNCHES.id,
+      date: "2026-10-02",
+      label: "Product Hunt launch",
+      expectedUpdatedAt: LAUNCH.updatedAt,
+    });
+
+    expect(sets()?.[0].dates).toContainEqual({
+      ...LAUNCH,
+      date: "2026-10-02",
+    });
+  });
+
   it("keeps a later edit to the same note when an earlier one fails", async () => {
     // The dialog saves every field, so the later edit repeats the title.
     const retitle = await owner(useSaveDataNote, {
