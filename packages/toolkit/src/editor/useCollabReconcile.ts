@@ -1,6 +1,6 @@
 import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
@@ -73,6 +73,25 @@ function pushEmittedRing(ring: string[], value: string): void {
 /** Awareness field naming the stored revision a client's live doc holds. */
 const HELD_REVISION_FIELD = "reconciledRevision";
 
+const JOIN_READ_ONLY = new PluginKey("collabJoinReadOnly");
+
+function heldRevisionsMatch(
+  first: Map<number, unknown>,
+  second: Map<number, unknown>,
+  localClientId: number,
+): boolean {
+  const revisionOf = (states: Map<number, unknown>, clientId: number) =>
+    (states.get(clientId) as { [HELD_REVISION_FIELD]?: unknown } | undefined)?.[
+      HELD_REVISION_FIELD
+    ] ?? null;
+  for (const clientId of new Set([...first.keys(), ...second.keys()])) {
+    if (clientId === localClientId) continue;
+    if (revisionOf(first, clientId) !== revisionOf(second, clientId))
+      return false;
+  }
+  return true;
+}
+
 function peerHoldsRevision(
   peers: Map<number, unknown>,
   localClientId: number,
@@ -129,9 +148,10 @@ export interface UseCollabReconcileOptions {
    * instead of replacing it with the stored body: the doc can be ahead of a
    * save still on its way, and the replace deletes that text for every
    * collaborator. Without such a report, or without these options, it replaces
-   * the doc as before. When it cannot learn who else is open, it leaves the doc
-   * as it is and reports `joinEvidenceFailed` until `retryJoinEvidence`
-   * succeeds or the stored body catches up.
+   * the doc as before. While it learns, the editor is read-only and reports no
+   * update to save. When it cannot learn who else is open, it stays that way,
+   * leaves the doc as it is and reports `joinEvidenceFailed` until
+   * `retryJoinEvidence` succeeds or the doc and the stored body match.
    */
   discoverCollabPeers?: () => Promise<{
     status: "ready" | "failed" | "unavailable";
@@ -204,8 +224,8 @@ export interface UseCollabReconcileResult {
   /**
    * True when a client joining a live doc that differs from the stored body
    * could not learn whether a collaborator holds that body. The doc stays as
-   * it is, neither replaced nor adopted, until `retryJoinEvidence` succeeds or
-   * the stored body catches up with it.
+   * it is, neither replaced nor adopted, and the editor read-only, until
+   * `retryJoinEvidence` succeeds or the doc and the stored body match.
    */
   joinEvidenceFailed: boolean;
   retryJoinEvidence: () => void;
@@ -361,7 +381,7 @@ export function useCollabReconcile({
   // body: the revisions collaborators reported when it learned who else is
   // open, and the doc as the server has it after that, which holds every
   // update behind those reports. A report that arrives during the catch-up is
-  // not covered by it, so it is not evidence.
+  // not covered by it, so a changed report means catching up again.
   const [joinEvidence, setJoinEvidence] = useState<
     | { ydoc: YDoc; status: "pending" }
     | { ydoc: YDoc; status: "ready"; peers: Map<number, unknown> }
@@ -421,13 +441,18 @@ export function useCollabReconcile({
       if (discovered.status === "failed")
         return fail(discovered.error ?? new Error("Peer discovery failed"));
       if (discovered.status === "ready") {
-        const peers = new Map(target.getStates());
-        const synced = await catchUp();
-        if (settled) return;
-        if (synced.status === "synced")
-          return settle({ ydoc: doc, status: "ready", peers });
-        if (synced.status === "failed")
-          return fail(new Error("Catching up with the server failed"));
+        let peers = new Map(target.getStates());
+        for (;;) {
+          const synced = await catchUp();
+          if (settled) return;
+          if (synced.status === "failed")
+            return fail(new Error("Catching up with the server failed"));
+          if (synced.status !== "synced") break;
+          const latest = new Map(target.getStates());
+          if (heldRevisionsMatch(peers, latest, doc.clientID))
+            return settle({ ydoc: doc, status: "ready", peers });
+          peers = latest;
+        }
       }
       // Not connected yet: ask again until the watchdog gives up.
       retry = setTimeout(
@@ -459,6 +484,53 @@ export function useCollabReconcile({
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
   };
+  // Until it knows whether a collaborator holds the stored body, a joining
+  // client's doc has no stored body under it: a save would delete whatever the
+  // stored body holds that the doc lacks, and a replace once evidence arrives
+  // would delete anything typed meanwhile. So it neither edits nor saves.
+  const joinPending =
+    joinsOnPeerEvidence &&
+    joinEvidence?.ydoc === ydoc &&
+    joinEvidence?.status !== "ready";
+  // A plugin rather than `setEditable`, which the seed sets back to `editable`.
+  // `useEditor` without deps copies `isEditable` into the editor's options on
+  // every render, so a render while the plugin holds leaves the editor
+  // read-only after it goes unless `editable` is set back.
+  const editableRef = useRef(editable);
+  editableRef.current = editable;
+  useEffect(() => {
+    if (!joinPending || !editor || editor.isDestroyed) return;
+    editor.registerPlugin(
+      new Plugin({ key: JOIN_READ_ONLY, props: { editable: () => false } }),
+    );
+    return () => {
+      if (editor.isDestroyed) return;
+      editor.unregisterPlugin(JOIN_READ_ONLY);
+      editor.setEditable(editableRef.current, false);
+    };
+  }, [editor, joinPending]);
+  // A failed join is moot once the doc holds the stored body, whether the
+  // stored body or the doc moved.
+  useEffect(() => {
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      joinEvidence?.ydoc !== ydoc ||
+      joinEvidence?.status !== "failed"
+    )
+      return;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const callbacks = reconcileCallbacksRef.current;
+      if (callbacks.getMarkdown(editor) === callbacks.normalizeValue(value))
+        setJoinEvidence(null);
+    };
+    check();
+    editor.on("update", check);
+    return () => {
+      editor.off("update", check);
+    };
+  }, [editor, joinEvidence, value, ydoc]);
   const acknowledgedLocalSnapshotRef = useRef<{
     value: string;
     revision: string;
@@ -1007,8 +1079,6 @@ export function useCollabReconcile({
         if (currentMarkdown === normalizedValue) {
           lastAppliedValueRef.current = value;
           lastAppliedSerializedRef.current = currentMarkdown;
-          // The stored body caught up with the doc a failed join left alone.
-          if (joinEvidence?.status === "failed") setJoinEvidence(null);
         }
         if (contentRevision) {
           holdAuthoritativeBase(
@@ -1356,7 +1426,7 @@ export function useCollabReconcile({
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
-    if (!editable || isSettingContentRef.current) return true;
+    if (!editable || isSettingContentRef.current || joinPending) return true;
     if (collab && !seededRef.current) {
       const firstSyncedEmptyUserEdit =
         collabSynced &&
@@ -1381,6 +1451,7 @@ export function useCollabReconcile({
       !collab ||
       !collabSynced ||
       !seededRef.current ||
+      joinPending ||
       !editor ||
       editor.isDestroyed ||
       isSettingContentRef.current ||

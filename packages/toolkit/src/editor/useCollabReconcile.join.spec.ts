@@ -143,21 +143,32 @@ function makeTabs({
       deliveryHeld ? new Promise<boolean>(() => {}) : Promise.resolve(true),
     C: () => Promise.resolve(true),
   };
+  /** C's first sync: it fetches the live doc, then joins the relay. */
+  const syncC = () => {
+    Y.applyUpdate(docs.C, Y.encodeStateAsUpdate(docs.A), "relay");
+    connected.add(docs.C);
+  };
   let catchUpStatus: "synced" | "failed" = "synced";
   let holdNextCatchUp = false;
   let releaseCatchUp: (() => void) | null = null;
   const catchUp = {
     B: vi.fn(async () => ({ status: "synced" as const })),
+    // A held catch-up answers with the doc as the server had it when it was
+    // asked, so it brings nothing new; any other brings what C missed.
     C: vi.fn(async () => {
       if (holdNextCatchUp) {
         holdNextCatchUp = false;
         await new Promise<void>((resolve) => {
           releaseCatchUp = resolve;
         });
+      } else if (catchUpStatus === "synced" && !connected.has(docs.C)) {
+        syncC();
       }
       return { status: catchUpStatus };
     }),
   };
+  const remoteReports = { B: vi.fn(), C: vi.fn() };
+  const saves = { B: vi.fn(), C: vi.fn() };
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
   const discover = {
     B: async () => ({ status: "ready" as const }),
@@ -175,11 +186,18 @@ function makeTabs({
     C: ReturnType<typeof useCollabReconcile> | null;
   } = { B: null, C: null };
   function Tab({ name, snapshot }: { name: "B" | "C"; snapshot: Snapshot }) {
+    // Wired as Content's editor wires them.
     const editor = useEditor({
       extensions: createRichMarkdownExtensions({
         dialect: "gfm",
         ydoc: docs[name],
       }),
+      onUpdate: ({ editor: updated, transaction }) => {
+        const result = results[name];
+        result?.reportRemoteUpdate(transaction);
+        if (!result || result.shouldIgnoreUpdate(transaction)) return;
+        saves[name](getEditorMarkdown(updated));
+      },
     });
     editors[name] = editor;
     results[name] = useCollabReconcile({
@@ -201,6 +219,7 @@ function makeTabs({
       initialAppliedUpdatedAt: null,
       overlapPolicy: "prefer-live",
       onBaseAwareReconcile: () => {},
+      onRemoteSnapshotChange: remoteReports[name],
       editable: true,
     });
     return React.createElement("div");
@@ -229,7 +248,17 @@ function makeTabs({
     awareness,
     discover,
     catchUp,
+    editors,
+    results,
+    remoteReports,
+    saves,
     typeAsA: () => author.commands.insertContentAt(17, ` ${WORD}`),
+    editAsA: (edit: (author: CoreEditor) => void) => edit(author),
+    /** A's later edits reach the server and B but not yet C. */
+    editAsAOutOfC: (edit: (author: CoreEditor) => void) => {
+      connected.delete(docs.C);
+      edit(author);
+    },
     /** B's later updates stay queued in B, as when its update request hangs. */
     holdBDelivery: () => {
       deliveryHeld = true;
@@ -253,11 +282,7 @@ function makeTabs({
     },
     joinFailed: (name: "B" | "C") => results[name]?.joinEvidenceFailed,
     retryJoin: (name: "B" | "C") => results[name]?.retryJoinEvidence(),
-    /** C's first sync: it fetches the live doc, then joins the relay. */
-    syncC: () => {
-      Y.applyUpdate(docs.C, Y.encodeStateAsUpdate(docs.A), "relay");
-      connected.add(docs.C);
-    },
+    syncC,
     /**
      * C's presence request answers. By default C learns A, which reports no
      * revision, and B's awareness as it stands.
@@ -566,23 +591,127 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
-  it("does not trust a report that arrives while it catches up with the server", async () => {
+  it("catches up again before it trusts a report that arrives while it catches up", async () => {
     const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
     tabs.holdCatchUp();
     vi.useFakeTimers();
     try {
       await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
       await act(async () => tabs.discoverPeers());
-      // The server answered C's catch-up before B applied the agent edit, and
-      // B's report of it reaches C before that answer does.
+      // The server answered C's catch-up before the agent edit reached it, and
+      // B's report of that edit reaches C before the answer does.
+      act(() =>
+        tabs.editAsAOutOfC((author) =>
+          author.commands.insertContentAt(
+            author.state.doc.content.size,
+            `<p>${CHARLIE}</p>`,
+          ),
+        ),
+      );
       act(() => tabs.reportToC(6, peer("B", AGENT_EDIT.revision)));
       await act(async () => tabs.releaseCatchUp());
       await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.catchUp.C).toHaveBeenCalledTimes(2);
       expect(
         occurrences(tabs.markdown("C"), CHARLIE),
         "C trusted a report its catch-up did not cover",
       ).toBe(1);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
       expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("keeps the doc when a collaborator's first report arrives while it catches up", async () => {
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    tabs.holdCatchUp();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+      // The presence C learns predates B's report; the report itself arrives
+      // while C's catch-up is in flight.
+      await act(async () =>
+        tabs.discoverPeers("ready", [
+          [2, peer("A")],
+          [3, peer("B")],
+        ]),
+      );
+      act(() =>
+        tabs.reportToC(3, tabs.awareness.B.getLocalState() as PeerState),
+      );
+      await act(async () => tabs.releaseCatchUp());
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("neither edits nor saves until it learns who else is open", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      const userEdit = () =>
+        tabs.editors
+          .C!.state.tr.insertText("typed ", 1)
+          .setMeta("uiEvent", "input");
+      const remoteEdit = () =>
+        tabs.editAsA((author) => author.commands.insertContentAt(1, "remote "));
+
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(tabs.results.C!.shouldIgnoreUpdate(userEdit())).toBe(true);
+      act(remoteEdit);
+      expect(tabs.remoteReports.C).not.toHaveBeenCalled();
+      expect(tabs.saves.C).not.toHaveBeenCalled();
+
+      await act(async () => tabs.discoverPeers("failed"));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(tabs.results.C!.shouldIgnoreUpdate(userEdit())).toBe(true);
+      act(remoteEdit);
+      expect(tabs.remoteReports.C).not.toHaveBeenCalled();
+      expect(tabs.saves.C).not.toHaveBeenCalled();
+
+      act(() => tabs.retryJoin("C"));
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+      expect(tabs.results.C!.shouldIgnoreUpdate(userEdit())).toBe(false);
+      act(remoteEdit);
+      expect(tabs.remoteReports.C).toHaveBeenCalledTimes(1);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("clears a failed join once the doc moves to the stored body", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      await act(async () => tabs.discoverPeers("failed"));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(true);
+
+      act(() =>
+        tabs.editAsA((author) =>
+          author.commands.deleteRange({ from: 17, to: 18 + WORD.length }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      expect(tabs.markdown("C")).toBe(ORIGINAL);
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
     } finally {
       tabs.dispose();
     }
