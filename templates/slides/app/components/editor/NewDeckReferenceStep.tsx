@@ -356,7 +356,7 @@ export function NewDeckReferenceStep({
           previewSlide?: Slide;
           previewTooLarge?: boolean;
           aspectRatio?: AspectRatio;
-          updatedAt: string;
+          updatedAt: string | null;
         }>;
         nextCursor?: string;
       }>(
@@ -367,45 +367,52 @@ export function NewDeckReferenceStep({
       return {
         hasMore: Boolean(result.nextCursor),
         nextCursor: result.nextCursor,
-        items: result.decks.map((deck) => ({
-          id: deck.id,
-          title: deck.title,
-          preview: deck.previewSlide ? (
-            <div className="flex h-full items-center justify-center overflow-hidden">
-              <div
-                className="slide-reference-preview-frame relative h-full overflow-hidden"
-                style={
-                  {
-                    "--reference-ratio": getDeckListingPreviewFrameStyle(
-                      deck.aspectRatio,
-                    ).aspectRatio,
-                    "--reference-width": getDeckListingPreviewFrameStyle(
-                      deck.aspectRatio,
-                    ).width,
-                  } as CSSProperties
-                }
-              >
-                <SlideRenderer
-                  slide={deck.previewSlide}
-                  thumbnail
-                  aspectRatio={deck.aspectRatio}
-                />
+        items: result.decks.map((deck) => {
+          const updatedAt = deck.updatedAt ? new Date(deck.updatedAt) : null;
+          const validUpdatedAt =
+            updatedAt && Number.isFinite(updatedAt.getTime())
+              ? updatedAt.toISOString()
+              : null;
+          return {
+            id: deck.id,
+            title: deck.title,
+            preview: deck.previewSlide ? (
+              <div className="flex h-full items-center justify-center overflow-hidden">
+                <div
+                  className="slide-reference-preview-frame relative h-full overflow-hidden"
+                  style={
+                    {
+                      "--reference-ratio": getDeckListingPreviewFrameStyle(
+                        deck.aspectRatio,
+                      ).aspectRatio,
+                      "--reference-width": getDeckListingPreviewFrameStyle(
+                        deck.aspectRatio,
+                      ).width,
+                    } as CSSProperties
+                  }
+                >
+                  <SlideRenderer
+                    slide={deck.previewSlide}
+                    thumbnail
+                    aspectRatio={deck.aspectRatio}
+                  />
+                </div>
               </div>
-            </div>
-          ) : deck.previewTooLarge ? (
-            <div
-              aria-hidden
-              className="slide-reference-preview-fallback flex h-full items-center justify-center bg-muted text-muted-foreground"
-            >
-              <IconPresentation className="size-8" />
-            </div>
-          ) : null,
-          metadata: (
-            <time dateTime={deck.updatedAt}>
-              {formatters.formatDate(deck.updatedAt, { dateStyle: "medium" })}
-            </time>
-          ),
-        })),
+            ) : deck.previewTooLarge ? (
+              <div
+                aria-hidden
+                className="slide-reference-preview-fallback flex h-full items-center justify-center bg-muted text-muted-foreground"
+              >
+                <IconPresentation className="size-8" />
+              </div>
+            ) : null,
+            metadata: validUpdatedAt ? (
+              <time dateTime={validUpdatedAt}>
+                {formatters.formatDate(validUpdatedAt, { dateStyle: "medium" })}
+              </time>
+            ) : null,
+          };
+        }),
       };
     },
     onSelect: (item) => {

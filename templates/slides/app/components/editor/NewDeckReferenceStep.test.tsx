@@ -743,6 +743,31 @@ describe("<NewDeckReferenceStep>", () => {
     ).toBeTruthy();
   });
 
+  it("omits date metadata when a deck timestamp is missing or invalid", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-missing-date",
+          title: "Deck without a date",
+          updatedAt: null,
+        },
+        {
+          id: "deck-invalid-date",
+          title: "Deck with an invalid date",
+          updatedAt: "not-a-date",
+        },
+      ],
+    });
+    await renderStep({ decks: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+
+    expect(picker.querySelectorAll("time")).toHaveLength(0);
+  });
+
   it("requires an explicit reference deck choice", async () => {
     callActionMock.mockResolvedValue({ decks: [] });
     const { onSelect } = await renderStep({
