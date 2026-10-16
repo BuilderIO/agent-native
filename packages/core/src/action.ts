@@ -168,7 +168,7 @@ function transactionConflictError(error: unknown): ActionContractError | null {
     const code = (cause as { code?: unknown }).code;
     if (typeof code === "string" && TRANSACTION_CONFLICT_SQLSTATES.has(code)) {
       return new ActionContractError(
-        "The database rolled back this action's transaction because another write to the same records ran at the same time. Read the current state, then retry.",
+        "The database rolled back this action's transaction because it conflicted with another transaction running at the same time. Read the current state, then retry.",
         {
           errorCode: "transaction_conflict",
           statusCode: 409,
