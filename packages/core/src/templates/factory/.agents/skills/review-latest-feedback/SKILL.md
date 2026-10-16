@@ -17,10 +17,11 @@ Read this source skill from the current task checkout; generated workspace
 skills are sync outputs. A Slack `👀` is owned work, not a completion mark.
 Before ending a run, reply in every owned root with the exact fixed and open
 scopes, evidence, and next action. Name a human owner only when one is assigned
-and has accepted that action. React `✅` only for post-change verified scopes;
-keep your `👀` while any scope remains open, then remove only your own eye when
-all scopes close. Add `🎫` only after a different named human accepts a specific
-action in that thread. Read back each reply and reaction after writing it.
+and has accepted that action. React `✅` only for post-change verified scopes.
+Keep your `👀` while any report scope or follow-up remains open; remove only
+your own eye after all report scopes and follow-ups close. Add `🎫` only after a
+different named human accepts a specific action in that thread. Read back each
+reply and reaction after writing it.
 
 Four phases. Phase 0 comes before investigation.
 
@@ -62,9 +63,10 @@ actor's eye or duplicate a reply under another identity.
 
 Resolve known duplicate clusters before claiming. For an eligible item, add
 `👀` before investigation. Keep your eye while any report scope or follow-up
-remains open; remove only your eye after all scopes close and you have read back
-the final status and reactions. Do not resume items excluded by the Slack
-ownership gate. Post **In progress** only when work continues beyond this run.
+remains open; remove it only after all report scopes and follow-ups close and
+you have read back the final status and reactions. Do not resume items excluded
+by the Slack ownership gate. Post **In progress** only when work continues
+beyond this run.
 
 **Fix defects or ask for the reporter-only fact/action that unblocks the next
 step.** Explain why it gates progress; never substitute **Open**, a symptom
@@ -115,7 +117,7 @@ exclude boundary rows.
   report scope remains unfinished.
 
 Never remove another actor's reaction. Remove your own `👀` only after all
-report scopes close. Remove your own stale `✅` or `🎫` when current evidence
+report scopes and follow-ups close. Remove your own stale `✅` or `🎫` when current evidence
 shows it no longer applies; otherwise record it and leave the item
 unreconciled. Read back every write and verify its actor. Framework sweeps must pass
 `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json`; failure means
