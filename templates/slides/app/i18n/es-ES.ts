@@ -2,6 +2,33 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 const messages = {
   composer: { menu: { integrations: "Integraciones" } },
+  appMenu: {
+    label: "Menú de la aplicación",
+    actions: "Acciones…",
+    backToDashboard: "Volver al panel",
+    file: "Archivo",
+    edit: "Editar",
+    view: "Ver",
+    preferences: "Preferencias",
+    help: "Ayuda",
+    importFile: "Importar archivo…",
+    export: "Exportar…",
+    saveLocalCopy: "Guardar copia local…",
+    versionHistory: "Historial de versiones",
+    duplicateSelection: "Duplicar selección",
+    deleteSelection: "Eliminar selección",
+    zoomIn: "Acercar",
+    zoomOut: "Alejar",
+    previousSlide: "Diapositiva anterior",
+    nextSlide: "Diapositiva siguiente",
+    appearance: "Apariencia…",
+    themeLight: "Claro",
+    themeDark: "Oscuro",
+    themeSystem: "Sistema",
+    documentation: "Documentación",
+    whatsNew: "Novedades",
+    sendFeedback: "Enviar comentarios…",
+  },
   templatesPage: {
     actions: "Acciones de la plantilla {{title}}",
     previewAction: "Vista previa",
@@ -616,6 +643,8 @@ const messages = {
     addTransition: "Añadir transición",
     effect: "Efecto",
     onClick: "Al hacer clic",
+    withPrevious: "Con la anterior",
+    trigger: "Inicio",
     byParagraph: "Por párrafo",
     expand: "Expandir transición",
     collapse: "Contraer transición",
@@ -725,6 +754,15 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Navegación por voz",
+    voiceNavigationNextCommand: "Siguiente diapositiva",
+    voiceNavigationPreviousCommand: "Diapositiva anterior",
+    voiceNavigationHint: "Di «{{next}}» o «{{previous}}» para navegar.",
+    voiceNavigationListening: "Escuchando «{{next}}» o «{{previous}}».",
+    voiceNavigationUnavailable:
+      "La navegación por voz no está disponible en este navegador.",
+    voiceNavigationError:
+      "La navegación por voz se detuvo. Comprueba el permiso y la conexión del micrófono y vuelve a intentarlo.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -842,6 +880,10 @@ const messages = {
     leaveWithoutSaving: "Salir sin guardar",
     editorMarkupNotSaved:
       "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
+    historyStepConflict:
+      "Se omitió este paso del historial porque entra en conflicto con la presentación actual.",
+    historyStepFailed:
+      "Se omitió este paso del historial porque no se pudo aplicar.",
     textEditConflictNotSaved:
       "Tu edición de texto no se guardó porque el mismo texto se cambió en otro lugar al mismo tiempo.",
   },

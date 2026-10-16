@@ -2,6 +2,33 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 const messages = {
   composer: { menu: { integrations: "Intégrations" } },
+  appMenu: {
+    label: "Menu de l’application",
+    actions: "Commandes…",
+    backToDashboard: "Retour au tableau de bord",
+    file: "Fichier",
+    edit: "Édition",
+    view: "Affichage",
+    preferences: "Préférences",
+    help: "Aide",
+    importFile: "Importer un fichier…",
+    export: "Exporter…",
+    saveLocalCopy: "Enregistrer une copie locale…",
+    versionHistory: "Historique des versions",
+    duplicateSelection: "Dupliquer la sélection",
+    deleteSelection: "Supprimer la sélection",
+    zoomIn: "Zoom avant",
+    zoomOut: "Zoom arrière",
+    previousSlide: "Diapositive précédente",
+    nextSlide: "Diapositive suivante",
+    appearance: "Apparence…",
+    themeLight: "Clair",
+    themeDark: "Sombre",
+    themeSystem: "Système",
+    documentation: "Documentation",
+    whatsNew: "Nouveautés",
+    sendFeedback: "Envoyer un commentaire…",
+  },
   templatesPage: {
     actions: "Actions du modèle {{title}}",
     previewAction: "Aperçu",
@@ -621,6 +648,8 @@ const messages = {
     addTransition: "Ajouter une transition",
     effect: "Effet",
     onClick: "Au clic",
+    withPrevious: "Avec la précédente",
+    trigger: "Début",
     byParagraph: "Par paragraphe",
     expand: "Développer la transition",
     collapse: "Réduire la transition",
@@ -731,6 +760,16 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Navigation vocale",
+    voiceNavigationNextCommand: "Diapositive suivante",
+    voiceNavigationPreviousCommand: "Diapositive précédente",
+    voiceNavigationHint:
+      "Dites « {{next}} » ou « {{previous}} » pour naviguer.",
+    voiceNavigationListening: "À l’écoute de « {{next}} » ou « {{previous}} ».",
+    voiceNavigationUnavailable:
+      "La navigation vocale n’est pas disponible dans ce navigateur.",
+    voiceNavigationError:
+      "La navigation vocale s’est arrêtée. Vérifiez l’autorisation et la connexion du micro, puis réessayez.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -848,6 +887,10 @@ const messages = {
     leaveWithoutSaving: "Quitter sans enregistrer",
     editorMarkupNotSaved:
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    historyStepConflict:
+      "Cette étape de l’historique a été ignorée, car elle est en conflit avec la présentation actuelle.",
+    historyStepFailed:
+      "Cette étape de l’historique a été ignorée, car elle n’a pas pu être appliquée.",
     textEditConflictNotSaved:
       "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },

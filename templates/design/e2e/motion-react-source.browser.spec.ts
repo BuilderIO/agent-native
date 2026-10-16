@@ -14,6 +14,10 @@ import { createServer, type ViteDevServer } from "vite";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
+import {
+  compileMotionTextRuntime,
+  injectMotionTextRuntime,
+} from "../shared/motion-text-code";
 import { e2eBaseURL } from "./base-url";
 import { appPath, enableLab, gotoEditor, selectByText } from "./helpers";
 
@@ -261,6 +265,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "opacity",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "0.8", ease: "linear" },
@@ -269,6 +274,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "rotate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0deg", ease: "linear" },
           { t: 1, value: "12deg", ease: "linear" },
@@ -277,6 +283,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "scale",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "1.2", ease: "linear" },
@@ -285,6 +292,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "translate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0px 0px", ease: "linear" },
           { t: 1, value: "24px 0px", ease: "linear" },
@@ -292,13 +300,17 @@ test.describe.serial("React Motion source browser writeback", () => {
       },
     ];
     const textDocument = {
-      version: 1,
+      version: 2,
       animations: [
         {
           targetNodeId: nodeId,
           unit: "character",
           direction: "forward",
           staggerMs: 30,
+          animationDirection: "out",
+          order: "center-out",
+          overlapPercent: 50,
+          ignoreSpaces: false,
           property: "opacity",
           durationMs: 320,
           keyframes: [
@@ -436,6 +448,234 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
+    const textEditedSource = fs.readFileSync(
+      path.join(rootPath, sourcePath),
+      "utf8",
+    );
+    const textEditedHash = createHash("sha256")
+      .update(textEditedSource)
+      .digest("hex");
+    await expect(target).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      textEditedHash,
+    );
+    const overlapInput = page.getByRole("spinbutton", {
+      name: "Overlap",
+      exact: true,
+    });
+    await expect(overlapInput).toHaveValue("50");
+    const overlapEditSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await overlapInput.fill("35");
+    const overlapEditResponse = await overlapEditSave;
+    expect(overlapEditResponse.ok(), await overlapEditResponse.text()).toBe(
+      true,
+    );
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ overlapPercent: 35, order: "center-out" }],
+            },
+          },
+        ],
+      });
+    const unitSelect = page.getByRole("combobox", {
+      name: "Unit",
+      exact: true,
+    });
+    const ignoreSpaces = page.getByRole("checkbox", {
+      name: "Ignore spaces",
+      exact: true,
+    });
+    await expect(ignoreSpaces).not.toBeChecked();
+    const enableIgnoreSpacesSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await ignoreSpaces.check();
+    const enableIgnoreSpacesResponse = await enableIgnoreSpacesSave;
+    expect(
+      enableIgnoreSpacesResponse.ok(),
+      await enableIgnoreSpacesResponse.text(),
+    ).toBe(true);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: { animations: [{ ignoreSpaces: true }] },
+          },
+        ],
+      });
+
+    await unitSelect.click();
+    const wordBeforeCharacter = page.getByRole("option", {
+      name: "Word",
+      exact: true,
+    });
+    await expect(wordBeforeCharacter).toBeVisible();
+    const selectWordSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await wordBeforeCharacter.click();
+    const selectWordResponse = await selectWordSave;
+    expect(selectWordResponse.ok(), await selectWordResponse.text()).toBe(true);
+    await expect(
+      page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ unit: "word", ignoreSpaces: false }],
+            },
+          },
+        ],
+      });
+
+    await unitSelect.click();
+    const characterAfterWord = page.getByRole("option", {
+      name: "Character",
+      exact: true,
+    });
+    await expect(characterAfterWord).toBeVisible();
+    const selectCharacterSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await characterAfterWord.click();
+    const selectCharacterResponse = await selectCharacterSave;
+    expect(
+      selectCharacterResponse.ok(),
+      await selectCharacterResponse.text(),
+    ).toBe(true);
+    await expect(ignoreSpaces).not.toBeChecked();
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ unit: "character", ignoreSpaces: false }],
+            },
+          },
+        ],
+      });
+
+    await unitSelect.click();
+    await expect(
+      page.getByRole("option", { name: "Line", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("option", { name: "Line", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
+    ).toHaveCount(0);
+    const orderSelect = page.getByRole("combobox", {
+      name: "Order",
+      exact: true,
+    });
+    await orderSelect.click();
+    for (const order of [
+      "Left to right",
+      "Right to left",
+      "Center out",
+      "Random",
+    ]) {
+      await expect(
+        page.getByRole("option", { name: order, exact: true }),
+      ).toBeVisible();
+    }
+    await expect(
+      page.getByRole("option", { name: "Top to bottom", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("option", { name: "Bottom to top", exact: true }),
+    ).toHaveCount(0);
+    const orderSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await page
+      .getByRole("option", { name: "Left to right", exact: true })
+      .click();
+    const orderResponse = await orderSave;
+    expect(orderResponse.ok(), await orderResponse.text()).toBe(true);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ unit: "line", order: "left-to-right" }],
+            },
+          },
+        ],
+      });
+    await expect(unitSelect).toHaveAttribute("aria-expanded", "false");
+    await unitSelect.click();
+    const wordOption = page.getByRole("option", { name: "Word", exact: true });
+    await expect(wordOption).toBeVisible();
+    await wordOption.click();
+    await expect(
+      page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: { animations: [{ unit: "word" }] },
+          },
+        ],
+      });
     const editorUpdatedSource = fs.readFileSync(
       path.join(rootPath, sourcePath),
       "utf8",
@@ -454,6 +694,57 @@ test.describe.serial("React Motion source browser writeback", () => {
       "data-agent-native-motion-source-hash",
       editorUpdatedSourceHash,
     );
+    const renderedTextUnits = renderedTarget.locator(
+      "[data-agent-native-motion-text-unit]",
+    );
+    await expect(renderedTextUnits).toHaveCount(2);
+    await expect
+      .poll(() =>
+        renderedTextUnits.evaluateAll((units) =>
+          units.map((unit) => unit.getAnimations().length),
+        ),
+      )
+      .toEqual([1, 1]);
+    const textAtMidpoint = await renderedTextUnits.evaluateAll(
+      async (units) => {
+        const values = units.map((unit) => {
+          const animation = unit
+            .getAnimations()
+            .find((candidate) =>
+              (candidate.effect as KeyframeEffect | null)
+                ?.getKeyframes()
+                .some((keyframe) => "opacity" in keyframe),
+            );
+          if (!animation?.effect) {
+            throw new Error("React Text opacity animation is missing");
+          }
+          animation.pause();
+          return { unit, animation };
+        });
+        await Promise.all(values.map(({ animation }) => animation.ready));
+        for (const { animation } of values) {
+          const timing = animation.effect!.getComputedTiming();
+          animation.currentTime =
+            Number(timing.delay) + Number(timing.duration) / 2;
+        }
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+        return values.map(({ unit }) => ({
+          text: unit.textContent,
+          opacity: getComputedStyle(unit).opacity,
+        }));
+      },
+    );
+    expect(textAtMidpoint.map((unit) => unit.text)).toEqual([
+      "Motion",
+      "target",
+    ]);
+    expect(
+      textAtMidpoint.every(
+        ({ opacity }) => Number(opacity) > 0 && Number(opacity) < 1,
+      ),
+    ).toBe(true);
     await expect(
       page.locator("style[data-agent-native-motion]"),
     ).toHaveAttribute("data-agent-native-motion", "true");
@@ -480,7 +771,11 @@ test.describe.serial("React Motion source browser writeback", () => {
         await Promise.all(
           matchedAnimations.map((animation) => animation.ready),
         );
-        for (const animation of matchedAnimations) animation.currentTime = 250;
+        for (const animation of matchedAnimations) {
+          const timing = animation.effect!.getComputedTiming();
+          animation.currentTime =
+            Number(timing.delay) + Number(timing.duration) / 4;
+        }
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() => resolve()),
         );
@@ -581,6 +876,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "opacity",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "0.6", ease: "linear" },
@@ -589,6 +885,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "rotate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0deg", ease: "linear" },
           { t: 1, value: "24deg", ease: "linear" },
@@ -597,6 +894,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "scale",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "1.4", ease: "linear" },
@@ -605,6 +903,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "translate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0px 0px", ease: "linear" },
           { t: 1, value: "36px 0px", ease: "linear" },
@@ -622,7 +921,7 @@ test.describe.serial("React Motion source browser writeback", () => {
         timelines: [
           {
             sourceVersionHash: cssEditedHash,
-            durationMs: 1200,
+            durationMs: 1000,
             tracks: expectedDirectTracks,
           },
         ],
@@ -632,7 +931,10 @@ test.describe.serial("React Motion source browser writeback", () => {
       name: "Duration",
       exact: true,
     });
-    await expect(durationInput).toHaveValue("1200");
+    await expect(durationInput).toHaveValue("1000");
+    const priorSourceChangeCount = viteChangedFiles.filter(
+      (changedPath) => changedPath === sourceFilePath,
+    ).length;
     const motionCodeSave = page.waitForResponse(
       (response) =>
         response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -671,6 +973,14 @@ test.describe.serial("React Motion source browser writeback", () => {
         ],
       });
 
+    await expect
+      .poll(
+        () =>
+          viteChangedFiles.filter(
+            (changedPath) => changedPath === sourceFilePath,
+          ).length,
+      )
+      .toBeGreaterThan(priorSourceChangeCount);
     await page.goto(reactDevServerUrl, { waitUntil: "load" });
     const browserTarget = page.locator(`#${nodeId}`);
     await expect(browserTarget).toHaveAttribute(
@@ -750,8 +1060,9 @@ function App() {
   animation-fill-mode: both;
 }
 @keyframes source-fade {
-  from { opacity: 0.1; }
-  to { opacity: 0.9; }
+  from { opacity: 0.1; transform: translateY(12px); }
+  50% { opacity: 0.5; transform: translateY(6px); }
+  to { opacity: 0.9; transform: translateY(0px); }
 }
 \`}</style>
       <button data-agent-native-node-id="motion-target" id="motion-target">
@@ -792,7 +1103,18 @@ createRoot(document.getElementById("root")!).render(<App />);
           durationMs: 900,
           keyframes: [
             { t: 0, value: "0.1", ease: "linear" },
+            { t: 0.5, value: "0.5", ease: "linear" },
             { t: 1, value: "0.9", ease: "ease" },
+          ],
+        },
+        {
+          targetNodeId,
+          property: "transform",
+          durationMs: 900,
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "linear" },
+            { t: 0.5, value: "translateY(6px)", ease: "linear" },
+            { t: 1, value: "translateY(0px)", ease: "ease" },
           ],
         },
       ],
@@ -822,7 +1144,17 @@ createRoot(document.getElementById("root")!).render(<App />);
           property: "opacity",
           keyframes: [
             { t: 0, value: "0.25", ease: "linear" },
+            { t: 0.5, value: "0.5", ease: "linear" },
             { t: 1, value: "0.75", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId,
+          property: "transform",
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "linear" },
+            { t: 0.5, value: "translateY(6px)", ease: "linear" },
+            { t: 1, value: "translateY(0px)", ease: "linear" },
           ],
         },
       ],
@@ -859,7 +1191,17 @@ createRoot(document.getElementById("root")!).render(<App />);
           property: "opacity",
           keyframes: [
             { t: 0, value: "0.25", ease: "linear" },
+            { t: 0.5, value: "0.5", ease: "linear" },
             { t: 1, value: "0.75", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId,
+          property: "transform",
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "linear" },
+            { t: 0.5, value: "translateY(6px)", ease: "linear" },
+            { t: 1, value: "translateY(0px)", ease: "linear" },
           ],
         },
       ],
@@ -880,23 +1222,32 @@ createRoot(document.getElementById("root")!).render(<App />);
       )
       .toBeGreaterThan(0);
     const atHalfTime = await renderedTarget.evaluate(async (element) => {
-      const animation = element
-        .getAnimations()
-        .find((candidate) =>
-          (candidate.effect as KeyframeEffect | null)
-            ?.getKeyframes()
-            .some((keyframe) => "opacity" in keyframe),
-        );
-      if (!animation) throw new Error("React opacity animation is missing");
-      animation.pause();
-      await animation.ready;
-      animation.currentTime = 450;
+      const properties = ["opacity", "transform"];
+      const animations = properties.map((property) => {
+        const animation = element
+          .getAnimations()
+          .find((candidate) =>
+            (candidate.effect as KeyframeEffect | null)
+              ?.getKeyframes()
+              .some((keyframe) => property in keyframe),
+          );
+        if (!animation)
+          throw new Error(`React ${property} animation is missing`);
+        animation.pause();
+        return animation;
+      });
+      await Promise.all(animations.map((animation) => animation.ready));
+      for (const animation of animations) animation.currentTime = 450;
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
       );
-      return getComputedStyle(element).opacity;
+      return {
+        opacity: getComputedStyle(element).opacity,
+        translateY: new DOMMatrixReadOnly(getComputedStyle(element).transform)
+          .m42,
+      };
     });
-    expect(atHalfTime).toBe("0.5");
+    expect(atHalfTime).toEqual({ opacity: "0.5", translateY: 6 });
 
     const persistedTimelineId = roundTrip.timelines[0]?.id;
     if (!persistedTimelineId) {
@@ -937,4 +1288,145 @@ createRoot(document.getElementById("root")!).render(<App />);
 
     fs.writeFileSync(sourceFilePath, reactSource());
   });
+});
+
+test("keeps collapsed text layout when whitespace units animate", async ({
+  page,
+}) => {
+  const authored = [
+    "<!doctype html>",
+    "<html><head><style>",
+    "#whitespace-target { width: 32px; margin: 0; font: 16px/20px monospace; white-space: normal; }",
+    "</style></head><body>",
+    '<p id="whitespace-target" data-agent-native-node-id="whitespace-target">A  B\n C</p>',
+    "</body></html>",
+  ].join("\n");
+  const textDocument = {
+    version: 2 as const,
+    animations: [
+      {
+        targetNodeId: "whitespace-target",
+        unit: "character" as const,
+        direction: "forward" as const,
+        staggerMs: 0,
+        animationDirection: "in" as const,
+        order: "left-to-right" as const,
+        overlapPercent: 0,
+        ignoreSpaces: false,
+        property: "opacity" as const,
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  };
+
+  await page.setContent(authored);
+  async function measureLayout() {
+    return page.locator("#whitespace-target").evaluate((target) => {
+      const letters: Record<string, number[][]> = { A: [], B: [], C: [] };
+      const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const text = node.textContent ?? "";
+        for (let index = 0; index < text.length; index += 1) {
+          const letter = text[index];
+          if (!(letter in letters)) continue;
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + 1);
+          const rect = range.getBoundingClientRect();
+          letters[letter]!.push(
+            [rect.x, rect.y].map((value) => Math.round(value * 10) / 10),
+          );
+        }
+        node = walker.nextNode();
+      }
+      const rect = target.getBoundingClientRect();
+      return {
+        text: target.textContent,
+        bounds: [rect.x, rect.y, rect.width, rect.height].map(
+          (value) => Math.round(value * 100) / 100,
+        ),
+        letters,
+      };
+    });
+  }
+
+  const before = await measureLayout();
+  await page.setContent(injectMotionTextRuntime(authored, textDocument));
+  await expect(
+    page.locator("#whitespace-target [data-agent-native-motion-text-unit]"),
+  ).toHaveCount(7);
+  const animatedWhitespace = await page
+    .locator("#whitespace-target [data-agent-native-motion-text-unit]")
+    .evaluateAll((units) =>
+      units
+        .filter((unit) => unit.textContent === "")
+        .map((unit) => {
+          const style = getComputedStyle(unit);
+          return {
+            display: style.display,
+            position: style.position,
+            width: style.width,
+            height: style.height,
+            ariaHidden: unit.getAttribute("aria-hidden"),
+          };
+        }),
+    );
+  expect(animatedWhitespace).toEqual(
+    Array.from({ length: 4 }, () => ({
+      display: "block",
+      position: "absolute",
+      width: "0px",
+      height: "0px",
+      ariaHidden: "true",
+    })),
+  );
+  expect(await measureLayout()).toEqual(before);
+});
+
+test("rejects a line schedule whose rendered word fragments exceed the runtime unit limit", async ({
+  page,
+}) => {
+  const fragments = Array.from({ length: 513 }, () => "<span>A</span>").join(
+    "",
+  );
+  const authored = [
+    "<!doctype html>",
+    "<html><head><style>",
+    "#line-target > span { display: block !important; }",
+    "</style></head><body>",
+    `<div id="line-target" data-agent-native-node-id="line-target">${fragments}</div>`,
+    compileMotionTextRuntime({
+      version: 2,
+      animations: [
+        {
+          targetNodeId: "line-target",
+          unit: "line",
+          direction: "forward",
+          staggerMs: 0,
+          animationDirection: "in",
+          order: "left-to-right",
+          property: "opacity",
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    }).runtimeMarkup,
+    "</body></html>",
+  ].join("\n");
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.setContent(authored);
+
+  expect(pageErrors).toContain(
+    "Motion text target exceeds the 512-unit runtime limit.",
+  );
 });

@@ -107,6 +107,6 @@ it("sends an optional crop rectangle with the render request", async () => {
     expect.objectContaining({
       clip: { x: 20, y: 30, width: 100, height: 80 },
     }),
-    { timeoutMs: 45_000 },
+    { timeoutMs: 45_000, uiOnly: true },
   );
 });

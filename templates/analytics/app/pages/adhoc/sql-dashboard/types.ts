@@ -51,6 +51,11 @@ export interface DashboardFilter {
   default?: string;
   options?: FilterOption[];
   presets?: FilterPreset[];
+  // On a select filter: show a date range only when "custom" is chosen, and
+  // clear it when another option is picked (as preset date filters do for
+  // "30d"-style options). For selects whose options are periods the SQL
+  // resolves itself, such as "this" / "last" quarter.
+  customRange?: boolean;
 }
 
 export type ColumnFormat =
@@ -182,6 +187,15 @@ export interface SqlDashboardConfig {
   variables?: Record<string, string>;
   columns?: number;
   panels: SqlPanel[];
+  annotations?: DashboardAnnotations;
+}
+
+/** Dashboard-level settings for key dates and data notes; per-panel `events` stay in panel config. */
+export interface DashboardAnnotations {
+  /** Key-date sets this dashboard leaves off its charts. Every other set shows on every time chart. */
+  hiddenKeyDateSets?: string[];
+  /** Data notes this dashboard leaves off one chart each. */
+  hiddenDataNotes?: { noteId: string; panelId: string }[];
 }
 
 export const MIN_DASHBOARD_COLUMNS = 1;

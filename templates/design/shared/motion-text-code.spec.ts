@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   MOTION_TEXT_RUNTIME_ATTRIBUTE,
   MOTION_TEXT_SOURCE_ATTRIBUTE,
+  MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
   compileMotionTextRuntime,
   decodeMotionTextDocument,
   encodeMotionTextDocument,
@@ -12,16 +13,22 @@ import {
   readMotionTextDocument,
   removeMotionTextRuntime,
 } from "./motion-text-code";
-import type { MotionTextDocument } from "./motion-text-code";
+import type {
+  MotionTextAnimation,
+  MotionTextDocument,
+} from "./motion-text-code";
 
 const document: MotionTextDocument = {
-  version: 1,
+  version: 2,
   animations: [
     {
       targetNodeId: "headline",
       unit: "word",
       direction: "reverse",
       staggerMs: 40,
+      animationDirection: "in",
+      order: "right-to-left",
+      ignoreSpaces: false,
       delayMs: 0,
       property: "opacity",
       durationMs: 320,
@@ -160,9 +167,12 @@ function executeRuntime(
   withPreviewBridge = false,
   topForUnit?: (unitIndex: number) => number,
   cssVariables: Record<string, string> = {},
-): { sendMessage: (data: unknown) => void } {
+): { sendMessage: (data: unknown) => void; sentMessages: unknown[] } {
   const runtimeTargets = [target];
-  const parent = {};
+  const sentMessages: unknown[] = [];
+  const parent = {
+    postMessage: (data: unknown) => sentMessages.push(data),
+  };
   let messageListener:
     | ((event: { source: unknown; data: unknown }) => void)
     | undefined;
@@ -198,6 +208,7 @@ function executeRuntime(
   });
   return {
     sendMessage: (data) => messageListener?.({ source: parent, data }),
+    sentMessages,
   };
 }
 
@@ -209,7 +220,7 @@ function textTarget(text: string): FakeElement {
 }
 
 describe("Motion Text source and runtime", () => {
-  it("round-trips a versioned authoring document with Figma text controls", () => {
+  it("round-trips a versioned authoring document with text timing controls", () => {
     const encoded = encodeMotionTextDocument(document);
 
     expect(decodeMotionTextDocument(encoded)).toEqual({
@@ -226,6 +237,100 @@ describe("Motion Text source and runtime", () => {
       status: "invalid",
       error: { code: "unsupported-version" },
     });
+  });
+
+  it("reads version 1 source with its original spacing and timing behavior", () => {
+    const legacy = {
+      version: 1,
+      animations: [
+        {
+          targetNodeId: "headline",
+          unit: "character",
+          direction: "reverse",
+          staggerMs: 30,
+          delayMs: 12,
+          property: "opacity",
+          durationMs: 300,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-out" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const expected = {
+      version: 2,
+      animations: [
+        {
+          ...legacy.animations[0],
+          animationDirection: "in",
+          order: "right-to-left",
+          ignoreSpaces: true,
+        },
+      ],
+    };
+
+    const decoded = decodeMotionTextDocument(JSON.stringify(legacy));
+    expect(decoded).toEqual({
+      status: "valid",
+      document: expected,
+    });
+    if (decoded.status === "valid") {
+      expect(decoded.document[MOTION_TEXT_SOURCE_VERSION_PROVENANCE]).toBe(1);
+      expect(Object.keys(decoded.document)).toEqual(["version", "animations"]);
+      expect(JSON.parse(encodeMotionTextDocument(decoded.document))).toEqual(
+        expected,
+      );
+    }
+    expect(
+      readMotionTextDocument(
+        `<h1 data-agent-native-node-id="headline">Hello world</h1><script type="application/json" ${MOTION_TEXT_SOURCE_ATTRIBUTE}="v1">${JSON.stringify(legacy)}</script>`,
+      ),
+    ).toEqual({ status: "valid", document: expected });
+  });
+
+  it("defaults omitted v2 ignoreSpaces to the editor and runtime default", () => {
+    const { ignoreSpaces: _ignoreSpaces, ...animation } =
+      document.animations[0]!;
+    const decoded = decodeMotionTextDocument(
+      JSON.stringify({ version: 2, animations: [animation] }),
+    );
+
+    expect(decoded).toMatchObject({
+      status: "valid",
+      document: { version: 2, animations: [{ ignoreSpaces: true }] },
+    });
+    if (decoded.status === "valid") {
+      expect(encodeMotionTextDocument(decoded.document)).toContain(
+        '"ignoreSpaces":true',
+      );
+    }
+  });
+
+  it("validates and preserves per-unit overlap and text ordering", () => {
+    const withControls: MotionTextDocument = {
+      ...document,
+      animations: [
+        {
+          ...document.animations[0]!,
+          direction: "forward",
+          animationDirection: "out",
+          order: "center-out",
+          overlapPercent: 25,
+          ignoreSpaces: true,
+        },
+      ],
+    };
+
+    expect(
+      decodeMotionTextDocument(encodeMotionTextDocument(withControls)),
+    ).toEqual({ status: "valid", document: withControls });
+    expect(() =>
+      encodeMotionTextDocument({
+        ...withControls,
+        animations: [{ ...withControls.animations[0]!, overlapPercent: 101 }],
+      }),
+    ).toThrow("overlapPercent must be between 0 and 100");
   });
 
   it("accepts compatible property tracks for one text target", () => {
@@ -268,6 +373,132 @@ describe("Motion Text source and runtime", () => {
             composite.animations[0],
             { ...composite.animations[1], unit: "character" },
           ],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+  });
+
+  it.each(["word", "line", "paragraph"] as const)(
+    "preserves per-track ignoreSpaces values for %s grouping",
+    (unit) => {
+      const first = {
+        ...document.animations[0]!,
+        unit,
+        ignoreSpaces: false,
+      };
+      const second = {
+        ...first,
+        ignoreSpaces: true,
+        property: "translate" as const,
+        keyframes: [
+          { t: 0, value: "0px", ease: "ease-out" },
+          { t: 1, value: "12px" },
+        ],
+      };
+      const composite: MotionTextDocument = {
+        version: 2,
+        animations: [first, second],
+      };
+
+      expect(
+        decodeMotionTextDocument(encodeMotionTextDocument(composite)),
+      ).toEqual({ status: "valid", document: composite });
+    },
+  );
+
+  it("keeps character ignoreSpaces mismatches invalid", () => {
+    const first = {
+      ...document.animations[0]!,
+      unit: "character" as const,
+      ignoreSpaces: false,
+    };
+    const second = {
+      ...first,
+      ignoreSpaces: true,
+      property: "translate" as const,
+      keyframes: [
+        { t: 0, value: "0px", ease: "ease-out" },
+        { t: 1, value: "12px" },
+      ],
+    };
+
+    expect(() =>
+      encodeMotionTextDocument({ version: 2, animations: [first, second] }),
+    ).toThrow("must use the same unit, direction, and timing settings");
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({ version: 2, animations: [first, second] }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+  });
+
+  it("allows duration-derived stagger values when overlap controls timing", () => {
+    const firstTrack: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "left-to-right",
+      overlapPercent: 0,
+      staggerMs: 6000,
+      durationMs: 6000,
+    };
+    const secondTrack: MotionTextAnimation = {
+      ...firstTrack,
+      property: "translate",
+      staggerMs: 3000,
+      durationMs: 3000,
+      keyframes: [
+        { t: 0, value: "0px" },
+        { t: 1, value: "12px" },
+      ],
+    };
+
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [firstTrack, secondTrack],
+        }),
+      ),
+    ).toMatchObject({ status: "valid" });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [
+            { ...firstTrack, overlapPercent: undefined, staggerMs: 40 },
+            { ...secondTrack, overlapPercent: undefined, staggerMs: 80 },
+          ],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [{ ...firstTrack, staggerMs: 120_001 }],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+  });
+
+  it("accepts a fixed stagger derived from a long native TextStagger duration", () => {
+    const fixedStagger = {
+      ...document.animations[0]!,
+      staggerMs: 9600,
+      durationMs: 12_000,
+    };
+
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({ version: 2, animations: [fixedStagger] }),
+      ),
+    ).toMatchObject({ status: "valid" });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [{ ...fixedStagger, staggerMs: 120_001 }],
         }),
       ),
     ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
@@ -330,11 +561,11 @@ describe("Motion Text source and runtime", () => {
     const injected = injectMotionTextRuntime(authored, document);
     const markersRemoved = injected
       .replace(
-        /<script type="application\/json" data-agent-native-motion-text-source="v1">[\s\S]*?<\/script>\n/g,
+        /<script type="application\/json" data-agent-native-motion-text-source="v2">[\s\S]*?<\/script>\n/g,
         "",
       )
       .replace(
-        /<script data-agent-native-motion-text-runtime="v1">[\s\S]*?<\/script>/g,
+        /<script data-agent-native-motion-text-runtime="v2">[\s\S]*?<\/script>/g,
         "",
       );
 
@@ -391,6 +622,209 @@ describe("Motion Text source and runtime", () => {
       { offset: 0, easing: "ease-out", opacity: "0" },
       { offset: 1, easing: "ease-in", opacity: "1" },
     ]);
+  });
+
+  it("rejects long emoji-only word targets without rescanning remaining segments", () => {
+    const authored = `<div data-agent-native-node-id="headline">${"🙂".repeat(8_192)}</div>`;
+
+    expect(() => injectMotionTextRuntime(authored, document)).toThrow(
+      'Motion text target "headline" has no animatable text units.',
+    );
+  });
+
+  it("plays out keyframes in reverse while preserving their easing and spaces", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      animationDirection: "out",
+      order: "left-to-right",
+      overlapPercent: 50,
+      ignoreSpaces: false,
+      staggerMs: 0,
+      durationMs: 500,
+    };
+    const target = textTarget("A B");
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(units.map((unit) => unit.textContent)).toEqual(["A", "", "B"]);
+    expect(units.map((unit) => unit.style.display)).toEqual([
+      "inline-block",
+      "block",
+      "inline-block",
+    ]);
+    expect(units[1]?.style).toMatchObject({
+      position: "absolute",
+      width: "0",
+      height: "0",
+      overflow: "hidden",
+    });
+    expect(units[1]?.getAttribute("aria-hidden")).toBe("true");
+    expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
+      { duration: 250, delay: 0, fill: "both" },
+      { duration: 250, delay: 125, fill: "both" },
+      { duration: 250, delay: 250, fill: "both" },
+    ]);
+    expect(units[0]?.animations[0]?.keyframes).toEqual([
+      { offset: 0, easing: "ease-out", opacity: "1" },
+      { offset: 1, easing: "ease-out", opacity: "0" },
+    ]);
+    expect(target.textContent).toBe("A B");
+  });
+
+  it("does not animate whitespace in word grouping when the character-only option is false", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "word",
+      direction: "forward",
+      animationDirection: "in",
+      order: "left-to-right",
+      overlapPercent: 0,
+      ignoreSpaces: false,
+      staggerMs: 0,
+    };
+    const target = textTarget('said "hi"');
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(units.map((unit) => unit.textContent)).toEqual(["said", '"', 'hi"']);
+    expect(target.textContent).toBe('said "hi"');
+  });
+
+  it.each(["top-to-bottom", "bottom-to-top"] as const)(
+    "rejects %s order for character and word units",
+    (order) => {
+      for (const unit of ["character", "word"] as const) {
+        expect(
+          decodeMotionTextDocument(
+            JSON.stringify({
+              version: 2,
+              animations: [{ ...document.animations[0]!, unit, order }],
+            }),
+          ),
+        ).toMatchObject({
+          status: "invalid",
+          error: { code: "invalid-document" },
+        });
+      }
+      for (const unit of ["line", "paragraph"] as const) {
+        expect(
+          decodeMotionTextDocument(
+            JSON.stringify({
+              version: 2,
+              animations: [{ ...document.animations[0]!, unit, order }],
+            }),
+          ),
+        ).toMatchObject({ status: "valid" });
+      }
+    },
+  );
+
+  it("keeps each source segment easing when an out animation reverses multiple keyframes", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      animationDirection: "out",
+      order: "left-to-right",
+      overlapPercent: 0,
+      ignoreSpaces: true,
+      staggerMs: 0,
+      durationMs: 500,
+      keyframes: [
+        { t: 0, value: "0", ease: "ease-out" },
+        { t: 0.25, value: "8", ease: "ease-in" },
+        { t: 1, value: "16" },
+      ],
+    };
+    const target = textTarget("A");
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const animatedUnit = target.children.find(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(animatedUnit?.animations[0]?.keyframes).toEqual([
+      { offset: 0, easing: "ease-in", opacity: "16" },
+      { offset: 0.75, easing: "ease-out", opacity: "8" },
+      { offset: 1, easing: "ease-out", opacity: "0" },
+    ]);
+  });
+
+  it("orders units from the center and keeps ignored spaces out of the count", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "center-out",
+      overlapPercent: 0,
+      ignoreSpaces: true,
+      staggerMs: 0,
+      durationMs: 500,
+    };
+    const target = textTarget("AB C");
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(units.map((unit) => unit.textContent)).toEqual(["A", "B", "C"]);
+    expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
+      { duration: 500 / 3, delay: 500 / 3, fill: "both" },
+      { duration: 500 / 3, delay: 0, fill: "both" },
+      { duration: 500 / 3, delay: (500 / 3) * 2, fill: "both" },
+    ]);
+    expect(target.textContent).toBe("AB C");
+  });
+
+  it("uses a repeatable shuffled order", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "random",
+      overlapPercent: 0,
+      ignoreSpaces: false,
+      staggerMs: 0,
+      durationMs: 500,
+    };
+    const run = () => {
+      const target = textTarget("ABCDE");
+      executeRuntime(
+        compileMotionTextRuntime({ version: 2, animations: [animation] }),
+        target,
+      );
+      return target.children.map(
+        (unit) => (unit.animations[0]?.options as { delay: number }).delay,
+      );
+    };
+
+    const delays = run();
+    expect(delays).toEqual(run());
+    expect([...delays].sort((left, right) => left - right)).toEqual([
+      0, 100, 200, 300, 400,
+    ]);
+    expect(delays).not.toEqual([0, 100, 200, 300, 400]);
   });
 
   it("runs compatible property tracks on the same segmented text units", () => {
@@ -450,8 +884,8 @@ describe("Motion Text source and runtime", () => {
         unit.animations.map((entry) => entry.handle.currentTime),
       ),
     ).toEqual([
-      [160, 135],
-      [200, 160],
+      [200, 200],
+      [200, 185],
     ]);
   });
 
@@ -462,6 +896,7 @@ describe("Motion Text source and runtime", () => {
         {
           ...document.animations[0]!,
           direction: "forward",
+          order: "left-to-right",
           keyframes: [
             {
               t: 0,
@@ -532,6 +967,7 @@ describe("Motion Text source and runtime", () => {
         {
           ...document.animations[0]!,
           direction: "forward",
+          order: "left-to-right",
         },
       ],
     };
@@ -584,7 +1020,7 @@ describe("Motion Text source and runtime", () => {
 
     preview.sendMessage({ type: "motion-preview", t: 0.1, durationMs: 2000 });
     expect(units.map((unit) => unit.animations[0]?.handle.currentTime)).toEqual(
-      [160, 200],
+      [200, 200],
     );
 
     preview.sendMessage({ type: "motion-preview-clear" });
@@ -593,12 +1029,64 @@ describe("Motion Text source and runtime", () => {
     );
   });
 
+  it("reports fixed-stagger span and follows the shared parent timeline", () => {
+    const staggeredDocument: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          targetNodeId: "headline",
+          unit: "character",
+          direction: "forward",
+          staggerMs: 1500,
+          animationDirection: "in",
+          order: "left-to-right",
+          ignoreSpaces: true,
+          delayMs: 250,
+          property: "opacity",
+          durationMs: 1000,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const target = textTarget("ABC");
+    const preview = executeRuntime(
+      compileMotionTextRuntime(staggeredDocument),
+      target,
+      true,
+    );
+
+    preview.sendMessage({ type: "motion-preview-duration-request" });
+    expect(preview.sentMessages).toContainEqual({
+      type: "motion-preview-span",
+      key: "html",
+      durationMs: 4250,
+    });
+
+    preview.sendMessage({ type: "motion-preview", t: 1, durationMs: 2000 });
+    expect(
+      target.children.map((unit) => unit.animations[0]?.handle.currentTime),
+    ).toEqual([1250, 2000, 2000]);
+
+    preview.sendMessage({ type: "motion-preview", t: 1, durationMs: 4250 });
+    expect(
+      target.children.map((unit) => unit.animations[0]?.handle.currentTime),
+    ).toEqual([1250, 2750, 4250]);
+  });
+
   it("segments grapheme characters and animates paragraph elements", () => {
     const characterTarget = textTarget("A👩🏽‍🚀B");
     const characterDocument: MotionTextDocument = {
       ...document,
       animations: [
-        { ...document.animations[0]!, unit: "character", direction: "forward" },
+        {
+          ...document.animations[0]!,
+          unit: "character",
+          direction: "forward",
+          order: "left-to-right",
+        },
       ],
     };
     executeRuntime(
@@ -627,7 +1115,12 @@ describe("Motion Text source and runtime", () => {
     const paragraphDocument: MotionTextDocument = {
       ...document,
       animations: [
-        { ...document.animations[0]!, unit: "paragraph", direction: "forward" },
+        {
+          ...document.animations[0]!,
+          unit: "paragraph",
+          direction: "forward",
+          order: "left-to-right",
+        },
       ],
     };
     executeRuntime(
@@ -644,11 +1137,155 @@ describe("Motion Text source and runtime", () => {
     ]);
   });
 
+  it("runs paragraph motion on accepted static inline markup", () => {
+    const paragraphDocument: MotionTextDocument = {
+      ...document,
+      animations: [
+        {
+          ...document.animations[0]!,
+          unit: "paragraph",
+          direction: "forward",
+          order: "left-to-right",
+        },
+      ],
+    };
+    const authored =
+      '<div data-agent-native-node-id="headline"><strong>Title</strong></div>';
+
+    expect(() =>
+      injectMotionTextRuntime(authored, paragraphDocument),
+    ).not.toThrow();
+    const target = new FakeElement("div");
+    target.setAttribute("data-agent-native-node-id", "headline");
+    const strong = new FakeElement("strong");
+    strong.appendChild(new FakeTextNode("Title"));
+    target.replaceChildren(strong);
+
+    executeRuntime(compileMotionTextRuntime(paragraphDocument), target);
+
+    expect(target.textContent).toBe("Title");
+    expect(target.animations).toHaveLength(1);
+    expect(target.animations[0]?.options).toEqual({
+      duration: 320,
+      delay: 0,
+      fill: "both",
+    });
+  });
+
+  it("rejects statically known text spans before source write and guards runtime spans", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "left-to-right",
+      ignoreSpaces: false,
+      staggerMs: 59_740,
+      delayMs: 200,
+      durationMs: 320,
+    };
+    const atLimit: MotionTextDocument = {
+      version: 2,
+      animations: [animation],
+    };
+    expect(decodeMotionTextDocument(JSON.stringify(atLimit))).toMatchObject({
+      status: "valid",
+    });
+    const target = textTarget("ABC");
+    executeRuntime(compileMotionTextRuntime(atLimit), target, true);
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    const lastUnitAnimation = units[2]?.animations[0]?.options as
+      | { delay: number; duration: number }
+      | undefined;
+    expect(
+      Number(lastUnitAnimation?.delay) + Number(lastUnitAnimation?.duration),
+    ).toBe(120_000);
+
+    const longStaggerDocument: MotionTextDocument = {
+      version: 2,
+      animations: [{ ...animation, staggerMs: 9_600, delayMs: 0 }],
+    };
+    const thirteenCharacters =
+      '<div data-agent-native-node-id="headline">ABCDEFGHIJKLM</div>';
+    const fourteenCharacters =
+      '<div data-agent-native-node-id="headline">ABCDEFGHIJKLMN</div>';
+    expect(() =>
+      injectMotionTextRuntime(thirteenCharacters, longStaggerDocument),
+    ).not.toThrow();
+    expect(() =>
+      injectMotionTextRuntime(fourteenCharacters, longStaggerDocument),
+    ).toThrow(
+      'Motion text target "headline" resolves to 14 character units whose animation span exceeds the 120000ms runtime limit.',
+    );
+    const compiledLongStagger = compileMotionTextRuntime(longStaggerDocument);
+    expect(
+      readMotionTextDocument(
+        `${fourteenCharacters}${compiledLongStagger.sourceMarkup}\n${compiledLongStagger.runtimeMarkup}`,
+      ),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+
+    const overLimit: MotionTextDocument = {
+      version: 2,
+      animations: [{ ...animation, staggerMs: 60_000 }],
+    };
+    expect(decodeMotionTextDocument(JSON.stringify(overLimit))).toMatchObject({
+      status: "valid",
+    });
+    expect(() =>
+      executeRuntime(compileMotionTextRuntime(overLimit), textTarget("ABC")),
+    ).toThrow("Motion text animation span exceeds the 120000ms runtime limit.");
+  });
+
+  it("bounds line spans by the word fragments the runtime can place on separate lines", () => {
+    const lineDocument: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          ...document.animations[0]!,
+          unit: "line",
+          staggerMs: 9_600,
+          delayMs: 0,
+          durationMs: 1_000,
+        },
+      ],
+    };
+    const textNodes = (count: number) =>
+      `<div data-agent-native-node-id="headline">${"<span>A</span>".repeat(count)}</div>`;
+
+    expect(() =>
+      injectMotionTextRuntime(textNodes(13), lineDocument),
+    ).not.toThrow();
+    expect(() => injectMotionTextRuntime(textNodes(14), lineDocument)).toThrow(
+      'Motion text target "headline" resolves to at most 14 line units whose animation span exceeds the 120000ms runtime limit.',
+    );
+    expect(() =>
+      injectMotionTextRuntime(
+        '<div data-agent-native-node-id="headline">' +
+          "A".repeat(513) +
+          "</div>",
+        lineDocument,
+      ),
+    ).not.toThrow();
+    expect(() => injectMotionTextRuntime(textNodes(513), lineDocument)).toThrow(
+      'Motion text target "headline" exceeds the 512-unit runtime limit.',
+    );
+  });
+
   it("groups line units by rendered line while keeping text content intact", () => {
     const lineDocument: MotionTextDocument = {
       ...document,
       animations: [
-        { ...document.animations[0]!, unit: "line", direction: "forward" },
+        {
+          ...document.animations[0]!,
+          unit: "line",
+          direction: "forward",
+          order: "left-to-right",
+        },
       ],
     };
     const target = textTarget("One two three");
@@ -671,6 +1308,36 @@ describe("Motion Text source and runtime", () => {
     ]);
   });
 
+  it("rejects more than the runtime unit limit of separately wrapped line fragments", () => {
+    const lineDocument: MotionTextDocument = {
+      ...document,
+      animations: [
+        {
+          ...document.animations[0]!,
+          unit: "line",
+          direction: "forward",
+          order: "left-to-right",
+        },
+      ],
+    };
+    const target = new FakeElement("h1");
+    target.setAttribute("data-agent-native-node-id", "headline");
+    for (let index = 0; index < 513; index += 1) {
+      const formatted = new FakeElement("span");
+      formatted.appendChild(new FakeTextNode("A"));
+      target.appendChild(formatted);
+    }
+
+    expect(() =>
+      executeRuntime(
+        compileMotionTextRuntime(lineDocument),
+        target,
+        false,
+        (index) => index,
+      ),
+    ).toThrow("Motion text target exceeds the 512-unit runtime limit.");
+  });
+
   it("rejects duplicate, malformed, and unsupported source markers", () => {
     const valid = injectMotionTextRuntime(
       '<body><h1 data-agent-native-node-id="headline">Hello</h1></body>',
@@ -680,7 +1347,7 @@ describe("Motion Text source and runtime", () => {
     expect(
       readMotionTextDocument(
         valid.replace(
-          'data-agent-native-motion-text-source="v1"',
+          'data-agent-native-motion-text-source="v2"',
           'data-agent-native-motion-text-source="v99"',
         ),
       ),
@@ -691,7 +1358,7 @@ describe("Motion Text source and runtime", () => {
     expect(
       readMotionTextDocument(
         valid.replace(
-          /(<script type="application\/json" data-agent-native-motion-text-source="v1">)[\s\S]*?(<\/script>)/,
+          /(<script type="application\/json" data-agent-native-motion-text-source="v2">)[\s\S]*?(<\/script>)/,
           "$1{$2",
         ),
       ),

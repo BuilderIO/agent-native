@@ -127,9 +127,186 @@ describe("React Motion source adapter", () => {
     expect(metadata.status).toBe("valid");
     if (metadata.status === "valid") {
       expect(metadata.document.version).toBe(MOTION_CODE_METADATA_VERSION);
-      expect(metadata.document.tracks).toEqual(makeTimeline().tracks);
+      expect(metadata.document.tracks).toMatchObject(makeTimeline().tracks);
+      expect(metadata.document.tracks[0]?.id).toBe("legacy-track-0");
     }
     expect(edit.css).toBe(compileMotionCode(makeTimeline()).css);
+  });
+
+  it("round-trips repeated property tracks through React source by id", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "opacity-first",
+          targetNodeId: "hero-title",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "0.4" },
+          ],
+        },
+        {
+          id: "opacity-second",
+          targetNodeId: "hero-title",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0.4" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const edit = apply(source, { timeline });
+    const read = readMotionReactSource(edit.source, "Card.tsx");
+
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "opacity-first", property: "opacity" },
+          { id: "opacity-second", property: "opacity" },
+        ],
+      },
+    });
+    if (read.status === "valid" && read.document) {
+      expect(
+        read.document.tracks.map((track) =>
+          track.keyframes.map((keyframe) => keyframe.value),
+        ),
+      ).toEqual([
+        ["0", "0.4"],
+        ["0.4", "1"],
+      ]);
+      const rewritten = apply(edit.source, {
+        timeline: { ...timeline, tracks: read.document.tracks },
+      });
+      expect(readMotionReactSource(rewritten.source, "Card.tsx")).toMatchObject(
+        {
+          status: "valid",
+          document: {
+            tracks: [
+              { id: "opacity-first", property: "opacity" },
+              { id: "opacity-second", property: "opacity" },
+            ],
+          },
+        },
+      );
+    }
+  });
+
+  it("round-trips additive Position axes through React source by id and order", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "0px 60px" },
+          ],
+        },
+      ],
+    };
+    const first = apply(source, { timeline });
+    const read = readMotionReactSource(first.source, "Card.tsx");
+
+    expect(first.source).toContain("animation-composition: add, add;");
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", property: "translate", composition: "add" },
+          { id: "position-y", property: "translate", composition: "add" },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("repeated React Position tracks were not readable");
+    }
+
+    const rewritten = apply(first.source, {
+      timeline: { ...timeline, tracks: read.document.tracks },
+    });
+    expect(readMotionReactSource(rewritten.source, "Card.tsx")).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", composition: "add" },
+          { id: "position-y", composition: "add" },
+        ],
+      },
+    });
+  });
+
+  it("round-trips additive Position axes through React source by id and order", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "0px 60px" },
+          ],
+        },
+      ],
+    };
+    const first = apply(source, { timeline });
+    const read = readMotionReactSource(first.source, "Card.tsx");
+
+    expect(first.source).toContain("animation-composition: add, add;");
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", property: "translate", composition: "add" },
+          { id: "position-y", property: "translate", composition: "add" },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("repeated React Position tracks were not readable");
+    }
+
+    const rewritten = apply(first.source, {
+      timeline: { ...timeline, tracks: read.document.tracks },
+    });
+    expect(readMotionReactSource(rewritten.source, "Card.tsx")).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", composition: "add" },
+          { id: "position-y", composition: "add" },
+        ],
+      },
+    });
   });
 
   it("reads direct CSS edits, then writes the reconciled timeline back cleanly", () => {
@@ -150,7 +327,7 @@ describe("React Motion source adapter", () => {
     expect(read).toMatchObject({
       status: "valid",
       document: {
-        durationMs: 1350,
+        durationMs: 800,
         playbackMode: "ping-pong",
         tracks: [
           {
@@ -187,7 +364,7 @@ describe("React Motion source adapter", () => {
     expect(reread).toMatchObject({
       status: "valid",
       document: {
-        durationMs: 1350,
+        durationMs: 800,
         playbackMode: "ping-pong",
         tracks: read.document.tracks,
       },
@@ -274,6 +451,83 @@ describe("React Motion source adapter", () => {
     expect(removed.source).toContain("/* Keep this authored note. */");
     expect(readMotionReactSource(removed.source, modulePath)).toEqual({
       status: "absent",
+    });
+  });
+
+  it("round-trips one authored JSX CSS animation with multiple properties", () => {
+    const modulePath = "src/components/Card.tsx";
+    const authored = `function Card() {
+  return (
+    <main>
+      <style>{\`
+#hero {
+  animation-name: hero-enter;
+  animation-duration: 900ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+@keyframes hero-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  50% { opacity: 0.5; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0px); }
+}
+\`}</style>
+      <h1 id="hero">Hello</h1>
+    </main>
+  );
+}`;
+    const targetNodeId = generatedMotionNodeId(modulePath, 1);
+    const read = readMotionReactSource(authored, modulePath);
+
+    expect(read).toMatchObject({
+      status: "valid",
+      targetNodeIds: [targetNodeId],
+      document: {
+        durationMs: 900,
+        tracks: [
+          {
+            targetNodeId,
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0", ease: "ease-out" },
+              { t: 0.5, value: "0.5", ease: "ease-out" },
+              { t: 1, value: "1" },
+            ],
+          },
+          {
+            targetNodeId,
+            property: "transform",
+            keyframes: [
+              { t: 0, value: "translateY(12px)", ease: "ease-out" },
+              { t: 0.5, value: "translateY(6px)", ease: "ease-out" },
+              { t: 1, value: "translateY(0px)" },
+            ],
+          },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("multi-property JSX CSS Motion was not readable");
+    }
+
+    const written = applyMotionReactSourceEdit({
+      currentSource: authored,
+      expectedSource: authored,
+      preview: previewFor(authored),
+      modulePath,
+      timeline: {
+        ...makeTimeline(targetNodeId),
+        tracks: read.document.tracks,
+        durationMs: read.document.durationMs,
+      },
+    });
+
+    expect(written.source).not.toContain("animation-name: hero-enter;");
+    expect(written.source).toContain("@keyframes hero-enter");
+    expect(readMotionReactSource(written.source, modulePath)).toMatchObject({
+      status: "valid",
+      targetNodeIds: [targetNodeId],
+      document: { tracks: read.document.tracks },
     });
   });
 
@@ -746,6 +1000,23 @@ function Card(style = { animationName: "fade" }) {
     });
   });
 
+  it("fails closed when imported CSS can change an inline animation", () => {
+    const authored = `import styles from "./Card.module.css";
+function Card() {
+  return (
+    <main>
+      <style>{\`#hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+      <h1 id="hero" className={styles.hero}>Hello</h1>
+    </main>
+  );
+}`;
+
+    expect(readMotionReactSource(authored, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("preserves audio clips in managed source when React motion is edited", () => {
     const initial = apply(source);
     const audioClips = [
@@ -925,6 +1196,25 @@ function Card(style = { animationName: "fade" }) {
     });
   });
 
+  it("preserves the legacy ignored-space default for unversioned React Text source", () => {
+    const edit = applyMotionReactSourceEdit({
+      currentSource: source,
+      expectedSource: source,
+      preview: previewFor(source),
+      timeline: makeTimeline(),
+      textDocument,
+    });
+    const legacySource = edit.source.replace(/,"ignoreSpaces":true/g, "");
+
+    expect(legacySource).not.toContain('"ignoreSpaces"');
+    expect(readMotionReactSource(legacySource)).toMatchObject({
+      status: "valid",
+      textDocument: {
+        animations: [{ ignoreSpaces: true }],
+      },
+    });
+  });
+
   it("round-trips multiple compatible Text properties through one React wrapper", () => {
     const composite: MotionTextDocument = {
       ...textDocument,
@@ -958,7 +1248,7 @@ function Card(style = { animationName: "fade" }) {
     ).toHaveLength(1);
     expect(readMotionReactSource(edit.source)).toMatchObject({
       status: "valid",
-      textDocument: composite,
+      textDocument: { ...composite, version: 2 },
     });
 
     const reduced = applyMotionReactSourceEdit({
@@ -971,7 +1261,10 @@ function Card(style = { animationName: "fade" }) {
     expect(reduced.source).toContain(" animations={[{");
     expect(readMotionReactSource(reduced.source)).toMatchObject({
       status: "valid",
-      textDocument: { animations: [composite.animations[0]] },
+      textDocument: {
+        version: 2,
+        animations: [composite.animations[0]],
+      },
     });
   });
 
@@ -997,7 +1290,7 @@ function Card(style = { animationName: "fade" }) {
         status: "valid",
         playbackMode,
         document: { playbackMode, tracks: [] },
-        textDocument,
+        textDocument: { ...textDocument, version: 2 },
       });
     },
   );
@@ -1020,7 +1313,7 @@ function Card(style = { animationName: "fade" }) {
     );
     expect(readMotionReactSource(edit.source)).toMatchObject({
       status: "valid",
-      textDocument,
+      textDocument: { ...textDocument, version: 2 },
     });
   });
 
@@ -1035,7 +1328,7 @@ function Card(style = { animationName: "fade" }) {
     expect(readMotionReactSource(textOnly.source)).toMatchObject({
       status: "valid",
       document: { tracks: [] },
-      textDocument,
+      textDocument: { ...textDocument, version: 2 },
     });
 
     const removed = removeMotionReactSource(textOnly.source);

@@ -2331,6 +2331,87 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
+  it("keeps a quarantined field draft when another field in its undo step conflicts", async () => {
+    const deckId = "undo-quarantined-field-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck, getAccessibleDeck } = setupFetch({
+      slideFieldConflicts: {
+        deckId,
+        count: 1,
+        slideId: "slide-1",
+        field: "notes",
+        remoteValue: "Before",
+      },
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: deckId,
+      title: "Undo quarantined field conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "One",
+          notes: "Before",
+          background: "Before background",
+          layout: "title",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { notes: "Local notes", background: "Local background" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(deckId)).rejects.toThrow(
+        "unresolved slide field conflict",
+      );
+    });
+
+    const persisted = getAccessibleDeck();
+    if (!persisted) throw new Error("Expected the accessible deck");
+    setAccessibleDeck({
+      ...persisted,
+      updatedAt: nextDeckRevision(persisted.updatedAt),
+      slides: persisted.slides.map((slide) =>
+        slide.id === "slide-1"
+          ? { ...slide, background: "Remote background" }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(deckId);
+    });
+
+    expect(result.current.getDeck(deckId)?.slides[0]).toMatchObject({
+      notes: "Local notes",
+      background: "Remote background",
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => result.current.undo(deckId));
+
+    expect(result.current.getDeck(deckId)?.slides[0]).toMatchObject({
+      notes: "Local notes",
+      background: "Remote background",
+    });
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+  });
+
   it("does not refetch or retry a non-revision 409", async () => {
     const {
       fetchMock,
@@ -5270,7 +5351,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(getStaleContentConflictSlideId(initial.id)).toBeUndefined();
   });
 
-  it("undoes only fields a collaborator has not changed", async () => {
+  it("skips the whole undo step when a collaborator changed one of its fields", async () => {
     window.history.pushState({}, "", "/deck/undo-conflict-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
@@ -5331,6 +5412,7 @@ describe("DeckContext deck creation persistence", () => {
       "Remote edit",
     );
 
+    const toastSpy = vi.spyOn(toast, "error");
     const patchCallsBeforeUndo = fetchMock.mock.calls.filter(([url]) =>
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     ).length;
@@ -5346,26 +5428,16 @@ describe("DeckContext deck creation persistence", () => {
       "Remote background",
     );
     expect(result.current.getDeck(initial.id)?.slides[0]?.notes).toBe(
-      "Before notes",
+      "Local notes",
     );
     expect(
       fetchMock.mock.calls.filter(([url]) =>
         requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
-    ).toHaveLength(patchCallsBeforeUndo + 1);
-    const undoPatch = fetchMock.mock.calls
-      .filter(([url]) =>
-        requestString(url).includes("/_agent-native/actions/patch-deck"),
-      )
-      .at(-1);
-    expect(actionCallBody(undoPatch?.[1]).operations).toMatchObject([
-      {
-        op: "patch-slide",
-        slideId: "slide-1",
-        fields: { notes: "Before notes" },
-        baseFields: { notes: { present: true, value: "Local notes" } },
-      },
-    ]);
+    ).toHaveLength(patchCallsBeforeUndo);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
   });
 
   async function establishStaleContentConflict(
@@ -5709,6 +5781,7 @@ describe("DeckContext deck creation persistence", () => {
       "Remote edit",
     );
 
+    const toastSpy = vi.spyOn(toast, "error");
     const patchCallsBeforeUndo = fetchMock.mock.calls.filter(([url]) =>
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     ).length;
@@ -5724,25 +5797,1031 @@ describe("DeckContext deck creation persistence", () => {
       "Remote background",
     );
     expect(result.current.getDeck(initial.id)?.slides[0]?.notes).toBe(
-      "Before notes",
+      "Local notes",
     );
     expect(
       fetchMock.mock.calls.filter(([url]) =>
         requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
-    ).toHaveLength(patchCallsBeforeUndo + 1);
-    const undoPatch = fetchMock.mock.calls
-      .filter(([url]) =>
-        requestString(url).includes("/_agent-native/actions/patch-deck"),
-      )
-      .at(-1);
-    expect(actionCallBody(undoPatch?.[1]).operations).toMatchObject([
-      {
-        op: "patch-slide",
-        slideId: "slide-1",
-        fields: { notes: "Before notes" },
-      },
+    ).toHaveLength(patchCallsBeforeUndo);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+  });
+
+  it("ignores layout-fit revisions when undoing deck creation after a fit edit", async () => {
+    window.history.pushState({}, "", "/deck/undo-layout-revision-create-deck");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let createdDeck: Deck | undefined;
+    act(() => {
+      createdDeck = result.current.createDeck("Layout revision history deck");
+    });
+    const created = createdDeck;
+    if (!created) throw new Error("Expected the new deck");
+    resolveCreate(new Response("", { status: 200 }));
+    setAccessibleDeck(created);
+    await act(async () => {
+      await result.current.ensureDeckPersisted(created.id);
+    });
+
+    const slide = created.slides[0];
+    if (!slide) throw new Error("Expected a default slide");
+    await act(async () => {
+      result.current.updateSlide(
+        created.id,
+        slide.id,
+        { layout: "section" },
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(created.id);
+    });
+    expect(
+      result.current.getDeck(created.id)?.slides[0]?.layoutFitRevision,
+    ).toBeTruthy();
+
+    await act(async () => {
+      result.current.undo(created.id);
+      await result.current.flushDeckSave(created.id);
+    });
+    expect(result.current.getDeck(created.id)?.slides[0]?.layout).toBe("title");
+
+    act(() => result.current.undo(created.id));
+
+    expect(result.current.getDeck(created.id)).toBeUndefined();
+  });
+
+  it("preserves remote style-only edits when undoing deck creation", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-style-create-deck");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let createdDeck: Deck | undefined;
+    act(() => {
+      createdDeck = result.current.createDeck("Style history deck");
+    });
+    const created = createdDeck;
+    if (!created) throw new Error("Expected the new deck");
+    resolveCreate(new Response("", { status: 200 }));
+    setAccessibleDeck(created);
+    await act(async () => {
+      await result.current.ensureDeckPersisted(created.id);
+    });
+
+    const slide = created.slides[0];
+    if (!slide) throw new Error("Expected a default slide");
+    const remoteContent = `<style>.fmd-slide { outline: 1px solid red; }</style>${slide.content}`;
+    setAccessibleDeck({
+      ...created,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: created.slides.map((entry) =>
+        entry.id === slide.id ? { ...entry, content: remoteContent } : entry,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(created.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => result.current.undo(created.id));
+
+    expect(result.current.getDeck(created.id)?.slides[0]?.content).toBe(
+      remoteContent,
+    );
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+  });
+
+  it("preserves remote slide object identity when undoing deck creation", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-object-id-create-deck");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let createdDeck: Deck | undefined;
+    act(() => {
+      createdDeck = result.current.createDeck("Object identity history deck");
+    });
+    const created = createdDeck;
+    if (!created) throw new Error("Expected the new deck");
+    resolveCreate(new Response("", { status: 200 }));
+    setAccessibleDeck(created);
+    await act(async () => {
+      await result.current.ensureDeckPersisted(created.id);
+    });
+
+    const slide = created.slides[0];
+    if (!slide) throw new Error("Expected a default slide");
+    const remoteContent = slide.content.replace(
+      'class="fmd-slide"',
+      'class="fmd-slide" data-slide-object-id="comment-anchor-target"',
+    );
+    setAccessibleDeck({
+      ...created,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: created.slides.map((entry) =>
+        entry.id === slide.id ? { ...entry, content: remoteContent } : entry,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(created.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => result.current.undo(created.id));
+
+    expect(result.current.getDeck(created.id)?.slides[0]?.content).toBe(
+      remoteContent,
+    );
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[created.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[created.id]?.canRedo).toBe(false);
+  });
+
+  it("ignores transient image loading when undoing deck creation", async () => {
+    window.history.pushState({}, "", "/deck/undo-image-loading-create-deck");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let createdDeck: Deck | undefined;
+    act(() => {
+      createdDeck = result.current.createDeck("Image loading history deck");
+    });
+    const created = createdDeck;
+    if (!created) throw new Error("Expected the new deck");
+    resolveCreate(new Response("", { status: 200 }));
+    setAccessibleDeck(created);
+    await act(async () => {
+      await result.current.ensureDeckPersisted(created.id);
+    });
+
+    setAccessibleDeck({
+      ...created,
+      slides: created.slides.map((slide) => ({ ...slide, imageLoading: true })),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(created.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    act(() => result.current.undo(created.id));
+
+    expect(result.current.getDeck(created.id)).toBeUndefined();
+  });
+
+  it("applies consecutive undo calls against the latest local deck state", async () => {
+    const deckId = "consecutive-undo-latest-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: deckId,
+      title: "Consecutive undo deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let addedSlideId = "";
+    act(() => {
+      addedSlideId = result.current.addSlide(deckId);
+      result.current.updateSlide(deckId, addedSlideId, {
+        content: '<div class="fmd-slide"><p>Edited after adding</p></div>',
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => {
+      result.current.undo(deckId);
+      result.current.undo(deckId);
+    });
+
+    expect(result.current.getDeck(deckId)?.slides).toHaveLength(0);
+    expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
+  });
+
+  it("undoes an image move while preserving a remote edit to a different object", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-sibling-deck");
+    const initial: Deck = {
+      id: "undo-remote-sibling-deck",
+      title: "Undo Remote Sibling Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 60px;"><img src="image.png" style="position: absolute; left: 10px; top: 10px;"><h1 data-slide-object-id="title-1">Sibling</h1></div>',
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const movedContent = initial.slides[0]!.content.replace(
+      "<img ",
+      '<img data-slide-object-id="image-1" ',
+    ).replace("left: 10px", "left: 90px");
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: movedContent },
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+    const persistedMove = result.current.getDeck(initial.id)!.slides[0]!
+      .content;
+    const remotelyNormalizedContent = persistedMove
+      .replace("padding: 60px;", "padding: 60px 60px 60px 60px;")
+      .replace("Sibling", "Remote sibling");
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: remotelyNormalizedContent,
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const undoneContent = result.current.getDeck(initial.id)!.slides[0]!
+      .content;
+    expect(undoneContent).toContain("left: 10px");
+    expect(undoneContent).toContain("Remote sibling");
+    expect(undoneContent).toContain("padding: 60px 60px 60px 60px");
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(true);
+  });
+
+  it("skips a conflicting undo step loudly and keeps older history available", async () => {
+    window.history.pushState({}, "", "/deck/undo-conflict-retained-deck");
+    const initial: Deck = {
+      id: "undo-conflict-retained-deck",
+      title: "Undo Conflict Retained Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 60px;"><img data-slide-object-id="image-1" src="image.png" style="position: absolute; left: 10px; top: 10px;"></div>',
+          notes: "Original notes",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        notes: "Older local note edit",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const movedContent = initial.slides[0]!.content.replace(
+      "left: 10px",
+      "left: 90px",
+    );
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: movedContent },
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+    const persistedMoveDeck = result.current.getDeck(initial.id)!;
+    const persistedMove = persistedMoveDeck.slides[0]!.content;
+    setAccessibleDeck({
+      ...persistedMoveDeck,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...persistedMoveDeck.slides[0]!,
+          content: persistedMove.replace("left: 90px", "left: 60px"),
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
+      "left: 60px",
+    );
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(true);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+    expect(result.current.getDeck(initial.id)!.slides[0]!.notes).toBe(
+      "Older local note edit",
+    );
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
+      "left: 60px",
+    );
+    expect(result.current.getDeck(initial.id)!.slides[0]!.notes).toBe(
+      "Original notes",
+    );
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(true);
+  });
+
+  it("consumes an already-applied no-op so older undo steps stay reachable", async () => {
+    window.history.pushState({}, "", "/deck/undo-already-applied-deck");
+    const initial: Deck = {
+      id: "undo-already-applied-deck",
+      title: "Undo Already Applied Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 60px;"><img data-slide-object-id="image-1" src="image.png" style="position: absolute; left: 10px; top: 10px;"></div>',
+          notes: "Original notes",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        notes: "Older local note edit",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const movedContent = initial.slides[0]!.content.replace(
+      "left: 10px",
+      "left: 90px",
+    );
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: movedContent },
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    setAccessibleDeck({
+      ...result.current.getDeck(initial.id)!,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...result.current.getDeck(initial.id)!.slides[0]!,
+          content: initial.slides[0]!.content,
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
+      "left: 10px",
+    );
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(true);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(true);
+    expect(result.current.getDeck(initial.id)!.slides[0]!.notes).toBe(
+      "Older local note edit",
+    );
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]!.notes).toBe(
+      "Original notes",
+    );
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+  });
+
+  it("keeps a remote slide in place when a batched historical reorder conflicts", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-reorder-deck");
+    const initial: Deck = {
+      id: "undo-remote-reorder-deck",
+      title: "Undo Remote Reorder Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "Original notes",
+          layout: "title",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "Original slide 2 notes",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.updateSlide(initial.id, "slide-2", {
+        notes: "Older local note edit",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const beforeBatch = result.current.getDeck(initial.id)!;
+    const reorderedSlides = [
+      beforeBatch.slides[2]!,
+      { ...beforeBatch.slides[0]!, notes: "Batched local note edit" },
+      beforeBatch.slides[1]!,
+    ];
+    await act(async () => {
+      result.current.setDeckSlides(initial.id, reorderedSlides, {
+        persistence: "immediate",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const locallyUpdatedDeck = result.current.getDeck(initial.id)!;
+    const remoteSlide: Slide = {
+      id: "remote-slide",
+      content: "<h1>Remote</h1>",
+      notes: "",
+      layout: "content",
+    };
+    setAccessibleDeck({
+      ...locallyUpdatedDeck,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        locallyUpdatedDeck.slides[0]!,
+        remoteSlide,
+        ...locallyUpdatedDeck.slides.slice(1),
+      ],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)!.slides.map((slide) => slide.id),
+    ).toEqual(["slide-3", "remote-slide", "slide-1", "slide-2"]);
+    expect(
+      result.current
+        .getDeck(initial.id)!
+        .slides.find((slide) => slide.id === "slide-1")!.notes,
+    ).toBe("Batched local note edit");
+    expect(
+      result.current
+        .getDeck(initial.id)!
+        .slides.find((slide) => slide.id === "slide-2")!.notes,
+    ).toBe("Older local note edit");
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(true);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)!.slides.map((slide) => slide.id),
+    ).toEqual(["slide-3", "remote-slide", "slide-1", "slide-2"]);
+    expect(
+      result.current
+        .getDeck(initial.id)!
+        .slides.find((slide) => slide.id === "slide-2")!.notes,
+    ).toBe("Original slide 2 notes");
+  });
+
+  it("undoes deletion of the last slide without retaining its blank placeholder", async () => {
+    window.history.pushState({}, "", "/deck/undo-last-slide-deck");
+    const initial: Deck = {
+      id: "undo-last-slide-deck",
+      title: "Undo Last Slide Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "only-slide",
+          content: '<div class="fmd-slide"><h1>Only slide</h1></div>',
+          notes: "Keep this slide",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.deleteSlide(initial.id, "only-slide");
+      await result.current.flushDeckSave(initial.id);
+    });
+    const placeholderId = result.current.getDeck(initial.id)!.slides[0]!.id;
+    expect(placeholderId).not.toBe("only-slide");
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    const restored = result.current.getDeck(initial.id)!.slides;
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({
+      id: "only-slide",
+      notes: "Keep this slide",
+      layout: "title",
+    });
+    expect(restored[0]!.content).toBe(
+      normalizeSlidePadding(initial.slides[0]!.content),
+    );
+    expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
+
+    await act(async () => {
+      result.current.redo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides).toHaveLength(1);
+    expect(result.current.getDeck(initial.id)!.slides[0]!.id).toBe(
+      placeholderId,
+    );
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]).toMatchObject({
+      id: "only-slide",
+      notes: "Keep this slide",
+      layout: "title",
+    });
+  });
+
+  it("undoes deleting every slide in a single history step", async () => {
+    window.history.pushState({}, "", "/deck/undo-delete-all-slides-deck");
+    const initial: Deck = {
+      id: "undo-delete-all-slides-deck",
+      title: "Undo Delete All Slides Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "first-slide",
+          content: '<div class="fmd-slide"><h1>First</h1></div>',
+          notes: "First notes",
+          layout: "title",
+        },
+        {
+          id: "second-slide",
+          content: '<div class="fmd-slide"><h1>Second</h1></div>',
+          notes: "Second notes",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.deleteSlides(initial.id, ["first-slide", "second-slide"]);
+      await result.current.flushDeckSave(initial.id);
+    });
+    const placeholderId = result.current.getDeck(initial.id)!.slides[0]!.id;
+    expect(placeholderId).not.toBe("first-slide");
+    expect(placeholderId).not.toBe("second-slide");
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    const restored = result.current.getDeck(initial.id)!.slides;
+    expect(restored.map((slide) => slide.id)).toEqual([
+      "first-slide",
+      "second-slide",
     ]);
+    expect(restored.map((slide) => slide.notes)).toEqual([
+      "First notes",
+      "Second notes",
+    ]);
+    expect(
+      restored.map((slide) => normalizeSlidePadding(slide.content)),
+    ).toEqual(
+      initial.slides.map((slide) => normalizeSlidePadding(slide.content)),
+    );
+    expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
+
+    await act(async () => {
+      result.current.redo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides).toHaveLength(1);
+    expect(result.current.getDeck(initial.id)!.slides[0]!.id).toBe(
+      placeholderId,
+    );
+  });
+
+  it("keeps a remotely assigned slide object ID when undo conflicts", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-object-id-deck");
+    const initial: Deck = {
+      id: "undo-remote-object-id-deck",
+      title: "Undo Remote Object ID Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>First</h1></div>',
+          notes: "Original notes",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        notes: "Older local note edit",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    let addedSlideId = "";
+    await act(async () => {
+      addedSlideId = result.current.addSlide(initial.id, "content", undefined, {
+        persistence: "immediate",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+    const deckWithAddedSlide = result.current.getDeck(initial.id)!;
+    const addedSlide = deckWithAddedSlide.slides.find(
+      (slide) => slide.id === addedSlideId,
+    )!;
+    const remoteContent = addedSlide.content.replace(
+      'class="fmd-slide"',
+      'class="fmd-slide" data-slide-object-id="comment-anchor-target"',
+    );
+    setAccessibleDeck({
+      ...deckWithAddedSlide,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: deckWithAddedSlide.slides.map((slide) =>
+        slide.id === addedSlideId
+          ? { ...slide, content: remoteContent }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    const afterConflict = result.current.getDeck(initial.id)!;
+    expect(
+      afterConflict.slides.find((slide) => slide.id === addedSlideId)?.content,
+    ).toBe(remoteContent);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(true);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    const afterOlderUndo = result.current.getDeck(initial.id)!;
+    expect(afterOlderUndo.slides.map((slide) => slide.id)).toEqual([
+      "slide-1",
+      addedSlideId,
+    ]);
+    expect(afterOlderUndo.slides[1]!.content).toContain(
+      'data-slide-object-id="comment-anchor-target"',
+    );
+    expect(afterOlderUndo.slides[0]!.notes).toBe("Original notes");
+  });
+
+  it("does not undo a local slide addition after a remote edit to that slide", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-slide-edit-deck");
+    const initial: Deck = {
+      id: "undo-remote-slide-edit-deck",
+      title: "Undo Remote Slide Edit Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 60px;"><h1>First</h1></div>',
+          notes: "Original notes",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        notes: "Older local note edit",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    let addedSlideId = "";
+    await act(async () => {
+      addedSlideId = result.current.addSlide(initial.id, "content", undefined, {
+        persistence: "immediate",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+    const deckWithAddedSlide = result.current.getDeck(initial.id)!;
+    const addedSlide = deckWithAddedSlide.slides.find(
+      (slide) => slide.id === addedSlideId,
+    )!;
+    const remoteAddedSlideContent = addedSlide.content.replace(
+      'class="fmd-slide"',
+      'class="fmd-slide" data-remote-edit="true"',
+    );
+    setAccessibleDeck({
+      ...deckWithAddedSlide,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: deckWithAddedSlide.slides.map((slide) =>
+        slide.id === addedSlideId
+          ? {
+              ...slide,
+              content: remoteAddedSlideContent,
+            }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    const currentDeck = result.current.getDeck(initial.id)!;
+    expect(currentDeck.slides.some((slide) => slide.id === addedSlideId)).toBe(
+      true,
+    );
+    expect(
+      currentDeck.slides.find((slide) => slide.id === addedSlideId)?.content,
+    ).toBe(remoteAddedSlideContent);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(true);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]!.notes).toBe(
+      "Original notes",
+    );
+  });
+
+  it("does not undo a local slide addition after a remote optional-field edit", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-slide-field-deck");
+    const initial: Deck = {
+      id: "undo-remote-slide-field-deck",
+      title: "Undo Remote Slide Field Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>First</h1></div>',
+          notes: "Original notes",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let addedSlideId = "";
+    await act(async () => {
+      addedSlideId =
+        result.current.pasteSlide(initial.id, "slide-1", {
+          content: '<div class="fmd-slide"><h1>Pasted</h1></div>',
+          notes: "",
+          layout: "content",
+        }) ?? "";
+      await result.current.flushDeckSave(initial.id);
+    });
+    const deckWithAddedSlide = result.current.getDeck(initial.id)!;
+    const remoteBackground = "#e8f0ff";
+    setAccessibleDeck({
+      ...deckWithAddedSlide,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: deckWithAddedSlide.slides.map((slide) =>
+        slide.id === addedSlideId
+          ? { ...slide, background: remoteBackground }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    const currentDeck = result.current.getDeck(initial.id)!;
+    const remotelyEditedSlide = currentDeck.slides.find(
+      (slide) => slide.id === addedSlideId,
+    );
+    expect(remotelyEditedSlide?.background).toBe(remoteBackground);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+  });
+
+  it("does not undo a local slide addition after a remote image-prompt edit", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-slide-prompt-deck");
+    const initial: Deck = {
+      id: "undo-remote-slide-prompt-deck",
+      title: "Undo Remote Slide Prompt Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>First</h1></div>',
+          notes: "Original notes",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let addedSlideId = "";
+    await act(async () => {
+      addedSlideId =
+        result.current.pasteSlide(initial.id, "slide-1", {
+          content: '<div class="fmd-slide"><h1>Pasted</h1></div>',
+          notes: "",
+          layout: "content",
+        }) ?? "";
+      await result.current.flushDeckSave(initial.id);
+    });
+    const deckWithAddedSlide = result.current.getDeck(initial.id)!;
+    const remoteImagePrompt = "Describe a blue sailboat at sunset";
+    setAccessibleDeck({
+      ...deckWithAddedSlide,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: deckWithAddedSlide.slides.map((slide) =>
+        slide.id === addedSlideId
+          ? { ...slide, imagePrompt: remoteImagePrompt }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    const remotelyEditedSlide = result.current
+      .getDeck(initial.id)!
+      .slides.find((slide) => slide.id === addedSlideId);
+    expect(remotelyEditedSlide?.imagePrompt).toBe(remoteImagePrompt);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
   });
 
   it("merges server layout-fit revisions into optimistic slide writes", async () => {
@@ -6456,6 +7535,83 @@ describe("DeckContext deck creation persistence", () => {
     expect(contentOf()).toContain(">0<");
   });
 
+  it("keeps an image move separate from a nearby content edit through undo and redo", async () => {
+    window.history.pushState({}, "", "/deck/separate-image-move-deck");
+    const initial: Deck = {
+      id: "separate-image-move-deck",
+      title: "Separate Image Move Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 60px;"><img data-slide-object-id="image-1" src="image.png" style="position: absolute; left: 10px; top: 10px;"><h1 data-slide-object-id="title-1">Sibling</h1></div>',
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const initialContent = initial.slides[0]!.content;
+    const editedSibling = initialContent.replace("Sibling", "Edited sibling");
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        {
+          content: editedSibling,
+        },
+        { persistence: "immediate" },
+      );
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: editedSibling.replace("left: 10px", "left: 90px") },
+        { persistence: "immediate", separateUndo: true },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    const afterUndo = result.current.getDeck(initial.id)!.slides[0]!.content;
+    expect(afterUndo).toContain("left: 10px");
+    expect(afterUndo).toContain("Edited sibling");
+
+    await act(async () => {
+      result.current.redo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
+      "left: 90px",
+    );
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
+      "left: 10px",
+    );
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
+      "Sibling</h1>",
+    );
+  });
+
   it("keeps undo and redo available through keyboard shortcuts", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const { setAccessibleDeck } = setupFetch();
@@ -6979,6 +8135,146 @@ describe("DeckContext deck creation persistence", () => {
     }
   });
 
+  it("undoes a duplicate that retains its source image prompt", async () => {
+    const deckId = "duplicate-image-prompt-undo-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { fetchMock, getAccessibleDeck, setAccessibleDeck } = setupFetch();
+    setAccessibleDeck({
+      id: deckId,
+      title: "Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          imagePrompt: "Original image prompt",
+        },
+      ],
+    } as Deck);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const toastSpy = vi.spyOn(toast, "error");
+    let duplicateId = "";
+    act(() => {
+      duplicateId = result.current.duplicateSlide(deckId, "slide-1") ?? "";
+    });
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBe("Original image prompt");
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+    expect(
+      getAccessibleDeck()?.slides.find((slide) => slide.id === duplicateId)
+        ?.imagePrompt,
+    ).toBeUndefined();
+    await act(async () => {
+      await result.current.refreshOpenDeck(deckId);
+    });
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBeUndefined();
+
+    act(() => result.current.undo(deckId));
+
+    expect(
+      result.current.getDeck(deckId)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1"]);
+    expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[deckId]?.canRedo).toBe(true);
+
+    act(() => result.current.redo(deckId));
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBe("Original image prompt");
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+    const lastPatchCall = fetchMock.mock.calls
+      .filter(([url, init]) => {
+        return (
+          requestString(url).includes("/_agent-native/actions/patch-deck") &&
+          actionCallBody(init).deckId === deckId
+        );
+      })
+      .at(-1);
+    const redoAddOperation = (
+      actionCallBody(lastPatchCall?.[1]).operations as Array<{
+        op: string;
+        fields?: Record<string, unknown>;
+      }>
+    ).find((operation) => operation.op === "add-slide");
+    expect(redoAddOperation?.fields).not.toHaveProperty("imagePrompt");
+  });
+
+  it("preserves a remote prompt edit on a duplicated slide when undo conflicts", async () => {
+    const deckId = "duplicate-remote-image-prompt-undo-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck } = setupFetch();
+    const initial: Deck = {
+      id: deckId,
+      title: "Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          imagePrompt: "Original image prompt",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let duplicateId = "";
+    await act(async () => {
+      duplicateId = result.current.duplicateSlide(deckId, "slide-1") ?? "";
+      await result.current.flushDeckSave(deckId);
+    });
+    const remotePrompt = "Remote edit to duplicated prompt";
+    const deckWithDuplicate = result.current.getDeck(deckId)!;
+    setAccessibleDeck({
+      ...deckWithDuplicate,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: deckWithDuplicate.slides.map((slide) =>
+        slide.id === duplicateId
+          ? { ...slide, imagePrompt: remotePrompt }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(deckId, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => result.current.undo(deckId));
+
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBe(remotePrompt);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+  });
+
   it("persists a duplicated slide after the optimistic insert", async () => {
     const deckId = "duplicate-layout-revision-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
@@ -7173,6 +8469,9 @@ describe("DeckContext deck creation persistence", () => {
       (operation) => operation.op === "add-slide",
     );
 
+    expect(
+      result.current.getDeck(deckId)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
     expect(restoredSlide?.slideId).toBe("slide-1");
     expect(restoredSlide?.fields).not.toHaveProperty("layoutFitRevision");
     expect(restoredSlide?.fields).not.toHaveProperty("imagePrompt");

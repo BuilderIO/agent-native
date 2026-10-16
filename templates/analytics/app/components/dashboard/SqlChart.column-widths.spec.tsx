@@ -13,6 +13,10 @@ const ROWS = vi.hoisted(() => [
 ]);
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  useSession: () => ({
+    session: { email: "viewer@example.com", userId: "viewer", orgId: "org-1" },
+    status: "authenticated",
+  }),
   useActionMutation: () => ({ mutate: () => {}, isPending: false }),
   useDemoModeStatus: () => ({
     enabled: false,

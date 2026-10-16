@@ -15,7 +15,11 @@ import type { AspectRatio } from "@/lib/aspect-ratios";
 import type { DesignSystemData } from "../../../shared/api";
 import type { SlidePosition } from "../../../shared/slide-number";
 import { normalizeSlideTransition } from "../../../shared/slide-transitions";
-import { annotateBuildSteps, getBuildSteps } from "./slide-build-steps";
+import {
+  annotateBuildSteps,
+  buildClickCount,
+  getBuildSteps,
+} from "./slide-build-steps";
 import {
   prefersReducedMotion,
   resolveSlideTransitionMotion,
@@ -201,7 +205,7 @@ export function SlideTransitionPreview({
   const outgoing = annotateBuildSteps(
     outgoingSource,
     outgoingSteps,
-    outgoingSteps.length,
+    buildClickCount(outgoingSteps),
   );
   const incoming = annotateBuildSteps(incomingSource, incomingSteps, 0);
   const motion = resolveSlideTransitionMotion(

@@ -1284,6 +1284,18 @@ export const migrations = runMigrations(
         ADD COLUMN IF NOT EXISTS storage_mode TEXT
         CHECK (storage_mode IN ('own', 'hosted'))`,
     },
+    {
+      version: 89,
+      name: "recording-transcripts-source",
+      // Additive. Mirrors `source` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS source TEXT`,
+    },
+    {
+      version: 90,
+      name: "recording-transcripts-import-id",
+      // Additive. Mirrors `importId` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS import_id TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );
