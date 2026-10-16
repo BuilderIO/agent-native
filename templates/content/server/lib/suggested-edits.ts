@@ -50,16 +50,14 @@ import {
 } from "../../shared/suggestion-apply.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
-import { schema } from "../db/index.js";
+import { getDb, schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
+import { drizzleOverExec } from "../live-copy/exec-db.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
-import {
-  liveBodyWriterGateForRow,
-  liveBodyWriterPageColumns,
-} from "./live-body-writer.js";
+import { liveBodyWriterGate } from "./live-body-writer.js";
 import { syncPrivateCalloutReferences } from "./private-icon-references.js";
 import {
   acceptedRangesOnSameText,
@@ -75,26 +73,17 @@ export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
 const ACCEPT_WRITER_ATTEMPTS = 3;
 
-/** The Page, when its body is written through its live copy. */
+/** The Page's owner, when its body is written through its live copy. */
 async function liveCopyPage(documentId: string) {
-  const exec = getDbExec();
-  if (!exec.transaction) {
-    throw new Error("Accepting a suggestion needs database transactions");
-  }
-  return exec.transaction(async (transaction) => {
-    // The gate reads this row and `_collab_docs` in two statements. A
-    // live-copy commit between them moves both, and the gate would read one
-    // without the other; the share lock holds that commit off.
-    // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
-    const [page] = await drizzleTransactionForExec(transaction)
-      .select(liveBodyWriterPageColumns)
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId))
-      .limit(1)
-      .for("share");
-    const gate = await liveBodyWriterGateForRow(page, { transaction });
-    return gate.writePath === "live_copy" ? page : undefined;
-  });
+  if ((await liveBodyWriterGate(documentId)).writePath !== "live_copy")
+    return undefined;
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+  const [page] = await getDb()
+    .select({ ownerEmail: schema.documents.ownerEmail })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId))
+    .limit(1);
+  return page;
 }
 
 /**
@@ -387,13 +376,9 @@ async function proposalOnStoredBody(
   operation: SuggestionOperation,
 ): Promise<SuggestionOperation> {
   if (!transaction || typeof content !== "string") failBeforeStateConflict();
-  // guard:allow-unscoped — core's propose action asserted comment access to this Page before validating the proposal.
-  const [page] = await drizzleTransactionForExec(transaction)
-    .select(liveBodyWriterPageColumns)
-    .from(schema.documents)
-    .where(eq(schema.documents.id, documentId))
-    .limit(1);
-  const gate = await liveBodyWriterGateForRow(page, { transaction });
+  const gate = await liveBodyWriterGate(documentId, {
+    db: drizzleOverExec(transaction),
+  });
   const before = markdownPayload(operation.before, "before").markdown;
   if (gate.writePath !== "live_copy" || canonicalizeNfm(before) !== content)
     failBeforeStateConflict();
