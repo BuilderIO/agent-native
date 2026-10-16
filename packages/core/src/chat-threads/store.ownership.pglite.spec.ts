@@ -255,6 +255,15 @@ describe("chat thread ownership lists (real SQL)", () => {
       offset: 2,
     });
     expect(ids(sharedPage2)).toEqual(["org-grant", "direct-and-org"]);
+    expect(
+      sharedPage2.map(({ ownerEmail, accessBasis }) => ({
+        ownerEmail,
+        accessBasis,
+      })),
+    ).toEqual([
+      { ownerEmail: "cy@example.com", accessBasis: "organization" },
+      { ownerEmail: "dee@example.com", accessBasis: "direct" },
+    ]);
   });
 
   it("rejects an unknown ownership instead of listing everything", async () => {

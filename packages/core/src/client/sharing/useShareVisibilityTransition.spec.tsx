@@ -115,6 +115,59 @@ describe("useShareVisibilityTransition resource locks", () => {
     },
   );
 
+  it("locks direct writes per resource through close and revisit, joins the target and releases on failure", async () => {
+    const a = deferred();
+    const b = deferred();
+    const retry = deferred();
+    const applyA = vi
+      .fn()
+      .mockReturnValueOnce(a.promise)
+      .mockReturnValueOnce(retry.promise);
+    const applyB = vi.fn(() => b.promise);
+    render({ current: "org", apply: applyA });
+    let savedA!: Promise<void>;
+    act(() => {
+      savedA = transition.request("private");
+    });
+    render({ current: "private", active: false });
+    render({ active: true });
+    await expect(transition.request("public")).rejects.toMatchObject({
+      reason: "ignored",
+    });
+    expect(transition.request("private")).toBe(savedA);
+    expect(applyA).toHaveBeenCalledTimes(1);
+
+    render({ resourceId: "b", current: "org", apply: applyB });
+    let savedB!: Promise<void>;
+    act(() => {
+      savedB = transition.request("public");
+    });
+    expect(applyB).toHaveBeenCalledWith("public");
+    render({ resourceId: "a", current: "private", apply: applyA });
+    await expect(transition.request("org")).rejects.toMatchObject({
+      reason: "ignored",
+    });
+    expect(transition.pending).toBeNull();
+    expect(transition.request("private")).toBe(savedA);
+    const failure = new Error("direct save failed");
+    await act(async () => {
+      a.reject(failure);
+      await expect(savedA).rejects.toBe(failure);
+    });
+    render({ current: "org" });
+    let savedRetry!: Promise<void>;
+    act(() => {
+      savedRetry = transition.request("public");
+    });
+    expect(applyA).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      retry.resolve();
+      b.resolve();
+      await savedRetry;
+      await savedB;
+    });
+  });
+
   it("keeps an active confirmation failure retryable and resolves its caller after persistence", async () => {
     const first = deferred();
     const retry = deferred();

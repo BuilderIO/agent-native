@@ -253,34 +253,34 @@ describe("useShareButtonController", () => {
     expect(onShareSuccess).toHaveBeenCalledOnce();
   });
 
-  it("reports a rapid private-to-shared visibility sequence from its final result", async () => {
+  it("reports the actual private-to-shared save once after refusing a different target", async () => {
     const onShareSuccess = vi.fn();
     await renderOpen({ ...options, onShareSuccess });
     chooseVisibility("public");
-    const staleMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    const mutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
     chooseVisibility("org");
-    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+    expect(mocks.setVisibility.mutate).toHaveBeenCalledOnce();
+    expect((controller as ShareButtonController).visibility).toBe("public");
+    expect(onShareSuccess).not.toHaveBeenCalled();
 
     await act(async () => {
-      staleMutation?.onSuccess?.({ visibility: "public" });
-      latestMutation?.onSuccess?.({ visibility: "org" });
+      mutation?.onSuccess?.({ visibility: "public" });
       await Promise.resolve();
     });
 
     expect(onShareSuccess).toHaveBeenCalledOnce();
   });
 
-  it("ignores stale visibility success and requires an authoritative shared result", async () => {
+  it("requires an authoritative shared result after refusing a different target", async () => {
     const onShareSuccess = vi.fn();
     await renderOpen({ ...options, onShareSuccess });
     chooseVisibility("public");
-    const staleMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    const mutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
     chooseVisibility("org");
-    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+    expect(mocks.setVisibility.mutate).toHaveBeenCalledOnce();
 
     await act(async () => {
-      staleMutation?.onSuccess?.({ visibility: "public" });
-      latestMutation?.onSuccess?.({ visibility: "private" });
+      mutation?.onSuccess?.({ visibility: "private" });
       await Promise.resolve();
     });
 

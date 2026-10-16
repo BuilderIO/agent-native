@@ -368,8 +368,8 @@ export type ChatThreadAccessBasis = "owner" | "direct" | "organization";
 
 export interface ChatThreadSummary {
   id: string;
-  ownerEmail: string;
-  accessBasis: ChatThreadAccessBasis;
+  ownerEmail?: string;
+  accessBasis?: ChatThreadAccessBasis;
   title: string;
   preview: string;
   messageCount: number;
@@ -381,6 +381,12 @@ export interface ChatThreadSummary {
   source: ChatThreadSource | null;
   orgId: string | null;
   visibility: "private" | "org" | "public";
+}
+
+/** List and search rows always include the caller's ownership and access basis. */
+export interface ChatThreadListRow extends ChatThreadSummary {
+  ownerEmail: string;
+  accessBasis: ChatThreadAccessBasis;
 }
 
 export interface ForkThreadSourceSnapshot {
@@ -861,7 +867,7 @@ function readAccessBasis(value: unknown): ChatThreadAccessBasis {
   throw new Error(`Unexpected chat thread access basis: ${String(value)}`);
 }
 
-function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
+function rowToSummary(r: Record<string, unknown>): ChatThreadListRow | null {
   // The summary path never loads `thread_data`; the count comes from the
   // dedicated `message_count` column maintained on write. Empty threads are
   // filtered out of the list.
@@ -1277,7 +1283,7 @@ export async function listThreads(
   ownerEmail: string,
   options: ListThreadsOptions | number = {},
   legacyOffset?: number,
-): Promise<ChatThreadSummary[]> {
+): Promise<ChatThreadListRow[]> {
   await ensureTable();
   // Back-compat shim: previous signature was (owner, limit, offset).
   const opts: ListThreadsOptions =
@@ -1328,7 +1334,7 @@ export async function listThreads(
   });
   return rows
     .map((r) => rowToSummary(r))
-    .filter((r): r is ChatThreadSummary => r !== null);
+    .filter((r): r is ChatThreadListRow => r !== null);
 }
 
 function escapeLike(s: string): string {
@@ -1352,7 +1358,7 @@ export async function searchThreads(
     ownership?: ChatThreadOwnership;
     offset?: number;
   } = {},
-): Promise<ChatThreadSummary[]> {
+): Promise<ChatThreadListRow[]> {
   await ensureTable();
   const client = getDbExec();
   const pattern = `%${escapeLike(query)}%`;
@@ -1402,7 +1408,7 @@ export async function searchThreads(
   });
   return rows
     .map((r) => rowToSummary(r))
-    .filter((r): r is ChatThreadSummary => r !== null);
+    .filter((r): r is ChatThreadListRow => r !== null);
 }
 
 /**
