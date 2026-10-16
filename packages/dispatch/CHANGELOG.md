@@ -1,5 +1,37 @@
 # @agent-native/dispatch
 
+## 0.40.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ce4eca0]
+- Updated dependencies
+- Updated dependencies [95aa388]
+- Updated dependencies [36fc751]
+- Updated dependencies [f99e655]
+- Updated dependencies [f99e655]
+- Updated dependencies [95aa388]
+  - @agent-native/toolkit@0.209.2
+
+## 0.40.24
+
+### Patch Changes
+
+- 2743662: Use the shared app permission policy for organization owner and admin access to Dispatch administration. Dispatch now requires `@agent-native/core` 0.206.0 or later, the first release with that policy.
+- Release all public npm packages with a patch version bump.
+- 517fade: Say why a workspace app answers 503 "Workspace app access is temporarily unavailable". The 503 body now carries a `code` (and, when a Dispatch registry reply arrived, `upstreamStatus`, `audience`, and `detail`), and each cause is logged once per instance. A new `checkWorkspaceAppAccess` returns the cause; `isWorkspaceAppAccessAllowed` keeps its `true` / `false` / `"unavailable"` contract. Dispatch logs why it refused a registry token (server-side only; the 401 stays a fixed refusal), using the new `diagnoseA2ATokenFailure` from `@agent-native/core/a2a`.
+- Updated dependencies [e90b90a]
+- Updated dependencies [5b201d1]
+- Updated dependencies [ce01559]
+- Updated dependencies
+- Updated dependencies [c139e35]
+- Updated dependencies [c139e35]
+- Updated dependencies [e5a64ae]
+- Updated dependencies [e6e1f56]
+- Updated dependencies [73da788]
+  - @agent-native/toolkit@0.209.1
+
 ## 0.40.23
 
 ### Patch Changes
@@ -1245,19 +1277,5 @@
 - 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
 - b676db8: Share the canonical localized authentication copy with native sign-in surfaces
   and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.18
-
-### Patch Changes
-
-- 436340b: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.17
-
-### Patch Changes
-
-- Updated dependencies [95ea873]
-  - @agent-native/toolkit@0.16.4
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

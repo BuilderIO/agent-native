@@ -1695,6 +1695,8 @@ export default {
     tweaksPlaceholder: "강조 옵션, 밀도, 반경, 다크 모드...",
     designExport: "Design 내보내기",
     designPreview: "Design 미리보기",
+    preview: "미리보기",
+    publish: "게시",
     presentMode: "현재 모드",
     useThisDirection: "이 방향을 사용하세요",
     variantHandoffHelp: "계속하려면 이 요약을 코딩 에이전트에 붙여넣으세요.",

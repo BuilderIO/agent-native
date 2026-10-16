@@ -1,3 +1,17 @@
+## 0.27.18
+
+### Patch Changes
+
+- 436340b: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+
+## 0.27.17
+
+### Patch Changes
+
+- Updated dependencies [95ea873]
+  - @agent-native/toolkit@0.16.4
+
 ## 0.27.16
 
 ### Patch Changes

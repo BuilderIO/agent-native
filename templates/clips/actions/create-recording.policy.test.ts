@@ -6,9 +6,11 @@ const calls = vi.hoisted(() => ({
   updateSet: vi.fn(),
   snapshot: vi.fn(async () => false),
   uploadProvider: vi.fn(async () => null),
+  captureError: vi.fn(),
   writeState: vi.fn(async () => {}),
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
+  resolveStorage: vi.fn(),
   track: vi.fn(),
 }));
 
@@ -18,6 +20,12 @@ vi.mock("@agent-native/core/action", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => calls.writeState(...args),
+}));
+vi.mock("@agent-native/core/server", () => ({
+  captureError: (...args: unknown[]) => calls.captureError(...args),
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => null,
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
@@ -38,7 +46,9 @@ vi.mock("../server/db/index.js", () => ({
       },
     }),
   }),
-  schema: { recordings: { id: "recordings.id" } },
+  schema: {
+    recordings: { id: "recordings.id", storageMode: "recordings.storageMode" },
+  },
 }));
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
@@ -64,12 +74,18 @@ vi.mock("./lib/recording-scope.js", () => ({
 }));
 vi.mock("../server/lib/video-storage.js", () => ({
   allowsSqlRecordingChunkScratch: () => calls.bufferedFallbackAvailable,
+  resolveClipsVideoStorage: (...args: unknown[]) =>
+    calls.resolveStorage(...args),
+  releaseHostedClipRecording: vi.fn(),
   STORAGE_SETUP_REQUIRED_REASON: "Storage setup required",
+  HOSTED_STORAGE_UNAVAILABLE_REASON:
+    "Clips hosted storage is temporarily unavailable. Try again later.",
 }));
 vi.mock("../server/lib/streaming-upload-mode.js", () => ({
   shouldEnableStreamingUpload: () => calls.streamingEnabled,
 }));
 
+import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
 import createRecording, {
   classifyInitialUploadFailure,
 } from "./create-recording";
@@ -82,7 +98,46 @@ describe("create-recording policy", () => {
     calls.snapshot.mockResolvedValue(false);
     calls.bufferedFallbackAvailable = true;
     calls.streamingEnabled = false;
+    calls.resolveStorage.mockImplementation(async () => {
+      const provider = await calls.uploadProvider();
+      return {
+        mode: "own",
+        provider,
+        hostedRemaining: 0,
+        hostedLimit: 3,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+        reservationCreated: false,
+      };
+    });
     calls.track.mockReset();
+  });
+
+  it("returns the duration cap only for hosted recordings", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<{ maxClipDurationMs: number | null }>;
+    };
+    const context = { userEmail: "owner@example.com" };
+
+    await expect(
+      action.run({ id: "rec-own", recordingPlatform: "web" }, context),
+    ).resolves.toMatchObject({ maxClipDurationMs: null });
+
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: await calls.uploadProvider(),
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: false,
+    });
+    await expect(
+      action.run({ id: "rec-hosted", recordingPlatform: "web" }, context),
+    ).resolves.toMatchObject({ maxClipDurationMs: 10 * 60 * 1000 });
   });
 
   it("saves the new recording's policy before initializing its upload", async () => {
@@ -180,7 +235,8 @@ describe("create-recording policy", () => {
     ).rejects.toBe(error);
 
     expect(calls.snapshot).toHaveBeenCalledOnce();
-    expect(calls.uploadProvider).not.toHaveBeenCalled();
+    expect(calls.resolveStorage).toHaveBeenCalledOnce();
+    expect(calls.uploadProvider).toHaveBeenCalledOnce();
     expect(calls.writeState).not.toHaveBeenCalled();
   });
 
@@ -230,6 +286,74 @@ describe("create-recording policy", () => {
       expect.objectContaining({
         status: "failed",
         storageSetupRequired: false,
+      }),
+    );
+  });
+
+  it("persists and reports hosted provider auth failures without exposing the provider error", async () => {
+    calls.bufferedFallbackAvailable = false;
+    calls.streamingEnabled = true;
+    const provider = {
+      id: "clips-hosted",
+      resumable: {
+        startSession: vi.fn().mockRejectedValue(new S3MultipartStartError(403)),
+      },
+    };
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: false,
+    });
+
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          recordingPlatform: "web",
+          requestStreaming: true,
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      data: {
+        errorCode: "hosted_storage_unavailable",
+        retryable: true,
+      },
+      statusMessage:
+        "Clips hosted storage is temporarily unavailable. Try again later.",
+    });
+
+    expect(calls.updateSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "hosted_storage_unavailable",
+        failureReason:
+          "Clips hosted storage is temporarily unavailable. Try again later.",
+      }),
+    );
+    expect(calls.captureError).toHaveBeenCalledWith(
+      expect.any(S3MultipartStartError),
+      expect.objectContaining({
+        route: "/_agent-native/actions/create-recording",
+        errorMessagePolicy: "omit",
+        tags: expect.objectContaining({
+          area: "clips-storage",
+          errorCode: "hosted_storage_unavailable",
+          providerStatus: "403",
+          reportExpected: "true",
+        }),
       }),
     );
   });

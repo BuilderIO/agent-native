@@ -3060,6 +3060,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} 연결",
   "settingsSubAgents.close": "닫기",
   "observability.insights.rawTrace": "원시 트레이스 (모든 스팬과 입력/출력)",
+  "reportProblem.menuItem": "문제 신고",
+  "reportProblem.title_other":
+    "최근 {{count}}초 동안 앱이 한 작업을 첨부할까요?",
+  "reportProblem.noEvents": "아직 기록된 내용이 없습니다.",
+  "reportProblem.send": "에이전트에게 보내기",
+  "reportProblem.copy": "문제 보고서 복사",
+  "reportProblem.attaching": "첨부하는 중…",
+  "reportProblem.notAttached": "보고서가 첨부되지 않았습니다.",
+  "reportProblem.agentMessage":
+    "앱에 문제가 생겼습니다. 첨부된 문제 보고서를 바탕으로 무슨 일이 있었는지 설명해 주세요.",
 };
 
 export default messages;

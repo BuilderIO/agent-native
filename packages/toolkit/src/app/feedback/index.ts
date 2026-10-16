@@ -7,3 +7,7 @@ export {
   type SubmitFeedbackFormOptions,
 } from "./FeedbackButton.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export {
+  ReportProblemButton,
+  type ReportProblemButtonProps,
+} from "./ReportProblemButton.js";

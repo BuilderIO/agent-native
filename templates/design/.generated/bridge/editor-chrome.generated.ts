@@ -903,6 +903,24 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/relative-position-containing-block.ts
+  function relativePositionContainingBlockDirection(element, getComputedStyle) {
+    let ancestor = element.parentElement;
+    while (ancestor) {
+      const styles = getComputedStyle(ancestor);
+      const display = styles.display;
+      if (display === "inline" || display === "contents") {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      if (display === "block" || display === "flow-root" || display === "list-item" || display === "inline-block" || display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid" || display === "table-cell" || display === "table-caption") {
+        return styles.direction === "ltr" || styles.direction === "rtl" ? styles.direction : void 0;
+      }
+      return void 0;
+    }
+    return void 0;
+  }
+
   // shared/spacing-handle-rule.ts
   function isAutoLayoutDisplay(display) {
     return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -6030,6 +6048,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         gridTemplateRows: parentStyles.gridTemplateRows,
         position: parentStyles.position
       } : void 0;
+      var relativeContainingBlockDirection = cs.position === "relative" ? relativePositionContainingBlockDirection(
+        el,
+        (ancestor) => window.getComputedStyle(ancestor)
+      ) : void 0;
       var capabilities = sourceBacked ? [
         {
           kind: "deterministic-style-edit",
@@ -6110,6 +6132,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         parentDisplay,
         parentAutoLayout,
         parentLayout,
+        relativeContainingBlockDirection,
         editCapabilities: capabilities,
         confidence: capabilities.reduce(function(best, item) {
           return Math.max(best, item.confidence || 0);
@@ -14559,6 +14582,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function isFreeformDropContainer(el) {
+      if (isAutoLayoutElement(el)) return false;
+      var hasChild = false;
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (isOverlayElement(child)) continue;
+        var childStyle = window.getComputedStyle(child);
+        if (childStyle.display === "none") continue;
+        if (childStyle.position !== "absolute" && childStyle.position !== "fixed") {
+          return false;
+        }
+        hasChild = true;
+      }
+      return hasChild || window.getComputedStyle(el).position !== "static";
+    }
     function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
@@ -15056,7 +15094,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag) && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag)) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;
@@ -18749,12 +18787,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
         if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
-          return nearestChildInsertionTarget(
+          var besideContainer = nearestChildInsertionTarget(
             document.body,
             pointerX,
             pointerY,
             excluded
           );
+          if (besideContainer && isFreeformDropContainer(document.body)) {
+            besideContainer.dropMode = "absolute-container";
+          }
+          return besideContainer;
         }
         return null;
       }
@@ -19126,6 +19168,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelMoveDrag();
       }
       function onUp(ev) {
+        onMove(ev);
         var controllerEnd = bridgeMoveController.pointerUp(
           bridgeGesturePointer(ev)
         );

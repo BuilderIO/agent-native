@@ -1,4 +1,4 @@
-import type { AnimationType } from "@/context/DeckContext";
+import type { AnimationTrigger, AnimationType } from "@/context/DeckContext";
 
 import { ALLOWED_TAGS, DROP_WITH_CHILDREN } from "./sanitize-slide-html";
 import { SOURCE_STAMP_ATTR, stampSlideSource } from "./slide-source-map";
@@ -13,8 +13,12 @@ export interface AnimationTarget {
   elementIndex: number;
   elementPath?: number[];
   byParagraph?: boolean;
+  trigger?: AnimationTrigger;
   id?: string;
 }
+
+/** Shared so "nothing selected" is the same array each time and never re-renders. */
+export const NO_ANIMATION_TARGETS: SelectedAnimationTarget[] = [];
 
 export interface SelectedAnimationTarget {
   elementIndex: number;
@@ -714,6 +718,45 @@ export function revealStepsOf<T extends AnimationTarget>(
 }
 
 /**
+ * The 1-based click that plays each step, parallel to `steps`. A with-previous
+ * step shares the click before it, except the first step, which has nothing to
+ * join. Only the first paragraph of a by-paragraph reveal follows its trigger;
+ * the rest take a click each.
+ */
+export function revealStepClicks(
+  steps: readonly RevealStep<AnimationTarget>[],
+): number[] {
+  let click = 0;
+  return steps.map((step, index) => {
+    const joinsPrevious =
+      index > 0 &&
+      step.animation.trigger === "with-previous" &&
+      (step.paragraphIndex ?? 0) === 0;
+    if (!joinsPrevious) click += 1;
+    return click;
+  });
+}
+
+/**
+ * The click each reveal starts at, parallel to `outcomes`. A reveal that did
+ * not resolve plays nothing, so it reports the click before it.
+ */
+export function revealOutcomeClicks<T extends AnimationTarget>(
+  outcomes: readonly RevealOutcome<T>[],
+): number[] {
+  const clicks = revealStepClicks(revealStepsOf(outcomes));
+  let next = 0;
+  let current = 0;
+  return outcomes.map((outcome) => {
+    if (outcome.ok && outcome.steps.length > 0) {
+      current = clicks[next]!;
+      next += outcome.steps.length;
+    }
+    return current;
+  });
+}
+
+/**
  * Each reveal as the single targets playback runs, or null when any reveal is
  * unresolved. A by-paragraph reveal with several steps becomes one target per
  * step, with its paragraph index in the id.
@@ -825,6 +868,21 @@ export function getSlideAnimationTargetKey(
 
   const path = getPersistedElementPath(root, element);
   return path ? animationElementKey(path) : null;
+}
+
+/** The key of each target in `targets`, parsing `html` once. Null where one does not resolve. */
+export function getSlideAnimationTargetKeys(
+  html: string,
+  targets: readonly AnimationTarget[],
+): Array<string | null> {
+  const root = new DOMParser()
+    .parseFromString(html, "text/html")
+    .querySelector(".fmd-slide");
+  return targets.map((target) => {
+    const element = root && resolveSlideAnimationElement(root, target);
+    const path = element && getPersistedElementPath(root, element);
+    return path ? animationElementKey(path) : null;
+  });
 }
 
 export function getSlideAnimationTargetPreview(

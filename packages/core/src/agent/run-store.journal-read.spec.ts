@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import {
   getCurrentTurnEventsForThread,
@@ -63,6 +64,10 @@ beforeEach(() => {
 
 function recordPersistedEvents() {
   mocks.execute.mockImplementation(async (statement) => {
+    const ledger = storeLedgerResult(
+      typeof statement === "string" ? statement : statement.sql,
+    );
+    if (ledger) return ledger;
     if (statement.sql.includes("INSERT INTO agent_run_events"))
       mocks.events.push({
         run_id: statement.args[0],
@@ -448,6 +453,10 @@ it.each([
       },
     ];
     mocks.execute.mockImplementation(async (statement) => {
+      const ledger = storeLedgerResult(
+        typeof statement === "string" ? statement : statement.sql,
+      );
+      if (ledger) return ledger;
       if (statement.sql.includes("INSERT INTO agent_run_events")) {
         mocks.events.push({
           run_id: statement.args[0],

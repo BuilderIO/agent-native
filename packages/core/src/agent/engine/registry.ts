@@ -872,6 +872,7 @@ function identityUserEmail(
 async function chatGPTSubscriptionUsableForRequest(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<boolean> {
+  if (identity?.orgId || getRequestOrgId()) return false;
   const email = identityUserEmail(identity);
   if (!email) return false;
   return hasChatGPTSubscriptionCredential(email);
@@ -1266,6 +1267,14 @@ export async function resolveEngine(
     typeof engineOption === "object" &&
     "stream" in engineOption
   ) {
+    if (
+      engineOption.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+      !(await chatGPTSubscriptionUsableForRequest(credentialIdentity))
+    ) {
+      throw new Error(
+        "Connect a ChatGPT account with direct model access before using this engine.",
+      );
+    }
     return engineOption as AgentEngine;
   }
 

@@ -65,6 +65,7 @@ export const dashboardRevisions = table(
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by"),
     chatContext: text("chat_context"),
+    changeSummary: text("change_summary"),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
   },
@@ -836,6 +837,69 @@ export const externalDashboardMigrations = table(
       "bi_migration_external_dashboards_flagged_count_check",
       sql`${t.flaggedCount} >= 0`,
     ),
+  }),
+);
+
+/** Named groups of key dates (launches, product changes) shown on every time chart of a dashboard. */
+export const analyticsKeyDateSets = table(
+  "analytics_key_date_sets",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    name: varchar("name", { length: 80 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_key_date_sets_org_idx").on(t.orgId),
+  }),
+);
+
+export const analyticsKeyDates = table(
+  "analytics_key_dates",
+  {
+    id: text("id").primaryKey(),
+    setId: text("set_id").notNull(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    date: varchar("date", { length: 10 }).notNull(),
+    time: varchar("time", { length: 5 }),
+    timeZone: varchar("time_zone", { length: 64 }),
+    label: varchar("label", { length: 120 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    setIdx: index("analytics_key_dates_set_idx").on(t.setId, t.date),
+    orgIdx: index("analytics_key_dates_org_idx").on(t.orgId),
+  }),
+);
+
+export const analyticsDataNotes = table(
+  "analytics_data_notes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    title: varchar("title", { length: 120 }).notNull(),
+    note: varchar("note", { length: 1000 }).notNull(),
+    startDate: varchar("start_date", { length: 10 }),
+    endDate: varchar("end_date", { length: 10 }),
+    status: varchar("status", { length: 8 }).notNull().default("open"),
+    fix: varchar("fix", { length: 500 }),
+    /** JSON array of event names. */
+    matchEvents: text("match_events").notNull().default("[]"),
+    /** JSON array of event names. */
+    unlessEvents: text("unless_events").notNull().default("[]"),
+    /** JSON array of { dashboardId, panelId }. */
+    panels: text("panels").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_data_notes_org_idx").on(t.orgId),
   }),
 );
 

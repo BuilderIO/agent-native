@@ -831,6 +831,13 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   useEffect(() => {
     if (recording && !recording.enableComments) {
       // Functional update so this branch doesn't need `panel` as a
@@ -1517,7 +1524,9 @@ export default function ShareRoute() {
     const signInHref = buildSignInReturnHref({
       returnTo: appPath(`/r/${recording.id}`),
     });
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")
       : stuckFailure
@@ -1538,7 +1547,9 @@ export default function ShareRoute() {
           ? t("sharePage.uploadNotCompleteSession")
           : t("sharePage.uploadNotCompleteSignIn")
         : explicitFailure
-          ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
+          ? (localizedHostedFailure ??
+            rawFailureReason ??
+            t("sharePage.creatorMayRetry"))
           : t("sharePage.uploadingAssembling");
     const canDownloadLocalCopy = isFailure && viewerIsOwner && !isImage;
 

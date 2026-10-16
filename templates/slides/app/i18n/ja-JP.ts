@@ -2,6 +2,33 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 const messages = {
   composer: { menu: { integrations: "連携" } },
+  appMenu: {
+    label: "アプリメニュー",
+    actions: "アクション…",
+    backToDashboard: "ダッシュボードに戻る",
+    file: "ファイル",
+    edit: "編集",
+    view: "表示",
+    preferences: "環境設定",
+    help: "ヘルプ",
+    importFile: "ファイルをインポート…",
+    export: "エクスポート…",
+    saveLocalCopy: "ローカルコピーを保存…",
+    versionHistory: "バージョン履歴",
+    duplicateSelection: "選択項目を複製",
+    deleteSelection: "選択項目を削除",
+    zoomIn: "拡大",
+    zoomOut: "縮小",
+    previousSlide: "前のスライド",
+    nextSlide: "次のスライド",
+    appearance: "外観…",
+    themeLight: "ライト",
+    themeDark: "ダーク",
+    themeSystem: "システム",
+    documentation: "ドキュメント",
+    whatsNew: "新機能",
+    sendFeedback: "フィードバックを送信…",
+  },
   templatesPage: {
     actions: "{{title}} のテンプレート操作",
     previewAction: "プレビュー",
@@ -610,6 +637,8 @@ const messages = {
     addTransition: "トランジションを追加",
     effect: "効果",
     onClick: "クリック時",
+    withPrevious: "直前と同時",
+    trigger: "開始",
     byParagraph: "段落ごと",
     expand: "トランジションを展開",
     collapse: "トランジションを折りたたむ",
@@ -710,6 +739,17 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
+    voiceNavigation: "音声ナビゲーション",
+    voiceNavigationNextCommand: "次のスライド",
+    voiceNavigationPreviousCommand: "前のスライド",
+    voiceNavigationHint:
+      "「{{next}}」または「{{previous}}」と言うと移動します。",
+    voiceNavigationListening:
+      "「{{next}}」または「{{previous}}」を聞き取っています。",
+    voiceNavigationUnavailable:
+      "このブラウザーでは音声ナビゲーションを利用できません。",
+    voiceNavigationError:
+      "音声ナビゲーションが停止しました。マイクの権限と接続を確認して、もう一度お試しください。",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
@@ -801,6 +841,8 @@ const messages = {
       "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     generationOutcomeUnresolved:
       "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    generationOutcomeUnresolvedWithSlides:
+      "スライドの作成が完了したか確認できませんでした。続行する前に、ここに表示されているスライドを確認してください。",
     partialGenerationFailed:
       "スライドを最後まで作成できませんでした。続ける前に、作成済みのスライドと最初のリクエストを確認してください。",
     originalPrompt: "入力した内容",
@@ -823,6 +865,10 @@ const messages = {
     leaveWithoutSaving: "保存せずに終了",
     editorMarkupNotSaved:
       "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    historyStepConflict:
+      "現在のプレゼンテーションと競合するため、この履歴ステップはスキップされました。",
+    historyStepFailed:
+      "この履歴操作は適用できなかったため、スキップされました。",
     textEditConflictNotSaved:
       "同じテキストが同時に別の場所で変更されたため、テキストの編集は保存されませんでした。",
   },

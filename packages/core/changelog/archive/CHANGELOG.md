@@ -1,3 +1,17 @@
+## 0.167.4
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
+## 0.167.3
+
+### Patch Changes
+
+- 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- 40baf42: Preserve browser attribution through Better Auth email signup user creation.
+- 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
+
 ## 0.167.2
 
 ### Patch Changes

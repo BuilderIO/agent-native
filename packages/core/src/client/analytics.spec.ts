@@ -2386,6 +2386,119 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("adds the recorder's recent events to browser Sentry errors as breadcrumbs and a recorder.json attachment", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+    const { recordActionStart, recorder } = await import("./recorder.js");
+    configureTracking({});
+    await tick();
+    recorder.log("screen.restored", { from: "s1", to: "s7" });
+    recordActionStart(
+      "list-folders",
+      "GET",
+    )({
+      error: Object.assign(
+        new Error("Action list-folders failed: Missing scope"),
+        { status: 403, errorCode: "forbidden_scope" },
+      ),
+      response: undefined,
+      signal: undefined,
+    });
+    const options = sentryMock.init.mock.calls[0][0];
+    const hint: { attachments?: Array<Record<string, string>> } = {};
+
+    const result = options.beforeSend(
+      {
+        exception: { values: [{ type: "TypeError", value: "boom" }] },
+        breadcrumbs: [{ category: "ui.click", timestamp: 0 }],
+      },
+      hint,
+    );
+
+    expect(result.breadcrumbs[0]).toEqual({
+      category: "ui.click",
+      timestamp: 0,
+    });
+    expect(
+      result.breadcrumbs.filter(
+        (crumb: { category: string }) =>
+          crumb.category === "recorder.log" ||
+          crumb.category === "recorder.action",
+      ),
+    ).toEqual([
+      {
+        category: "recorder.log",
+        message: "screen.restored",
+        level: "info",
+        timestamp: expect.any(Number),
+        data: {},
+      },
+      {
+        category: "recorder.action",
+        message: expect.stringMatching(
+          /^list-folders failed 403 forbidden_scope \d+ms$/,
+        ),
+        level: "warning",
+        timestamp: expect.any(Number),
+        data: {
+          ok: false,
+          status: 403,
+          errorCode: "forbidden_scope",
+          ms: expect.any(Number),
+        },
+      },
+    ]);
+    expect(hint.attachments).toEqual([
+      {
+        filename: "recorder.json",
+        data: expect.any(String),
+        contentType: "application/json",
+      },
+    ]);
+    expect(JSON.parse(hint.attachments![0]!.data!)).toMatchObject({
+      app: "mail.agent-native.com",
+      url: "/inbox",
+      reason: "error",
+      events: expect.arrayContaining([
+        expect.objectContaining({ type: "log", name: "screen.restored" }),
+        expect.objectContaining({ type: "action", name: "list-folders" }),
+      ]),
+    });
+  });
+
+  it("leaves browser Sentry errors without recorder context when its Sentry destination is off", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+    const { configureRecorder, recorder } = await import("./recorder.js");
+    configureTracking({});
+    await tick();
+    configureRecorder({ sentry: false });
+    recorder.log("screen.restored", { from: "s1", to: "s7" });
+    const options = sentryMock.init.mock.calls[0][0];
+    const hint: { attachments?: unknown[] } = {};
+
+    const result = options.beforeSend(
+      {
+        exception: { values: [{ type: "TypeError", value: "boom" }] },
+        breadcrumbs: [{ category: "ui.click", timestamp: 0 }],
+      },
+      hint,
+    );
+
+    expect(result.breadcrumbs).toEqual([
+      { category: "ui.click", timestamp: 0 },
+    ]);
+    expect(hint.attachments).toBeUndefined();
+  });
+
   it("drops blocked Amplitude fetch noise from browser Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {

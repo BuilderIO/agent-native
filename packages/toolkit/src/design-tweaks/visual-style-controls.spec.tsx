@@ -11,6 +11,7 @@ import {
   VisualSegmentedControl,
   parseScrubExpression,
   parseScrubRelativeExpression,
+  readVisualScrubInputs,
 } from "./visual-style-controls.js";
 
 describe("visual style controls", () => {
@@ -108,6 +109,36 @@ describe("visual style controls", () => {
       );
     },
   );
+
+  it("reads what each mounted scrub input shows until it unmounts", () => {
+    act(() => {
+      root.render(
+        <>
+          <VisualScrubInput
+            label="Opacity"
+            value={91}
+            unit="%"
+            onChange={vi.fn()}
+          />
+          <VisualScrubInput
+            label="Opacity"
+            value={40}
+            unit="%"
+            onChange={vi.fn()}
+          />
+        </>,
+      );
+    });
+
+    expect(readVisualScrubInputs()).toEqual([
+      { label: "Opacity", shown: "91%" },
+      { label: "Opacity", shown: "40%" },
+    ]);
+
+    act(() => root.render(<></>));
+
+    expect(readVisualScrubInputs()).toEqual([]);
+  });
 
   it("starts a base-rate scrub when Option-drag begins on the numeric input", () => {
     const onChange = vi.fn();

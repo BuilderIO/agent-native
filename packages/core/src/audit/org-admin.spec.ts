@@ -54,8 +54,12 @@ async function addMember(email: string, role: string) {
   );
 }
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   process.env.AGENT_NATIVE_APP_ID = "mail";
   await pglite.exec(`CREATE TABLE settings (

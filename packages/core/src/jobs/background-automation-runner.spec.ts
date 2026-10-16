@@ -116,6 +116,7 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
 const {
   BACKGROUND_RUN_HARD_TIMEOUT_MS,
   backgroundRunTerminalError,
+  resolveBackgroundAutomationIdentity,
   runBackgroundAutomation,
 } = await import("./background-automation-runner.js");
 
@@ -138,6 +139,29 @@ const testEngine = {
   defaultModel: "test-model",
   supportedModels: ["test-model"],
 } as any;
+
+describe("background automation identity scope", () => {
+  it("uses deployment defaults for a no-org shared job without reading personal defaults", async () => {
+    const result = await resolveBackgroundAutomationIdentity({
+      resource: {
+        owner: "__shared__",
+        path: "jobs/daily-digest.md",
+      },
+      meta: {
+        createdBy: "owner@example.test",
+        runAs: "creator",
+      },
+    } as any);
+
+    expect(result).toMatchObject({
+      ok: true,
+      identity: {
+        userEmail: "owner@example.test",
+        defaultAgentEngineScope: "deployment",
+      },
+    });
+  });
+});
 
 describe("automation history ownership", () => {
   it.each([
@@ -808,7 +832,10 @@ describe("default selection reaches new chats and background runs", () => {
       await import("../server/request-context.js");
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
-    const ctx = { userEmail: "default-model@example.test" };
+    const ctx = {
+      userEmail: "default-model@example.test",
+      orgScope: "personal" as const,
+    };
     const fakeEngine = {
       ...testEngine,
       name: "default-model-fixture",
@@ -886,6 +913,7 @@ describe("default selection reaches new chats and background runs", () => {
               } as any,
             },
             ownerEmail: ctx.userEmail,
+            requestContext: { orgScope: ctx.orgScope },
             prompt: "Return a short status.",
             threadTitle: "Job: model precedence",
             runIdPrefix: `job-model-${pinned}`,

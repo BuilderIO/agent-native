@@ -6,6 +6,7 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import type { AuthPageProps } from "../shared/auth-page-types.js";
 import {
@@ -1451,7 +1452,12 @@ describe("server/auth", () => {
       let failLegacySessionRemoval = false;
       let transactionSessions: Map<string, string> | undefined;
       const execute = vi.fn(
-        async (query: { sql: string; args?: unknown[] }) => {
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const ledger = storeLedgerResult(
+            typeof query === "string" ? query : query.sql,
+          );
+          if (ledger) return ledger;
+          if (typeof query === "string") return { rows: [] };
           const token = query.args?.[0] as string | undefined;
           const sessions = transactionSessions ?? legacySessions;
           if (query.sql.includes("SELECT email, created_at FROM sessions")) {
@@ -5587,7 +5593,11 @@ describe("server/auth", () => {
       ]);
       expect(signUpEmail).toHaveBeenCalledTimes(1);
       expect(signInEmail).toHaveBeenCalledTimes(2);
-      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(
+        logSpy.mock.calls.filter((call) =>
+          String(call[0]).includes("Local dev auto-login ready"),
+        ),
+      ).toHaveLength(1);
       const generatedPassword = signUpEmail.mock.calls[0]?.[0]?.body?.password;
       const logOutput = logSpy.mock.calls.flat().join(" ");
       expect(generatedPassword).toBeTypeOf("string");
@@ -12212,6 +12222,7 @@ describe("server/auth", () => {
     async function resolveLegacySession(userRows: {
       combined: Record<string, unknown> | undefined;
       verification?: Record<string, unknown>;
+      canonicalEmail?: string;
     }) {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -12247,7 +12258,11 @@ describe("server/auth", () => {
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       const resolveCanonicalUserForLegacySession = vi.fn(async () => ({
-        user: { id: "user-1", email: "person@example.com", name: "Canonical" },
+        user: {
+          id: "user-1",
+          email: userRows.canonicalEmail ?? "person@example.com",
+          name: "Canonical",
+        },
         accounts: [],
       }));
       vi.doMock("./legacy-auth-migration.js", () => ({
@@ -12278,6 +12293,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: true,
         token: "legacy-token",
         name: "Person",
@@ -12301,6 +12318,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: false,
         token: "legacy-token",
         name: "Canonical",
@@ -12317,12 +12336,28 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         token: "legacy-token",
         name: "Canonical",
       });
       expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
         "person@example.com",
       );
+    });
+
+    it("does not attach a canonical ID for a different email", async () => {
+      const { session } = await resolveLegacySession({
+        combined: undefined,
+        verification: { email_verified: true },
+        canonicalEmail: "another-person@example.com",
+      });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: true,
+        token: "legacy-token",
+      });
     });
   });
 });

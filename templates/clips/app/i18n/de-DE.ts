@@ -660,6 +660,33 @@ const messages = {
     nativeSpeechPrimary:
       "Native Spracherkennung bleibt die primäre Transkriptionsquelle.",
   },
+  transcriptImport: {
+    addFile: "Transkriptdatei hinzufügen",
+    imported: "Importiert",
+    replaceTitle: "Transkript ersetzen?",
+    replaceDescription: "{{fileName}} ersetzt das aktuelle Transkript.",
+    replace: "Ersetzen",
+    regenerateOverImportTitle: "Importiertes Transkript ersetzen?",
+    regenerateOverImportDescription:
+      "Ein neues Transkript aus dem Ton der Aufnahme ersetzt das aus einer Datei importierte.",
+    added: "Transkript hinzugefügt",
+    replaced: "Transkript ersetzt",
+    failed: "Transkript konnte nicht hinzugefügt werden",
+    invalidFile: "{{fileName}} konnte nicht gelesen werden",
+    errorEmpty: "Die Datei enthält keinen Transkripttext.",
+    errorTooLarge: "Die Datei ist zu groß für den Import.",
+    errorNotUtf8:
+      "Die Datei ist kein UTF-8-Text. Speichere sie als UTF-8 und versuche es erneut.",
+    errorMissingTiming:
+      "Zeile {{line}}: Erwartet wurde eine Zeitzeile für den Untertitel wie 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming:
+      "Zeile {{line}}: Die Zeitangabe des Untertitels konnte nicht gelesen werden.",
+    errorBadRange: "Zeile {{line}}: Der Untertitel endet, bevor er beginnt.",
+    errorMissingTimestamp:
+      "Zeile {{line}}: Erwartet wurde eine Startzeit wie 0:21 oder [0:21].",
+    errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
+    errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
+  },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
     failedGif:
@@ -1613,6 +1640,8 @@ const messages = {
       "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
     statusUnavailable:
       "Der Status des Videospeichers konnte nicht geprüft werden.",
+    hostedStorageUnavailable:
+      "Der Clips-Hostingspeicher ist vorübergehend nicht verfügbar. Dein kostenloses Clip-Kontingent bleibt unverändert. Versuche den Upload später erneut.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
@@ -1912,6 +1941,18 @@ const messages = {
     validWebUrl: "Gib eine gültige http://- oder https://-Adresse ein.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
+    freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    hostedClipsExhaustedTitle:
+      "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
+    hostedClipsExhaustedDescription:
+      "Du hast alle kostenlosen gehosteten Clips verwendet. Verbinde den Builder.io-Speicher, um weitere Clips in deiner Bibliothek zu speichern.",
+    clipExceedsSizeLimit:
+      "Dieser Clip überschreitet das aktuelle Upload-Größenlimit.",
+    clipExceedsMaxDuration:
+      "Dieser Clip überschreitet die aktuelle maximale Aufnahmedauer.",
+    maxClipDurationReached:
+      "Die maximale Cliplänge ist erreicht. Aufnahme wird gespeichert.",
     pageTitle: "New recording — Clips (Lokalisiert)",
     uploadFailed: "Upload failed (Lokalisiert)",
     uploadFailedAtChunk:
@@ -2153,6 +2194,10 @@ const messages = {
     vocabularyRemoveFailed: "Begriff konnte nicht entfernt werden",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Der gehostete Clips-Speicher ist voll. Verbinde den Builder.io-Speicher, um weiterhin Clips zu speichern.",
+    hostedRecordingTakenDown:
+      "Diese Aufnahme wurde aus dem gehosteten Clips-Speicher entfernt.",
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
     selectAll: "Alle auswählen",
@@ -2184,6 +2229,7 @@ const messages = {
     viewsCount: "{{count}} Aufrufe",
     recordingMenu: "Aufnahmemenü",
     moveToFolder: "In Ordner verschieben",
+    moveHere: "Hierher verschieben",
     unarchive: "Archivierung aufheben",
     shareNamedMeeting: "„{{title}}“ teilen",
     shareMeeting: "Meeting teilen",
@@ -2335,9 +2381,15 @@ const messages = {
     issues: "Probleme",
     consoleSource: "Konsole",
     networkSource: "Netzwerk",
+    appSource: "App-Aktivität",
+    appEvent: "Ereignis",
+    appData: "Daten",
+    appFailureSummary: "{{count}} App-Fehler",
+    appUnavailable: "Die App-Aktivität konnte nicht geladen werden.",
     consoleCount: "Konsole {{count}}",
     networkCount: "Netzwerk {{count}}",
     afterRecording: "Nach der Aufnahme",
+    beforeRecording: "Vor der Aufnahme",
     seekToTime: "Zu {{time}} springen",
     occurrences: "Vorkommen",
     message: "Meldung",
@@ -2349,6 +2401,7 @@ const messages = {
     noIssuesTitle: "Keine Browserprobleme erkannt",
     noConsoleTitle: "Keine Konsolenereignisse",
     noNetworkTitle: "Keine Netzwerkanfragen",
+    noAppTitle: "Keine App-Aktivität",
     capturedDescription: "Für diese Aufnahme wurden Diagnosedaten erfasst.",
   },
   timeline: { clipStartedHere: "Clip begann hier" },

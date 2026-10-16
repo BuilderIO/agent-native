@@ -401,6 +401,46 @@ Summarize the inbox.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("clears a stale pause without clearing an active run marker", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-stale-pause",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/stale-pause.md",
+        content: `---
+schedule: "* * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+lastStatus: running
+lastRun: "${new Date().toISOString()}"
+lastErrorCode: "missing_credentials"
+consecutiveFailures: 3
+pausedReason: "missing_credentials"
+pausedAt: "2026-10-01T00:00:00.000Z"
+---
+
+Summarize the inbox.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    const content: string = resourcePutMock.mock.calls.at(-1)![2];
+    const { meta } = parseJobResource(content);
+    expect(meta.enabled).toBe(true);
+    expect(meta.pausedReason).toBeUndefined();
+    expect(meta.pausedAt).toBeUndefined();
+    expect(meta.lastStatus).toBe("running");
+    expect(meta.lastErrorCode).toBe("missing_credentials");
+    expect(meta.consecutiveFailures).toBe(3);
+  });
+
   it("seeds a scheduled automation without dropping its automation metadata", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
