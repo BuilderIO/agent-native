@@ -166,8 +166,7 @@ async function selectedScreenIds(page: Page): Promise<string[]> {
   );
 }
 
-// fixme: product bug: All selection-history steps pass; the restored Home comes back at the top of Layers ([Home, Second] instead of [Second, Home]).
-test.fixme("undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id", async ({
+test("undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id", async ({
   app,
   page,
 }) => {
@@ -806,8 +805,7 @@ test("Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   await expect(layerRow(page, "Third")).toHaveCount(1);
 });
 
-// fixme: fails on current main after the merge: Error: The app reported failures during this test
-test.fixme("Shift-picking a Screen extends the Delete selection in All screens", async ({
+test("Shift-picking a Screen extends the Delete selection in All screens", async ({
   app,
   page,
 }) => {
@@ -930,18 +928,28 @@ test("Shift-marquee adds a hit Screen to the existing Delete selection", async (
   expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
   expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
 
-  await page.keyboard.down("Shift");
-  try {
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 12 });
-    await page.mouse.up();
-  } finally {
-    await page.keyboard.up("Shift");
-  }
+  const shiftMarqueeSecond = async () => {
+    await page.keyboard.down("Shift");
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up("Shift");
+    }
+  };
+  await shiftMarqueeSecond();
   await expect
     .poll(() => selectedScreenIds(page))
     .toEqual(expect.arrayContaining([homeId, secondId]));
+  await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
+
+  await shiftMarqueeSecond();
+  await expect
+    .poll(() => selectedScreenIds(page))
+    .toEqual(expect.arrayContaining([homeId, secondId]));
+  await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
 
   await page.keyboard.press("Delete");
   await expect(layerRow(page, "Home")).toHaveCount(0);
@@ -1278,8 +1286,7 @@ test("a newer sidebar Screen selection survives failed Screen deletion settlemen
   }
 });
 
-// fixme: product bug: The multi-screen GroupSelectionBox is rendered `filled` (background var(--design-editor-selection-color)) over the union rect of the
-test.fixme("Select All Screens survives failed Screen deletion settlement", async ({
+test("Select All Screens survives failed Screen deletion settlement", async ({
   app,
   page,
 }) => {
@@ -1362,8 +1369,7 @@ test.fixme("Select All Screens survives failed Screen deletion settlement", asyn
   }
 });
 
-// fixme: product bug: Undo of a Screen deletion recreates the Screens (new ids) appended at the end: Layers becomes [Second, Home, Third] and the Screens list
-test.fixme("marquee selection persists and deletes Screens after a prior layer selection", async ({
+test("marquee selection persists and deletes Screens after a prior layer selection", async ({
   app,
   page,
 }) => {
@@ -1486,8 +1492,7 @@ test.fixme("marquee selection persists and deletes Screens after a prior layer s
   ).toEqual(["Third", "Second", "Home"]);
 });
 
-// fixme: product bug: Undo of a Screen deletion recreates the Screens (new ids) appended at the end: Layers becomes [Second, Home, Third] and the Screens list
-test.fixme("deleting two selected Screens is one undo step that restores both with their content, position and order", async ({
+test("deleting two selected Screens is one undo step that restores both with their content, position and order", async ({
   app,
   page,
 }) => {

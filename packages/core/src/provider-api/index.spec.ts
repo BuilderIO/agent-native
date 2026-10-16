@@ -912,6 +912,46 @@ describe("provider API runtime", () => {
     expect(headers).not.toHaveProperty("Authorization");
   });
 
+  it("drops method-override headers so a GET cannot be tunneled to a write", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "CLAY_PUBLIC_API_KEY" ? "clay-test-example-key" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["clay"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "clay",
+      path: "/me",
+      headers: {
+        "X-HTTP-Method-Override": "DELETE",
+        "x-http-method": "DELETE",
+        "X-Method-Override": "DELETE",
+        "X-Request-Id": "keep-me",
+      },
+    });
+
+    const headers = (fetchMock.mock.calls.at(-1)?.[1]?.headers ?? {}) as Record<
+      string,
+      string
+    >;
+    const names = Object.keys(headers).map((name) => name.toLowerCase());
+    expect(names).not.toContain("x-http-method-override");
+    expect(names).not.toContain("x-http-method");
+    expect(names).not.toContain("x-method-override");
+    expect(names).toContain("x-request-id");
+  });
+
   it("prefers Figma OAuth and falls back to a scoped PAT", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     fetchMock.mockImplementation(
@@ -4130,6 +4170,90 @@ describe("provider API runtime", () => {
       response: { status: 200, json: { results: [{ id: "deal-1" }] } },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells the caller a truncated response is incomplete and how to recover", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: "x".repeat(5_000) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = (await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+      maxBytes: 1_000,
+    })) as { response: { truncated: boolean }; guidance: string };
+
+    expect(result.response.truncated).toBe(true);
+    expect(result.guidance).toContain("This response is incomplete");
+    expect(result.guidance).toContain("server-side filter");
+    expect(result.guidance).not.toContain("Prefer this escape hatch");
+  });
+
+  it("refuses to save a truncated response to a file as complete", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response("x".repeat(21 * 1024 * 1024), {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        saveToFile: "analysis/deals.txt",
+      }),
+    ).rejects.toThrow(/would persist an incomplete file/);
+  });
+
+  it("fails fetchAllPages loudly when a page is cut at the size limit", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: "x".repeat(5_000) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        maxBytes: 1_000,
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          itemsPath: "results",
+          maxPages: 2,
+        },
+      }),
+    ).rejects.toThrow(/cut at the response size limit/);
   });
 
   it("deduplicates identical concurrent GET provider requests", async () => {

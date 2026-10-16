@@ -179,6 +179,7 @@ import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   getNewDeckGenerationRecoveryState,
+  NEW_DECK_GENERATION_START_TIMEOUT_MS,
   shouldClearPartialGenerationFailure,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
@@ -195,10 +196,18 @@ import {
 } from "@/lib/pending-deck-changes";
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
+  getSlideClipboardNativeMarker,
+  hasClipboardPayloadBeyondSlideMarker,
+  hasImageClipboardPayload,
+  isSlideClipboardPasteSurface,
   getSlideClipboardStorageKey,
   normalizeSlideClipboards,
   readSlideClipboards,
+  readSlideClipboardNativeMarker,
   resolveSlideClipboardsForPaste,
+  shouldHandleSlideClipboardPaste,
+  shouldHandleSlideClipboardShortcut,
+  writeSlideClipboardMarkerToEvent,
   writeSlideClipboards,
 } from "@/lib/slide-clipboard";
 import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
@@ -391,6 +400,75 @@ export function isSlideClipboardStillArmed(
   now: number = Date.now(),
 ): boolean {
   return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
+}
+
+function isBlockingSlideClipboardPopper(el: Element): boolean {
+  return (
+    el.matches("[data-radix-popper-content-wrapper]") &&
+    !el.querySelector("[data-agent-native-tooltip]")
+  );
+}
+
+function isSlideClipboardTextEntrySurface(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    return true;
+  }
+  if (el instanceof HTMLSelectElement) return true;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable) return true;
+  if (el.closest("[contenteditable='true']")) return true;
+  if (el.closest("input, textarea, [role='textbox']")) return true;
+  if (el.closest("[data-pin-popover], [data-add-slide-popover]")) return true;
+  if (el.closest(".agent-panel-root")) return true;
+  if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
+  const popperWrapper = el.closest("[data-radix-popper-content-wrapper]");
+  return Boolean(
+    popperWrapper && isBlockingSlideClipboardPopper(popperWrapper),
+  );
+}
+
+function hasBlockingSlideClipboardOverlay(): boolean {
+  if (
+    document.querySelector(
+      "[data-pin-popover], [data-add-slide-popover], [role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
+    )
+  ) {
+    return true;
+  }
+  return Array.from(
+    document.querySelectorAll("[data-radix-popper-content-wrapper]"),
+  ).some(isBlockingSlideClipboardPopper);
+}
+
+function writeSlideClipboardMarkerToNativeClipboard(
+  slides: readonly Pick<Slide, "id">[],
+  copiedAt: number,
+): boolean {
+  const marker = getSlideClipboardNativeMarker(slides, copiedAt);
+  if (
+    typeof document === "undefined" ||
+    typeof document.execCommand !== "function"
+  ) {
+    return false;
+  }
+  let wrote = false;
+  const handleCopy = (event: ClipboardEvent) => {
+    wrote = writeSlideClipboardMarkerToEvent(event, marker);
+    if (wrote) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  };
+  document.addEventListener("copy", handleCopy, true);
+  try {
+    return document.execCommand("copy") && wrote;
+  } catch (error) {
+    console.warn("Unable to execute native slide clipboard copy", error);
+    return false;
+  } finally {
+    document.removeEventListener("copy", handleCopy, true);
+  }
 }
 
 export function getAltDragPlacement(
@@ -692,6 +770,8 @@ export default function DeckEditor() {
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
+  const [retryAwaitingStartAttemptId, setRetryAwaitingStartAttemptId] =
+    useState<string | null>(null);
   const questionFlowTargetTabIdRef = useRef<string | null>(null);
   const submitQuestionContinuation = useCallback(
     ({ message, context }: { message: string; context: string }) => {
@@ -1072,11 +1152,6 @@ export default function DeckEditor() {
       ? { generationAttemptId: generationContext.generationAttemptId }
       : {}),
   };
-  const generationRetryPending =
-    retryEmptyGenerationPending ||
-    (generationContext !== null &&
-      "generationFailureAttemptId" in generationContext &&
-      generationContext.generationFailureAttemptId !== generationAttemptId);
   useEffect(() => {
     if (
       !isRestoringPromptBeforeLeavingGeneration ||
@@ -1190,21 +1265,6 @@ export default function DeckEditor() {
       if (recovery.retryAttemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
       emptyGenerationRecoveryRef.current = serializedRecovery;
-      if (
-        generationContext.generationFailureAttemptId !==
-          recovery.retryAttemptId &&
-        (generationContext.generationFailureCode != null ||
-          generationContext.generationFailureAttemptId != null)
-      ) {
-        updateDeck(id, {
-          generationContext: {
-            ...generationContext,
-            generationFailureCode: null,
-            generationFailureAttemptId: null,
-            generationFailureSlidesFingerprint: null,
-          },
-        });
-      }
     }
 
     void flushDeckSave(id)
@@ -1292,6 +1352,36 @@ export default function DeckEditor() {
     generationContext.targetSlideCount > 0
       ? generationContext.targetSlideCount
       : null;
+
+  useEffect(() => {
+    if (!id || !generationContext || !generationAttemptId) return;
+    if (
+      typeof generationContext.generationFailureAttemptId !== "string" ||
+      generationContext.generationFailureAttemptId === generationAttemptId ||
+      (!attemptObservedRun && !newDeckGenerationSignal)
+    ) {
+      return;
+    }
+    setRetryAwaitingStartAttemptId(null);
+    updateDeck(id, {
+      generationContext: {
+        ...generationContext,
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+        generationFailureSlidesFingerprint: null,
+      },
+    });
+    void flushDeckSave(id).catch(() => toast.error(t("settings.saveFailed")));
+  }, [
+    attemptObservedRun,
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    id,
+    newDeckGenerationSignal,
+    t,
+    updateDeck,
+  ]);
 
   useEffect(() => {
     if (
@@ -1401,7 +1491,8 @@ export default function DeckEditor() {
       !generationContext ||
       !generationLifecycleOwnedByEditor ||
       !canEdit ||
-      retryEmptyGenerationInFlightRef.current
+      retryEmptyGenerationInFlightRef.current ||
+      retryAwaitingStartAttemptId === generationAttemptId
     ) {
       return;
     }
@@ -1440,6 +1531,8 @@ export default function DeckEditor() {
       return;
     }
     const retryStartedAt = Date.now();
+    const submissionExpiresAt =
+      retryStartedAt + NEW_DECK_GENERATION_START_TIMEOUT_MS;
     const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
     const submitMessageId = nanoid();
@@ -1609,6 +1702,7 @@ export default function DeckEditor() {
             generationAttemptId: retryAttemptId,
             generationOutputId: id,
             submitMessageId,
+            submissionExpiresAt,
             newTab: true,
             reuseEmptyTab: true,
             openSidebar: true,
@@ -1641,6 +1735,7 @@ export default function DeckEditor() {
         );
         return;
       }
+      setRetryAwaitingStartAttemptId(retryAttemptId);
       acceptedRecoverySerialized ??= storeRecovery(acceptedRecovery);
       if (!acceptedRecoverySerialized) {
         if (
@@ -1652,7 +1747,6 @@ export default function DeckEditor() {
           emptyGenerationRecoveryRef.current = null;
         }
         toast.error(t("settings.saveFailed"));
-        return;
       }
       trackEvent("generation_started", {
         app_name: "slides",
@@ -1663,21 +1757,18 @@ export default function DeckEditor() {
         started_at_ms: retryStartedAt,
         source: "empty_output_retry",
       });
-      updateDeck(id, {
-        generationContext: {
-          ...retryContext,
-          generationFailureCode: null,
-          generationFailureAttemptId: null,
-          generationFailureSlidesFingerprint: null,
-        },
-      });
       try {
         await flushDeckSave(id);
-        clearEmptyGenerationRecovery(
-          retryRecoveryStorageKey,
-          acceptedRecoverySerialized,
-        );
-        emptyGenerationRecoveryRef.current = null;
+        if (
+          acceptedRecoverySerialized &&
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            acceptedRecoverySerialized,
+          ) &&
+          emptyGenerationRecoveryRef.current === acceptedRecoverySerialized
+        ) {
+          emptyGenerationRecoveryRef.current = null;
+        }
       } catch {
         toast.error(t("settings.saveFailed"));
       }
@@ -1692,6 +1783,7 @@ export default function DeckEditor() {
     generationLifecycleOwnedByEditor,
     id,
     retryRecoveryStorageKey,
+    retryAwaitingStartAttemptId,
     searchParams,
     setSearchParams,
     submitGenerationAttemptAndConfirm,
@@ -1868,7 +1960,7 @@ export default function DeckEditor() {
     designSystem,
     imageStyleReferenceUrls,
     rawData: designSystemRawData,
-  } = useDeckDesignSystem(deck?.designSystemId);
+  } = useDeckDesignSystem(deck?.designSystemId, deck?.id);
   useContrastAuditBridge(deck, designSystemRawData);
   const commentsOpen = sidePanel === "comments";
 
@@ -2109,41 +2201,47 @@ export default function DeckEditor() {
                 ? "deck_refresh_failed"
                 : "deck_not_visible_after_refresh",
           });
-          const emptyDeckConfirmed = slideCountRef.current === 0;
-          if (emptyDeckConfirmed && generationContext) {
-            const failureCode = "outcome_unresolved";
+          const failureCode = "outcome_unresolved";
+          const currentSlides = getDeckLatest(id)?.slides ?? deck?.slides ?? [];
+          const emptyDeckConfirmed =
+            slideCountRef.current === 0 && currentSlides.length === 0;
+          if (generationContext) {
             updateDeck(id, {
               generationContext: {
                 ...generationContext,
                 generationFailureCode: failureCode,
                 generationFailureAttemptId: generationAttemptId,
                 generationFailureSlidesFingerprint:
-                  partialGenerationFailureSlidesFingerprint([]),
+                  partialGenerationFailureSlidesFingerprint(currentSlides),
               },
             });
-            const recovery: EmptyGenerationRecovery = {
-              kind: "generation_failure",
-              attemptId: generationAttemptId,
-              failureCode,
-            };
-            const serializedRecovery = JSON.stringify(recovery);
-            if (retryRecoveryStorageKey) {
-              try {
-                window.localStorage.setItem(
-                  retryRecoveryStorageKey,
-                  serializedRecovery,
-                );
-                emptyGenerationRecoveryRef.current = serializedRecovery;
-              } catch (error) {
-                console.error(
-                  "Failed to store Slides generation recovery data.",
-                  error,
-                );
+            let serializedRecovery: string | null = null;
+            if (emptyDeckConfirmed) {
+              const recovery: EmptyGenerationRecovery = {
+                kind: "generation_failure",
+                attemptId: generationAttemptId,
+                failureCode,
+              };
+              serializedRecovery = JSON.stringify(recovery);
+              if (retryRecoveryStorageKey) {
+                try {
+                  window.localStorage.setItem(
+                    retryRecoveryStorageKey,
+                    serializedRecovery,
+                  );
+                  emptyGenerationRecoveryRef.current = serializedRecovery;
+                } catch (error) {
+                  console.error(
+                    "Failed to store Slides generation recovery data.",
+                    error,
+                  );
+                }
               }
             }
             try {
               await flushDeckSave(id);
               if (
+                serializedRecovery &&
                 clearEmptyGenerationRecovery(
                   retryRecoveryStorageKey,
                   serializedRecovery,
@@ -2320,6 +2418,142 @@ export default function DeckEditor() {
       waitingOnQuestions: waitingOnNewDeckQuestions,
       slideCount,
     });
+  useEffect(() => {
+    if (retryAwaitingStartAttemptId !== generationAttemptId) return;
+    if (
+      !attemptObservedRun &&
+      !newDeckGenerationSignal &&
+      !attemptRunError &&
+      !attemptTimedOut &&
+      !attemptStopReason
+    ) {
+      return;
+    }
+    setRetryAwaitingStartAttemptId((current) =>
+      current === generationAttemptId ? null : current,
+    );
+  }, [
+    attemptObservedRun,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    generationAttemptId,
+    newDeckGenerationSignal,
+    retryAwaitingStartAttemptId,
+  ]);
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !id ||
+      !generationAttemptId ||
+      typeof generationContext?.generationFailureAttemptId !== "string" ||
+      generationContext.generationFailureAttemptId === generationAttemptId ||
+      attemptObservedRun ||
+      attemptRunError ||
+      attemptStopReason ||
+      attemptTimedOut ||
+      newDeckGenerationSignal
+    ) {
+      return;
+    }
+    const attemptId = generationAttemptId;
+    const persistedStartedAt = generationContext.generationStartedAt;
+    const startedAt =
+      typeof persistedStartedAt === "number" &&
+      Number.isFinite(persistedStartedAt) &&
+      persistedStartedAt >= 0
+        ? persistedStartedAt
+        : Date.now();
+    const deadline = startedAt + NEW_DECK_GENERATION_START_TIMEOUT_MS;
+    const timeout = window.setTimeout(
+      () => {
+        if (
+          generationSawActiveRef.current ||
+          generationLifecyclePauseRef.current.generating
+        ) {
+          return;
+        }
+        setRetryAwaitingStartAttemptId((current) =>
+          current === attemptId ? null : current,
+        );
+        clearStartedGenerationAttempt(attemptId, id);
+        const failureCode = "start_timeout";
+        updateDeck(id, {
+          generationContext: {
+            ...generationContext,
+            generationFailureCode: failureCode,
+            generationFailureAttemptId: attemptId,
+            generationFailureSlidesFingerprint: null,
+          },
+        });
+        const recovery: EmptyGenerationRecovery = {
+          kind: "generation_failure",
+          attemptId,
+          failureCode,
+        };
+        const serializedRecovery = JSON.stringify(recovery);
+        if (retryRecoveryStorageKey) {
+          try {
+            window.localStorage.setItem(
+              retryRecoveryStorageKey,
+              serializedRecovery,
+            );
+            emptyGenerationRecoveryRef.current = serializedRecovery;
+          } catch (error) {
+            console.error(
+              "Failed to store Slides generation recovery data.",
+              error,
+            );
+          }
+        }
+        trackEvent("generation_outcome_unresolved", {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: attemptId,
+          output_id: id,
+          output_type: "deck",
+          source: "empty_output_retry",
+          outcome: "unresolved",
+          reason: "retry_start_timeout",
+        });
+        void flushDeckSave(id)
+          .then(() => {
+            if (
+              clearEmptyGenerationRecovery(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              ) &&
+              emptyGenerationRecoveryRef.current === serializedRecovery
+            ) {
+              emptyGenerationRecoveryRef.current = null;
+            }
+          })
+          .catch(() => toast.error(t("settings.saveFailed")));
+      },
+      Math.max(0, deadline - Date.now()),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [
+    attemptObservedRun,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+    newDeckGenerationSignal,
+    retryAwaitingStartAttemptId,
+    retryRecoveryStorageKey,
+    t,
+    updateDeck,
+  ]);
+  const generationRetryPending =
+    retryEmptyGenerationPending ||
+    retryAwaitingStartAttemptId === generationAttemptId ||
+    (typeof generationContext?.generationFailureAttemptId === "string" &&
+      generationContext.generationFailureAttemptId !== generationAttemptId);
   const generationState = {
     slideCount,
     hasGenerationContext: generationContext !== null,
@@ -3559,7 +3793,7 @@ export default function DeckEditor() {
   const slideClipboardScopeRef = useRef<string | null>(null);
   const slideClipboardPersistenceFailedRef = useRef(false);
   const slideClipboardArmedAtRef = useRef<number | null>(null);
-  const slidePasteFallbackRef = useRef<number | null>(null);
+  const slideClipboardMarkerWriteInProgressRef = useRef(false);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
   const slideClipboardStorageKey = session?.email
     ? getSlideClipboardStorageKey(session.email)
@@ -3631,13 +3865,30 @@ export default function DeckEditor() {
   }, [slideClipboardStorageKey, syncSlideClipboard]);
 
   const saveSlidesToClipboard = useCallback(
-    (slides: Slide[]) => {
+    (slides: Slide[], writeNativeMarker = true) => {
       const copiedAt = Date.now();
       const snapshots = normalizeSlideClipboards(slides);
-      if (!snapshots) return;
+      if (!snapshots) return false;
       slideClipboardSlidesRef.current = snapshots;
       slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
+      let nativeMarkerWritten = !writeNativeMarker;
+      if (writeNativeMarker) {
+        slideClipboardMarkerWriteInProgressRef.current = true;
+        try {
+          nativeMarkerWritten = writeSlideClipboardMarkerToNativeClipboard(
+            snapshots,
+            copiedAt,
+          );
+        } finally {
+          slideClipboardMarkerWriteInProgressRef.current = false;
+        }
+      }
+      if (!nativeMarkerWritten) {
+        console.warn(
+          "Native slide clipboard marker unavailable; use the slide Paste menu.",
+        );
+      }
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
         slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
@@ -3648,16 +3899,17 @@ export default function DeckEditor() {
       } else {
         slideClipboardPersistenceFailedRef.current = false;
       }
+      return nativeMarkerWritten;
     },
     [slideClipboardStorageKey],
   );
 
   const copySlides = useCallback(
-    (slideIds: string[]) => {
+    (slideIds: string[], writeNativeMarker = true) => {
       const selected = new Set(slideIds);
       const slides = deck?.slides.filter((slide) => selected.has(slide.id));
-      if (!slides?.length) return;
-      saveSlidesToClipboard(slides);
+      if (!slides?.length) return false;
+      return saveSlidesToClipboard(slides, writeNativeMarker);
     },
     [deck, saveSlidesToClipboard],
   );
@@ -3667,7 +3919,7 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       const slides = selectedSlideIdsForAction(slideIds);
       if (!slides.length || slides.length >= deck.slides.length) return;
-      saveSlidesToClipboard(slides);
+      if (!saveSlidesToClipboard(slides)) return;
       deleteSlideIds(slideIds);
     },
     [
@@ -3682,7 +3934,7 @@ export default function DeckEditor() {
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
       if (!id) return;
-      const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();
+      const clipboard = syncSlideClipboard();
       if (!clipboard) return;
       const newIds = pasteSlides(
         id,
@@ -3760,84 +4012,34 @@ export default function DeckEditor() {
     [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
-  // Command/Ctrl+C then Command/Ctrl+V on the focused slide rail copies/pastes
-  // the selected slide directly below itself. Canvas shortcuts own these keys
-  // only while the canvas has focus, even if its selection remains visible.
+  // Copy, cut, and duplicate stay scoped to the focused rail. Copy writes an
+  // app-owned native marker so later paste can distinguish it from newer text.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;
+      if (key !== "x" && key !== "d") return;
       if (pinMode || drawMode) return;
-      if (!document.activeElement?.closest("[data-slide-thumbnail-id]")) {
-        return;
-      }
-
-      if (
-        (key === "c" || key === "x") &&
-        (window.getSelection()?.toString().length ?? 0) > 0
-      ) {
-        return;
-      }
-
-      const isBlockingPopperWrapper = (el: Element) =>
-        el.matches("[data-radix-popper-content-wrapper]") &&
-        !el.querySelector("[data-agent-native-tooltip]");
-      const isInsideSafeZone = (el: Element | null) => {
-        if (!el) return false;
-        if (el instanceof HTMLInputElement) return true;
-        if (el instanceof HTMLTextAreaElement) return true;
-        if (el instanceof HTMLElement) {
-          if (el.isContentEditable) return true;
-          if (el.closest("[contenteditable='true']")) return true;
-          if (el.closest("input, textarea, [role='textbox']")) return true;
-          if (el.closest("[data-pin-popover]")) return true;
-          if (el.closest("[data-add-slide-popover]")) return true;
-          if (el.closest(".agent-panel-root")) return true;
-          if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
-          const popperWrapper = el.closest(
-            "[data-radix-popper-content-wrapper]",
-          );
-          if (popperWrapper && isBlockingPopperWrapper(popperWrapper))
-            return true;
-        }
-        return false;
-      };
-      if (isInsideSafeZone(e.target as Element | null)) return;
-      if (isInsideSafeZone(document.activeElement)) return;
-      if (document.querySelector("[data-pin-popover]")) return;
-      if (document.querySelector("[data-add-slide-popover]")) return;
-      if (
-        document.querySelector(
-          "[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
-        )
-      )
-        return;
-      if (
-        Array.from(
-          document.querySelectorAll("[data-radix-popper-content-wrapper]"),
-        ).some(isBlockingPopperWrapper)
-      )
-        return;
       const focusedThumbnail = document.activeElement?.closest(
         "[data-slide-thumbnail-id]",
       );
+      if (!shouldHandleSlideClipboardShortcut(key, Boolean(focusedThumbnail))) {
+        return;
+      }
+
+      if ((window.getSelection()?.toString().length ?? 0) > 0) {
+        return;
+      }
+
+      if (isSlideClipboardTextEntrySurface(e.target as Element | null)) return;
+      if (isSlideClipboardTextEntrySurface(document.activeElement)) return;
+      if (hasBlockingSlideClipboardOverlay()) return;
       if (
         !focusedThumbnail &&
         document.querySelector("[data-slide-element-selected='true']")
       )
         return;
-
-      if (key === "c") {
-        if (!activeSlideId) return;
-        e.preventDefault();
-        e.stopPropagation();
-        copySlides(
-          selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId],
-        );
-        return;
-      }
 
       if (key === "x") {
         if (!activeSlideId) return;
@@ -3860,25 +4062,57 @@ export default function DeckEditor() {
         handleDuplicateSlideFromRail(slideIds);
         return;
       }
-
+    };
+    const handleCopy = (event: ClipboardEvent) => {
       if (
-        !hasSlideClipboard ||
-        !activeSlideId ||
-        !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
-      )
+        slideClipboardMarkerWriteInProgressRef.current ||
+        !deck ||
+        !id ||
+        !canEdit ||
+        pinMode ||
+        drawMode ||
+        event.defaultPrevented
+      ) {
         return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (slidePasteFallbackRef.current !== null) {
-        window.clearTimeout(slidePasteFallbackRef.current);
       }
-      slidePasteFallbackRef.current = window.setTimeout(() => {
-        slidePasteFallbackRef.current = null;
-        pasteSlideAfter(activeSlideId);
-      }, 50);
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (!shouldHandleSlideClipboardShortcut("c", Boolean(focusedThumbnail))) {
+        return;
+      }
+      if ((window.getSelection()?.toString().length ?? 0) > 0) return;
+      if (isSlideClipboardTextEntrySurface(event.target as Element | null)) {
+        return;
+      }
+      if (isSlideClipboardTextEntrySurface(document.activeElement)) return;
+      if (hasBlockingSlideClipboardOverlay()) return;
+      if (!activeSlideId) return;
+
+      const slideIds =
+        selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
+      copySlides(slideIds, false);
+
+      const copiedSlides = slideClipboardSlidesRef.current;
+      const copiedAt = slideClipboardArmedAtRef.current;
+      if (!copiedSlides || copiedAt === null) return;
+      const marker = getSlideClipboardNativeMarker(copiedSlides, copiedAt);
+      const markerWritten = writeSlideClipboardMarkerToEvent(event, marker);
+      if (markerWritten) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      } else {
+        console.warn(
+          "Native slide clipboard marker unavailable; use the slide Paste menu.",
+        );
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    document.addEventListener("copy", handleCopy, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("copy", handleCopy, true);
+    };
   }, [
     deck,
     id,
@@ -3887,31 +4121,124 @@ export default function DeckEditor() {
     copySlides,
     cutSlides,
     handleDuplicateSlideFromRail,
-    hasSlideClipboard,
-    pasteSlideAfter,
     selectedSlideIds,
     pinMode,
     drawMode,
   ]);
 
-  useEffect(() => {
-    const handlePaste = () => {
-      if (slidePasteFallbackRef.current === null) return;
-      window.clearTimeout(slidePasteFallbackRef.current);
-      slidePasteFallbackRef.current = null;
-    };
-    window.addEventListener("paste", handlePaste, true);
-    return () => window.removeEventListener("paste", handlePaste, true);
-  }, []);
+  const handlePasteSlideClipboard = useCallback(
+    (event: ClipboardEvent): boolean => {
+      if (
+        !deck ||
+        !id ||
+        !canEdit ||
+        !activeSlideId ||
+        event.defaultPrevented
+      ) {
+        return false;
+      }
+      if (
+        !isSlideClipboardPasteSurface(
+          event.target instanceof Element ? event.target : null,
+          document.activeElement instanceof Element
+            ? document.activeElement
+            : null,
+        )
+      ) {
+        return false;
+      }
+
+      const clipboard = syncSlideClipboard();
+      const copiedAt = slideClipboardArmedAtRef.current;
+      if (
+        !clipboard ||
+        copiedAt === null ||
+        !isSlideClipboardStillArmed(copiedAt)
+      ) {
+        return false;
+      }
+
+      const html = event.clipboardData?.getData("text/html") ?? "";
+      const expectedMarker = getSlideClipboardNativeMarker(clipboard, copiedAt);
+      const hasMatchingSlideClipboardMarker =
+        readSlideClipboardNativeMarker(html) === expectedMarker;
+      if (!hasMatchingSlideClipboardMarker) return false;
+
+      const hasImage = hasImageClipboardPayload({
+        types: Array.from(event.clipboardData?.types ?? []),
+        itemTypes: Array.from(event.clipboardData?.items ?? []).map(
+          (item) => item.type,
+        ),
+        fileTypes: Array.from(event.clipboardData?.files ?? []).map(
+          (file) => file.type,
+        ),
+        html,
+      });
+      const hasNonMarkerPayload = hasClipboardPayloadBeyondSlideMarker({
+        types: Array.from(event.clipboardData?.types ?? []),
+        itemTypes: Array.from(event.clipboardData?.items ?? []).map(
+          (item) => item.type,
+        ),
+        fileTypes: Array.from(event.clipboardData?.files ?? []).map(
+          (file) => file.type,
+        ),
+        html,
+        plainText: event.clipboardData?.getData("text/plain") ?? "",
+        marker: expectedMarker,
+      });
+      const isTextEntrySurface =
+        isSlideClipboardTextEntrySurface(event.target as Element | null) ||
+        isSlideClipboardTextEntrySurface(document.activeElement);
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      const shouldPasteSlide = shouldHandleSlideClipboardPaste({
+        hasMatchingSlideClipboardMarker,
+        hasImage,
+        hasNonMarkerPayload,
+        isTextEntrySurface,
+        hasSelectedCanvasElement:
+          !focusedThumbnail &&
+          Boolean(
+            document.querySelector("[data-slide-element-selected='true']"),
+          ),
+        hasBlockingOverlay: hasBlockingSlideClipboardOverlay(),
+        isSlideToolActive: pinMode || drawMode,
+      });
+      if (!shouldPasteSlide) {
+        if (isTextEntrySurface && !hasImage && !hasNonMarkerPayload) {
+          event.preventDefault();
+          event.stopPropagation();
+          return true;
+        }
+        return false;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      pasteSlideAfter(activeSlideId);
+      return true;
+    },
+    [
+      deck,
+      id,
+      canEdit,
+      activeSlideId,
+      syncSlideClipboard,
+      pasteSlideAfter,
+      pinMode,
+      drawMode,
+    ],
+  );
 
   useEffect(() => {
-    return () => {
-      if (slidePasteFallbackRef.current !== null) {
-        window.clearTimeout(slidePasteFallbackRef.current);
-        slidePasteFallbackRef.current = null;
-      }
+    const handlePaste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      handlePasteSlideClipboard(event);
     };
-  }, [activeSlideId, id]);
+    document.addEventListener("paste", handlePaste, true);
+    return () => document.removeEventListener("paste", handlePaste, true);
+  }, [handlePasteSlideClipboard]);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
@@ -4675,7 +5002,11 @@ export default function DeckEditor() {
       {showPartialGenerationFailure ? (
         <div className="shrink-0 border-b bg-muted/50 px-4 py-3" role="alert">
           <div className="mx-auto max-w-6xl text-start">
-            <p>{t("deckEditor.partialGenerationFailed")}</p>
+            <p>
+              {generationContext?.generationFailureCode === "outcome_unresolved"
+                ? t("deckEditor.generationOutcomeUnresolvedWithSlides")
+                : t("deckEditor.partialGenerationFailed")}
+            </p>
             {typeof generationContext?.originalPrompt === "string" &&
             generationContext.originalPrompt.trim() ? (
               <div className="mt-2">
@@ -4910,6 +5241,7 @@ export default function DeckEditor() {
             }}
             flushInlineEditRef={inlineEditFlushRef}
             canvasCommandsRef={canvasCommandsRef}
+            onPasteSlideClipboard={handlePasteSlideClipboard}
             readOnly={!canEdit}
             canComment={canComment}
             currentUserEmail={session?.email ?? null}

@@ -4,6 +4,7 @@ const messages = {
     includeLast: "包含最近",
     whatIsThis: "这是什么？",
     off: "关",
+    none: "无",
     custom: "自定义…",
     customLabel: "自定义时长",
     customAmount: "时长",
@@ -15,6 +16,22 @@ const messages = {
     customErrorInvalid: "请输入整数秒数或分钟数。",
     customErrorTooLong: "请不超过 5 分钟。",
     turnOnRewind: "开启 Rewind",
+    turnOffRewind: "关闭",
+    turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
+    turnOnRewindFailed: "无法开启 Rewind。请重试。",
+    turnOnRewindPermissionFailed:
+      "在系统设置 > 隐私与安全性 > 屏幕与系统音频录制中允许 Clips 录屏，然后重新启动 Clips 并重试。",
+    turnOnRewindUnsupported: "Rewind 屏幕录制仅在 macOS 上可用。",
+    turnOnRewindNoSpace: "磁盘空间不足，无法启动 Rewind。请释放空间后重试。",
+    turnOnRewindStopClip: "请先停止当前 Clip，再开启 Rewind。",
+    turnOnRewindStorageFailed:
+      "无法访问 Rewind 存储空间。请检查磁盘空间和文件夹权限后重试。",
+    rewindConsentTitle: "开启 Rewind？",
+    rewindConsentBody:
+      "Clips 会持续录制你的屏幕，并将内容保留在此设备上。智能体会获取文本摘录，只有你批准后才会分享视频。",
+    rewindConsentCancel: "暂不",
+    rewindConsentConfirm: "开启 Rewind",
+    rewindConsentBusy: "正在开启 Rewind…",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
       "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
@@ -581,6 +598,31 @@ const messages = {
     groqKeysStart: "Groq 键开头为",
     waiting: "等待…",
     nativeSpeechPrimary: "原生语音仍然是主要的转录来源。",
+  },
+  transcriptImport: {
+    addFile: "添加文字记录文件",
+    imported: "已导入",
+    replaceTitle: "替换文字记录？",
+    replaceDescription: "{{fileName}} 将替换当前的文字记录。",
+    replace: "替换",
+    regenerateOverImportTitle: "替换导入的文字记录？",
+    regenerateOverImportDescription:
+      "根据录制音频生成的新文字记录将替换从文件导入的文字记录。",
+    added: "已添加文字记录",
+    replaced: "已替换文字记录",
+    failed: "无法添加文字记录",
+    invalidFile: "无法读取 {{fileName}}",
+    errorEmpty: "文件中没有文字记录内容。",
+    errorTooLarge: "文件太大，无法导入。",
+    errorNotUtf8: "文件不是 UTF-8 文本。请另存为 UTF-8 后重试。",
+    errorMissingTiming:
+      "第 {{line}} 行：应为字幕时间行，例如 00:00:01.000 --> 00:00:04.000。",
+    errorBadTiming: "第 {{line}} 行：无法读取字幕时间。",
+    errorBadRange: "第 {{line}} 行：字幕的结束时间早于开始时间。",
+    errorMissingTimestamp:
+      "第 {{line}} 行：应为开始时间，例如 0:21 或 [0:21]。",
+    errorOutOfOrder: "第 {{line}} 行：此时间早于上一个时间。",
+    errorPastEnd: "第 {{line}} 行：此时间晚于视频结束时间。",
   },
   thumbnailPicker: {
     failedCapture: "捕捉帧失败",
@@ -1475,6 +1517,8 @@ const messages = {
     builderGrantAskAdmin:
       "请所有者或管理员连接具有剪辑上传权限的 Builder.io 账户。",
     statusUnavailable: "无法检查视频存储是否已就绪。",
+    hostedStorageUnavailable:
+      "Clips 托管存储暂时不可用。您的免费剪辑额度不变，请稍后重试上传。",
     checkingBuilderConnection: "正在检查 Builder 连接…",
     builderTimeout: "无法确认 Builder.io 存储已就绪，请重试。",
     builderConnected: "Builder.io 已连接",
@@ -1765,6 +1809,14 @@ const messages = {
     validWebUrl: "请输入有效的 http:// 或 https:// 地址。",
   },
   recordRoute: {
+    freeClipsLeft_one: "还剩 {{count}} 个免费片段",
+    freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
+    hostedClipsExhaustedDescription:
+      "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
+    clipExceedsSizeLimit: "此片段超出当前上传大小限制。",
+    clipExceedsMaxDuration: "此片段超出当前录制时长限制。",
+    maxClipDurationReached: "已达到片段时长上限。正在保存录制内容。",
     pageTitle: "New recording — Clips (已本地化)",
     uploadFailed: "Upload failed (已本地化)",
     uploadFailedAtChunk:
@@ -1787,6 +1839,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (已本地化)",
     recordingDownloadStarted: "Recording download started (已本地化)",
+    partialLocalCopyDownloadStarted:
+      "本地副本可能不完整。正在下载当前可用的录制数据。",
     backToLibrary: "Back to library (已本地化)",
     clipsRecorder: "Clips recorder (已本地化)",
     preparingSources: "Preparing sources… (已本地化)",
@@ -1938,6 +1992,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (已本地化)",
     cleanupComplete: "听写已清理",
     cleanupFailed: "无法清理听写",
+    undoCleanup: "撤销",
+    restoreOriginal: "恢复原文",
+    cleanupRestored: "已恢复原始听写",
+    cleanupRestoreFailed: "无法恢复原始听写",
     startFirst: "把想法变成文字",
     recordOnDesktop: "在桌面端录制",
     emptyDesktopDescription:
@@ -1982,6 +2040,9 @@ const messages = {
     vocabularyRemoveFailed: "无法移除词条",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 托管存储空间已满。请连接 Builder.io 存储以继续保存片段。",
+    hostedRecordingTakenDown: "此录制已从 Clips 托管存储中移除。",
     splitAtPlayhead: "在播放头处分割 (S)",
     selectedCount: "已选择 {{count}} 项",
     selectAll: "全选",
@@ -2009,6 +2070,7 @@ const messages = {
     viewsCount: "{{count}} 次观看",
     recordingMenu: "录制菜单",
     moveToFolder: "移动到文件夹",
+    moveHere: "移到此处",
     unarchive: "取消归档",
     shareNamedMeeting: "分享“{{title}}”",
     shareMeeting: "分享会议",
@@ -2156,9 +2218,15 @@ const messages = {
     issues: "问题",
     consoleSource: "控制台",
     networkSource: "网络",
+    appSource: "应用活动",
+    appEvent: "事件",
+    appData: "数据",
+    appFailureSummary: "{{count}} 个应用失败",
+    appUnavailable: "无法加载应用活动。",
     consoleCount: "控制台 {{count}}",
     networkCount: "网络 {{count}}",
     afterRecording: "录制结束后",
+    beforeRecording: "录制开始前",
     seekToTime: "跳转到 {{time}}",
     occurrences: "出现时间",
     message: "消息",
@@ -2170,6 +2238,7 @@ const messages = {
     noIssuesTitle: "未检测到浏览器问题",
     noConsoleTitle: "没有控制台事件",
     noNetworkTitle: "没有网络请求",
+    noAppTitle: "没有应用活动",
     capturedDescription: "已为此录制采集诊断信息。",
   },
   timeline: { clipStartedHere: "剪辑从这里开始" },

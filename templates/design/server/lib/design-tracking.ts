@@ -2,18 +2,19 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { track, type TrackingSource } from "@agent-native/core/tracking";
 
-export type DesignCreationMethod =
-  | "blank"
-  | "prompt"
-  | "template"
-  | "duplicate"
-  | "import_figma"
-  | "import_url"
-  | "import_document"
-  | "import_code"
-  | "import_project"
-  | "import_analytics"
-  | "agent";
+export const DESIGN_CREATION_METHODS = [
+  "blank",
+  "prompt",
+  "template",
+  "duplicate",
+  "context_clone",
+  "import_figma",
+  "import_url",
+  "import_analytics",
+  "agent",
+] as const;
+
+export type DesignCreationMethod = (typeof DESIGN_CREATION_METHODS)[number];
 
 export type DesignGenerationPath = "generate_design" | "variants" | "screens";
 
@@ -76,8 +77,6 @@ export function trackDesign(
     // coercion-ok: analytics is best-effort and must never fail the operation it describes.
   }
 }
-
-export { promptLengthBucket } from "../../shared/prompt-length-bucket.js";
 
 export function trackingErrorType(error: unknown): string {
   if (error && typeof error === "object") {

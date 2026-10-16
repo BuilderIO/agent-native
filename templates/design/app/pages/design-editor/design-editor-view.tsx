@@ -140,7 +140,7 @@ import {
 } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
-import { ShareExportMenu } from "./view/share-export-menu";
+import { ShareCopyLinkButton } from "./view/share-copy-link-button";
 import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
@@ -1110,13 +1110,9 @@ export function renderDesignEditorView({
             shareSegmentClassName,
           )}
         />
-        <ShareExportMenu
+        <ShareCopyLinkButton
           editorCore={editorCore}
-          editorGenerationAndAccess={editorGenerationAndAccess}
-          editorFilesAndSaving={editorFilesAndSaving}
-          editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
-          editorExportAndHandoff={editorExportAndHandoff}
-          editorLayerActions={editorLayerActions}
+          shareUrl={editorShareUrl}
           className={cn(
             dense
               ? "h-[var(--design-control-height)]"
@@ -1430,7 +1426,8 @@ export function renderDesignEditorView({
     motionInspector:
       editorLiveEditsAndPresence.motionLabEnabled &&
       motionDockOpen &&
-      Boolean(activeFile?.id),
+      Boolean(activeFile?.id) &&
+      selectedInspectorElements.length > 0,
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
@@ -1733,6 +1730,12 @@ export function renderDesignEditorView({
               currentTimeMs: motionPlayhead * motionDurationMs,
               timelineDurationMs: motionDurationMs,
             });
+            if (result.unsupportedSequenceProperty) {
+              toast.error(
+                t("designEditor.motion.animationStyles.unsupportedSequence"),
+              );
+              return;
+            }
             if (result.tracks.length === 0) {
               toast.info(
                 t("designEditor.motion.trackExists", {
@@ -1760,6 +1763,8 @@ export function renderDesignEditorView({
           }
         : undefined,
     motionWriteUnavailable: !canWriteMotion,
+    motionWriteUnavailableReason:
+      editorContentAndComponents.motionSourceReadUnavailableReason ?? undefined,
     motionAudioClips,
     onMotionAudioClipsChange: canWriteMotion
       ? handleMotionAudioClipsChange

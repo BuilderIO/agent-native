@@ -749,6 +749,16 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Sprachnavigation",
+    voiceNavigationNextCommand: "Nächste Folie",
+    voiceNavigationPreviousCommand: "Vorherige Folie",
+    voiceNavigationHint:
+      "Sagen Sie „{{next}}“ oder „{{previous}}“, um zu navigieren.",
+    voiceNavigationListening: "Höre auf „{{next}}“ oder „{{previous}}“.",
+    voiceNavigationUnavailable:
+      "Sprachsteuerung ist in diesem Browser nicht verfügbar.",
+    voiceNavigationError:
+      "Die Sprachnavigation wurde gestoppt. Prüfen Sie die Mikrofonberechtigung und Verbindung und versuchen Sie es erneut.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -846,6 +856,8 @@ const messages = {
       "Es wurden keine Folien erstellt. Prüfe die Details im Chat und versuche es erneut.",
     generationOutcomeUnresolved:
       "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck, bevor du es erneut versuchst.",
+    generationOutcomeUnresolvedWithSlides:
+      "Wir konnten nicht bestätigen, ob die Folienerstellung abgeschlossen ist. Sieh dir die hier angezeigten Folien an, bevor du fortfährst.",
     partialGenerationFailed:
       "Wir konnten deine Folien nicht fertigstellen. Sieh dir die vorhandenen Folien und deine ursprüngliche Anfrage an, bevor du fortfährst.",
     originalPrompt: "Deine Anfrage",
@@ -868,6 +880,10 @@ const messages = {
     leaveWithoutSaving: "Ohne Speichern beenden",
     editorMarkupNotSaved:
       "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
+    historyStepConflict:
+      "Dieser Verlaufsschritt wurde übersprungen, weil er mit der aktuellen Präsentation in Konflikt steht.",
+    historyStepFailed:
+      "Dieser Verlaufsschritt wurde übersprungen, weil er nicht angewendet werden konnte.",
     textEditConflictNotSaved:
       "Deine Textänderung wurde nicht gespeichert, weil derselbe Text gleichzeitig an anderer Stelle geändert wurde.",
   },

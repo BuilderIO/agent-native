@@ -812,7 +812,7 @@ export function PanelSection({
           type="button"
           variant="ghost"
           aria-label={emptyTitleActionLabel ?? title}
-          className="h-full w-full min-w-0 justify-start rounded-none bg-transparent p-0 text-left text-inherit shadow-none hover:bg-transparent"
+          className="design-sidebar-section-title h-full w-full min-w-0 justify-start rounded-none bg-transparent p-0 text-left text-inherit shadow-none hover:bg-transparent"
           onClick={onEmptyTitleClick}
         >
           {title}

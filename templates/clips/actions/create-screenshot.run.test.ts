@@ -15,6 +15,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  fail: (message: string, options: Record<string, unknown> = {}): never => {
+    const error = new Error(message) as Error & Record<string, unknown>;
+    Object.assign(error, {
+      actionContractError: true,
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+    });
+    throw error;
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: async () => undefined,
@@ -84,5 +93,16 @@ describe("create-screenshot", () => {
       "org",
     );
     expect(mocks.rows[0]?.visibility).toBe("org");
+  });
+
+  it("returns a typed setup error when storage is not connected", async () => {
+    mocks.uploadFile.mockImplementationOnce(async () => null as any);
+
+    await expect(run()).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      statusCode: 503,
+    });
+    expect(mocks.rows).toHaveLength(0);
   });
 });

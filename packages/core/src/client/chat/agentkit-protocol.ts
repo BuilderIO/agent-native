@@ -946,6 +946,7 @@ function runtimeMessageToProtocolMessage(
       runtimePartToProtocolPart(part, textFormat),
     ),
     createdAt: message.createdAt,
+    status: message.status,
     metadata: message.metadata,
   };
 }
@@ -1048,6 +1049,7 @@ function protocolMessageToRuntimeMessage(
     role: message.role,
     content: message.parts.map(protocolPartToRuntimePart),
     createdAt: message.createdAt,
+    status: message.status,
     metadata: message.metadata,
   };
 }
@@ -2612,6 +2614,10 @@ export function createAgentKitProtocolAdapter(
                 ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
                 ...(event.toolName ? { toolName: event.toolName } : {}),
                 ...(event.input === undefined ? {} : { input: event.input }),
+                ...(event.allowPersistentApproval === false
+                  ? { allowPersistentApproval: false }
+                  : {}),
+                ...(event.askId ? { approvalAskId: event.askId } : {}),
               },
             } satisfies AgentApprovalRequest,
           },
@@ -4012,11 +4018,24 @@ export function createAgentKitProtocolAdapter(
           activeMessageCompleted: run.activeMessageCompleted,
           pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
-          activeTools: new Map(run.activeTools),
-          pendingToolMessageAssociations: new Map(
-            run.pendingToolMessageAssociations,
+          activeTools: new Map(
+            [...run.activeTools].map(([id, tool]) => [
+              id,
+              { ...tool, runId: nextRunId },
+            ]),
           ),
-          activeActivities: new Map(run.activeActivities),
+          pendingToolMessageAssociations: new Map(
+            [...run.pendingToolMessageAssociations].map(([id, tool]) => [
+              id,
+              { ...tool, runId: nextRunId },
+            ]),
+          ),
+          activeActivities: new Map(
+            [...run.activeActivities].map(([id, activity]) => [
+              id,
+              { ...activity, runId: nextRunId },
+            ]),
+          ),
           terminalAppendDepth: 0,
           pumpPromise: null,
           continuationPromise: null,

@@ -10,6 +10,7 @@ export const CLIP_AGENT_CONTEXT_VERSION = 2;
 export const AGENT_CONTEXT_ENDPOINT = "/api/agent-context.json";
 export const AGENT_TRANSCRIPT_ENDPOINT = "/api/agent-transcript.json";
 export const AGENT_FRAME_ENDPOINT = "/api/agent-frame.jpg";
+export const AGENT_APP_ACTIVITY_ENDPOINT = "/api/agent-app-activity.json";
 export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
 export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
 export const CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS = 50;
@@ -228,6 +229,7 @@ export function agentAccessTokenResourceId(recordingId: string): string {
 export interface AgentApiUrls {
   contextUrl: string;
   transcriptUrl: string;
+  appActivityUrl: string;
   frameUrlTemplate: string;
   frameUrl: (atMs: number) => string;
 }
@@ -292,6 +294,11 @@ export function buildAgentApiUrls(
     recordingId,
     ...options,
   });
+  const appActivityUrl = endpointUrl({
+    endpoint: AGENT_APP_ACTIVITY_ENDPOINT,
+    recordingId,
+    ...options,
+  });
   const frameBase = endpointUrl({
     endpoint: AGENT_FRAME_ENDPOINT,
     recordingId,
@@ -301,6 +308,7 @@ export function buildAgentApiUrls(
   return {
     contextUrl,
     transcriptUrl,
+    appActivityUrl,
     frameUrlTemplate: `${frameBase}&atMs={timestampMs}`,
     frameUrl: (atMs: number) =>
       `${frameBase}&atMs=${encodeURIComponent(String(safeMs(atMs)))}`,

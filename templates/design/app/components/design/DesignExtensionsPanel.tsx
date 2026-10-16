@@ -1316,14 +1316,15 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
   const handleAskAgent = () => {
     sendToDesignAgentChat({
       message:
-        "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to save the keyframes to the Design source.",
+        "Apply a motion preset to the selected element. Inspect existing motion first with get-motion-timeline, preview the selected frame, then save the timeline with apply-motion-edit. For inline HTML or React JSX, adopt supported static CSS animations into the timeline when present.",
       context: [
         `Design id: ${context.designId}`,
         context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
         context.selectedElement
           ? `Selected element: ${JSON.stringify({ selector: context.selectedElement.selector, sourceId: context.selectedElement.sourceId }, null, 2)}`
           : "No element selected — ask the user to click an element first.",
-        "Call get-motion-timeline to check for an existing timeline, then preview-motion-frame, and call apply-motion-edit to save the timeline and generated CSS to the inline Design source.",
+        "Inline HTML <style> and React JSX <style> CSS import supports one static animation per uniquely resolved simple selector, using top-level @keyframes, fixed longhand timing, a supported easing, and static keyframe values for supported properties. React requires one lossless static JSX text or string/template literal with no substitutions. On save, adopted animation declarations and @keyframes move into managed Motion CSS; unrelated CSS remains. Removing the Motion timeline removes adopted animation CSS. This does not import JSX style-prop animations/transitions, JavaScript runtime animations, GSAP, Web Animations API calls, external stylesheets, or Alpine x-transition directives. Unsupported or ambiguous CSS must remain unchanged.",
+        "React/JSX source writeback uses verified managed Motion CSS; it does not import unmarked CSS. Call get-motion-timeline, then preview-motion-frame, then apply-motion-edit.",
       ]
         .filter(Boolean)
         .join("\n"),

@@ -758,6 +758,16 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Navigation vocale",
+    voiceNavigationNextCommand: "Diapositive suivante",
+    voiceNavigationPreviousCommand: "Diapositive précédente",
+    voiceNavigationHint:
+      "Dites « {{next}} » ou « {{previous}} » pour naviguer.",
+    voiceNavigationListening: "À l’écoute de « {{next}} » ou « {{previous}} ».",
+    voiceNavigationUnavailable:
+      "La navigation vocale n’est pas disponible dans ce navigateur.",
+    voiceNavigationError:
+      "La navigation vocale s’est arrêtée. Vérifiez l’autorisation et la connexion du micro, puis réessayez.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -850,6 +860,8 @@ const messages = {
       "Les diapositives n’ont pas été créées. Consultez les détails dans le chat, puis réessayez.",
     generationOutcomeUnresolved:
       "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation avant de réessayer.",
+    generationOutcomeUnresolvedWithSlides:
+      "Nous n’avons pas pu confirmer que la création des diapositives est terminée. Vérifiez les diapositives affichées ici avant de continuer.",
     partialGenerationFailed:
       "Nous n’avons pas pu terminer la création des diapositives. Vérifiez celles déjà présentes et votre demande initiale avant de continuer.",
     originalPrompt: "Votre demande",
@@ -873,6 +885,10 @@ const messages = {
     leaveWithoutSaving: "Quitter sans enregistrer",
     editorMarkupNotSaved:
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    historyStepConflict:
+      "Cette étape de l’historique a été ignorée, car elle est en conflit avec la présentation actuelle.",
+    historyStepFailed:
+      "Cette étape de l’historique a été ignorée, car elle n’a pas pu être appliquée.",
     textEditConflictNotSaved:
       "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },

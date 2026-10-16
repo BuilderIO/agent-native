@@ -1,5 +1,18 @@
 # @agent-native/agentkit
 
+## 0.209.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c139e35: Expire queued chat submissions when their retry window closes, and require peer support before sending deadline-bound retries.
+
+## 0.209.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.208.0
 
 ### Patch Changes

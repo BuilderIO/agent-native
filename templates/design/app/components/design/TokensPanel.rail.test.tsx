@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { TokensPanel } from "./TokensPanel";
 
 const mocks = vi.hoisted(() => ({
-  applyMutate: vi.fn(),
+  applyMutateAsync: vi.fn(),
   importMutateAsync: vi.fn(),
   tokensData: {
     designId: "design-1",
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     tokens: [],
     groups: [
       {
-        type: "color",
+        group: "color",
         tokens: [
           {
             name: "Accent",
@@ -36,7 +37,7 @@ const mocks = vi.hoisted(() => ({
         ],
       },
       {
-        type: "spacing",
+        group: "spacing",
         tokens: [
           {
             name: "Gap",
@@ -60,7 +61,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (action: string) =>
     action === "import-design-tokens"
       ? { mutateAsync: mocks.importMutateAsync, isPending: false }
-      : { mutate: mocks.applyMutate, isPending: false },
+      : { mutateAsync: mocks.applyMutateAsync, isPending: false },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -85,11 +86,14 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  mocks.applyMutateAsync.mockResolvedValue({});
   act(() =>
     root.render(
-      <TooltipProvider>
-        <TokensPanel designId="design-1" />
-      </TooltipProvider>,
+      <QueryClientProvider client={new QueryClient()}>
+        <TooltipProvider>
+          <TokensPanel designId="design-1" />
+        </TooltipProvider>
+      </QueryClientProvider>,
     ),
   );
 });
@@ -105,6 +109,21 @@ function button(label: string) {
   return container.querySelector<HTMLButtonElement>(
     `button[aria-label="${label}"]`,
   );
+}
+
+/** Radix menus open on keyboard or pointerdown, not a synthetic click. */
+async function openMenu(label: string) {
+  await act(() =>
+    button(label)!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    ),
+  );
+}
+
+function menuItem(label: string) {
+  return Array.from(
+    document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+  ).find((el) => el.textContent === label);
 }
 
 function groupRow(label: string) {
@@ -130,40 +149,38 @@ describe("Tokens panel header", () => {
   });
 
   it("opens the import menu with its four sources", async () => {
-    await act(() => button("designEditor.tokens.import")!.click());
-    const menuText = document.body.textContent ?? "";
-    for (const title of [
-      "Import a set from text",
-      "Import from a file",
-      "Import from a folder",
-      "Import from current design",
+    await openMenu("designEditor.tokens.import");
+    for (const key of [
+      "importDtcg",
+      "importCssOrTailwind",
+      "importClipboard",
+      "importFromDesign",
     ]) {
-      expect(menuText).toContain(title);
+      expect(menuItem(`designEditor.tokens.${key}`)).toBeDefined();
     }
   });
 
-  it("opens the new-token popover and adds a normalized CSS variable", async () => {
-    await act(() => button("designEditor.tokens.newToken")!.click());
-    const inputs = Array.from(
-      document.body.querySelectorAll<HTMLInputElement>("input.font-mono"),
+  it("adds a typed draft token from the new-token menu", async () => {
+    await openMenu("designEditor.tokens.newToken");
+    await act(() => menuItem("designEditor.tokens.types.opacity")!.click());
+    // The draft row mounts once the menu has finished closing.
+    const draftInputs = () =>
+      Array.from(
+        container.querySelectorAll<HTMLInputElement>("input.font-mono"),
+      );
+    await vi.waitFor(() => expect(draftInputs()).toHaveLength(2));
+    const [nameInput, valueInput] = draftInputs();
+    expect(nameInput.value).toBe("--opacity-1");
+    await act(() => setInputValue(valueInput, "0.4"));
+    await act(() =>
+      valueInput.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
     );
-    expect(inputs).toHaveLength(2);
-    expect(inputs[0].placeholder).toBe("--my-token");
-    await act(() => {
-      setInputValue(inputs[0], "brand");
-      setInputValue(inputs[1], "#123456");
+    expect(mocks.applyMutateAsync).toHaveBeenCalledWith({
+      designId: "design-1",
+      edits: [{ cssVar: "--opacity-1", value: "0.4", type: "opacity" }],
     });
-    const add = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((el) => el.textContent === "designEditor.tokens.add");
-    await act(() => add!.click());
-    expect(mocks.applyMutate).toHaveBeenCalledWith(
-      {
-        designId: "design-1",
-        edits: [{ cssVar: "--brand", value: "#123456" }],
-      },
-      expect.any(Object),
-    );
   });
 });
 
@@ -198,12 +215,14 @@ describe("Tokens panel list", () => {
 
 describe("Tokens panel search", () => {
   it("opens the Layers-style field, filters, and closes on Escape when empty", async () => {
-    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector('input:not([type="file"])')).toBeNull();
     await act(async () => {
       button("designEditor.tokens.search")!.click();
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
-    const field = container.querySelector<HTMLInputElement>("input")!;
+    const field = container.querySelector<HTMLInputElement>(
+      'input:not([type="file"])',
+    )!;
     expect(field.placeholder).toBe("designEditor.tokens.search");
     expect(document.activeElement).toBe(field);
     expect(field.parentElement?.querySelector("svg")).not.toBeNull();
@@ -218,6 +237,6 @@ describe("Tokens panel search", () => {
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       ),
     );
-    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector('input:not([type="file"])')).toBeNull();
   });
 });

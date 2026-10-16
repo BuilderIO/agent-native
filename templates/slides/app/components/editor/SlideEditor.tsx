@@ -183,9 +183,11 @@ import {
 } from "./rich-text-selection";
 import {
   createSelectionOverlayAutofitKey,
+  createSelectionOverlayMeasurementIdentityKey,
   createSelectionOverlayMeasurementKey,
   currentSelectionOverlayFrame,
   currentSelectionOverlayRect,
+  isSelectionOverlayMeasurementCurrent,
   isSameSelectedContainer,
   isSameSelectionMeasurement,
   isSelectionOverlayAutofitSettled,
@@ -263,6 +265,7 @@ import {
   screenDeltaToLocal,
   resolveSlideClipboardElement,
   resolveSlideSelectionAnchor,
+  resolveRetainedSlideSelectionNode,
   restoreSlideObjectStyle,
   restoreSlideObjectDomSnapshot,
   restoreSlideObjectTransformSnapshots,
@@ -827,6 +830,43 @@ function readEditedFrameOptions(
   return hasInlineHeight(element) ? undefined : { contentHeight: "scroll" };
 }
 
+function measureSelectionOverlayForElement(
+  element: HTMLElement,
+  slideContent: HTMLElement | null,
+  key: string,
+  identityKey: string,
+  frameOptions?: { contentHeight: "scroll" },
+) {
+  const rect = element.getBoundingClientRect();
+  const parentGroup =
+    slideContent && element.parentElement
+      ? resolveSlideObjectGroupRoot(element.parentElement, slideContent)
+      : null;
+  const container =
+    parentGroup ??
+    (slideContent
+      ? findSlideShapeOwner(element.parentElement, slideContent)
+      : null);
+  const containerRect = container?.getBoundingClientRect();
+
+  return {
+    measurement: {
+      key,
+      identityKey,
+      rect,
+      frame: readSlideObjectSelectionFrame(element, rect, frameOptions),
+    } satisfies SelectionOverlayMeasurement,
+    container:
+      container && containerRect
+        ? {
+            rect: containerRect,
+            frame: readSlideObjectSelectionFrame(container, containerRect),
+            group: parentGroup !== null,
+          }
+        : null,
+  };
+}
+
 function buildStyleSnapshot(
   element: HTMLElement,
   selector: string,
@@ -1075,6 +1115,7 @@ interface SlideEditorProps {
     slideIdOverride?: string,
     options?: UpdateSlideOptions,
   ) => string | undefined;
+  onPasteSlideClipboard?: (event: ClipboardEvent) => boolean;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -1734,6 +1775,7 @@ export default function SlideEditor({
   slide,
   slidePosition,
   onUpdateSlide,
+  onPasteSlideClipboard,
   readOnly = false,
   contextToolbarSlot,
   wideContextToolbarSlot,
@@ -1864,20 +1906,15 @@ export default function SlideEditor({
   const copiedObjectClipboardRef = useRef<{
     copied: CopiedSlideObjects;
     clipboardId: string;
-    nativeClipboardMode: "pending" | "rich" | "text-only" | "failed";
-    copySequence: number;
-    copySessionId: number;
     deckId?: string;
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
-  const copiedObjectCopySequenceRef = useRef(0);
-  const copiedObjectClipboardSessionRef = useRef(0);
-  const overlappingNativeClipboardIdsRef = useRef(new Map<string, string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
   >(null);
+  const selectedElementNodeRef = useRef<HTMLElement | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [selectedElementSlideId, setSelectedElementSlideId] = useState<
     string | null
@@ -1924,7 +1961,7 @@ export default function SlideEditor({
     rowCount: number;
     colCount: number;
   } | null>(null);
-  const selectionOverlayMeasurementKey = createSelectionOverlayMeasurementKey({
+  const selectionOverlayMeasurementIdentity = {
     slideId: slide.id,
     content,
     objectId: selectedObjectId,
@@ -1932,19 +1969,38 @@ export default function SlideEditor({
     path: selectedElementPath,
     canvasZoom,
     revision: selectionMeasurementRevision,
-  });
+  };
+  const selectionOverlayMeasurementKey = createSelectionOverlayMeasurementKey(
+    selectionOverlayMeasurementIdentity,
+  );
+  const selectionOverlayMeasurementIdentityKey =
+    createSelectionOverlayMeasurementIdentityKey(
+      selectionOverlayMeasurementIdentity,
+    );
   const selectionOverlayMeasurementKeyRef = useRef(
     selectionOverlayMeasurementKey,
   );
   selectionOverlayMeasurementKeyRef.current = selectionOverlayMeasurementKey;
+  const selectionOverlayMeasurementIdentityKeyRef = useRef(
+    selectionOverlayMeasurementIdentityKey,
+  );
+  selectionOverlayMeasurementIdentityKeyRef.current =
+    selectionOverlayMeasurementIdentityKey;
   const selectedElementRect = currentSelectionOverlayRect(
     selectedElementMeasurement,
     selectionOverlayMeasurementKey,
+    selectionOverlayMeasurementIdentityKey,
   );
   const selectedElementFrame = currentSelectionOverlayFrame(
     selectedElementMeasurement,
     selectionOverlayMeasurementKey,
+    selectionOverlayMeasurementIdentityKey,
   );
+  const selectedElementMeasurementIsCurrent =
+    isSelectionOverlayMeasurementCurrent(
+      selectedElementMeasurement,
+      selectionOverlayMeasurementKey,
+    ) && isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey);
   const selectedElementMeasurementRef = useRef(selectedElementMeasurement);
   selectedElementMeasurementRef.current = selectedElementMeasurement;
   const invalidateSelectionOverlayMeasurement = useCallback(() => {
@@ -2458,6 +2514,7 @@ export default function SlideEditor({
           crop.frozen.restoreMarkdownTree();
         }
         onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
           persistence: "immediate",
         });
       } else {
@@ -2880,12 +2937,73 @@ export default function SlideEditor({
       const object = findSlideObjectById(slideContent, selectedObjectId);
       if (object) return object;
     }
+    const retainedNode = resolveRetainedSlideSelectionNode(
+      slideContent,
+      selectedElementNodeRef.current,
+    );
+    if (retainedNode) return retainedNode;
     if (!selectedElementPath) return null;
     return resolveSlideSelectionAnchor(slideContent, {
       objectId: null,
       path: selectedElementPath,
     });
   }, [getSlideContent, selectedElementPath, selectedObjectId]);
+
+  const measureSelectionOverlayNow = useCallback(() => {
+    if (
+      !editingElRef.current &&
+      !isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey)
+    ) {
+      return;
+    }
+    if (
+      !selectedElementPath ||
+      !selectedElementSelector ||
+      selectedElementSlideId !== slide.id
+    ) {
+      return;
+    }
+    const element = resolveSelectedElement();
+    const slideContent = getSlideContent();
+    if (!element || !slideContent) return;
+    const editingElement = editingElRef.current;
+    const resolvedEditingElement = editingElement
+      ? resolveSlideTextSelectionTarget(editingElement, slideContent)
+      : null;
+    const { measurement, container } = measureSelectionOverlayForElement(
+      element,
+      slideContent,
+      selectionOverlayMeasurementKey,
+      selectionOverlayMeasurementIdentityKey,
+      editingElement && resolvedEditingElement === element
+        ? readEditedFrameOptions(element)
+        : undefined,
+    );
+    if (
+      isSameSelectionMeasurement(
+        selectedElementMeasurementRef.current,
+        measurement,
+      ) &&
+      isSameSelectedContainer(selectedContainerRef.current, container)
+    ) {
+      return;
+    }
+    selectedElementMeasurementRef.current = measurement;
+    selectedContainerRef.current = container;
+    setSelectedElementMeasurement(measurement);
+    setSelectedContainer(container);
+  }, [
+    getSlideContent,
+    resolveSelectedElement,
+    selectedElementPath,
+    selectedElementSelector,
+    selectedElementSlideId,
+    selectionOverlayMeasurementIdentityKey,
+    selectionOverlayMeasurementKey,
+    settledAutofitKey,
+    canvasAutofitKey,
+    slide.id,
+  ]);
 
   const ensureCommentObjectId = useCallback(
     (target: HTMLElement) => {
@@ -2971,6 +3089,7 @@ export default function SlideEditor({
 
   const clearSelectedElement = useCallback(() => {
     richTextSelectionRef.current = null;
+    selectedElementNodeRef.current = null;
     setSelectedElementPath(null);
     setSelectedObjectId(null);
     setSelectedElementSlideId(null);
@@ -3006,6 +3125,7 @@ export default function SlideEditor({
       element: HTMLElement,
       selector: string,
       selectionMode?: SlidesSelectionMode,
+      measureImmediately = false,
     ) => {
       const slideContent = getSlideContent();
       if (!slideContent) return;
@@ -3014,6 +3134,7 @@ export default function SlideEditor({
         slideContent,
       );
       if (path.length === 0) return;
+      selectedElementNodeRef.current = element;
       const snapshot = buildStyleSnapshot(element, selector);
       setSelectedVideoPlayback(
         element.tagName === "VIDEO"
@@ -3024,10 +3145,32 @@ export default function SlideEditor({
       setSelectedObjectId(objectId);
       setSelectedElementSlideId(slide.id);
       setSelectedElementSelector(selector);
-      // Geometry can be invalidated by an async slide-content commit or
-      // AutoFit transform. Reveal the portal only after the layout effect
-      // measures this exact rendered selection.
-      invalidateSelectionOverlayMeasurement();
+      if (measureImmediately) {
+        const revision = selectionMeasurementRevision + 1;
+        const identity = {
+          slideId: slide.id,
+          content,
+          objectId,
+          selector,
+          path,
+          canvasZoom,
+          revision,
+        };
+        const { measurement, container } = measureSelectionOverlayForElement(
+          element,
+          slideContent,
+          createSelectionOverlayMeasurementKey(identity),
+          createSelectionOverlayMeasurementIdentityKey(identity),
+        );
+        setSelectionMeasurementRevision(revision);
+        setSelectedElementMeasurement(measurement);
+        setSelectedContainer(container);
+      } else {
+        // Geometry can be invalidated by an async slide-content commit or
+        // AutoFit transform. Reveal the portal only after the layout effect
+        // measures this exact rendered selection.
+        invalidateSelectionOverlayMeasurement();
+      }
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
         buildSelectionState(getSlideSelectionMode(snapshot, selectionMode), [
@@ -3037,8 +3180,11 @@ export default function SlideEditor({
     },
     [
       buildSelectionState,
+      canvasZoom,
+      content,
       getSlideContent,
       invalidateSelectionOverlayMeasurement,
+      selectionMeasurementRevision,
       slide.id,
     ],
   );
@@ -3501,12 +3647,9 @@ export default function SlideEditor({
       !editingEl &&
       !isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey)
     ) {
-      // AutoFit changes the element's viewport rect in a rAF. Do not publish
-      // pre-fit coordinates into the portal while the renderer is settling.
-      // It never measures while text is edited, so each draft capture would
-      // otherwise leave the key unsettled and hide the outline until the edit
-      // ends.
-      setSelectedElementMeasurement(null);
+      // Keep the last outline visible while AutoFit computes the new rect.
+      // Its resize and rotate handles stay disabled until a current measure is
+      // available, so stale geometry is visual continuity only.
       return;
     }
     let observedElement: HTMLElement | null = null;
@@ -3517,42 +3660,21 @@ export default function SlideEditor({
       const element = resolveSelectedElement();
       if (!element) return null;
       const editingElement = editingElRef.current;
-      const slideContent = editingElement ? getSlideContent() : null;
+      const selectionRoot = getSlideContent();
       const resolvedEditingElement =
-        editingElement && slideContent
-          ? resolveSlideTextSelectionTarget(editingElement, slideContent)
+        editingElement && selectionRoot
+          ? resolveSlideTextSelectionTarget(editingElement, selectionRoot)
           : editingElement;
-      const rect = element.getBoundingClientRect();
-      const measurement: SelectionOverlayMeasurement = {
-        key: selectionOverlayMeasurementKey,
-        rect,
-        frame: readSlideObjectSelectionFrame(
+      const { measurement, container: nextContainer } =
+        measureSelectionOverlayForElement(
           element,
-          rect,
+          selectionRoot,
+          selectionOverlayMeasurementKey,
+          selectionOverlayMeasurementIdentityKey,
           editingElement && resolvedEditingElement === element
             ? readEditedFrameOptions(element)
             : undefined,
-        ),
-      };
-      const selectionRoot = getSlideContent();
-      const parentGroup =
-        selectionRoot && element.parentElement
-          ? resolveSlideObjectGroupRoot(element.parentElement, selectionRoot)
-          : null;
-      const container =
-        parentGroup ??
-        (selectionRoot
-          ? findSlideShapeOwner(element.parentElement, selectionRoot)
-          : null);
-      const containerRect = container?.getBoundingClientRect();
-      const nextContainer =
-        container && containerRect
-          ? {
-              rect: containerRect,
-              frame: readSlideObjectSelectionFrame(container, containerRect),
-              group: parentGroup !== null,
-            }
-          : null;
+        );
       if (
         isSameSelectionMeasurement(
           selectedElementMeasurementRef.current,
@@ -4121,6 +4243,7 @@ export default function SlideEditor({
       }
       refreshLayerNodes();
       onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
         persistence: "immediate",
       });
     },
@@ -4146,13 +4269,16 @@ export default function SlideEditor({
       pendingMultiSelectionResyncRef.current = { objectIds, paths: [] };
       const html = serializedContent ?? readCurrentSlideContentHtml();
       if (html !== null) {
-        onUpdateSlideRef.current({ content: html }, undefined, options);
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+          ...options,
+        });
       }
     },
     [readCurrentSlideContentHtml],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const pending = pendingMultiSelectionResyncRef.current;
     pendingMultiSelectionResyncRef.current = null;
     if (!pending) {
@@ -4183,7 +4309,7 @@ export default function SlideEditor({
   // Slides. This runs after the content effect above, which drops the old
   // selection because the DOM was replaced.
   const appliedUndoSelectionRef = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     // A request for another slide waits for the slide switch; every other
     // bail drops it so a later content change cannot apply stale paths.
     if (!undoSelection || undoSelection.slideId !== slide.id) return;
@@ -4228,6 +4354,8 @@ export default function SlideEditor({
       selectElementForStyling(
         selectable[0],
         `[data-builder-id="${selectable[0].getAttribute("data-builder-id")}"]`,
+        undefined,
+        true,
       );
     } else if (!resolveSelectedElement()) {
       applyMultiSelectionRef.current(new Set());
@@ -4512,7 +4640,7 @@ export default function SlideEditor({
         );
       }
       if (selectedElementPath && selectedElementSelector) {
-        invalidateSelectionOverlayMeasurement();
+        measureSelectionOverlayNow();
       }
     };
 
@@ -4548,8 +4676,8 @@ export default function SlideEditor({
     };
   }, [
     animationsOpen,
-    invalidateSelectionOverlayMeasurement,
     layersOpen,
+    measureSelectionOverlayNow,
     multiSelection,
     refreshMultiSelectionRects,
     selectedElementPath,
@@ -4698,7 +4826,11 @@ export default function SlideEditor({
 
   const commitTableMutation = useCallback(() => {
     const html = readCurrentSlideContentHtml();
-    if (html !== null) onUpdateSlideRef.current({ content: html });
+    if (html !== null) {
+      onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
+      });
+    }
   }, [readCurrentSlideContentHtml]);
 
   /** Row/column ops below index cells by position, which only holds for a
@@ -4998,7 +5130,11 @@ export default function SlideEditor({
         const selector = getBuilderSelector(pasted[0]);
         if (selector) selectElementForStyling(pasted[0], selector);
         const html = readCurrentSlideContentHtml();
-        if (html !== null) onUpdateSlideRef.current({ content: html });
+        if (html !== null) {
+          onUpdateSlideRef.current({ content: html }, undefined, {
+            separateUndo: true,
+          });
+        }
         return;
       }
 
@@ -5145,7 +5281,11 @@ export default function SlideEditor({
       removeSlideObjectLayoutSpacer(element);
       frozen.restoreMarkdownTree();
     }
-    if (html !== null) onUpdateSlideRef.current({ content: html });
+    if (html !== null) {
+      onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
+      });
+    }
 
     const selector = getBuilderSelector(element);
     if (selector) selectElementForStyling(element, selector);
@@ -5282,7 +5422,9 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
         if (targets.length > 1) preserveMultiSelectionForUpdate(targets);
-        onUpdateSlideRef.current({ content: html });
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
       }
       if (targets.length === 1) {
         const selector = getBuilderSelector(targets[0]);
@@ -5318,47 +5460,21 @@ export default function SlideEditor({
       const clipboard = {
         copied,
         clipboardId: createSlideObjectId(),
-        nativeClipboardMode: "pending" as const,
-        copySequence: copiedObjectCopySequenceRef.current++,
-        copySessionId: copiedObjectClipboardSessionRef.current,
         deckId,
         slideId: slide.id,
         sourceRect: selection[0]?.getBoundingClientRect(),
       };
       copiedObjectClipboardRef.current = clipboard;
-      overlappingNativeClipboardIdsRef.current.clear();
       setHasCopiedObject(true);
       const clipboardWrite = writeSlideObjectClipboard(
         clipboard.clipboardId,
         copied,
       );
-      void clipboardWrite.then(
-        (mode) => {
-          const currentClipboard = copiedObjectClipboardRef.current;
-          if (
-            mode === "rich" &&
-            currentClipboard &&
-            currentClipboard.copySequence > clipboard.copySequence &&
-            currentClipboard.copySessionId === clipboard.copySessionId
-          ) {
-            overlappingNativeClipboardIdsRef.current.set(
-              clipboard.clipboardId,
-              currentClipboard.clipboardId,
-            );
-          }
-          if (currentClipboard?.clipboardId === clipboard.clipboardId) {
-            currentClipboard.nativeClipboardMode = mode;
-          }
-        },
-        () => {
-          if (
-            copiedObjectClipboardRef.current?.clipboardId ===
-            clipboard.clipboardId
-          ) {
-            copiedObjectClipboardRef.current.nativeClipboardMode = "failed";
-          }
-        },
-      );
+      void clipboardWrite.catch(() => {
+        console.warn(
+          "Native slide object clipboard unavailable; use in-app Paste.",
+        );
+      });
       return clipboard;
     },
     [deckId, slide.id, storedFormOfCopy],
@@ -5434,20 +5550,11 @@ export default function SlideEditor({
     getClipboardSelection,
   ]);
 
-  // The object payload stays editor-local, while its native marker makes the
-  // latest in-app layer copy observable alongside external clipboard copies.
-  // It intentionally does not survive a deck switch.
+  // The object payload stays editor-local while its native marker identifies
+  // an in-app layer copy. It intentionally does not survive a deck switch.
   useEffect(() => {
-    const clearOverlappingClipboardIds = () => {
-      overlappingNativeClipboardIdsRef.current.clear();
-    };
-    copiedObjectClipboardSessionRef.current += 1;
     copiedObjectClipboardRef.current = null;
-    overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
-    window.addEventListener("blur", clearOverlappingClipboardIds);
-    return () =>
-      window.removeEventListener("blur", clearOverlappingClipboardIds);
   }, [deckId]);
 
   // One window listener for object copy/paste/duplicate. Native text editing
@@ -5518,6 +5625,7 @@ export default function SlideEditor({
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
       if (e.defaultPrevented) return;
+      if (onPasteSlideClipboard?.(e)) return;
       const active = document.activeElement;
       if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       if (
@@ -5554,38 +5662,25 @@ export default function SlideEditor({
         pasteLocalClipboard();
         return;
       }
-      // An older rich write can settle after a newer copy. Remember only that
-      // overlap, so clipboard-history markers are not remapped by default.
-      if (
-        nativeClipboardId &&
-        overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
-          clipboard.clipboardId
-      ) {
-        pasteLocalClipboard();
-        return;
-      }
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
         (type) =>
           type.startsWith("text/") &&
           Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
-      // Markerless text-only writes cannot prove ownership. Readable native
-      // text stays authoritative above; only empty events use the local copy.
-      // Pending or failed native writes have no trustworthy provenance, so
-      // keep Cmd/Ctrl+V usable through the local copy when the event is empty.
-      if (
-        clipboard.nativeClipboardMode === "pending" ||
-        clipboard.nativeClipboardMode === "failed"
-      ) {
-        pasteLocalClipboard();
-        return;
-      }
+      // Empty native clipboard events can use the editor-local object copy.
       pasteLocalClipboard();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
-  }, [deckId, getClipboardSelection, pasteSlideObjects, readOnly, slide.id]);
+  }, [
+    deckId,
+    getClipboardSelection,
+    onPasteSlideClipboard,
+    pasteSlideObjects,
+    readOnly,
+    slide.id,
+  ]);
 
   // Appearance clipboard shortcuts are deliberately separate from object
   // copy/paste. The Alt modifier keeps Cmd/Ctrl+C/V available for duplicating
@@ -5762,7 +5857,11 @@ export default function SlideEditor({
       const selector = getBuilderSelector(box);
       if (selector) selectElementForStyling(box, selector);
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       return true;
     },
     [
@@ -5871,7 +5970,11 @@ export default function SlideEditor({
       const selector = getBuilderSelector(shape);
       if (selector) selectElementForStyling(shape, selector);
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
     },
     [readCurrentSlideContentHtml, selectElementForStyling, t],
   );
@@ -5982,6 +6085,7 @@ export default function SlideEditor({
     const html = readCurrentSlideContentHtml();
     if (html !== null) {
       onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
         persistence: "immediate",
       });
     }
@@ -6027,6 +6131,7 @@ export default function SlideEditor({
     const html = readCurrentSlideContentHtml();
     if (html !== null) {
       onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
         persistence: "immediate",
       });
     }
@@ -6366,6 +6471,7 @@ export default function SlideEditor({
           const rect = activeElement.getBoundingClientRect();
           setSelectedElementMeasurement({
             key: selectionOverlayMeasurementKeyRef.current,
+            identityKey: selectionOverlayMeasurementIdentityKeyRef.current,
             rect,
             frame: readSlideObjectSelectionFrame(activeElement, rect),
           });
@@ -6403,6 +6509,7 @@ export default function SlideEditor({
           }
           if (html !== null) {
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
@@ -6791,6 +6898,7 @@ export default function SlideEditor({
           }
           if (html !== null) {
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
@@ -6973,6 +7081,7 @@ export default function SlideEditor({
               paths: [],
             };
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
@@ -7364,6 +7473,7 @@ export default function SlideEditor({
               paths: [],
             };
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
@@ -7508,6 +7618,7 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
         onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
           persistence: "immediate",
         });
       }
@@ -7714,6 +7825,7 @@ export default function SlideEditor({
           const rect = element?.getBoundingClientRect() ?? outlineRect;
           setSelectedElementMeasurement({
             key: selectionOverlayMeasurementKey,
+            identityKey: selectionOverlayMeasurementIdentityKey,
             rect,
             frame: element
               ? readSlideObjectSelectionFrame(element, rect)
@@ -7747,6 +7859,7 @@ export default function SlideEditor({
             const rect = element.getBoundingClientRect();
             setSelectedElementMeasurement({
               key: selectionOverlayMeasurementKey,
+              identityKey: selectionOverlayMeasurementIdentityKey,
               rect,
               frame: readSlideObjectSelectionFrame(element, rect),
             });
@@ -7826,6 +7939,7 @@ export default function SlideEditor({
         }
         promotion = null;
         onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
           persistence: "immediate",
         });
       };
@@ -9659,6 +9773,7 @@ export default function SlideEditor({
         const html = readCurrentSlideContentHtml();
         if (html !== null) {
           onUpdateSlideRef.current({ content: html }, undefined, {
+            separateUndo: true,
             persistence: "immediate",
           });
         }
@@ -9697,7 +9812,11 @@ export default function SlideEditor({
 
       selectElementForStyling(element, selector);
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       return true;
     },
     [
@@ -9920,7 +10039,11 @@ export default function SlideEditor({
       if (!converted) return;
 
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       const selector = getBuilderSelector(converted);
       if (selector) selectElementForStyling(converted, selector);
     },
@@ -10047,7 +10170,10 @@ export default function SlideEditor({
 
   // Flow objects are promoted for the resize gesture and restored when a
   // press does not become a resize.
-  const selectedForDrag = selectedElementRect ? resolveSelectedElement() : null;
+  const selectedForDrag =
+    selectedElementRect && selectedElementMeasurementIsCurrent
+      ? resolveSelectedElement()
+      : null;
   const selectedImageForCrop = selectedForDrag?.matches("img")
     ? (selectedForDrag as HTMLImageElement)
     : selectedForDrag &&
@@ -10798,14 +10924,22 @@ export default function SlideEditor({
               ? (e) => startElementDrag(e, selectedForDrag)
               : undefined
           }
-          resizable={!selectedIsTableStructure}
+          resizable={
+            !selectedIsTableStructure && selectedElementMeasurementIsCurrent
+          }
           onResizeStart={
-            !readOnly && isSelectedElementDraggable && selectedElementFrame
+            !readOnly &&
+            selectedElementMeasurementIsCurrent &&
+            isSelectedElementDraggable &&
+            selectedElementFrame
               ? startElementResize
               : undefined
           }
           onRotateStart={
-            !readOnly && selectedElementFrame && !selectedIsTableStructure
+            !readOnly &&
+            selectedElementMeasurementIsCurrent &&
+            selectedElementFrame &&
+            !selectedIsTableStructure
               ? (e) => startRotateSelection(e, selectedElementRect)
               : undefined
           }

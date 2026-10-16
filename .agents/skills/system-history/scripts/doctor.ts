@@ -1,5 +1,5 @@
 // Preflight for system-history: the base branch is fetchable and gh works.
-import { main, run } from "../../fragility-common/lib/cli.ts";
+import { main, run, ScriptError } from "../../fragility-common/lib/cli.ts";
 import { runDoctor } from "../../fragility-common/lib/doctor.ts";
 import { loadHistoryConfig } from "./lib.ts";
 
@@ -25,11 +25,17 @@ main(async () => {
     {
       name: "github",
       run: () => {
-        const out = run(
-          "gh",
-          ["api", "rate_limit", "--jq", ".resources.graphql.remaining"],
-          { timeoutMs: 30_000 },
-        );
+        let out: string;
+        try {
+          out = run(
+            "gh",
+            ["api", "rate_limit", "--jq", ".resources.graphql.remaining"],
+            { timeoutMs: 30_000 },
+          );
+        } catch (error) {
+          // rate_limit only fails on auth or network: the check could not run.
+          throw new ScriptError((error as Error).message, 2);
+        }
         return `gh authenticated, ${out.trim()} GraphQL points left`;
       },
     },
