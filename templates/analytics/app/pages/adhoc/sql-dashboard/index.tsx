@@ -2805,7 +2805,7 @@ function SqlDashboardPageContent({
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
             filters={dashboard.filters}
-            defaultView={defaultView}
+            views={dashboardViewsLoaded ? views : null}
             onSaveView={canEdit ? handleSaveView : undefined}
             onSavePreset={editing ? handleSaveFilterPreset : undefined}
             shared={dashboardShared}

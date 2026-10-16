@@ -22,6 +22,8 @@ export type LiveLayerMoveLayout =
       destinationDisplay: string;
       sourceParentDisplay: string;
       sourcePosition: string;
+      /** Absent across documents, or when the source or destination renders no box. */
+      sourceAbsoluteOffsetInDestination?: { x: number; y: number };
       status: "resolved";
     };
 
@@ -179,7 +181,44 @@ export function readLiveLayerMoveLayout(args: {
     sourceParentDisplay: sourceView.getComputedStyle(sourceParent).display,
     destinationDisplay:
       destinationView.getComputedStyle(destinationParent).display,
+    sourceAbsoluteOffsetInDestination:
+      sourceDocument.document === destinationDocument.document
+        ? absoluteOffsetInContainer(
+            sourceView,
+            sourceElement,
+            destinationParent,
+          )
+        : undefined,
   };
+}
+
+function absoluteOffsetInContainer(
+  view: Window,
+  element: Element,
+  container: Element,
+): { x: number; y: number } | undefined {
+  if (element.getClientRects().length === 0) return undefined;
+  const probe = container.ownerDocument.createElement("div");
+  probe.setAttribute("data-agent-native-edit-overlay", "absolute-origin");
+  probe.style.cssText =
+    "position:absolute;left:0;top:0;width:0;height:0;margin:0;visibility:hidden;pointer-events:none";
+  container.appendChild(probe);
+  const origin = probe.getBoundingClientRect();
+  const containerRenders = probe.getClientRects().length > 0;
+  probe.remove();
+  if (!containerRenders) return undefined;
+  const rect = element.getBoundingClientRect();
+  const style = view.getComputedStyle(element);
+  // left/top place the margin box; the rect is the border box.
+  return {
+    x: rect.left - origin.left - cssPx(style.marginLeft),
+    y: rect.top - origin.top - cssPx(style.marginTop),
+  };
+}
+
+function cssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function findLiveIdentityMatches(

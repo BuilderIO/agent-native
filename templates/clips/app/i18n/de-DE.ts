@@ -1613,6 +1613,8 @@ const messages = {
       "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
     statusUnavailable:
       "Der Status des Videospeichers konnte nicht geprüft werden.",
+    hostedStorageUnavailable:
+      "Der Clips-Hostingspeicher ist vorübergehend nicht verfügbar. Dein kostenloses Clip-Kontingent bleibt unverändert. Versuche den Upload später erneut.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
@@ -1912,6 +1914,18 @@ const messages = {
     validWebUrl: "Gib eine gültige http://- oder https://-Adresse ein.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
+    freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    hostedClipsExhaustedTitle:
+      "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
+    hostedClipsExhaustedDescription:
+      "Du hast alle kostenlosen gehosteten Clips verwendet. Verbinde den Builder.io-Speicher, um weitere Clips in deiner Bibliothek zu speichern.",
+    clipExceedsSizeLimit:
+      "Dieser Clip überschreitet das aktuelle Upload-Größenlimit.",
+    clipExceedsMaxDuration:
+      "Dieser Clip überschreitet die aktuelle maximale Aufnahmedauer.",
+    maxClipDurationReached:
+      "Die maximale Cliplänge ist erreicht. Aufnahme wird gespeichert.",
     pageTitle: "New recording — Clips (Lokalisiert)",
     uploadFailed: "Upload failed (Lokalisiert)",
     uploadFailedAtChunk:
@@ -2153,6 +2167,10 @@ const messages = {
     vocabularyRemoveFailed: "Begriff konnte nicht entfernt werden",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Der gehostete Clips-Speicher ist voll. Verbinde den Builder.io-Speicher, um weiterhin Clips zu speichern.",
+    hostedRecordingTakenDown:
+      "Diese Aufnahme wurde aus dem gehosteten Clips-Speicher entfernt.",
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
     selectAll: "Alle auswählen",

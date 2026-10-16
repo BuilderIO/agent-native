@@ -903,6 +903,13 @@ export default function RecordingPage() {
   }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   // A screenshot: an image and no video file, so no finalize step, no
   // transcript, no timeline, and nothing to download as a clip.
   const isImage = isImageRecording(recording ?? null);
@@ -2173,7 +2180,9 @@ export default function RecordingPage() {
     const displayReason = explicitFailure
       ? storedButUnservableFailure
         ? t("recordingPage.clipDataPreserved")
-        : (rawFailureReason ?? t("recordingPage.retryLibrary"))
+        : (localizedHostedFailure ??
+          rawFailureReason ??
+          t("recordingPage.retryLibrary"))
       : nativeSaveFailed
         ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
@@ -2197,7 +2206,9 @@ export default function RecordingPage() {
         ? t("recordingPage.loomSourcePreserved")
         : t("recordingPage.clipDataPreserved")
       : displayReason;
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     if (!showRecoveryState) {
       const processingView = (
         <div className="flex h-full min-h-0 w-full flex-col bg-background">

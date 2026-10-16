@@ -1608,6 +1608,8 @@ const messages = {
       "Pide a un propietario o administrador que conecte Builder.io con permiso para subir clips.",
     statusUnavailable:
       "No se pudo comprobar si el almacenamiento de vídeo está listo.",
+    hostedStorageUnavailable:
+      "El almacenamiento alojado de Clips no está disponible temporalmente. Tu cuota gratuita de clips no cambia; vuelve a intentarlo más tarde.",
     checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
       "No se pudo confirmar que el almacenamiento de Builder.io esté listo. Inténtalo de nuevo.",
@@ -1904,6 +1906,18 @@ const messages = {
     validWebUrl: "Introduce una dirección http:// o https:// válida.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Te queda {{count}} clip gratis",
+    freeClipsLeft_other: "Te quedan {{count}} clips gratis",
+    freeClipsLeft_many: "Te quedan {{count}} clips gratis",
+    hostedClipsExhaustedTitle: "Conecta Builder.io gratis para seguir grabando",
+    hostedClipsExhaustedDescription:
+      "Has usado todos tus clips alojados gratis. Conecta el almacenamiento de Builder.io para seguir guardando clips en tu biblioteca.",
+    clipExceedsSizeLimit:
+      "Este clip supera el límite de tamaño de carga actual.",
+    clipExceedsMaxDuration:
+      "Este clip supera la duración máxima de grabación actual.",
+    maxClipDurationReached:
+      "Se alcanzó la duración máxima del clip. Guardando la grabación.",
     pageTitle: "New recording — Clips",
     uploadFailed: "Upload failed",
     uploadFailedAtChunk:
@@ -2142,6 +2156,10 @@ const messages = {
     vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "El almacenamiento alojado de Clips está lleno. Conecta el almacenamiento de Builder.io para seguir guardando clips.",
+    hostedRecordingTakenDown:
+      "Esta grabación se eliminó del almacenamiento alojado de Clips.",
     splitAtPlayhead: "Dividir en el cabezal (S)",
     selectedCount: "{{count}} seleccionados",
     selectAll: "Seleccionar todo",

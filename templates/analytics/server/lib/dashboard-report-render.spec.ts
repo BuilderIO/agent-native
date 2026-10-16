@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   renderReportChartSvg: vi.fn(
     (_input: unknown) => "<svg xmlns='http://www.w3.org/2000/svg'/>",
   ),
+  renderFunnelChartSvg: vi.fn(
+    (_input: unknown) => "<svg xmlns='http://www.w3.org/2000/svg'/>",
+  ),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -35,6 +38,7 @@ vi.mock("./dashboard-panel-query", () => ({
 vi.mock("./report-chart-svg", () => ({
   REPORT_CHART_FONT_FAMILY: "Liberation Sans",
   renderReportChartSvg: mocks.renderReportChartSvg,
+  renderFunnelChartSvg: mocks.renderFunnelChartSvg,
 }));
 vi.mock("@resvg/resvg-js", () => ({
   Resvg: class {
@@ -92,6 +96,9 @@ beforeEach(() => {
     (_ctx: unknown, fn: () => unknown | Promise<unknown>) => fn(),
   );
   mocks.renderReportChartSvg.mockReturnValue(
+    "<svg xmlns='http://www.w3.org/2000/svg'/>",
+  );
+  mocks.renderFunnelChartSvg.mockReturnValue(
     "<svg xmlns='http://www.w3.org/2000/svg'/>",
   );
 });
@@ -837,6 +844,71 @@ describe("reportPanelVariables", () => {
 });
 
 describe("report chart parity with the dashboard", () => {
+  it("splits a funnel by funnelOutcomes and notes stages that cannot split", async () => {
+    const funnelOutcomes = {
+      completedKey: "completed",
+      skippedKey: "skipped",
+      leftKey: "left_here",
+    };
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "steps",
+          chartType: "funnel",
+          config: { xKey: "step", yKey: "shown", funnelOutcomes },
+        }),
+        panel({
+          id: "plain",
+          chartType: "funnel",
+          config: { xKey: "step", yKey: "shown" },
+        }),
+      ]),
+      panelData: new Map(
+        ["steps", "plain"].map((id) => [
+          id,
+          {
+            status: "rows" as const,
+            rows: [
+              {
+                step: "Your role",
+                shown: 100,
+                completed: 60,
+                skipped: 30,
+                left_here: 4,
+              },
+              {
+                step: "Connect",
+                shown: 50,
+                completed: 45,
+                skipped: 0,
+                left_here: 9,
+              },
+            ],
+            schema: [],
+          },
+        ]),
+      ),
+    });
+
+    const [split, plain] = mocks.renderFunnelChartSvg.mock.calls.map(
+      ([input]) =>
+        input as {
+          rows: Array<{ label: string; outcomes?: unknown }>;
+          outcomes?: { keys: unknown };
+        },
+    );
+    expect(split.outcomes?.keys).toEqual(funnelOutcomes);
+    expect(split.rows.map((row) => row.outcomes ?? null)).toEqual([
+      { completed: 60, skipped: 30, movedOn: 6, left: 4, optional: false },
+      null,
+    ]);
+    expect(plain).not.toHaveProperty("outcomes");
+    expect(rendered.html).toContain(
+      "Stage &quot;Connect&quot;: completed, skipped and left add up to more than shown",
+    );
+    expect(rendered.degradedPanelIds).toEqual([]);
+  });
+
   it("keeps the first 400 bars of a category chart and says so", async () => {
     const rendered = await renderReportEmail({
       snapshot: snapshotOf([

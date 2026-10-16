@@ -132,6 +132,7 @@ import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import {
   abandonUploadTarget,
+  hostedUploadLimits,
   openUploadTarget,
   uploadTargetAtStart,
   type CreatedUploadTarget,
@@ -588,10 +589,12 @@ function uploadAbortMetadata(error: unknown): Record<string, unknown> {
       ? (error as Record<string, unknown>)
       : {};
   const failureCode =
-    details.failureCode === "chunk_html_error" ||
-    details.failureCode === "multipart_start_failed"
-      ? details.failureCode
-      : "upload_failed";
+    details.errorCode === "hosted_storage_unavailable"
+      ? "hosted_storage_unavailable"
+      : details.failureCode === "chunk_html_error" ||
+          details.failureCode === "multipart_start_failed"
+        ? details.failureCode
+        : "upload_failed";
   const failureStage =
     details.failureStage === "chunk_upload" ||
     details.failureStage === "reset_chunks" ||
@@ -680,6 +683,8 @@ interface PendingRecording {
   abortUrl: string;
   resetChunksUrl?: string;
   uploadMode?: UploadMode;
+  maxClipBytes?: number;
+  maxClipDurationMs?: number;
   /** No server row yet: storage was not connected when recording started. */
   localOnly?: boolean;
 }
@@ -763,6 +768,8 @@ function localUploadFailureLabel(
   switch (code) {
     case "session_expired":
       return withNote(t("recordRoute.sessionExpired"));
+    case "hosted_storage_unavailable":
+      return withNote(t("storageSetup.hostedStorageUnavailable"));
     case "recording_too_large":
       return withNote(t("recordRoute.videoTooLarge"));
     case "missing_local_copy":
@@ -1248,6 +1255,7 @@ export default function RecordRoute() {
     useState<FirstRunStorageSetupDismissal>(readFirstRunStorageSetupDismissal);
   const [firstRunStorageSetupIntent, setFirstRunStorageSetupIntent] =
     useState(false);
+  const [skipHostedStorageSetup, setSkipHostedStorageSetup] = useState(false);
   const [savingKind, setSavingKind] = useState<"recording" | "upload" | null>(
     null,
   );
@@ -1285,6 +1293,11 @@ export default function RecordRoute() {
     [location.search],
   );
   const storageQuery = useVideoStorageStatus(!clipIntake);
+  const hostedAllowanceExhausted =
+    !clipIntake && storageQuery.data?.denyReason === "exhausted";
+  const hostedStorageUnavailable =
+    !clipIntake &&
+    storageQuery.data?.providerError === "hosted_storage_unavailable";
   const connectStorageRequested =
     new URLSearchParams(location.search).get("connectStorage") === "1";
   const pendingUploadFile = hasPendingUploadFile();
@@ -1356,18 +1369,21 @@ export default function RecordRoute() {
     (pendingUploadFile ||
       connectStorageRequested ||
       firstRunStorageSetup ||
-      firstRunStorageSetupIntent);
+      firstRunStorageSetupIntent ||
+      (hostedAllowanceExhausted && !skipHostedStorageSetup));
+  const showHostedClipsRemaining =
+    storageQuery.data?.mode === "hosted" &&
+    Boolean(storageQuery.data.hostedRemaining) &&
+    storageQuery.data.hostedRemaining < storageQuery.data.hostedLimit;
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
-      queryClient.setQueryData<VideoStorageStatus>(
-        VIDEO_STORAGE_STATUS_KEY,
-        (prev) =>
-          status ?? {
-            configured: true,
-            activeProvider: prev?.activeProvider ?? null,
-            builderConfigured: prev?.builderConfigured ?? false,
-          },
-      );
+      if (status) {
+        queryClient.setQueryData(VIDEO_STORAGE_STATUS_KEY, status);
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
+        });
+      }
     },
     [queryClient],
   );
@@ -1449,7 +1465,13 @@ export default function RecordRoute() {
       if (info) {
         const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl}`;
         const abortUrl = `${appBasePath()}${info.abortUrl}`;
-        pendingRef.current = { id: info.id, uploadChunkUrl, abortUrl };
+        pendingRef.current = {
+          id: info.id,
+          uploadChunkUrl,
+          abortUrl,
+          maxClipBytes: info.clientLimits?.maxClipBytes,
+          maxClipDurationMs: info.clientLimits?.maxClipDurationMs,
+        };
         engine.setUploadTarget({
           recordingId: info.id,
           uploadUrl: uploadChunkUrl,
@@ -1458,6 +1480,10 @@ export default function RecordRoute() {
             ? `${appBasePath()}${info.resetChunksUrl}`
             : undefined,
           uploadMode: info.uploadMode,
+          maxUploadBytes: info.clientLimits?.maxClipBytes,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
         });
       } else {
         const localId = newRecordingId();
@@ -1472,7 +1498,7 @@ export default function RecordRoute() {
       localCopy.markRecordedHere(pendingRef.current.id);
       return pendingRef.current.id;
     },
-    [localCopy],
+    [localCopy, queryClient],
   );
   const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
@@ -1764,6 +1790,11 @@ export default function RecordRoute() {
                   ? { status: cause.status }
                   : { message: cause.message }),
               });
+              if (cause.kind === "http" && cause.status === 503) {
+                void queryClient.invalidateQueries({
+                  queryKey: VIDEO_STORAGE_STATUS_KEY,
+                });
+              }
             },
           });
 
@@ -1911,21 +1942,36 @@ export default function RecordRoute() {
       }
 
       let createdId: string | null = null;
+      let uploadMaxBytes = MAX_UPLOAD_BYTES;
+      let maxClipDurationMs = 0;
       try {
         const intake = clipIntakeRef.current;
         if (!intake) {
           const status = await fetchVideoStorageStatus();
           if (isStale()) return;
           markStorageConfigured(status);
-          if (!status.configured) {
+          const canUploadToStorage =
+            status.mode === "own" ||
+            (status.mode === "hosted" && status.hostedRemaining > 0);
+          if (!status.configured || !canUploadToStorage) {
             throw new Error(
               "No video storage configured. Use Builder.io (free tier storage + AI) or S3-compatible storage.",
             );
           }
+          const hostedLimits = hostedUploadLimits(status);
+          if (hostedLimits) {
+            uploadMaxBytes = Math.min(
+              MAX_UPLOAD_BYTES,
+              hostedLimits.maxClipBytes,
+            );
+            maxClipDurationMs = hostedLimits.maxClipDurationMs;
+          }
         }
-
         const meta = await probeVideoMetadata(file);
         if (isStale()) return;
+        if (maxClipDurationMs > 0 && meta.durationMs > maxClipDurationMs) {
+          throw new Error(t("recordRoute.clipExceedsMaxDuration"));
+        }
 
         let uploadBlob: Blob = file;
         let uploadMimeType = mimeType;
@@ -1984,14 +2030,16 @@ export default function RecordRoute() {
               compressionError,
             );
           }
-          if (uploadBlob.size > MAX_UPLOAD_BYTES && compression.compressed) {
+          if (uploadBlob.size > uploadMaxBytes && compression.compressed) {
             uploadTooLargeDetail = `${formatMb(uploadBlob.size)} after compression`;
           }
           setCompressionProgress(null);
         }
-        if (COMPRESSION_ENABLED && uploadBlob.size > MAX_UPLOAD_BYTES) {
+        if (uploadBlob.size > uploadMaxBytes) {
           throw new Error(
-            uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail),
+            uploadTooLargeDetail
+              ? uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail)
+              : t("recordRoute.clipExceedsSizeLimit"),
           );
         }
         setUiState("uploading");
@@ -2175,7 +2223,10 @@ export default function RecordRoute() {
                       (responseError.errorCode ===
                       "video_storage_status_unavailable"
                         ? t("storageSetup.statusUnavailable")
-                        : responseError.responseText) ||
+                        : responseError.errorCode ===
+                            "hosted_storage_unavailable"
+                          ? t("storageSetup.hostedStorageUnavailable")
+                          : responseError.responseText) ||
                       (responseError.isHtml
                         ? `HTML error response (${chunkRes.status})`
                         : chunkRes.statusText),
@@ -2185,6 +2236,7 @@ export default function RecordRoute() {
                   status: responseError.status,
                   failureCode: responseError.failureCode,
                   failureStage: responseError.failureStage,
+                  errorCode: responseError.errorCode,
                 },
               );
               if (!uploadError) {
@@ -2268,7 +2320,9 @@ export default function RecordRoute() {
                   (responseError.errorCode ===
                   "video_storage_status_unavailable"
                     ? t("storageSetup.statusUnavailable")
-                    : responseError.responseText) ||
+                    : responseError.errorCode === "hosted_storage_unavailable"
+                      ? t("storageSetup.hostedStorageUnavailable")
+                      : responseError.responseText) ||
                   (responseError.isHtml
                     ? `HTML error response (${chunkRes.status})`
                     : chunkRes.statusText),
@@ -2278,6 +2332,7 @@ export default function RecordRoute() {
               status: responseError.status,
               failureCode: responseError.failureCode,
               failureStage: responseError.failureStage,
+              errorCode: responseError.errorCode,
             },
           );
           if (
@@ -2354,8 +2409,18 @@ export default function RecordRoute() {
           }, 50);
         }
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t("recordRoute.uploadFailed");
+        const errorCode =
+          err &&
+          typeof err === "object" &&
+          (err as Record<string, unknown>).errorCode ===
+            "hosted_storage_unavailable"
+            ? "hosted_storage_unavailable"
+            : undefined;
+        const message = errorCode
+          ? t("storageSetup.hostedStorageUnavailable")
+          : err instanceof Error
+            ? err.message
+            : t("recordRoute.uploadFailed");
         const aborted = err instanceof Error && err.name === "AbortError";
         const status =
           err instanceof Error
@@ -2384,9 +2449,11 @@ export default function RecordRoute() {
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
           failUploadToast(
-            isUploadSizeError(message)
-              ? t("recordRoute.videoTooLarge")
-              : t("recordRoute.uploadFailed"),
+            errorCode === "hosted_storage_unavailable"
+              ? t("storageSetup.hostedStorageUnavailable")
+              : isUploadSizeError(message)
+                ? t("recordRoute.videoTooLarge")
+                : t("recordRoute.uploadFailed"),
             {
               description: createdId
                 ? "The clip was marked failed in your library. You can remove it from the card menu."
@@ -3237,6 +3304,27 @@ export default function RecordRoute() {
 
   doStopRef.current = doStop;
 
+  useEffect(() => {
+    if (uiState !== "recording" || isPaused) return;
+    const maxDurationMs = pendingRef.current?.maxClipDurationMs;
+    if (!maxDurationMs || maxDurationMs <= 0) return;
+    let stopStarted = false;
+    const interval = window.setInterval(() => {
+      const engine = engineRef.current;
+      if (
+        stopStarted ||
+        engine?.getState() !== "recording" ||
+        engine.getElapsedMs() < maxDurationMs
+      ) {
+        return;
+      }
+      stopStarted = true;
+      toast.info(t("recordRoute.maxClipDurationReached"));
+      void doStopRef.current();
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [isPaused, t, uiState]);
+
   const retryFailedUpload = useCallback(async () => {
     const engine = engineRef.current;
     const pending = pendingRef.current;
@@ -3890,8 +3978,9 @@ export default function RecordRoute() {
     storageSetupRequested &&
     (storageConfigured === false || storageStatusUnavailable);
   const canSkipStorageSetup = shouldAllowSkippingStorageSetup({
-    firstRunStorageSetup,
-    firstRunStorageSetupIntent,
+    firstRunStorageSetup: firstRunStorageSetup || hostedAllowanceExhausted,
+    firstRunStorageSetupIntent:
+      firstRunStorageSetupIntent || hostedAllowanceExhausted,
     connectStorageRequested,
     hasPendingUpload: pendingUploadFile,
     isClipIntake: !!clipIntake,
@@ -3900,6 +3989,7 @@ export default function RecordRoute() {
     storageStatusUnavailable && storageSetupRequested;
   const skipStorageSetup = () => {
     setFirstRunStorageSetupIntent(false);
+    if (hostedAllowanceExhausted) setSkipHostedStorageSetup(true);
     if (
       shouldPersistFirstRunStorageSetupDismissal({
         firstRunStorageSetup,
@@ -3915,8 +4005,8 @@ export default function RecordRoute() {
     const search = params.toString();
     void navigate(`/record${search ? `?${search}` : ""}`, { replace: true });
   };
-  const configureFirstRunStorage = () => {
-    markStorageConfigured();
+  const configureFirstRunStorage = (status?: VideoStorageStatus) => {
+    markStorageConfigured(status);
     void navigate("/home", { replace: true });
   };
 
@@ -3963,6 +4053,14 @@ export default function RecordRoute() {
       {uiState === "idle" && (
         <RecorderRouteViewport>
           <div className="mx-auto grid w-full max-w-[420px] gap-2">
+            {hostedStorageUnavailable ? (
+              <div
+                className="rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground"
+                role="status"
+              >
+                {t("storageSetup.hostedStorageUnavailable")}
+              </div>
+            ) : null}
             <div className="min-w-0">
               {showStorageSetupFirst ? (
                 <div className="flex flex-col gap-2">
@@ -3978,6 +4076,16 @@ export default function RecordRoute() {
                         : markStorageConfigured
                     }
                     onSkip={canSkipStorageSetup ? skipStorageSetup : undefined}
+                    title={
+                      hostedAllowanceExhausted
+                        ? t("recordRoute.hostedClipsExhaustedTitle")
+                        : undefined
+                    }
+                    description={
+                      hostedAllowanceExhausted
+                        ? t("recordRoute.hostedClipsExhaustedDescription")
+                        : undefined
+                    }
                     connectSource="clips_record_storage_setup_card"
                     connectFlow="record"
                   />
@@ -4000,17 +4108,26 @@ export default function RecordRoute() {
                   ) : null}
                 </div>
               ) : (
-                <PreRecordPanel
-                  onStart={startFlow}
-                  initialMode={
-                    rememberedRecorderOptions?.mode ??
-                    initialRecorderOptions.mode
-                  }
-                  initialDisplaySurface={
-                    rememberedRecorderOptions?.displaySurface ??
-                    initialRecorderOptions.surface
-                  }
-                />
+                <div className="grid gap-2">
+                  <PreRecordPanel
+                    onStart={startFlow}
+                    initialMode={
+                      rememberedRecorderOptions?.mode ??
+                      initialRecorderOptions.mode
+                    }
+                    initialDisplaySurface={
+                      rememberedRecorderOptions?.displaySurface ??
+                      initialRecorderOptions.surface
+                    }
+                  />
+                  {showHostedClipsRemaining && storageQuery.data ? (
+                    <p className="text-center text-xs text-muted-foreground">
+                      {t("recordRoute.freeClipsLeft", {
+                        count: storageQuery.data.hostedRemaining,
+                      })}
+                    </p>
+                  ) : null}
+                </div>
               )}
             </div>
             {!isDesktopApp && <DesktopRecorderCallout />}
@@ -4045,15 +4162,23 @@ export default function RecordRoute() {
                   fallbackBlob={localPreviewMemoryBlob}
                 />
                 <StorageSetupCard
-                  onConfigured={() => {
-                    markStorageConfigured();
+                  onConfigured={(status) => {
+                    markStorageConfigured(status);
                     void uploadPendingLocal(pendingLocal.id);
                   }}
-                  title={t("recordRoute.pendingStorageTitle")}
-                  description={`${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
-                    t,
-                    !!bufferedEngineRef.current,
-                  )}`}
+                  title={
+                    hostedAllowanceExhausted
+                      ? t("recordRoute.hostedClipsExhaustedTitle")
+                      : t("recordRoute.pendingStorageTitle")
+                  }
+                  description={
+                    hostedAllowanceExhausted
+                      ? t("recordRoute.hostedClipsExhaustedDescription")
+                      : `${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
+                          t,
+                          !!bufferedEngineRef.current,
+                        )}`
+                  }
                   connectedDescription={t(
                     "recordRoute.storageConnectedUploading",
                   )}
@@ -4394,8 +4519,8 @@ export default function RecordRoute() {
           {error.includes("No video storage configured") ? (
             <div className="w-full max-w-md">
               <StorageSetupCard
-                onConfigured={() => {
-                  markStorageConfigured();
+                onConfigured={(status) => {
+                  markStorageConfigured(status);
                   setError(null);
                   setUiState("idle");
                   const opts = pendingStartOptsRef.current;
@@ -4405,6 +4530,16 @@ export default function RecordRoute() {
                     }, 0);
                   }
                 }}
+                title={
+                  hostedAllowanceExhausted
+                    ? t("recordRoute.hostedClipsExhaustedTitle")
+                    : undefined
+                }
+                description={
+                  hostedAllowanceExhausted
+                    ? t("recordRoute.hostedClipsExhaustedDescription")
+                    : undefined
+                }
                 connectedDescription={t(
                   "recordRoute.storageConnectedReopeningRecorder",
                 )}

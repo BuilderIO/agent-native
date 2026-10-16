@@ -28,7 +28,9 @@ export type UploadMode = "streaming" | "buffered";
 export const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
 
 export type UploadResponseFailureStage = "chunk_upload" | "reset_chunks";
-export type UploadResponseErrorCode = "video_storage_status_unavailable";
+export type UploadResponseErrorCode =
+  | "video_storage_status_unavailable"
+  | "hosted_storage_unavailable";
 
 export function classifyUploadResponseError(input: {
   contentType: string | null;
@@ -52,9 +54,10 @@ export function classifyUploadResponseError(input: {
       const payload = JSON.parse(input.body) as { errorCode?: unknown };
       if (
         input.status === 503 &&
-        payload.errorCode === "video_storage_status_unavailable"
+        (payload.errorCode === "video_storage_status_unavailable" ||
+          payload.errorCode === "hosted_storage_unavailable")
       ) {
-        errorCode = payload.errorCode;
+        errorCode = payload.errorCode as UploadResponseErrorCode;
       }
     } catch {
       // coercion-ok: failed optional parsing leaves the original responseText intact.

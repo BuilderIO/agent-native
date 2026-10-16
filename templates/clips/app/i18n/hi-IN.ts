@@ -1542,6 +1542,8 @@ const messages = {
     builderGrantAskAdmin:
       "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
     statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
+    hostedStorageUnavailable:
+      "Clips का होस्टेड स्टोरेज अभी उपलब्ध नहीं है। आपके मुफ़्त क्लिप की सीमा नहीं बदली है; बाद में अपलोड फिर से करें।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
@@ -1833,6 +1835,16 @@ const messages = {
     validWebUrl: "मान्य http:// या https:// पता दर्ज करें।",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
+    freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    hostedClipsExhaustedTitle:
+      "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
+    hostedClipsExhaustedDescription:
+      "आपके मुफ़्त होस्ट किए गए क्लिप इस्तेमाल हो चुके हैं। अपनी लाइब्रेरी में क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    clipExceedsSizeLimit: "यह क्लिप मौजूदा अपलोड आकार सीमा से बड़ी है।",
+    clipExceedsMaxDuration: "यह क्लिप मौजूदा रिकॉर्डिंग अवधि सीमा से लंबी है।",
+    maxClipDurationReached:
+      "क्लिप की अधिकतम अवधि पूरी हो गई है। रिकॉर्डिंग सेव हो रही है।",
     pageTitle: "New recording — Clips (स्थानीयकृत)",
     uploadFailed: "Upload failed (स्थानीयकृत)",
     uploadFailedAtChunk:
@@ -2066,6 +2078,10 @@ const messages = {
     vocabularyRemoveFailed: "शब्द नहीं हटाया जा सका",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips का होस्ट किया गया स्टोरेज भर गया है। क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    hostedRecordingTakenDown:
+      "यह रिकॉर्डिंग Clips के होस्ट किए गए स्टोरेज से हटा दी गई।",
     splitAtPlayhead: "प्लेहेड पर विभाजित करें (S)",
     selectedCount: "{{count}} चुने गए",
     selectAll: "सभी चुनें",
