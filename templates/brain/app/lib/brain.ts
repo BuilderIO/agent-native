@@ -29,6 +29,8 @@ export type SourceHealth =
   | "error";
 export type ReviewPriority = "high" | "medium" | "low";
 
+export const BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS = ["gong"] as const;
+
 export interface Citation {
   id: string;
   title: string;

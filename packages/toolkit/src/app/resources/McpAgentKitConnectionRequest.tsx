@@ -28,7 +28,10 @@ import {
   dispatchApiKeysHref,
   useOrgSwitcherAppLinks,
 } from "../org/workspace-app-links.js";
-import { McpConnectionSuggestion } from "./McpConnectionSuggestion.js";
+import {
+  findMcpConnectionSuggestionIntegration,
+  McpConnectionSuggestion,
+} from "./McpConnectionSuggestion.js";
 
 export interface McpAgentKitConnectionTarget {
   threadId: string;
@@ -46,6 +49,7 @@ export interface McpAgentKitConnectionRequestCardProps {
   target: McpAgentKitConnectionTarget;
   onConnected: () => void | Promise<void>;
   onDeclined: () => void | Promise<void>;
+  excludedIntegrationIds?: readonly string[];
   fallback?: ReactNode;
 }
 
@@ -59,16 +63,19 @@ export function McpAgentKitConnectionRequestCard({
   target,
   onConnected,
   onDeclined,
+  excludedIntegrationIds,
   fallback = null,
 }: McpAgentKitConnectionRequestCardProps) {
   const settledRef = useRef(false);
   const [workspaceSetupOpened, setWorkspaceSetupOpened] = useState(false);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
-  const integration = integrations.find(
-    (candidate) =>
-      candidate.id.toLowerCase() === provider.trim().toLowerCase() ||
-      candidate.provider.toLowerCase() === provider.trim().toLowerCase(),
-  );
+  const integration = findMcpConnectionSuggestionIntegration({
+    text: detail ?? "",
+    requestedByAgent: true,
+    integrationId: provider,
+    integrations,
+    excludedIntegrationIds,
+  });
   const workspaceProvider =
     source?.kind === "workspace_connection" && source.id === provider
       ? getWorkspaceConnectionProvider(source.id)
@@ -178,6 +185,7 @@ export function McpAgentKitConnectionRequestCard({
       requestedByAgent
       integrationId={integration.id}
       integrations={integrations}
+      excludedIntegrationIds={excludedIntegrationIds}
       onConnected={() => settle(onConnected)}
       onDismiss={() => settle(onDeclined)}
       onOAuthStart={(url) => {

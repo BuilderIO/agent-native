@@ -36,6 +36,9 @@ const mockPanel = vi.hoisted(() => {
       | undefined,
     onNavigationChange:
       undefined as MultiTabAssistantChatProps["onNavigationChange"],
+    mcpSuggestionExcludedIntegrationIds: undefined as
+      | readonly string[]
+      | undefined,
     composer: undefined as React.ReactNode,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
@@ -52,11 +55,15 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       onReadyChange,
       onReferenceTargetChange,
       onNavigationChange,
+      mcpSuggestionExcludedIntegrationIds,
     }: {
       onReadyChange?: (ready: boolean) => void;
       onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
       onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
+      mcpSuggestionExcludedIntegrationIds?: readonly string[];
     }) => {
+      mockPanel.mcpSuggestionExcludedIntegrationIds =
+        mcpSuggestionExcludedIntegrationIds;
       React.useEffect(() => {
         mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
@@ -194,6 +201,7 @@ function renderSidebar(
   openOnChatRunning = false,
   storageKey?: string,
   strictMode = false,
+  mcpSuggestionExcludedIntegrationIds?: readonly string[],
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -204,6 +212,9 @@ function renderSidebar(
             disableChatShortcut={disableChatShortcut}
             enabled={nextEnabled}
             forceOverlay={forceOverlay}
+            mcpSuggestionExcludedIntegrationIds={
+              mcpSuggestionExcludedIntegrationIds
+            }
             openOnChatRunning={openOnChatRunning}
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
@@ -248,6 +259,7 @@ beforeEach(() => {
   mockPanel.onEvent = undefined;
   mockPanel.onReady = undefined;
   mockPanel.composer = undefined;
+  mockPanel.mcpSuggestionExcludedIntegrationIds = undefined;
   mockTrust.frame = true;
   mockTrust.builder = false;
   mockPanelOwnership.hosted = false;
@@ -440,6 +452,27 @@ describe("AgentSidebar panel", () => {
       type: "agentNative:insert-composer-reference",
       detail: { type: "file", path: "/custom-event.md" },
     });
+  });
+
+  it("forwards MCP suggestion exclusions to the panel", async () => {
+    mockPanel.resolveImport();
+    renderSidebar(
+      true,
+      undefined,
+      false,
+      true,
+      true,
+      false,
+      false,
+      undefined,
+      false,
+      ["gong"],
+    );
+    await act(async () => {
+      await mockPanel.importGate;
+    });
+
+    expect(mockPanel.mcpSuggestionExcludedIntegrationIds).toEqual(["gong"]);
   });
 
   it("binds a cold reference before a second selection commits in the same turn", async () => {

@@ -6592,6 +6592,7 @@ function AgentKitConnectionRequest({
   runId,
   threadId,
 }: AgentKitRenderProps<AgentConnectionRequest> & { runId: string }) {
+  const surface = useAgentKitSurface();
   const control = useAgentKitControl();
   return (
     <McpAgentKitConnectionRequestCard
@@ -6601,6 +6602,7 @@ function AgentKitConnectionRequest({
       status={value.status}
       appId={value.appId}
       source={value.source}
+      excludedIntegrationIds={surface.props.mcpSuggestionExcludedIntegrationIds}
       target={{ threadId, runId, requestId: value.id }}
       onConnected={() =>
         control.resolveConnectionRequest(runId, value.id, {

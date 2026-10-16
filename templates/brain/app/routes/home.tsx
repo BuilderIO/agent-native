@@ -4,14 +4,15 @@ import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { brainAskThreadPath } from "@/lib/brain";
+import {
+  BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS,
+  brainAskThreadPath,
+} from "@/lib/brain";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE = "Brain - Open Source company knowledge base for AI agents";
 const SEO_DESCRIPTION =
   "Open Source company knowledge base that turns Slack, meetings, transcripts, docs, and decisions into cited answers for AI agents.";
-const BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS = ["gong"] as const;
-
 export function meta() {
   return [
     { title: SEO_TITLE },

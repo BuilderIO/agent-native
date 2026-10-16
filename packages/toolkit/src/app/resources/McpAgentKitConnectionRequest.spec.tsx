@@ -10,7 +10,7 @@ import {
 } from "@agent-native/core/client/resources/mcp-connection-resume";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { dispatchApiKeysHref } from "../org/workspace-app-links.js";
 import {
@@ -19,10 +19,51 @@ import {
 } from "./McpAgentKitConnectionRequest.js";
 
 const popupState = vi.hoisted(() => ({ popup: null as unknown }));
+let localStorageDescriptor: PropertyDescriptor | undefined;
+
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear() {
+      values.clear();
+    },
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    key(index) {
+      return [...values.keys()][index] ?? null;
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    setItem(key, value) {
+      values.set(String(key), String(value));
+    },
+  };
+}
+
+beforeEach(() => {
+  localStorageDescriptor = Object.getOwnPropertyDescriptor(
+    window,
+    "localStorage",
+  );
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: createMemoryStorage(),
+  });
+});
 
 afterEach(() => {
   clearMcpConnectionResume();
   window.localStorage.clear();
+  if (localStorageDescriptor) {
+    Object.defineProperty(window, "localStorage", localStorageDescriptor);
+  } else {
+    Reflect.deleteProperty(window, "localStorage");
+  }
   vi.unstubAllEnvs();
 });
 
@@ -99,6 +140,32 @@ describe("McpAgentKitConnectionRequestCard", () => {
     expect(
       container.querySelector("[data-unsupported-provider]"),
     ).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("hides an explicitly requested integration when the host excludes it", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["SLACK"]}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={() => undefined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-excluded-provider]")).not.toBeNull();
+    expect(container.textContent).toContain("Handled by host");
     act(() => root.unmount());
   });
 

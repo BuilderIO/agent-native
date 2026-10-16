@@ -129,17 +129,34 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
         description: "Query the provider on demand.",
         capabilities: ["search"],
         credentialKeys:
-          mocks.providerId === "github"
-            ? [{ key: "GITHUB_TOKEN", label: "Token", required: false }]
-            : [
-                { key: "JIRA_BASE_URL", label: "Base URL", required: false },
+          mocks.providerId === "gong"
+            ? [
                 {
-                  key: "JIRA_USER_EMAIL",
-                  label: "User email",
-                  required: false,
+                  key: "GONG_ACCESS_KEY",
+                  label: "Gong Access Key",
+                  required: true,
                 },
-                { key: "JIRA_API_TOKEN", label: "API token", required: false },
-              ],
+                {
+                  key: "GONG_ACCESS_SECRET",
+                  label: "Gong Access Secret",
+                  required: true,
+                },
+              ]
+            : mocks.providerId === "github"
+              ? [{ key: "GITHUB_TOKEN", label: "Token", required: false }]
+              : [
+                  { key: "JIRA_BASE_URL", label: "Base URL", required: false },
+                  {
+                    key: "JIRA_USER_EMAIL",
+                    label: "User email",
+                    required: false,
+                  },
+                  {
+                    key: "JIRA_API_TOKEN",
+                    label: "API token",
+                    required: false,
+                  },
+                ],
         workspaceConnection: mocks.workspace,
       },
     ],
@@ -286,6 +303,27 @@ describe("list-connection-providers", () => {
     expect(result.providers[0]).toMatchObject({
       configured: true,
       providerHealth: { status: "ready" },
+    });
+  });
+
+  it("does not report Gong ready when active connection metadata masks unreadable org credentials", async () => {
+    mocks.providerId = "gong";
+    mocks.workspace.provider = "gong";
+    mocks.workspace.hasWorkspaceConnection = true;
+    mocks.workspace.hasGrantedWorkspaceConnection = true;
+    mocks.workspace.hasActiveWorkspaceConnection = true;
+    mocks.workspace.grantState = "granted";
+    mocks.availableKeys.add("GONG_ACCESS_SECRET");
+    mocks.credentialLookupErrors.add("GONG_ACCESS_KEY");
+
+    const result = await action.run({});
+
+    expect(
+      result.providers.find((provider) => provider.id === "gong"),
+    ).toMatchObject({
+      configured: null,
+      providerHealth: { status: "unhealthy" },
+      credentialHealth: { status: "unavailable" },
     });
   });
 
