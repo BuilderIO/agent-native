@@ -278,9 +278,11 @@ autoSeed: false })`. Then:
   binding's `createBoundedTaskRunner`, never on the request thread. Its module
   exports `tasks = defineLiveCopyTasks({ derive, seed, edits })` from
   `@agent-native/core/collab/live-copy-tasks` and is imported as
-  `./tasks.ts?bounded-task`; declare that module pattern's default export as a
-  `BoundedTaskSource` in the app's `*.d.ts`. A handler returns
-  `{ kind: "refused", reason }` for content it cannot represent; never drop it.
+  `./tasks.ts?bounded-task`, which the app's Vite build, server build and
+  `@agent-native/core/vitest-config` already resolve; declare that module
+  pattern's default export as a `BoundedTaskSource` in the app's `*.d.ts`. A
+  handler returns `{ kind: "refused", reason }` for content it cannot
+  represent; never drop it.
 - Edit on the server with `mutateLiveCopy(binding, docId, { edit, input })`,
   where `edit` names one of the module's edits, and seed with `seedLiveCopy`.
   Other write helpers throw `write_refused` for covered documents, and
@@ -295,7 +297,9 @@ autoSeed: false })`. Then:
   still commits, and the update ack says `liveCopy: "not_derived"`, so the
   client can resume its own saves. An ack without `liveCopy` means unknown.
 - Handle `LiveCopyError` by `code`. Absent, unseeded and `malformed_state` are
-  different states; never treat malformed state as empty.
+  different states; never treat malformed state as empty. Only an empty field
+  is unseeded, so an update or edit that would empty it is refused; editors
+  keep one empty block instead.
 
 ## Granular Server-Side Merge Pattern
 

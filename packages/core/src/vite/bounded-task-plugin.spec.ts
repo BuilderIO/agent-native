@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// Resolved by the plugin through the shared vitest base config.
+import fixtureSource from "../collab/__fixtures__/live-copy-tasks.ts?bounded-task";
 import { createBoundedTaskRunner } from "../collab/bounded-tasks.js";
 import { LIVE_COPY_TASK } from "../collab/live-copy-tasks.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
@@ -50,6 +52,26 @@ describe("boundedTaskSourcePlugin", () => {
     expect(ctx.watched).toContain(fixture);
 
     const runner = createBoundedTaskRunner({ source });
+    try {
+      await expect(
+        runner.run(LIVE_COPY_TASK.read, {
+          state: new Uint8Array(0),
+          derive: false,
+          field: "default",
+          maxStateBytes: 1024,
+        }),
+      ).resolves.toEqual({ kind: "unseeded" });
+    } finally {
+      await runner.close();
+    }
+  });
+
+  it("resolves ?bounded-task imports in app tests through the vitest base config", async () => {
+    expect(fixtureSource).toMatchObject({
+      kind: "bounded-task-source",
+      name: "live-copy-tasks",
+    });
+    const runner = createBoundedTaskRunner({ source: fixtureSource });
     try {
       await expect(
         runner.run(LIVE_COPY_TASK.read, {

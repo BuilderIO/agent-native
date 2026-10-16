@@ -310,6 +310,45 @@ describe("createBoundedTaskRunner", () => {
     expect(alive).toBe(0);
   });
 
+  it("bounds a task waiting on a worker that is still terminating", async () => {
+    const real = await import("node:worker_threads");
+    let release!: () => void;
+    const exitHeld = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    class SlowExitWorker extends real.Worker {
+      override async terminate(): Promise<number> {
+        await exitHeld;
+        return super.terminate();
+      }
+    }
+    vi.resetModules();
+    vi.doMock("../shared/optional-node-builtins.js", () => ({
+      getWorkerThreads: () => ({ ...real, Worker: SlowExitWorker }),
+    }));
+    const isolated = await import("./bounded-tasks.js");
+    const tasks = isolated.createBoundedTaskRunner({
+      source: source(),
+      maxWorkers: 1,
+      deadlineMs: 150,
+      queueTimeoutMs: 100,
+      memoryLimitMb: 64,
+    });
+    runners.push(tasks);
+    const code = (task: string) =>
+      tasks.run(task, 1).then(
+        () => "ok",
+        (error: InstanceType<typeof isolated.BoundedTaskError>) => error.code,
+      );
+    try {
+      expect(await code("spin")).toBe("deadline_exceeded");
+      expect(tasks.stats()).toMatchObject({ workers: 1, running: 0 });
+      expect(await code("echo")).toBe("queue_timeout");
+    } finally {
+      release();
+    }
+  });
+
   it("measures a typed-array view by the whole buffer it copies", async () => {
     const view = new Uint8Array(new ArrayBuffer(64 * 1024), 0, 1);
     expect(measureBoundedPayload(view, Infinity)).toBe(64 * 1024);

@@ -47,6 +47,7 @@ export const tasks = defineLiveCopyTasks({
       if (text === "!html") return { kind: "html" } as never;
       if (text === "!edit")
         doc.getXmlFragment(field).insert(0, [paragraph("")]);
+      if (text === "!park") Y.applyUpdate(doc, orphanUpdate());
       lines.push(text);
     }
     return lines.join("\n");
