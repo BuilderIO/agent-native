@@ -19,6 +19,7 @@ export {
 
 export {
   isSigmaApiBaseUrl,
+  normalizeSigmaDirectApiBaseUrl,
   normalizeSigmaApiBaseUrl,
   SIGMA_API_BASE_URLS,
   SIGMA_DEFAULT_API_BASE_URL,

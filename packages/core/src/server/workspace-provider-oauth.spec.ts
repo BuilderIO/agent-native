@@ -309,6 +309,38 @@ describe("workspace provider OAuth", () => {
     });
   });
 
+  it("keeps Sigma OAuth discovery limited to supported API regions", async () => {
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    callbackMocks.getSession.mockResolvedValue({
+      email: "requester@example.com",
+    });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email: "requester@example.com",
+      role: "member",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/sigma/start",
+    );
+    requestUrl.searchParams.set("appId", "analytics");
+    requestUrl.searchParams.set("scope", "user");
+    requestUrl.searchParams.set("baseUrl", "https://tenant.sigmacomputing.com");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "sigma");
+
+    expect(result).toMatchObject({
+      error: "Choose a supported Sigma API region.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sigmaSecretMocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
   it("rejects a Sigma OAuth app id that differs from the current app", async () => {
     const email = "requester@example.com";
     defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });

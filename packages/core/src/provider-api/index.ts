@@ -5,7 +5,10 @@ import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
 } from "../connections/catalog.js";
-import { normalizeSigmaApiBaseUrl } from "../connections/sigma-api.js";
+import {
+  normalizeSigmaApiBaseUrl,
+  normalizeSigmaDirectApiBaseUrl,
+} from "../connections/sigma-api.js";
 import {
   assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
@@ -3673,7 +3676,7 @@ async function resolveBaseUrl(
     workspaceProvider,
   });
   const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
-  if (config.id === "sigma" && !normalizeSigmaApiBaseUrl(url)) {
+  if (config.id === "sigma" && !normalizeSigmaDirectApiBaseUrl(url)) {
     throw new Error(`${config.label} API region is not supported.`);
   }
   if (

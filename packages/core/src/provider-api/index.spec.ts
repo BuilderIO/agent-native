@@ -247,11 +247,12 @@ describe("provider API runtime", () => {
         connectionId?: string | null;
         ctx: typeof credentialContext;
       }) => {
-        if (key === "SIGMA_BASE_URL") return null;
         const value =
-          key === "SIGMA_CLIENT_ID"
-            ? "fake-sigma-client-id"
-            : "fake-sigma-client-secret";
+          key === "SIGMA_BASE_URL"
+            ? "https://tenant.sigmacomputing.com"
+            : key === "SIGMA_CLIENT_ID"
+              ? "fake-sigma-client-id"
+              : "fake-sigma-client-secret";
         return {
           key,
           value,
@@ -303,7 +304,7 @@ describe("provider API runtime", () => {
     );
     expect(calls).toHaveLength(2);
     expect(calls[0]?.url).toBe(
-      "https://aws-api.sigmacomputing.com/v2/auth/token",
+      "https://tenant.sigmacomputing.com/v2/auth/token",
     );
     expect(calls[0]?.init?.method).toBe("POST");
     const tokenBody = new URLSearchParams(String(calls[0]?.init?.body));
@@ -311,7 +312,7 @@ describe("provider API runtime", () => {
     expect(tokenBody.get("client_id")).toBe("fake-sigma-client-id");
     expect(tokenBody.get("client_secret")).toBe("fake-sigma-client-secret");
     expect(calls[1]?.url).toBe(
-      "https://aws-api.sigmacomputing.com/v2/workbooks",
+      "https://tenant.sigmacomputing.com/v2/workbooks",
     );
     expect(calls[1]?.init?.headers).toMatchObject({
       Authorization: "Bearer fake-sigma-token",
@@ -323,7 +324,6 @@ describe("provider API runtime", () => {
   it.each([
     ["insecure", "http://aws-api.sigmacomputing.com"],
     ["outside Sigma's host family", "https://sigma-attacker.example"],
-    ["unregistered Sigma origin", "https://tenant.sigmacomputing.com"],
   ])(
     "rejects %s Sigma API origins before sending credentials",
     async (_, value) => {

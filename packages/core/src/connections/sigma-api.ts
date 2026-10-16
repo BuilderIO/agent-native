@@ -41,6 +41,27 @@ export function normalizeSigmaApiBaseUrl(value: string): string | null {
   return url.origin;
 }
 
+export function normalizeSigmaDirectApiBaseUrl(value: string): string | null {
+  if (!URL.canParse(value)) return null;
+
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase();
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash ||
+    (hostname !== "sigmacomputing.com" &&
+      !hostname.endsWith(".sigmacomputing.com"))
+  ) {
+    return null;
+  }
+  return url.origin;
+}
+
 export function isSigmaApiBaseUrl(value: unknown): value is string {
   return typeof value === "string" && SIGMA_API_BASE_URL_SET.has(value);
 }
