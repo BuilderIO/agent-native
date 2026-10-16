@@ -64,6 +64,8 @@ type PanelPatch = {
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program";
   chartType?: ${PANEL_CHART_TYPES.map((type) => `"${type}"`).join(" | ")};
   width?: number;
+  /** Fixed height in 180px units (1-6); omit for content height. */
+  height?: number;
   columns?: number;
   tab?: string;
   config?: PanelConfig;
@@ -109,6 +111,7 @@ type PanelSelection = {
   setTitle(title: string): void;
   setSql(sql: string): void;
   setWidth(width: number): void;
+  setHeight(height: number): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yFormatter" or "config.yFormatter"
   duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
@@ -140,9 +143,10 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panel("recurring-users-by-template").duplicate("recurring-users-by-template-bar", {"title":"Recurring Signed-In Users by Template (Bar)","chartType":"bar"}).nextTo("recurring-users-by-template");',
   'dashboard.setFilterDefault("emailFilter","exclude_builder");',
   'dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");',
-  'dashboard.panel("retention").set({"width":2,"config":{"description":"Updated definition."}});',
+  'dashboard.panel("retention").set({"width":2,"height":2,"config":{"description":"Updated definition."}});',
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
   'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
+  'dashboard.panel("retention").setHeight(2);',
   'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
   `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter}"}).atTop();`,
@@ -276,6 +280,7 @@ const PANEL_METHODS = [
   "setTitle",
   "setSql",
   "setWidth",
+  "setHeight",
   "setConfig",
   "setConfigPath",
   "duplicate",
@@ -1433,6 +1438,14 @@ function operationFromPanelCommand(
         op: "updatePanel",
         panelId,
         patch: { width },
+      }));
+    }
+    case "setHeight": {
+      const height = assertNumber(command.args[0], "height");
+      return panelIds.map((panelId) => ({
+        op: "updatePanel",
+        panelId,
+        patch: { height },
       }));
     }
     case "setConfig": {

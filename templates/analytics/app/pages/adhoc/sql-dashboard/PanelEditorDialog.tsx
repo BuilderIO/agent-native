@@ -224,6 +224,7 @@ export function formToPanel(
     source: form.source,
     chartType: form.chartType,
     width: clampPanelWidth(form.width, MAX_DASHBOARD_COLUMNS),
+    ...(existing?.height !== undefined ? { height: existing.height } : null),
     ...(isSection
       ? { columns: clampDashboardColumns(form.columns) }
       : existing?.columns !== undefined

@@ -702,7 +702,7 @@ describe("mutate-dashboard", () => {
       operations: [
         {
           op: "insertPanel",
-          panel: panel("new-panel"),
+          panel: { ...panel("new-panel"), height: 3 },
         },
       ],
     };
@@ -717,6 +717,17 @@ describe("mutate-dashboard", () => {
           {
             ...base.operations[0],
             panel: { ...base.operations[0].panel, width: "1" },
+          },
+        ],
+      }),
+    ).toThrow(/expected number, received string/i);
+    expect(() =>
+      mutateDashboard.schema.parse({
+        ...base,
+        operations: [
+          {
+            ...base.operations[0],
+            panel: { ...base.operations[0].panel, height: "3" },
           },
         ],
       }),
@@ -1231,7 +1242,11 @@ describe("mutate-dashboard", () => {
           {
             dashboardId: "traffic",
             operations: [
-              { op: "updatePanel", panelId: "a", patch: { width: 0 } },
+              {
+                op: "updatePanel",
+                panelId: "a",
+                patch: { width: 0, height: 0 },
+              },
               { op: "updatePanel", panelId: "b", patch: { width: 9 } },
             ],
           },
@@ -1242,6 +1257,7 @@ describe("mutate-dashboard", () => {
           errorCode: "dashboard_invalid_panel",
           message:
             'panel "a" ("a") width is 0; set width to an integer 1-6 (updatePanel patch {"width":1}).\n' +
+            'panel "a" ("a") height is 0; set height to an integer 1-6 (each unit is 180px).\n' +
             'panel "b" ("b") width is 9; set width to an integer 1-6 (updatePanel patch {"width":1}).',
         });
         expect(mocks.upsertDashboard).not.toHaveBeenCalled();
@@ -1680,7 +1696,7 @@ describe("mutate-dashboard", () => {
       expect(saved.message).toMatch(/^SAVED BUT NOT VERIFIED:/);
     });
 
-    it("executes nothing for a title, width or layout edit", async () => {
+    it("executes nothing for a title, width, height or layout edit", async () => {
       const saved: any = await mutateDashboard.run(
         {
           dashboardId: "growth",
@@ -1688,7 +1704,7 @@ describe("mutate-dashboard", () => {
             {
               op: "updatePanel",
               panelId: "signups-by-app",
-              patch: { title: "Renamed", width: 3 },
+              patch: { title: "Renamed", width: 3, height: 2 },
             },
             { op: "movePanels", panelIds: ["kpi"], position: "top" },
           ],
@@ -1703,6 +1719,15 @@ describe("mutate-dashboard", () => {
       });
       expect(saved.message).toContain("No panel render was affected");
       expect(saved._receipt.summary).toContain("no panel render was affected");
+      const config = mocks.upsertDashboard.mock.calls[0][2] as {
+        panels: Array<{ id: string; width: number; height?: number }>;
+      };
+      expect(
+        config.panels.find((panel) => panel.id === "signups-by-app"),
+      ).toMatchObject({
+        width: 3,
+        height: 2,
+      });
       expect(mocks.resolvePanel).not.toHaveBeenCalled();
       expect(mocks.dryRunQuerySchema).not.toHaveBeenCalled();
     });

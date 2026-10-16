@@ -1363,6 +1363,8 @@ export default {
       "Google Sheets में निर्यात नहीं किया जा सका: {{message}}",
     viewSql: "SQL देखें",
     dragToReorder: "पुनः व्यवस्थित करने के लिए खींचें",
+    resizePanelWidth: "पैनल की चौड़ाई बदलें",
+    resizePanelHeight: "पैनल की ऊँचाई बदलें",
     columnFormat: "प्रारूप",
     columnFormatText: "सादा पाठ",
     columnFormatNumber: "संख्या",

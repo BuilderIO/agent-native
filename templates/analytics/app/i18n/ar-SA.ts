@@ -1373,6 +1373,8 @@ export default {
     googleSheetsExportFailed: "تعذر التصدير إلى Google Sheets: {{message}}",
     viewSql: "عرض SQL",
     dragToReorder: "اسحب لإعادة الترتيب",
+    resizePanelWidth: "تغيير عرض اللوحة",
+    resizePanelHeight: "تغيير ارتفاع اللوحة",
     columnFormat: "التنسيق",
     columnFormatText: "نص عادي",
     columnFormatNumber: "رقم",

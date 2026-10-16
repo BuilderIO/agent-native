@@ -236,6 +236,7 @@ describe("dashboard mutation api", () => {
       root,
       [
         'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).setWidth(2);',
+        'dashboard.panels(["b","c"]).setHeight(3);',
         'dashboard.panels(["b","c"]).setConfigPath("yAxis.format","percent");',
       ].join("\n"),
     );
@@ -246,6 +247,7 @@ describe("dashboard mutation api", () => {
     );
 
     expect(signedInPanels.map((p) => p.width)).toEqual([2, 2]);
+    expect(signedInPanels.map((p) => p.height)).toEqual([3, 3]);
     expect(signedInPanels.map((p) => p.config)).toEqual([
       { yAxis: { format: "percent" } },
       { yAxis: { format: "percent" } },
@@ -254,6 +256,8 @@ describe("dashboard mutation api", () => {
     expect(result.commandLog).toEqual([
       "updatePanel(b: width)",
       "updatePanel(c: width)",
+      "updatePanel(b: height)",
+      "updatePanel(c: height)",
       "updatePanelPath(b: config.yAxis.format)",
       "updatePanelPath(c: config.yAxis.format)",
     ]);

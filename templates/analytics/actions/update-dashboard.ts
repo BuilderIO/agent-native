@@ -20,6 +20,11 @@ import {
   interpolate,
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  MAX_PANEL_HEIGHT,
+  MIN_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import {
   dashboardNoopReceipt,
@@ -475,6 +480,19 @@ function collectDashboardConfigIssues(
       }
     }
     if (
+      p.height !== undefined &&
+      (typeof p.height !== "number" ||
+        !Number.isFinite(p.height) ||
+        p.height < MIN_PANEL_HEIGHT ||
+        p.height > MAX_PANEL_HEIGHT ||
+        Math.floor(p.height) !== p.height)
+    ) {
+      issue(
+        "height",
+        `height is ${JSON.stringify(p.height)}; set height to an integer ${MIN_PANEL_HEIGHT}-${MAX_PANEL_HEIGHT} (each unit is ${PANEL_HEIGHT_UNIT_PX}px).`,
+      );
+    }
+    if (
       !isSection &&
       !isExtension &&
       typeof p.source === "string" &&
@@ -842,9 +860,9 @@ export { isAgentCaller };
 export default defineAction({
   description:
     "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
-    "For existing dashboard panel/layout edits, use `mutate-dashboard` instead; it has the typed `dashboard.*` API for moves, inserts, deletes, duplicates, SQL/title/config edits, and bulk edits without JSON-pointer index math. " +
+    "For existing dashboard panel/layout edits, use `mutate-dashboard` instead; it has the typed `dashboard.*` API for moves, inserts, deletes, duplicates, SQL/title/width/height/config edits, and bulk edits without JSON-pointer index math. " +
     "Use this action when creating a brand-new dashboard from a complete config, for the UI full-config save path, or for an explicitly requested low-level JSON-pointer compatibility edit. " +
-    "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
+    "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths or heights, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
     "When this action is appropriate, provide only one of `ops`, `panelOrder`, or `config`; `config` replaces the whole dashboard config. " +
     "First-party event panels must bind to a declared dashboard time filter with `{{timeRange}}` or date-range variables. Intentional fixed-window, cohort-history, and all-time exceptions must be explicit in `panel.config.timeScope`; unbounded first-party SQL is rejected at save time. " +
     "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +

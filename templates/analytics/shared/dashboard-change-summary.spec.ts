@@ -210,6 +210,20 @@ describe("describeDashboardChanges", () => {
     expect(
       describeDashboardChanges(
         dashboard(),
+        dashboard({ panels: [panel("dau", { height: 3 }), panel("wau")] }),
+      ),
+    ).toEqual([{ kind: "panel-resized", title: "DAU" }]);
+    expect(
+      describeDashboardChanges(
+        dashboard(),
+        dashboard({
+          panels: [panel("dau", { width: 2, height: 3 }), panel("wau")],
+        }),
+      ),
+    ).toEqual([{ kind: "panel-resized", title: "DAU" }]);
+    expect(
+      describeDashboardChanges(
+        dashboard(),
         dashboard({
           panels: [panel("dau", { width: 2 }), panel("wau", { width: 2 })],
         }),

@@ -1407,6 +1407,8 @@ export default {
     googleSheetsExportFailed: "無法匯出到 Google Sheets：{{message}}",
     viewSql: "檢視 SQL",
     dragToReorder: "拖動以重新排序",
+    resizePanelWidth: "調整面板寬度",
+    resizePanelHeight: "調整面板高度",
     columnFormat: "格式",
     columnFormatText: "純文字",
     columnFormatNumber: "數字",

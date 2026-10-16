@@ -205,7 +205,11 @@ import { listReportablePanelIds } from "./report-panel-window";
 import { dashboardTileElementId, SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
+  clampPanelHeight,
+  clampPanelWidth,
   DEFAULT_DASHBOARD_COLUMNS,
+  MAX_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
   type DashboardFilter,
   type FilterPreset,
   type SqlDashboardConfig,
@@ -249,10 +253,14 @@ function DashboardDropLine({
   slot,
   activeSlot,
   disabled,
+  gridColumns,
+  columnOffset = 0,
 }: {
   slot: DashboardDropSlot;
   activeSlot: DashboardDropSlot | null;
   disabled: boolean;
+  gridColumns?: number;
+  columnOffset?: number;
 }) {
   const { setNodeRef } = useDroppable({
     id: dropSlotId(slot),
@@ -264,11 +272,19 @@ function DashboardDropLine({
     <div
       ref={setNodeRef}
       aria-hidden="true"
+      data-disabled={disabled ? "true" : undefined}
       data-active={sameDropSlot(activeSlot, slot) ? "true" : undefined}
       className={
         slot.type === "row"
           ? "dashboard-row-drop-slot"
           : "dashboard-column-drop-slot"
+      }
+      style={
+        slot.type === "column" && gridColumns
+          ? ({
+              "--dashboard-column-offset": `${(columnOffset / gridColumns) * 100}%`,
+            } as React.CSSProperties)
+          : undefined
       }
     />
   );
@@ -287,6 +303,7 @@ function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
 
 const PanelCell = memo(function PanelCell({
   panel,
+  gridColumns,
   vars,
   timeRangeFilter,
   remoteEditor,
@@ -304,6 +321,7 @@ const PanelCell = memo(function PanelCell({
   dashboardExtensionContext,
 }: {
   panel: SqlPanel;
+  gridColumns: number;
   vars: Record<string, string>;
   timeRangeFilter: DashboardFilter | undefined;
   remoteEditor: { color: string; name: string } | undefined;
@@ -323,6 +341,19 @@ const PanelCell = memo(function PanelCell({
   onSaveColumns: (panelId: string, columns: TableColumnConfig[]) => void;
   dashboardExtensionContext: Record<string, unknown>;
 }) {
+  const t = useT();
+  const cellRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<{
+    axis: "width" | "height";
+    pointerId: number;
+    startX: number;
+    startY: number;
+    unit: number;
+    initial: { width: number; height: number };
+    preview: { width: number; height: number };
+  } | null>(null);
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+  const [previewHeight, setPreviewHeight] = useState<number | null>(null);
   const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
     null,
   );
@@ -389,18 +420,148 @@ const PanelCell = memo(function PanelCell({
     [panel, selectPanelForChat],
   );
 
+  const handleResizePointerDown = (
+    axis: "width" | "height",
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const cell = cellRef.current;
+    if (!cell) return;
+    const row = cell.closest<HTMLElement>(".dashboard-grid");
+    const initial = {
+      width: clampPanelWidth(panel.width, gridColumns),
+      height:
+        panel.height === undefined
+          ? clampPanelHeight(
+              Math.round(
+                cell.getBoundingClientRect().height / PANEL_HEIGHT_UNIT_PX,
+              ),
+            )
+          : clampPanelHeight(panel.height),
+    };
+    resizeRef.current = {
+      axis,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      unit:
+        axis === "width"
+          ? Math.max(1, (row?.getBoundingClientRect().width ?? 1) / gridColumns)
+          : PANEL_HEIGHT_UNIT_PX,
+      initial,
+      preview: initial,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleResizePointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    event.stopPropagation();
+    const active = resizeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const delta =
+      active.axis === "width"
+        ? event.clientX - active.startX
+        : event.clientY - active.startY;
+    const steps = Math.round(delta / active.unit);
+    const nextValue =
+      active.axis === "width"
+        ? clampPanelWidth(active.initial.width + steps, gridColumns)
+        : clampPanelHeight(active.initial.height + steps);
+    active.preview =
+      active.axis === "width"
+        ? { ...active.preview, width: nextValue }
+        : { ...active.preview, height: nextValue };
+    if (active.axis === "width") setPreviewWidth(nextValue);
+    else setPreviewHeight(nextValue);
+  };
+
+  const finishResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const active = resizeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    handleResizePointerMove(event);
+    const { axis, initial, preview } = active;
+    resizeRef.current = null;
+    setPreviewWidth(null);
+    setPreviewHeight(null);
+    if (preview[axis] === initial[axis]) return;
+    void onSavePanel({
+      ...panel,
+      [axis]: preview[axis],
+    });
+  };
+
+  const cancelResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (resizeRef.current?.pointerId !== event.pointerId) return;
+    resizeRef.current = null;
+    setPreviewWidth(null);
+    setPreviewHeight(null);
+  };
+
+  const handleResizeKeyDown = (
+    axis: "width" | "height",
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const currentValue =
+      axis === "width"
+        ? clampPanelWidth(panel.width, gridColumns)
+        : panel.height === undefined
+          ? clampPanelHeight(
+              Math.round(
+                (cellRef.current?.getBoundingClientRect().height ??
+                  PANEL_HEIGHT_UNIT_PX) / PANEL_HEIGHT_UNIT_PX,
+              ),
+            )
+          : clampPanelHeight(panel.height);
+    const maxValue = axis === "width" ? gridColumns : MAX_PANEL_HEIGHT;
+    const nextValue =
+      event.key === "Home"
+        ? 1
+        : event.key === "End"
+          ? maxValue
+          : axis === "width" && event.key === "ArrowRight"
+            ? Math.min(maxValue, currentValue + 1)
+            : axis === "width" && event.key === "ArrowLeft"
+              ? Math.max(1, currentValue - 1)
+              : axis === "height" && event.key === "ArrowDown"
+                ? Math.min(maxValue, currentValue + 1)
+                : axis === "height" && event.key === "ArrowUp"
+                  ? Math.max(1, currentValue - 1)
+                  : null;
+    if (nextValue === null || nextValue === currentValue) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void onSavePanel({ ...panel, [axis]: nextValue });
+  };
+
+  const renderedWidth =
+    previewWidth ?? clampPanelWidth(panel.width, gridColumns);
+  const renderedHeight =
+    previewHeight ??
+    (panel.height === undefined ? null : clampPanelHeight(panel.height));
+
   return (
     <div
+      ref={cellRef}
       className="dashboard-grid-cell relative h-full"
-      style={
-        remoteEditor
+      data-panel-height={renderedHeight ?? undefined}
+      style={{
+        gridColumn: `span ${renderedWidth}`,
+        ...(renderedHeight !== null
+          ? { height: renderedHeight * PANEL_HEIGHT_UNIT_PX }
+          : {}),
+        ...(remoteEditor
           ? {
               outline: `2px solid ${remoteEditor.color}`,
               outlineOffset: 2,
               borderRadius: 8,
             }
-          : undefined
-      }
+          : {}),
+      }}
     >
       {remoteEditor && (
         <span
@@ -454,6 +615,46 @@ const PanelCell = memo(function PanelCell({
             : undefined
         }
       />
+      {editable ? (
+        <>
+          <button
+            type="button"
+            role="slider"
+            aria-label={t("sqlDashboard.resizePanelWidth")}
+            aria-valuemin={1}
+            aria-valuemax={gridColumns}
+            aria-valuenow={renderedWidth}
+            aria-orientation="horizontal"
+            title={t("sqlDashboard.resizePanelWidth")}
+            className="dashboard-panel-resize-handle dashboard-panel-resize-width"
+            onKeyDown={(event) => handleResizeKeyDown("width", event)}
+            onPointerDown={(event) => handleResizePointerDown("width", event)}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={finishResize}
+            onPointerCancel={cancelResize}
+          >
+            <IconGripVertical className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            role="slider"
+            aria-label={t("sqlDashboard.resizePanelHeight")}
+            aria-valuemin={1}
+            aria-valuemax={MAX_PANEL_HEIGHT}
+            aria-valuenow={renderedHeight ?? 2}
+            aria-orientation="vertical"
+            title={t("sqlDashboard.resizePanelHeight")}
+            className="dashboard-panel-resize-handle dashboard-panel-resize-height"
+            onKeyDown={(event) => handleResizeKeyDown("height", event)}
+            onPointerDown={(event) => handleResizePointerDown("height", event)}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={finishResize}
+            onPointerCancel={cancelResize}
+          >
+            <IconGripVertical className="h-4 w-4 rotate-90" />
+          </button>
+        </>
+      ) : null}
     </div>
   );
 });
@@ -2831,7 +3032,7 @@ function SqlDashboardPageContent({
                           className="dashboard-grid"
                           style={
                             {
-                              "--dash-cols": row.panels.length,
+                              "--dash-cols": group.columns,
                             } as React.CSSProperties
                           }
                         >
@@ -2844,11 +3045,13 @@ function SqlDashboardPageContent({
                             }}
                             activeSlot={activeDropSlot}
                             disabled={!editing}
+                            gridColumns={group.columns}
                           />
                           {row.panels.map((panel, columnIndex) => (
                             <Fragment key={panel.id}>
                               <PanelCell
                                 panel={panel}
+                                gridColumns={group.columns}
                                 vars={vars}
                                 timeRangeFilter={timeRangeFilter}
                                 remoteEditor={
@@ -2880,6 +3083,18 @@ function SqlDashboardPageContent({
                                 }}
                                 activeSlot={activeDropSlot}
                                 disabled={!editing}
+                                gridColumns={group.columns}
+                                columnOffset={row.panels
+                                  .slice(0, columnIndex + 1)
+                                  .reduce(
+                                    (total, item) =>
+                                      total +
+                                      clampPanelWidth(
+                                        item.width,
+                                        group.columns,
+                                      ),
+                                    0,
+                                  )}
                               />
                             </Fragment>
                           ))}

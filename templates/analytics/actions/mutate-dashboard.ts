@@ -9,6 +9,11 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
+  MAX_PANEL_HEIGHT,
+  MIN_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+} from "../app/pages/adhoc/sql-dashboard/types";
+import {
   dashboardNoopReceipt,
   dashboardWriteReceipt,
   requireEditableDashboard,
@@ -90,6 +95,15 @@ const insertPanelSchema = z
       .optional()
       .describe(
         "Integer 1-6, not a string. The saved panel needs a width from here or a later op in this batch.",
+      ),
+    height: z
+      .number()
+      .int()
+      .min(MIN_PANEL_HEIGHT)
+      .max(MAX_PANEL_HEIGHT)
+      .optional()
+      .describe(
+        `Optional fixed panel height: integer ${MIN_PANEL_HEIGHT}-${MAX_PANEL_HEIGHT}, with each unit equal to ${PANEL_HEIGHT_UNIT_PX}px. Omit to size to content.`,
       ),
     source: z
       .enum([
@@ -437,10 +451,7 @@ function helpResult() {
 
 export default defineAction({
   description:
-    "Edit a SQL dashboard in ONE atomic save: move, insert, duplicate, remove, and edit panels by id (title, SQL, width, config), patch dashboard fields, or set filter defaults. Pass typed `operations`; `code` is a compact script form of the same edits. " +
-    "Place a panel in a visible row with nextToPanelId or rowNumber. First-party panel SQL must bind to a dashboard time filter (config.timeScope). For catalog metrics load `compose-dashboard` with `tool-search`, and keep large SQL out of `code`. Read the existing panels with `get-sql-dashboard` first and match their chart types, widths, and config. Small edits of existing panels need no skill; the dashboard-management skill owns new-panel placement, time-scope, and config rules. " +
-    "Before saving, agent calls run every changed panel the way the dashboard page does; a panel that would show 'No data', drop configured columns, or fail is refused with the reason and nothing is written. " +
-    "The result's `verified` flag and per-panel `verification` (or `unverified` reasons) are the proof the edit renders: report only what they show, and on `verified:false`, an error, or a user report that nothing changed, call `inspect-dashboard-panel` before saying anything about the chart.",
+    "Edit an existing SQL dashboard atomically. Typed `operations` or constrained `code` can move, insert, duplicate, remove, and update panels (title, SQL, width, height, config), dashboard fields, and filter defaults. Panel width spans 1–6 grid columns; optional height is 1–6 units of 180px, and an omitted height fits content. Place panels with nextToPanelId or rowNumber. Read existing panels with `get-sql-dashboard` first. First-party SQL must bind to a dashboard time filter; use `compose-dashboard` for catalog metrics and keep large SQL out of `code`. Changed panels are validated and checked as the page renders them. Report `verified` and per-panel results; when false, on errors, or after a report that nothing changed, call `inspect-dashboard-panel` before claiming the edit worked.",
   schema: z.object({
     dashboardId: z.string().optional().describe("Dashboard id."),
     id: z

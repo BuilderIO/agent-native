@@ -31,6 +31,7 @@ describe("dashboard extension panel editor values", () => {
       chartType: "extension",
       source: "bigquery",
       width: 1,
+      height: 3,
       sql: "",
       config: { extensionId: "extension-123" },
     };
@@ -65,6 +66,7 @@ describe("dashboard extension panel editor values", () => {
       chartType: "extension",
       source: "bigquery",
       width: 1,
+      height: 3,
       sql: "",
       config: {
         extensionSlotId:
@@ -76,6 +78,7 @@ describe("dashboard extension panel editor values", () => {
       formToPanel(baseForm, existing, "Untitled panel", "dashboard-1"),
     ).toMatchObject({
       id: "pipeline-widget",
+      height: 3,
       sql: "",
       config: {
         description: "Current pipeline",

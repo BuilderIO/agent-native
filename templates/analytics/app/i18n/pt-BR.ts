@@ -1420,6 +1420,8 @@ export default {
       "Não foi possível exportar para o Google Sheets: {{message}}",
     viewSql: "Ver SQL",
     dragToReorder: "Arraste para reordenar",
+    resizePanelWidth: "Redimensionar a largura do painel",
+    resizePanelHeight: "Redimensionar a altura do painel",
     columnFormat: "Formato",
     columnFormatText: "Texto simples",
     columnFormatNumber: "Número",

@@ -151,6 +151,8 @@ export interface SqlPanel {
   source: DataSourceType;
   chartType: ChartType;
   width: number;
+  /** Optional fixed height in 180px units; missing panels keep content height. */
+  height?: number;
   columns?: number;
   config?: SqlPanelConfig;
   tab?: string;
@@ -196,6 +198,9 @@ export interface DashboardAnnotations {
 export const MIN_DASHBOARD_COLUMNS = 1;
 export const MAX_DASHBOARD_COLUMNS = 6;
 export const DEFAULT_DASHBOARD_COLUMNS = 2;
+export const MIN_PANEL_HEIGHT = 1;
+export const MAX_PANEL_HEIGHT = 6;
+export const PANEL_HEIGHT_UNIT_PX = 180;
 
 export function clampDashboardColumns(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -212,5 +217,15 @@ export function clampPanelWidth(value: unknown, gridColumns: number): number {
   const integer = Math.floor(value);
   if (integer < 1) return 1;
   if (integer > gridColumns) return gridColumns;
+  return integer;
+}
+
+export function clampPanelHeight(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return MIN_PANEL_HEIGHT;
+  }
+  const integer = Math.floor(value);
+  if (integer < MIN_PANEL_HEIGHT) return MIN_PANEL_HEIGHT;
+  if (integer > MAX_PANEL_HEIGHT) return MAX_PANEL_HEIGHT;
   return integer;
 }

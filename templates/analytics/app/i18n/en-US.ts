@@ -1021,6 +1021,8 @@ export default {
     googleSheetsExportFailed: "Couldn't export to Google Sheets: {{message}}",
     viewSql: "View SQL",
     dragToReorder: "Drag to reorder",
+    resizePanelWidth: "Resize panel width",
+    resizePanelHeight: "Resize panel height",
     columnFormat: "Format",
     columnFormatText: "Plain text",
     columnFormatNumber: "Number",
