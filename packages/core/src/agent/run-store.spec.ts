@@ -19,6 +19,7 @@ let latestEventRows: Array<{
   event_data: string;
 }> = [];
 let connectionRequestRows: Array<{ event_data: string }> = [];
+let hasLaterSameTurnRun = false;
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let completedTurnRows: Array<{
@@ -73,7 +74,10 @@ const mockDb: any = {
       /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
       args.includes('{"type":"connection_required"%')
     ) {
-      return { rows: connectionRequestRows, rowsAffected: 0 };
+      return {
+        rows: hasLaterSameTurnRun ? [] : connectionRequestRows,
+        rowsAffected: 0,
+      };
     }
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
@@ -347,6 +351,7 @@ describe("run store", () => {
     execCalls.length = 0;
     latestEventRows = [];
     connectionRequestRows = [];
+    hasLaterSameTurnRun = false;
     staleSelectRows = [];
     claimSlotRows = [];
     completedTurnRows = [];
@@ -606,7 +611,13 @@ describe("run store", () => {
     });
   });
 
-  it("reads a run's pending connection request from its durable event journal", async () => {
+  it("keeps a paused request pending after the run's terminal done event", async () => {
+    latestEventRows = [
+      {
+        seq: 2,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
     connectionRequestRows = [
       {
         event_data: JSON.stringify({
@@ -624,7 +635,34 @@ describe("run store", () => {
     expect(execCalls.at(-1)).toMatchObject({
       args: ["run-connection", '{"type":"connection_required"%'],
     });
-    expect(execCalls.at(-1)?.sql).toMatch(/ORDER BY seq DESC\s+LIMIT 1/i);
+    expect(execCalls.at(-1)?.sql).toMatch(
+      /ORDER BY request_event\.seq DESC\s+LIMIT 1/i,
+    );
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+  });
+
+  it("does not restore a connection request after a same-turn continuation", async () => {
+    hasLaterSameTurnRun = true;
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBeNull();
+    expect(execCalls.at(-1)?.sql).toMatch(/continuation_order/i);
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
   });
 
   it("reports no pending connection request when the run has no request event", async () => {

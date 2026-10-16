@@ -181,6 +181,8 @@ interface ProtocolRun {
   pipeClosedBeforeTerminal?: boolean;
   /** Restored after a reload: its first "stream" is a placeholder, not a pipe. */
   restoredWithoutStream?: boolean;
+  /** A restored decline must verify its request against the replayed stream. */
+  requiresRestoredConnectionRequestReplay?: boolean;
   /**
    * The runtime run's own interruption, held until the server says whether a
    * newer run already carries the turn (the stale-run reaper starts one).
@@ -1873,6 +1875,9 @@ export function createAgentKitProtocolAdapter(
         initialResolution.owner.restoredRunStatus = state.status;
         initialResolution.owner.initialAuthorityRead = { kind: "read", state };
       }
+      if (restoreOptions.includePendingConnectionRequest) {
+        initialResolution.owner.requiresRestoredConnectionRequestReplay = true;
+      }
       return initialResolution.owner;
     }
     const session = await getSession(input.threadId);
@@ -1892,6 +1897,9 @@ export function createAgentKitProtocolAdapter(
           state.pendingConnectionRequestId;
         resolution.owner.restoredRunStatus = state.status;
         resolution.owner.initialAuthorityRead = { kind: "read", state };
+      }
+      if (restoreOptions.includePendingConnectionRequest) {
+        resolution.owner.requiresRestoredConnectionRequestReplay = true;
       }
       return resolution.owner;
     }
@@ -1988,6 +1996,9 @@ export function createAgentKitProtocolAdapter(
       terminal: false,
       waitingForContinuation: false,
       ...(runAuthority ? { restoredWithoutStream: true } : {}),
+      ...(restoreOptions.includePendingConnectionRequest
+        ? { requiresRestoredConnectionRequestReplay: true }
+        : {}),
       listeners: new Set(),
     };
     indexRun(run, turn.runId ?? input.runId);
@@ -4256,6 +4267,7 @@ export function createAgentKitProtocolAdapter(
     transport.resolveConnectionRequest = async (input) => {
       pruneRetainedRuns();
       let run = findRun(input.threadId, input.runId);
+      let restoredThisCall = false;
       if (!run) {
         if (runs.has(input.runId)) {
           throw new Error(`Unknown AgentKit run: ${input.runId}`);
@@ -4263,8 +4275,13 @@ export function createAgentKitProtocolAdapter(
         run = await restoreRunFromRuntime(input, {
           includePendingConnectionRequest: input.response.status === "declined",
         });
+        restoredThisCall = true;
+      }
+      if (
+        input.response.status === "declined" &&
+        run.requiresRestoredConnectionRequestReplay
+      ) {
         if (
-          input.response.status === "declined" &&
           run.restoredPendingConnectionRequestId !== undefined &&
           run.restoredPendingConnectionRequestId !== input.requestId
         ) {
@@ -4278,13 +4295,9 @@ export function createAgentKitProtocolAdapter(
           }
           throw restoredConnectionRequestUnverifiedError();
         }
-        if (run.pumpPromise) {
-          if (input.response.status === "declined") {
-            await waitForRestoredConnectionRequest(run, input.requestId);
-          } else {
-            await run.pumpPromise;
-          }
-        }
+        await waitForRestoredConnectionRequest(run, input.requestId);
+      } else if (restoredThisCall && run.pumpPromise) {
+        await run.pumpPromise;
       }
       touchRun(run);
       if (input.response.status === "declined" && run.terminal) return;

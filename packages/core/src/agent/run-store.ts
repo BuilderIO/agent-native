@@ -2815,10 +2815,28 @@ export async function getRunPendingConnectionRequestId(
 ): Promise<string | null> {
   await ensureRunTables();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT event_data FROM agent_run_events
-          WHERE run_id = ?
-            AND event_data LIKE ?
-          ORDER BY seq DESC
+    sql: `SELECT event_data FROM agent_run_events request_event
+          JOIN agent_runs requested_run ON requested_run.id = request_event.run_id
+          WHERE request_event.run_id = ?
+            AND request_event.event_data LIKE ?
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs successor
+              WHERE successor.thread_id = requested_run.thread_id
+                AND COALESCE(successor.turn_id, successor.id) =
+                    COALESCE(requested_run.turn_id, requested_run.id)
+                AND successor.id <> requested_run.id
+                AND successor.dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND (
+                  COALESCE(successor.continuation_order, 0) >
+                    COALESCE(requested_run.continuation_order, 0)
+                  OR (
+                    COALESCE(successor.continuation_order, 0) =
+                      COALESCE(requested_run.continuation_order, 0)
+                    AND successor.started_at > requested_run.started_at
+                  )
+                )
+            )
+          ORDER BY request_event.seq DESC
           LIMIT 1`,
     args: [runId, '{"type":"connection_required"%'],
   });

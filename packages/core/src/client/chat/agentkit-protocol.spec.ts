@@ -1227,32 +1227,37 @@ describe("createAgentKitProtocolAdapter", () => {
     }
   });
 
-  it("bounds a restored decline when its live stream never replays the request", async () => {
+  it("retries a restored decline after its first replay wait times out", async () => {
     vi.useFakeTimers();
     async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
     let markSubscriptionStarted!: () => void;
     const subscriptionStarted = new Promise<void>((resolve) => {
       markSubscriptionStarted = resolve;
     });
+    let releaseRequestReplay!: () => void;
+    const requestReplay = new Promise<void>((resolve) => {
+      releaseRequestReplay = resolve;
+    });
     let releaseSubscription!: () => void;
     const subscriptionEnded = new Promise<void>((resolve) => {
       releaseSubscription = resolve;
     });
-    const subscribe = vi.fn(
-      async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
-        markSubscriptionStarted();
-        return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
-          await new Promise<void>((resolve) => {
-            if (abortSignal?.aborted) {
-              resolve();
-              return;
-            }
-            abortSignal?.addEventListener("abort", resolve, { once: true });
-          });
+    const subscribe = vi.fn(async () => {
+      markSubscriptionStarted();
+      return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        try {
+          await requestReplay;
+          yield {
+            type: "connection-request",
+            requestId: "restored-request",
+            provider: "gong",
+            reason: "connect",
+          };
+        } finally {
           releaseSubscription();
-        })();
-      },
-    );
+        }
+      })();
+    });
     const continueTurn = vi.fn(async () => ({
       id: "turn-2",
       runId: "run-2",
@@ -1312,7 +1317,19 @@ describe("createAgentKitProtocolAdapter", () => {
       expect(subscribe).toHaveBeenCalledWith(
         expect.objectContaining({ runId: "restored-run", after: 0 }),
       );
+
+      const retry = transport.resolveConnectionRequest!({
+        threadId: "thread-1",
+        runId: "restored-run",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      });
+      releaseRequestReplay();
+      await retry;
+      expect(continueTurn).toHaveBeenCalledOnce();
+      expect(subscribe).toHaveBeenCalledOnce();
     } finally {
+      releaseRequestReplay();
       vi.useRealTimers();
       await transport.dispose();
       await subscriptionEnded;
