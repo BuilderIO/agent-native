@@ -41,6 +41,7 @@ export function isSafeCampaignUrl(value: string): boolean {
       !url.password
     );
   } catch {
+    // coercion-ok: an unparseable URL fails validation, which the schema reports as an error.
     return false;
   }
 }

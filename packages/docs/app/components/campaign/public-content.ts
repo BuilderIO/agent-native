@@ -123,6 +123,7 @@ export function safeHref(href: string): string | undefined {
       const url = new URL(href);
       return url.username || url.password ? undefined : href;
     } catch {
+      // coercion-ok: an unparseable URL is rejected as unsafe; callers branch on undefined.
       return undefined;
     }
   }

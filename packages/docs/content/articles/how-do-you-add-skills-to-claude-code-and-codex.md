@@ -24,6 +24,7 @@ related_resources:
 related: []
 internal:
   target_terms: "best claude code skills (US 300/mo, KD 6); claude code skills (10,000, KD 66); claude skills (21,000, KD 67)"
+  # // agent-native-brand-ok: verbatim Search Console query
   basis: "Search Console: 'visual plan skill', 'visual-pr skill', 'visual recap skill', 'agent native skills'"
   sources: "/docs/skills-guide/, /docs/template-plan/, /docs/pr-visual-recap/"
 ---
