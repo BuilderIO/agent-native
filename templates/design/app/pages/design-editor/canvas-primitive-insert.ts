@@ -689,9 +689,10 @@ export function appendCanvasPrimitiveToHtml(
         paintedSurfaceIsLight === true && surfaceIsLight !== true;
       const resolvedTextColor =
         primitive.fill ??
-        (needsDarkFillForLightSurface
-          ? "#000000"
-          : defaultCanvasTextColor(autoTextNeedsLightFill));
+        defaultCanvasTextColor(
+          autoTextNeedsLightFill,
+          needsDarkFillForLightSurface,
+        );
       element.style.color = resolvedTextColor;
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
