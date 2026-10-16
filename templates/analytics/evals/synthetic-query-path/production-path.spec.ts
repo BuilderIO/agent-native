@@ -199,6 +199,7 @@ type SafeCsvRow = {
   aborted: boolean;
   production_path_invoked: boolean;
   guard_applied: boolean;
+  owner_org_context_verified: boolean;
   usage_captured: boolean;
   tool_call_count: number;
   provider_call_count: number;
@@ -881,6 +882,7 @@ const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
   "aborted",
   "production_path_invoked",
   "guard_applied",
+  "owner_org_context_verified",
   "usage_captured",
   "tool_call_count",
   "provider_call_count",
@@ -1027,6 +1029,9 @@ function safeRow(
     aborted,
     production_path_invoked: receipt?.productionAgentLoopInvoked === true,
     guard_applied: receipt?.finalResponseGuardApplied === true,
+    owner_org_context_verified:
+      receipt?.ownerEmail === IDENTITY.ownerEmail &&
+      receipt?.orgId === IDENTITY.orgId,
     usage_captured:
       receipt?.usageCaptured === true && output?.usage?.usageReported === true,
     tool_call_count: callNames.length,
@@ -1113,13 +1118,13 @@ async function runCase(
       });
   }
   if (testCase.key === "synthetic-first-party-div-recovery") {
-    if (!createUnsupportedFunctionValidationError) {
-      throw new Error(
-        "First-party Analytics unsupported-function validation is unavailable.",
-      );
-    }
     providerBoundary.queryFirstPartyAnalytics
-      .mockRejectedValueOnce(createUnsupportedFunctionValidationError())
+      .mockRejectedValueOnce(
+        createUnsupportedFunctionValidationError?.() ??
+          new Error(
+            "First-party analytics queries cannot call unapproved SQL function div",
+          ),
+      )
       .mockResolvedValueOnce({
         rows: [{ avg_events_per_day: 4.2 }],
         schema: [{ name: "avg_events_per_day", type: "number" }],
@@ -1706,6 +1711,7 @@ describe("Analytics synthetic production-path query quality", () => {
           ).toBe("pass");
           expect(row.production_path_invoked).toBe(true);
           expect(row.guard_applied).toBe(true);
+          expect(row.owner_org_context_verified).toBe(true);
           expect(row.usage_captured).toBe(true);
         }
       }
