@@ -8109,7 +8109,7 @@ describe("DeckContext deck creation persistence", () => {
   it("undoes a duplicate that retains its source image prompt", async () => {
     const deckId = "duplicate-image-prompt-undo-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
-    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { fetchMock, getAccessibleDeck, setAccessibleDeck } = setupFetch();
     setAccessibleDeck({
       id: deckId,
       title: "Deck",
@@ -8142,6 +8142,18 @@ describe("DeckContext deck creation persistence", () => {
     await act(async () => {
       await result.current.flushDeckSave(deckId);
     });
+    expect(
+      getAccessibleDeck()?.slides.find((slide) => slide.id === duplicateId)
+        ?.imagePrompt,
+    ).toBeUndefined();
+    await act(async () => {
+      await result.current.refreshOpenDeck(deckId);
+    });
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBeUndefined();
 
     act(() => result.current.undo(deckId));
 

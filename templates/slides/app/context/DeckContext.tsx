@@ -3223,6 +3223,7 @@ function slideUndoContentSignature(content: string): string {
 function slideMatchesUndoSnapshot(
   slide: Slide,
   fields: Partial<Omit<Slide, "id" | "imageLoading">> & { content: string },
+  options?: { allowMissingImagePrompt?: boolean },
 ): boolean {
   const ignoredFields = new Set(["id", "imageLoading", "layoutFitRevision"]);
   const fieldsToCompare = new Set([
@@ -3240,6 +3241,14 @@ function slideMatchesUndoSnapshot(
         : field === "layout"
           ? "content"
           : undefined;
+    if (
+      options?.allowMissingImagePrompt &&
+      field === "imagePrompt" &&
+      expectedValue !== undefined &&
+      (currentValue === undefined || currentValue === null)
+    ) {
+      return true;
+    }
     if (field === "content" && typeof expectedValue === "string") {
       return (
         typeof currentValue === "string" &&
@@ -3470,7 +3479,12 @@ function undoOpsWithoutRemoteFieldConflicts(
         const expected = expectedAddedSlides.get(
           JSON.stringify([op.deckId, op.slideId]),
         );
-        if (!expected || !slideMatchesUndoSnapshot(slide, expected)) {
+        if (
+          !expected ||
+          !slideMatchesUndoSnapshot(slide, expected, {
+            allowMissingImagePrompt: true,
+          })
+        ) {
           hasConflict = true;
           return [];
         }
