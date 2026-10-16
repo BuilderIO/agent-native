@@ -1,3 +1,4 @@
+import { buildExtensionHtml } from "@agent-native/core/extensions/html-shell";
 import { chromium, type Browser } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -64,6 +65,17 @@ async function startHostServer(): Promise<ViteDevServer> {
   </body>
 </html>`);
           });
+          devServer.middlewares.use("/__extension-e2e-route", (_req, res) => {
+            res.setHeader("Content-Type", "text/html");
+            res.end(
+              buildExtensionHtml(
+                '<a id="route-external-link" href="https://external.example.test/route-metric">Open route metric</a>',
+                ":root{}",
+                false,
+                "route-extension",
+              ),
+            );
+          });
         },
       },
     ],
@@ -103,6 +115,27 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
       route.abort(),
     );
     await page.route("https://fonts.gstatic.com/**", (route) => route.abort());
+    await page.route(
+      "https://external.example.test/first-load-replacement",
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: `<!doctype html>
+<script>
+  window.addEventListener('message', function(event) {
+    if (!event.ports || event.ports.length !== 1) return;
+    window.parent.postMessage({ type: 'extension-e2e.replacement-port-received' }, '*');
+  });
+  window.parent.postMessage({
+    type: 'agentNative.extension.readyExternalLinkBridge',
+    nonce: 'forged',
+    generation: 'replacement'
+  }, '*');
+</script>
+<p>First-load replacement document</p>`,
+        }),
+    );
 
     await page.goto(serverUrl(server));
     try {
@@ -122,7 +155,7 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
 
     expect(page.url()).toBe(serverUrl(server));
     const frames = await page.locator("iframe").all();
-    expect(frames).toHaveLength(1);
+    expect(frames).toHaveLength(3);
     const sandbox = await frames[0].getAttribute("sandbox");
     expect(sandbox).toContain("allow-scripts");
     expect(sandbox).not.toContain("allow-same-origin");
@@ -183,6 +216,17 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
     expect(result.blockedStorageScope.ok).toBe(false);
     expect(result.blockedStorageScope.error).toContain('scope "org"');
 
+    await page
+      .frames()[2]
+      .waitForURL("https://external.example.test/first-load-replacement");
+    await page.waitForTimeout(100);
+    expect(
+      await page.evaluate(
+        () => window.__extensionReplacementPortReceived ?? false,
+      ),
+    ).toBe(false);
+    expect(page.url()).toBe(serverUrl(server));
+
     await page.route("https://external.example.test/replacement", (route) =>
       route.fulfill({
         status: 200,
@@ -202,11 +246,11 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
 <p>Replacement document</p>`,
       }),
     );
-    const extensionFrame = page.frames()[1];
-    await extensionFrame.evaluate(() => {
+    const replacementFrame = page.frames()[1];
+    await replacementFrame.evaluate(() => {
       window.location.assign("https://external.example.test/replacement");
     });
-    await extensionFrame.waitForURL(
+    await replacementFrame.waitForURL(
       "https://external.example.test/replacement",
     );
     await page.waitForTimeout(100);
@@ -222,6 +266,10 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
       timeout: 30_000,
     });
 
+    const extensionFrame = page.frames()[1];
+    await extensionFrame.evaluate(() => window.location.reload());
+    await extensionFrame.waitForSelector("#external-metric-link");
+
     await page.route("https://external.example.test/metric", (route) =>
       route.fulfill({
         status: 200,
@@ -229,11 +277,36 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
         body: "<!doctype html><title>Metric target</title><p>Metric target</p>",
       }),
     );
-    await page.frameLocator("iframe").locator("#external-metric-link").click();
+    await extensionFrame.locator("#external-metric-link").click();
     await page.waitForURL("https://external.example.test/metric");
     expect(await page.locator("body").textContent()).toContain("Metric target");
 
     await page.close();
+  }, 60_000);
+
+  it("routes external links from server-rendered extension frames through the host", async () => {
+    const page = await browser.newPage();
+    await page.route("https://external.example.test/route-metric", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><title>Route metric</title><p>Route metric</p>",
+      }),
+    );
+
+    try {
+      await page.goto(serverUrl(server));
+      const extensionFrame = page.frameLocator(
+        'iframe[data-e2e-route-bridge="true"]',
+      );
+      await extensionFrame.locator("#route-external-link").click();
+      await page.waitForURL("https://external.example.test/route-metric");
+      expect(await page.locator("body").textContent()).toContain(
+        "Route metric",
+      );
+    } finally {
+      await page.close();
+    }
   }, 60_000);
 });
 

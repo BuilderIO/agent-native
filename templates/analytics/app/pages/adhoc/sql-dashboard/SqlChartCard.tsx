@@ -35,13 +35,13 @@ import {
   DataNoteLines,
   UnplacedDataNotesListener,
 } from "@/components/dashboard/data-note-bands";
+import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
+import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
 import {
   ChartFillHeight,
   renderDashboardMarkdownLink,
   SqlChart,
 } from "@/components/dashboard/SqlChart";
-import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
-import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
 import {
   AlertDialog,
   AlertDialogAction,

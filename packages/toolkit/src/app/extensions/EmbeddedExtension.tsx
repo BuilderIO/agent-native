@@ -38,6 +38,11 @@ import {
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
 import {
+  useExtensionExternalLinkBridge,
+  useExtensionExternalLinkBridgeNonce,
+  withExtensionExternalLinkBridgeNonce,
+} from "./external-link-bridge.js";
+import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
   checkBridgePolicy,
@@ -118,6 +123,7 @@ export function EmbeddedExtension({
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
+  const externalLinkBridgeNonce = useExtensionExternalLinkBridgeNonce();
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const readyFiredRef = useRef(false);
@@ -202,11 +208,21 @@ export function EmbeddedExtension({
 
   const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
+    if (!externalLinkBridgeNonce) return undefined;
     const v = encodeURIComponent(extension?.updatedAt ?? "");
-    return agentNativePath(
-      `/_agent-native/extensions/${extensionId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
+    return withExtensionExternalLinkBridgeNonce(
+      agentNativePath(
+        `/_agent-native/extensions/${extensionId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
+      ),
+      externalLinkBridgeNonce,
     );
-  }, [extensionId, slotId, extension?.updatedAt]);
+  }, [externalLinkBridgeNonce, extensionId, slotId, extension?.updatedAt]);
+  useExtensionExternalLinkBridge(
+    iframeRef,
+    externalLinkBridgeCleanupRef,
+    iframeSrc,
+    externalLinkBridgeNonce,
+  );
 
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
@@ -465,12 +481,13 @@ export function EmbeddedExtension({
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
-          if (iframeRef.current) {
+          if (iframeRef.current && iframeSrc && externalLinkBridgeNonce) {
             externalLinkBridgeCleanupRef.current =
               connectExtensionExternalLinkBridge(
                 iframeRef.current,
                 window,
                 iframeSrc,
+                externalLinkBridgeNonce,
               );
           }
           iframeRef.current?.contentWindow?.postMessage(

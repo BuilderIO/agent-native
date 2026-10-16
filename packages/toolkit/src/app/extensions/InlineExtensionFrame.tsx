@@ -10,6 +10,11 @@ import { getThemeVars } from "@agent-native/core/extensions/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  useExtensionExternalLinkBridge,
+  useExtensionExternalLinkBridgeNonce,
+  withExtensionExternalLinkBridgeNonce,
+} from "./external-link-bridge.js";
+import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
   checkBridgePolicy,
@@ -305,6 +310,7 @@ function buildTransientSrcDoc(
   extension: InlineExtensionDefinition,
   isDark: boolean,
   metaCsp: string,
+  externalLinkBridgeNonce: string,
 ): string {
   return buildExtensionHtml(
     extension.content ?? "",
@@ -318,6 +324,7 @@ function buildTransientSrcDoc(
       role: "owner",
     },
     metaCsp,
+    externalLinkBridgeNonce,
   );
 }
 
@@ -332,6 +339,7 @@ export function InlineExtensionFrame({
   const providedId = providedExtension?.id ?? extensionId ?? "";
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
+  const externalLinkBridgeNonce = useExtensionExternalLinkBridgeNonce();
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(() =>
     typeof document === "undefined"
@@ -405,24 +413,48 @@ export function InlineExtensionFrame({
 
   const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
-    if (!resolvedId || isTransient) return undefined;
+    if (!resolvedId || isTransient || !externalLinkBridgeNonce)
+      return undefined;
     const v = encodeURIComponent(extension?.updatedAt ?? "");
-    return agentNativePath(
-      `/_agent-native/extensions/${resolvedId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
+    return withExtensionExternalLinkBridgeNonce(
+      agentNativePath(
+        `/_agent-native/extensions/${resolvedId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
+      ),
+      externalLinkBridgeNonce,
     );
-  }, [extension?.updatedAt, isTransient, resolvedId, slotId]);
+  }, [
+    externalLinkBridgeNonce,
+    extension?.updatedAt,
+    isTransient,
+    resolvedId,
+    slotId,
+  ]);
 
   // Transient frames are built here, so they fetch the deployment's configured
   // img-src / media-src from the server and wait for it before rendering.
   const iframeMetaCsp = useExtensionIframeMetaCsp(!!extension && isTransient);
   const srcDoc = useMemo(() => {
-    if (!extension || !isTransient || !iframeMetaCsp) return undefined;
+    if (
+      !extension ||
+      !isTransient ||
+      !iframeMetaCsp ||
+      !externalLinkBridgeNonce
+    ) {
+      return undefined;
+    }
     return buildTransientSrcDoc(
       extension,
       initialDarkRef.current,
       iframeMetaCsp,
+      externalLinkBridgeNonce,
     );
-  }, [extension, iframeMetaCsp, isTransient]);
+  }, [extension, externalLinkBridgeNonce, iframeMetaCsp, isTransient]);
+  useExtensionExternalLinkBridge(
+    iframeRef,
+    externalLinkBridgeCleanupRef,
+    srcDoc ?? iframeSrc,
+    externalLinkBridgeNonce,
+  );
 
   useEffect(() => {
     bridgeContextRef.current = isTransient
@@ -700,12 +732,14 @@ export function InlineExtensionFrame({
           pointerEvents: isTransient && hasSubmitted ? "none" : undefined,
         }}
         onLoad={() => {
-          if (iframeRef.current) {
+          const documentKey = srcDoc ?? iframeSrc;
+          if (iframeRef.current && documentKey && externalLinkBridgeNonce) {
             externalLinkBridgeCleanupRef.current =
               connectExtensionExternalLinkBridge(
                 iframeRef.current,
                 window,
-                srcDoc ?? iframeSrc ?? "",
+                documentKey,
+                externalLinkBridgeNonce,
               );
           }
           sendThemeToIframe();

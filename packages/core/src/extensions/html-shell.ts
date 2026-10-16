@@ -160,8 +160,12 @@ export interface ExtensionRenderBinding {
 
 export const EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE =
   "agentNative.extension.openExternalLink";
-const EXTENSION_EXTERNAL_LINK_BRIDGE_INIT_TYPE =
-  "agentNative.extension.initExternalLinkBridge";
+export const EXTENSION_EXTERNAL_LINK_BRIDGE_READY_TYPE =
+  "agentNative.extension.readyExternalLinkBridge";
+export const EXTENSION_EXTERNAL_LINK_BRIDGE_ACK_TYPE =
+  "agentNative.extension.externalLinkBridgeReady";
+export const EXTENSION_EXTERNAL_LINK_BRIDGE_HASH_KEY =
+  "__agentNativeExternalLinkBridge";
 
 export interface ExtensionExternalLinkRequest {
   href: string;
@@ -170,6 +174,7 @@ export interface ExtensionExternalLinkRequest {
 
 interface ExtensionExternalLinkBridgeRegistration {
   documentKey: string;
+  nonce: string;
   cleanup: () => void;
 }
 
@@ -226,9 +231,13 @@ export function connectExtensionExternalLinkBridge(
   iframe: HTMLIFrameElement,
   hostWindow: Window,
   documentKey: string,
+  nonce: string,
 ): (() => void) | null {
   const existingBridge = extensionExternalLinkBridges.get(iframe);
-  if (existingBridge?.documentKey === documentKey) {
+  if (
+    existingBridge?.documentKey === documentKey &&
+    existingBridge.nonce === nonce
+  ) {
     return existingBridge.cleanup;
   }
   existingBridge?.cleanup();
@@ -236,47 +245,90 @@ export function connectExtensionExternalLinkBridge(
   const frameWindow = iframe.contentWindow;
   if (!frameWindow || typeof MessageChannel === "undefined") return null;
 
-  const channel = new MessageChannel();
-  channel.port1.addEventListener("message", (event) => {
-    navigateExtensionExternalLink(event.data, hostWindow);
-  });
-  channel.port1.start();
-  frameWindow.postMessage(
-    { type: EXTENSION_EXTERNAL_LINK_BRIDGE_INIT_TYPE },
-    "*",
-    [channel.port2],
-  );
+  const ports = new Set<MessagePort>();
+  let activeGeneration: string | null = null;
+  const onReady = (event: MessageEvent) => {
+    const message = event.data;
+    if (
+      event.source !== frameWindow ||
+      event.origin !== "null" ||
+      !message ||
+      typeof message !== "object" ||
+      message.type !== EXTENSION_EXTERNAL_LINK_BRIDGE_READY_TYPE ||
+      message.nonce !== nonce ||
+      typeof message.generation !== "string" ||
+      event.ports.length !== 1
+    ) {
+      return;
+    }
+
+    if (activeGeneration !== message.generation) {
+      for (const port of ports) port.close();
+      ports.clear();
+      activeGeneration = message.generation;
+    }
+
+    const port = event.ports[0];
+    if (!port) return;
+    port.addEventListener("message", (portEvent) => {
+      navigateExtensionExternalLink(portEvent.data, hostWindow);
+    });
+    port.start();
+    ports.add(port);
+    port.postMessage({ type: EXTENSION_EXTERNAL_LINK_BRIDGE_ACK_TYPE });
+  };
+  hostWindow.addEventListener("message", onReady);
 
   let bridge: ExtensionExternalLinkBridgeRegistration;
   const cleanup = () => {
-    channel.port1.close();
+    hostWindow.removeEventListener("message", onReady);
+    for (const port of ports) port.close();
+    ports.clear();
     if (extensionExternalLinkBridges.get(iframe) === bridge) {
       extensionExternalLinkBridges.delete(iframe);
     }
   };
-  bridge = { documentKey, cleanup };
+  bridge = { documentKey, nonce, cleanup };
   extensionExternalLinkBridges.set(iframe, bridge);
   return cleanup;
 }
 
-export function buildExtensionExternalLinkBootstrap(): string {
+export function buildExtensionExternalLinkBootstrap(nonce?: string): string {
+  const nonceExpression =
+    nonce === undefined
+      ? `new URLSearchParams(window.location.hash.slice(1)).get('${EXTENSION_EXTERNAL_LINK_BRIDGE_HASH_KEY}') || ''`
+      : JSON.stringify(nonce);
+
   return `<script>
     (function() {
-      var externalLinkPort = null;
-      // Extension code shares this window, so consume the transferred port before it can observe it.
-      window.addEventListener('message', function(event) {
-        if (
-          event.source !== window.parent ||
-          !event.data ||
-          event.data.type !== '${EXTENSION_EXTERNAL_LINK_BRIDGE_INIT_TYPE}' ||
-          !event.ports ||
-          event.ports.length !== 1 ||
-          externalLinkPort
-        ) return;
-        externalLinkPort = event.ports[0];
-        externalLinkPort.start();
-        event.stopImmediatePropagation();
-      }, true);
+      var bridgeNonce = ${nonceExpression};
+      var bridgePort = null;
+      var generation = window.crypto && typeof window.crypto.randomUUID === 'function'
+        ? window.crypto.randomUUID()
+        : Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+      function requestBridge() {
+        if (!bridgeNonce || window.parent === window || typeof MessageChannel === 'undefined') return;
+        var channel = new MessageChannel();
+        var retryTimer = setTimeout(function() {
+          if (bridgePort) return;
+          channel.port1.close();
+          requestBridge();
+        }, 1000);
+        channel.port1.addEventListener('message', function(event) {
+          if (!event.data || event.data.type !== '${EXTENSION_EXTERNAL_LINK_BRIDGE_ACK_TYPE}') return;
+          clearTimeout(retryTimer);
+          bridgePort = channel.port1;
+        });
+        channel.port1.start();
+        window.parent.postMessage({
+          type: '${EXTENSION_EXTERNAL_LINK_BRIDGE_READY_TYPE}',
+          nonce: bridgeNonce,
+          generation: generation
+        }, '*', [channel.port2]);
+      }
+
+      requestBridge();
 
       document.addEventListener('click', function(event) {
         if (!event.isTrusted || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -293,9 +345,9 @@ export function buildExtensionExternalLinkBootstrap(): string {
           (destination.protocol === 'http:' || destination.protocol === 'https:') &&
           destination.origin !== new URL(document.baseURI).origin
         ) {
-          if (!externalLinkPort) return;
           event.preventDefault();
-          externalLinkPort.postMessage({
+          if (!bridgePort) return;
+          bridgePort.postMessage({
             type: '${EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE}',
             href: destination.href,
             target: '_self'
@@ -313,6 +365,7 @@ export function buildExtensionHtml(
   extensionId?: string,
   binding?: ExtensionRenderBinding,
   metaCsp: string = EXTENSION_IFRAME_META_CSP,
+  externalLinkBridgeNonce?: string,
 ): string {
   const extensionIdJson = JSON.stringify(extensionId ?? "");
   const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
@@ -394,7 +447,7 @@ export function buildExtensionHtml(
       _collectError(msg, stack);
     });
   </script>
-  ${buildExtensionExternalLinkBootstrap()}
+  ${buildExtensionExternalLinkBootstrap(externalLinkBridgeNonce)}
   <!--
     SECURITY: pinned to exact patch versions + SRI integrity hashes. A
     malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would

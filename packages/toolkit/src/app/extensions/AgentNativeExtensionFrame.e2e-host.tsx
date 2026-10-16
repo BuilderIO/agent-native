@@ -1,8 +1,14 @@
 import { defineClientAction } from "@agent-native/core/client/host";
 import React from "react";
+import { useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
 import { AgentNativeExtensionSlot } from "./AgentNativeExtensionFrame.js";
+import {
+  useExtensionExternalLinkBridge,
+  useExtensionExternalLinkBridgeNonce,
+  withExtensionExternalLinkBridgeNonce,
+} from "./external-link-bridge.js";
 
 const extensionContent = `
 <a id="external-metric-link" href="https://external.example.test/metric">Open metric</a>
@@ -61,6 +67,30 @@ interface ExtensionE2EWindow {
 
 const hostWindow = window as Window & ExtensionE2EWindow;
 
+function RouteBridgeFrame() {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const nonce = useExtensionExternalLinkBridgeNonce();
+  const src = useMemo(
+    () =>
+      nonce
+        ? withExtensionExternalLinkBridgeNonce("/__extension-e2e-route", nonce)
+        : undefined,
+    [nonce],
+  );
+  useExtensionExternalLinkBridge(iframeRef, cleanupRef, src, nonce);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      src={src}
+      title="Route bridge fixture"
+      sandbox="allow-scripts"
+      data-e2e-route-bridge="true"
+    />
+  );
+}
+
 const extension = {
   id: "allowed-extension",
   name: "Allowed extension",
@@ -78,6 +108,17 @@ const wrongSlotExtension = {
   name: "Wrong slot extension",
   content: "<div>should not render</div>",
   manifest: { slots: ["crm.billing.sidebar"] },
+};
+
+const firstLoadNavigationExtension = {
+  id: "first-load-navigation-extension",
+  name: "First-load navigation extension",
+  content: `
+<script>
+  window.location.replace("https://external.example.test/first-load-replacement");
+</script>
+`,
+  manifest: { slots: ["e2e.first-load-navigation"] },
 };
 
 hostWindow.__extensionE2ECommands = [];
@@ -140,6 +181,13 @@ function Host() {
           },
         }}
       />
+      <AgentNativeExtensionSlot
+        id="e2e.first-load-navigation"
+        extensions={[firstLoadNavigationExtension]}
+        context={{}}
+        getContext={() => ({})}
+      />
+      <RouteBridgeFrame />
     </main>
   );
 }

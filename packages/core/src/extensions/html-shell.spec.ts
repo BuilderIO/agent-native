@@ -78,14 +78,31 @@ describe("buildExtensionHtml", () => {
 
     expect(html).toContain("if (!event.isTrusted");
     expect(html).toContain("event.preventDefault()");
-    expect(html).toContain("externalLinkPort.postMessage({");
-    expect(html).toContain("event.stopImmediatePropagation()");
+    expect(html).toContain("bridgePort.postMessage({");
+    expect(html).toContain("readyExternalLinkBridge");
+    expect(html).toContain(
+      "new URLSearchParams(window.location.hash.slice(1))",
+    );
     expect(html).toContain(
       "destination.origin !== new URL(document.baseURI).origin",
     );
     expect(html).toContain(`type: '${EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE}'`);
     expect(html).not.toContain("link.setAttribute('target', '_top')");
     expect(html).toContain("document.addEventListener('click'");
+  });
+
+  it("embeds a host-selected bridge nonce in srcDoc HTML", () => {
+    const html = buildExtensionHtml(
+      '<a href="https://docs.example.com/metric">Metric docs</a>',
+      ":root{}",
+      false,
+      "extension-1",
+      undefined,
+      undefined,
+      "bridge-nonce",
+    );
+
+    expect(html).toContain('var bridgeNonce = "bridge-nonce";');
   });
 
   it("accepts only external HTTP(S) link handoffs", () => {

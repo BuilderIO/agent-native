@@ -25,6 +25,10 @@ import React, {
 } from "react";
 
 import {
+  useExtensionExternalLinkBridge,
+  useExtensionExternalLinkBridgeNonce,
+} from "./external-link-bridge.js";
+import {
   AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   buildAgentNativeExtensionHtml,
   createLocalStorageAgentNativeExtensionStorage,
@@ -349,6 +353,7 @@ export const AgentNativeExtensionFrame = forwardRef<
   const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
   const bridgeRef = useRef<AgentNativeHostBridge | null>(null);
   const [height, setHeight] = useState(initialHeight);
+  const externalLinkBridgeNonce = useExtensionExternalLinkBridgeNonce();
   const localStorageAdapter = useMemo(
     () => createLocalStorageAgentNativeExtensionStorage(storageNamespace),
     [storageNamespace],
@@ -417,27 +422,34 @@ export const AgentNativeExtensionFrame = forwardRef<
     return mergeExtensionContext(base, extension, slotId, context);
   }, [contextJson, extension, getContext, slotId]);
 
-  const srcDoc = useMemo(
-    () =>
-      buildAgentNativeExtensionHtml({
-        extensionId: extension.id,
-        title: title ?? extension.name,
-        content: extension.content,
-        slotId,
-        slotContext: context,
-        themeCss,
-        isDark,
-      }),
-    [
-      contextJson,
-      extension.content,
-      extension.id,
-      extension.name,
-      isDark,
+  const srcDoc = useMemo(() => {
+    if (!externalLinkBridgeNonce) return undefined;
+    return buildAgentNativeExtensionHtml({
+      extensionId: extension.id,
+      title: title ?? extension.name,
+      content: extension.content,
+      externalLinkBridgeNonce,
       slotId,
+      slotContext: context,
       themeCss,
-      title,
-    ],
+      isDark,
+    });
+  }, [
+    contextJson,
+    externalLinkBridgeNonce,
+    extension.content,
+    extension.id,
+    extension.name,
+    isDark,
+    slotId,
+    themeCss,
+    title,
+  ]);
+  useExtensionExternalLinkBridge(
+    iframeRef,
+    externalLinkBridgeCleanupRef,
+    srcDoc,
+    externalLinkBridgeNonce,
   );
 
   const postSlotContext = useCallback(() => {
@@ -624,12 +636,15 @@ export const AgentNativeExtensionFrame = forwardRef<
         ...style,
       }}
       onLoad={(event) => {
-        externalLinkBridgeCleanupRef.current =
-          connectExtensionExternalLinkBridge(
-            event.currentTarget,
-            window,
-            srcDoc,
-          );
+        if (srcDoc && externalLinkBridgeNonce) {
+          externalLinkBridgeCleanupRef.current =
+            connectExtensionExternalLinkBridge(
+              event.currentTarget,
+              window,
+              srcDoc,
+              externalLinkBridgeNonce,
+            );
+        }
         bridgeRef.current?.setTargetWindow(
           event.currentTarget.contentWindow ?? null,
         );
