@@ -9,7 +9,11 @@ import {
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
 
-import { resolveSourceCredentialWithProvenance } from "./source-credentials.js";
+import {
+  hasCredentialLookupError,
+  inspectSourceCredentialAvailability,
+  resolveSourceCredentialWithProvenance,
+} from "./source-credentials.js";
 
 export const BRAIN_APP_ID = "brain";
 export const BRAIN_PROVIDER_API_IDS = PROVIDER_API_IDS;
@@ -24,13 +28,41 @@ const resolveBrainCredential: ProviderApiCredentialResolver = async ({
   connectionId,
 }) => {
   const resolvedProvider = workspaceProvider ?? provider;
-  const credential = await resolveSourceCredentialWithProvenance({
+  const credentialContext =
+    resolvedProvider === "gong"
+      ? { ...ctx, credentialScope: "org" as const }
+      : ctx;
+  const credentialOptions = {
     provider: resolvedProvider,
     key,
-    ctx: resolvedProvider === "gong" ? { ...ctx, credentialScope: "org" } : ctx,
+    ctx: credentialContext,
     workspaceConnectionId: connectionId,
-  });
-  if (!credential) return null;
+  };
+  const isOptionalGongBaseUrl =
+    resolvedProvider === "gong" && key === "GONG_API_BASE";
+  if (isOptionalGongBaseUrl) {
+    const availability =
+      await inspectSourceCredentialAvailability(credentialOptions);
+    if (!availability.available) {
+      if (hasCredentialLookupError(availability)) {
+        throw new Error(
+          "Brain could not verify the organization Gong API base URL from its credential vault.",
+        );
+      }
+      return null;
+    }
+  }
+
+  const credential =
+    await resolveSourceCredentialWithProvenance(credentialOptions);
+  if (!credential) {
+    if (isOptionalGongBaseUrl) {
+      throw new Error(
+        "Brain could not verify the organization Gong API base URL from its credential vault.",
+      );
+    }
+    return null;
+  }
   const { provenance } = credential;
   return {
     key,

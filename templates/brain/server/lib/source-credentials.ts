@@ -76,6 +76,12 @@ export interface SourceCredentialAvailability {
   missingMessage: string | null;
 }
 
+export function hasCredentialLookupError(
+  availability: Pick<SourceCredentialAvailability, "checked">,
+) {
+  return availability.checked.some((check) => check.status === "error");
+}
+
 type SourceCredentialResolution = SourceCredentialAvailability & {
   value?: string;
 };

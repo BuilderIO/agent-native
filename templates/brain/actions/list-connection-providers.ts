@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  hasCredentialLookupError,
   inspectSourceCredentialAvailability,
   resolveSourceCredentialWithProvenance,
   type SourceCredentialAvailability,
@@ -217,11 +218,13 @@ async function providerApiBaseUrlErrorForProvider({
   }
 
   const baseUrlKey = providerApi.baseUrlCredentialKey;
-  if (
-    !credentialHealth.details.some(
-      (detail) => detail.key === baseUrlKey && detail.available,
-    )
-  ) {
+  const baseUrlAvailability = credentialHealth.details.find(
+    (detail) => detail.key === baseUrlKey,
+  );
+  if (!baseUrlAvailability?.available) {
+    if (baseUrlAvailability && hasCredentialLookupError(baseUrlAvailability)) {
+      return "Brain could not verify the organization Gong API base URL from its credential vault.";
+    }
     return null;
   }
 
@@ -233,7 +236,9 @@ async function providerApiBaseUrlErrorForProvider({
     key: baseUrlKey,
     ctx: { ...ctx, credentialScope: "org" },
   });
-  if (!credential?.value) return null;
+  if (!credential?.value) {
+    return "Brain could not verify the organization Gong API base URL from its credential vault.";
+  }
   if (isValidProviderApiBaseUrl(providerApi.id, credential.value)) return null;
 
   return "GONG_API_BASE must be an HTTPS URL on the api.gong.io host or a regional Gong API subdomain.";

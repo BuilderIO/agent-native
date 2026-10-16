@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   isBrainAdmin: true,
   providerId: "jira",
   credentialValues: new Map<string, string>(),
+  credentialLookupErrors: new Set<string>(),
   resolvedCredentialChecks: [] as Array<{
     provider: string;
     key: string;
@@ -184,6 +185,9 @@ vi.mock("../server/lib/zoom-governance.js", () => ({
 }));
 
 vi.mock("../server/lib/source-credentials.js", () => ({
+  hasCredentialLookupError: (availability: {
+    checked: Array<{ status: string }>;
+  }) => availability.checked.some((check) => check.status === "error"),
   resolveSourceCredentialWithProvenance: async ({
     provider,
     key,
@@ -223,7 +227,16 @@ vi.mock("../server/lib/source-credentials.js", () => ({
       key,
       available: mocks.availableKeys.has(key),
       provenance: null,
-      checked: [],
+      checked: mocks.credentialLookupErrors.has(key)
+        ? [
+            {
+              source: "registered_secret" as const,
+              key,
+              status: "error" as const,
+              message: "Vault lookup failed.",
+            },
+          ]
+        : [],
       missingMessage: `${key} is missing.`,
     };
   },
@@ -235,6 +248,7 @@ describe("list-connection-providers", () => {
   beforeEach(() => {
     mocks.availableKeys.clear();
     mocks.credentialValues.clear();
+    mocks.credentialLookupErrors.clear();
     mocks.resolvedCredentialChecks = [];
     mocks.credentialChecks = [];
     mocks.isBrainAdmin = true;
@@ -464,6 +478,27 @@ describe("list-connection-providers", () => {
       expect(JSON.stringify(gong)).not.toContain(baseUrl);
     },
   );
+
+  it("does not report Gong ready when the optional organization base URL cannot be read", async () => {
+    mocks.isBrainAdmin = false;
+    mocks.availableKeys.add("GONG_ACCESS_KEY");
+    mocks.availableKeys.add("GONG_ACCESS_SECRET");
+    mocks.credentialLookupErrors.add("GONG_API_BASE");
+
+    const result = await action.run({});
+    const gong = result.providers.find((provider) => provider.id === "gong");
+
+    expect(gong).toMatchObject({
+      configured: false,
+      providerHealth: {
+        status: "unhealthy",
+        message:
+          "Brain could not verify the organization Gong API base URL from its credential vault.",
+      },
+    });
+    expect(gong?.credentialHealth.missingCredentialKeys).toEqual([]);
+    expect(mocks.resolvedCredentialChecks).toEqual([]);
+  });
 
   it("reports missing Gong organization API keys without requesting a personal seat", async () => {
     mocks.availableKeys.add("GONG_ACCESS_KEY");
