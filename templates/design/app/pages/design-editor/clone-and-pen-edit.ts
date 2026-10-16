@@ -802,8 +802,10 @@ function setRootLayerPosition(
 }
 
 function formatClonePosition(value: number, preserveFractional: boolean) {
+  // Six significant digits, as CSS serializes lengths: transform math leaves
+  // 108.9997 where the layer sits at 109.
   return preserveFractional
-    ? `${Number(value.toFixed(4))}px`
+    ? `${Number(Number(value.toFixed(4)).toPrecision(6))}px`
     : `${Math.round(value)}px`;
 }
 

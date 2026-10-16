@@ -133,6 +133,27 @@ describe("extractLayerPosition", () => {
     );
   });
 
+  it("writes a measured clone position the way CSS serializes it", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      ['<div style="position:absolute;left:0;top:0">Source</div>'],
+      {
+        positions: [
+          {
+            x: 40,
+            y: 108.99966,
+            space: "visual",
+            visualOffset: { x: 0, y: 0 },
+          },
+        ],
+      },
+    );
+
+    expect(
+      (parseFragment(result!.htmlFragments[0]!) as HTMLElement).style.top,
+    ).toBe("109px");
+  });
+
   it("clears an authored inset before positioning a clone", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
