@@ -12,7 +12,7 @@ import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
-import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
+import { listEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import { notImportedTranscript } from "./lib/imported-transcript.js";
 
 function nativeSegmentsJson(
@@ -207,7 +207,16 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     if (savedStatus === "ready") {
-      await finalizeEndedMeetingsForRecording(db, args.recordingId);
+      const endedMeetings = await listEndedMeetingsForRecording(
+        db,
+        args.recordingId,
+      );
+      if (endedMeetings.length) {
+        await dispatchPostFinalizeJob({
+          recordingId: args.recordingId,
+          kind: "meeting-finalize",
+        });
+      }
     }
 
     const [rec] = await db

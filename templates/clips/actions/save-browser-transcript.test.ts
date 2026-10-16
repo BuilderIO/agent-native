@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   insert: vi.fn(),
   track: vi.fn(),
   writeAppState: vi.fn(),
-  finalizeEndedMeetingsForRecording: vi.fn(),
+  listEndedMeetingsForRecording: vi.fn(async () => []),
 }));
 
 const mockDb = {
@@ -73,8 +73,8 @@ vi.mock("../server/lib/recordings.js", () => ({
 }));
 
 vi.mock("./lib/finalize-ended-meetings.js", () => ({
-  finalizeEndedMeetingsForRecording: (...args: unknown[]) =>
-    mocks.finalizeEndedMeetingsForRecording(...args),
+  listEndedMeetingsForRecording: (...args: unknown[]) =>
+    mocks.listEndedMeetingsForRecording(...args),
 }));
 
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
@@ -92,6 +92,7 @@ describe("save-browser-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.rows = [];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([]);
   });
 
   it("asserts editor access on the recording before mutating", async () => {
@@ -131,6 +132,32 @@ describe("save-browser-transcript", () => {
       }),
       { userId: "owner@example.com" },
     );
+  });
+
+  it("queues ended meeting notes after saving the transcript", async () => {
+    const values = insertValues();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [
+      [],
+      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "A saved transcript.",
+      source: "web-speech",
+    });
+
+    expect(result).toMatchObject({ status: "ready" });
+    expect(mocks.listEndedMeetingsForRecording).toHaveBeenCalled();
+    expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+    });
   });
 
   it("does not overwrite a pending cloud transcription with an empty native result", async () => {

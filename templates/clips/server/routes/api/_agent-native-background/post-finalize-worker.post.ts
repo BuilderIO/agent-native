@@ -18,6 +18,7 @@ import { z } from "zod";
 import exportToBrain from "../../../../actions/export-to-brain.js";
 import finalizeRecording from "../../../../actions/finalize-recording.js";
 import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable-video.js";
+import { finalizeEndedMeetingsForRecording } from "../../../../actions/lib/finalize-ended-meetings.js";
 import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
@@ -41,6 +42,7 @@ const bodySchema = z.object({
     "transcript",
     "brain-export",
     "loom-import",
+    "meeting-finalize",
   ]),
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
@@ -278,6 +280,11 @@ export default defineEventHandler(async (event: H3Event) => {
           uploadGenerationId: expectedGenerationId,
         });
         return { ok: true, kind, result };
+      }
+
+      if (kind === "meeting-finalize") {
+        await finalizeEndedMeetingsForRecording(getDb(), recordingId);
+        return { ok: true, recordingId, kind };
       }
 
       if (kind === "loom-import") {

@@ -7,6 +7,7 @@ const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
+const mockFinalizeEndedMeetingsForRecording = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
@@ -63,6 +64,11 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../../../../actions/finalize-recording.js", () => ({
   default: { run: (...args: unknown[]) => mockFinalizeRun(...args) },
+}));
+
+vi.mock("../../../../actions/lib/finalize-ended-meetings.js", () => ({
+  finalizeEndedMeetingsForRecording: (...args: unknown[]) =>
+    mockFinalizeEndedMeetingsForRecording(...args),
 }));
 
 vi.mock("../../../../actions/lib/ensure-seekable-video.js", () => ({
@@ -305,6 +311,66 @@ describe("post-finalize worker", () => {
       uploadAttemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     });
+  });
+
+  it("finalizes ended meetings for a ready recording in its owner context", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadAttemptId: null,
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockFinalizeEndedMeetingsForRecording.mockResolvedValue(undefined);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+    });
+
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
+    expect(mockFinalizeEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+    );
+  });
+
+  it("skips meeting finalization unless the recording is ready", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      skipped: true,
+      reason: "recording-processing",
+    });
+
+    expect(mockRunWithRequestContext).not.toHaveBeenCalled();
+    expect(mockFinalizeEndedMeetingsForRecording).not.toHaveBeenCalled();
   });
 
   it("passes captured attempt and generation identities to finalization", async () => {

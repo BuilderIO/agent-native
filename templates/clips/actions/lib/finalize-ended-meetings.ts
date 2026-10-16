@@ -3,12 +3,12 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { getDb, schema } from "../../server/db/index.js";
 import finalizeMeeting from "../finalize-meeting.js";
 
-export async function finalizeEndedMeetingsForRecording(
+export async function listEndedMeetingsForRecording(
   db: ReturnType<typeof getDb>,
   recordingId: string,
-): Promise<void> {
+): Promise<Array<{ id: string }>> {
   // guard:allow-unscoped — callers already authorize the recording, this reads meeting ids only, and finalizeMeeting checks editor access on each meeting before reading its body.
-  const meetings = await db
+  return db
     .select({ id: schema.meetings.id })
     .from(schema.meetings)
     .where(
@@ -19,6 +19,13 @@ export async function finalizeEndedMeetingsForRecording(
         eq(schema.meetings.summaryMd, ""),
       ),
     );
+}
+
+export async function finalizeEndedMeetingsForRecording(
+  db: ReturnType<typeof getDb>,
+  recordingId: string,
+): Promise<void> {
+  const meetings = await listEndedMeetingsForRecording(db, recordingId);
 
   await Promise.all(
     meetings.map(async (meeting) => {

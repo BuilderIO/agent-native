@@ -14,7 +14,8 @@ export type PostFinalizeJobKind =
   | "thumbnail"
   | "transcript"
   | "brain-export"
-  | "loom-import";
+  | "loom-import"
+  | "meeting-finalize";
 
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 

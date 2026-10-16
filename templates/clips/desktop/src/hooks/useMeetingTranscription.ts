@@ -259,14 +259,6 @@ export function useMeetingTranscription({
           );
           throw err;
         }
-        if (session.lines.length) {
-          const finalizePromise = callClipsAction("finalize-meeting", {
-            meetingId: session.meetingId,
-          }).catch((err) => {
-            console.warn("[clips-popover] finalize meeting failed:", err);
-          });
-          await finalizePromise;
-        }
         // Keep completed notes in Clips instead of interrupting the user by
         // opening a browser tab. On a normal stop the pill stays up and
         // switches to its finished banner off `meetings:transcription-stopped`;
