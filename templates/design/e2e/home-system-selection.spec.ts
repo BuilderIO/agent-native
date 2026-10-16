@@ -140,10 +140,15 @@ async function skipPromptToNewDesign(app: App, page: Page) {
   return designId;
 }
 
-async function configureHomeComposerLoopback(app: App, page: Page) {
-  app.allowFailure(
-    /generate-home-suggestions|status of 502/,
-    "the loopback model's canned reply isn't valid home-suggestions JSON, so generate-home-suggestions answers 502",
+async function configureHomeComposerLoopback(page: Page) {
+  // The loopback model's canned reply isn't valid home-suggestions JSON, so the
+  // real action answers 502. Suggestions read as unavailable instead.
+  await page.route(
+    "**/_agent-native/actions/generate-home-suggestions**",
+    (route) =>
+      route.fulfill({
+        json: { status: "unavailable", reason: "timeout", suggestions: [] },
+      }),
   );
   await page.context().addInitScript(() => {
     if (location.origin === "null") return;
@@ -162,11 +167,10 @@ async function configureHomeComposerLoopback(app: App, page: Page) {
 
 // fixme: needs a different environment: Its assertions pass. The loopback model's canned reply isn't valid home-suggestions JSON, so generate-home-suggestions
 test.fixme("home context actions wait for the organization draft scope", async ({
-  app,
   page,
 }) => {
   test.setTimeout(120_000);
-  await configureHomeComposerLoopback(app, page);
+  await configureHomeComposerLoopback(page);
   let releaseOrganization!: () => void;
   const organizationGate = new Promise<void>((resolve) => {
     releaseOrganization = resolve;
@@ -206,7 +210,7 @@ test("home composer persists a selected design system on a blank design", async 
   request,
 }) => {
   test.setTimeout(120_000);
-  await configureHomeComposerLoopback(app, page);
+  await configureHomeComposerLoopback(page);
   let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
   let designSystemId: string | undefined;
   const systemTitle = `E2E selected home system ${Date.now()}`;
@@ -255,7 +259,7 @@ test("home composer persists a cleared design system on a blank design", async (
   request,
 }) => {
   test.setTimeout(120_000);
-  await configureHomeComposerLoopback(app, page);
+  await configureHomeComposerLoopback(page);
   let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
   let designSystemId: string | undefined;
   const systemTitle = `E2E cleared home system ${Date.now()}`;
