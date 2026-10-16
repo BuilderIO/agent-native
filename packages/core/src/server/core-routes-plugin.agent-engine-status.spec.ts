@@ -113,6 +113,24 @@ describe("resolveAgentEngineStatusIdentity", () => {
       resolveAgentEngineStatusIdentity({} as never),
     ).resolves.toEqual({ userEmail: "alice@example.com", orgId: undefined });
   });
+
+  it("marks only a successfully resolved org-less identity as personal", async () => {
+    vi.mocked(getSession).mockResolvedValue({
+      email: "alice@example.com",
+    } as Awaited<ReturnType<typeof getSession>>);
+    vi.mocked(getOrgContext).mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+    } as Awaited<ReturnType<typeof getOrgContext>>);
+
+    await expect(
+      resolveAgentEngineStatusIdentity({} as never),
+    ).resolves.toEqual({
+      userEmail: "alice@example.com",
+      orgId: undefined,
+      orgScope: "personal",
+    });
+  });
 });
 
 describe("agent-engine/status route failure handling", () => {
@@ -125,6 +143,15 @@ describe("agent-engine/status route failure handling", () => {
     const body = handler.slice(0, handler.indexOf("${P}/track"));
 
     expect(body).toContain("setResponseStatus(event, 503)");
+    expect(body).toContain("memoizeAgentEngineStatus(");
+    expect(body).not.toContain("getForwardedRequestOrigin(event)");
+    expect(body).toContain(
+      "const directLoopbackRequest = isDirectLoopbackRequest(event)",
+    );
+    expect(body).toContain('`http://${getHeader(event, "host")}`');
+    expect(body).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(body).toContain("isDirectLoopbackRequest: directLoopbackRequest");
+    expect(body).toContain("orgScope,");
     expect(body).not.toContain("shareAgentEngineStatusLookup");
     expect(body).not.toMatch(
       /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,

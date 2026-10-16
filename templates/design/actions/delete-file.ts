@@ -432,6 +432,11 @@ export default defineAction({
         "Legacy frontend checkpoint to validate before a delete; the live pre-delete version is always captured in the delete transaction.",
       ),
   }),
+  // MCP evaluates approval against raw arguments before the action schema
+  // normalizes boolean strings, so use the same truthiness boundary here.
+  needsApproval: (args) =>
+    Boolean((args as unknown as Record<string, unknown>).allowLockedLayers),
+  allowPersistentApproval: false,
   run: async (
     { id, fileIds, allowLockedLayers, historyCheckpointId },
     context,

@@ -7,7 +7,6 @@ import {
   deleteAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -32,6 +31,7 @@ import {
   setBurnProgress,
   startBurn,
 } from "../server/lib/redaction-burn-progress.js";
+import { uploadRecordingMedia } from "../server/lib/upload-recording-media.js";
 import {
   isFfmpegAvailable,
   probeDurationMs,
@@ -225,7 +225,8 @@ export async function burnRedactionsFor(args: {
 
   timer.mark("verify");
   setBurnProgress(args.recordingId, 88);
-  const upload = await uploadFile({
+  const upload = await uploadRecordingMedia({
+    recordingId: args.recordingId,
     data: burned,
     filename: `${args.recordingId}.mp4`,
     mimeType: "video/mp4",
@@ -319,7 +320,10 @@ export async function burnRedactionsFor(args: {
   if (!updated.length) {
     if (upload.url !== previousVideoUrl) {
       try {
-        await deleteStoredMediaUrl(upload.url);
+        await deleteStoredMediaUrl(upload.url, {
+          storageMode: existing.storageMode,
+          recordingId: existing.id,
+        });
       } catch (err) {
         console.warn("[burn] could not delete the orphaned upload", {
           url: upload.url,
@@ -348,7 +352,10 @@ export async function burnRedactionsFor(args: {
   const failedDeletes: string[] = [];
   for (const url of stale) {
     try {
-      const deleted = await deleteStoredMediaUrl(url);
+      const deleted = await deleteStoredMediaUrl(url, {
+        storageMode: existing.storageMode,
+        recordingId: existing.id,
+      });
       if (!deleted) failedDeletes.push(url);
     } catch (err) {
       failedDeletes.push(url);

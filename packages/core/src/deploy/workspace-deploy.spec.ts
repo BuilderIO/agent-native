@@ -1011,6 +1011,55 @@ describe("workspace deploy", () => {
     }
   });
 
+  it("renders Tabler icons with varied accents for Community directory apps", async () => {
+    const appIds = [
+      "account-expert",
+      "account-tiering",
+      "call-follow-up-drafter",
+      "churn-early-warning",
+      "demo-clip-library",
+      "linkedin-icp-prospect-tracker",
+      "linkedin-signal-watch",
+      "outbound-in-your-voice",
+      "win-loss-memo",
+    ];
+    for (const appId of appIds) makeWorkspaceApp(tmpDir, appId);
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { rootPage: "directory" } } };\n',
+    );
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const directoryPage = fs.readFileSync(
+      path.join(tmpDir, "dist", "index.html"),
+      "utf-8",
+    );
+    const iconMarks = [
+      ...directoryPage.matchAll(
+        /<span class="app-card__mark"[^>]*>(.*?)<\/span>/gs,
+      ),
+    ];
+    expect(iconMarks).toHaveLength(appIds.length);
+    for (const [, mark] of iconMarks) expect(mark).toContain("<svg ");
+    for (const appId of appIds)
+      expect(directoryPage).toContain(`href="/${appId}/"`);
+    for (const accent of [
+      "AccentColor",
+      "LinkText",
+      "Mark",
+      "Highlight",
+      "ButtonText",
+    ]) {
+      expect(directoryPage).toContain(`--accent:${accent}`);
+    }
+  });
+
   it("routes the root Google OAuth callback without a Dispatch app", async () => {
     makeWorkspaceApp(tmpDir, "alpha", { displayName: "Zulu" });
     makeWorkspaceApp(tmpDir, "beta", { displayName: "Alpha" });

@@ -667,6 +667,10 @@ const messages: ToolkitAgentChatTranslation = {
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
   "errorMessages.requestTooLarge":
     "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
+  "errorMessages.capabilityUnavailable":
+    "지금은 메시지를 보낼 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  "errorMessages.capabilityUnsupported":
+    "이 앱은 저장된 프롬프트를 아직 안전하게 다시 시도할 수 없습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
   "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
   "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
   "errorMessages.runUnverified":
@@ -3056,6 +3060,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} 연결",
   "settingsSubAgents.close": "닫기",
   "observability.insights.rawTrace": "원시 트레이스 (모든 스팬과 입력/출력)",
+  "reportProblem.menuItem": "문제 신고",
+  "reportProblem.title_other":
+    "최근 {{count}}초 동안 앱이 한 작업을 첨부할까요?",
+  "reportProblem.noEvents": "아직 기록된 내용이 없습니다.",
+  "reportProblem.send": "에이전트에게 보내기",
+  "reportProblem.copy": "문제 보고서 복사",
+  "reportProblem.attaching": "첨부하는 중…",
+  "reportProblem.notAttached": "보고서가 첨부되지 않았습니다.",
+  "reportProblem.agentMessage":
+    "앱에 문제가 생겼습니다. 첨부된 문제 보고서를 바탕으로 무슨 일이 있었는지 설명해 주세요.",
 };
 
 export default messages;

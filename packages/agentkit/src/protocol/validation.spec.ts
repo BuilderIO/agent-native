@@ -350,12 +350,14 @@ describe("AgentKit protocol validation", () => {
         feedback: true,
         multiAgentActivity: true,
         widgets: true,
+        "x-agent-native-submission-deadlines": true,
         "x-host-preview": { version: 2 },
       }),
     ).toMatchObject({
       connectionRequests: true,
       feedback: true,
       widgets: true,
+      "x-agent-native-submission-deadlines": true,
     });
     expect(() => parseAgentCapabilities({ widgets: "yes" })).toThrow(
       AgentProtocolValidationError,

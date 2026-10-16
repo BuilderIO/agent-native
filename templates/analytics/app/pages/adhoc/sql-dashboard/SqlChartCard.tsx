@@ -1,5 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import {
@@ -59,8 +59,14 @@ import {
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
+import { usePersonalColumnWidths } from "@/lib/personal-column-widths";
+import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
+  dashboardCacheScope,
+} from "@/lib/prefetch-keys";
 import { cn } from "@/lib/utils";
 
+import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
@@ -164,6 +170,22 @@ export function SqlChartCard({
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
+  // While viewing, dragging a column edge sizes it for this person only. A
+  // table offers rename, reorder, and format whenever it gets onSaveColumns,
+  // so only edit mode passes it on.
+  const personalColumnWidths = usePersonalColumnWidths(
+    dashboardId,
+    panel.id,
+    panel.config?.columns,
+  );
+  const tableColumnProps = editable
+    ? { onSaveColumns }
+    : dashboardId && panel.chartType === "table"
+      ? {
+          columnWidths: personalColumnWidths.widths,
+          onColumnWidthChange: personalColumnWidths.setWidth,
+        }
+      : {};
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -175,11 +197,46 @@ export function SqlChartCard({
   const [copyTable, setCopyTable] = useState<(() => Promise<void>) | null>(
     null,
   );
-  const [shouldLoadData, setShouldLoadData] = useState(
+  const forcedVisible =
     eagerLoad ||
-      panel.chartType === "section" ||
-      panel.chartType === "extension",
-  );
+    panel.chartType === "section" ||
+    panel.chartType === "extension";
+  const visibilityKey = JSON.stringify([eagerLoad, panel.chartType, panel.id]);
+  const [visibility, setVisibility] = useState({
+    key: visibilityKey,
+    intersecting: false,
+  });
+  if (visibility.key !== visibilityKey) {
+    setVisibility({ key: visibilityKey, intersecting: false });
+  }
+  const visible =
+    forcedVisible ||
+    (visibility.key === visibilityKey && visibility.intersecting);
+  const { session, status } = useSession();
+  const accountScope =
+    status === "authenticated" && session !== null
+      ? dashboardCacheScope(session)
+      : DASHBOARD_SESSION_LOADING_SCOPE;
+  const queryKey = JSON.stringify([
+    accountScope,
+    visibilityKey,
+    dashboardId ?? null,
+    panel.id,
+    panel.source,
+    serializePanelSql(resolvedSql ?? panel.sql),
+  ]);
+  // Permission belongs to the uninterrupted current request, not a history
+  // of SQL strings. Reset before rendering the child so a returning key or a
+  // new account cannot start an offscreen scan with an old permission.
+  const [authorization, setAuthorization] = useState({
+    key: queryKey,
+    allowed: false,
+  });
+  if (authorization.key !== queryKey || (visible && !authorization.allowed)) {
+    setAuthorization({ key: queryKey, allowed: visible });
+  }
+  const shouldLoadData =
+    visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
@@ -208,9 +265,9 @@ export function SqlChartCard({
   }, [copyTable, t]);
 
   const handleRefresh = useCallback(() => {
-    setShouldLoadData(true);
+    setAuthorization({ key: queryKey, allowed: true });
     setRefreshToken((token) => token + 1);
-  }, []);
+  }, [queryKey]);
 
   const handleExportToGoogleSheets = useCallback(async () => {
     if (!dashboardId || panel.chartType !== "table") return;
@@ -285,27 +342,23 @@ export function SqlChartCard({
   );
 
   useEffect(() => {
-    if (eagerLoad) {
-      setShouldLoadData(true);
-      return;
-    }
-    if (panel.chartType === "section" || panel.chartType === "extension") {
-      setShouldLoadData(true);
-      return;
-    }
+    if (forcedVisible) return;
 
-    setShouldLoadData(false);
     const node = cardRef.current;
     if (!node || typeof IntersectionObserver === "undefined") {
-      setShouldLoadData(true);
+      setVisibility({ key: visibilityKey, intersecting: true });
       return;
     }
 
+    let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setShouldLoadData(true);
-          observer.disconnect();
+        const latest = entries[entries.length - 1];
+        if (active && latest) {
+          setVisibility({
+            key: visibilityKey,
+            intersecting: latest.isIntersecting,
+          });
         }
       },
       {
@@ -314,8 +367,11 @@ export function SqlChartCard({
       },
     );
     observer.observe(node);
-    return () => observer.disconnect();
-  }, [eagerLoad, panel.chartType, panel.id]);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [forcedVisible, visibilityKey]);
 
   useEffect(() => {
     setExportCsv(null);
@@ -804,6 +860,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            retainWhileOffscreen
             timeRange={timeRange}
             reportScreenshot={reportScreenshot}
             refreshToken={refreshToken}
@@ -811,7 +868,7 @@ export function SqlChartCard({
             dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
-            onSaveColumns={onSaveColumns}
+            {...tableColumnProps}
             extensionContext={extensionContext}
           />
         </CardContent>
@@ -832,7 +889,7 @@ export function SqlChartCard({
                 reportScreenshot={reportScreenshot}
                 refreshToken={refreshToken}
                 onRefreshRequested={handleRefresh}
-                onSaveColumns={onSaveColumns}
+                {...tableColumnProps}
                 dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />

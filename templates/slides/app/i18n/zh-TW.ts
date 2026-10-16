@@ -772,6 +772,8 @@ const messages = {
     generationFailed: "未建立投影片。請查看聊天中的詳細資訊，然後再試一次。",
     generationOutcomeUnresolved:
       "無法確認投影片是否已建立。請先檢查簡報，再重試。",
+    generationOutcomeUnresolvedWithSlides:
+      "我們無法確認投影片是否已建立完成。繼續之前，請檢查此處顯示的投影片。",
     partialGenerationFailed:
       "我們無法完成投影片製作。繼續之前，請查看已建立的投影片和原始需求。",
     originalPrompt: "你輸入的內容",
@@ -793,6 +795,8 @@ const messages = {
     keepEditing: "繼續編輯",
     leaveWithoutSaving: "不儲存並退出",
     editorMarkupNotSaved: "此編輯未儲存，因為它會在投影片中加入編輯器標記。",
+    historyStepConflict: "此歷程步驟與目前簡報衝突，因此已略過。",
+    historyStepFailed: "此歷程步驟無法套用，因此已略過。",
     textEditConflictNotSaved:
       "你的文字編輯未儲存，因為同一段文字同時在其他地方被變更。",
   },

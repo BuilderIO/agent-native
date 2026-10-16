@@ -817,6 +817,8 @@ const messages = {
       "No se crearon diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
     generationOutcomeUnresolved:
       "No pudimos confirmar si se crearon las diapositivas. Revisa la presentación antes de volver a intentarlo.",
+    generationOutcomeUnresolvedWithSlides:
+      "No pudimos confirmar que terminara la creación de las diapositivas. Revisa las diapositivas que aparecen aquí antes de continuar.",
     partialGenerationFailed:
       "No pudimos terminar de crear las diapositivas. Revisa las que ya están aquí y tu solicitud original antes de continuar.",
     originalPrompt: "Lo que pediste",
@@ -840,6 +842,10 @@ const messages = {
     leaveWithoutSaving: "Salir sin guardar",
     editorMarkupNotSaved:
       "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
+    historyStepConflict:
+      "Se omitió este paso del historial porque entra en conflicto con la presentación actual.",
+    historyStepFailed:
+      "Se omitió este paso del historial porque no se pudo aplicar.",
     textEditConflictNotSaved:
       "Tu edición de texto no se guardó porque el mismo texto se cambió en otro lugar al mismo tiempo.",
   },

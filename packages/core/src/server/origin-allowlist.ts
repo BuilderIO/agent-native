@@ -77,9 +77,16 @@ export function firstOriginFromEnv(
   return undefined;
 }
 
-export function getConfiguredOriginAllowlist(): Set<string> {
+// Netlify fills these with its own hostnames. A site served through a proxy
+// (Builder Cloud) is never browsed at them, so they do not declare where the app lives.
+const PLATFORM_ORIGIN_ENV_KEYS = new Set(["URL", "DEPLOY_URL"]);
+
+function collectConfiguredOrigins(options: {
+  includePlatform: boolean;
+}): Set<string> {
   const out = new Set<string>();
   for (const key of EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS) {
+    if (!options.includePlatform && PLATFORM_ORIGIN_ENV_KEYS.has(key)) continue;
     addNormalizedOrigin(out, process.env[key], { allowLoopback: true });
   }
   for (const origin of (
@@ -91,6 +98,15 @@ export function getConfiguredOriginAllowlist(): Set<string> {
     addNormalizedOrigin(out, process.env[key], { allowLoopback: false });
   }
   return out;
+}
+
+export function getConfiguredOriginAllowlist(): Set<string> {
+  return collectConfiguredOrigins({ includePlatform: true });
+}
+
+/** The allowlist minus platform-assigned origins, in declaration order. */
+export function getAppDeclaredOrigins(): string[] {
+  return [...collectConfiguredOrigins({ includePlatform: false })];
 }
 
 export function requestForwardedOrigin(

@@ -664,6 +664,10 @@ const messages: ToolkitAgentChatTranslation = {
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
   "errorMessages.requestTooLarge":
     "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
+  "errorMessages.capabilityUnavailable":
+    "हम अभी आपका संदेश नहीं भेज सके। कृपया थोड़ी देर बाद फिर कोशिश करें।",
+  "errorMessages.capabilityUnsupported":
+    "यह ऐप अभी आपके सहेजे गए संदेश को सुरक्षित रूप से दोबारा नहीं भेज सकता। ऐप अपडेट करें और फिर कोशिश करें।",
   "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
   "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
   "errorMessages.runUnverified":
@@ -3040,6 +3044,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} कनेक्ट करें",
   "settingsSubAgents.close": "बंद करें",
   "observability.insights.rawTrace": "रॉ ट्रेस (हर स्पैन, इनपुट और आउटपुट के साथ)",
+  "reportProblem.menuItem": "समस्या की रिपोर्ट करें",
+  "reportProblem.title_one":
+    "पिछले {{count}} सेकंड में ऐप ने जो किया, क्या उसे संलग्न करें?",
+  "reportProblem.title_other":
+    "पिछले {{count}} सेकंड में ऐप ने जो किया, क्या उसे संलग्न करें?",
+  "reportProblem.noEvents": "अभी तक कुछ रिकॉर्ड नहीं हुआ।",
+  "reportProblem.send": "एजेंट को भेजें",
+  "reportProblem.copy": "समस्या रिपोर्ट कॉपी करें",
+  "reportProblem.attaching": "संलग्न किया जा रहा है…",
+  "reportProblem.notAttached": "रिपोर्ट संलग्न नहीं हुई।",
+  "reportProblem.agentMessage":
+    "ऐप में कुछ गड़बड़ हो गई। संलग्न समस्या रिपोर्ट से बताइए कि क्या हुआ।",
 };
 
 export default messages;

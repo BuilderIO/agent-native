@@ -259,16 +259,18 @@ export default function ImportRoute() {
     ],
   );
 
-  const markStorageConfigured = useCallback(() => {
-    queryClient.setQueryData<VideoStorageStatus>(
-      VIDEO_STORAGE_STATUS_KEY,
-      (prev) => ({
-        configured: true,
-        activeProvider: prev?.activeProvider ?? null,
-        builderConfigured: prev?.builderConfigured ?? false,
-      }),
-    );
-  }, [queryClient]);
+  const markStorageConfigured = useCallback(
+    (status?: VideoStorageStatus) => {
+      if (status) {
+        queryClient.setQueryData(VIDEO_STORAGE_STATUS_KEY, status);
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
+        });
+      }
+    },
+    [queryClient],
+  );
 
   return (
     <div className="relative min-h-screen bg-background">

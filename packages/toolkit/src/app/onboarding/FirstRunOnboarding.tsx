@@ -92,7 +92,10 @@ function firstRunStepProperties(
   extensionPlacement: FirstRunExtensionPlacement,
   extensionIndex: number,
   extensionStepIndex: number,
+  setupSkippable: boolean,
 ): Record<string, unknown> {
+  // `optional` must match whether the screen offers a skip: Analytics funnels
+  // read it to keep a skip from counting as drop-off.
   const beforeStepCount = beforeSetupExtensions.reduce(
     (count, extension) => count + (extension.stepCount ?? 1),
     0,
@@ -114,6 +117,7 @@ function firstRunStepProperties(
       flow: "first_run",
       step_id: `extension:${extension?.id ?? "unknown"}:${extensionStepIndex + 1}`,
       step_index: stepIndex,
+      optional: extension?.optional === true,
       ...(extension ? { extension_id: extension.id } : {}),
     };
   }
@@ -127,6 +131,7 @@ function firstRunStepProperties(
     flow: "first_run",
     step_id: screen,
     step_index: stepIndex,
+    optional: screen === "role" || (screen === "choice" && setupSkippable),
   };
 }
 
@@ -186,6 +191,7 @@ export function FirstRunOnboarding({
     initialFirstRun && screen === "role" && (loading || error != null);
   const canTrackOnboardingScreen =
     (!loading && profile !== null) || canRenderRoleWithoutProfile;
+  const setupSkippable = profile?.appId === "clips";
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -234,6 +240,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionIndex,
       extensionStepIndex,
+      setupSkippable,
     ).step_index ?? 0,
   );
   const progressWidth = `${Math.min(
@@ -261,6 +268,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           stepExtensionIndex,
           stepIndex,
+          setupSkippable,
         ),
       );
     },
@@ -271,6 +279,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionStepIndex,
       previewMode,
+      setupSkippable,
     ],
   );
   const trackFirstRunStepSkipped = useCallback(
@@ -289,6 +298,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           stepExtensionIndex,
           stepIndex,
+          setupSkippable,
         ),
         reason,
       });
@@ -300,6 +310,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionStepIndex,
       previewMode,
+      setupSkippable,
     ],
   );
   const completionAttemptRef = useRef<{
@@ -394,6 +405,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionIndex,
       extensionStepIndex,
+      setupSkippable,
     );
     const key = [step.step_id, step.extension_id, step.step_index].join(":");
     if (stepViewRef.current?.key !== key) {
@@ -403,6 +415,9 @@ export function FirstRunOnboarding({
       ...step,
       step_view_id: stepViewRef.current.id,
     });
+    // setupSkippable changes only when the profile loads; re-running here
+    // would send this screen's view again. A screen change re-reads it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     afterSetupExtensions,
     beforeSetupExtensions,
@@ -433,6 +448,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           extensionIndex,
           extensionStepIndex,
+          setupSkippable,
         ),
         reason: "page_exit",
       });
@@ -449,6 +465,7 @@ export function FirstRunOnboarding({
     previewMode,
     canTrackOnboardingScreen,
     screen,
+    setupSkippable,
   ]);
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
@@ -869,7 +886,7 @@ export function FirstRunOnboarding({
                 </button>
               </section>
             </div>
-            {profile.appId === "clips" && (
+            {setupSkippable && (
               <div className="flex justify-center">
                 <button
                   type="button"

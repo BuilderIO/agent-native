@@ -12,17 +12,17 @@ Dashboards are the canonical SQL-backed Analytics resources. New dashboards, sav
 
 Current storage:
 
-| Table              | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `dashboards`       | Explorer and SQL dashboard records           |
-| `dashboard_folders` | Personal and shared SQL dashboard folders  |
-| `dashboard_views`  | Saved filter presets per dashboard           |
-| `dashboard_shares` | Standard framework share grants              |
-| `dashboard_folder_shares` | Standard folder share grants          |
-| `dashboard_revisions` | Bounded dashboard history snapshots       |
-| `analyses`         | Saved ad-hoc analysis records                |
-| `analysis_revisions` | Bounded analysis history snapshots        |
-| `analysis_shares`  | Standard framework share grants for analyses |
+| Table                     | Purpose                                      |
+| ------------------------- | -------------------------------------------- |
+| `dashboards`              | Explorer and SQL dashboard records           |
+| `dashboard_folders`       | Personal and shared SQL dashboard folders    |
+| `dashboard_views`         | Saved filter presets per dashboard           |
+| `dashboard_shares`        | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants                 |
+| `dashboard_revisions`     | Bounded dashboard history snapshots          |
+| `analyses`                | Saved ad-hoc analysis records                |
+| `analysis_revisions`      | Bounded analysis history snapshots           |
+| `analysis_shares`         | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
@@ -59,8 +59,33 @@ Every meaningful dashboard save snapshots the previous state into
 points and `restore-dashboard-revision` to restore one; restore snapshots the
 current state first, then syncs open dashboard editors.
 
+Each revision's `changes` names what the save that left it behind changed
+(`panel-added`, `column-resized`, `filter-changed`, `version-restored`, and so
+on), so restoring it undoes that change and every later one. To answer "undo
+the column I widened", pick the revision whose `changes` match instead of
+guessing from times. `changesStatus` is `absent` for revisions saved before
+changes were recorded and `unreadable` when the stored list is corrupt; say you
+can't tell what those changed rather than treating them as empty.
+
+On the page, an editor's own saves show a toast that names the change its Undo
+takes back, says "Saved for everyone" (org or public visibility; "Saved" when
+private), and counts the others who have the dashboard open. That Undo
+restores the revision its save left (a full-config `update-dashboard` save
+returns it as `revisionId`), but only while the dashboard is as that save left
+it: once someone else has saved, it fails rather than taking their change back.
+For "undo my last change" in chat, restore the newest revision from
+`list-dashboard-revisions`. The History panel shows each revision's first
+change with "+N more".
+
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
+
+Dashboards open in View mode. An editor switches the header toggle to Edit
+before drags, renames, and column edits on the page save for everyone; the chat
+context reports the current mode. A table column width dragged in View mode is
+stored only in that person's browser, so "widen this column for me" is a drag
+in View mode, not a dashboard change. `config.columns[].width` is the shared
+width everyone sees; set it only when asked to change the dashboard itself.
 
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
@@ -123,7 +148,7 @@ those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
 reference or literal date bound — not just the final `SELECT` or one sibling
 CTE. A CTE that computes something like "this user's first-ever active day"
 by scanning `analytics_events` with no bound at all will full-table-scan on
-every render even though the panel *looks* time-bound overall (root cause of
+every render even though the panel _looks_ time-bound overall (root cause of
 a 2026-07-25 production incident: several dashboards had exactly this shape).
 Server validation checks each top-level CTE independently now, so this fails
 at save time — but write it right the first time: bound every CTE, or use
@@ -209,23 +234,69 @@ flattens into the baseline and reads as "no data."
 - Scheduled email reports render the same two scales, so a dual-axis panel is
   safe to put on a subscribed dashboard.
 
+## Key-Date Event Markers
+
+Mark a launch, release, or incident on a `line`, `area`, `bar`, or `combo`
+chart with a date x-axis using `config.events`. Do not add a fake series or an
+extension for this.
+
+```json
+"config": {
+  "events": [
+    { "date": "2026-10-14", "time": "00:01", "timeZone": "America/Los_Angeles", "label": "Product Hunt live" },
+    { "date": "2026-10-14", "time": "12:00", "timeZone": "America/New_York", "label": "Launch posts on X, LinkedIn" }
+  ]
+}
+```
+
+- Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  multiple are allowed. `date` is the calendar date in the event's own zone.
+  Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
+  zone and needs a `time`. Without a zone, the time is UTC.
+- A badge sits on the x-axis at the date with a faint dashed guide line.
+  Hovering the badge lists every event on that day with its time, shown in the
+  event's own zone ("12:01 AM PT"). It adds no legend entry and does not change
+  the series tooltip.
+- Events on the same day share one badge; on an hourly axis each timed event
+  sits in its own hour, and an event without a time sits on the first hour
+  shown for its date.
+- On a daily or coarser axis, a date missing from the data snaps to the nearest
+  x value. On an hourly axis, an event without a time whose date has no hours
+  shown is hidden. A date outside the visible range is hidden; a non-date
+  x-axis shows nothing.
+- `mutate-dashboard` rejects malformed events and other chart types.
+- Scheduled email reports draw the guide line, badge, and label text, including
+  on combo charts. Labels sit in rows above the plot: same-day labels join, a
+  long one wraps at words, and days that find no room are counted, not cut.
+
 ## Reusable Native Dashboard Patterns
 
 The recent extension-backed dashboards in Builder Analytics cluster into a few
 repeatable compositions. Prefer these native panels, with a real SQL or Data
 Program result behind each one, when creating a replacement or a new dashboard:
 
-| Pattern | Native composition |
-| --- | --- |
-| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
-| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
-| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
-| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+| Pattern                          | Native composition                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative            |
+| Account engagement / outreach    | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts                  |
+| GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
+| Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous
 stage. Keep the intended stage order in SQL with `ORDER BY`.
+
+When people can skip a stage or go around it (onboarding, setup flows), add
+`config.funnelOutcomes` so a skip never reads as drop-off. It names result
+columns of per-stage people counts, not shares: `completedKey` and `leftKey`
+are required, `skippedKey` is optional, and `optionalKey` names a boolean
+column that tags a stage Optional. `yKey` stays the people shown the stage, and
+completed + skipped + left must not exceed it; the rest are "moved on without
+either". Each bar then splits into those outcomes and the stage leads with the
+share who left the app there. A missing column draws the usual warning; a
+stage whose counts are not numbers or add up to more than shown draws a plain
+bar, and the panel check reports it under `funnelOutcomes`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
@@ -382,9 +453,13 @@ Use conditional blocks for optional filters:
 
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
+To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people add presets themselves: checking two or more values that no preset matches offers Save as group at the bottom of the dropdown, which appends the same `presets` entry, so treat a preset you did not write as someone's saved choice and keep it unless asked.
+
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 
-**Reset filters** in the filter bar returns the dashboard to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, remove every `f_` param and `view`, or set the default view's params and `view=<id>`.
+**Reset filters** in the filter bar returns to the saved view that is open: the one named by `view`, which filter edits keep. With no view open, it returns to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that target, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, set the target view's params and `view=<id>`, or, when there is no target view, remove every `f_` param and `view`.
+
+Filter changes are personal: they live in the URL and in the user's own `dashboard-filters:<id>` pref, never in the dashboard. While a filter differs from the Reset target, the bar says "Only you see these filters", and people who can edit the dashboard get Save view on hover. To share filters, save a view (shared with everyone who can open the dashboard) or send the link. The pref also remembers the open `view`, so a dashboard with no default view reopens on it, as long as that view still exists. A default view still wins over the pref on a fresh load.
 
 ## Modifying A Dashboard
 

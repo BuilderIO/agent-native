@@ -464,8 +464,7 @@ test.describe("interaction: layers panel", () => {
     expect(await app.designRect("loose")).toEqual(LOOSE_CARD);
   });
 
-  // fixme: product bug: Board-to-screen move through Layers ignores the screen's canvas offset: with Home at 100,50, board-a (board 300,450) is saved at left
-  test.fixme("dragging a board-object row onto a screen's file row moves it into the screen (board -> in)", async ({
+  test("dragging a board-object row onto a screen's file row moves it into the screen (board -> in)", async ({
     app,
   }) => {
     const page = app.page;

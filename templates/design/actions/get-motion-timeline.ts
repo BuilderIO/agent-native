@@ -1051,16 +1051,26 @@ export default defineAction({
         { errorCode: "motion_local_source_screen_not_found", statusCode: 422 },
       );
     }
-    const localSourceLocation =
-      useLocalSource && managedSourceRef
-        ? await resolveManagedReactLocation({
-            designId,
-            designData: design.data,
-            sourceRef: managedSourceRef,
-            expectedFilePath: timelines[0]?.filePath,
-            previewModulePath,
-          })
-        : null;
+    let localSourceLocation: ReturnType<
+      typeof resolveMotionLocalSourceLocation
+    > | null = null;
+    if (useLocalSource && managedSourceRef) {
+      try {
+        localSourceLocation = await resolveManagedReactLocation({
+          designId,
+          designData: design.data,
+          sourceRef: managedSourceRef,
+          expectedFilePath: timelines[0]?.filePath,
+          previewModulePath,
+        });
+      } catch (error) {
+        const capability = passiveRead
+          ? passiveMotionSourceReadCapability(error, managedSourceRef)
+          : null;
+        if (!capability) throw error;
+        sourceReadCapability = capability;
+      }
+    }
     const isLocalHtmlSource = Boolean(
       localSourceLocation && /\.html?$/i.test(localSourceLocation.filePath),
     );
@@ -1207,16 +1217,19 @@ export default defineAction({
         ? null
         : localSourceRead.kind === "unsupported"
           ? null
-          : localSourceResult
-            ? managedLocalCss
-            : inlineSourceRead?.kind === "unsupported"
-              ? null
-              : inlineSourceRead?.kind === "readable"
-                ? inlineSourceRead.managedCss
-                : await readManagedCssForSource({
-                    designId,
-                    sourceRef: managedSourceRef ?? undefined,
-                  });
+          : useLocalSource &&
+              sourceReadCapability?.sourceRef === managedSourceRef
+            ? null
+            : localSourceResult
+              ? managedLocalCss
+              : inlineSourceRead?.kind === "unsupported"
+                ? null
+                : inlineSourceRead?.kind === "readable"
+                  ? inlineSourceRead.managedCss
+                  : await readManagedCssForSource({
+                      designId,
+                      sourceRef: managedSourceRef ?? undefined,
+                    });
 
     if (managedCss) {
       const [first] = timelines;

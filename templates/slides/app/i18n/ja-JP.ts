@@ -801,6 +801,8 @@ const messages = {
       "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     generationOutcomeUnresolved:
       "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    generationOutcomeUnresolvedWithSlides:
+      "スライドの作成が完了したか確認できませんでした。続行する前に、ここに表示されているスライドを確認してください。",
     partialGenerationFailed:
       "スライドを最後まで作成できませんでした。続ける前に、作成済みのスライドと最初のリクエストを確認してください。",
     originalPrompt: "入力した内容",
@@ -823,6 +825,10 @@ const messages = {
     leaveWithoutSaving: "保存せずに終了",
     editorMarkupNotSaved:
       "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    historyStepConflict:
+      "現在のプレゼンテーションと競合するため、この履歴ステップはスキップされました。",
+    historyStepFailed:
+      "この履歴操作は適用できなかったため、スキップされました。",
     textEditConflictNotSaved:
       "同じテキストが同時に別の場所で変更されたため、テキストの編集は保存されませんでした。",
   },

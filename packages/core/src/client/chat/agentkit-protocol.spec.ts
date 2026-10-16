@@ -3788,6 +3788,87 @@ describe("createAgentKitProtocolAdapter", () => {
     ).rejects.toThrow("already terminal");
   });
 
+  it("retags open tool and activity records on approval continuation", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: { id: "tool-1", name: "publish", input: {} },
+      };
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    async function* completedEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+      }),
+      continueTurn: async () => ({
+        id: "turn-2",
+        runId: "runtime-run-2",
+        sessionId: "thread-1",
+        events: completedEvents(),
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish")],
+    });
+    await drain(transport.subscribeToRun({ threadId: "thread-1", runId }));
+
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("deny"),
+        }),
+      ],
+    });
+    const continuationEvents = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId: resumed!.runId }),
+    );
+
+    const completedTool = continuationEvents.find(
+      (event) => event.type === "tool.updated",
+    );
+    expect(completedTool).toMatchObject({
+      runId: resumed!.runId,
+      toolCall: { id: "tool-1", runId: resumed!.runId, status: "completed" },
+    });
+    const completedActivity = continuationEvents.find(
+      (event) => event.type === "activity.completed",
+    );
+    expect(completedActivity).toMatchObject({
+      runId: resumed!.runId,
+      activity: { id: "tool-1", runId: resumed!.runId, status: "completed" },
+    });
+    continuationEvents.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
+    await transport.dispose();
+  });
+
   it("reports an incomplete Core stream instead of claiming completion", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "status", message: "Working" };
