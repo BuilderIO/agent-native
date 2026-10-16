@@ -54,20 +54,25 @@ next_jobs: [bug-reports-with-console-logs, see-what-your-coding-agent-plans]
 recipes:
   - id: recap-pr
     title: "Recap a pull request before you review it"
-    when: "Your agent opened a pull request."
-    do: "Run the visual recap command on the pull request."
-    prompt: "/visual-recap [pull request link]"
-    you_get: "A walkthrough of the behavior that changed, the files it touched, and annotated code."
+    when: "Use this when your coding agent opens a pull request."
+    steps:
+      - "Ask your agent to run /visual-recap on the pull request."
+    prompt: "Use /visual-recap on this pull request: [link]"
+    result: "You'll get a walkthrough of the behavior that changed, the files it touched, and annotated code."
     how_often: "Every pull request"
   - id: share-recap
     title: "Share the recap with a reviewer"
-    when: "Someone else needs to review the change."
-    do: "Share the recap. People you share it with can open it in the browser without signing up."
-    you_get: "A reviewer who knows where to look first."
+    when: "Use this when someone else needs to review the change."
+    steps:
+      - "Share the recap link."
+    result: "People you share it with can open it in the browser without signing up, and they'll know where to look first."
     how_often: "Every pull request"
   - id: recap-every-pr
     title: "Recap every pull request automatically"
-    when: "You want a recap on every pull request without asking for one."
-    do: "Run npx @agent-native/core@latest skills add visual-plan --with-github-action, then npx @agent-native/recap-cli@latest recap setup. Commit the workflow and open a pull request."
-    you_get: "A comment on each pull request with a screenshot and a link to the recap. It's informational and never blocks merging."
+    when: "Use this when you want a recap on every pull request without asking for one."
+    steps:
+      - "Run npx @agent-native/core@latest skills add visual-plan --with-github-action."
+      - "Run npx @agent-native/recap-cli@latest recap setup."
+      - "Commit the workflow and open a pull request."
+    result: "Each pull request gets a comment with a screenshot and a link to the recap. It's informational and never blocks merging."
     how_often: "Every pull request"

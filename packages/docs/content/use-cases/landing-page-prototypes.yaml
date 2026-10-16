@@ -55,22 +55,28 @@ next_jobs: [design-brief-to-prototype, weekly-marketing-report]
 recipes:
   - id: launch-versions
     title: "Draft versions for a launch"
-    when: "A launch needs a page."
-    do: "Paste the offer, the audience, and the call to action, then ask for a few versions."
-    you_get: "Landing page prototypes side by side, in desktop and mobile frames."
-    save: "Link your design system once, so every launch page starts on brand."
+    when: "Use this when a launch needs a page."
+    steps:
+      - "Paste the offer, the audience, and the call to action into Design."
+      - "Ask for a few versions."
+    result: "You'll see landing page prototypes side by side, in desktop and mobile frames."
+    tip: "Link your design system once, so every launch page starts on brand."
     how_often: "Every launch"
   - id: review-on-page
     title: "Review the page, not a screenshot"
-    when: "You need sign-off."
-    do: "Share the design and have reviewers pin comments to the elements they're talking about."
-    you_get: "Feedback on the page itself, instead of a list of comments about spacing."
+    when: "Use this when you need sign-off."
+    steps:
+      - "Share the design."
+      - "Ask reviewers to pin comments to the elements they're talking about."
+    result: "Feedback lands on the page itself, instead of in a list of comments about spacing."
     how_often: "Every launch"
   - id: export-page
     title: "Export it for deployment"
-    when: "The page is approved."
-    do: "Export HTML or a ZIP of the files."
-    you_get: "Files to deploy. Publishing is still a separate step."
+    when: "Use this once the page is approved."
+    steps:
+      - "Export HTML or a ZIP of the files."
+      - "Deploy it with the tools you use today."
+    result: "You have files ready to deploy. Design doesn't publish pages for you."
     how_often: "Every launch"
 angles:
   - id: marketing

@@ -54,21 +54,25 @@ next_jobs: [understand-what-your-coding-agent-changed, spec-your-coding-agent-bu
 recipes:
   - id: install-once
     title: "Add the planning skills once"
-    when: "Before your first plan."
-    do: "Run npx @agent-native/core@latest skills add visual-plan in your project. It also registers the hosted Plans connector for your agent."
-    you_get: "Visual plans and recaps available in your agent."
-    save: "It stays installed, so every plan after this is one command."
+    when: "Do this before your first plan."
+    steps:
+      - "Run npx @agent-native/core@latest skills add visual-plan in your project."
+    result: "Visual plans and recaps are available in your coding agent, and the hosted Plans connector is registered."
+    tip: "It stays installed, so every plan after this is one command."
     how_often: "Once"
   - id: plan-a-feature
     title: "Ask for a visual plan before a feature"
-    when: "You're about to have your agent build something."
-    do: "Ask your agent for a visual plan of the feature."
-    prompt: "/visual-plan [describe the feature]"
-    you_get: "Diagrams, wireframes, and annotated code you can review before any code changes."
+    when: "Use this before your coding agent builds something."
+    steps:
+      - "Ask your agent to run /visual-plan with a short description of the feature."
+    prompt: "Use /visual-plan before building [describe the feature]."
+    result: "You'll get diagrams, wireframes, and annotated code to review before any code changes."
     how_often: "Every feature"
   - id: send-feedback
     title: "Send your feedback back to the agent"
-    when: "Something in the plan is wrong."
-    do: "Comment on the text or pin feedback to a visual, then ask the agent to read the comments and revise the plan."
-    you_get: "A revised plan, with replies in the review threads."
+    when: "Use this when something in the plan is wrong."
+    steps:
+      - "Comment on the text, or pin feedback to a visual."
+      - "Ask your agent to read the comments and revise the plan."
+    result: "You get a revised plan, with replies in the review threads."
     how_often: "Every feature"

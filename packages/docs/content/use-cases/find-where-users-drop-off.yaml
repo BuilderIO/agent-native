@@ -36,23 +36,28 @@ next_jobs: [startup-kpi-dashboard, bug-reports-with-console-logs]
 recipes:
   - id: ask-where
     title: "Ask where new users stop"
-    when: "You want to know where people stop between signing up and real use."
-    do: "Ask in plain English, naming the step that matters in your product."
+    when: "Use this when you want to know where people stop between signing up and real use."
+    steps:
+      - "Connect your product data in Analytics."
+      - "Ask in plain English, naming the step that matters in your product."
     prompt: "Of last week's signups, how many reached [key action], and where did the rest stop?"
-    you_get: "An answer built from SQL the agent writes against your data."
-    save: "Add it to a dashboard so you can check it every week."
+    result: "You get an answer built from SQL the agent writes against your data."
+    tip: "Add it to a dashboard so you can check it every week."
     how_often: "Weekly"
   - id: watch-sessions
     title: "Watch what happened"
-    when: "A step loses more people than you expected."
-    do: "Open session replays from new users around that step."
-    you_get: "What people saw and did, with inputs masked by default."
+    when: "Use this when a step loses more people than you expected."
+    steps:
+      - "Open session replays from new users around that step."
+    result: "You see what people saw and did, with inputs masked by default."
     how_often: "Weekly"
   - id: hand-replay-to-agent
     title: "Hand a replay to your coding agent"
-    when: "A replay shows a bug."
-    do: "Click Copy for agent on the replay, and paste the link into your coding agent."
-    you_get: "A link that gives the agent read-only, redacted diagnostics for two hours."
+    when: "Use this when a replay shows a bug."
+    steps:
+      - "Click Copy for agent on the replay."
+      - "Paste the link into your coding agent."
+    result: "Your agent gets read-only, redacted diagnostics for two hours."
     how_often: "When you find a bug"
 story: null
 faqs:

@@ -35,24 +35,28 @@ next_jobs: [startup-kpi-dashboard, find-where-users-drop-off]
 recipes:
   - id: first-question
     title: "Ask your first question"
-    when: "Someone asks a question you'd normally send to the data team."
-    do: "Connect PostgreSQL, then ask in plain English."
+    when: "Use this when someone asks a question you'd normally send to the data team."
+    steps:
+      - "Connect PostgreSQL in Analytics with its connection URL."
+      - "Ask in plain English."
     prompt: "How many accounts signed up last week, by plan?"
-    you_get: "An answer built from SQL the agent writes against your tables."
-    save: "Add your metrics and tables to the data dictionary, so the agent uses the right column names next time."
+    result: "You get an answer built from SQL the agent writes against your tables."
+    tip: "Add your metrics and tables to the data dictionary, so the agent uses the right column names."
     how_often: "Weekly"
   - id: build-dashboard
     title: "Turn repeat questions into a dashboard"
-    when: "You keep answering the same question."
-    do: "Ask the agent to build a dashboard."
+    when: "Use this when you keep answering the same question."
+    steps:
+      - "Ask the agent to build a dashboard."
     prompt: "Build a dashboard for weekly signups by plan"
-    you_get: "A dashboard with filters and saved views that you can share as a viewer, editor, or admin."
+    result: "You get a dashboard with filters and saved views that you can share as a viewer, editor, or admin."
     how_often: "Weekly"
   - id: daily-email
     title: "Get the dashboard by email"
-    when: "You want the numbers without opening the app."
-    do: "Subscribe the dashboard to a daily email snapshot."
-    you_get: "A daily email with the dashboard's charts as images and its tables and metrics as real email content."
+    when: "Use this when you want the numbers without opening the app."
+    steps:
+      - "Subscribe the dashboard to a daily email snapshot."
+    result: "Each day you get an email with the dashboard's charts as images, and its tables and metrics as real email content."
     how_often: "Daily"
 story: null
 faqs:

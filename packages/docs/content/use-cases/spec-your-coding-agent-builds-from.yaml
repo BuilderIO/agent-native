@@ -36,22 +36,28 @@ next_jobs: [see-what-your-coding-agent-plans, wireframe-before-agent-builds]
 recipes:
   - id: write-spec
     title: "Write a spec your agent can read"
-    when: "You're about to hand a feature to your agent."
-    do: "Write the spec as a Content page, then point your connected agent at it."
-    you_get: "An agent working from the current spec instead of an old paste."
-    save: "The MCP connection stays in place for every spec after this."
+    when: "Use this when you're about to hand a feature to your coding agent."
+    steps:
+      - "Write the spec as a Content page."
+      - "Connect your coding agent to Content through MCP."
+      - "Point your agent at the page."
+    result: "Your agent works from the current spec instead of an old paste."
+    tip: "The MCP connection stays in place for every spec after this."
     how_often: "Every feature"
   - id: page-instructions
     title: "Tell the agent how to use the page"
-    when: "You want the agent to follow your conventions."
-    do: "Add page instructions, like which sections are decided and which are still open."
-    you_get: "An agent that knows what to treat as settled."
+    when: "Use this when you want the agent to follow your conventions."
+    steps:
+      - "Add page instructions, like which sections are decided and which are still open."
+    result: "The agent knows what to treat as settled."
     how_often: "Every feature"
   - id: track-requests
     title: "Track the work in a database"
-    when: "Requests are piling up in chat."
-    do: "Set up a database with field instructions, so the agent can ask for missing details."
-    you_get: "Requests with the information you need, in one place."
+    when: "Use this when requests are piling up in chat."
+    steps:
+      - "Set up a database in Content."
+      - "Add field instructions, so the agent can ask for missing details."
+    result: "Requests arrive with the information you need, in one place."
     how_often: "Ongoing"
 story: null
 faqs:

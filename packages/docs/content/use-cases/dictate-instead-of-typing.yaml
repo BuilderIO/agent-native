@@ -58,20 +58,27 @@ next_jobs: [see-what-your-coding-agent-plans, bug-reports-with-console-logs]
 recipes:
   - id: dictate-prompt
     title: "Dictate a prompt to your coding agent"
-    when: "You're about to type a long prompt."
-    do: "Click into your agent's prompt box, hold Fn, and say the context, the constraints, and what done looks like."
-    you_get: "The text lands where your cursor is, and the dictation is saved to your history."
-    save: "Add your product and library names to your personal vocabulary."
+    when: "Use this when you're about to type a long prompt."
+    steps:
+      - "Click into your agent's prompt box."
+      - "Hold Fn and say the context, the constraints, and what done looks like."
+      - "Release Fn."
+    result: "The text lands where your cursor is, and the dictation is saved to your history."
+    tip: "Add your product and library names to your personal vocabulary."
     how_often: "Daily"
   - id: dictate-ticket
     title: "Talk through a ticket or a reply"
-    when: "You need to write up an issue or answer a message."
-    do: "Hold Fn in the ticket or message field and talk it through."
-    you_get: "The written version, plus a cleaned-up copy in your dictation history."
+    when: "Use this when you need to write up an issue or answer a message."
+    steps:
+      - "Click into the ticket or message field."
+      - "Hold Fn and talk it through."
+    result: "You get the written version, plus a cleaned-up copy in your dictation history."
     how_often: "Daily"
   - id: find-dictation
     title: "Find something you said"
-    when: "You remember dictating it, but not where."
-    do: "Search your dictation history."
-    you_get: "The transcript and the cleaned-up text."
+    when: "Use this when you remember dictating something, but not where."
+    steps:
+      - "Open your dictation history."
+      - "Search for a word or phrase you remember."
+    result: "You'll find the transcript and the cleaned-up text."
     how_often: "Weekly"

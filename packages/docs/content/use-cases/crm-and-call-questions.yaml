@@ -33,23 +33,29 @@ next_jobs: [ai-meeting-notes, startup-kpi-dashboard]
 recipes:
   - id: stuck-deals
     title: "Find stuck deals before pipeline review"
-    when: "Pipeline review is this week."
-    do: "Connect HubSpot and ask which open deals haven't moved."
+    when: "Use this the week of pipeline review."
+    steps:
+      - "Connect HubSpot in Analytics."
+      - "Ask which open deals haven't moved."
     prompt: "Which open deals haven't changed stage in the last 30 days?"
-    you_get: "A list of deals to talk about."
-    save: "Your HubSpot connection stays in place for next week's review."
+    result: "You get a list of deals to talk about."
+    tip: "Save the question to a dashboard, so it's ready for next week's review."
     how_often: "Weekly"
   - id: pipeline-dashboard
     title: "Save a weekly pipeline dashboard"
-    when: "You're asking the same questions every week."
-    do: "Save the answers as a dashboard and share it with the team."
-    you_get: "One place everyone checks before the review."
+    when: "Use this when you're asking the same questions every week."
+    steps:
+      - "Save the answers as a dashboard."
+      - "Share it with the team."
+    result: "Everyone checks one place before the review."
     how_often: "Weekly"
   - id: add-calls
     title: "Bring call data into the question"
-    when: "You want to know what was said, not just what moved."
-    do: "Connect Gong as a data source, then ask questions that use both sources."
-    you_get: "Answers that combine deal data and call data."
+    when: "Use this when you want to know what was said, not just what moved."
+    steps:
+      - "Connect Gong as a data source in Analytics."
+      - "Ask your question in plain English."
+    result: "You get answers that draw on your Gong call data."
     how_often: "Weekly"
 story: null
 faqs:

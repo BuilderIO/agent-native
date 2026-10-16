@@ -33,23 +33,29 @@ next_jobs: [landing-page-prototypes, startup-kpi-dashboard]
 recipes:
   - id: how-was-the-week
     title: "Ask how the week went"
-    when: "Monday morning."
-    do: "Connect Google Analytics and HubSpot, then ask."
+    when: "Use this on Monday morning."
+    steps:
+      - "Connect Google Analytics and HubSpot in Analytics."
+      - "Ask how the week went."
     prompt: "How did signups from organic search change this week compared with last week?"
-    you_get: "An answer built from SQL the agent writes against your data."
-    save: "Your connections stay in place for next week."
+    result: "You get an answer built from SQL the agent writes against your data."
+    tip: "Save it to a dashboard, so it's ready next Monday."
     how_often: "Weekly"
   - id: marketing-dashboard
     title: "Save the report as a dashboard"
-    when: "You've answered the same questions twice."
-    do: "Save the answers as a dashboard and share it."
-    you_get: "A report that updates instead of one you rebuild."
+    when: "Use this when you've answered the same questions twice."
+    steps:
+      - "Save the answers as a dashboard."
+      - "Share it, or subscribe it to a daily email snapshot."
+    result: "You have a report that updates, instead of one you rebuild."
     how_often: "Weekly"
   - id: add-search-data
     title: "Add search data"
-    when: "You want to see search demand next to your traffic."
-    do: "Connect DataForSEO as a data source and ask about the terms you care about."
-    you_get: "Search data alongside your own numbers."
+    when: "Use this when you want search demand next to your traffic."
+    steps:
+      - "Connect DataForSEO as a data source."
+      - "Ask about the search terms you care about."
+    result: "You see search data alongside your own numbers."
     how_often: "Monthly"
 story: null
 faqs:

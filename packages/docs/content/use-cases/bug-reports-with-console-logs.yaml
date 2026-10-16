@@ -58,21 +58,28 @@ next_jobs: [understand-what-your-coding-agent-changed, dictate-instead-of-typing
 recipes:
   - id: record-with-logs
     title: "Record a bug with its logs"
-    when: "You can reproduce the bug in the browser."
-    do: "Turn on the Clips Chrome extension, record the bug, and say what you expected as you go."
-    you_get: "One link with the video, the transcript, the console messages, and request details."
-    save: "Keep the extension pinned, so the next bug is one click."
+    when: "Use this when you can reproduce the bug in your browser."
+    steps:
+      - "Turn on the Clips Chrome extension."
+      - "Start recording and reproduce the bug, saying what you expected as you go."
+      - "Stop the recording."
+    result: "You'll have one link with the video, the transcript, the console messages, and request details."
+    tip: "Keep the extension pinned, so the next bug is one click."
     how_often: "Every bug"
   - id: hand-to-agent
     title: "Hand the recording to your coding agent"
-    when: "You want an agent to investigate."
-    do: "On the clip page, use Copy agent prompt, or open the clip in Claude, Claude Code, or Codex."
-    you_get: "Your agent gets the transcript and timestamped images through the link."
+    when: "Use this when you want your coding agent to investigate."
+    steps:
+      - "Open the clip page."
+      - "Use Copy agent prompt, or open the clip in Claude, Claude Code, or Codex."
+    result: "Your agent gets the transcript and timestamped images through the link."
     how_often: "Every bug"
   - id: find-old-bug
     title: "Find a bug you recorded before"
-    when: "A bug comes back."
-    do: "Search your library for what you said in the recording."
-    you_get: "The original recording and its transcript."
-    save: "Keep bug recordings in a folder or team space so your team can find them too."
+    when: "Use this when a bug comes back."
+    steps:
+      - "Search your library for something you said in the recording."
+      - "Open the clip to watch it again."
+    result: "You're back to the original recording and its transcript."
+    tip: "Keep bug recordings in a folder or team space, so your team can find them too."
     how_often: "When bugs repeat"

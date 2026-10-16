@@ -56,20 +56,26 @@ next_jobs: [landing-page-prototypes, wireframe-before-agent-builds]
 recipes:
   - id: brief-to-directions
     title: "Turn a brief into a few directions"
-    when: "You have a brief and nothing to click yet."
-    do: "Paste the brief and ask for a few directions."
-    you_get: "Interactive prototypes, side by side on the canvas."
-    save: "Link your design system once, and every new design starts on brand."
+    when: "Use this when you have a brief and nothing to click yet."
+    steps:
+      - "Paste the brief into Design."
+      - "Ask for a few directions."
+    result: "You'll see interactive prototypes side by side on the canvas."
+    tip: "Link your design system once, and every new design starts on brand."
     how_often: "Every project"
   - id: collect-feedback
     title: "Get feedback on the prototype itself"
-    when: "You want reactions before you commit."
-    do: "Share the design. Teammates pin comments to specific elements, and you send comments to the agent."
-    you_get: "Feedback tied to the exact element, and changes the agent can act on."
+    when: "Use this when you want reactions before you commit."
+    steps:
+      - "Share the design."
+      - "Have teammates pin comments to specific elements."
+      - "Send the comments to the agent."
+    result: "Feedback stays tied to the exact element, and the agent can act on it."
     how_often: "Every review"
   - id: hand-off
     title: "Hand off the direction you picked"
-    when: "The design is settled."
-    do: "Export HTML or a ZIP of the files, or prepare a handoff for a coding agent."
-    you_get: "A starting point for implementation, not a finished app."
+    when: "Use this once the design is settled."
+    steps:
+      - "Export HTML or a ZIP of the files, or prepare a handoff for a coding agent."
+    result: "You have a starting point for implementation. It isn't a finished app."
     how_often: "Every project"

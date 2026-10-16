@@ -62,25 +62,30 @@ next_jobs: [find-where-users-drop-off, startup-pitch-deck]
 recipes:
   - id: revenue-question
     title: "Ask about revenue"
-    when: "Someone asks how revenue is trending."
-    do: "Connect Stripe, then ask in plain English."
+    when: "Use this when someone asks how revenue is trending."
+    steps:
+      - "Connect Stripe in Analytics."
+      - "Ask your question in plain English."
     prompt: "What's our MRR this month, and how did it change from last month?"
-    you_get: "An answer built from SQL the agent writes against your data."
-    save: "Your Stripe connection stays in place for the next question."
+    result: "You get an answer built from SQL the agent writes against your data."
+    tip: "Add your metric definitions to the data dictionary, so the agent uses them every time."
     how_often: "Weekly"
   - id: why-it-moved
     title: "Ask why a metric moved"
-    when: "A number jumps or drops."
-    do: "Ask the agent why."
+    when: "Use this when a number jumps or drops."
+    steps:
+      - "Ask the agent why it changed."
     prompt: "Why did activation climb this week?"
-    you_get: "An answer you can check against the SQL and the metric definition."
+    result: "You get an answer you can check against your other sources before you share it."
     how_often: "When numbers move"
   - id: weekly-dashboard
     title: "Save a weekly dashboard"
-    when: "You keep asking the same questions."
-    do: "Save the answers as a dashboard with filters and saved views, and share it."
-    you_get: "One place the team checks every week."
-    save: "The dashboard keeps its filters and views."
+    when: "Use this when you keep asking the same questions."
+    steps:
+      - "Save the answers as a dashboard."
+      - "Share it with your team."
+    result: "You have one dashboard, with filters and saved views, that the team checks every week."
+    tip: "Subscribe it to a daily email snapshot if you'd rather get it in your inbox."
     how_often: "Weekly"
 angles:
   - id: finance

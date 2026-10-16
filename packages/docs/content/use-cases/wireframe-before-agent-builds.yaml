@@ -33,22 +33,27 @@ next_jobs: [see-what-your-coding-agent-plans, design-brief-to-prototype]
 recipes:
   - id: wireframe-screen
     title: "Ask for wireframes of a new screen"
-    when: "You're about to have your agent build a screen."
-    do: "Ask your agent for a visual plan of the screen."
-    prompt: "/visual-plan [describe the screen and who uses it]"
-    you_get: "Wireframes of the screen alongside the written plan."
+    when: "Use this before your coding agent builds a new screen."
+    steps:
+      - "Ask your agent to run /visual-plan for the screen."
+    prompt: "Use /visual-plan for [describe the screen and who uses it]."
+    result: "You'll see wireframes of the screen next to the written plan."
     how_often: "Every new screen"
   - id: comment-wireframe
     title: "Comment on the layout, not the code"
-    when: "The wireframe isn't what you pictured."
-    do: "Pin feedback to the part of the wireframe that's wrong, then ask the agent to revise."
-    you_get: "A revised plan before any code changes."
+    when: "Use this when the wireframe isn't what you pictured."
+    steps:
+      - "Pin feedback to the part of the wireframe that's wrong."
+      - "Ask your agent to revise the plan."
+    result: "You get a revised plan before any code changes."
     how_often: "Every new screen"
   - id: go-to-design
     title: "Take it to Design when it needs polish"
-    when: "The screen needs to be on brand and reviewed by others."
-    do: "Use Design for an interactive, on-brand prototype."
-    you_get: "A prototype you can compare in versions and share for feedback."
+    when: "Use this when the screen needs to be on brand and reviewed by others."
+    steps:
+      - "Describe the screen in Design."
+      - "Link your design system and compare a few versions."
+    result: "You get an interactive, on-brand prototype you can share for feedback."
     how_often: "When needed"
 story: null
 faqs:
