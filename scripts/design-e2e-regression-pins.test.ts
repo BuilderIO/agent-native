@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,10 +18,18 @@ import { fileURLToPath } from "node:url";
 import {
   DESIGN_E2E_REGRESSION_PINS,
   DESIGN_E2E_REGRESSION_SHARDS,
+  findDesignE2ERegressionPinCoverageViolations,
+  findDesignE2ETestRegistrations,
   findDesignE2ETestLine,
+  parseDesignE2ERegressionPins,
   resolveDesignE2ERegressionPin,
   resolveDesignE2ERegressionPinsForShard,
 } from "./design-e2e-regression-pins.ts";
+import {
+  loadBasePins,
+  loadBasePinExceptions,
+  resolveDesignE2ECoverageBase,
+} from "./guard-design-e2e-regression-pins.ts";
 
 const REQUIRED_CORE_COVERAGE = [
   {
@@ -306,6 +315,165 @@ test("regression pins resolve unique test titles to the current source lines", (
   assert.equal(new Set(resolved).size, resolved.length);
 });
 
+test("protected regression pins cannot be removed silently", () => {
+  const basePins = [
+    {
+      shard: "inspector-1a",
+      file: "protected.spec.ts",
+      title: "protected behavior",
+    },
+  ];
+
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(basePins, []).join("\n"),
+    /removed without an explicit exception/,
+  );
+  assert.deepEqual(
+    findDesignE2ERegressionPinCoverageViolations(
+      basePins,
+      [],
+      [
+        {
+          action: "remove",
+          from: { file: "protected.spec.ts", title: "protected behavior" },
+          reason: "The protected flow is covered by a replacement contract.",
+          evidence: "issue-123",
+        },
+      ],
+    ),
+    [],
+  );
+});
+
+test("unchanged historical pin receipts remain inert after merge", () => {
+  const removed = {
+    action: "remove",
+    from: { file: "removed.spec.ts", title: "retired behavior" },
+    reason: "The behavior was intentionally retired.",
+    evidence: "issue-234",
+  } as const;
+  const renamed = {
+    action: "rename",
+    from: { file: "before.spec.ts", title: "old behavior" },
+    to: { file: "after.spec.ts", title: "renamed behavior" },
+    reason: "The identity was clarified.",
+    evidence: "issue-345",
+  } as const;
+
+  assert.deepEqual(
+    findDesignE2ERegressionPinCoverageViolations([], [], [removed], [removed]),
+    [],
+  );
+  assert.deepEqual(
+    findDesignE2ERegressionPinCoverageViolations(
+      [
+        {
+          shard: "inspector-1a",
+          file: "after.spec.ts",
+          title: "renamed behavior",
+        },
+      ],
+      [
+        {
+          shard: "inspector-1a",
+          file: "after.spec.ts",
+          title: "renamed behavior",
+        },
+      ],
+      [renamed],
+      [renamed],
+    ),
+    [],
+  );
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(
+      [
+        {
+          shard: "inspector-1a",
+          file: "removed.spec.ts",
+          title: "retired behavior",
+        },
+      ],
+      [],
+      [removed],
+      [removed],
+    ).join("\n"),
+    /removed without an explicit exception/,
+  );
+});
+
+test("an explicit file and title mapping preserves a renamed pin identity", () => {
+  const basePins = [
+    {
+      shard: "inspector-1a",
+      file: "before.spec.ts",
+      title: "old behavior title",
+    },
+  ];
+  const headPins = [
+    {
+      shard: "inspector-1a",
+      file: "after.spec.ts",
+      title: "clarified behavior title",
+    },
+  ];
+
+  assert.deepEqual(
+    findDesignE2ERegressionPinCoverageViolations(basePins, headPins, [
+      {
+        action: "rename",
+        from: { file: "before.spec.ts", title: "old behavior title" },
+        to: { file: "after.spec.ts", title: "clarified behavior title" },
+        reason: "The test title and file were clarified.",
+        evidence: "issue-123",
+      },
+    ]),
+    [],
+  );
+});
+
+test("pin renames cannot collapse into existing or shared identities", () => {
+  const first = {
+    shard: "inspector-1a",
+    file: "before-a.spec.ts",
+    title: "first behavior",
+  };
+  const second = {
+    shard: "inspector-1a",
+    file: "before-b.spec.ts",
+    title: "second behavior",
+  };
+  const target = {
+    shard: "inspector-1a",
+    file: "after.spec.ts",
+    title: "preserved behavior",
+  };
+  const rename = (from: typeof first) => ({
+    action: "rename" as const,
+    from: { file: from.file, title: from.title },
+    to: { file: target.file, title: target.title },
+    reason: "The test identity was renamed.",
+    evidence: "issue-234",
+  });
+
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(
+      [first, target],
+      [target],
+      [rename(first)],
+    ).join("\n"),
+    /rename target already exists in the base/,
+  );
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(
+      [first, second],
+      [target],
+      [rename(first), rename(second)],
+    ).join("\n"),
+    /multiple Design E2E pin renames target the same identity/,
+  );
+});
+
 test("a moved test title resolves to its new line", () => {
   const pin = {
     shard: "fixture",
@@ -367,13 +535,183 @@ test("a static template literal can be used as a test title", () => {
   );
 });
 
-test("the resolver CLI works without installed workspace dependencies", () => {
+test("AST identities retain dynamic titles and ignore regex source after control flow", () => {
+  const source = [
+    'if (enabled) /test\\.fixme\\("protected behavior", \\(\\) => \\{\\}\\)/.test(sourceText);',
+    'test("protected behavior", () => {});',
+    "test(`parameter ${variant}`, () => {});",
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(
+    source,
+    "fixture.spec.ts",
+  );
+
+  assert.deepEqual(
+    registrations.map(({ title, dynamic }) => ({ title, dynamic })),
+    [
+      { title: "protected behavior", dynamic: false },
+      { title: "template:`parameter ${variant}`", dynamic: true },
+    ],
+  );
+  assert.equal(findDesignE2ETestLine(source, "protected behavior"), 2);
+});
+
+test("base pin manifests are read as static literals without executing source", () => {
+  const source = [
+    'import ts from "typescript";',
+    'throw new Error("historical module execution is unsafe");',
+    "export const DESIGN_E2E_REGRESSION_PINS = [",
+    '  { shard: "inspector-1a", file: "fixture.spec.ts", title: "protected" },',
+    "] as const;",
+  ].join("\n");
+
+  assert.deepEqual(parseDesignE2ERegressionPins(source), [
+    {
+      shard: "inspector-1a",
+      file: "fixture.spec.ts",
+      title: "protected",
+    },
+  ]);
+  assert.throws(
+    () =>
+      parseDesignE2ERegressionPins(
+        'const titles = ["protected"]; export const DESIGN_E2E_REGRESSION_PINS = titles;',
+      ),
+    /array literal/,
+  );
+});
+
+test("historical base pin loading parses the Git blob and never imports it", () => {
+  const root = mkdtempSync(join(tmpdir(), "design-base-pin-manifest-"));
+  try {
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    writeFileSync(
+      join(root, "scripts/design-e2e-regression-pins.ts"),
+      [
+        'import ts from "typescript";',
+        'throw new Error("base source must not execute");',
+        "export const DESIGN_E2E_REGRESSION_PINS = [",
+        '  { shard: "inspector-1a", file: "fixture.spec.ts", title: "protected" },',
+        "] as const;",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(root, "scripts/design-e2e-coverage-exceptions.json"),
+      JSON.stringify({
+        pins: [
+          {
+            action: "remove",
+            from: { file: "removed.spec.ts", title: "retired behavior" },
+            reason: "The behavior was intentionally retired.",
+            evidence: "issue-234",
+          },
+        ],
+        quarantine: [],
+      }),
+    );
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Guard test"], { cwd: root });
+    execFileSync(
+      "git",
+      ["config", "user.email", "guard-test@example.invalid"],
+      {
+        cwd: root,
+      },
+    );
+    execFileSync(
+      "git",
+      [
+        "add",
+        "scripts/design-e2e-regression-pins.ts",
+        "scripts/design-e2e-coverage-exceptions.json",
+      ],
+      { cwd: root },
+    );
+    execFileSync("git", ["commit", "-qm", "base manifest fixture"], {
+      cwd: root,
+    });
+
+    assert.deepEqual(loadBasePins(root, "HEAD"), [
+      {
+        shard: "inspector-1a",
+        file: "fixture.spec.ts",
+        title: "protected",
+      },
+    ]);
+    assert.deepEqual(loadBasePinExceptions(root, "HEAD"), [
+      {
+        action: "remove",
+        from: { file: "removed.spec.ts", title: "retired behavior" },
+        reason: "The behavior was intentionally retired.",
+        evidence: "issue-234",
+      },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an absent base exception registry is treated as an empty legacy registry", () => {
+  const root = mkdtempSync(join(tmpdir(), "design-base-pin-exceptions-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Guard test"], { cwd: root });
+    execFileSync(
+      "git",
+      ["config", "user.email", "guard-test@example.invalid"],
+      { cwd: root },
+    );
+    writeFileSync(join(root, "tracked.txt"), "legacy base\n");
+    execFileSync("git", ["add", "tracked.txt"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "legacy base fixture"], {
+      cwd: root,
+    });
+
+    assert.deepEqual(loadBasePinExceptions(root, "HEAD"), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("GitHub pull request pin checks require the explicit target base", () => {
+  const previous = {
+    event: process.env.GITHUB_EVENT_NAME,
+    githubBase: process.env.GITHUB_BASE_REF,
+    guardBase: process.env.GUARD_DIFF_BASE,
+  };
+  const root = mkdtempSync(join(tmpdir(), "design-pin-missing-base-"));
+  try {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+    delete process.env.GITHUB_BASE_REF;
+    delete process.env.GUARD_DIFF_BASE;
+    assert.throws(
+      () => resolveDesignE2ECoverageBase(root),
+      (error: NodeJS.ErrnoException & { exitCode?: number }) =>
+        error.exitCode === 2 && /GITHUB_BASE_REF/.test(error.message ?? ""),
+    );
+  } finally {
+    if (previous.event === undefined) delete process.env.GITHUB_EVENT_NAME;
+    else process.env.GITHUB_EVENT_NAME = previous.event;
+    if (previous.githubBase === undefined) delete process.env.GITHUB_BASE_REF;
+    else process.env.GITHUB_BASE_REF = previous.githubBase;
+    if (previous.guardBase === undefined) delete process.env.GUARD_DIFF_BASE;
+    else process.env.GUARD_DIFF_BASE = previous.guardBase;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the resolver CLI works with the workspace TypeScript parser", () => {
   const temporaryRoot = mkdtempSync(join(tmpdir(), "design-pin-resolver-"));
   try {
     const scriptsDirectory = join(temporaryRoot, "scripts");
     const specDirectory = join(temporaryRoot, "templates/design/e2e");
     mkdirSync(scriptsDirectory, { recursive: true });
     mkdirSync(specDirectory, { recursive: true });
+    symlinkSync(
+      fileURLToPath(new URL("../node_modules", import.meta.url)),
+      join(temporaryRoot, "node_modules"),
+      "dir",
+    );
     copyFileSync(
       fileURLToPath(
         new URL("./design-e2e-regression-pins.ts", import.meta.url),
@@ -707,6 +1045,11 @@ test("the resolver CLI distinguishes disabled pins from unreadable sources", () 
     const specs = join(root, "templates/design/e2e");
     mkdirSync(scripts, { recursive: true });
     mkdirSync(specs, { recursive: true });
+    symlinkSync(
+      fileURLToPath(new URL("../node_modules", import.meta.url)),
+      join(root, "node_modules"),
+      "dir",
+    );
     copyFileSync(
       fileURLToPath(
         new URL("./design-e2e-regression-pins.ts", import.meta.url),

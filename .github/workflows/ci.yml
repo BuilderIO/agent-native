@@ -1924,6 +1924,8 @@ jobs:
           scripts/guard-no-heavy-dashboard-list-reads.test.ts
 
       - name: Run security guards
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: pnpm guards
 
       - name: Check the Slides interaction oracle against one full test run

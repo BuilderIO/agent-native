@@ -1,3 +1,4 @@
+import { normalizedStyle } from "./css-style-helpers";
 import { appPath, expandAllLayers } from "./helpers";
 import {
   expect,
@@ -338,7 +339,9 @@ test.describe("mobile app build", () => {
     const original = before.get("card")!;
     const copiedTitles: string[] = [];
     for (const copy of copies) {
-      expect(after.get(copy)?.attrs.style).toBe(original.attrs.style);
+      expect(
+        await normalizedStyle(app.page, after.get(copy)?.attrs.style),
+      ).toEqual(await normalizedStyle(app.page, original.attrs.style));
       const [title] = childrenOf(after, copy);
       copiedTitles.push(title);
       expect(after.get(title)).toMatchObject({

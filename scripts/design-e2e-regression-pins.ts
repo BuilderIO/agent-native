@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
+
 export const DESIGN_E2E_REGRESSION_SHARDS = [
   "inspector-1a",
   "inspector-1b",
@@ -28,6 +30,21 @@ export type DesignE2ERegressionPin = {
   readonly shard: DesignE2ERegressionShard | string;
   readonly file: string;
   readonly title: string;
+};
+
+export type DesignE2ETestRegistration = {
+  readonly title: string;
+  readonly dynamic: boolean;
+  readonly modifier?: string;
+  readonly line: number;
+  readonly suppressionKind:
+    | "direct"
+    | "suite"
+    | "runtime"
+    | "file"
+    | "focus"
+    | null;
+  readonly suppressionReason?: string;
 };
 
 export const DESIGN_E2E_REGRESSION_PINS = [
@@ -507,365 +524,104 @@ export const DESIGN_E2E_REGRESSION_PINS = [
   },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function makeSourceString(value: string, quote: string): string {
-  let escaped = value
-    .replaceAll("\\", "\\\\")
-    .replaceAll(quote, `\\${quote}`)
-    .replaceAll("\r", "\\r")
-    .replaceAll("\n", "\\n");
-  if (quote === "`") escaped = escaped.replaceAll("${", "\\${");
-  return `${quote}${escaped}${quote}`;
-}
-
-function isLikelyRegexStart(source: string, index: number): boolean {
-  const prefix = source.slice(0, index).trimEnd();
-  if (prefix.endsWith("=>")) return true;
-  const previous = prefix.at(-1);
-  if (previous === "!") {
-    const beforeBang = prefix.slice(0, -1).trimEnd().at(-1);
-    return beforeBang === undefined || !/[A-Za-z0-9_$)\]}]/.test(beforeBang);
+export function parseDesignE2ERegressionPins(
+  source: string,
+): DesignE2ERegressionPin[] {
+  const sourceFile = ts.createSourceFile(
+    "design-e2e-regression-pins.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  if (sourceFile.parseDiagnostics.length > 0) {
+    throw new Error("base pin manifest has TypeScript syntax errors");
   }
-  if (previous === undefined) return true;
-  if (
-    /\b(?:return|throw|case|delete|void|typeof|instanceof|in|of|yield|await)$/.test(
-      prefix,
-    )
+
+  const declarations = sourceFile.statements
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => statement.declarationList.declarations)
+    .filter(
+      (declaration) =>
+        ts.isIdentifier(declaration.name) &&
+        declaration.name.text === "DESIGN_E2E_REGRESSION_PINS",
+    );
+  if (declarations.length !== 1) {
+    throw new Error(
+      `base pin manifest must declare DESIGN_E2E_REGRESSION_PINS exactly once; found ${declarations.length}`,
+    );
+  }
+
+  let initializer = declarations[0]!.initializer;
+  while (
+    initializer &&
+    (ts.isAsExpression(initializer) ||
+      ts.isSatisfiesExpression(initializer) ||
+      ts.isParenthesizedExpression(initializer))
   ) {
-    return true;
+    initializer = initializer.expression;
   }
-  return [
-    "(",
-    "[",
-    "{",
-    ",",
-    ":",
-    ";",
-    "=",
-    "?",
-    "&",
-    "|",
-    "+",
-    "-",
-    "*",
-    "%",
-    "^",
-    "~",
-    "<",
-    ">",
-  ].includes(previous);
+  if (!initializer || !ts.isArrayLiteralExpression(initializer)) {
+    throw new Error(
+      "base pin manifest must initialize pins with an array literal",
+    );
+  }
+
+  const pins: DesignE2ERegressionPin[] = [];
+  for (const [index, element] of initializer.elements.entries()) {
+    if (!ts.isObjectLiteralExpression(element)) {
+      throw new Error(
+        `base pin manifest entry ${index + 1} must be an object literal`,
+      );
+    }
+    const fields = new Map<string, string>();
+    for (const property of element.properties) {
+      if (
+        !ts.isPropertyAssignment(property) ||
+        ts.isComputedPropertyName(property.name) ||
+        (!ts.isIdentifier(property.name) &&
+          !ts.isStringLiteral(property.name)) ||
+        (!ts.isStringLiteral(property.initializer) &&
+          !ts.isNoSubstitutionTemplateLiteral(property.initializer))
+      ) {
+        throw new Error(
+          `base pin manifest entry ${index + 1} must contain only literal fields`,
+        );
+      }
+      if (fields.has(property.name.text)) {
+        throw new Error(
+          `base pin manifest entry ${index + 1} repeats ${property.name.text}`,
+        );
+      }
+      fields.set(property.name.text, property.initializer.text);
+    }
+    const shard = fields.get("shard");
+    const file = fields.get("file");
+    const title = fields.get("title");
+    if (!shard || !file || !title || fields.size !== 3) {
+      throw new Error(
+        `base pin manifest entry ${index + 1} must contain only shard, file, and title strings`,
+      );
+    }
+    pins.push({ shard, file, title });
+  }
+  const identities = new Set<string>();
+  for (const pin of pins) {
+    const identity = pinIdentity(pin);
+    if (identities.has(identity)) {
+      throw new Error(
+        `base pin manifest contains duplicate identity: ${pin.file} / ${pin.title}`,
+      );
+    }
+    identities.add(identity);
+  }
+  return pins;
 }
 
-function skipRegexLiteral(source: string, start: number): number {
-  let index = start + 1;
-  let inCharacterClass = false;
-  while (index < source.length) {
-    const character = source[index]!;
-    if (character === "\\") {
-      index += 2;
-      continue;
-    }
-    if (character === "\n" || character === "\r") return start + 1;
-    if (character === "[") inCharacterClass = true;
-    else if (character === "]") inCharacterClass = false;
-    else if (character === "/" && !inCharacterClass) {
-      index += 1;
-      while (/[a-z]/i.test(source[index] ?? "")) index += 1;
-      return index;
-    }
-    index += 1;
-  }
-  return start + 1;
-}
-
-function maskNonCode(source: string): string {
-  const masked = source.split("");
-  let state: "code" | "line" | "block" | "single" | "double" | "template" =
-    "code";
-  const templates: { expressionDepth: number | null }[] = [];
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index]!;
-    const next = source[index + 1];
-    if (state === "code") {
-      const template = templates.at(-1);
-      if (template?.expressionDepth !== null && template !== undefined) {
-        if (character === "{") template.expressionDepth += 1;
-        else if (character === "}") {
-          template.expressionDepth -= 1;
-          if (template.expressionDepth === 0) {
-            state = "template";
-            continue;
-          }
-        }
-      }
-      if (character === "/" && next === "/") {
-        masked[index] = " ";
-        masked[index + 1] = " ";
-        index += 1;
-        state = "line";
-      } else if (character === "/" && next === "*") {
-        masked[index] = " ";
-        masked[index + 1] = " ";
-        index += 1;
-        state = "block";
-      } else if (character === "'") {
-        masked[index] = " ";
-        state = "single";
-      } else if (character === '"') {
-        masked[index] = " ";
-        state = "double";
-      } else if (character === "`") {
-        masked[index] = " ";
-        templates.push({ expressionDepth: null });
-        state = "template";
-      } else if (character === "/" && isLikelyRegexStart(source, index)) {
-        const end = skipRegexLiteral(source, index);
-        if (end > index + 1) {
-          for (let cursor = index; cursor < end; cursor += 1) {
-            if (source[cursor] !== "\n" && source[cursor] !== "\r") {
-              masked[cursor] = " ";
-            }
-          }
-          index = end - 1;
-        }
-      }
-      continue;
-    }
-
-    if (state === "template") {
-      if (character === "\\") {
-        masked[index] = " ";
-        if (next !== undefined && next !== "\n" && next !== "\r") {
-          masked[index + 1] = " ";
-          index += 1;
-        }
-      } else if (character === "`") {
-        masked[index] = " ";
-        templates.pop();
-        state = "code";
-      } else if (character === "$" && next === "{") {
-        masked[index] = " ";
-        templates.at(-1)!.expressionDepth = 1;
-        state = "code";
-        index += 1;
-      } else if (character !== "\n" && character !== "\r") {
-        masked[index] = " ";
-      }
-      continue;
-    }
-
-    if (state === "line") {
-      if (character === "\n") state = "code";
-      else masked[index] = " ";
-      continue;
-    }
-    if (state === "block") {
-      if (character === "*" && next === "/") {
-        masked[index] = " ";
-        masked[index + 1] = " ";
-        index += 1;
-        state = "code";
-      } else if (character !== "\n") {
-        masked[index] = " ";
-      }
-      continue;
-    }
-
-    const closingQuote = state === "single" ? "'" : '"';
-    if (character === "\\") {
-      masked[index] = " ";
-      if (next !== undefined && next !== "\n" && next !== "\r") {
-        masked[index + 1] = " ";
-        index += 1;
-      }
-    } else if (character === closingQuote) {
-      masked[index] = " ";
-      state = "code";
-    } else if (character !== "\n" && character !== "\r") {
-      masked[index] = " ";
-    }
-  }
-  return masked.join("");
-}
-
-type SourceRange = { readonly start: number; readonly end: number };
-
-type RegistrationCall = {
-  readonly start: number;
-  readonly open: number;
-  readonly close: number;
-  readonly modifier?: string;
-};
+const TEST_MODIFIERS = new Set(["fail", "fixme", "only", "skip"]);
 
 class DisabledRegressionPinError extends Error {}
 class PinInspectionUnavailableError extends Error {}
-
-function findDelimiterPairs(code: string): Map<number, number> {
-  const closingToOpening = new Map([
-    [")", "("],
-    ["]", "["],
-    ["}", "{"],
-  ]);
-  const opening = new Set(["(", "[", "{"]);
-  const stack: { readonly character: string; readonly index: number }[] = [];
-  const pairs = new Map<number, number>();
-
-  for (let index = 0; index < code.length; index += 1) {
-    const character = code[index]!;
-    if (opening.has(character)) {
-      stack.push({ character, index });
-      continue;
-    }
-
-    const expectedOpening = closingToOpening.get(character);
-    if (expectedOpening === undefined) continue;
-
-    const current = stack.pop();
-    if (current?.character !== expectedOpening) {
-      throw new PinInspectionUnavailableError(
-        `Unable to inspect Design E2E source near character ${index}: unbalanced delimiters`,
-      );
-    }
-    pairs.set(current.index, index);
-  }
-
-  if (stack.length > 0) {
-    throw new PinInspectionUnavailableError(
-      `Unable to inspect Design E2E source near character ${stack.at(-1)!.index}: unclosed delimiter`,
-    );
-  }
-  return pairs;
-}
-
-function findRegistrationCalls(
-  code: string,
-  pairs: Map<number, number>,
-  pattern: RegExp,
-): RegistrationCall[] {
-  const calls: RegistrationCall[] = [];
-  for (const match of code.matchAll(pattern)) {
-    const start = match.index;
-    const open = start + match[0].lastIndexOf("(");
-    const close = pairs.get(open);
-    if (close === undefined) {
-      throw new PinInspectionUnavailableError(
-        `Unable to inspect Design E2E registration near character ${start}: call has no closing parenthesis`,
-      );
-    }
-    calls.push({
-      start,
-      open,
-      close,
-      ...(match.groups?.modifier ? { modifier: match.groups.modifier } : {}),
-    });
-  }
-  return calls;
-}
-
-function findCallArguments(
-  code: string,
-  call: RegistrationCall,
-  pairs: Map<number, number>,
-): SourceRange[] {
-  const arguments_: SourceRange[] = [];
-  let argumentStart = call.open + 1;
-  for (let index = argumentStart; index < call.close; index += 1) {
-    if ("([{".includes(code[index]!)) {
-      const nestedClose = pairs.get(index);
-      if (nestedClose === undefined || nestedClose >= call.close) {
-        throw new PinInspectionUnavailableError(
-          `Unable to inspect Design E2E call arguments near character ${index}`,
-        );
-      }
-      index = nestedClose;
-    } else if (code[index] === ",") {
-      arguments_.push({ start: argumentStart, end: index });
-      argumentStart = index + 1;
-    }
-  }
-  if (argumentStart < call.close || arguments_.length > 0) {
-    arguments_.push({ start: argumentStart, end: call.close });
-  }
-  return arguments_;
-}
-
-function skipWhitespace(code: string, index: number, end: number): number {
-  while (index < end && /\s/.test(code[index]!)) index += 1;
-  return index;
-}
-
-function isFunctionKeyword(code: string, index: number): boolean {
-  return (
-    code.startsWith("function", index) &&
-    !/[\w$]/.test(code[index - 1] ?? "") &&
-    !/[\w$]/.test(code[index + "function".length] ?? "")
-  );
-}
-
-function findInlineCallbackBody(
-  code: string,
-  argument: SourceRange | undefined,
-  pairs: Map<number, number>,
-): SourceRange | undefined {
-  if (!argument) return undefined;
-
-  let start = skipWhitespace(code, argument.start, argument.end);
-  let end = argument.end;
-  while (code[start] === "(") {
-    const wrapperClose = pairs.get(start);
-    let last = end - 1;
-    while (last >= start && /\s/.test(code[last]!)) last -= 1;
-    if (wrapperClose !== last) break;
-    start = skipWhitespace(code, start + 1, wrapperClose);
-    end = wrapperClose;
-  }
-
-  let inFunctionExpression = false;
-  for (let index = start; index < end; index += 1) {
-    if (isFunctionKeyword(code, index)) {
-      inFunctionExpression = true;
-      index += "function".length - 1;
-      continue;
-    }
-    if (code.startsWith("=>", index)) {
-      const bodyStart = skipWhitespace(code, index + 2, end);
-      if (code[bodyStart] === "{") {
-        const bodyClose = pairs.get(bodyStart);
-        if (bodyClose === undefined || bodyClose >= end) {
-          throw new PinInspectionUnavailableError(
-            `Unable to inspect Design E2E callback near character ${bodyStart}`,
-          );
-        }
-        return { start: bodyStart + 1, end: bodyClose };
-      }
-      return { start: bodyStart, end };
-    }
-    if ("([{".includes(code[index]!)) {
-      const nestedClose = pairs.get(index);
-      if (nestedClose === undefined || nestedClose >= end) {
-        throw new PinInspectionUnavailableError(
-          `Unable to inspect Design E2E callback near character ${index}`,
-        );
-      }
-      if (code[index] === "{" && inFunctionExpression) {
-        return { start: index + 1, end: nestedClose };
-      }
-      index = nestedClose;
-    }
-  }
-  return undefined;
-}
-
-function contains(range: SourceRange, offset: number): boolean {
-  return range.start <= offset && offset < range.end;
-}
-
-function lineAt(source: string, offset: number): number {
-  return source.slice(0, offset).split("\n").length;
-}
 
 function rejectDisabledPin(title: string, reason: string): never {
   throw new DisabledRegressionPinError(
@@ -873,158 +629,381 @@ function rejectDisabledPin(title: string, reason: string): never {
   );
 }
 
-function inspectPinSuppressions(
-  source: string,
-  code: string,
-  title: string,
-  testOffset: number,
-): void {
-  const pairs = findDelimiterPairs(code);
-  const testCalls = findRegistrationCalls(
-    code,
-    pairs,
-    /(?<![\w$.])test[\t\r\n ]*(?:(?:\?\.|[\t\r\n ]*\.)[\t\r\n ]*(?<modifier>fail|fixme|only|skip))?[\t\r\n ]*\(/g,
-  );
-  const testInfoModifierCalls = findRegistrationCalls(
-    code,
-    pairs,
-    /(?<![\w$.])testInfo[\t\r\n ]*\.[\t\r\n ]*(?<modifier>fail|fixme|skip)[\t\r\n ]*\(/g,
-  );
-  const testInfoAccessorModifierCalls = findRegistrationCalls(
-    code,
-    pairs,
-    /(?<![\w$.])test[\t\r\n ]*\.[\t\r\n ]*info[\t\r\n ]*\([\t\r\n ]*\)[\t\r\n ]*\.[\t\r\n ]*(?<modifier>fail|fixme|skip)[\t\r\n ]*\(/g,
-  );
-  const describeCalls = findRegistrationCalls(
-    code,
-    pairs,
-    /(?<![\w$.])test[\t\r\n ]*\.[\t\r\n ]*describe(?:[\t\r\n ]*\.[\t\r\n ]*(?<modifier>fail|fixme|only|skip))?[\t\r\n ]*\(/g,
-  );
+type MutableRegistration = {
+  file: string;
+  title: string;
+  dynamic: boolean;
+  modifier?: string;
+  line: number;
+  suppressionKind: DesignE2ETestRegistration["suppressionKind"];
+  suppressionReason?: string;
+  suiteRuntimeScopes: string[][];
+};
 
-  for (const call of testCalls) {
-    if (call.modifier === "only" && call.start !== testOffset) {
-      rejectDisabledPin(
-        title,
-        "another test.only declaration can focus this file away",
-      );
-    }
-  }
-  for (const call of describeCalls) {
-    if (call.modifier === "only") {
-      rejectDisabledPin(
-        title,
-        "a test.describe.only declaration can focus this file away",
-      );
-    }
-  }
+type RegistrationWalkContext = {
+  suiteSuppressions: string[];
+  currentTest?: MutableRegistration;
+  testInfoNames: Set<string>;
+  suiteRuntimeScopes: string[][];
+};
 
-  const suiteBodies: SourceRange[] = [];
-  for (const call of describeCalls) {
-    const arguments_ = findCallArguments(code, call, pairs);
-    const body = findInlineCallbackBody(code, arguments_.at(-1), pairs);
-    if (body) suiteBodies.push(body);
-    if (["fail", "fixme", "skip"].includes(call.modifier ?? "") && !body) {
-      throw new PinInspectionUnavailableError(
-        `Unable to inspect modified test.describe callback at line ${lineAt(source, call.start)}`,
-      );
-    }
-    if (
-      body &&
-      ["fail", "fixme", "skip"].includes(call.modifier ?? "") &&
-      contains(body, testOffset)
+function propertyPath(expression: ts.Expression): string[] {
+  if (ts.isIdentifier(expression)) return [expression.text];
+  if (ts.isPropertyAccessExpression(expression)) {
+    return [...propertyPath(expression.expression), expression.name.text];
+  }
+  if (
+    ts.isElementAccessExpression(expression) &&
+    expression.argumentExpression &&
+    (ts.isStringLiteral(expression.argumentExpression) ||
+      ts.isNoSubstitutionTemplateLiteral(expression.argumentExpression))
+  ) {
+    return [
+      ...propertyPath(expression.expression),
+      expression.argumentExpression.text,
+    ];
+  }
+  return [];
+}
+
+function testImports(sourceFile: ts.SourceFile) {
+  const bindings = new Set(["test"]);
+  const namespaces = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
+    const namedBindings = statement.importClause.namedBindings;
+    if (namedBindings && ts.isNamedImports(namedBindings)) {
+      for (const element of namedBindings.elements) {
+        if ((element.propertyName ?? element.name).text === "test") {
+          bindings.add(element.name.text);
+        }
+      }
+    } else if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+      namespaces.add(namedBindings.name.text);
+    } else if (
+      statement.importClause.name &&
+      /(?:@playwright\/test|\/rails)$/.test(statement.moduleSpecifier.text)
     ) {
-      rejectDisabledPin(
-        title,
-        `an enclosing test.describe.${call.modifier} can suppress this test`,
+      bindings.add(statement.importClause.name.text);
+    }
+  }
+  return { bindings, namespaces };
+}
+
+function normalizedTestPath(
+  expression: ts.Expression,
+  bindings: Set<string>,
+  namespaces: Set<string>,
+) {
+  const segments = propertyPath(expression);
+  if (bindings.has(segments[0] ?? "")) return segments;
+  if (namespaces.has(segments[0] ?? "") && segments[1] === "test") {
+    return segments.slice(1);
+  }
+  return [];
+}
+
+function testCallKind(
+  call: ts.CallExpression,
+  bindings: Set<string>,
+  namespaces: Set<string>,
+  testInfoNames: Set<string>,
+): { kind: "test" | "describe" | "runtime"; modifier?: string } | undefined {
+  const segments = propertyPath(call.expression);
+  const testPath = normalizedTestPath(call.expression, bindings, namespaces);
+  if (testPath.length === 1) return { kind: "test" };
+  if (testPath.length === 2 && TEST_MODIFIERS.has(testPath[1]!)) {
+    return { kind: "test", modifier: testPath[1] };
+  }
+  if (testPath.length === 2 && testPath[1] === "describe") {
+    return { kind: "describe" };
+  }
+  if (
+    testPath.length === 3 &&
+    testPath[1] === "describe" &&
+    TEST_MODIFIERS.has(testPath[2]!)
+  ) {
+    return { kind: "describe", modifier: testPath[2] };
+  }
+
+  const expression = call.expression;
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    TEST_MODIFIERS.has(expression.name.text) &&
+    ts.isCallExpression(expression.expression)
+  ) {
+    const receiverPath = normalizedTestPath(
+      expression.expression.expression,
+      bindings,
+      namespaces,
+    );
+    if (receiverPath.length === 2 && receiverPath[1] === "info") {
+      return { kind: "runtime", modifier: expression.name.text };
+    }
+  }
+  if (
+    segments.length === 2 &&
+    testInfoNames.has(segments[0]!) &&
+    TEST_MODIFIERS.has(segments[1]!)
+  ) {
+    return { kind: "runtime", modifier: segments[1] };
+  }
+  return undefined;
+}
+
+function isCallback(
+  node: ts.Node,
+): node is ts.ArrowFunction | ts.FunctionExpression {
+  return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
+}
+
+function modifierSuppression(
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  modifier: string,
+): string | undefined {
+  if (modifier === "only") return "focus";
+  if (["fixme", "skip", "fail"].includes(modifier)) {
+    const first = call.arguments[0];
+    if (first?.kind === ts.SyntaxKind.FalseKeyword) return undefined;
+    const line =
+      sourceFile.getLineAndCharacterOfPosition(call.getStart(sourceFile)).line +
+      1;
+    if (!first || first.kind === ts.SyntaxKind.TrueKeyword) {
+      return `test.${modifier} suppresses this test at line ${line}`;
+    }
+    return `Unable to inspect conditional test.${modifier} at line ${line}`;
+  }
+  return undefined;
+}
+
+function parseTestTitle(
+  argument: ts.Expression,
+  sourceFile: ts.SourceFile,
+): { title: string; dynamic: boolean } {
+  if (
+    ts.isStringLiteral(argument) ||
+    ts.isNoSubstitutionTemplateLiteral(argument)
+  ) {
+    return { title: argument.text, dynamic: false };
+  }
+  const source = argument.getText(sourceFile);
+  return {
+    title: ts.isTemplateExpression(argument)
+      ? `template:${source}`
+      : `expression:${source}`,
+    dynamic: true,
+  };
+}
+
+export function findDesignE2ETestRegistrations(
+  source: string,
+  file = "",
+): DesignE2ETestRegistration[] {
+  const sourceFile = ts.createSourceFile(
+    file || "design.spec.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  if (sourceFile.parseDiagnostics.length > 0) {
+    const diagnostic = sourceFile.parseDiagnostics[0]!;
+    const line =
+      sourceFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1;
+    throw new Error(
+      `${file || "Design E2E source"}:${line}: TypeScript syntax error; test identities could not be inspected`,
+    );
+  }
+
+  const { bindings, namespaces } = testImports(sourceFile);
+  const registrations: MutableRegistration[] = [];
+  const fileSuppressions: string[] = [];
+  let hasFocus = false;
+  const visit = (node: ts.Node, context: RegistrationWalkContext) => {
+    if (ts.isCallExpression(node)) {
+      const classification = testCallKind(
+        node,
+        bindings,
+        namespaces,
+        context.testInfoNames,
       );
+      if (classification?.kind === "describe") {
+        const suiteSuppressions = [...context.suiteSuppressions];
+        if (classification.modifier) {
+          if (classification.modifier !== "only") {
+            suiteSuppressions.push(classification.modifier);
+          }
+          if (classification.modifier === "only") hasFocus = true;
+        }
+        for (const argument of node.arguments) {
+          visit(
+            argument,
+            isCallback(argument)
+              ? {
+                  ...context,
+                  suiteSuppressions,
+                  suiteRuntimeScopes: [...context.suiteRuntimeScopes, []],
+                }
+              : context,
+          );
+        }
+        return;
+      }
+
+      if (classification?.kind === "test") {
+        const callback = node.arguments.find(isCallback);
+        if (!context.currentTest && callback) {
+          const titleArgument = node.arguments[0];
+          if (!titleArgument) {
+            throw new Error(
+              `${file}:${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}: test registration has no title`,
+            );
+          }
+          const identity = parseTestTitle(titleArgument, sourceFile);
+          const directReason = classification.modifier
+            ? modifierSuppression(node, sourceFile, classification.modifier)
+            : undefined;
+          const suiteModifier = context.suiteSuppressions.find(
+            (modifier) => modifier !== "only",
+          );
+          const suiteReason = suiteModifier
+            ? `enclosing test.describe.${suiteModifier} can suppress this test`
+            : undefined;
+          const line =
+            sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+              .line + 1;
+          const item: MutableRegistration = {
+            file,
+            ...identity,
+            line,
+            ...(classification.modifier === undefined
+              ? {}
+              : { modifier: classification.modifier }),
+            suppressionKind: directReason
+              ? "direct"
+              : suiteReason
+                ? "suite"
+                : null,
+            ...((directReason ?? suiteReason)
+              ? { suppressionReason: directReason ?? suiteReason }
+              : {}),
+            suiteRuntimeScopes: context.suiteRuntimeScopes,
+          };
+          if (classification.modifier === "only") hasFocus = true;
+          registrations.push(item);
+
+          const testInfoNames = new Set(context.testInfoNames);
+          const testInfoParameter = callback.parameters[1]?.name;
+          if (testInfoParameter && ts.isIdentifier(testInfoParameter)) {
+            testInfoNames.add(testInfoParameter.text);
+          }
+          for (const argument of node.arguments) {
+            visit(
+              argument,
+              isCallback(argument)
+                ? { ...context, currentTest: item, testInfoNames }
+                : context,
+            );
+          }
+          return;
+        }
+
+        if (classification.modifier) {
+          const reason = modifierSuppression(
+            node,
+            sourceFile,
+            classification.modifier,
+          );
+          if (reason) {
+            if (context.currentTest) {
+              if (!context.currentTest.suppressionKind) {
+                context.currentTest.suppressionKind = "runtime";
+                context.currentTest.suppressionReason = reason;
+              }
+            } else {
+              const suiteScope = context.suiteRuntimeScopes.at(-1);
+              if (suiteScope) suiteScope.push(reason);
+              else fileSuppressions.push(reason);
+            }
+          }
+        }
+      } else if (classification?.kind === "runtime") {
+        const reason = modifierSuppression(
+          node,
+          sourceFile,
+          classification.modifier!,
+        );
+        if (reason) {
+          if (context.currentTest) {
+            if (!context.currentTest.suppressionKind) {
+              context.currentTest.suppressionKind = "runtime";
+              context.currentTest.suppressionReason = reason;
+            }
+          } else {
+            const suiteScope = context.suiteRuntimeScopes.at(-1);
+            if (suiteScope) suiteScope.push(reason);
+            else fileSuppressions.push(reason);
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, (child) => visit(child, context));
+  };
+  visit(sourceFile, {
+    suiteSuppressions: [],
+    testInfoNames: new Set(["testInfo"]),
+    suiteRuntimeScopes: [],
+  });
+
+  for (const item of registrations) {
+    const runtimeSuiteSuppression = item.suiteRuntimeScopes.flat().at(0);
+    if (runtimeSuiteSuppression && !item.suppressionKind) {
+      item.suppressionKind = "suite";
+      item.suppressionReason = runtimeSuiteSuppression;
+    }
+    if (fileSuppressions.length > 0 && !item.suppressionKind) {
+      item.suppressionKind = "file";
+      item.suppressionReason = fileSuppressions[0];
+    }
+    if (hasFocus && !item.suppressionKind) {
+      item.suppressionKind = "focus";
+      item.suppressionReason =
+        "a test.only declaration can focus this file away";
     }
   }
-
-  const testBodies: {
-    readonly call: RegistrationCall;
-    readonly body: SourceRange;
-  }[] = [];
-  for (const call of testCalls) {
-    const arguments_ = findCallArguments(code, call, pairs);
-    for (const argument of arguments_.slice(1)) {
-      const body = findInlineCallbackBody(code, argument, pairs);
-      if (body) testBodies.push({ call, body });
-    }
-  }
-  const pinnedBody = testBodies.find(
-    ({ call }) => call.start === testOffset,
-  )?.body;
-
-  for (const call of [
-    ...testCalls,
-    ...testInfoModifierCalls,
-    ...testInfoAccessorModifierCalls,
-  ]) {
-    if (!["fail", "fixme", "skip"].includes(call.modifier ?? "")) {
-      continue;
-    }
-    const arguments_ = findCallArguments(code, call, pairs);
-    const firstArgument = arguments_[0];
-    const hasCallback = arguments_
-      .slice(1)
-      .some((argument) => findInlineCallbackBody(code, argument, pairs));
-    if (hasCallback) continue;
-
-    const insidePinnedBody = pinnedBody && contains(pinnedBody, call.start);
-    const insideAnotherTestBody = testBodies.some(({ body }) =>
-      contains(body, call.start),
-    );
-    if (insideAnotherTestBody && !insidePinnedBody) continue;
-    const containingSuites = suiteBodies.filter((body) =>
-      contains(body, call.start),
-    );
-    const innermostSuite = containingSuites.sort(
-      (left, right) => right.start - left.start,
-    )[0];
-    if (innermostSuite && !contains(innermostSuite, testOffset)) continue;
-
-    const condition = firstArgument
-      ? code.slice(firstArgument.start, firstArgument.end).trim()
-      : "";
-    if (condition === "false") continue;
-    if (condition !== "" && condition !== "true") {
-      throw new PinInspectionUnavailableError(
-        `Unable to inspect conditional test.${call.modifier} at line ${lineAt(source, call.start)}`,
-      );
-    }
-    rejectDisabledPin(
-      title,
-      `a file- or suite-level test.${call.modifier} at line ${lineAt(source, call.start)} can suppress this test`,
-    );
-  }
+  return registrations.map((item) => ({
+    file: item.file,
+    title: item.title,
+    dynamic: item.dynamic,
+    ...(item.modifier === undefined ? {} : { modifier: item.modifier }),
+    line: item.line,
+    suppressionKind: item.suppressionKind,
+    ...(item.suppressionReason === undefined
+      ? {}
+      : { suppressionReason: item.suppressionReason }),
+  }));
 }
 
 export function findDesignE2ETestLine(source: string, title: string): number {
-  const code = maskNonCode(source);
-  const literals = ['"', "'", "`"]
-    .map((quote) => escapeRegExp(makeSourceString(title, quote)))
-    .join("|");
-  const testCall = new RegExp(
-    `(?<![\\w$.])test(?:[\\t ]*\\.[\\t ]*(?:fail|fixme|only|skip))?[\\t ]*\\([\\t\\r\\n ]*(?:${literals})(?=[\\t\\r\\n ]*[,\\)])`,
-    "g",
+  const matches = findDesignE2ETestRegistrations(source).filter(
+    (registration) => registration.title === title && !registration.dynamic,
   );
-  const matches: { readonly offset: number; readonly line: number }[] = [];
-  for (const match of source.matchAll(testCall)) {
-    const testOffset = match.index + match[0].search(/\S/);
-    if (code[testOffset] !== "t") continue;
-    if (/^test[\t\r\n ]*\./.test(match[0])) {
-      rejectDisabledPin(title, "the pinned test declaration has a modifier");
-    }
-    matches.push({ offset: testOffset, line: lineAt(source, testOffset) });
-  }
-
   if (matches.length !== 1) {
     throw new Error(
       `Design E2E pin title ${JSON.stringify(title)} must match exactly one test title; found ${matches.length}`,
     );
   }
   const match = matches[0]!;
-  inspectPinSuppressions(source, code, title, match.offset);
+  if (match.modifier !== undefined) {
+    rejectDisabledPin(title, "the pinned test declaration has a modifier");
+  }
+  if (match.suppressionKind) {
+    if (match.suppressionReason?.startsWith("Unable to inspect conditional")) {
+      throw new PinInspectionUnavailableError(match.suppressionReason);
+    }
+    rejectDisabledPin(title, match.suppressionReason ?? "test is suppressed");
+  }
   return match.line;
 }
 
@@ -1043,6 +1022,177 @@ export function resolveDesignE2ERegressionPin(
   const source = readSource(relativePath);
   const line = findDesignE2ETestLine(source, pin.title);
   return `${relativePath}:${line}`;
+}
+
+export type DesignE2ERegressionPinException = {
+  readonly action: "remove" | "rename";
+  readonly from: { readonly file: string; readonly title: string };
+  readonly to?: { readonly file: string; readonly title: string };
+  readonly reason: string;
+  readonly evidence: string;
+};
+
+function pinIdentity(pin: { readonly file: string; readonly title: string }) {
+  return JSON.stringify([pin.file, pin.title]);
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, item]) => `${JSON.stringify(name)}:${stableJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
+export function findDesignE2ERegressionPinCoverageViolations(
+  basePins: readonly DesignE2ERegressionPin[],
+  headPins: readonly DesignE2ERegressionPin[],
+  exceptions: readonly DesignE2ERegressionPinException[] = [],
+  baseExceptions: readonly DesignE2ERegressionPinException[] = [],
+): string[] {
+  const violations: string[] = [];
+  const baseByIdentity = new Map(
+    basePins.map((pin) => [pinIdentity(pin), pin] as const),
+  );
+  const headByIdentity = new Map<string, DesignE2ERegressionPin>();
+  for (const pin of headPins) {
+    const identity = pinIdentity(pin);
+    if (headByIdentity.has(identity)) {
+      violations.push(
+        `duplicate head pin identity: ${pin.file} / ${pin.title}`,
+      );
+    }
+    headByIdentity.set(identity, pin);
+  }
+
+  const historicalCounts = new Map<string, number>();
+  for (const exception of baseExceptions) {
+    const id = stableJson(exception);
+    historicalCounts.set(id, (historicalCounts.get(id) ?? 0) + 1);
+  }
+  const historicalIndexes = new Set<number>();
+  const newRenameTargets = new Map<string, string>();
+  for (const [index, exception] of exceptions.entries()) {
+    const id = stableJson(exception);
+    const remaining = historicalCounts.get(id) ?? 0;
+    if (remaining > 0) {
+      historicalIndexes.add(index);
+      historicalCounts.set(id, remaining - 1);
+    }
+  }
+
+  const used = new Set<number>();
+  for (const [identity, pin] of baseByIdentity) {
+    if (headByIdentity.has(identity)) continue;
+    const renameIndex = exceptions.findIndex(
+      (exception, index) =>
+        !historicalIndexes.has(index) &&
+        exception.action === "rename" &&
+        pinIdentity(exception.from) === identity &&
+        exception.to !== undefined &&
+        headByIdentity.has(pinIdentity(exception.to)),
+    );
+    if (renameIndex >= 0) {
+      used.add(renameIndex);
+      continue;
+    }
+    const removalIndex = exceptions.findIndex(
+      (exception, index) =>
+        !historicalIndexes.has(index) &&
+        exception.action === "remove" &&
+        pinIdentity(exception.from) === identity,
+    );
+    if (removalIndex >= 0) {
+      used.add(removalIndex);
+      continue;
+    }
+    violations.push(
+      `protected Design E2E pin was removed without an explicit exception: ${pin.file} / ${pin.title}`,
+    );
+  }
+
+  for (const [index, exception] of exceptions.entries()) {
+    if (
+      !["remove", "rename"].includes(exception.action) ||
+      typeof exception.reason !== "string" ||
+      typeof exception.evidence !== "string" ||
+      !exception.from ||
+      typeof exception.from.file !== "string" ||
+      !exception.from.file.trim() ||
+      typeof exception.from.title !== "string" ||
+      !exception.from.title.trim() ||
+      (exception.action === "rename" &&
+        (!exception.to ||
+          typeof exception.to.file !== "string" ||
+          !exception.to.file.trim() ||
+          typeof exception.to.title !== "string" ||
+          !exception.to.title.trim()))
+    ) {
+      violations.push("incomplete Design E2E pin exception metadata");
+      continue;
+    }
+    if (!exception.reason.trim() || !exception.evidence.trim()) {
+      violations.push(
+        `invalid or incomplete Design E2E pin exception for ${exception.from.file} / ${exception.from.title}`,
+      );
+      continue;
+    }
+    if (historicalIndexes.has(index)) continue;
+    if (exception.action === "rename") {
+      const targetIdentity = pinIdentity(exception.to!);
+      if (baseByIdentity.has(targetIdentity)) {
+        violations.push(
+          `Design E2E pin rename target already exists in the base: ${exception.to!.file} / ${exception.to!.title}`,
+        );
+      }
+      const previousSource = newRenameTargets.get(targetIdentity);
+      if (previousSource) {
+        violations.push(
+          `multiple Design E2E pin renames target the same identity: ${exception.to!.file} / ${exception.to!.title}`,
+        );
+      } else {
+        newRenameTargets.set(targetIdentity, pinIdentity(exception.from));
+      }
+    }
+    if (!baseByIdentity.has(pinIdentity(exception.from))) {
+      violations.push(
+        `invalid or incomplete Design E2E pin exception for ${exception.from.file} / ${exception.from.title}`,
+      );
+      continue;
+    }
+    if (
+      exception.action === "rename" &&
+      (!exception.to ||
+        !headByIdentity.has(pinIdentity(exception.to)) ||
+        pinIdentity(exception.to) === pinIdentity(exception.from))
+    ) {
+      violations.push(
+        `Design E2E pin rename must point to a different head pin: ${exception.from.file} / ${exception.from.title}`,
+      );
+      continue;
+    }
+    if (
+      exception.action === "remove" &&
+      headByIdentity.has(pinIdentity(exception.from))
+    ) {
+      violations.push(
+        `Design E2E pin removal exception is stale because the pin remains: ${exception.from.file} / ${exception.from.title}`,
+      );
+      continue;
+    }
+    if (!used.has(index)) {
+      violations.push(
+        `unused Design E2E pin exception for ${exception.from.file} / ${exception.from.title}`,
+      );
+    }
+  }
+
+  return violations;
 }
 
 function validatePinManifest(): void {
