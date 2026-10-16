@@ -75,6 +75,10 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => {
   };
 });
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
 import { OAuthAccountOwnedByOtherUserError } from "../oauth-tokens/store.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
@@ -104,6 +108,7 @@ import {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  resetAppConfigForTests();
   resolveSecretMock.mockReset();
   sigmaSecretMocks.readAppSecret.mockReset();
   sigmaSecretMocks.readAppSecretMeta.mockReset();
@@ -216,6 +221,7 @@ describe("workspace provider OAuth", () => {
   it("registers a reusable per-user Sigma OAuth client for the chosen region", async () => {
     const email = "requester@example.com";
     const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
     vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
     callbackMocks.getSession.mockResolvedValue({ email });
     callbackMocks.getOrgContext.mockResolvedValue({
@@ -303,9 +309,33 @@ describe("workspace provider OAuth", () => {
     });
   });
 
+  it("rejects a Sigma OAuth app id that differs from the current app", async () => {
+    const email = "requester@example.com";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    callbackMocks.getSession.mockResolvedValue({ email });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/sigma/start",
+    );
+    requestUrl.searchParams.set("appId", "dispatch");
+    requestUrl.searchParams.set("scope", "user");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "sigma");
+
+    expect(result).toMatchObject({
+      error: "This Sigma OAuth request does not match the current app.",
+    });
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(sigmaSecretMocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
   it("limits a personal Sigma OAuth connection to its granting app", async () => {
     const email = "requester@example.com";
     const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
     const redirectUri =
       "https://example.test/_agent-native/connections/oauth/sigma/callback";
     const flow: WorkspaceProviderOAuthFlow = {
@@ -411,6 +441,62 @@ describe("workspace provider OAuth", () => {
         provider: "sigma",
       }),
     );
+  });
+
+  it("rejects a Sigma OAuth callback bound to another app", async () => {
+    const email = "requester@example.com";
+    const redirectUri =
+      "https://example.test/_agent-native/connections/oauth/sigma/callback";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    const flow: WorkspaceProviderOAuthFlow = {
+      provider: "sigma",
+      flowId: "sigma-callback-flow-2",
+      verifier: "sigma-verifier-2",
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      appId: "dispatch",
+      scope: "user",
+      sigmaApiBaseUrl: "https://api.eu.aws.sigmacomputing.com",
+      sigmaAuthorizationUrl:
+        "https://api.eu.aws.sigmacomputing.com/mcp/authorize",
+      sigmaTokenUrl: "https://api.eu.aws.sigmacomputing.com/mcp/token",
+      sigmaOAuthClientId: "sigma-dynamic-client",
+      sigmaTokenEndpointAuthMethod: "none",
+      expiresAt: Date.now() + 60_000,
+    };
+    const state = encodeOAuthState({
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      app: "dispatch",
+      scope: "user",
+      provider: "sigma",
+      flowId: flow.flowId,
+    });
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set("code", "sigma-code");
+    callbackUrl.searchParams.set("state", state);
+    const event = {
+      req: new Request(callbackUrl, {
+        headers: {
+          cookie: `an_workspace_oauth_sigma=${encodeURIComponent(
+            encryptSecretValue(JSON.stringify(flow)),
+          )}`,
+        },
+      }),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthCallback(event, "sigma");
+
+    expect(result).toMatchObject({
+      error: "This Sigma OAuth request does not match the current app.",
+    });
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(callbackMocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
   });
 
   it("keeps portal and site OAuth token keys owner-scoped", () => {

@@ -256,15 +256,33 @@ export async function handleWorkspaceProviderOAuthStart(
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
-  const appId = normalizeAppId(
-    text(query.appId) ?? getAppConfig().app.workspaceId ?? "creative-context",
-  );
   const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
   if (!requestedScope) {
     return oauthFlowFailure(
       event,
       400,
       "OAuth connection scope must be user, organization, or app.",
+    );
+  }
+  const requestedAppId = text(query.appId);
+  const appId =
+    providerId === "sigma"
+      ? currentWorkspaceProviderOAuthAppId()
+      : normalizeAppId(
+          requestedAppId ??
+            getAppConfig().app.workspaceId ??
+            "creative-context",
+        );
+  if (
+    !appId ||
+    (providerId === "sigma" &&
+      (requestedScope !== "user" ||
+        (requestedAppId && normalizedAppIdOrNull(requestedAppId) !== appId)))
+  ) {
+    return oauthFlowFailure(
+      event,
+      403,
+      "This Sigma OAuth request does not match the current app.",
     );
   }
   const orgContext = await requireWorkspaceProviderOAuthAccess(
@@ -465,6 +483,13 @@ export async function handleWorkspaceProviderOAuthCallback(
     );
   }
   const flow = storedFlow.flow;
+  if (providerId === "sigma" && !sigmaOAuthFlowMatchesCurrentApp(flow)) {
+    return oauthFlowFailure(
+      event,
+      403,
+      "This Sigma OAuth request does not match the current app.",
+    );
+  }
   const orgContext = await requireWorkspaceProviderOAuthAccess(
     event,
     flow.appId,
@@ -1789,11 +1814,32 @@ function flowCookieName(provider: GenericWorkspaceOAuthProvider): string {
 }
 
 function normalizeAppId(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9_-]{0,99}$/.test(normalized)) {
-    throw new Error("OAuth appId is invalid.");
-  }
+  const normalized = normalizedAppIdOrNull(value);
+  if (!normalized) throw new Error("OAuth appId is invalid.");
   return normalized;
+}
+
+function normalizedAppIdOrNull(value: string | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && /^[a-z0-9][a-z0-9_-]{0,99}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function currentWorkspaceProviderOAuthAppId(): string | null {
+  const app = getAppConfig().app;
+  return normalizedAppIdOrNull(app.workspaceId ?? app.id);
+}
+
+function sigmaOAuthFlowMatchesCurrentApp(
+  flow: WorkspaceProviderOAuthFlow,
+): boolean {
+  const appId = currentWorkspaceProviderOAuthAppId();
+  return Boolean(
+    appId &&
+    flow.scope === "user" &&
+    normalizedAppIdOrNull(flow.appId) === appId,
+  );
 }
 
 function text(value: unknown): string | undefined {
