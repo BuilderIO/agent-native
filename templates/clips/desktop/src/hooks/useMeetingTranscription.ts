@@ -951,7 +951,7 @@ export function useMeetingTranscription({
     [runStartTranscription],
   );
 
-  retryPendingWorkRef.current = () => {
+  const retryPendingWork = useCallback(() => {
     const session = sessionRef.current;
     if (quitTeardownPendingRef.current) {
       stopTranscription("app-quit").catch((error) => {
@@ -974,7 +974,11 @@ export function useMeetingTranscription({
         },
       );
     }
-  };
+  }, [startTranscription, stopTranscription]);
+
+  useEffect(() => {
+    retryPendingWorkRef.current = retryPendingWork;
+  }, [retryPendingWork]);
 
   useEffect(
     () => () => {
