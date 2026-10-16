@@ -598,6 +598,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "@jridgewell/trace-mapping",
     "../../../../shared/spacing-handle-rule",
     "../../../../shared/text-layer-rule",
+    "../../../../shared/relative-position-containing-block",
   ],
   "hit-test.bridge.ts": ["../../../../shared/text-layer-rule"],
   // A pure, dependency-free module shared with the editor, so the media-query
