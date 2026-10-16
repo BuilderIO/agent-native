@@ -1463,7 +1463,7 @@ export function SqlChart({
         }
         className="absolute right-0 top-0 z-10 inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
       >
-        <Spinner className="size-3" />
+        <Spinner aria-hidden="true" className="size-3" />
         {t(
           isShowingPreviousFilters
             ? "sqlDashboard.updatingPreviousFilters"
