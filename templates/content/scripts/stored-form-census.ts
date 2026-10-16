@@ -99,7 +99,13 @@ export function parseCensusArgs(argv: readonly string[]): CensusOptions {
   };
 }
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
+// One `@` at most, and nothing a parser could read as a second host, path or
+// fragment: postgres.js takes the host after the first `@` where `URL` takes
+// the last, so a URL two parsers could read differently is refused. IPv6
+// literals are refused too; postgres.js reads `[::1]` as the host `[`.
+const TARGET_URL =
+  /^postgres(?:ql)?:\/\/(?:[^\s@/?#\\]*@)?([^\s@/?#\\:[\]]+)(?::\d{1,5})?(?:\/[^\s@/?#\\]*)?(?:\?[^\s@#\\]*)?$/i;
 const PLAIN_HOSTNAME =
   /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/;
 const ALLOWED_URL_PARAMETERS = new Set(["sslmode", "channel_binding"]);
@@ -139,9 +145,10 @@ export function resolveCensusTarget(
       neon: null,
     };
   }
-  if (!/^postgres(?:ql)?:\/\//i.test(url) || !URL.canParse(url)) {
+  const shape = TARGET_URL.exec(url);
+  if (!shape || !URL.canParse(url)) {
     throw new CensusRefusal(
-      `${options.databaseUrlEnv} does not hold a PostgreSQL or pglite: URL`,
+      `${options.databaseUrlEnv} must hold postgres://[user[:password]@]host[:port][/database][?sslmode=…] with special characters percent-encoded, or a pglite: URL`,
     );
   }
   const parsed = new URL(url);
@@ -149,15 +156,16 @@ export function resolveCensusTarget(
   // The driver must reach exactly the host the refusal checked. Drivers also
   // read `?host=`, decode `%xx` in the host, and split `a,b` into fallbacks,
   // so anything but one plain hostname is refused rather than interpreted.
-  if (host !== "[::1]" && !PLAIN_HOSTNAME.test(host)) {
+  if (host !== shape[1].toLowerCase() || !PLAIN_HOSTNAME.test(host)) {
     throw new CensusRefusal(
       `${options.databaseUrlEnv} must name one plain hostname; encoded, multiple, trailing-dot and socket hosts are not supported`,
     );
   }
+  // The parameter's name is not printed: it could be a misplaced password.
   for (const key of parsed.searchParams.keys()) {
     if (!ALLOWED_URL_PARAMETERS.has(key)) {
       throw new CensusRefusal(
-        `${options.databaseUrlEnv} has URL parameter "${key}"; only ${[...ALLOWED_URL_PARAMETERS].join(" and ")} are supported`,
+        `${options.databaseUrlEnv} has a URL parameter other than ${[...ALLOWED_URL_PARAMETERS].join(" and ")}, which are the only ones supported`,
       );
     }
   }
@@ -228,12 +236,17 @@ export function describeCensusTarget(target: CensusTarget): string[] {
 
 const SET_SNAPSHOT_MODE =
   "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY";
+// Core ends a Neon transaction after 30 idle seconds, and Content's parser
+// can take longer than that on one large body, between the scan's pings.
+const SET_IDLE_LIMIT =
+  "SET LOCAL idle_in_transaction_session_timeout = '10min'";
 export const SNAPSHOT_MODE_CHECK =
-  "SELECT current_setting('transaction_read_only') AS read_only, current_setting('transaction_isolation') AS isolation";
+  "SELECT current_setting('transaction_read_only') AS read_only, current_setting('transaction_isolation') AS isolation, current_setting('idle_in_transaction_session_timeout') AS idle_limit";
 
 /** Every statement the census may send, verbatim. */
 export const CENSUS_ALLOWED_STATEMENTS: ReadonlySet<string> = new Set([
   SET_SNAPSHOT_MODE,
+  SET_IDLE_LIMIT,
   SNAPSHOT_MODE_CHECK,
   ...Object.values(CENSUS_STATEMENTS),
 ]);
@@ -279,10 +292,15 @@ export async function withReadOnlySnapshot<T>(
         unknown
       >[];
     await query(SET_SNAPSHOT_MODE);
+    await query(SET_IDLE_LIMIT);
     const [mode] = await query(SNAPSHOT_MODE_CHECK);
-    if (mode?.read_only !== "on" || mode?.isolation !== "repeatable read") {
+    if (
+      mode?.read_only !== "on" ||
+      mode?.isolation !== "repeatable read" ||
+      mode?.idle_limit !== "10min"
+    ) {
       throw new CensusRefusal(
-        `The census transaction is not a read-only snapshot (read_only=${String(mode?.read_only)}, isolation=${String(mode?.isolation)})`,
+        `The census transaction is not a read-only snapshot with its idle limit (read_only=${String(mode?.read_only)}, isolation=${String(mode?.isolation)}, idle_limit=${String(mode?.idle_limit)})`,
       );
     }
     return scan(query);
@@ -319,17 +337,28 @@ function safeDecode(value: string): string {
   }
 }
 
+function passwordIn(url: string | undefined): string {
+  return url && URL.canParse(url) ? new URL(url).password : "";
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** Exit code: 0 complete, 2 incomplete report, 1 refused or failed. */
 export async function runStoredFormCensusCli(
   deps: CensusCliDependencies,
 ): Promise<number> {
   let db: DbExec | undefined;
   let password = "";
+  // Driver errors and odd URLs can quote the password anywhere.
+  const log = (line: string) => deps.log(redactCredentials(line, password));
+  let exitCode: number;
   try {
     const options = parseCensusArgs(deps.argv);
+    password = passwordIn(deps.env[options.databaseUrlEnv]?.trim());
     const target = resolveCensusTarget(options, deps.env);
-    password = target.kind === "pglite" ? "" : new URL(target.url).password;
-    for (const line of describeCensusTarget(target)) deps.log(line);
+    for (const line of describeCensusTarget(target)) log(line);
     const refusal = productionRefusal(target, deps.env);
     if (refusal) throw new CensusRefusal(`Refused: ${refusal}`);
     db = await deps.connect(target.url);
@@ -351,21 +380,22 @@ export async function runStoredFormCensusCli(
         2,
       )}\n`,
     );
-    return report.complete ? 0 : 2;
+    exitCode = report.complete ? 0 : 2;
   } catch (error) {
-    // Driver errors can quote the connection string they were given.
-    deps.log(
-      redactCredentials(
-        error instanceof CensusRefusal
-          ? error.message
-          : `Census failed; no report was produced: ${error instanceof Error ? error.message : String(error)}`,
-        password,
-      ),
+    log(
+      error instanceof CensusRefusal
+        ? error.message
+        : `Census failed; no report was produced: ${messageOf(error)}`,
     );
-    return 1;
-  } finally {
-    await db?.close?.();
+    exitCode = 1;
   }
+  try {
+    await db?.close?.();
+  } catch (error) {
+    log(`Closing the database connection failed: ${messageOf(error)}`);
+    exitCode = 1;
+  }
+  return exitCode;
 }
 
 if (
@@ -382,6 +412,11 @@ if (
     });
   } finally {
     // A pglite: client has no per-exec close and would keep the process alive.
-    await closeDbExec();
+    await closeDbExec().catch((error: unknown) => {
+      process.stderr.write(
+        `${redactCredentials(`Closing database clients failed: ${messageOf(error)}`)}\n`,
+      );
+      process.exitCode = 1;
+    });
   }
 }

@@ -333,7 +333,9 @@ const NFM_TAG_LINE = new RegExp(
 const NFM_INLINE_TAG = new RegExp(NFM_TAG, "g");
 const NFM_BLOCK_ATTRIBUTES =
   /(^|[^\\])[ \t]*\{[a-z][\w-]*="[^"]*"(?:[ \t]+[a-z][\w-]*="[^"]*")*\}[ \t]*$/m;
-const FENCE = /^[ \t]*(`{3,}|~{3,})/;
+// A fence may sit inside blockquotes and list items: `> ```js`, `- ```js`.
+const FENCE =
+  /^(?:[ \t]*(?:>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+))*[ \t]*(`{3,}|~{3,})(.*)$/;
 const BACKTICK_RUN = /`+/g;
 
 function outsideCodeSpans(line: string, edit: (text: string) => string) {
@@ -358,17 +360,18 @@ function withoutNfmSyntax(body: string): string {
   return body
     .split("\n")
     .map((line) => {
-      const marker = FENCE.exec(line)?.[1];
+      const [, marker, rest = ""] = FENCE.exec(line) ?? [];
       if (fence !== null) {
         if (
           marker?.[0] === fence[0] &&
           marker.length >= fence.length &&
-          line.trim() === marker
+          rest.trim() === ""
         )
           fence = null;
         return line;
       }
-      if (marker) {
+      // A backtick fence's info string has no backticks; "```x```" is code.
+      if (marker && !(marker[0] === "`" && rest.includes("`"))) {
         fence = marker;
         return line;
       }
@@ -381,36 +384,80 @@ function withoutNfmSyntax(body: string): string {
     .join("\n");
 }
 
-function linkTarget(node: MdNode): string | undefined {
-  return node.url ?? node.identifier;
+type Mark = (typeof MARKS)[number];
+/** The marks on one run of text, keyed so a link to another place differs. */
+type MarkSet = Map<string, Mark>;
+
+/**
+ * Count each mark once per run of adjacent text carrying it. Both readers are
+ * counted this way, so `**a** and **b**` is two bold runs to each, while
+ * `` `a`**`b`** `` is one code run although GFM nests it in two nodes.
+ */
+function countMarkRuns(profile: ReadProfile, runs: readonly MarkSet[]) {
+  let open = new Set<string>();
+  for (const marks of runs) {
+    for (const [key, mark] of marks)
+      if (!open.has(key)) profile.marks[mark] += 1;
+    open = new Set(marks.keys());
+  }
 }
+
+function withMark(marks: MarkSet, key: string, mark: Mark): MarkSet {
+  return new Map(marks).set(key, mark);
+}
+
+const GFM_PHRASING = new Set([
+  "strong",
+  "emphasis",
+  "delete",
+  "link",
+  "linkReference",
+  "text",
+  "inlineCode",
+  "break",
+  "image",
+  "imageReference",
+  "html",
+  "footnoteReference",
+]);
 
 /** What a GitHub-flavored Markdown reader sees, which is how agents write. */
 function gfmProfile(body: string): ReadProfile {
   const markdown = withoutNfmSyntax(body);
   const profile = emptyProfile();
-  const walk = (node: MdNode, listDepth: number, previous?: MdNode) => {
-    if (
-      node.type !== "link" &&
-      (MARKS as readonly string[]).includes(node.type)
-    )
-      profile.marks[node.type as (typeof MARKS)[number]] += 1;
+  const walk = (
+    node: MdNode,
+    listDepth: number,
+    marks: MarkSet,
+    runs: MarkSet[],
+  ) => {
+    let inner = marks;
     switch (node.type) {
+      case "strong":
+      case "emphasis":
+      case "delete":
+        inner = withMark(marks, node.type, node.type as Mark);
+        break;
       case "text":
+        addText(profile, node.value ?? "");
+        runs.push(marks);
+        break;
       case "inlineCode":
         addText(profile, node.value ?? "");
+        runs.push(withMark(marks, "inlineCode", "inlineCode"));
         break;
       case "link":
       case "linkReference": {
         // A bare URL that GFM links by itself is a display choice, not markup
         // the writer chose, so only `[text](url)`, `[text][ref]` and `<url>`
-        // count. Content keeps two touching links to one place as one link.
+        // count.
         const first = markdown[node.position?.start.offset ?? 0];
-        const continues =
-          previous?.type === node.type &&
-          linkTarget(previous) === linkTarget(node);
-        if ((first === "[" || first === "<") && !continues)
-          profile.marks.link += 1;
+        if (first === "[" || first === "<")
+          inner = withMark(
+            marks,
+            `link\u0000${node.url ?? node.identifier}`,
+            "link",
+          );
         break;
       }
       case "code": {
@@ -448,12 +495,14 @@ function gfmProfile(body: string): ReadProfile {
         break;
     }
     const childDepth = node.type === "list" ? listDepth + 1 : listDepth;
-    const children = node.children ?? [];
-    children.forEach((child, index) =>
-      walk(child, childDepth, children[index - 1]),
-    );
+    // Runs end with the block holding them.
+    const isBlock = !GFM_PHRASING.has(node.type);
+    const childRuns = isBlock ? [] : runs;
+    for (const child of node.children ?? [])
+      walk(child, childDepth, inner, childRuns);
+    if (isBlock) countMarkRuns(profile, childRuns);
   };
-  walk(gfmReader.parse(markdown) as MdNode, 0);
+  walk(gfmReader.parse(markdown) as MdNode, 0, new Map(), []);
   return profile;
 }
 
@@ -497,23 +546,21 @@ function nfmProfile(document: PMNode): ReadProfile {
         break;
     }
     const children = node.content ?? [];
-    let open = new Set<string>();
-    for (const child of children) {
-      // A run continues while the mark does; touching links to different
-      // places are separate links.
-      const present = new Map<string, (typeof MARKS)[number]>();
-      for (const mark of child.marks ?? []) {
-        const kind = NFM_MARK[mark.type];
-        if (!kind) continue;
-        present.set(
-          kind === "link" ? `link\u0000${String(mark.attrs?.href)}` : kind,
-          kind,
-        );
-      }
-      for (const [key, kind] of present)
-        if (!open.has(key)) profile.marks[kind] += 1;
-      open = new Set(present.keys());
-    }
+    countMarkRuns(
+      profile,
+      children.map((child) => {
+        const marks: MarkSet = new Map();
+        for (const mark of child.marks ?? []) {
+          const kind = NFM_MARK[mark.type];
+          if (kind)
+            marks.set(
+              kind === "link" ? `link\u0000${String(mark.attrs?.href)}` : kind,
+              kind,
+            );
+        }
+        return marks;
+      }),
+    );
     const isList = ["bulletList", "orderedList", "taskList"].includes(
       node.type,
     );

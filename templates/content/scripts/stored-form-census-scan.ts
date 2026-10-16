@@ -18,11 +18,11 @@ const PAGE_BATCH = 100;
 const ITEM_BATCH = 200;
 const ORPHAN_BATCH = 1000;
 // Larger bodies and live copies are counted without being parsed. Parsing has
-// no deadline, so this is what keeps one huge page from stalling the run.
-const MAX_BODY_BYTES = 512 * 1024;
+// no deadline and Content's parser is quadratic on some input (a run of `[`
+// takes about 3 minutes to classify at this size), so this cap is what keeps
+// one page inside the snapshot's 10-minute idle limit.
+const MAX_BODY_BYTES = 256 * 1024;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
-// Core's Neon transactions end after 30 seconds idle, and classifying a batch
-// can take longer than that, so the scan pings its snapshot between pages.
 const KEEPALIVE_AFTER_MS = 10_000;
 const SUGGESTION_ADAPTER = "content.document-markdown";
 // The checks validateOperations in server/lib/suggested-edits.ts makes before
@@ -35,6 +35,7 @@ const ACCEPTED_OPERATION_KINDS = new Set([
   "add_text_block",
   "set_inline_mark",
 ]);
+const MAX_SUGGESTION_MARKDOWN_CHARS = 1_000_000;
 
 /**
  * Every statement the scan sends, verbatim. The CLI refuses anything else,
@@ -45,21 +46,52 @@ export const CENSUS_STATEMENTS = {
     "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY(?)",
   keepalive: "SELECT 1 AS alive",
   documents:
-    "SELECT id, CASE WHEN octet_length(content) <= ? THEN content END AS content, octet_length(content) AS content_bytes, body_revision, collab_body_revision, trashed_at, source_mode, source_kind, source_path FROM documents WHERE id > ? ORDER BY id LIMIT ?",
+    "SELECT id, CASE WHEN octet_length(content) <= ? THEN content END AS content, octet_length(content) AS content_bytes, body_revision, collab_body_revision, trashed_at, source_mode, source_kind, source_path FROM documents WHERE id >= ? ORDER BY id LIMIT ?",
   liveCopies:
     "SELECT doc_id, CASE WHEN octet_length(yjs_state) <= ? THEN yjs_state END AS yjs_state FROM _collab_docs WHERE doc_id = ANY(?)",
   suggestions:
-    "SELECT id, resource_id FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id > ? OR (resource_id = ? AND id > ?)) ORDER BY resource_id, id LIMIT ?",
+    "SELECT id, resource_id FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id, id) >= (?, ?) ORDER BY resource_id, id LIMIT ?",
   suggestionOperations:
     "SELECT suggestion_id, operation_kind, target_id, schema_version, before_json, after_json, anchor_json FROM agent_review_suggestion_operations WHERE suggestion_id = ANY(?) ORDER BY suggestion_id, ordinal",
   comments:
-    "SELECT id, document_id, quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id > ? OR (document_id = ? AND id > ?)) ORDER BY document_id, id LIMIT ?",
+    "SELECT id, document_id, quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id, id) >= (?, ?) ORDER BY document_id, id LIMIT ?",
   drafts:
     "SELECT document_id, COUNT(*) AS drafts FROM document_preview_drafts WHERE document_id = ANY(?) GROUP BY document_id ORDER BY document_id",
   collabRows: "SELECT COUNT(*) AS rows FROM _collab_docs",
   orphans:
-    "SELECT c.doc_id FROM _collab_docs c WHERE c.doc_id > ? AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = c.doc_id) ORDER BY c.doc_id LIMIT ?",
+    "SELECT c.doc_id FROM _collab_docs c WHERE c.doc_id >= ? AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = c.doc_id) ORDER BY c.doc_id LIMIT ?",
 } as const;
+
+type Row = Record<string, unknown>;
+
+/**
+ * Every row of a keyset scan, a page at a time. A page starts at the last key
+ * it saw, inclusive, and drops that row again: a key may be '', and nothing
+ * sorts before '' to start an exclusive scan from.
+ */
+async function* keysetPages(
+  readPage: (from: string[], limit: number) => Promise<Row[]>,
+  keyOf: (row: Row) => string[],
+  width: number,
+  batch: number,
+): AsyncGenerator<Row[]> {
+  let last: string[] | null = null;
+  while (true) {
+    const rows = await readPage(last ?? Array(width).fill(""), batch + 1);
+    const resumed = last !== null && rows.length > 0 && sameKey(rows[0], last);
+    const fresh = resumed ? rows.slice(1) : rows;
+    if (fresh.length === 0) return;
+    const lastRow = fresh[fresh.length - 1];
+    if (last !== null && sameKey(lastRow, last))
+      throw new Error("A keyset scan stopped advancing");
+    last = keyOf(lastRow);
+    yield fresh;
+  }
+
+  function sameKey(row: Row, key: readonly string[]) {
+    return keyOf(row).every((part, index) => part === key[index]);
+  }
+}
 
 const TABLES = [
   "documents",
@@ -220,6 +252,8 @@ function suggestionOutcome(
     !anchor.ok ||
     typeof before.value.markdown !== "string" ||
     typeof after.value.markdown !== "string" ||
+    before.value.markdown.length > MAX_SUGGESTION_MARKDOWN_CHARS ||
+    after.value.markdown.length > MAX_SUGGESTION_MARKDOWN_CHARS ||
     before.value.markdown === after.value.markdown
   ) {
     return "notAcceptable";
@@ -329,19 +363,13 @@ export async function runStoredFormCensusScan(
     drafts: itemBucket(),
   };
 
-  let lastId = "";
-  while (true) {
-    const rows = await read(CENSUS_STATEMENTS.documents, [
-      MAX_BODY_BYTES,
-      lastId,
-      PAGE_BATCH,
-    ]);
-    if (rows.length === 0) break;
-    const nextLastId = String(rows[rows.length - 1].id);
-    if (nextLastId === lastId)
-      throw new Error("The documents scan stopped advancing");
-    lastId = nextLastId;
-
+  for await (const rows of keysetPages(
+    ([from], limit) =>
+      read(CENSUS_STATEMENTS.documents, [MAX_BODY_BYTES, from, limit]),
+    (row) => [String(row.id)],
+    1,
+    PAGE_BATCH,
+  )) {
     const pages = new Map<string, AgentFormPage>();
     const batchPages = new Map<string, Page>();
     const batchBodies = new Map<string, string>();
@@ -427,21 +455,19 @@ export async function runStoredFormCensusScan(
     if (agentFormIds.length === 0) continue;
 
     if (hasSuggestions) {
-      let lastResource = "";
-      let lastSuggestion = "";
-      while (true) {
-        const suggestions = await read(CENSUS_STATEMENTS.suggestions, [
-          SUGGESTION_ADAPTER,
-          agentFormIds,
-          lastResource,
-          lastResource,
-          lastSuggestion,
-          ITEM_BATCH,
-        ]);
-        if (suggestions.length === 0) break;
-        const last = suggestions[suggestions.length - 1];
-        lastResource = String(last.resource_id);
-        lastSuggestion = String(last.id);
+      for await (const suggestions of keysetPages(
+        ([resource, id], limit) =>
+          read(CENSUS_STATEMENTS.suggestions, [
+            SUGGESTION_ADAPTER,
+            agentFormIds,
+            resource,
+            id,
+            limit,
+          ]),
+        (row) => [String(row.resource_id), String(row.id)],
+        2,
+        ITEM_BATCH,
+      )) {
         const operations = new Map<string, Record<string, unknown>[]>(
           suggestions.map((row) => [String(row.id), []]),
         );
@@ -480,20 +506,13 @@ export async function runStoredFormCensusScan(
         }
         return anchors;
       };
-      let lastDocument = "";
-      let lastComment = "";
-      while (true) {
-        const comments = await read(CENSUS_STATEMENTS.comments, [
-          agentFormIds,
-          lastDocument,
-          lastDocument,
-          lastComment,
-          ITEM_BATCH,
-        ]);
-        if (comments.length === 0) break;
-        const last = comments[comments.length - 1];
-        lastDocument = String(last.document_id);
-        lastComment = String(last.id);
+      for await (const comments of keysetPages(
+        ([document, id], limit) =>
+          read(CENSUS_STATEMENTS.comments, [agentFormIds, document, id, limit]),
+        (row) => [String(row.document_id), String(row.id)],
+        2,
+        ITEM_BATCH,
+      )) {
         for (const row of comments) {
           const page = pages.get(String(row.document_id))!;
           const anchors = anchorsFor(page);
@@ -525,17 +544,12 @@ export async function runStoredFormCensusScan(
   if (hasCollab) {
     const [count] = await read(CENSUS_STATEMENTS.collabRows);
     collabRows = Number(count?.rows);
-    let lastDocId = "";
-    while (true) {
-      const rows = await read(CENSUS_STATEMENTS.orphans, [
-        lastDocId,
-        ORPHAN_BATCH,
-      ]);
-      if (rows.length === 0) break;
-      const next = String(rows[rows.length - 1].doc_id);
-      if (next === lastDocId)
-        throw new Error("The live-copy orphan scan stopped advancing");
-      lastDocId = next;
+    for await (const rows of keysetPages(
+      ([from], limit) => read(CENSUS_STATEMENTS.orphans, [from, limit]),
+      (row) => [String(row.doc_id)],
+      1,
+      ORPHAN_BATCH,
+    )) {
       for (const row of rows) {
         orphaned.rows += 1;
         if (orphaned.docIds.length < options.maxIds)

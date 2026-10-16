@@ -106,6 +106,10 @@ describe("body classification", () => {
     expect(result.status).toBe("non-canonical");
     if (result.status !== "non-canonical") return;
     expect(result.losses).toContain("gfm-code-blocks-lost");
+    // A fenced block inside a quote is lost, but its contents are still code.
+    expect(
+      classifyBody(L("> ```html", '> <a href="C:\\temp">x</a>', "> ```")),
+    ).toMatchObject({ losses: ["gfm-code-blocks-lost"] });
     expect(canonicalizationLosses("Keep every word", "Keep word")).toContain(
       "gfm-text-dropped",
     );
@@ -138,6 +142,8 @@ describe("body classification", () => {
       L("```html", '<a href="C:\\temp">x</a>', "```"),
       L("\t```", '\t<a href="C:\\temp">', "\t```"),
       'Use `<a href="C:\\temp">` here',
+      "`a`**`b`**",
+      "~~a~~**~~b~~**",
     ]) {
       expect(canonicalizeNfm(body), body).toBe(body);
       expect(classifyBody(body), body).toEqual({

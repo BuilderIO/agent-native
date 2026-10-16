@@ -204,14 +204,26 @@ describe("stored-form census guards (SF-09)", () => {
   });
 
   it("refuses a URL whose driver could reach a host other than the one checked", async () => {
+    const local = targetUrl("reader", "localhost", "content");
     for (const [url, reason] of [
+      // postgres.js reads the host after the first `@`, URL after the last.
+      [
+        local.replace("@localhost", `@${PRODUCTION_HOST},ignored@localhost`),
+        "must hold postgres://",
+      ],
+      [
+        local.replace("@localhost", `@${PRODUCTION_HOST}@localhost`),
+        "must hold postgres://",
+      ],
+      [`${local}#@${PRODUCTION_HOST}`, "must hold postgres://"],
+      [local.replace("localhost", "[::1]"), "must hold postgres://"],
       [
         targetUrl("reader", BRANCH_HOST, `neondb?host=${PRODUCTION_HOST}`),
-        'has URL parameter "host"',
+        "has a URL parameter other than sslmode and channel_binding",
       ],
       [
         targetUrl("reader", BRANCH_HOST, "neondb?options=-c%20x%3Dy"),
-        'has URL parameter "options"',
+        "has a URL parameter other than sslmode and channel_binding",
       ],
       [
         targetUrl("reader", PRODUCTION_HOST.replace(/^e/, "%65"), "neondb"),
@@ -274,6 +286,39 @@ describe("stored-form census guards (SF-09)", () => {
     expect(redactCredentials(`see ${url} now`)).toBe(
       `see ${targetUrl("reader", BRANCH_HOST, "neondb", "***")} now`,
     );
+
+    // The password may also sit where the target lines and refusals print.
+    for (const misplaced of [
+      targetUrl(PASSWORD, "localhost", "content"),
+      targetUrl("reader", "localhost", PASSWORD),
+      targetUrl("reader", "localhost", `content?${PASSWORD}=1`),
+      targetUrl("reader", "localhost", `content?sslmode=${PASSWORD}`),
+    ]) {
+      const { run, events } = cli(
+        ["--database-url-env=CENSUS_URL"],
+        { CENSUS_URL: misplaced },
+        async () => {
+          throw new Error("stop after connect");
+        },
+      );
+      expect(await run).toBe(1);
+      expect(events.join("\n"), misplaced).not.toContain(PASSWORD);
+    }
+
+    const closing = cli(
+      ["--database-url-env=CENSUS_URL"],
+      { CENSUS_URL: targetUrl("reader", "localhost", "content") },
+      async (target) => ({
+        execute: async () => ({ rows: [], rowsAffected: 0 }),
+        close: async () => {
+          throw new Error(`could not close ${target}`);
+        },
+      }),
+    );
+    expect(await closing.run).toBe(1);
+    const closeFailure = closing.events[closing.events.length - 1];
+    expect(closeFailure).toContain("Closing the database connection failed");
+    expect(closeFailure).not.toContain(PASSWORD);
   });
 
   it("reads its target only from the named variable and requires Neon labels", async () => {
@@ -350,6 +395,7 @@ describe("stored-form census guards (SF-09)", () => {
     }
     expect([...CENSUS_ALLOWED_STATEMENTS].filter(notPlainRead)).toEqual([
       "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+      "SET LOCAL idle_in_transaction_session_timeout = '10min'",
     ]);
   });
 
@@ -558,7 +604,11 @@ describe("stored-form census against a local database", () => {
     }).catch(() => {
       // The refused UPDATE aborts the transaction, so ending it can fail.
     });
-    expect(mode).toEqual({ read_only: "on", isolation: "repeatable read" });
+    expect(mode).toEqual({
+      read_only: "on",
+      isolation: "repeatable read",
+      idle_limit: "10min",
+    });
     expect(write).toBeInstanceOf(Error);
     expect((write as Error).message).toMatch(/read-only transaction/);
     const rows = await db.execute("SELECT content FROM documents ORDER BY id");
@@ -716,8 +766,49 @@ describe("stored-form census against a local database", () => {
       "page-editor",
     ]);
     expect(report.incompleteReasons).toEqual([
-      "bodies over 524288 bytes, not classified: 1",
+      "bodies over 262144 bytes, not classified: 1",
       "unreadable live copies: 1",
+    ]);
+  });
+
+  it("reads every row across pages, including one whose id is empty", async () => {
+    await db.execute(
+      "INSERT INTO documents (id, content) SELECT 'bulk-' || lpad(i::text, 3, '0'), 'Plain words' FROM generate_series(0, 249) AS i",
+    );
+    await db.execute({
+      sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
+      args: ["", "__empty id__"],
+    });
+    await db.execute(
+      "INSERT INTO document_comments (id, document_id, thread_id, content, quoted_text, author_email) SELECT 'bulk-comment-' || lpad(i::text, 3, '0'), 'page-agent', 't', 'c', 'bold claim', 'a@example.com' FROM generate_series(0, 449) AS i",
+    );
+    const census = async () => {
+      const { run, stdout } = cli(
+        ["--database-url-env=CENSUS_URL", "--max-ids=1000"],
+        { CENSUS_URL: "pglite:memory" },
+        async () => ({ ...db, close: async () => {} }),
+      );
+      expect(await run).toBe(0);
+      return JSON.parse(stdout.join(""));
+    };
+
+    const report = await census();
+    expect(report.scanned.documents).toBe(4 + 250 + 1);
+    expect(report.bodies.canonicalButMisread.pageIds).toContain("");
+    const comments = Object.values(
+      report.agentFormPages.commentAnchors as Record<string, { items: number }>,
+    ).reduce((total, bucket) => total + bucket.items, 0);
+    expect(comments).toBe(1 + 450);
+
+    // A live copy whose page is gone, under the same empty id.
+    await db.execute({ sql: "DELETE FROM documents WHERE id = ?", args: [""] });
+    await db.execute({
+      sql: "INSERT INTO _collab_docs (doc_id, yjs_state) VALUES (?, ?)",
+      args: ["", liveCopyState("Orphan with an empty id")],
+    });
+    expect((await census()).liveCopies.orphaned.docIds).toEqual([
+      "",
+      "page-deleted-long-ago",
     ]);
   });
 
