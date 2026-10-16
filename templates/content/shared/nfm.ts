@@ -2797,6 +2797,19 @@ function parseTable(
   }
   const colMeta: Array<{ color?: string; width?: string }> = [];
   const rows: Array<{ color: string | null; cells: string[] }> = [];
+  const openRow = (attrSource: string | undefined) => {
+    const rowAttrs = readAttrs("tr", attrSource ?? "", ROW_ATTRS);
+    rows.push({
+      color: isColor(rowAttrs.color) ? rowAttrs.color : null,
+      cells: [],
+    });
+  };
+  const addCells = (source: string) => {
+    for (const part of splitTableCells(source)) {
+      if (typeof part === "string") rows[rows.length - 1].cells.push(part);
+      else openRow(part.rowAttrs);
+    }
+  };
   let cellCloses: Int32Array | null = null;
 
   let i = start + 1;
@@ -2814,13 +2827,12 @@ function parseTable(
       reportLoss("dropped-source", ld);
       continue;
     }
-    const rowAttrs = readAttrs("tr", rowMatch[1] ?? "", ROW_ATTRS);
-    const cells: string[] = [];
+    openRow(rowMatch[1]);
     // An agent may write a whole row on its line; the writer never does.
     let rest = rowMatch[2].trim();
     let rowClosed = rest.endsWith("</tr>");
     if (rowClosed) rest = rest.slice(0, -"</tr>".length).trim();
-    if (rest) pushAll(cells, splitTableCells(rest));
+    if (rest) addCells(rest);
     while (!rowClosed && i < close) {
       let cd = lineAt(i++);
       if (cd === "</tr>") break;
@@ -2843,12 +2855,8 @@ function parseTable(
       // The writer puts one cell on a line and escapes `<` outside code and
       // math, so a close tag outside those before the line's end is an
       // agent's `<td>a</td><td>b</td>`.
-      pushAll(cells, splitTableCells(cd));
+      addCells(cd);
     }
-    rows.push({
-      color: isColor(rowAttrs.color) ? rowAttrs.color : null,
-      cells,
-    });
   }
 
   const parsedRows = rows.map((row) => ({
@@ -2926,9 +2934,20 @@ const TABLE_WRAPPER_LINE = /^<\/?(?:colgroup|thead|tbody|tfoot)>$/;
 const ROW_EDGE = /^<\/?tr[\s>]/;
 // A cell's line may also close its row; the writer never closes one there.
 const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
+const ROW_BREAK =
+  /^<\/tr>\s*(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
 
-function splitTableCells(source: string): string[] {
-  const cells: string[] = [];
+// A cell's source, or where the next row opens.
+type TableLinePart = string | { rowAttrs: string };
+
+function splitTableCells(source: string): TableLinePart[] {
+  const cells: TableLinePart[] = [];
+  // An agent may close a row and open the next between two cells.
+  const readGap = (gap: string) => {
+    const rowBreak = gap.match(ROW_BREAK);
+    if (rowBreak) cells.push({ rowAttrs: rowBreak[1] ?? "" });
+    else if (gap) reportLoss("dropped-source", gap);
+  };
   // Found by hand, not by one regex: searching from every open tag for a `>`
   // or a close tag the row lacks rescans the rest of it from each one. A
   // close tag in code or math, or after a backslash, is the cell's text.
@@ -2963,13 +2982,11 @@ function splitTableCells(source: string): string[] {
       continue;
     }
     const end = close + closeTag.length;
-    const between = source.slice(last, m.index).trim();
-    if (between) reportLoss("dropped-source", between);
+    readGap(source.slice(last, m.index).trim());
     cells.push(source.slice(m.index, end));
     last = open.lastIndex = end;
   }
-  const after = source.slice(last).trim();
-  if (after) reportLoss("dropped-source", after);
+  readGap(source.slice(last).trim());
   return cells;
 }
 
