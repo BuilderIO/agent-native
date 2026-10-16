@@ -215,7 +215,8 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   page,
   request,
 }) => {
-  test.setTimeout(240_000);
+  // CI runs this in about 235 s; it takes about 105 s locally.
+  test.setTimeout(360_000);
   await page.setViewportSize({ width: 1728, height: 941 });
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
