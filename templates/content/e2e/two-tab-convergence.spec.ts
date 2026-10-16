@@ -57,6 +57,12 @@ interface Scenario {
   notes: Record<string, unknown>;
   /** Noise the scenario causes on purpose, from `noiseFailures`. */
   expectedNoise: string[];
+  /**
+   * Set when a separate `@known-loss` test owns this scenario's text check, so
+   * a known race can't fail the behavior this test requires. The record still
+   * counts the text.
+   */
+  textCheckedElsewhere?: boolean;
 }
 
 async function runScenario(
@@ -124,10 +130,11 @@ async function runScenario(
       working.some((tab) => tab.saveDurationsMs.length),
       "no save was timed under the latency",
     ).toBe(true);
-  expect(
-    integrityFailures(record),
-    "lost, duplicated or deleted-then-back text",
-  ).toEqual([]);
+  if (!scenario.textCheckedElsewhere)
+    expect(
+      integrityFailures(record),
+      "lost, duplicated or deleted-then-back text",
+    ).toEqual([]);
   const noise = noiseFailures(record.tabs);
   for (const expected of scenario.expectedNoise) {
     const at = noise.indexOf(expected);
@@ -150,6 +157,28 @@ async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
   gates.second.setLatency(latencyMs);
   s.notes.saveLatencyMs = latencyMs;
   return { first, second, gates };
+}
+
+async function openDuringPeerSave(s: Scenario) {
+  const { first, gates } = await openPair(s, 0);
+  await s.tabs.showOnly(first);
+  gates.first.holdArrivals();
+  await typeAtParagraphEnd(first, "Alpha paragraph", ` ${s.markers.next("A")}`);
+  await gates.first.waitForHeld();
+
+  const fresh = await s.tabs.open("C", s.id);
+  await expectEditorReady(fresh);
+  expect(
+    s.tabs.record(fresh).saveRequests,
+    "C sent A's pending edit as a save of its own",
+  ).toBe(0);
+
+  await s.tabs.showOnly(first);
+  gates.first.pass();
+  await gates.first.release();
+  await s.tabs.waitForSaveAnswers(first, 1);
+  await s.tabs.quiet();
+  expect(s.tabs.record(fresh).saveRequests).toBe(0);
 }
 
 async function alternate(s: Scenario) {
@@ -267,31 +296,26 @@ test.describe("two tabs editing one page at beta cadence", () => {
     context,
   }, testInfo) => {
     await runScenario("open-during-peer-save", testInfo, context, async (s) => {
-      const { first, gates } = await openPair(s, 0);
-      await s.tabs.showOnly(first);
-      gates.first.holdArrivals();
-      await typeAtParagraphEnd(
-        first,
-        "Alpha paragraph",
-        ` ${s.markers.next("A")}`,
-      );
-      await gates.first.waitForHeld();
-
-      const fresh = await s.tabs.open("C", s.id);
-      await expectEditorReady(fresh);
-      expect(
-        s.tabs.record(fresh).saveRequests,
-        "C sent A's pending edit as a save of its own",
-      ).toBe(0);
-
-      await s.tabs.showOnly(first);
-      gates.first.pass();
-      await gates.first.release();
-      await s.tabs.waitForSaveAnswers(first, 1);
-      await s.tabs.quiet();
-      expect(s.tabs.record(fresh).saveRequests).toBe(0);
+      s.textCheckedElsewhere = true;
+      await openDuringPeerSave(s);
     });
   });
+
+  // C can apply the older stored body over the live copy as it opens, deleting
+  // A's word, and two tabs then put it back. The fix to how a tab joins a
+  // populated live copy (useCollabReconcile) drops this tag.
+  test(
+    "a tab opened while another tab's save is on its way keeps that tab's word once",
+    KNOWN_LOSS,
+    async ({ context }, testInfo) => {
+      await runScenario(
+        "open-during-peer-save-text",
+        testInfo,
+        context,
+        openDuringPeerSave,
+      );
+    },
+  );
 
   test("a tab opened after a save met another tab's edit sends no save", async ({
     context,
