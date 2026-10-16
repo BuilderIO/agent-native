@@ -1,6 +1,7 @@
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
   LiveCopyError,
+  loadYDocVersion,
   mutateLiveCopy,
   type LiveCopyBinding,
 } from "@agent-native/core/collab";
@@ -43,7 +44,6 @@ export type LiveCopyAcceptCause = {
   ctx: ActionRunContext | undefined;
   operation: "accept-suggestion";
   origin: "suggestion";
-  intent: { writerId: string; operationId: string };
 };
 
 export type LiveCopyAccept = {
@@ -53,12 +53,25 @@ export type LiveCopyAccept = {
    * when it derived nothing.
    */
   bodyCommit(tx: DbExec): LiveCopyBodyCommit | undefined;
-  /** Runs `run` with the History and body-intent cause of its commits. */
+  /** Locks the Page in `tx` in the order a body persist locks it. */
+  lockPage(tx: DbExec, documentId: string): Promise<unknown>;
+  /** Runs `run` with the History cause of its commits. */
   withWriteCause<T>(
     cause: LiveCopyAcceptCause,
     run: () => Promise<T>,
   ): Promise<T>;
 };
+
+/**
+ * The Page went back to its legacy writer before the edit committed, so the
+ * accept must run there instead. Nothing was decided or written.
+ */
+export class LiveCopyAcceptUnavailable extends Error {
+  constructor(readonly documentId: string) {
+    super(`Page ${documentId} is no longer written through its live copy`);
+    this.name = "LiveCopyAcceptUnavailable";
+  }
+}
 
 /** How a live-copy accept hands `apply` the edit it made. */
 export type LiveCopyDecision =
@@ -198,7 +211,9 @@ function isApplySuggestionRefusal(
 /**
  * Accepts the decided suggestions on a Page whose body is its live copy. The
  * decision runs inside the edit's commit, where `apply` checks the edit and
- * writes nothing to the body: the body persist already has.
+ * writes nothing to the body: the body persist already has. Throws
+ * LiveCopyAcceptUnavailable, having decided nothing, when the Page went back
+ * to its legacy writer.
  */
 export async function acceptOnLiveCopy<T>(
   context: SuggestionDecisionContext,
@@ -227,10 +242,6 @@ export async function acceptOnLiveCopy<T>(
         ctx: context.ctx as ActionRunContext | undefined,
         operation: "accept-suggestion",
         origin: "suggestion",
-        intent: {
-          writerId: `suggestion:${context.suggestion.ownerEmail ?? ""}`,
-          operationId: context.suggestion.proposalId ?? context.suggestion.id,
-        },
       },
       () =>
         mutateLiveCopy(liveCopy.binding, context.resourceId, {
@@ -241,10 +252,20 @@ export async function acceptOnLiveCopy<T>(
             decided = undefined;
             const commit = change.changed ? liveCopy.bodyCommit(tx) : undefined;
             if (change.changed && !commit)
-              fail(
-                "The Page's text could not be saved, so the suggestion was not accepted. Try again.",
-                { statusCode: 409, errorCode: "suggestion_body_unavailable" },
-              );
+              throw new LiveCopyAcceptUnavailable(context.resourceId);
+            if (!change.changed) {
+              // An edit that changed nothing commits no body, so nothing has
+              // locked the Page yet, and the decision locks it after rows a
+              // body write locks first.
+              await liveCopy.lockPage(tx, context.resourceId);
+              // A peer that committed since the edit read the copy wrote the
+              // rows just locked. Deciding nothing lets core redo the edit on
+              // the peer's state.
+              if (
+                (await loadYDocVersion(context.resourceId)) !== change.version
+              )
+                return;
+            }
             const coordination: LiveCopyDecision = {
               liveCopy: change.changed ? "committed" : "unchanged",
               steps,
@@ -268,6 +289,8 @@ export async function acceptOnLiveCopy<T>(
   } catch (error) {
     if (error instanceof DecisionReplayed)
       return run({ liveCopy: "replaying" } satisfies LiveCopyDecision);
+    if (error instanceof LiveCopyError && error.code === "not_live_copy")
+      throw new LiveCopyAcceptUnavailable(context.resourceId);
     if (
       error instanceof LiveCopyError &&
       error.code === "build_refused" &&

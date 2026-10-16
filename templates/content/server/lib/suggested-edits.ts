@@ -49,24 +49,41 @@ import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
+import { contentLiveCopy } from "../live-copy/binding.js";
+import {
+  lockLiveCopyPage,
+  persistedContentBodyCommit,
+} from "../live-copy/persist.js";
+import { withContentBodyWriteCause } from "../live-copy/write-cause.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
 import {
+  liveBodyWriterGate,
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
 } from "./live-body-writer.js";
 import { syncPrivateCalloutReferences } from "./private-icon-references.js";
 import {
   acceptedRangesOnSameText,
+  acceptOnLiveCopy,
   isLiveCopyDecision,
+  LiveCopyAcceptUnavailable,
+  type LiveCopyAccept,
   type LiveCopyDecision,
 } from "./suggestion-live-accept.js";
 
 export { applyMarkdownSuggestionOperation } from "../../shared/suggestion-apply.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
+
+const contentLiveCopyAccept: LiveCopyAccept = {
+  binding: contentLiveCopy,
+  bodyCommit: persistedContentBodyCommit,
+  lockPage: lockLiveCopyPage,
+  withWriteCause: withContentBodyWriteCause,
+};
 
 function validateOperations(
   operations: SuggestionOperation[],
@@ -688,6 +705,20 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
+    if (
+      (await liveBodyWriterGate(context.resourceId)).writePath === "live_copy"
+    ) {
+      try {
+        return await acceptOnLiveCopy(
+          context,
+          run,
+          contentLiveCopyAccept,
+          acceptedSuggestionRequestSource(context.ctx?.requestSource),
+        );
+      } catch (error) {
+        if (!(error instanceof LiveCopyAcceptUnavailable)) throw error;
+      }
+    }
     const sync = await prepareTransactionalChange({
       source: "action",
       type: "change",

@@ -13,6 +13,7 @@ import {
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
 import { getDb, schema } from "../db/index.js";
+import { followCommentAnchors } from "../lib/comment-anchor-follow.js";
 import {
   documentAttributionActor,
   documentEditAttribution,
@@ -410,6 +411,11 @@ async function writeBody(args: {
       content: text,
       ownerEmail: page.ownerEmail,
       now: updatedAt,
+    });
+    await followCommentAnchors(args.tx, {
+      documentId,
+      before: page.content,
+      after: text,
     });
   }
   if (cause?.intent) {

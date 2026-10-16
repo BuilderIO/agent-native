@@ -11,8 +11,16 @@ import {
 import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
-import { LIVE_BODY_FIELD, materializeLiveBody } from "../../shared/live-body.js";
+import {
+  LIVE_BODY_FIELD,
+  materializeLiveBody,
+} from "../../shared/live-body.js";
 import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
+import {
+  APPLY_SUGGESTION_EDIT,
+  applySuggestionEdit,
+  type ApplySuggestionInput,
+} from "./apply-suggestion-edit.js";
 
 // The worker half of Content's live copy: every handler here runs in the
 // bounded task runner, so import only what a worker bundle can carry.
@@ -93,6 +101,29 @@ function replaceBodyInput(
   return expected === undefined ? { content } : { content, expected };
 }
 
+function applySuggestionInput(
+  input: unknown,
+): ApplySuggestionInput | LiveCopyTaskRefusal {
+  const steps = (input as { steps?: unknown } | null)?.steps;
+  if (
+    !Array.isArray(steps) ||
+    !steps.every(
+      (step) =>
+        typeof step === "object" &&
+        step !== null &&
+        typeof step.operation === "object" &&
+        step.operation !== null &&
+        Array.isArray(step.acceptedSiblingRanges),
+    )
+  ) {
+    return refused(
+      "invalid_input",
+      "expected { steps: [{ operation, acceptedSiblingRanges }] }",
+    );
+  }
+  return { steps };
+}
+
 function isRefusal(value: unknown): value is LiveCopyTaskRefusal {
   return (
     typeof value === "object" &&
@@ -130,6 +161,13 @@ export const tasks = defineLiveCopyTasks({
       const fragment = doc.getXmlFragment(field);
       const { meta } = initProseMirrorDoc(fragment, schema());
       updateYFragment(doc, fragment, root, meta);
+    },
+
+    /** Accepts suggestions; see `applySuggestionEdit`. */
+    [APPLY_SUGGESTION_EDIT](doc, field, input) {
+      const parsed = applySuggestionInput(input);
+      if (isRefusal(parsed)) return parsed;
+      return applySuggestionEdit(doc, field, parsed);
     },
   },
 });

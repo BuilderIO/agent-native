@@ -2,9 +2,9 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { DbExec } from "@agent-native/core/db";
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { putSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -12,7 +12,6 @@ import * as Y from "yjs";
 import { commentAnchorText } from "../../shared/comment-reanchor.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "../../shared/suggestion-diff.js";
-import type { LiveCopyBodyCommit } from "./suggestion-live-accept.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -26,7 +25,7 @@ let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
 let collab: Collab;
 let binding: import("@agent-native/core/collab").LiveCopyBinding;
-let runner: import("@agent-native/core/collab").BoundedTaskRunner;
+let switchPageToLiveCopy: typeof import("../live-copy/switch.js").switchPageToLiveCopy;
 let adapterKind: string;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let createSuggestion: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion").default;
@@ -40,8 +39,19 @@ const ownerEmail = "live-accept-owner@example.com";
 const ctx = { caller: "cli" as const, userEmail: ownerEmail };
 let sequence = 0;
 
-// What the stand-in for Content's body persist wrote, per commit attempt.
-const bodyCommits = new WeakMap<DbExec, LiveCopyBodyCommit>();
+/** Turns Content's live-body flags on or off for the test owner. */
+async function setFlags(on: boolean) {
+  for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
+    await putSetting(`feature-flag:${flag}`, {
+      version: 1,
+      mode: "rules",
+      emails: on ? [ownerEmail] : [],
+      orgIds: [],
+      percentage: 0,
+      updatedAt: null,
+      updatedBy: null,
+    });
+}
 
 beforeAll(async () => {
   process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
@@ -66,83 +76,21 @@ beforeAll(async () => {
   await plugin(undefined as never);
   await (await import("../plugins/suggested-edits.js")).default();
 
+  const { registerFeatureFlags } =
+    await import("@agent-native/core/feature-flags");
+  const { CONTENT_FEATURE_FLAGS } =
+    await import("../../shared/feature-flags.js");
+  registerFeatureFlags(CONTENT_FEATURE_FLAGS);
+  await setFlags(true);
   collab = await import("@agent-native/core/collab");
-  runner = collab.createBoundedTaskRunner({
-    source: await collab.bundleBoundedTaskSource(
-      new URL(
-        "../live-copy/__fixtures__/accept-live-copy-tasks.ts",
-        import.meta.url,
-      ),
-    ),
-    deadlineMs: 10_000,
-    memoryLimitMb: 256,
-  });
-  const { followCommentAnchors } = await import("./comment-anchor-follow.js");
-  binding = collab.defineLiveCopy({
-    name: "live-accept-test",
-    appliesTo: (docId) => docId.startsWith("live-accept-"),
-    runner,
-    async persist(tx, commit) {
-      const [row] = (
-        await tx.execute({
-          sql: "SELECT content, body_revision FROM documents WHERE id = ? FOR UPDATE",
-          args: [commit.docId],
-        })
-      ).rows;
-      if (!row) throw new Error(`No page ${commit.docId}`);
-      const before = String(row.content);
-      const bodyRevision = Number(row.body_revision) + 1;
-      const updatedAt = new Date().toISOString();
-      await tx.execute({
-        sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ?",
-        args: [
-          commit.text,
-          bodyRevision,
-          bodyRevision,
-          updatedAt,
-          commit.docId,
-        ],
-      });
-      await followCommentAnchors(tx, {
-        documentId: commit.docId,
-        before,
-        after: commit.text,
-      });
-      bodyCommits.set(tx, {
-        before,
-        after: commit.text,
-        bodyRevision,
-        updatedAt,
-      });
-    },
-  });
-
-  const review = await import("@agent-native/core/review");
-  const {
-    contentDocumentSuggestionAdapter,
-    CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
-  } = await import("./suggested-edits.js");
-  adapterKind = CONTENT_DOCUMENT_SUGGESTION_ADAPTER;
-  const { acceptOnLiveCopy } = await import("./suggestion-live-accept.js");
-  review.registerSuggestionAdapter({
-    ...contentDocumentSuggestionAdapter,
-    coordinateDecision: (context, run) =>
-      acceptOnLiveCopy(
-        context,
-        run,
-        {
-          binding,
-          bodyCommit: (tx) => bodyCommits.get(tx),
-          withWriteCause: (_cause, write) => write(),
-        },
-        undefined,
-      ),
-  });
+  binding = (await import("../live-copy/binding.js")).contentLiveCopy;
+  switchPageToLiveCopy = (await import("../live-copy/switch.js"))
+    .switchPageToLiveCopy;
+  adapterKind = (await import("./suggested-edits.js"))
+    .CONTENT_DOCUMENT_SUGGESTION_ADAPTER;
 }, 120_000);
 
 afterAll(async () => {
-  if (binding) collab.releaseLiveCopy(binding);
-  await runner?.close();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
   if (previousSyncEventsEnabled === undefined)
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
@@ -161,7 +109,7 @@ const page = [
   "A closing paragraph sits here.",
 ].join("\n");
 
-async function seedPage(markdown: string) {
+async function insertPage(markdown: string) {
   sequence += 1;
   const id = `live-accept-${sequence}`;
   const now = new Date().toISOString();
@@ -173,13 +121,17 @@ async function seedPage(markdown: string) {
       content: canonicalizeNfm(markdown),
       ownerEmail,
       bodyRevision: 1,
-      collabBodyRevision: 1,
-      liveBodySwitchedAt: now,
       createdAt: now,
       updatedAt: now,
     });
-  await collab.seedLiveCopy(binding, id, {
-    source: canonicalizeNfm(markdown),
+  return id;
+}
+
+/** A Page switched to its live copy. */
+async function seedPage(markdown: string) {
+  const id = await insertPage(markdown);
+  await expect(switchPageToLiveCopy(id)).resolves.toEqual({
+    writePath: "live_copy",
   });
   return id;
 }
@@ -500,4 +452,39 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
       expect(anchored!.anchorStartOffset).toBe(after.indexOf("opens"));
     },
   );
+});
+
+describe("accepting a suggestion on a Page its legacy writer still writes", () => {
+  ownerIt(
+    "accepts on a Page never switched, and leaves it unswitched",
+    async () => {
+      const documentId = await insertPage(page);
+      const suggestion = await suggest(documentId, "sets the scene", "opens");
+
+      expect((await decide(suggestion, "accepted")).suggestion.status).toBe(
+        "accepted",
+      );
+      expect(await stored(documentId)).toMatchObject({
+        content: canonicalizeNfm(page.replace("sets the scene", "opens")),
+        bodyRevision: 2,
+        liveBodySwitchedAt: null,
+      });
+    },
+  );
+
+  ownerIt("accepts on a switched Page whose flags are off", async () => {
+    const documentId = await seedPage(page);
+    const suggestion = await suggest(documentId, "sets the scene", "opens");
+    await setFlags(false);
+    try {
+      expect((await decide(suggestion, "accepted")).suggestion.status).toBe(
+        "accepted",
+      );
+    } finally {
+      await setFlags(true);
+    }
+    const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
+    expect((await stored(documentId)).content).toBe(expected);
+    expect((await liveCopy(documentId)).text).toBe(expected);
+  });
 });
