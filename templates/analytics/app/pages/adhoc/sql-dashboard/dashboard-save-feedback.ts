@@ -3,8 +3,11 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import type { DashboardChangeSummary } from "@shared/dashboard-change-summary";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
+
+import { dashboardChangeLine } from "@/components/dashboard/dashboard-change-text";
 
 import type { DashboardSaveOutcome } from "./dashboard-save-queue";
 
@@ -32,8 +35,9 @@ export type DashboardSaveUndo = {
 /**
  * Gives the page's saves one toast, replaced in place from "Saving…" to
  * "Saved" with Undo. Only the newest save on the open dashboard updates it,
- * and it offers Undo only when a save it covers changed the dashboard, even
- * if the newest one then failed. `onUndo` gets that write's revision and
+ * and it offers Undo only when a save it covers changed the dashboard, even if
+ * the newest one then failed or changed nothing. The toast names that write's
+ * changes as history records them, and `onUndo` gets its revision and
  * version, so it undoes exactly that write, and a newer save by someone else
  * makes it fail instead of taking their change back. It must be stable; the
  * toast calls it after later renders.
@@ -63,6 +67,7 @@ export function useDashboardSaveFeedback({
   const newestWriteRef = useRef<{
     save: number;
     undo: DashboardSaveUndo;
+    changes: DashboardChangeSummary | null;
   } | null>(null);
 
   // Undo restores a revision of the open dashboard, so a toast must not
@@ -102,32 +107,33 @@ export function useDashboardSaveFeedback({
           return;
         }
         const viewers = otherViewersRef.current;
-        toast.success(
-          shared
-            ? t("dashboardSaveStatus.savedShared")
-            : t("dashboardSaveStatus.saved"),
-          {
-            id: toastId,
-            description:
-              viewers === 1
-                ? t("dashboardSaveStatus.oneOtherViewer")
-                : viewers > 1
-                  ? t("dashboardSaveStatus.otherViewers", { count: viewers })
-                  : undefined,
-            action: {
-              label: t("dashboard.undo"),
-              onClick: () => onUndo(write.undo),
-            },
-            duration: 6000,
+        // Named from the write Undo takes back, not the newest save, which
+        // may have changed nothing or failed.
+        toast.success(savedToastTitle(t, shared, write.changes), {
+          id: toastId,
+          description:
+            viewers === 1
+              ? t("dashboardSaveStatus.oneOtherViewer")
+              : viewers > 1
+                ? t("dashboardSaveStatus.otherViewers", { count: viewers })
+                : undefined,
+          action: {
+            label: t("dashboard.undo"),
+            onClick: () => onUndo(write.undo),
           },
-        );
+          duration: 6000,
+        });
       };
       save.then(
-        ({ changed, updatedAt, revisionId }) => {
+        ({ changed, updatedAt, revisionId, changes, omittedChanges }) => {
           if (changed && updatedAt && revisionId) {
             newestWriteRef.current = {
               save: saveNumber,
               undo: { revisionId, updatedAt },
+              changes:
+                changes && omittedChanges !== undefined
+                  ? { changes, omitted: omittedChanges }
+                  : null,
             };
           }
           if (isNewest()) settle();
@@ -141,4 +147,29 @@ export function useDashboardSaveFeedback({
     },
     [dashboardId, onUndo, shared, t],
   );
+}
+
+function savedToastTitle(
+  t: ReturnType<typeof useT>,
+  shared: boolean,
+  summary: DashboardChangeSummary | null,
+): string {
+  const line = summary
+    ? dashboardChangeLine(summary.changes, summary.omitted, t)
+    : null;
+  if (!line) {
+    return shared
+      ? t("dashboardSaveStatus.savedShared")
+      : t("dashboardSaveStatus.saved");
+  }
+  const change =
+    line.moreCount > 0
+      ? t("dashboardChanges.withMore", {
+          change: line.first,
+          count: line.moreCount,
+        })
+      : line.first;
+  return shared
+    ? t("dashboardSaveStatus.changeSavedShared", { change })
+    : t("dashboardSaveStatus.changeSaved", { change });
 }

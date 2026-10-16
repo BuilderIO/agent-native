@@ -48,10 +48,14 @@ const mocks = vi.hoisted(() => ({
     saveView: async () => {},
   },
   userPref: {
-    data: undefined,
+    data: undefined as unknown,
     isSuccess: true,
     isError: false,
-    save: () => {},
+    isFetching: false,
+    save: (() => {}) as (
+      value: unknown,
+      options?: { onError?: () => void },
+    ) => void,
   },
   chatContext: { selectedPanelId: null, selectPanelForChat: () => {} },
   collab: {
@@ -327,6 +331,13 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.submitEditorOn = null;
     mocks.session = { email: "viewer@example.com" };
     mocks.saveDashboard = async () => ({});
+    mocks.userPref = {
+      data: undefined,
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      save: () => {},
+    };
     mocks.dashboards = {
       "dash-a": dashboardRecord("Dashboard A", [tablePanel("Accounts A", 200)]),
       "dash-b": dashboardRecord("Dashboard B", [tablePanel("Accounts B", 200)]),
@@ -490,4 +501,53 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(dashBRenders.length).toBeGreaterThan(0);
     for (const render of dashBRenders) expect(render.widths).toEqual({});
   });
+
+  it("saves filters again after a failed write once they come back, even while the preference rereads", async () => {
+    const writes: unknown[] = [];
+    let failNextWrite = true;
+    mocks.userPref = {
+      data: { filters: { f_region: "eu" } },
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      save: (value, options) => {
+        writes.push(value);
+        if (failNextWrite) {
+          failNextWrite = false;
+          options?.onError?.();
+        }
+      },
+    };
+    async function afterSaveDelay() {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1600));
+      });
+    }
+
+    await renderAt("/dashboards/dash-a?f_region=eu");
+    await goTo("/dashboards/dash-a?f_region=us");
+    await afterSaveDelay();
+    expect(writes).toEqual([{ filters: { f_region: "us" } }]);
+
+    // The failed write rereads the saved preference; that must not resend it.
+    mocks.userPref = {
+      ...mocks.userPref,
+      data: { filters: { f_region: "eu" } },
+    };
+    await renderAt("/dashboards/dash-a?f_region=us");
+    await afterSaveDelay();
+    expect(writes).toHaveLength(1);
+
+    // Leaving them counts while the preference is still being reread.
+    mocks.userPref = { ...mocks.userPref, isFetching: true };
+    await goTo("/dashboards/dash-a?f_region=eu");
+    await afterSaveDelay();
+    mocks.userPref = { ...mocks.userPref, isFetching: false };
+    await goTo("/dashboards/dash-a?f_region=us");
+    await afterSaveDelay();
+    expect(writes).toEqual([
+      { filters: { f_region: "us" } },
+      { filters: { f_region: "us" } },
+    ]);
+  }, 15_000);
 });

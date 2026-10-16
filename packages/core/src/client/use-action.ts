@@ -237,6 +237,8 @@ export interface ActionFetchOptions {
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
   uiCapabilityRetry?: boolean;
+  /** A GET that may share one request with the other GETs in its tick. */
+  batch?: boolean;
 };
 
 let uiCapabilityRequest: Promise<void> | undefined;
@@ -284,15 +286,16 @@ function utf8ByteLength(value: string): number {
 }
 
 /**
- * A GET with no per-call headers or blob body can share a request with the
- * other GETs in its tick. Inside an embed the embed token's scope decides which
- * requests the server accepts, and a batch POST can be refused where its GETs
- * would pass, so an embed keeps one request per call.
+ * A GET that asks to batch, with no per-call headers or blob body, can share a
+ * request with the other GETs in its tick. Inside an embed the embed token's
+ * scope decides which requests the server accepts, and a batch POST can be
+ * refused where its GETs would pass, so an embed keeps one request per call.
  */
 function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
   return (
-    options?.responseType !== "blob" &&
-    options?.headers === undefined &&
+    options?.batch === true &&
+    options.responseType !== "blob" &&
+    options.headers === undefined &&
     !isEmbedAuthActive()
   );
 }
@@ -1173,6 +1176,26 @@ export function revokeBrowserPersistableActionQuery(query: Query): void {
   browserPersistableActionQueryBindings.delete(query);
 }
 
+const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
+
+/**
+ * A first fetch is what the page is waiting on, so it goes alone. On
+ * serverless a batch runs all its items on one database connection and
+ * answers only when the slowest is done. Only a refetch of data already on
+ * screen shares a batch. A query holds the options of whichever observer
+ * rendered last, so an opt-out is read from every observer, not from the
+ * query function that happens to run.
+ */
+function canBatchActionQueryFetch(query: Query | undefined): boolean {
+  return (
+    query?.state.data !== undefined &&
+    !query.observers.some(
+      (observer) =>
+        observer.options.meta?.[UNBATCHED_REFETCHES_META_KEY] === true,
+    )
+  );
+}
+
 export function useActionQuery<
   TResult = undefined,
   TName extends ActionName = ActionName,
@@ -1190,6 +1213,13 @@ export function useActionQuery<
      * still refetches the query.
      */
     resources?: readonly string[];
+    /**
+     * Set false when the UI holds a placeholder until a fresh read lands
+     * instead of showing cached data. While any component reading the query
+     * sets it, the query's refetches go alone, like a first fetch, rather
+     * than waiting on the other reads in their batch.
+     */
+    batchRefetches?: boolean;
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
@@ -1199,6 +1229,7 @@ export function useActionQuery<
     retry: callerRetry,
     queryKeyScope,
     resources,
+    batchRefetches,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1215,6 +1246,7 @@ export function useActionQuery<
       try {
         result = await actionFetch<R>(actionName, "GET", params, {
           signal,
+          batch: canBatchActionQueryFetch(query),
           onResponse: (response) => {
             browserPersist =
               response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
@@ -1274,11 +1306,14 @@ export function useActionQuery<
     },
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
-    ...(resources
+    ...(resources || batchRefetches === false
       ? {
           meta: {
             ...restOptions.meta,
-            [ACTION_RESOURCES_META_KEY]: resources,
+            ...(resources ? { [ACTION_RESOURCES_META_KEY]: resources } : {}),
+            ...(batchRefetches === false
+              ? { [UNBATCHED_REFETCHES_META_KEY]: true }
+              : {}),
           },
         }
       : {}),
