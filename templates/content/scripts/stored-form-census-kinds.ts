@@ -276,23 +276,24 @@ type MdNode = {
   url?: string;
   identifier?: string;
   children?: MdNode[];
-  position?: { start: { offset?: number } };
+  position?: { start: { offset?: number }; end: { offset?: number } };
 };
 
 /**
- * What one reader sees in a body. Marks count the letters and digits they
- * cover, and code counts fenced blocks only: Content writes indented children
- * with tabs, which a GFM reader would otherwise count as indented code.
+ * What one reader sees in a body. Marks count each letter and digit they
+ * cover. Code counts fenced blocks and blocks indented with spaces: Content
+ * writes indented children with tabs, which a GFM reader would otherwise count
+ * as indented code.
  */
 type ReadProfile = {
   tokens: Map<string, number>;
   backslashes: number;
-  marks: Record<(typeof MARKS)[number], number>;
+  marks: Record<(typeof MARKS)[number], Map<string, number>>;
   listItems: number;
   nestedListItems: number;
   headings: number;
   tables: number;
-  fencedCode: number;
+  codeBlocks: number;
   blockquotes: number;
   images: number;
 };
@@ -314,13 +315,13 @@ function emptyProfile(): ReadProfile {
     tokens: new Map(),
     backslashes: 0,
     marks: Object.fromEntries(
-      MARKS.map((mark) => [mark, 0]),
+      MARKS.map((mark) => [mark, new Map()]),
     ) as ReadProfile["marks"],
     listItems: 0,
     nestedListItems: 0,
     headings: 0,
     tables: 0,
-    fencedCode: 0,
+    codeBlocks: 0,
     blockquotes: 0,
     images: 0,
   };
@@ -352,8 +353,10 @@ const NFM_TAG_LINE = new RegExp(
   "m",
 );
 const NFM_INLINE_TAG = new RegExp(NFM_TAG, "g");
+// The character before the attributes is not blank, so a long run of spaces
+// is crossed once rather than from each of its positions.
 const NFM_BLOCK_ATTRIBUTES =
-  /(^|[^\\])[ \t]*\{[a-z][\w-]*="[^"]*"(?:[ \t]+[a-z][\w-]*="[^"]*")*\}[ \t]*$/m;
+  /(^|[^\\ \t])[ \t]*\{[a-z][\w-]*="[^"]*"(?:[ \t]+[a-z][\w-]*="[^"]*")*\}[ \t]*$/m;
 // A fence may open inside blockquotes and list items: `> ```js`, `- ```js`.
 // It closes only at its own quote depth and never after a list marker, which
 // inside the fence is code; a quote that ends takes its fence with it.
@@ -423,18 +426,23 @@ type Mark = (typeof MARKS)[number];
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
 
 /**
- * Add the letters and digits `text` puts under each of `marks`. Coverage does
+ * Count each letter and digit `text` puts under each of `marks`. Coverage does
  * not depend on how a reader splits text: GFM nests `` `a`**`b`** `` in two
  * code nodes Content keeps as one, and `**kept**__lost__` is one run of bold
- * to GFM although Content keeps only half of it.
+ * to GFM although Content keeps only half of it. Counting letters, not their
+ * total, catches a mark that moves: in `*a * _b_` GFM italicizes b and Content
+ * italicizes a.
  */
 function addMarkedText(
   profile: ReadProfile,
   marks: Iterable<Mark>,
   text: string,
 ) {
-  const covered = text.match(LETTER_OR_DIGIT)?.length ?? 0;
-  for (const mark of marks) profile.marks[mark] += covered;
+  const covered = text.toLowerCase().match(LETTER_OR_DIGIT) ?? [];
+  for (const mark of marks) {
+    const counts = profile.marks[mark];
+    for (const char of covered) counts.set(char, (counts.get(char) ?? 0) + 1);
+  }
 }
 
 /** What a GitHub-flavored Markdown reader sees, which is how agents write. */
@@ -472,21 +480,29 @@ function gfmProfile(body: string): ReadProfile {
       }
       case "code": {
         addText(profile, node.value ?? "");
+        // Indented code starts at its own indent, after any container marker.
         const offset = node.position?.start.offset ?? 0;
-        if (/^[ \t]*(?:`{3,}|~{3,})/.test(markdown.slice(offset, offset + 64)))
-          profile.fencedCode += 1;
+        if (
+          /^(?: {4}|[ \t]*(?:`{3,}|~{3,}))/.test(
+            markdown.slice(offset, offset + 64),
+          )
+        )
+          profile.codeBlocks += 1;
         break;
       }
       case "html":
         if (/<table\b/i.test(node.value ?? "")) profile.tables += 1;
         break;
       case "heading": {
-        // `Text` over `---` is how Content writes a paragraph then a divider.
-        const offset = node.position?.start.offset ?? 0;
-        const isSetextTwo =
-          node.depth === 2 &&
-          !/^[ \t]*#/.test(markdown.slice(offset, offset + 8));
-        if (!isSetextTwo) profile.headings += 1;
+        // `Text` over exactly `---` is how Content writes a paragraph then a
+        // divider; any other setext underline is a heading.
+        const source = markdown.slice(
+          node.position?.start.offset ?? 0,
+          node.position?.end.offset ?? 0,
+        );
+        const underline = source.slice(source.lastIndexOf("\n") + 1);
+        if (!(node.depth === 2 && /^[ \t>]*---$/.test(underline)))
+          profile.headings += 1;
         break;
       }
       case "table":
@@ -543,7 +559,7 @@ function nfmProfile(document: PMNode): ReadProfile {
         profile.tables += 1;
         break;
       case "codeBlock":
-        profile.fencedCode += 1;
+        profile.codeBlocks += 1;
         break;
       case "blockquote":
         profile.blockquotes += 1;
@@ -616,15 +632,19 @@ export function canonicalizationLosses(
   if (kept.backslashes > meant.backslashes)
     losses.push("gfm-escape-shown-literally");
   for (const mark of MARKS) {
-    if (kept.marks[mark] < meant.marks[mark])
-      losses.push(`gfm-${mark}-dropped`);
+    for (const [char, count] of meant.marks[mark]) {
+      if ((kept.marks[mark].get(char) ?? 0) < count) {
+        losses.push(`gfm-${mark}-dropped`);
+        break;
+      }
+    }
   }
   if (kept.nestedListItems < meant.nestedListItems)
     losses.push("gfm-list-nesting-lost");
   if (kept.listItems < meant.listItems) losses.push("gfm-list-items-lost");
   if (kept.headings < meant.headings) losses.push("gfm-headings-lost");
   if (kept.tables < meant.tables) losses.push("gfm-tables-lost");
-  if (kept.fencedCode < meant.fencedCode) losses.push("gfm-code-blocks-lost");
+  if (kept.codeBlocks < meant.codeBlocks) losses.push("gfm-code-blocks-lost");
   if (kept.blockquotes < meant.blockquotes) losses.push("gfm-blockquotes-lost");
   if (kept.images < meant.images) losses.push("gfm-images-lost");
   return losses;

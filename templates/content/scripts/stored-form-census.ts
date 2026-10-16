@@ -26,10 +26,12 @@ read-only transaction and prints counts, kinds and page IDs as JSON.
   --neon-branch=<name>          a *.neon.tech target, and printed before connecting.
   --max-ids=<n>                 Page IDs listed per bucket (default 50).
 
-Remote targets also need ${PRODUCTION_HOSTS_ENV}: a comma-separated list of the
-hosts or Neon endpoint IDs that serve production. A target on that list, or a
-Neon branch labelled production, prod or main, is refused, and a remote target
-is refused when the list is missing. There is no override.`;
+The target is a pglite: file or a Neon branch endpoint (ep-…); any other host,
+localhost included, is refused. A Neon target also needs ${PRODUCTION_HOSTS_ENV}:
+a comma-separated list of the hosts or Neon endpoint IDs that serve production.
+A target on that list, or a Neon branch labelled production, prod or main, is
+refused, and so is any Neon target when the list is missing. There is no
+override.`;
 
 export class CensusRefusal extends Error {
   readonly code = "census_refused";
@@ -42,7 +44,7 @@ export class CensusRefusal extends Error {
 export type CensusTarget = {
   url: string;
   sourceEnv: string;
-  kind: "pglite" | "local" | "remote";
+  kind: "pglite" | "remote";
   host: string;
   database: string;
   neon: { project: string; branch: string; endpoint: string } | null;
@@ -98,7 +100,6 @@ export function parseCensusArgs(argv: readonly string[]): CensusOptions {
   };
 }
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
 // One `@` at most, and nothing a parser could read as a second host, path or
 // fragment: postgres.js takes the host after the first `@` where `URL` takes
 // the last, so a URL two parsers could read differently is refused. IPv6
@@ -185,7 +186,7 @@ export function resolveCensusTarget(
   return {
     url,
     sourceEnv: options.databaseUrlEnv,
-    kind: LOOPBACK_HOSTS.has(host) ? "local" : "remote",
+    kind: "remote",
     host,
     database,
     neon: isNeonHost
@@ -203,8 +204,14 @@ export function productionRefusal(
   target: CensusTarget,
   env: Env,
 ): string | null {
-  if (target.kind !== "remote") return null;
-  if (target.neon && /^(?:production|prod|main)$/i.test(target.neon.branch)) {
+  if (target.kind === "pglite") return null;
+  // A host name cannot show what is behind it: localhost or any alias may be
+  // a tunnel to production. A named Neon endpoint can be checked against the
+  // declared production endpoints; local runs use a pglite: file.
+  if (!target.neon?.endpoint.startsWith("ep-")) {
+    return `${target.host} is not a Neon endpoint; the census reads only a pglite: file or a Neon branch endpoint`;
+  }
+  if (/^(?:production|prod|main)$/i.test(target.neon.branch)) {
     return `Neon branch "${target.neon.branch}" is named as a production branch`;
   }
   const declared = (env[PRODUCTION_HOSTS_ENV] ?? "")

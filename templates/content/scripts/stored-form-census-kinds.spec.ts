@@ -105,14 +105,26 @@ describe("body classification", () => {
       status: "canonical",
       losses: ["gfm-list-nesting-lost", "gfm-list-items-lost"],
     });
-    expect(classifyBody(L("Heading", "======="))).toEqual({
+    for (const heading of [L("Heading", "======="), L("Heading", "--")]) {
+      expect(classifyBody(heading), heading).toEqual({
+        status: "canonical",
+        losses: ["gfm-headings-lost"],
+      });
+    }
+    // Content keeps the indent as text in a paragraph.
+    expect(classifyBody("    code line")).toEqual({
       status: "canonical",
-      losses: ["gfm-headings-lost"],
+      losses: ["gfm-code-blocks-lost"],
     });
     // One run of bold to GFM, half of which Content shows as underscores.
     expect(classifyBody("**kept**__lost__")).toEqual({
       status: "canonical",
       losses: ["gfm-strong-dropped"],
+    });
+    // The same amount of italic, on different text: b to GFM, "a " to Content.
+    expect(classifyBody("*a * _b_")).toEqual({
+      status: "canonical",
+      losses: ["gfm-emphasis-dropped"],
     });
     // A toggle's summary is plain text, so its asterisks show.
     expect(classifyBody(L('## **Toggle** {toggle="true"}', "\tChild"))).toEqual(
@@ -125,6 +137,18 @@ describe("body classification", () => {
     expect(result.status).toBe("non-canonical");
     if (result.status !== "non-canonical") return;
     expect(result.losses).toContain("gfm-code-blocks-lost");
+    // Content writes `---` under a paragraph as a divider; a longer underline
+    // is a heading to GFM, which canonicalizing turns into one.
+    expect(classifyBody(L("Title", "-----"))).toMatchObject({
+      status: "non-canonical",
+      losses: ["gfm-headings-lost"],
+    });
+    expect(
+      classifyBody(L("Intro", "", "    const x = 1;", "    const y = 2;")),
+    ).toMatchObject({
+      status: "non-canonical",
+      losses: ["gfm-code-blocks-lost"],
+    });
     // A fenced block inside a quote is lost, but its contents are still code.
     expect(
       classifyBody(L("> ```html", '> <a href="C:\\temp">x</a>', "> ```")),
@@ -154,6 +178,7 @@ describe("body classification", () => {
         "</callout>",
       ),
       L("A paragraph", "---"),
+      L("- item", "\tchild paragraph"),
       "Inline math $E = mc^2$ and a [link](https://example.com)",
       '<page url="https://www.notion.so/abc">Child Page</page>',
       "<table_of_contents/>",

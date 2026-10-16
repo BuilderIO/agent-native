@@ -74,6 +74,13 @@ function cli(
   return { run, events, stdout };
 }
 
+/** Flags for a Neon child branch, the only remote target the census reads. */
+const BRANCH_ARGS = [
+  "--database-url-env=CENSUS_URL",
+  "--neon-project=project-fixture",
+  "--neon-branch=census/fixture",
+];
+
 const neverConnect = async (): Promise<DbExec> => {
   throw new Error("connect must not be called");
 };
@@ -172,8 +179,8 @@ describe("stored-form census guards (SF-09)", () => {
 
   it("refuses a remote target when production hosts are not declared", async () => {
     const { run, events } = cli(
-      ["--database-url-env=CENSUS_URL"],
-      { CENSUS_URL: targetUrl("reader", "db.example.com", "content") },
+      BRANCH_ARGS,
+      { CENSUS_URL: targetUrl("reader", BRANCH_HOST, "neondb") },
       neverConnect,
     );
     expect(await run).toBe(1);
@@ -181,6 +188,30 @@ describe("stored-form census guards (SF-09)", () => {
     expect(events[events.length - 1]).toContain(
       `${PRODUCTION_HOSTS_ENV} is not set, so a remote target cannot be shown not to be production`,
     );
+  });
+
+  it("refuses any host but a Neon endpoint, loopback included", async () => {
+    // A tunnel on localhost, or any alias, can lead to production.
+    for (const host of [
+      "localhost",
+      "127.0.0.1",
+      "db.example.com",
+      "console.neon.tech",
+    ]) {
+      const { run, events } = cli(
+        BRANCH_ARGS,
+        {
+          CENSUS_URL: targetUrl("reader", host, "content"),
+          [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+        },
+        neverConnect,
+      );
+      expect(await run, host).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1], host).toBe(
+        `log Refused: ${host} is not a Neon endpoint; the census reads only a pglite: file or a Neon branch endpoint`,
+      );
+    }
   });
 
   it("has no flag that applies changes or overrides the refusal", async () => {
@@ -258,8 +289,11 @@ describe("stored-form census guards (SF-09)", () => {
   it("refuses a database name the drivers could read differently", async () => {
     for (const path of ["", "census%2Ddb"]) {
       const { run, events } = cli(
-        ["--database-url-env=CENSUS_URL"],
-        { CENSUS_URL: targetUrl("reader", "localhost", path) },
+        BRANCH_ARGS,
+        {
+          CENSUS_URL: targetUrl("reader", BRANCH_HOST, path),
+          [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+        },
         neverConnect,
       );
       expect(await run, path).toBe(1);
@@ -305,8 +339,11 @@ describe("stored-form census guards (SF-09)", () => {
 
     // A URL with no password can still carry a secret as its user name.
     const passwordless = cli(
-      ["--database-url-env=CENSUS_URL"],
-      { CENSUS_URL: targetUrl(PASSWORD, "localhost", "content", "") },
+      BRANCH_ARGS,
+      {
+        CENSUS_URL: targetUrl(PASSWORD, BRANCH_HOST, "neondb", ""),
+        [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+      },
       async (target) => {
         throw new Error(`could not reach ${target}`);
       },
@@ -317,14 +354,14 @@ describe("stored-form census guards (SF-09)", () => {
 
     // The password may also sit where the target lines and refusals print.
     for (const misplaced of [
-      targetUrl(PASSWORD, "localhost", "content"),
-      targetUrl("reader", "localhost", PASSWORD),
-      targetUrl("reader", "localhost", `content?${PASSWORD}=1`),
-      targetUrl("reader", "localhost", `content?sslmode=${PASSWORD}`),
+      targetUrl(PASSWORD, BRANCH_HOST, "neondb"),
+      targetUrl("reader", BRANCH_HOST, PASSWORD),
+      targetUrl("reader", BRANCH_HOST, `neondb?${PASSWORD}=1`),
+      targetUrl("reader", BRANCH_HOST, `neondb?sslmode=${PASSWORD}`),
     ]) {
       const { run, events } = cli(
-        ["--database-url-env=CENSUS_URL"],
-        { CENSUS_URL: misplaced },
+        BRANCH_ARGS,
+        { CENSUS_URL: misplaced, [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST },
         async () => {
           throw new Error("stop after connect");
         },
@@ -334,8 +371,11 @@ describe("stored-form census guards (SF-09)", () => {
     }
 
     const closing = cli(
-      ["--database-url-env=CENSUS_URL"],
-      { CENSUS_URL: targetUrl("reader", "localhost", "content") },
+      BRANCH_ARGS,
+      {
+        CENSUS_URL: targetUrl("reader", BRANCH_HOST, "neondb"),
+        [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+      },
       async (target) => ({
         execute: async () => ({ rows: [], rowsAffected: 0 }),
         close: async () => {
@@ -756,8 +796,11 @@ describe("stored-form census against a local database", () => {
 
   it("never prints the password in a completed report", async () => {
     const { run, events, stdout } = cli(
-      ["--database-url-env=CENSUS_URL"],
-      { CENSUS_URL: targetUrl("reader", "localhost", PASSWORD) },
+      BRANCH_ARGS,
+      {
+        CENSUS_URL: targetUrl("reader", BRANCH_HOST, PASSWORD),
+        [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+      },
       async () => ({ ...db, close: async () => {} }),
     );
     expect(await run).toBe(0);
@@ -789,6 +832,17 @@ describe("stored-form census against a local database", () => {
       sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
       args: ["page-huge", "word ".repeat(120_000)],
     });
+    // Content's parser is quadratic in line length, so a long line in a body
+    // or a live copy is counted without being parsed.
+    const longLine = "word ".repeat(7_000).trim();
+    await db.execute({
+      sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
+      args: ["page-long-line", longLine],
+    });
+    await db.execute({
+      sql: "UPDATE _collab_docs SET yjs_state = ? WHERE doc_id = ?",
+      args: [liveCopyState(longLine), "page-agent"],
+    });
     await db.execute({
       sql: "UPDATE _collab_docs SET yjs_state = ? WHERE doc_id = ?",
       args: ["!!not a live copy!!", "page-editor"],
@@ -805,8 +859,12 @@ describe("stored-form census against a local database", () => {
     const report = JSON.parse(stdout.join(""));
     expect(report.complete).toBe(false);
     expect(report.bodies.tooLarge.pageIds).toEqual(["page-huge"]);
+    expect(report.bodies.tooLongToParse.pageIds).toEqual(["page-long-line"]);
     expect(report.liveCopies.byOutcome.unreadable.pageIds).toEqual([
       "page-editor",
+    ]);
+    expect(report.liveCopies.byOutcome.tooLongToParse.pageIds).toEqual([
+      "page-agent",
     ]);
     expect(report.agentFormPages.pendingSuggestions.unreadable).toMatchObject({
       items: 1,
@@ -814,7 +872,9 @@ describe("stored-form census against a local database", () => {
     });
     expect(report.incompleteReasons).toEqual([
       "bodies over 262144 bytes, not classified: 1",
+      "bodies with a line over 32768 characters, not classified: 1",
       "unreadable live copies: 1",
+      "live copies over 262144 characters or with a line over 32768, not compared: 1",
       "pages with suggestions that could not be read or resolved: 1",
     ]);
   });

@@ -22,10 +22,12 @@ const SUGGESTION_BATCH = 25;
 const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
 const ORPHAN_BATCH = 1000;
 // Larger bodies and live copies are counted without being parsed. Parsing has
-// no deadline and Content's parser is quadratic on some input (a run of `[`
-// takes about 3 minutes to classify at this size), so this cap is what keeps
-// one page inside the snapshot's 10-minute idle limit.
+// no deadline, and Content's parser is quadratic in the length of a line that
+// holds a long run of spaces or `[` (about 1.5 seconds per parse at 40 KiB),
+// so both caps are what keep one page inside the snapshot's 10-minute idle
+// limit: the slowest page found under them takes about a minute to classify.
 const MAX_BODY_BYTES = 256 * 1024;
+const MAX_LINE_CHARS = 32 * 1024;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
 const KEEPALIVE_AFTER_MS = 10_000;
 const SUGGESTION_ADAPTER = "content.document-markdown";
@@ -227,14 +229,31 @@ type LiveCopyOutcome =
   | "lossy"
   | "unreadable"
   | "tooLarge"
+  | "tooLongToParse"
   | "missing"
   | "bodyNotRead";
+
+/** Whether Content's parser can read `text` within the caps above. */
+function withinParserLimits(text: string): boolean {
+  if (text.length > MAX_BODY_BYTES) return false;
+  for (let start = 0; start <= text.length; ) {
+    const end = text.indexOf("\n", start);
+    const stop = end === -1 ? text.length : end;
+    if (stop - start > MAX_LINE_CHARS) return false;
+    start = stop + 1;
+  }
+  return true;
+}
 
 function liveCopyOutcome(state: string, body: string): LiveCopyOutcome {
   const ydoc = new YDoc();
   try {
     applyUpdate(ydoc, base64ToUint8Array(state));
-    const parity = compareLiveBody(materializeLiveBody(ydoc), body);
+    const live = materializeLiveBody(ydoc);
+    // A stored state under its byte cap can still hold text past the parser's.
+    if (live.kind === "body" && !withinParserLimits(live.markdown))
+      return "tooLongToParse";
+    const parity = compareLiveBody(live, body);
     if (parity === "mismatch") return "stale";
     if (
       parity === "match" ||
@@ -411,6 +430,7 @@ export async function runStoredFormCensusScan(
     canonicalizeFailed: pageBucket(),
     unreadable: pageBucket(),
     tooLarge: pageBucket(),
+    tooLongToParse: pageBucket(),
     notIdempotent: pageBucket(),
     idempotenceThrows: pageBucket(),
     lossy: pageBucket(),
@@ -457,6 +477,10 @@ export async function runStoredFormCensusScan(
         if (Number(row.content_bytes) > MAX_BODY_BYTES)
           bodies.tooLarge.add(page);
         else bodies.unreadable.add(page);
+        continue;
+      }
+      if (!withinParserLimits(row.content)) {
+        bodies.tooLongToParse.add(page);
         continue;
       }
       batchBodies.set(page.id, row.content);
@@ -631,11 +655,19 @@ export async function runStoredFormCensusScan(
       `bodies over ${MAX_BODY_BYTES} bytes, not classified`,
       bodies.tooLarge.pages,
     ],
+    [
+      `bodies with a line over ${MAX_LINE_CHARS} characters, not classified`,
+      bodies.tooLongToParse.pages,
+    ],
     ["bodies canonicalizeNfm threw on", bodies.canonicalizeFailed.pages],
     ["unreadable live copies", liveCopies.byOutcome.pagesIn("unreadable")],
     [
       `live copies over ${MAX_LIVE_COPY_BASE64_BYTES} bytes, not compared`,
       liveCopies.byOutcome.pagesIn("tooLarge"),
+    ],
+    [
+      `live copies over ${MAX_BODY_BYTES} characters or with a line over ${MAX_LINE_CHARS}, not compared`,
+      liveCopies.byOutcome.pagesIn("tooLongToParse"),
     ],
     [
       "pages with suggestions that could not be read or resolved",
@@ -680,6 +712,7 @@ export async function runStoredFormCensusScan(
       idempotenceThrows: bodies.idempotenceThrows,
       unreadable: bodies.unreadable,
       tooLarge: bodies.tooLarge,
+      tooLongToParse: bodies.tooLongToParse,
     },
     liveCopies: hasCollab
       ? {
