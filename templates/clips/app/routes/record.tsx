@@ -455,13 +455,6 @@ function isScreenPermissionError(message: string): boolean {
   );
 }
 
-function isEmbeddedFrameScreenPermissionError(message: string): boolean {
-  return (
-    isScreenPermissionError(message) &&
-    /app frame|embedding frame|frame that allows/i.test(message)
-  );
-}
-
 function isCameraPermissionError(message: string): boolean {
   return isPermissionError(message) && /camera/i.test(message);
 }
@@ -485,7 +478,6 @@ function shouldOpenRecorderInTab(message: string): boolean {
   return (
     (isPolicyPermissionError(message) && isEmbeddedWebClient()) ||
     isEmbeddedCapturePolicyUnknownError(message) ||
-    isEmbeddedFrameScreenPermissionError(message) ||
     (isEmbeddedWebClient() && isScreenPermissionError(message))
   );
 }
@@ -532,10 +524,7 @@ function permissionGuidance(
     return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates the selected capture sources.";
   }
   if (isScreenPermissionError(message)) {
-    if (
-      isEmbeddedFrameScreenPermissionError(message) ||
-      isEmbeddedWebClient()
-    ) {
+    if (isEmbeddedWebClient()) {
       return "The web client is running Clips inside a frame. Open the recorder in its own tab, then start recording; Chrome can block screen sharing in embedded pages even when macOS access is enabled.";
     }
     if (isMacPlatform()) {
@@ -580,13 +569,7 @@ function permissionSettingsUrl(
   mode?: RecordingMode,
 ): string | null {
   if (isUploadFailureError(message)) return null;
-  if (
-    !isMacPlatform() ||
-    isPolicyPermissionError(message) ||
-    isEmbeddedFrameScreenPermissionError(message)
-  ) {
-    return null;
-  }
+  if (!isMacPlatform() || isPolicyPermissionError(message)) return null;
   if (isScreenPermissionError(message)) return MAC_SCREEN_RECORDING_PREF_URL;
   if (isCameraPermissionError(message)) return MAC_CAMERA_PREF_URL;
   if (isMicrophonePermissionError(message)) return MAC_MICROPHONE_PREF_URL;
@@ -760,9 +743,8 @@ function friendlyRecordingErrorMessage(error: string): string {
     return "The video could not finish uploading. Retry the upload before starting over.";
   }
   if (
-    isEmbeddedFrameScreenPermissionError(error) ||
-    (isEmbeddedWebClient() &&
-      (isPolicyPermissionError(error) || isScreenPermissionError(error)))
+    isEmbeddedWebClient() &&
+    (isPolicyPermissionError(error) || isScreenPermissionError(error))
   ) {
     return "This recorder is embedded somewhere that blocks capture permissions.";
   }

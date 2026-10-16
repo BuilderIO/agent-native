@@ -748,6 +748,7 @@ describe("record route lifecycle shell", () => {
   });
 
   it("keeps app-frame screen toast guidance out of macOS settings", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
     vi.stubGlobal(
       "navigator",
       new Proxy(navigator, {
@@ -897,6 +898,7 @@ describe("record route lifecycle shell", () => {
   });
 
   it("keeps app-frame screen denials away from macOS guidance and settings", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
     vi.stubGlobal(
       "navigator",
       new Proxy(navigator, {
@@ -938,6 +940,60 @@ describe("record route lifecycle shell", () => {
     expect(
       buttons.some((button) =>
         ["Screen", "Camera", "Mic"].includes(button.textContent?.trim() ?? ""),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps macOS settings for top-level generic screen denials", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const error =
+      "Screen recording is blocked by the browser, macOS, or this app frame.";
+    const options = buildRecordingErrorToastOptions(
+      error,
+      { mode: "screen", micDeviceId: null },
+      (key) => key,
+      vi.fn(() => true),
+      vi.fn(),
+    );
+
+    expect(options.action?.label).toBe("recordRoute.openSettings");
+    expect(options.description).toContain(
+      "System Settings > Privacy & Security",
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error={error}
+          mode="screen"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "macOS is blocking screen recording",
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Screen"),
+    ).toBe(true);
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
       ),
     ).toBe(false);
   });
