@@ -2,15 +2,19 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
-import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
+import {
+  deleteRecordingMediaObjects,
+  deleteSupersededHostedMedia,
+} from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
+import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
 import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
+import { uploadRecordingMedia } from "../../server/lib/upload-recording-media.js";
 import {
   makeSeekable,
   normalizeTimelineToMp4,
@@ -77,6 +81,7 @@ export function isRemoteProviderUrl(
 
 export async function fetchProviderBytes(
   videoUrl: string,
+  options: { recordingId?: string; storageMode?: "own" | "hosted" | null } = {},
 ): Promise<
   | { ok: true; bytes: Uint8Array }
   | { ok: false; reason: "skipped-fetch-failed" | "skipped-too-large" }
@@ -87,11 +92,25 @@ export async function fetchProviderBytes(
     PROVIDER_FETCH_TIMEOUT_MS,
   );
   try {
-    const res = await fetch(videoUrl, { signal: controller.signal });
-    if (!res.ok) return { ok: false, reason: "skipped-fetch-failed" };
+    const res =
+      options.storageMode === "hosted"
+        ? options.recordingId
+          ? await fetchS3ObjectByUrl(videoUrl, {
+              recordingId: options.recordingId,
+              storageMode: "hosted",
+              timeoutMs: PROVIDER_FETCH_TIMEOUT_MS,
+            })
+          : null
+        : await fetch(videoUrl, { signal: controller.signal });
+    if (!res) return { ok: false, reason: "skipped-fetch-failed" };
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return { ok: false, reason: "skipped-fetch-failed" };
+    }
 
     const declaredLength = Number(res.headers.get("content-length") ?? "0");
     if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+      await res.body?.cancel().catch(() => {});
       return { ok: false, reason: "skipped-too-large" };
     }
 
@@ -129,6 +148,7 @@ async function ensureRecordingSeekableInternal(params: {
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
       videoFormat: schema.recordings.videoFormat,
+      storageMode: schema.recordings.storageMode,
       sourceAppName: schema.recordings.sourceAppName,
     })
     .from(schema.recordings)
@@ -173,7 +193,10 @@ async function ensureRecordingSeekableInternal(params: {
     };
   }
 
-  const fetched = await fetchProviderBytes(rec.videoUrl);
+  const fetched = await fetchProviderBytes(rec.videoUrl, {
+    recordingId,
+    storageMode: rec.storageMode,
+  });
   if (!fetched.ok) {
     return { recordingId, status: fetched.reason, changed: false };
   }
@@ -211,7 +234,8 @@ async function ensureRecordingSeekableInternal(params: {
 
   const outputFormat: VideoFormat = normalizeTimeline ? "mp4" : videoFormat;
   const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm";
-  const upload = await uploadFile({
+  const upload = await uploadRecordingMedia({
+    recordingId,
     data: seekable.bytes,
     filename: `${recordingId}.${outputFormat}`,
     mimeType,
@@ -263,7 +287,11 @@ async function ensureRecordingSeekableInternal(params: {
     updated[0]?.videoFormat !== outputFormat
   ) {
     await deleteRecordingMediaObjects(
-      { id: recordingId, videoUrl: upload.url },
+      {
+        id: recordingId,
+        storageMode: rec.storageMode,
+        videoUrl: upload.url,
+      },
       { protectedUrls: [rec.videoUrl] },
     );
     return {
@@ -275,6 +303,12 @@ async function ensureRecordingSeekableInternal(params: {
     };
   }
 
+  if (rec.storageMode === "hosted") {
+    await deleteSupersededHostedMedia(rec.videoUrl, {
+      recordingId,
+      replacementUrl: upload.url,
+    });
+  }
   await markRecordingSeekable(recordingId, upload.url);
   await writeAppState("refresh-signal", { ts: Date.now() });
 

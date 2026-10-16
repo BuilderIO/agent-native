@@ -2627,6 +2627,7 @@ const jaJP = {
     auditLog: "監査ログ",
     doctorCodeChecks: "Doctor (コードチェック)",
     observability: "可観測性",
+    recorder: "レコーダー",
     observationalMemory: "観測メモリ",
     ciEvalGate: "CI 評価ゲート",
     usingYourAgentOverview: "概要",

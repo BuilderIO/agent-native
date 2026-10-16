@@ -22,10 +22,51 @@ function outputFor(
 ): AgentRunOutput {
   const relationClaims = [
     ...contract.relationGrains,
-    ...contract.relationGrainAlternatives.map(
-      (group) => group.alternatives[0]!,
+    ...contract.relationGrainAlternatives.flatMap(
+      (group) => group.alternatives,
     ),
   ];
+  const metadataCandidates = relationClaims.map((claim) => {
+    const meaningClaim = contract.relationMeanings?.find(
+      (candidate) => candidate.relation === claim.relation,
+    );
+    const fields = [
+      ...(contract.relationFields ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .flatMap((candidate) => candidate.fields),
+      ...(contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => candidate.field),
+    ];
+    const definitions = [
+      ...(meaningClaim?.meanings ?? []),
+      ...(meaningClaim?.requiredMeaningGroups?.flat() ?? []),
+      ...(contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .flatMap((candidate) => [
+          ...candidate.meanings,
+          ...(candidate.requiredDisclaimers ?? []),
+        ]),
+    ];
+    const fieldDefinitions = Object.fromEntries(
+      (contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => [
+          candidate.field,
+          [
+            ...candidate.meanings,
+            ...(candidate.requiredDisclaimers ?? []),
+          ].join("; "),
+        ]),
+    );
+    return {
+      table: claim.relation,
+      grain: claim.grains.join("; "),
+      columnsUsed: fields.join(", "),
+      fieldDefinitions,
+      definition: definitions.join("; "),
+    };
+  });
   const expectedText = [
     ...relationClaims.map((claim) => {
       const meaningClaim = contract.relationMeanings?.find(
@@ -50,7 +91,16 @@ function outputFor(
   ].join("\n");
   return {
     text: expectedText,
-    toolCalls: ["search-bigquery-schema"],
+    toolCalls: ["find-data"],
+    toolCallDetails: [
+      {
+        name: "find-data",
+        input: { question: "synthetic metadata contract" },
+        completed: true,
+        isError: false,
+        result: JSON.stringify({ results: metadataCandidates }),
+      },
+    ],
     ok: true,
     runId: "eval:synthetic-fixture",
     durationMs: 0,
@@ -62,7 +112,20 @@ function runnerFor(output: AgentRunOutput): AgentRunner {
   return {
     engine: {} as AgentRunner["engine"],
     model: "synthetic-fixture",
-    runAgent: async () => output,
+    runAgent: async (input) => {
+      if (output.toolCallDetails !== undefined) return output;
+      const caseIndex = cases.findIndex(
+        (evalCase) => evalCase.input.prompt === input.prompt,
+      );
+      const contract = Object.values(sourceContracts)[caseIndex];
+      if (!contract) return output;
+      const evidence = outputFor(contract).toolCallDetails ?? [];
+      return {
+        ...output,
+        toolCalls: [...new Set([...output.toolCalls, "find-data"])],
+        toolCallDetails: evidence,
+      };
+    },
     analyzeContext: () => ({}) as ReturnType<AgentRunner["analyzeContext"]>,
   };
 }
@@ -91,6 +154,82 @@ describe("Analytics synthetic production source evals", () => {
     expect(
       cases.map((evalCase) => evalCase.input.prompt).join("\n"),
     ).not.toMatch(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  });
+
+  it("requires retrieved find-data metadata to support the relation and grain claims", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const noEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(outputFor(contract, { toolCallDetails: [] })),
+      { persist: false },
+    );
+    const mismatchedEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          toolCallDetails: [
+            {
+              name: "find-data",
+              input: { question: "synthetic metadata contract" },
+              completed: true,
+              isError: false,
+              result: JSON.stringify({
+                results: [
+                  {
+                    table: "dbt_mart.other_user_table",
+                    grain: "one row per user",
+                  },
+                ],
+              }),
+            },
+          ],
+        }),
+      ),
+      { persist: false },
+    );
+    const unboundEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          toolCallDetails: [
+            {
+              name: "find-data",
+              input: { question: "synthetic metadata contract" },
+              completed: true,
+              isError: false,
+              result: JSON.stringify({
+                results: [
+                  {
+                    table: "dbt_mart.other_user_table",
+                    grain: "one row per account",
+                    definition:
+                      "dbt_mart.dim_users_core has a user grain and one row per user.",
+                  },
+                ],
+              }),
+            },
+          ],
+        }),
+      ),
+      { persist: false },
+    );
+
+    expect(noEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(noEvidence.results[0]?.scores[0]?.reason).toContain(
+      "no successful find-data metadata evidence was retrieved",
+    );
+    expect(mismatchedEvidence).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+    });
+    expect(mismatchedEvidence.results[0]?.scores[0]?.reason).toContain(
+      "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
+    );
+    expect(unboundEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(unboundEvidence.results[0]?.scores[0]?.reason).toContain(
+      "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
+    );
   });
 
   it("accepts the expected source and grain contracts using metadata tools only", async () => {

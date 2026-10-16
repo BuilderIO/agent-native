@@ -60,7 +60,7 @@ existing rows and inserts from older code. Make it nullable, give it a safe
 `DEFAULT`, or use a self-filling type (`SERIAL`, `GENERATED ... AS IDENTITY`);
 backfill separately when it needs a real value.
 
-### Core SQL Stores (auto-created, available in all templates)
+### Core SQL Stores (created by the framework, available in all templates)
 
 | Store               | Purpose                                              | Access                                     |
 | ------------------- | ---------------------------------------------------- | ------------------------------------------ |
@@ -137,7 +137,7 @@ The agent uses app-specific actions to read/write the database. Core DB scripts 
 
 - `pnpm action db-schema` — Show all tables, columns, types
 - `pnpm action db-query --sql "SELECT * FROM forms"` — Run SELECT queries
-- `pnpm action db-exec --sql "UPDATE ..."` — Last-resort ad-hoc maintenance for short columns, multi-column writes, or computed updates when no domain action exists. For several related writes, prefer `--statements '[{"sql":"...","args":[...]}]'` so they run sequentially in one transaction. Schema changes are blocked; use reviewed additive migrations/startup code instead.
+- `pnpm action db-exec --sql "UPDATE ..."` — Last-resort ad-hoc maintenance for short columns, multi-column writes, or computed updates when no domain action exists. For several related writes, prefer `--statements '[{"sql":"...","args":[...]}]'` so they run sequentially in one transaction. Schema changes are blocked; use a reviewed additive migration instead.
 - `pnpm action db-patch --table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` — **Surgical search/replace on a large text column.** Sends the diff instead of re-transmitting the whole value, so it's dramatically more token-efficient than `db-exec UPDATE` when editing multi-kilobyte documents, slide HTML, dashboard/form JSON, etc. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` to replace every occurrence.
 - App-specific actions for domain operations — **always prefer these over raw SQL when one exists.** They encode business rules, power the client action hooks, and for editor-backed tables (documents, slides) also push live Yjs updates to open collaborative editors. `db-patch` is the generic fallback for tables without a dedicated edit action.
 

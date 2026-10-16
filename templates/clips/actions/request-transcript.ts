@@ -60,6 +60,7 @@ import regenerateTitle from "./regenerate-title.js";
 
 type RecordingMediaRow = {
   videoUrl: string | null;
+  storageMode?: "own" | "hosted" | null;
   videoFormat?: "webm" | "mp4" | null;
   videoSizeBytes?: number | null;
   hasAudio?: boolean | null;
@@ -1029,6 +1030,7 @@ const requestTranscriptAction = defineAction({
       audioMediaPromise ??= prepareRecordingTranscriptionAudio({
         recordingId: args.recordingId,
         videoUrl,
+        storageMode: rec.storageMode,
         timeouts: {
           downloadMs: recordingMediaFetchTimeoutMs(
             rec.videoSizeBytes,
@@ -1123,6 +1125,7 @@ const requestTranscriptAction = defineAction({
       const [rec] = await db
         .select({
           videoUrl: schema.recordings.videoUrl,
+          storageMode: schema.recordings.storageMode,
           videoFormat: schema.recordings.videoFormat,
           videoSizeBytes: schema.recordings.videoSizeBytes,
           hasAudio: schema.recordings.hasAudio,

@@ -15,9 +15,12 @@ export {
   getAppConfig,
   resolveAppHomePath,
   resetAppConfigForTests,
+  resolveClipsHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsHostedStorageConfig,
+  type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
 export { platformWaitUntil } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";

@@ -24,6 +24,7 @@ import {
   checkBackgroundAutomationCredentials,
   isBackgroundAutomationRunActive,
   runBackgroundAutomation,
+  validateAutomationRunIdentity,
   type BackgroundAutomationContext,
   type BackgroundAutomationDeps,
 } from "../jobs/background-automation-runner.js";
@@ -1181,12 +1182,73 @@ async function dispatchQueuedAutomationEvent(
 
   let identity: AutomationExecutionIdentity;
   if (resource.owner === "__shared__") {
-    const userEmail = meta.createdBy || resource.owner;
+    const userEmail = meta.createdBy?.trim().toLowerCase();
+    if (!userEmail) {
+      await recordTriggerExecutionOutcome(
+        resource,
+        { lastCheck: new Date().toISOString() },
+        {
+          failure: {
+            code: CONFIG_INVALID_ERROR_CODE,
+            message: "Shared automation has no creator identity.",
+            precondition: true,
+          },
+          pauseImmediately: true,
+          eventId: queued.eventId,
+        },
+      );
+      return "completed";
+    }
+    const orgId = meta.orgId?.trim() || undefined;
+    let validation;
+    try {
+      validation = await validateAutomationRunIdentity(userEmail, orgId);
+    } catch (error) {
+      await recordTriggerSkip(
+        resource,
+        "error",
+        "Could not verify the automation execution identity.",
+        "owner_unverifiable",
+      );
+      throw error;
+    }
+    if (!validation.ok) {
+      if (
+        validation.code === OWNER_MISSING_ERROR_CODE ||
+        validation.code === CONFIG_INVALID_ERROR_CODE
+      ) {
+        await recordTriggerExecutionOutcome(
+          resource,
+          { lastCheck: new Date().toISOString() },
+          {
+            failure: {
+              code: validation.code,
+              message: validation.reason,
+              precondition: true,
+            },
+            pauseImmediately: true,
+            eventId: queued.eventId,
+          },
+        );
+        return "completed";
+      }
+      await recordTriggerSkip(
+        resource,
+        "error",
+        validation.reason,
+        validation.code,
+      );
+      return "completed";
+    }
     identity = {
       userEmail,
-      orgId: meta.orgId,
+      orgId,
+      ...(!orgId ? { defaultAgentEngineScope: "deployment" as const } : {}),
       eventOwner: userEmail.toLowerCase(),
     };
+    if (!automationMatchesEventOwner(identity, queued.eventOwner)) {
+      return "completed";
+    }
   } else {
     let resolved;
     try {
@@ -1244,7 +1306,16 @@ async function dispatchQueuedAutomationEvent(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      {
+        ownerEmail: identity.userEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
       deps,
       meta.model,
     );
@@ -1263,7 +1334,16 @@ async function dispatchQueuedAutomationEvent(
   let matches: boolean;
   try {
     matches = await runWithRequestContext(
-      { userEmail: identity.userEmail, orgId: identity.orgId },
+      {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
       () =>
         evaluateCondition(
           meta.condition,
@@ -1355,7 +1435,16 @@ export async function dispatchAutomationWebhookTask(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      {
+        ownerEmail: identity.userEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
       deps,
       meta.model,
     );
@@ -1375,7 +1464,16 @@ export async function dispatchAutomationWebhookTask(
   let matches: boolean;
   try {
     matches = await runWithRequestContext(
-      { userEmail: identity.userEmail, orgId: identity.orgId },
+      {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
       () =>
         evaluateCondition(
           meta.condition,
@@ -1496,8 +1594,14 @@ async function dispatchAgentic(
     body: latestTrigger.body,
     resource: claimed,
   };
-  const requestContext =
-    runningMeta.originScopeId &&
+  const requestContext = {
+    ...(identity.orgScope === "personal"
+      ? { orgScope: "personal" as const }
+      : {}),
+    ...(identity.defaultAgentEngineScope === "deployment"
+      ? { defaultAgentEngineScope: "deployment" as const }
+      : {}),
+    ...(runningMeta.originScopeId &&
     runningMeta.deliveryPlatform &&
     runningMeta.deliveryDestination
       ? {
@@ -1522,7 +1626,8 @@ async function dispatchAgentic(
             },
           },
         }
-      : undefined;
+      : {}),
+  };
 
   try {
     const result = await runBackgroundAutomation(

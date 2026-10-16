@@ -46,6 +46,8 @@ export interface AssistantChatSendOptions {
   attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** Drop a queued submit instead of handing it to chat after this time. */
+  submissionExpiresAt?: number;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
@@ -59,7 +61,10 @@ export type AssistantChatSubmitResult =
   | { status: "submitted" }
   | {
       status: "rejected";
-      reason: "engine-not-configured" | "submission-unavailable";
+      reason:
+        | "engine-not-configured"
+        | "submission-unavailable"
+        | "submission-expired";
     };
 
 export interface AssistantChatHandle {

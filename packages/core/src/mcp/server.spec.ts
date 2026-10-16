@@ -4856,7 +4856,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("executes an approval-gated action only after one exact accepted retry", async () => {
+  it("executes a conditional approval-gated action only after one exact accepted retry", async () => {
     const run = vi.fn(async () => ({ ok: true }));
     const approvalConfig = {
       ...config,
@@ -4866,11 +4866,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             description: "Publish a draft",
             parameters: {
               type: "object" as const,
-              properties: { draftId: { type: "string" } },
+              properties: {
+                draftId: { type: "string" },
+                allowLockedLayers: { type: "boolean" },
+              },
               required: ["draftId"],
             },
           },
-          needsApproval: true,
+          needsApproval: (args: { allowLockedLayers?: boolean }) =>
+            args.allowLockedLayers === true,
           run,
         },
       },
@@ -4884,7 +4888,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const first = (await client.callTool(
         {
           name: "publish-draft",
-          arguments: { draftId: "draft-1" },
+          arguments: { draftId: "draft-1", allowLockedLayers: true },
           inputResponses: {
             actionApproval: {
               action: "accept",
@@ -4908,7 +4912,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
       const approved = await client.callTool({
         name: "publish-draft",
-        arguments: { draftId: "draft-1" },
+        arguments: { draftId: "draft-1", allowLockedLayers: true },
         requestState: first.requestState,
         inputResponses: {
           actionApproval: {
@@ -4923,7 +4927,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
       const replay = await client.callTool({
         name: "publish-draft",
-        arguments: { draftId: "draft-1" },
+        arguments: { draftId: "draft-1", allowLockedLayers: true },
         requestState: first.requestState,
         inputResponses: {
           actionApproval: {

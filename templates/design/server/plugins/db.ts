@@ -547,6 +547,12 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_relay_chains_expires_idx
 CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
   ON design_motion_bridge_receipt_challenges (chain_id)`,
   },
+  {
+    version: 45,
+    name: "design-screen-restore-claims-restored-index",
+    sql: `CREATE INDEX IF NOT EXISTS design_screen_restore_claims_design_restored_idx
+  ON design_screen_restore_claims (design_id, restored_file_id)`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

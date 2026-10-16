@@ -1,5 +1,9 @@
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import { resumeEntryFromApproval } from "@agent-native/agentkit/protocol";
+import {
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+  createAgentKitProtocolVersionOffer,
+  resumeEntryFromApproval,
+} from "@agent-native/agentkit/protocol";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
@@ -209,8 +213,14 @@ function createAgentNativeAgentKitTransport(
   return createAgentNativeAgentKitTransportImplementation({
     ...options,
     fetch: (async (input, init) => {
-      if (String(input).includes("/_agent-native/agent-engine/status")) {
+      const url = String(input);
+      if (url.includes("/_agent-native/agent-engine/status")) {
         return json({ configured: true, chatEligible: true });
+      }
+      if (url.endsWith("/_agent-native/agent-chat/capabilities")) {
+        return json({
+          [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+        });
       }
       return fetchImpl(input, init);
     }) as typeof fetch,
@@ -233,6 +243,260 @@ function resumableNativeRuntime(
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it.each([
+    {
+      supported: true,
+      response: json({
+        [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+      }),
+    },
+    { supported: false, response: json({ error: "Not found" }, 404) },
+  ])(
+    "reports deadline support from the server endpoint ($supported)",
+    async ({ supported, response }) => {
+      const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+      const capabilityUrl = `${apiUrl}/capabilities`;
+      const fetcher = vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === capabilityUrl
+          ? response
+          : json({ error: "Not found" }, 404),
+      );
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      });
+      const transport = createAgentNativeAgentKitTransportImplementation({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+        runtime,
+      });
+
+      const discovery = await transport.discoverCapabilities?.({
+        protocol: createAgentKitProtocolVersionOffer(),
+      });
+
+      expect(
+        discovery?.legacy?.[AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID],
+      ).toBe(supported);
+      expect(
+        discovery?.capabilities.find(
+          (capability) =>
+            capability.id === AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+        )?.state,
+      ).toBe(supported ? "available" : "unsupported");
+      expect(
+        discovery?.capabilities.find(
+          (capability) => capability.id === "messageQueue",
+        )?.state,
+      ).toBe("available");
+      expect(fetcher).toHaveBeenCalledWith(
+        capabilityUrl,
+        expect.objectContaining({ method: "GET", cache: "no-store" }),
+      );
+    },
+  );
+
+  it.each(["HTTP 503", "network rejection"] as const)(
+    "retries capability discovery after a transient %s failure",
+    async (failure) => {
+      const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+      const capabilityUrl = `${apiUrl}/capabilities`;
+      let capabilityRequests = 0;
+      let promptDispatches = 0;
+      const fetcher = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).endsWith("/_agent-native/agent-engine/status")) {
+            return json({ configured: true, chatEligible: true });
+          }
+          if (String(input) === capabilityUrl) {
+            capabilityRequests += 1;
+            if (capabilityRequests === 1) {
+              if (failure === "network rejection") {
+                throw new Error("Network unavailable");
+              }
+              return json({ error: "Temporarily unavailable" }, 503);
+            }
+            return json({
+              [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+            });
+          }
+          if (
+            String(input) === apiUrl &&
+            (init?.method ?? "GET").toUpperCase() === "POST"
+          ) {
+            promptDispatches += 1;
+            return new Response(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+              {
+                headers: {
+                  "content-type": "text/event-stream",
+                  "x-run-id": "run-after-capability-retry",
+                },
+              },
+            );
+          }
+          return json({ error: "Not found" }, 404);
+        },
+      );
+      const transport = createAgentNativeAgentKitTransportImplementation({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+        runtime: createAgentNativeChatRuntime({
+          apiUrl,
+          fetch: fetcher as typeof fetch,
+        }),
+      });
+      const client = new AgentKitClient({ transport });
+
+      try {
+        await expect(
+          client.sendMessage({
+            threadId: "thread-capability-retry",
+            text: "First try",
+            metadata: {
+              custom: {
+                agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+              },
+            },
+          }),
+        ).rejects.toMatchObject({
+          code: "capability_unavailable",
+          retryable: true,
+        });
+        expect(promptDispatches).toBe(0);
+        expect(
+          client
+            .getSnapshot()
+            .capabilityDiscovery?.capabilities.find(
+              (candidate) =>
+                candidate.id ===
+                AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+            ),
+        ).toMatchObject({ state: "unavailable", error: { retryable: true } });
+
+        const run = await client.sendMessage({
+          threadId: "thread-capability-retry",
+          text: "Retry after discovery recovers",
+          metadata: {
+            custom: {
+              agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+            },
+          },
+        });
+        await run.completed;
+
+        expect(capabilityRequests).toBe(2);
+        expect(promptDispatches).toBe(1);
+      } finally {
+        await client.shutdown();
+      }
+    },
+  );
+
+  it("does not send a deadline-bound prompt to an older server", async () => {
+    const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+    const capabilityUrl = `${apiUrl}/capabilities`;
+    let promptDispatches = 0;
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === capabilityUrl) {
+          return json({ error: "Not found" }, 404);
+        }
+        if (
+          String(input) === apiUrl &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          promptDispatches += 1;
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      }),
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await expect(
+        client.sendMessage({
+          threadId: "thread-old-server",
+          text: "Retry the saved prompt",
+          metadata: {
+            custom: {
+              agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: "capability_unsupported" });
+
+      expect(promptDispatches).toBe(0);
+      expect(client.getThread("thread-old-server").messages).toEqual([]);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
+  it("keeps ordinary prompts usable when the deadline endpoint is unavailable", async () => {
+    const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+    const capabilityUrl = `${apiUrl}/capabilities`;
+    let capabilityRequests = 0;
+    let promptDispatches = 0;
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith("/_agent-native/agent-engine/status")) {
+          return json({ configured: true, chatEligible: true });
+        }
+        if (String(input) === capabilityUrl) {
+          capabilityRequests += 1;
+          return json({ error: "Temporarily unavailable" }, 503);
+        }
+        if (
+          String(input) === apiUrl &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          promptDispatches += 1;
+          return new Response(`data: ${JSON.stringify({ type: "done" })}\n\n`, {
+            headers: {
+              "content-type": "text/event-stream",
+              "x-run-id": "run-ordinary-prompt",
+            },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      }),
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      const run = await client.sendMessage({
+        threadId: "thread-ordinary-prompt",
+        text: "Continue normally",
+      });
+      await run.completed;
+
+      expect(await client.getCapabilities()).not.toHaveProperty(
+        AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+      );
+      expect(capabilityRequests).toBe(1);
+      expect(promptDispatches).toBe(1);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("blocks a client send through the constructed transport when AI is missing", async () => {
     resetAgentEngineReadinessForTests();
     const statusUrl =

@@ -773,6 +773,8 @@ const messages = {
     generationFailed: "未能创建幻灯片。请查看聊天中的详情，然后重试。",
     generationOutcomeUnresolved:
       "无法确认幻灯片是否已创建。请先检查演示文稿，再重试。",
+    generationOutcomeUnresolvedWithSlides:
+      "无法确认幻灯片是否已创建完成。继续之前，请查看此处显示的幻灯片。",
     partialGenerationFailed:
       "我们没能完成幻灯片制作。继续之前，请查看已创建的幻灯片和您的原始请求。",
     originalPrompt: "你输入的内容",

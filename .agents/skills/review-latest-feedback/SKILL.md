@@ -126,8 +126,8 @@ record source, target, owner, exact action, and verification. Don't reopen
 closed fixes.
 **Clustered** closes one row but retains it.
 
-Enumerate channel parents newest backward through `next_cursor` until older
-than 5 days. Check reactions first; skip marked messages.
+Enumerate channel parents newest-first for five days. For a permalink plus
+newer scope, follow the [checked inventory procedure](references/channel-inventory.md).
 
 **`slack_search` can rank and truncate.** Use channel reads to enumerate parents
 and put their count in the recap. Sort targeted searches oldest-first and follow

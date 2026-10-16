@@ -1,32 +1,33 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
+export const threadMappingsStore = defineStore({
+  id: "thread_mappings",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS integration_thread_mappings (
+            platform TEXT NOT NULL,
+            external_thread_id TEXT NOT NULL,
+            internal_thread_id TEXT NOT NULL,
+            platform_context TEXT NOT NULL DEFAULT '{}',
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            PRIMARY KEY (platform, external_thread_id)
+          )
+        `;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS integration_thread_mappings (
-          platform TEXT NOT NULL,
-          external_thread_id TEXT NOT NULL,
-          internal_thread_id TEXT NOT NULL,
-          platform_context TEXT NOT NULL DEFAULT '{}',
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL,
-          PRIMARY KEY (platform, external_thread_id)
-        )
-      `;
+        await ensureTableExists("integration_thread_mappings", createSql);
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("integration_thread_mappings", createSql);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return threadMappingsStore.ready();
 }
 
 export interface ThreadMapping {

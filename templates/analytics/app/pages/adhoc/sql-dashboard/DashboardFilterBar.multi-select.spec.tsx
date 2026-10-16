@@ -290,4 +290,143 @@ describe("multi-select dashboard filter", () => {
     act(() => popoverButton("Select all").click());
     expect(new URLSearchParams(search).has("f_plan")).toBe(false);
   });
+
+  describe("presets", () => {
+    const withPresets: DashboardFilter[] = [
+      {
+        ...filters[0],
+        presets: [{ label: "Paid", values: ["self_serve", "enterprise"] }],
+      },
+      {
+        id: "timeRange",
+        label: "Time range",
+        type: "select",
+        default: "30d",
+        options: [
+          { value: "30d", label: "Last 30 days" },
+          { value: "90d", label: "Last 90 days" },
+        ],
+      },
+    ];
+
+    it("replaces only its own filter's selection and closes the popover", () => {
+      render("/dashboards/test?f_timeRange=90d&f_plan=free", withPresets);
+      act(() => trigger().click());
+      act(() => popoverButton("Paid").click());
+
+      const params = new URLSearchParams(search);
+      expect(params.get("f_plan")).toBe("self_serve,enterprise");
+      expect(params.get("f_timeRange")).toBe("90d");
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("names the trigger and marks the preset only while the selection matches it", () => {
+      render("/dashboards/test?f_plan=enterprise,self_serve", withPresets);
+      expect(trigger().textContent).toContain("Paid");
+
+      act(() => trigger().click());
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("true");
+
+      act(() => optionCheckbox("Enterprise").click());
+      expect(trigger().textContent).toContain("Self-Serve");
+      expect(trigger().textContent).not.toContain("Paid");
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("puts presets beside Select all, with no visible header", () => {
+      render("/dashboards/test?f_plan=free", withPresets);
+      act(() => trigger().click());
+
+      const row = popoverButton("Select all").parentElement;
+      expect(row?.contains(popoverButton("Paid"))).toBe(true);
+      expect(row?.contains(popoverButton("Clear all"))).toBe(true);
+      expect(
+        popover().querySelector('[role="group"]')?.getAttribute("aria-label"),
+      ).toBe("Presets");
+      expect(popover().textContent).not.toContain("Presets");
+    });
+
+    it("hides presets while searching values", () => {
+      render("/dashboards/test", withPresets);
+      act(() => trigger().click());
+      expect(popoverButton("Paid")).toBeTruthy();
+
+      setSearchQuery("free");
+      expect(() => popoverButton("Paid")).toThrow("button Paid not rendered");
+    });
+
+    it("skips malformed presets instead of failing the dashboard", () => {
+      const malformed = [
+        {
+          ...filters[0],
+          presets: [
+            null,
+            { label: "Broken", values: "self_serve" },
+            { label: "Paid", values: ["self_serve", "enterprise"] },
+          ],
+        },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test?f_plan=self_serve,enterprise", malformed);
+      expect(trigger().textContent).toContain("Paid");
+
+      act(() => trigger().click());
+      expect(popoverButton("Paid")).toBeTruthy();
+      expect(() => popoverButton("Broken")).toThrow(
+        "button Broken not rendered",
+      );
+    });
+
+    it("skips presets a save would reject, so none applies values without checkboxes", () => {
+      const unusable = [
+        {
+          ...filters[0],
+          presets: [
+            { label: "Nothing", values: [] },
+            { label: "Ghost", values: ["free", "legacy"] },
+            { label: "Paid", values: ["self_serve", "enterprise"] },
+            { label: "Paid", values: ["free"] },
+          ],
+        },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test?f_plan=__empty__", unusable);
+      expect(trigger().textContent).not.toContain("Nothing");
+
+      act(() => trigger().click());
+      const group = popover().querySelector('[role="group"]');
+      expect(
+        [...(group?.querySelectorAll("button") ?? [])].map(
+          (button) => button.textContent,
+        ),
+      ).toEqual(["Paid"]);
+    });
+
+    it("renders at most 20 presets, so an oversized list cannot flood the dropdown", () => {
+      const oversized = [
+        {
+          ...filters[0],
+          presets: Array.from({ length: 25 }, (_, n) => ({
+            label: `Group ${n}`,
+            values: ["free"],
+          })),
+        },
+      ] as DashboardFilter[];
+      render("/dashboards/test", oversized);
+      act(() => trigger().click());
+
+      expect(
+        popover().querySelector('[role="group"]')?.querySelectorAll("button"),
+      ).toHaveLength(20);
+    });
+
+    it("renders no presets when the presets field is not a list", () => {
+      const malformed = [
+        { ...filters[0], presets: "Paid" },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test", malformed);
+      act(() => trigger().click());
+
+      expect(popover().querySelector('[role="group"]')).toBeNull();
+      expect(optionLabel("Free")).toBeTruthy();
+    });
+  });
 });

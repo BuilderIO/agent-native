@@ -1,4 +1,3 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   createOnboardingCorrelationId,
@@ -10,7 +9,6 @@ import {
   useBuilderConnectFlow,
   type BuilderConnectionScope,
 } from "@agent-native/toolkit/app/settings";
-import { readFileUploadStatus } from "@shared/file-upload-status";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -24,6 +22,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  fetchVideoStorageStatus,
+  type VideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
 
 // A cancelled account creation can still finish on the server, and its late
 // success should finish this card's setup; a connection made long after the
@@ -49,7 +51,7 @@ function trackStorageStep(
 }
 
 export interface StorageSetupCardProps {
-  onConfigured: () => void | Promise<void>;
+  onConfigured: (status?: VideoStorageStatus) => void | Promise<void>;
   onSkip?: () => void;
   title?: string;
   description?: string;
@@ -167,25 +169,15 @@ export function StorageSetupCard({
         Math.max(10_000, 2000 * 4),
       );
       try {
-        const r = await fetch(
-          new URL(
-            agentNativePath("/_agent-native/file-upload/status"),
-            window.location.origin,
-          ).toString(),
-          { signal: controller.signal },
-        );
-        if (!r.ok) {
-          stop();
-          setConnecting(false);
-          setStatusIssue("unavailable");
-          return;
-        }
-        const status = await readFileUploadStatus(r);
+        const status = await fetchVideoStorageStatus({
+          signal: controller.signal,
+          timeoutMs: 10_000,
+        });
         if (!mountedRef.current) {
           stop();
           return;
         }
-        if (status.state === "configured") {
+        if (status.configured) {
           stop();
           setConnecting(false);
           setConnected(true);
@@ -196,12 +188,8 @@ export function StorageSetupCard({
           clearConfiguredTimeout();
           configuredTimeoutRef.current = setTimeout(() => {
             configuredTimeoutRef.current = null;
-            if (mountedRef.current) void onConfigured();
+            if (mountedRef.current) void onConfigured(status);
           }, 800);
-        } else if (status.state === "unavailable") {
-          stop();
-          setConnecting(false);
-          setStatusIssue("unavailable");
         } else if (status.builderReauthorizationRequired) {
           stop();
           setConnecting(false);

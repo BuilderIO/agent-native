@@ -160,7 +160,7 @@ Earlier screen time attaches up to five minutes of local screen history from bef
 
 **Privacy and removal**
 
-- Earlier screen time stays private while attached. Requesting it makes the clip private, and a request is refused while the clip is shared directly with others. Sharing, public or organization visibility, and new access stay blocked until you remove it.
+- Earlier screen time follows the clip's normal share rules. Requesting it doesn't change the clip's visibility, and if the clip is public, shared with your organization, or shared with people, those viewers see the earlier screen time too. Sharing shares both as one bundle, and the clip's password and expiry apply to it as well. Viewers reach the footage only through the clip they can open; it is stored as a separate recording owned by the clip owner. Only the owner can remove it.
 - The clip's **Transcript** tab shows the attached window above the transcript with an inline player. Remove it from the desktop edit view or that panel, then confirm. Its footage moves to Trash and the clip no longer includes it. Discarding the recording removes it too. The agent can read its window and status, and can remove it.
 - If another device captured the recording, it waits for that device to save the footage; only that device can export it, and other devices skip it. If no recording device is on file, the desktop app that captured the recording processes it.
 - The limit is five minutes, and only history Rewind still keeps on this device is available.
@@ -169,13 +169,14 @@ Earlier screen time attaches up to five minutes of local screen history from bef
 
 Install the Clips Chrome extension for a recording plus the browser logs and network activity from the tab you're debugging, useful for reporting product bugs and browser-only repros.
 
-| Topic       | Behavior                                                                                                                                                                                                       |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tabs        | Up to five: the tab you started the recording from, then tabs you used in the last 10 minutes, most recent first.                                                                                              |
-| Switching   | A tab you switch to during the recording is captured too. If more than five tabs are attached, the least recently used tab other than the one in focus is detached, and its logs so far stay in the recording. |
-| Lookback    | Up to 30 seconds before the recording started, as far as the page still keeps its console history and resource timing. These entries have negative time offsets.                                               |
-| Saved       | Console messages, and fetch/XHR request info: method, a redacted URL, status, duration, and whether it failed. Each entry records the tab it came from.                                                        |
-| Never saved | Request or response bodies, headers, or cookies.                                                                                                                                                               |
+| Topic        | Behavior                                                                                                                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs         | Up to five: the tab you started the recording from, then tabs you used in the last 10 minutes, most recent first.                                                                                              |
+| Switching    | A tab you switch to during the recording is captured too. If more than five tabs are attached, the least recently used tab other than the one in focus is detached, and its logs so far stay in the recording. |
+| Lookback     | Up to 30 seconds before the recording started, as far as the page still keeps its console history and resource timing. These entries have negative time offsets.                                               |
+| Saved        | Console messages, and fetch/XHR request info: method, a redacted URL, status, duration, and whether it failed. Each entry records the tab it came from.                                                        |
+| App activity | On Agent-Native apps, the recorded tab's own actions, state changes, navigation, and errors from the [recorder](/docs/recorder), including the 30 seconds before the recording started.                        |
+| Never saved  | Request or response bodies, headers, or cookies.                                                                                                                                                               |
 
 Lookback network entries have no HTTP method, so their method is recorded as `UNKNOWN`. Requests made during the recording include the method. Tabs are tracked while the extension is running, so for the first 10 minutes after it starts, fewer than five tabs may qualify.
 

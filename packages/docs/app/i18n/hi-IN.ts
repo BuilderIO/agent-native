@@ -2605,6 +2605,7 @@ const hiIN = {
     auditLog: "Audit log",
     doctorCodeChecks: "Doctor (कोड जांच)",
     observability: "अवलोकनीयता",
+    recorder: "रिकॉर्डर",
     observationalMemory: "Observational memory",
     ciEvalGate: "CI eval gate",
     usingYourAgentOverview: "ओवरव्यू",
