@@ -1,6 +1,6 @@
 # Synthetic Analytics query-path eval
 
-This suite runs seven invented questions through Analytics' real production chat
+This suite runs nine invented questions through Analytics' real production chat
 adapter, prompt builder, read-only action allowlist, shared agent loop, and final
 response guard. A deterministic engine supplies the model steps. Provider
 actions return bounded synthetic fixtures, so the suite does not connect to
@@ -9,8 +9,9 @@ BigQuery, dbt, Sigma, Amplitude, HubSpot, or production storage.
 The cases cover an unbuilt index without an absence claim, source provenance
 and ambiguous user/seat definitions, dbt connection absence, a dbt metric
 continuation with date and organization/week grouping, a rolling three-month
-campaign metric by product category, BigQuery rows returned with a warning, and
-schema discovery followed by a corrected BigQuery query.
+campaign metric by product category, event-taxonomy discovery, monthly AI-credit
+usage by workspace, BigQuery rows returned with a warning, and schema discovery
+followed by a corrected BigQuery query.
 Each runs twice. No copied conversation, customer identity, production row,
 query, credential, or secret is used.
 
@@ -45,14 +46,14 @@ validation remain covered by the focused dbt action tests.
 
 ## Latest-wave comparison
 
-The paired CSV records seven cases twice against the same harness bytes on
-2026-10-16. `origin/main` at `d094432e55a24775ec08732527b26b943c464f4c`
-passed 8/14 runs; the candidate code at
-`39f8fcff1bd63e892e5e1145093caa8dab536574` passed 14/14. The three dbt cases
-that failed both baseline repetitions passed both candidate repetitions:
-connection-state abstention, paginated metric lookup with bounded grouping,
-and a rolling three-month campaign metric by product category. The four other
-cases passed in both phases. Every case/replicate pair and the harness SHA are
+The paired CSV records nine cases twice against the same harness bytes on
+2026-10-16. Current `origin/main` at
+`38a66a8aacce6378e8dab2507b2612efcb3cbe81` passed 10/18 runs; candidate code at
+`00decda5a73eb689647a630671036a88639d5bf5` passed 18/18. Four cases failed both
+baseline repetitions and passed both candidate repetitions: disconnected dbt
+abstention, paginated metric lookup with bounded grouping, a rolling
+three-month metric, and monthly workspace-credit routing. The other five cases
+passed in both phases. Every case/replicate pair and the harness SHA are
 identical across phases.
 
 This measures the production action, prompt, guard, and usage plumbing with a
