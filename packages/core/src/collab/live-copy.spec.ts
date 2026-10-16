@@ -209,27 +209,30 @@ beforeEach(async () => {
   mainThreadDecodes.length = 0;
   vi.doMock("yjs", async (importOriginal) => {
     const actual = await importOriginal<typeof Y>();
-    const recorded = <F extends (...args: never[]) => unknown>(
-      name: string,
-      decode: F,
-    ) =>
-      ((...args: Parameters<F>) => {
+    const decoders = [
+      "applyUpdate",
+      "applyUpdateV2",
+      "readUpdate",
+      "readUpdateV2",
+      "diffUpdate",
+      "diffUpdateV2",
+      "mergeUpdates",
+      "mergeUpdatesV2",
+      "decodeUpdate",
+      "decodeUpdateV2",
+      "decodeStateVector",
+      "encodeStateVectorFromUpdate",
+      "encodeStateVectorFromUpdateV2",
+    ] as const;
+    const mocked: Record<string, unknown> = { ...actual };
+    for (const name of decoders) {
+      const decode = actual[name] as (...args: unknown[]) => unknown;
+      mocked[name] = (...args: unknown[]) => {
         mainThreadDecodes.push(name);
         return decode(...args);
-      }) as F;
-    return {
-      ...actual,
-      applyUpdate: recorded("applyUpdate", actual.applyUpdate),
-      applyUpdateV2: recorded("applyUpdateV2", actual.applyUpdateV2),
-      readUpdate: recorded("readUpdate", actual.readUpdate),
-      diffUpdate: recorded("diffUpdate", actual.diffUpdate),
-      mergeUpdates: recorded("mergeUpdates", actual.mergeUpdates),
-      decodeUpdate: recorded("decodeUpdate", actual.decodeUpdate),
-      encodeStateVectorFromUpdate: recorded(
-        "encodeStateVectorFromUpdate",
-        actual.encodeStateVectorFromUpdate,
-      ),
-    };
+      };
+    }
+    return mocked;
   });
   manager = await import("./ydoc-manager.js");
   live = await import("./live-copy.js");
