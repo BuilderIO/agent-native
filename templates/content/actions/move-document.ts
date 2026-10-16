@@ -21,7 +21,7 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
-import { lockDocumentRows } from "./_row-lock-order.js";
+import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 async function assertParentIsNotDescendant({
   db,
@@ -329,6 +329,7 @@ export default defineAction({
           ...(normalizedSiblingPositions ?? []).map((document) => document.id),
         ];
         if (args.parentId !== undefined) {
+          await lockOwnerPageTree(tx, ownerEmail);
           const lockedDatabaseId = await lockDocumentMetadataDatabase({
             db: tx,
             documentId: id,
