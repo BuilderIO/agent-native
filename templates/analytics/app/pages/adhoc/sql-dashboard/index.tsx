@@ -68,7 +68,12 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { useSearchParams, useParams, useNavigate } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { DashboardAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
@@ -595,8 +600,6 @@ function SqlDashboardPageContent({
     id: string;
     version: string;
   } | null>(null);
-  // A copy made from a built-in opens ready to edit.
-  const openInEditModeRef = useRef<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
@@ -614,7 +617,14 @@ function SqlDashboardPageContent({
   const [redoRevisionIds, setRedoRevisionIds] = useState<string[]>([]);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+  // A copy made from a built-in opens ready to edit. The signal rides on the
+  // navigation, not a ref: render may run twice, and the page may remount.
+  const openInEditModeId = (
+    useLocation().state as { openInEditMode?: string } | null
+  )?.openInEditMode;
+  const [editMode, setEditMode] = useState(
+    () => !!dashboardId && openInEditModeId === dashboardId,
+  );
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -694,8 +704,9 @@ function SqlDashboardPageContent({
   const { mutate: duplicateDashboard, isPending: duplicatePending } =
     useActionMutation("duplicate-dashboard", {
       onSuccess: (copy: { id: string }) => {
-        openInEditModeRef.current = copy.id;
-        void navigate(`/dashboards/${encodeURIComponent(copy.id)}`);
+        void navigate(`/dashboards/${encodeURIComponent(copy.id)}`, {
+          state: { openInEditMode: copy.id },
+        });
       },
       onError: (error: unknown) => {
         toast.error(
@@ -947,8 +958,7 @@ function SqlDashboardPageContent({
   const [draftsOwnerShown, setDraftsOwnerShown] = useState(draftsOwner);
   if (draftsOwnerShown !== draftsOwner) {
     setDraftsOwnerShown(draftsOwner);
-    setEditMode(!!dashboardId && openInEditModeRef.current === dashboardId);
-    openInEditModeRef.current = null;
+    setEditMode(!!dashboardId && openInEditModeId === dashboardId);
     setEditingName(false);
     setEditingDescription(false);
     setActiveDropSlot(null);
