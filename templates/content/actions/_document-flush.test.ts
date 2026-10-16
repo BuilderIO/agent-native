@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   appStatePut: vi.fn(),
   getRequestUserEmail: vi.fn(),
   hasCollabState: vi.fn(),
+  isLiveBodyWriterPage: vi.fn(),
   loadAwarenessRowsStrict: vi.fn(),
 }));
 
@@ -40,6 +41,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
+vi.mock("../server/lib/live-body-writer.js", () => ({
+  isLiveBodyWriterPage: mocks.isLiveBodyWriterPage,
+}));
+
 import { flushOpenDocumentEditorToSql } from "./_document-flush";
 
 describe("flushOpenDocumentEditorToSql", () => {
@@ -47,6 +52,7 @@ describe("flushOpenDocumentEditorToSql", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mocks.hasCollabState.mockResolvedValue(true);
+    mocks.isLiveBodyWriterPage.mockResolvedValue(false);
     mocks.loadAwarenessRowsStrict.mockResolvedValue([
       {
         clientId: 123,
@@ -86,6 +92,42 @@ describe("flushOpenDocumentEditorToSql", () => {
       "owner@example.com",
       "flush-request-doc-1",
       expect.objectContaining({ id: "doc-1" }),
+      { requestSource: "agent" },
+    );
+  });
+
+  it("returns at once for a switched page's body, whose tabs already wrote SQL", async () => {
+    mocks.isLiveBodyWriterPage.mockResolvedValue(true);
+
+    await expect(
+      flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        ownerEmail: "owner@example.com",
+      }),
+    ).resolves.toBeUndefined();
+    expect(mocks.loadAwarenessRowsStrict).not.toHaveBeenCalled();
+    expect(mocks.appStatePut).not.toHaveBeenCalled();
+  });
+
+  it("still asks a switched page's editor to save a Blocks field", async () => {
+    mocks.isLiveBodyWriterPage.mockResolvedValue(true);
+    mocks.appStateGet.mockImplementation(async () => ({
+      id: "doc-1",
+      requestId: mocks.appStatePut.mock.calls[0]?.[2]?.requestId,
+      status: "success",
+    }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      expect.objectContaining({ propertyId: "notes" }),
       { requestSource: "agent" },
     );
   });

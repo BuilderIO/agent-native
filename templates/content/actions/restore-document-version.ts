@@ -103,7 +103,7 @@ async function titleOrganizationIds(): Promise<string[]> {
  * caller takes the legacy path.
  */
 async function restoreThroughLiveCopy(args: {
-  ctx: ActionRunContext;
+  ctx: ActionRunContext | undefined;
   documentId: string;
   versionId: string;
   ownerEmail: string;
