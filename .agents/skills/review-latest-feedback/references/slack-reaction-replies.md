@@ -12,6 +12,17 @@ exact canonical disposition label and includes its recorded evidence verbatim,
 read it back and record its timestamp and author ID instead of duplicating it.
 Do not accept a vague or negated substring such as `Not fixed` as the `Fixed`
 label. Use `Partially fixed` while any distinct handoff remains unfinished.
+This is one current status reply per owned eye, not a reply on every sweep.
+Reuse the existing same-actor reply while its disposition and evidence remain
+current; send an update when either materially changes. For a recent
+unanswered reporter question, reuse the existing same-actor question/update as
+the status reply when it states the disposition and evidence. If it does not,
+post at most one concise status update that points to the existing unanswered
+question without asking it again; then wait silently. Do not send another
+question or progress ping before the four-day rule below. When a disposition
+includes a human handoff, the status reply must name every handoff's recorded
+owner and action; include its scope when the report context does not make it
+clear.
 
 Channel reads may expose a thread reply as a separate row. Resolve its
 `thread_ts` or permalink and inventory it as a reply to the root, not as a new
@@ -50,11 +61,13 @@ or another open scope. Skip other actors' marks unless explicitly handed off.
 Count an answer only when a human posts after the question, without this
 workflow's disclosure, and the reply addresses it. Read the full thread to
 exclude partial, unrelated, or deferred answers; a newer human post reopens the
-question. Attempt the fix with new evidence before asking again. Wait silently
-if the question is less than four days old. At four days, mark it **Abandoned -
-no answer in 4 days** without re-asking, then carry any remaining defect as
-internal work. For legacy replies without disclosure or eyes, search once per
-connected actor and verify the author and thread.
+question. Attempt the fix with new evidence before asking again. Do not ask
+again while the question is less than four days old; after the one-time status
+reconciliation above, wait silently without another question or progress ping.
+At four days, mark it **Abandoned - no answer in 4 days** without re-asking,
+then carry any remaining defect as internal work. For legacy replies without
+disclosure or eyes, search once per connected actor and verify the author and
+thread.
 
 End every new or edited Slack reply with the exact sentence
 `this was sent from a bot.`. A connector-added `Sent using ChatGPT` footer is

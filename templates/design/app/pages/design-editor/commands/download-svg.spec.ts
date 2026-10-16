@@ -59,6 +59,28 @@ describe("resolveSvgExportIframe", () => {
 });
 
 describe("runDownloadSvg", () => {
+  it("acknowledges a request while another browser export is busy", async () => {
+    toastMocks.error.mockClear();
+    const setSvgExporting = vi.fn();
+    const triggerBlobDownload = vi.fn();
+
+    await runDownloadSvg({
+      design: null,
+      fallbackExportName: (extension) => `design.${extension}`,
+      pngExportingRef: { current: true },
+      selectedElement: null,
+      setSvgExporting,
+      t: (key) => key,
+      triggerBlobDownload,
+    });
+
+    expect(toastMocks.error).toHaveBeenCalledWith(
+      "designEditor.toasts.exportBusy",
+    );
+    expect(setSvgExporting).not.toHaveBeenCalled();
+    expect(triggerBlobDownload).not.toHaveBeenCalled();
+  });
+
   it("exports a single-view inline screen without waiting for the content-size bridge", async () => {
     vi.useFakeTimers();
     document.body.replaceChildren();

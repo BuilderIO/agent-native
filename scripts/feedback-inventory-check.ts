@@ -143,6 +143,26 @@ function normalizeScope(scope: string): string {
   return scope.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeReplyPhrase(phrase: string): string {
+  return (
+    phrase
+      .replace(/[*_`]/g, "")
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu)
+      ?.filter((word) => !["a", "an", "the"].includes(word))
+      .join(" ") ?? ""
+  );
+}
+
+function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
+  const reply = normalizeReplyPhrase(text);
+  return handoffs.every((handoff) =>
+    [handoff.owner, handoff.action].every((phrase) =>
+      reply.includes(normalizeReplyPhrase(phrase)),
+    ),
+  );
+}
+
 function replyStatesDisposition(text: string, disposition: string): boolean {
   const visibleText = text.replace(/[*_`]/g, "");
   const escapedDisposition = disposition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -535,6 +555,15 @@ function validateInventory(inventory: Inventory): string[] {
             `${parentName}: Fixed disposition cannot retain unfinished handoffs; use Partially fixed`,
           );
         }
+        if (
+          ownsEye &&
+          handoffs.length > 0 &&
+          !replyNamesHandoffs(parent.statusReply!.text, handoffs)
+        ) {
+          throw new Error(
+            `${parentName}: status reply must name each handoff's owner and action`,
+          );
+        }
 
         if (seen.has(key)) {
           const previousParent = parentsByTimestamp.get(key);
@@ -597,10 +626,16 @@ function validateInventory(inventory: Inventory): string[] {
 
     const supplementalRoots = new Set<string>();
     for (const [rootIndex, root] of (channel.threadRoots ?? []).entries()) {
-      const rootTimestamp = slackTimestamp(
+      const rootTime = slackTimestamp(
         root,
         `${name}.threadRoots[${rootIndex}]`,
-      ).toString();
+      );
+      if (rootTime >= cutoff) {
+        throw new Error(
+          `${name}: a supplemental thread root must predate cutoffTs; include roots within the scoped window in the source manifest`,
+        );
+      }
+      const rootTimestamp = rootTime.toString();
       if (supplementalRoots.has(rootTimestamp)) {
         throw new Error(`${name}: threadRoots contains a duplicate root`);
       }
@@ -735,6 +770,53 @@ if (args[0] === "--self-test" && args.length === 1) {
     ],
   };
   const firstPage = valid.channels[0].pages[0];
+  const withHandoffReply = (text: string): Inventory => ({
+    ...valid,
+    channels: valid.channels.map((channel) => ({
+      ...channel,
+      pages: channel.pages.map((page) => ({
+        ...page,
+        parents: page.parents.map((parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                disposition: "Partially fixed",
+                reactionSummary:
+                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
+                reactionOwners: {
+                  eyes: ["USWEEPER"],
+                  white_check_mark: ["USWEEPER"],
+                  ticket: ["USWEEPER"],
+                },
+                reactionDecision: {
+                  checkmark: {
+                    state: "present",
+                    reason: "Verified route-picker fix",
+                  },
+                  ticket: {
+                    state: "present",
+                    reason: "A product owner has a distinct follow-up",
+                  },
+                },
+                handoffs: [
+                  {
+                    scope: "secondary request",
+                    owner: "Product owner",
+                    action: "choose the remaining behavior",
+                  },
+                ],
+                statusReply: {
+                  ...parent.statusReply!,
+                  disposition: "Partially fixed",
+                  evidence: "focused route-picker test passed; merge pending",
+                  text,
+                },
+              }
+            : parent,
+        ),
+      })),
+    })),
+  });
   const invalid = [
     {
       name: "missing disposition row",
@@ -879,6 +961,24 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "supplemental root inside the cutoff bypasses the source manifest",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          threadRoots: ["10.500000"],
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "11.000000"
+                ? { ...parent, threadParentTs: "10.500000" }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
       name: "reply points to an in-page reply instead of its root",
       inventory: {
         ...valid,
@@ -974,6 +1074,18 @@ if (args[0] === "--self-test" && args.length === 1) {
           })),
         })),
       },
+    },
+    {
+      name: "handoff reply must name the recorded owner",
+      inventory: withHandoffReply(
+        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — choose the remaining behavior.",
+      ),
+    },
+    {
+      name: "handoff reply must name the recorded action",
+      inventory: withHandoffReply(
+        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product owner will follow up.",
+      ),
     },
     {
       name: "fixed scope without a checkmark",
@@ -1268,6 +1380,50 @@ if (args[0] === "--self-test" && args.length === 1) {
   ];
   try {
     validateInventory(valid);
+    validateInventory(
+      withHandoffReply(
+        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product owner to choose the remaining behavior.",
+      ),
+    );
+    validateInventory({
+      ...valid,
+      channels: valid.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  disposition: "Clarification needed",
+                  reactionSummary: "eyes (1): USWEEPER",
+                  reactionOwners: { eyes: ["USWEEPER"] },
+                  reactionDecision: {
+                    checkmark: {
+                      state: "none",
+                      reason:
+                        "No scope is verified while clarification is pending",
+                    },
+                    ticket: {
+                      state: "none",
+                      reason:
+                        "The unanswered reporter request is not a human handoff",
+                    },
+                  },
+                  fixedScopes: [],
+                  statusReply: {
+                    ...parent.statusReply!,
+                    disposition: "Clarification needed",
+                    evidence:
+                      "waiting for the URL already requested in this thread",
+                    text: "Clarification needed: waiting for the URL already requested in this thread. Evidence: waiting for the URL already requested in this thread.",
+                  },
+                }
+              : parent,
+          ),
+        })),
+      })),
+    });
     validateInventory({
       ...valid,
       channels: valid.channels.map((channel) => ({
@@ -1295,7 +1451,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                         disposition: "Partially fixed",
                         evidence:
                           "the verified scope is complete; a separate handoff remains.",
-                        text: "Partially fixed: the verified scope is complete; a separate handoff remains.",
+                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Analytics product owner to choose the remaining behavior; release timing — Release owner to schedule the rollout.",
                       },
                       reactionOwners: {
                         eyes: ["USWEEPER"],
@@ -1478,7 +1634,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 7 positive cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 9 positive cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

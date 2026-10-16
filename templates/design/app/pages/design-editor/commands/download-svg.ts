@@ -135,7 +135,10 @@ export async function runDownloadSvg(
   }: DownloadSvgArgs,
   settings?: Partial<ExportSettingsValue>,
 ) {
-  if (pngExportingRef.current) return;
+  if (pngExportingRef.current) {
+    toast.error(t("designEditor.toasts.exportBusy"));
+    return;
+  }
   pngExportingRef.current = true;
   let preparedScreen = false;
   try {

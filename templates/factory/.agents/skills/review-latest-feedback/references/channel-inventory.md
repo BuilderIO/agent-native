@@ -31,16 +31,25 @@ place of Slack source messages.
   than infer missing actors. If the connector hides `thread_ts`, resolve the
   row's permalink before recording it; never
   infer the root from a message timestamp. For each reply whose verified root
-  predates or otherwise falls outside every page's source manifest, add that
-  exact root timestamp to the channel's `threadRoots` array. Read the reply's
-  actual `thread_ts` or resolve its permalink to establish the root; do not
-  guess from nearby timestamps. A root present in a page must have its own row
-  with `ts === threadParentTs` and must not be duplicated in `threadRoots`.
+  predates every page's source manifest, add that exact root timestamp to the
+  channel's `threadRoots` array. Read the reply's actual `thread_ts` or resolve
+  its permalink to establish the root; do not guess from nearby timestamps.
+  Supplemental roots must predate `cutoffTs`; a root at or after the cutoff is
+  in scope and must have its own source-manifest row. A root present in a page
+  must have its own row with `ts === threadParentTs` and must not be duplicated
+  in `threadRoots`.
 - For each source message with `eyes` owned by `sweepActorId`, record a current
   status reply in that message's root thread, after the eyed message. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
-  evidence, and read-back text. Record an explicit decision for both `✅` and
-  `🎫`: `present` with its scope, or `none` with the reason no mark applies.
+  evidence, and read-back text. For each human handoff, the visible reply must
+  name its recorded owner and action; include the scope when the report
+  context does not make it clear. Reuse a qualifying reply while disposition
+  and evidence remain current; update it when either materially changes. Do
+  not send a new message on every sweep. For a recent unanswered question, do
+  not repeat the question; if no qualifying reply exists, send at most one
+  status update that points to the existing ask, then wait silently. Record an
+  explicit decision for both `✅` and `🎫`: `present` with its scope, or `none`
+  with the reason no mark applies.
   Record each verified `fixedScopes` entry with its proof; record every
   distinct human handoff in `handoffs[]`, with scope, owner, and action. Finish
   the reply and both
@@ -59,12 +68,14 @@ place of Slack source messages.
   reports exhaustion.
 - Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json` before
   recapping. It rejects an owned eye without a current same-actor reply, a
-  missing or inconsistent `✅`/`🎫` decision, a verified fixed scope without
-  that actor's `✅`, a `✅` without verified scope, and a `🎫` without a distinct
-  handoff owner/action. It also checks that `reactionSummary` and
-  `reactionOwners` contain the same emoji and exact unique actor IDs. A partial
-  fixed scope is valid with disposition `Partially fixed` and its own `✅`; a human handoff for
-  another scope can additionally carry `🎫`. It also checks that a
+  handoff reply omitting its recorded owner/action, a missing or
+  inconsistent `✅`/`🎫` decision, a verified fixed scope without that actor's
+  `✅`, a `✅` without verified scope, and a `🎫` without a distinct handoff
+  owner/action. It rejects supplemental roots at or after the cutoff and checks
+  that `reactionSummary` and `reactionOwners` contain the same emoji and exact
+  unique actor IDs. A partial fixed scope is valid with disposition `Partially
+  fixed` and its own `✅`; a human handoff for another scope can additionally
+  carry `🎫`. It also checks that a
   reply row maps to an in-page self-root or a verified `threadRoots` entry,
   along with boundary overlap, page/cursor order, count parity, timestamps,
   reaction state, and dispositions. A failed check means the sweep is not
