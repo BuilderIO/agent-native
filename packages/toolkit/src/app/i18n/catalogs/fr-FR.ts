@@ -3058,6 +3058,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Créée et renouvelée par {{owner}}. Déconnectez-la depuis cet endroit.",
   "settingsApiKeys.membersLocked":
     "Seuls les propriétaires et les administrateurs peuvent partager des clés avec {{org}}.",
+  "settingsApiKeys.modelFootnote":
+    "Pour utiliser votre propre fournisseur de modèles, {{link}}.",
+  "settingsApiKeys.modelFootnoteLink": "ajoutez-le dans Modèle",
   "settingsApiKeys.name": "Nom",
   "settingsApiKeys.noKeys": "Aucune clé pour l'instant",
   "settingsApiKeys.noKeysDescription":
