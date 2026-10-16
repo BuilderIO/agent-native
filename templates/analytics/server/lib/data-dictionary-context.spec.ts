@@ -138,6 +138,33 @@ describe("renderDataDictionary", () => {
     expect(context).toContain("search-bigquery-schema");
   });
 
+  it("labels inferred SQL output columns as unverified and grain keys as inferred", () => {
+    const context = renderDataDictionary([
+      {
+        metric: "model:user_organization_role",
+        definition: "Generated dbt source metadata.",
+        sqlProjectedColumns: "user_id, organization_id, role",
+        inferredMembershipKeys: ["user_id", "organization_id"],
+        inferredMembershipKeyRoles: {
+          user: "user_id",
+          organization: "organization_id",
+        },
+        approved: false,
+        aiGenerated: true,
+      },
+    ]);
+
+    expect(context).toContain(
+      "SQL projected columns (inferred; verify against schema): user_id, organization_id, role",
+    );
+    expect(context).toContain(
+      "membership row keys inferred from structural dbt SQL analysis: user_id, organization_id",
+    );
+    expect(context).toContain(
+      "inferred membership key roles: user key user_id; organization key organization_id",
+    );
+  });
+
   it("caps the total rendered block at a total char budget even under the 40-entry count cap", () => {
     const longField = (label: string) => `${label} `.repeat(80);
     const entries = Array.from({ length: 40 }, (_, index) => ({

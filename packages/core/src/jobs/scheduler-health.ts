@@ -7,7 +7,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 
 const TABLE = "automation_scheduler_health";
@@ -88,27 +88,27 @@ export interface AutomationSchedulerHealth {
   updatedAt: number | null;
 }
 
-let initPromise: Promise<void> | undefined;
-
-export async function ensureHealthTable(): Promise<void> {
-  if (!initPromise) {
-    const initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${TABLE} (
-          id TEXT PRIMARY KEY,
-          app_id TEXT NOT NULL DEFAULT 'default',
-          org_id TEXT,
-          last_checked_at BIGINT,
-          last_dispatched_at BIGINT,
-          last_error TEXT,
-          runtime TEXT,
-          updated_at BIGINT NOT NULL,
-          lease_owner TEXT,
-          lease_expires_at BIGINT
-        )
-      `;
-      const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
-      {
+export const schedulerHealthStore = defineStore({
+  id: "scheduler_health",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${TABLE} (
+            id TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL DEFAULT 'default',
+            org_id TEXT,
+            last_checked_at BIGINT,
+            last_dispatched_at BIGINT,
+            last_error TEXT,
+            runtime TEXT,
+            updated_at BIGINT NOT NULL,
+            lease_owner TEXT,
+            lease_expires_at BIGINT
+          )
+        `;
+        const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
@@ -156,15 +156,13 @@ export async function ensureHealthTable(): Promise<void> {
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at BIGINT`,
         );
         await ensureIndexExists(`idx_${TABLE}_updated`, indexSql);
-        return;
-      }
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
-  }
-  return initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureHealthTable(): Promise<void> {
+  return schedulerHealthStore.ready();
 }
 
 function isUniqueViolation(error: unknown): boolean {

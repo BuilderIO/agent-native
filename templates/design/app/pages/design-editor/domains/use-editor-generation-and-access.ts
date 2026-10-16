@@ -12,7 +12,6 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
-import { useLab } from "@agent-native/core/client/labs";
 import { useIsMcpDirectoryWidgetWriteEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useReviewComments,
@@ -21,7 +20,6 @@ import {
 import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
-import { DESIGN_TWEAKS } from "@shared/labs";
 import { designRepromptPendingStateKey } from "@shared/node-rewrite";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -42,6 +40,7 @@ import { getUnreadReviewThreadIds } from "@/components/design/ReviewCommentsPane
 import type { ElementInfo } from "@/components/design/types";
 import { type DesignAccessStatus } from "@/components/DesignAccessState";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useAnnotateLab } from "@/hooks/use-annotate-lab";
 import { designEditorCommandKey } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import {
@@ -49,6 +48,7 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
+import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
   clearPendingGeneration,
@@ -118,6 +118,8 @@ type RequestDesignAccessResult = {
   requestId?: string;
   message: string;
 };
+
+const EMPTY_READY_VIEW_FILES: readonly DesignFile[] = [];
 
 type ActiveBreakpointWrite = {
   designId: string;
@@ -198,6 +200,7 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef.current = 0;
     lastGeometryCommitSourceRef.current = null;
   }, []);
+  const annotateLab = useAnnotateLab();
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [focusedAnnotationSending, setFocusedAnnotationSending] =
@@ -655,6 +658,12 @@ export function useEditorGenerationAndAccess({
     pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
   );
   const designAccessRole = design?.accessRole;
+  useDesignReadyViewTracking({
+    designId: id,
+    isOwner: !shellMode && designAccessRole === "owner",
+    designLoaded: Boolean(design),
+    files: design?.files ?? EMPTY_READY_VIEW_FILES,
+  });
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const designQueryErrorStatus =
@@ -810,7 +819,6 @@ export function useEditorGenerationAndAccess({
   const canEditPublicLiveScreenUrl =
     publicVisualEdit && Boolean(getEmbedAuthToken());
   const creativeContextLab = useCreativeContextLabState();
-  const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -1069,12 +1077,14 @@ export function useEditorGenerationAndAccess({
       content: string,
       baseUpdatedAt?: string | null,
       identityMigrationSourceContent?: string,
+      deferCollabReconcile?: boolean,
     ) => {
       const current = pendingLocalFileContentsRef.current.get(fileId);
       if (
         current?.content === content &&
         current.identityMigrationSourceContent ===
           identityMigrationSourceContent &&
+        current.deferCollabReconcile === deferCollabReconcile &&
         (baseUpdatedAt === undefined || current.baseUpdatedAt !== undefined)
       )
         return;
@@ -1086,6 +1096,7 @@ export function useEditorGenerationAndAccess({
           content,
           baseUpdatedAt,
           identityMigrationSourceContent,
+          deferCollabReconcile,
         }),
       );
       setPendingLocalFileContentsRevision((revision) => revision + 1);
@@ -1456,6 +1467,7 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
     resetGeometryCommitCoalescing,
+    annotateLab,
     drawMode,
     setDrawMode,
     pinMode,
@@ -1525,7 +1537,6 @@ export function useEditorGenerationAndAccess({
     handleLiveCollaborationChange,
     canEditPublicLiveScreenUrl,
     creativeContextLab,
-    tweaksEnabled,
     reviewResult,
     reviewComments,
     reviewUnreadCount,

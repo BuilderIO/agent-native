@@ -59,6 +59,7 @@ export {
   type ComposerDraftSnapshot,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
+  type ComposerTextReference,
   type ComposerTextSelection,
   type TiptapComposerProps,
   type TiptapComposerSubmitOptions,
@@ -128,6 +129,7 @@ export {
   type AgentPromptAttachment,
   type ReadAgentPromptAttachmentOptions,
 } from "./prompt-attachments.js";
+export { MentionChip, type MentionChipProps } from "./MentionChip.js";
 export { MentionPopover } from "./MentionPopover.js";
 export { useMentionSearch } from "./use-mention-search.js";
 export {

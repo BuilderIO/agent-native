@@ -8,8 +8,8 @@ order: 30
 roadmap_status: "partially_implemented"
 summary: "Import or migrate a foreign corpus with resumable progress, provenance, repair, and a readable conversion report."
 example_workflow: "A team imports a large Notion workspace, closes the browser halfway through, resumes without duplicate Pages, and reviews a conversion report showing transformed Properties and unresolved assets."
-works_today: "Markdown and MDX import, Notion workflows, Builder pulls, local-folder synchronization, provenance, and provider identities already support several bounded migration paths."
-remains: "Large migrations need durable server-side orchestration, checkpoints, idempotent deduplication, broader schema fidelity, conversion reports, asset repair, resumability, and explicit partial-failure recovery."
+works_today: "Markdown import now has a reader that reports preserved, converted, and lost content (#6865), plus preview, file provenance, an Import History entry, retry-safe application, and guarded Undo (#6902). Notion workflows, Builder pulls, local-folder synchronization, and provider identities support other bounded migration paths."
+remains: "Large migrations still need durable server-side orchestration, checkpoints, idempotent deduplication across a corpus, broader schema fidelity, asset repair, resumability, and explicit partial-failure recovery. The Markdown conversion report does not yet cover every adapter."
 required_capabilities:
   [
     "content.job.durable",
@@ -20,7 +20,7 @@ enhancing_capabilities: ["content.source.catalog", "content.event.committed"]
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-12"
 ---
 
 # Feature 30: Move without starting over

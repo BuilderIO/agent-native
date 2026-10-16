@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "此區塊暫時無法使用。",
+  "block.loading": "正在載入區塊。",
   "composer.contextUrlLabel": "網址",
   "composer.contextInvalidUrl": "請輸入有效的 HTTP 或 HTTPS 網址。",
   "composer.contextAttach": "附加",
@@ -148,9 +150,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
   "onboarding.builderActivationChecking": "正在確認是否可以建立新帳戶。",
   "onboarding.builderActivationUnavailable":
-    "此應用程式未啟用新帳戶建立功能。你仍可連結現有帳戶。",
+    "建立帳戶或登入以連線至 Builder.io。",
   "onboarding.builderActivationUnavailableInMode":
-    "此模式無法啟用新帳戶。你仍可連結現有帳戶。",
+    "建立帳戶或登入以連線至 Builder.io。",
   "onboarding.builderActivationCheckFailed":
     "無法確認此應用程式是否可以建立新帳戶。",
 
@@ -164,6 +166,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
@@ -631,6 +634,9 @@ const messages: ToolkitAgentChatTranslation = {
     "模型供應商認為此要求格式有誤而予以拒絕，因此未重試。請重試，若問題持續發生，請開始新的對話。",
   "errorMessages.requestTooLarge":
     "此要求超過伺服器大小限制（HTTP 413）。請開始新的聊天，或移除較大的附件或參照後再試一次。",
+  "errorMessages.capabilityUnavailable": "目前無法傳送你的訊息。請稍後再試。",
+  "errorMessages.capabilityUnsupported":
+    "此應用程式目前無法安全地重試已儲存的提示。請先更新應用程式，再試一次。",
   "errorMessages.runInterrupted": "代理在完成前停止了。",
   "errorMessages.runFailed": "代理執行失敗。",
   "errorMessages.runUnverified":
@@ -1103,6 +1109,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
   "errorMessages.invalidAttachmentNamed":
     "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
+  "recovery.resendVerificationEmail": "重新傳送驗證郵件",
+  "recovery.sendingVerificationEmail": "正在傳送...",
+  "recovery.verificationEmailRequested":
+    "已要求傳送驗證郵件。請檢查收件匣和垃圾郵件資料夾。",
+  "recovery.verificationEmailFailed": "無法要求傳送驗證郵件。請再試一次。",
   "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
@@ -1144,6 +1155,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "新增金鑰以使用您自己的帳戶。",
   "secrets.emptyMore": "另有 {{count}} 個在「新增」下方，或新增任何自訂金鑰",
   "secrets.emptyTitle": "尚無金鑰。",
+  "secrets.figmaTokenMustBeToken":
+    "請貼上 Figma 存取權杖，而不是 Figma 檔案 URL。",
   "secrets.fromEnvironment": "由部署環境提供。",
   "secrets.managedInVault":
     "在工作區 Vault 中管理。此工作區中的每個應用程式都會使用此值。",
@@ -2825,6 +2838,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "連接 {{name}}",
   "settingsSubAgents.close": "關閉",
   "observability.insights.rawTrace": "原始追蹤（所有 span 及其輸入與輸出）",
+  "reportProblem.menuItem": "回報問題",
+  "reportProblem.title_other":
+    "要附上應用程式在過去 {{count}} 秒內的操作記錄嗎？",
+  "reportProblem.noEvents": "目前還沒有記錄。",
+  "reportProblem.send": "傳送給代理",
+  "reportProblem.copy": "複製問題回報",
+  "reportProblem.attaching": "正在附加…",
+  "reportProblem.notAttached": "回報未能附加。",
+  "reportProblem.agentMessage":
+    "應用程式出了問題。請根據附上的問題回報說明發生了什麼事。",
 };
 
 export default messages;

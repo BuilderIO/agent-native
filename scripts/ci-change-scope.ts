@@ -3,6 +3,8 @@ import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
+
 const DOCS_PATH_PREFIXES = [
   "docs/",
   "packages/core/docs/",
@@ -153,13 +155,15 @@ const CHECK_NAMES = [
   "trusted_acceptance",
   "scaffold",
   "builder_code_starter_scaffold",
+  "deploy_paths",
   "ssr_boot",
   "guards",
   "qa_static",
   "agentkit_acceptance",
   "neon_query_budget",
   "neon_connection_budget",
-  "design_canvas_interaction_e2e",
+  "design_canvas_core_regression",
+  "design_canvas_broad_workflows",
   "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
@@ -275,6 +279,10 @@ export function isDocsPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
 
   if (normalized.startsWith(".changeset/")) return true;
+  // Prototypes are standalone design artifacts (one HTML page each, published as Claude artifacts) that no
+  // workspace imports, so no build, typecheck, or test can be affected by them; classing them as docs keeps a
+  // prototype-only change off the full CI run that an unknown root path otherwise forces.
+  if (normalized.startsWith("prototypes/")) return true;
   if (DOCS_SUPPORT_PATHS.has(normalized)) return true;
   if (DOCS_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
     return DOCS_CONTENT_EXTENSIONS.has(extname(normalized).toLowerCase());
@@ -496,6 +504,12 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+// The deploy-path check runs the commands these guides print, so an edit to a
+// guide has to reach it even when the change is docs-only.
+function isDeployGuidePath(path: string): boolean {
+  return DEPLOY_GUIDE_PATHS.includes(normalizeChangedPath(path));
+}
+
 function isDesignCanvasE2eSpecPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
@@ -712,6 +726,17 @@ function buildChecks(
       hasPath(changedPaths, "templates/dispatch/"),
     // The bundled Builder Code starter is a layer in core over templates/chat.
     builder_code_starter_scaffold: coreChanged || chatChanged,
+    // Installs the packages a standalone Chat app depends on, so a change to
+    // any of them can break a deploy path.
+    deploy_paths:
+      coreChanged ||
+      toolkitChanged ||
+      agentkitChanged ||
+      sharedAppConfigChanged ||
+      hasPath(changedPaths, "packages/otel/") ||
+      hasPath(changedPaths, "packages/recap-cli/") ||
+      chatChanged ||
+      changedPaths.some(isDeployGuidePath),
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
@@ -734,7 +759,8 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
-    design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    design_canvas_core_regression: designCanvasInteractionE2eChanged,
+    design_canvas_broad_workflows: designCanvasInteractionE2eChanged,
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
@@ -760,6 +786,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
           name,
           name === "lint" ||
             (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
       ) as CheckSelection)
@@ -790,7 +817,9 @@ export function readChangedPaths(baseSha: string, headSha: string): string[] {
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
-    { encoding: "utf8" },
+    {
+      encoding: "utf8",
+    },
   );
   return output.split("\0").filter(Boolean);
 }

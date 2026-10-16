@@ -162,6 +162,16 @@ export function ThreadSuggestionRow(
     <CommentRow
       avatar={<AgentAvatar model={model} />}
       name={agentDisplayName(model)}
+      identity={{
+        kind: "agent",
+        model,
+        run: {
+          effort: null,
+          ranAt: props.suggestion.createdAt,
+          threadId: null,
+          canOpen: false,
+        },
+      }}
     >
       <ThreadSuggestionBody {...props} />
     </CommentRow>

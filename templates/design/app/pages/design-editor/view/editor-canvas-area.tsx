@@ -1,16 +1,9 @@
-import type { ReactElement } from "react";
+import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 
 import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
-import {
-  ContextMenuGroup,
-  ContextMenuSub,
-  ContextMenuSubTrigger,
-  ContextMenuSubContent,
-  ContextMenuItem,
-} from "@/components/ui/context-menu";
 import { DrawOverlay as SharedDrawOverlay } from "@/components/visual-editor/DrawOverlay";
 import { readSystemClipboard } from "@/lib/design-clipboard";
 import { hasExplicitOverviewZoomCommand as hasExplicitOverviewZoomCommandFromSearchParams } from "@/lib/design-editor-route";
@@ -38,7 +31,6 @@ import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-a
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
 import { rightInspectorCanvasInset } from "../minimal-inspector";
-import { resolveOverviewScreenSourceType } from "../pending-edits";
 import { isScreenRootElementInfo } from "../selection-state";
 import { getSingleScreenCreationTool } from "../tool-state";
 import type { DesignData } from "../types";
@@ -71,7 +63,6 @@ export function renderEditorCanvasArea({
   id,
   design,
   canApplyPendingVisualEditsWithAgent,
-  renderResponsiveInteractBar,
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
@@ -100,7 +91,6 @@ export function renderEditorCanvasArea({
   id: string;
   design: DesignData;
   canApplyPendingVisualEditsWithAgent: boolean;
-  renderResponsiveInteractBar: (floating: boolean) => ReactElement;
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
@@ -139,34 +129,21 @@ export function renderEditorCanvasArea({
     pinMode,
     canCommentDesign,
     drawMode,
+    annotateLab,
   } = editorGenerationAndAccess;
-  const {
-    layoutGrids,
-    localhostPreviewTokenQuery,
-    liveScreenSnapshotsById,
-    files,
-    overviewScreens,
-    designSourceType,
-  } = editorFilesAndSaving;
+  const { layoutGrids, localhostPreviewTokenQuery, liveScreenSnapshotsById } =
+    editorFilesAndSaving;
   const {
     activeScreenSnapshotOnly,
     activeOverviewScreen,
     effectiveLiveEditRegistrationCapabilitiesByScreenId,
     publicVisualEditConnectionId,
     activeFile,
-    activeCanvasSourceType,
-    setZoom,
-    handleZoomIn,
-    handleZoomOut,
   } = editorActiveScreenAndGeometry;
-  const {
-    hoveredElementScreenId,
-    handleZoomToFit,
-    handleCanvasBackgroundClick,
-  } = editorCanvasAndScreens;
+  const { hoveredElementScreenId, handleCanvasBackgroundClick } =
+    editorCanvasAndScreens;
   const {
     selectedCodeLayerNode,
-    selectedElementHasMotionTrack,
     getContextCanvasPoint,
     canvasContainerRef,
     handleCanvasPointerMove,
@@ -207,13 +184,9 @@ export function renderEditorCanvasArea({
     adoptDesignClipboardPayload,
     getCanvasClipboardEntries,
     handleContextMenuPaste,
-    handleZoomToSelectionFit,
     handleCopySelection,
     handlePasteOverSelection,
-    handleDuplicateSelection,
-    handleDeleteSelection,
     handleGroupSelection,
-    handleUngroupSelection,
     handlePasteToReplace,
   } = editorClipboard;
   const {
@@ -221,8 +194,7 @@ export function renderEditorCanvasArea({
     runtimeStructureRollbackRequest,
     canSuggestAutoLayout,
     commentsHidden,
-    handleContextMenuReprompt,
-    handleContextMenuRepromptLayer,
+    handleContextMenuAgentPreset,
     handleAddAutoLayout,
     handleSuggestAutoLayout,
     handleToggleUi,
@@ -231,28 +203,24 @@ export function renderEditorCanvasArea({
   const {
     runtimeStructureMoveRequest,
     hasPropsClipboard,
-    hasAnimationClipboard,
     changeSelectedZIndex,
     handleCopyProps,
     handlePasteProps,
-    handleCopyAnimation,
-    handlePasteAnimation,
     handleFlipHorizontal,
     handleFlipVertical,
   } = editorEditCommands;
   const { responsiveInteractActive, handlePinToolToggle } = editorModes;
   const {
-    handleSelectAllFrames,
     layersPanelRef,
     handleCopyAsPng,
-    handleCopyAsFigmaSvg,
+    handleCopyCodingHandoff,
+    handleSendCodingHandoff,
   } = editorExportAndHandoff;
   const {
     codeLayerOwnerByNodeId,
     canEditSelectedLiveLayer,
     canEditSingleSelectedLiveLayer,
     getSingleSelectedRenamableLayerId,
-    selectedLayerIds,
     designIsEmpty,
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
@@ -260,12 +228,13 @@ export function renderEditorCanvasArea({
     selectedActiveFileNodeIds,
     selectedDomLayerIds,
     selectedLayersUseCompatibleSourceBackend,
+    selectedLayersInActiveFile,
     activeLayerLocked,
     activeLayerHidden,
     activeLayerId,
-    canUngroup,
     handleToggleLayerLocked,
     handleToggleLayerHidden,
+    handleCopyLayerLink,
   } = editorLayerActions;
   const { handleBooleanSubtractSelection } = editorSourceAndSync;
 
@@ -349,11 +318,11 @@ export function renderEditorCanvasArea({
     <CanvasContextMenu
       ref={canvasContextMenuRef}
       selectedCount={selectedElement ? 1 : selectedScreenIds.length}
+      selectedLayerCount={selectedLayerIdsState.length}
       layerCandidates={canvasLayerHitCandidates}
       onSelectLayer={handleContextMenuSelectLayer}
       hasClipboard={hasCanvasClipboard}
       hasPropsClipboard={hasPropsClipboard}
-      hasAnimationClipboard={hasAnimationClipboard}
       isLocked={activeLayerLocked}
       isHidden={activeLayerHidden}
       labels={{
@@ -362,7 +331,56 @@ export function renderEditorCanvasArea({
         swapInstance: t("designEditor.componentInstances.swap"),
         detachInstance: t("designEditor.componentInstances.detach"),
         suggestAutoLayout: t("designEditor.autoLayoutSuggestion.menuLabel"),
-        reprompt: t("designEditor.nodeRewrite.regenerate"),
+        editWithAgent: t("canvasMenu.editWithAgent"),
+        exploreWithAgent: t("canvasMenu.exploreWithAgent"),
+        group: t("canvasMenu.group"),
+        inspiration: t("canvasMenu.inspiration"),
+        inspirationDescription: t("canvasMenu.inspirationDescription"),
+        polish: t("canvasMenu.polish"),
+        polishDescription: t("canvasMenu.polishDescription"),
+        debug: t("canvasMenu.debug"),
+        debugDescription: t("canvasMenu.debugDescription"),
+        states: t("canvasMenu.states"),
+        statesDescription: t("canvasMenu.statesDescription"),
+        responsive: t("canvasMenu.responsive"),
+        responsiveDescription: t("canvasMenu.responsiveDescription"),
+        paste: t("canvasMenu.paste"),
+        pasteOver: t("canvasMenu.pasteOver"),
+        order: t("canvasMenu.order"),
+        createComponent: t("canvasMenu.createComponent"),
+        addAutoLayout: t("canvasMenu.addAutoLayout"),
+        copyAs: t("canvasMenu.copyAs"),
+        copyProps: t("canvasMenu.copyProps"),
+        pasteProps: t("canvasMenu.pasteProps"),
+        copyAsPng: t("canvasMenu.copyAsPng"),
+        rotateClockwise: t("canvasMenu.rotateClockwise"),
+        toggleUiShow: t("canvasMenu.toggleUiShow"),
+        toggleUiHide: t("canvasMenu.toggleUiHide"),
+        toggleCommentsShow: t("canvasMenu.toggleCommentsShow"),
+        toggleCommentsHide: t("canvasMenu.toggleCommentsHide"),
+        arrange: t("layersPanel.arrange"),
+        transform: t("layersPanel.transform"),
+        booleanOperations: t("layersPanel.booleanOperations"),
+        subtract: t("layersPanel.subtract"),
+        pasteHere: t("layersPanel.pasteHere"),
+        copy: t("layersPanel.copy"),
+        pasteToReplace: t("layersPanel.pasteToReplace"),
+        bringForward: t("layersPanel.bringForward"),
+        bringToFront: t("layersPanel.bringToFront"),
+        sendBackward: t("layersPanel.sendBackward"),
+        sendToBack: t("layersPanel.sendToBack"),
+        frameSelection: t("layersPanel.frameSelection"),
+        rename: t("layersPanel.menuRename"),
+        lock: t("layersPanel.menuLock"),
+        unlock: t("layersPanel.menuUnlock"),
+        hide: t("layersPanel.menuHide"),
+        show: t("layersPanel.menuShow"),
+        flipHorizontal: t("layersPanel.flipHorizontal"),
+        flipVertical: t("layersPanel.flipVertical"),
+        copyLink: t("layersPanel.copyLink"),
+        sendTo: t("canvasMenu.sendTo"),
+        sendToAgents: t("canvasMenu.sendToAgents"),
+        copyAgentPrompt: t("canvasMenu.copyAgentPrompt"),
       }}
       // U4/U8: hasCanvasClipboard only reflects copies made in THIS
       // tab/window. Peek the live system clipboard right as the menu
@@ -404,11 +422,6 @@ export function renderEditorCanvasArea({
         (hasCanvasClipboard || hasSystemClipboardImages) &&
         Boolean(activeFile)
       }
-      canSelectAll={files.length > 0}
-      canZoomToFit={Boolean(activeFile)}
-      canZoomToSelection={Boolean(
-        selectedElement || selectedScreenIds.length > 0,
-      )}
       canCopy={Boolean(
         selectedElement?.selector || selectedScreenIds.length > 0,
       )}
@@ -418,14 +431,6 @@ export function renderEditorCanvasArea({
         Boolean(activeFile)
       }
       canPasteOver={canEditDesign && hasCanvasClipboard && Boolean(activeFile)}
-      canDuplicate={Boolean(
-        canEditActiveVisualScreen &&
-        (selectedElement || selectedScreenIds.length > 0),
-      )}
-      canDelete={Boolean(
-        (canEditDesign && (selectedElement || selectedScreenIds.length > 0)) ||
-        (!canEditDesign && canEditSelectedLiveLayer),
-      )}
       canReorder={
         (canEditDesign || canEditSingleSelectedLiveLayer) &&
         Boolean(selectedElement)
@@ -444,28 +449,12 @@ export function renderEditorCanvasArea({
         hasPropsClipboard &&
         Boolean(selectedElement)
       }
-      canCopyAnimation={
-        Boolean(selectedElement) && selectedElementHasMotionTrack
-      }
-      canPasteAnimation={
-        canEditDesign && hasAnimationClipboard && Boolean(selectedElement)
-      }
-      canCopyAsCode={Boolean(
-        selectedElement?.selector || selectedScreenIds.length > 0,
-      )}
       canCopyAsPng={Boolean(
         canEditDesign &&
         (selectedElement ||
           (viewMode === "overview" && selectedScreenIds.length === 1)),
       )}
-      canCopyAsSvg={Boolean(
-        canEditDesign &&
-        (selectedElement ||
-          (viewMode === "overview" && selectedScreenIds.length === 1)),
-      )}
       canRotateClockwise={canEditDesign && Boolean(selectedElement)}
-      canGroup={canGroup}
-      canUngroup={canUngroup}
       canPasteToReplace={
         canEditDesign &&
         (menuClipboardFilesRef.current.length === 1 ||
@@ -474,34 +463,14 @@ export function renderEditorCanvasArea({
       }
       canFrameSelection={
         canEditDesign &&
-        viewMode === "single" &&
-        selectedLayerIds.filter(
-          (layerId) =>
-            !layerId.startsWith("__") &&
-            !files.some((file) => file.id === layerId),
-        ).length >= 1
+        selectedDomLayerIds.length >= 1 &&
+        selectedLayersInActiveFile
       }
       canCreateComponent={
         canEditDesign &&
         Boolean(selectedElement) &&
         !selectedElementAlreadyComponent &&
         !selectedElementInsideComponent
-      }
-      canReprompt={
-        canEditDesign &&
-        ((Boolean(selectedElement) && activeCanvasSourceType === "inline") ||
-          canvasLayerHitCandidates.some((candidate) => {
-            const screen = overviewScreens.find(
-              (item) =>
-                item.id ===
-                (candidate.screenId ?? activeFile?.id ?? activeFileId),
-            );
-            return (
-              Boolean(screen) &&
-              resolveOverviewScreenSourceType(screen!, designSourceType) ===
-                "inline"
-            );
-          }))
       }
       isComponentInstance={
         canEditDesign && Boolean(selectedInstanceActionNodeId)
@@ -510,12 +479,8 @@ export function renderEditorCanvasArea({
       canFlipVertical={canEditDesign && Boolean(selectedElement)}
       canAddAutoLayout={
         canEditDesign &&
-        viewMode === "single" &&
-        selectedLayerIds.filter(
-          (layerId) =>
-            !layerId.startsWith("__") &&
-            !files.some((file) => file.id === layerId),
-        ).length >= 1
+        selectedDomLayerIds.length >= 1 &&
+        selectedLayersInActiveFile
       }
       canSuggestAutoLayout={canSuggestAutoLayout}
       isUiHidden={uiHidden}
@@ -524,22 +489,9 @@ export function renderEditorCanvasArea({
       onPasteHere={(details) =>
         void handleContextMenuPaste(details.point ?? undefined)
       }
-      onSelectAll={handleSelectAllFrames}
-      onZoomToFit={handleZoomToFit}
-      onZoomToSelection={() => {
-        if (viewMode === "overview") {
-          handleZoomToSelectionFit();
-          return;
-        }
-        if (selectedElement) setZoom(150);
-      }}
-      onZoomIn={handleZoomIn}
-      onZoomOut={handleZoomOut}
       onCopy={handleCopySelection}
       onPaste={() => void handleContextMenuPaste()}
       onPasteOver={handlePasteOverSelection}
-      onDuplicate={handleDuplicateSelection}
-      onDelete={handleDeleteSelection}
       onBringForward={() => changeSelectedZIndex("forward")}
       onBringToFront={() => changeSelectedZIndex("front")}
       onSendBackward={() => changeSelectedZIndex("backward")}
@@ -558,15 +510,9 @@ export function renderEditorCanvasArea({
           handleToggleLayerHidden(activeLayerId, !activeLayerHidden);
         }
       }}
-      onGroup={canGroup ? handleGroupSelection : undefined}
-      onUngroup={canUngroup ? handleUngroupSelection : undefined}
       onCopyProps={handleCopyProps}
       onPasteProps={handlePasteProps}
-      onCopyAnimation={handleCopyAnimation}
-      onPasteAnimation={handlePasteAnimation}
-      onCopyAsCode={handleCopySelection}
       onCopyAsPng={() => void handleCopyAsPng()}
-      onCopyAsSvg={() => void handleCopyAsFigmaSvg()}
       onRotateClockwise={handleRotateSelectionClockwise}
       onPasteToReplace={
         canEditDesign
@@ -577,8 +523,7 @@ export function renderEditorCanvasArea({
       onCreateComponent={
         canEditDesign ? handleCreateComponentHotkey : undefined
       }
-      onReprompt={handleContextMenuReprompt}
-      onRepromptLayer={handleContextMenuRepromptLayer}
+      onAgentPreset={canEditDesign ? handleContextMenuAgentPreset : undefined}
       onGoToMainComponent={
         canEditDesign ? handleGoToMainComponentMenuAction : undefined
       }
@@ -594,21 +539,23 @@ export function renderEditorCanvasArea({
       }
       onToggleUi={handleToggleUi}
       onToggleComments={handleToggleComments}
-      appendedItems={
-        canOfferBooleanSubtract ? (
-          <ContextMenuGroup>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                {t("layersPanel.booleanOperations")}
-              </ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem onSelect={handleBooleanSubtractSelection}>
-                  {t("layersPanel.subtract")}
-                </ContextMenuItem>
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          </ContextMenuGroup>
-        ) : undefined
+      onExploreWithAgent={openAgentSidebar}
+      onGroup={canGroup ? handleGroupSelection : undefined}
+      onBooleanSubtract={
+        canOfferBooleanSubtract ? handleBooleanSubtractSelection : undefined
+      }
+      onCopyLink={({ emptyCanvas }) => {
+        const layerIds = selectedLayerIdsState.filter(
+          (id) => !id.startsWith("__"),
+        );
+        handleCopyLayerLink(
+          !emptyCanvas && layerIds.length === 1 ? layerIds[0] : undefined,
+        );
+      }}
+      onSendTo={(target) =>
+        target === "prompt"
+          ? void handleCopyCodingHandoff()
+          : void handleSendCodingHandoff(target)
       }
     >
       {designIsEmpty &&
@@ -628,12 +575,6 @@ export function renderEditorCanvasArea({
               : undefined
           }
         >
-          {/* Interact's device chrome sits inside the canvas column so
-                    the workspace rails stay put — Interact is a different view
-                    of the same editor, not a chrome-free takeover. */}
-          {responsiveInteractActive && !minimalUi ? (
-            <div className="shrink-0">{renderResponsiveInteractBar(false)}</div>
-          ) : null}
           {/* Breakpoint targeting controls live in the selected Screen
                     inspector section instead of over the canvas. */}
           <div
@@ -794,7 +735,10 @@ export function renderEditorCanvasArea({
                       is separate from DesignCanvas's focused-screen batch. */}
             <SharedDrawOverlay
               visible={
-                viewMode === "overview" && drawMode && mode === "annotate"
+                viewMode === "overview" &&
+                drawMode &&
+                mode === "annotate" &&
+                annotateLab === "on"
               }
               clearSignal={overviewAnnotationResetSignal}
               scopeKey="overview"

@@ -77,6 +77,7 @@ import {
   savePlaybackSpeedPreference,
   SLOW_SPEED_CEILING,
 } from "@/lib/playback-speed";
+import { storageAwareErrorMessage } from "@/lib/storage-setup-error-message";
 import {
   addCut,
   addSplitAt,
@@ -990,6 +991,7 @@ export function EditorLayout({
           status?: string;
           percent?: number;
           error?: string;
+          errorCode?: string;
         };
         if (typeof data.percent === "number") setBurnPercent(data.percent);
         if (data.status === "running") {
@@ -1008,6 +1010,25 @@ export function EditorLayout({
         if (burnToastRef.current !== null) toast.dismiss(burnToastRef.current);
         burnToastRef.current = null;
 
+        if (data.status === "failed") {
+          toast.error(
+            storageAwareErrorMessage(
+              data,
+              t("recordingPage.connectStorageFinishSaving"),
+              t("editorLayout.burnFailed"),
+            ),
+          );
+          try {
+            await refetchPlayerDataRef.current();
+          } catch (err) {
+            console.warn("[editor] could not refresh after a failed burn", {
+              recordingId,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return;
+        }
+
         const refreshed = await refetchPlayerDataRef.current();
         const overlaysLeft = parseRedactions(
           parseEdits((refreshed?.data as any)?.recording?.editsJson).overlays,
@@ -1019,8 +1040,6 @@ export function EditorLayout({
           setSelectedRedactionId(null);
           setRedactMode(false);
           toast.success(t("editorLayout.burnedRedactionsDone"));
-        } else if (data.status === "failed") {
-          toast.error(data.error ?? t("editorLayout.burnFailed"));
         } else {
           toast.message(t("editorLayout.burnProgressUnreadable"));
         }
@@ -1208,9 +1227,14 @@ export function EditorLayout({
       }
     } catch (err: any) {
       setBurning(false);
-      toast.error(err?.message ?? t("editorLayout.burnFailed"), {
-        id: burnToastRef.current ?? undefined,
-      });
+      toast.error(
+        storageAwareErrorMessage(
+          err,
+          t("recordingPage.connectStorageFinishSaving"),
+          t("editorLayout.burnFailed"),
+        ),
+        { id: burnToastRef.current ?? undefined },
+      );
       burnToastRef.current = null;
     }
   }, [

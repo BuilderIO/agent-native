@@ -92,7 +92,6 @@ function select(ids: string[], clickedId: string, range: boolean) {
       },
       files: [file(alphaId), betaFile, boardFile],
       getScreenContent: () => "",
-      focusDesignInspectorForSelection: vi.fn(),
       overviewSelectedScreenIds: selectedScreenIds,
       pendingOverviewLayerSelectionRef: { current: null },
       pendingOverviewScreenSelectionRef: { current: null },

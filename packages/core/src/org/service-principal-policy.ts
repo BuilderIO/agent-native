@@ -20,7 +20,7 @@
  */
 import { getDbExec, type DbExec, withDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { parseServiceIdentityEmail } from "./service-identity.js";
 
 export const SERVICE_PRINCIPAL_LIFECYCLES = [
@@ -76,37 +76,38 @@ export type ServicePrincipalState =
   | { status: "org-mismatch" }
   | { status: "unavailable" };
 
-let _initPromise: Promise<void> | undefined;
+export const servicePrincipalPoliciesStore = defineStore({
+  id: "service_principal_policies",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "service_principal_policies",
+          `CREATE TABLE IF NOT EXISTS service_principal_policies (
+            org_id TEXT NOT NULL,
+            service_name TEXT NOT NULL,
+            owner_email TEXT,
+            team TEXT,
+            risk_tier TEXT NOT NULL DEFAULT 'medium',
+            purpose TEXT,
+            lifecycle TEXT NOT NULL DEFAULT 'active',
+            allowed_actions TEXT,
+            lifecycle_reason TEXT,
+            lifecycle_changed_by TEXT,
+            lifecycle_changed_at BIGINT,
+            created_at BIGINT,
+            updated_at BIGINT,
+            PRIMARY KEY (org_id, service_name)
+          )`,
+        );
+      },
+    },
+  ],
+});
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = ensureTableExists(
-      "service_principal_policies",
-      `CREATE TABLE IF NOT EXISTS service_principal_policies (
-        org_id TEXT NOT NULL,
-        service_name TEXT NOT NULL,
-        owner_email TEXT,
-        team TEXT,
-        risk_tier TEXT NOT NULL DEFAULT 'medium',
-        purpose TEXT,
-        lifecycle TEXT NOT NULL DEFAULT 'active',
-        allowed_actions TEXT,
-        lifecycle_reason TEXT,
-        lifecycle_changed_by TEXT,
-        lifecycle_changed_at BIGINT,
-        created_at BIGINT,
-        updated_at BIGINT,
-        PRIMARY KEY (org_id, service_name)
-      )`,
-    )
-      .then(() => undefined)
-      .catch((error) => {
-        _initPromise = undefined;
-        throw error;
-      });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return servicePrincipalPoliciesStore.ready();
 }
 
 function numOrNull(value: unknown): number | null {

@@ -25,11 +25,13 @@ Use it to:
 
 Diagnostics are bounded and redacted before they are saved. They can include up to 30 seconds from before the recording started, when the page still holds that history. Clips does not collect request or response bodies, request headers, cookies, authorization headers, or full query values.
 
+When the recorded tab is an Agent-Native app, diagnostics also include that app's own activity log: action names and outcomes, state changes, navigation, and errors, from up to 30 seconds before the recording started through its end. Other sites are not affected.
+
 ## Permission Justification
 
 - `activeTab`: grants access to the tab the user clicks the toolbar action on, so a recording can start from that tab.
 - `debugger`: attaches Chrome's debugger to up to five tabs while a recording is active and developer logs are on: the tab the recording started from, tabs used in the last 10 minutes (most recent first), and tabs the user switches to during the recording. If more than five are attached, the least recently active tab other than the focused one is detached. All attached tabs are detached when the recording stops or is cancelled. It reads console messages, JavaScript exceptions, and fetch/XHR metadata (method, URL, status, timing, failure). It does not read or buffer request or response bodies.
-- `scripting`: runs `chrome.scripting.executeScript` for two purposes. It reads the Performance resource timing entries of each debugger-attached tab to add fetch/XHR lookback from before the recording started (URL, status, duration, and request type only). It also injects the extension's content scripts into a tab when the overlay message does not reach it. Attached tabs are not necessarily the active tab, so this needs host access that `activeTab` does not provide.
+- `scripting`: runs `chrome.scripting.executeScript` for three purposes. It reads the Performance resource timing entries of each debugger-attached tab to add fetch/XHR lookback from before the recording started (URL, status, duration, and request type only). When developer logs are on, it reads the app activity log that Agent-Native apps keep in the page (`window.__agentNativeRecorder`), in the recording's own tab only, once when the recording starts and once when it stops. It also injects the extension's content scripts into a tab when the overlay message does not reach it. Attached tabs are not necessarily the active tab, so this needs host access that `activeTab` does not provide.
 - `offscreen`: runs an offscreen document that performs screen, window, and camera/microphone capture with `getDisplayMedia` and `getUserMedia`, which a service worker cannot call directly.
 - `clipboardWrite`: copies the Clips link to a recording to the clipboard when that recording finishes.
 - `downloads`: saves a local copy of a recording to the Downloads folder only when finishing its upload fails, so the recording is not lost. Cancelled recordings, recordings too large to buffer locally, and very small recordings are not saved.
@@ -50,6 +52,7 @@ Diagnostics are bounded and redacted before they are saved. They can include up 
 - Developer logs are on by default. They can be turned off on the extension's settings page (not the popup). When they are off, the debugger is not attached.
 - Network data is limited to fetch/XHR metadata and redacted URLs. Lookback network entries have no HTTP method, so their method is recorded as `UNKNOWN`. Headers and bodies are never captured.
 - Console and network entries are redacted before upload, and each records the tab it came from.
+- App activity is read only from the recording's own tab, only at its start and stop, and only when the page exposes the Agent-Native recorder. It is redacted and size-capped by the extension and again by the Clips app, which stores it as a private file.
 - Diagnostics are sent only to the configured Clips app, after the user starts and finishes a recording.
 
 ## Review Notes

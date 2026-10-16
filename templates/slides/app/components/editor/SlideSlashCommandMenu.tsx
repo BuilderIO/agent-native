@@ -359,6 +359,10 @@ export function SlideSlashCommandMenu({
       : COMMANDS;
   const selectedIndex = filtered.length ? activeIndex % filtered.length : 0;
   const activeCommand = filtered[selectedIndex];
+  const activeCommandRef = useRef(activeCommand);
+  activeCommandRef.current = activeCommand;
+  const filteredLengthRef = useRef(filtered.length);
+  filteredLengthRef.current = filtered.length;
 
   useEffect(() => {
     if (!editingEl || !textSession?.isActive) {
@@ -395,6 +399,7 @@ export function SlideSlashCommandMenu({
       ) {
         return;
       }
+      if (current.query !== next.query) setActiveIndex(0);
       menuRef.current = next;
       setMenu(next);
     };
@@ -405,6 +410,7 @@ export function SlideSlashCommandMenu({
       if (!next) return false;
       pendingSlash.current = false;
       pendingSlashRetries.current = 0;
+      setActiveIndex(0);
       menuRef.current = next;
       setMenu(next);
       return true;
@@ -474,8 +480,6 @@ export function SlideSlashCommandMenu({
       window.removeEventListener("resize", refreshGeometry);
     };
   }, [editingEl, textSession]);
-
-  useEffect(() => setActiveIndex(0), [menu?.query]);
 
   useEffect(() => {
     if (
@@ -564,25 +568,36 @@ export function SlideSlashCommandMenu({
   );
 
   useLayoutEffect(() => {
-    if (!editingEl || !menu) return;
+    if (!editingEl) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
+      const currentMenu = menuRef.current;
+      if (!currentMenu) return;
+      const currentCommand = activeCommandRef.current;
+      const currentFilteredLength = filteredLengthRef.current;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         event.stopImmediatePropagation();
+        if (currentFilteredLength === 0) return;
         setActiveIndex((index) =>
           event.key === "ArrowDown"
-            ? (index + 1) % filtered.length
-            : (index + filtered.length - 1) % filtered.length,
+            ? (index + 1) % currentFilteredLength
+            : (index + currentFilteredLength - 1) % currentFilteredLength,
         );
-      } else if (event.key === "Enter" && activeCommand) {
+      } else if (event.key === "Enter" && currentCommand) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        applyAuthoringCommand(activeCommand.kind, menu.range.cloneRange());
-      } else if (event.key === "Tab" && activeCommand) {
+        applyAuthoringCommand(
+          currentCommand.kind,
+          currentMenu.range.cloneRange(),
+        );
+      } else if (event.key === "Tab" && currentCommand) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        applyAuthoringCommand(activeCommand.kind, menu.range.cloneRange());
+        applyAuthoringCommand(
+          currentCommand.kind,
+          currentMenu.range.cloneRange(),
+        );
       } else if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -594,7 +609,7 @@ export function SlideSlashCommandMenu({
     };
     editingEl.addEventListener("keydown", onKeyDown, true);
     return () => editingEl.removeEventListener("keydown", onKeyDown, true);
-  }, [activeCommand, editingEl, filtered.length, menu, textSession]);
+  }, [editingEl, textSession]);
 
   if (!editingEl || !menu) return null;
 
@@ -630,19 +645,20 @@ export function SlideSlashCommandMenu({
               const index = filtered.findIndex((item) => item.kind === value);
               if (index >= 0) setActiveIndex(index);
             }}
+            disablePointerSelection
             shouldFilter={false}
           >
             <CommandList label={t("slideSlashMenu.blocks")}>
               <CommandGroup heading={t("slideSlashMenu.blocks")}>
-                {filtered.map((item, index) => {
+                {filtered.map((item) => {
                   const Icon = item.icon;
                   return (
                     <CommandItem
                       key={item.kind}
                       value={item.kind}
-                      onMouseEnter={() => setActiveIndex(index)}
                       onMouseDown={(event) => event.preventDefault()}
                       onPointerDown={(event) => event.preventDefault()}
+                      className="hover:bg-foreground/20 hover:text-foreground"
                       onSelect={() => {
                         applyAuthoringCommand(
                           item.kind,

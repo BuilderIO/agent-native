@@ -1,6 +1,5 @@
-// Collects first-parent commits on the base branch for the lookback period,
-// marks the ones inside the review window, and enriches window PRs from GitHub.
-// Uses only tree-level git data: this checkout may be a blobless partial clone,
+// Collects first-parent commits on the base branch for the lookback period
+// and marks the ones inside the review window. Uses only tree-level git data: this checkout may be a blobless partial clone,
 // where --numstat/--stat/-p fetch every blob over the network and time out.
 import path from "node:path";
 
@@ -39,18 +38,6 @@ export interface Commit {
   files: FileChange[];
 }
 
-export interface PrMeta {
-  number: number;
-  title: string;
-  author: string | null;
-  mergedAt: string | null;
-  additions: number;
-  deletions: number;
-  changedFiles: number;
-  labels: string[];
-  body: string;
-}
-
 export interface Collected {
   runId: string;
   repo: string;
@@ -60,9 +47,6 @@ export interface Collected {
   lookbackStart: string;
   fetched: boolean;
   commits: Commit[];
-  prs:
-    | { status: "ok"; items: PrMeta[] }
-    | { status: "unavailable"; error: string };
 }
 
 const FIELD = "\x1f";
@@ -71,7 +55,7 @@ const RECORD = "\x1e";
 main(async (args) => {
   if (args.help) {
     console.log(
-      "collect --run <id> [--until <iso>] [--window-hours N] [--lookback-days N] [--no-fetch] [--no-prs]",
+      "collect --run <id> [--until <iso>] [--window-hours N] [--lookback-days N] [--no-fetch]",
     );
     return;
   }
@@ -152,13 +136,6 @@ main(async (args) => {
     );
   }
 
-  const windowPrs = [
-    ...new Set(commits.filter((c) => c.inWindow && c.pr).map((c) => c.pr!)),
-  ];
-  const prs: Collected["prs"] = args["no-prs"]
-    ? { status: "unavailable", error: "skipped with --no-prs" }
-    : fetchPrs(repo, windowPrs);
-
   const out: Collected = {
     runId: id,
     repo,
@@ -168,89 +145,12 @@ main(async (args) => {
     lookbackStart: lookbackStart.toISOString(),
     fetched,
     commits,
-    prs,
   };
   const file = path.join(runDir(id), "commits.json");
   writeJson(file, out);
 
   const inWindow = commits.filter((c) => c.inWindow).length;
   console.log(
-    `${rel(file)}: ${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window; PR metadata ${prs.status}${prs.status === "ok" ? ` (${prs.items.length}/${windowPrs.length})` : `: ${prs.error}`}`,
+    `${rel(file)}: ${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window`,
   );
 });
-
-function fetchPrs(repo: string, numbers: number[]): Collected["prs"] {
-  const [owner, name] = repo.split("/");
-  const items: PrMeta[] = [];
-  try {
-    for (let i = 0; i < numbers.length; i += 20) {
-      const batch = numbers.slice(i, i + 20);
-      const fields = batch
-        .map(
-          (n) =>
-            `p${n}: pullRequest(number: ${n}) { number title body mergedAt additions deletions changedFiles author { login } labels(first: 10) { nodes { name } } }`,
-        )
-        .join("\n");
-      const query = `query { repository(owner: "${owner}", name: "${name}") { ${fields} } }`;
-      const response = withRetry(() =>
-        run("gh", ["api", "graphql", "-f", `query=${query}`], {
-          timeoutMs: 60_000,
-        }),
-      );
-      const parsed = JSON.parse(response) as {
-        data?: { repository?: Record<string, RawPr | null> };
-        errors?: { message: string }[];
-      };
-      const repoData = parsed.data?.repository;
-      if (!repoData) {
-        throw new Error(
-          parsed.errors?.map((e) => e.message).join("; ") ?? "empty response",
-        );
-      }
-      for (const pr of Object.values(repoData)) {
-        if (!pr) continue;
-        items.push({
-          number: pr.number,
-          title: pr.title,
-          author: pr.author?.login ?? null,
-          mergedAt: pr.mergedAt,
-          additions: pr.additions,
-          deletions: pr.deletions,
-          changedFiles: pr.changedFiles,
-          labels: pr.labels.nodes.map((l) => l.name),
-          body: pr.body.slice(0, 2000),
-        });
-      }
-    }
-  } catch (error) {
-    return {
-      status: "unavailable",
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-  return { status: "ok", items };
-}
-
-interface RawPr {
-  number: number;
-  title: string;
-  body: string;
-  mergedAt: string | null;
-  additions: number;
-  deletions: number;
-  changedFiles: number;
-  author: { login: string } | null;
-  labels: { nodes: { name: string }[] };
-}
-
-function withRetry<T>(fn: () => T, attempts = 3): T {
-  let last: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return fn();
-    } catch (error) {
-      last = error;
-    }
-  }
-  throw last;
-}

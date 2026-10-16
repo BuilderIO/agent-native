@@ -5,7 +5,7 @@ import {
   deleteUploadedFile,
   getActiveFileUploadProviderForRequest,
   uploadFile,
-} from "../file-upload/index.js";
+} from "../file-upload/registry.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -382,10 +382,30 @@ export async function getActivePrivateBlobProviderForRequest(): Promise<PrivateB
 }
 
 export async function isPrivateBlobConfiguredForRequest(): Promise<boolean> {
-  if (await getActivePrivateBlobProviderForRequest()) return true;
-  if (!publicUploadFallbackRef.enabled) return false;
-  if (!getAppConfig().privateBlob.publicUploadFallback) return false;
-  return Boolean(await getActiveFileUploadProviderForRequest());
+  return (await getPrivateBlobStorageReadinessForRequest()).configured;
+}
+
+export interface PrivateBlobStorageReadiness {
+  configured: boolean;
+  providerId: string | null;
+}
+
+export async function getPrivateBlobStorageReadinessForRequest(): Promise<PrivateBlobStorageReadiness> {
+  const privateProvider = await getActivePrivateBlobProviderForRequest();
+  if (privateProvider) {
+    return { configured: true, providerId: privateProvider.id };
+  }
+  if (
+    !publicUploadFallbackRef.enabled ||
+    !getAppConfig().privateBlob.publicUploadFallback
+  ) {
+    return { configured: false, providerId: null };
+  }
+  const uploadProvider = await getActiveFileUploadProviderForRequest();
+  return {
+    configured: Boolean(uploadProvider),
+    providerId: uploadProvider?.id ?? null,
+  };
 }
 
 export function setPrivateBlobPublicUploadFallbackEnabled(

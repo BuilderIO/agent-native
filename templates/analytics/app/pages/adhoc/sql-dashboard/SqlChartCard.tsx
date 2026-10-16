@@ -15,6 +15,7 @@ import {
   IconMessageCircle,
   IconBrandGoogle,
   IconArrowUpRight,
+  IconLink,
 } from "@tabler/icons-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -58,13 +59,18 @@ import {
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
+import { usePersonalColumnWidths } from "@/lib/personal-column-widths";
 import { cn } from "@/lib/utils";
 
 import { timeRangeDays } from "./pivot";
-import type { DashboardFilter, SqlPanel } from "./types";
+import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
 const INHERIT_TIME_RANGE = "__inherit__";
+
+export function dashboardTileElementId(panelId: string): string {
+  return `dashboard-tile-${panelId}`;
+}
 
 interface SqlChartCardProps {
   panel: SqlPanel;
@@ -72,11 +78,13 @@ interface SqlChartCardProps {
   onRemove: () => void;
   onEdit?: () => void;
   onSaveSql?: (sql: string) => Promise<void>;
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
   editable?: boolean;
   eagerLoad?: boolean;
   reportScreenshot?: boolean;
   isDragSource?: boolean;
   selectedForChat?: boolean;
+  highlighted?: boolean;
   onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
   extensionContext?: Record<string, unknown> | null;
   dashboardId?: string;
@@ -134,11 +142,13 @@ export function SqlChartCard({
   onRemove,
   onEdit,
   onSaveSql,
+  onSaveColumns,
   editable = true,
   eagerLoad = false,
   reportScreenshot = false,
   isDragSource = false,
   selectedForChat = false,
+  highlighted = false,
   onSelectForChat,
   extensionContext,
   dashboardId,
@@ -155,6 +165,22 @@ export function SqlChartCard({
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
+  // While viewing, dragging a column edge sizes it for this person only. A
+  // table offers rename, reorder, and format whenever it gets onSaveColumns,
+  // so only edit mode passes it on.
+  const personalColumnWidths = usePersonalColumnWidths(
+    dashboardId,
+    panel.id,
+    panel.config?.columns,
+  );
+  const tableColumnProps = editable
+    ? { onSaveColumns }
+    : dashboardId && panel.chartType === "table"
+      ? {
+          columnWidths: personalColumnWidths.widths,
+          onColumnWidthChange: personalColumnWidths.setWidth,
+        }
+      : {};
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -327,6 +353,17 @@ export function SqlChartCard({
     setMenuOpen(false);
   }, []);
 
+  const copyTileLink = useCallback(async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tile", panel.id);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      toast.success(t("sidebar.linkCopied"));
+    } catch {
+      toast.error(t("sidebar.copyLinkFailed"));
+    }
+  }, [panel.id, t]);
+
   if (panel.chartType === "section") {
     return (
       <div
@@ -423,6 +460,7 @@ export function SqlChartCard({
     return (
       <div
         ref={setCardNodeRef}
+        id={dashboardTileElementId(panel.id)}
         onClick={handleCardClick}
         style={isDragSource ? { zIndex: 50 } : undefined}
         data-dragging={isDragSource ? "true" : undefined}
@@ -432,6 +470,7 @@ export function SqlChartCard({
         className={cn(
           "dashboard-extension-card group relative h-full rounded-lg transition-colors",
           selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+          highlighted && "ring-2 ring-primary",
         )}
       >
         {!expanded && (
@@ -487,6 +526,10 @@ export function SqlChartCard({
               <DropdownMenuItem onSelect={() => setExpanded(true)}>
                 <IconMaximize className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.fullScreen")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void copyTileLink()}>
+                <IconLink className="h-4 w-4 mr-2" />
+                {t("sidebar.copyLink")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setExtRefreshKey((k) => k + 1)}>
@@ -590,6 +633,7 @@ export function SqlChartCard({
   return (
     <div
       ref={setCardNodeRef}
+      id={dashboardTileElementId(panel.id)}
       onClick={handleCardClick}
       style={isDragSource ? { zIndex: 50 } : undefined}
       data-dragging={isDragSource ? "true" : undefined}
@@ -602,6 +646,7 @@ export function SqlChartCard({
         className={cn(
           "flex h-full flex-col overflow-visible transition-colors",
           selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+          highlighted && "ring-2 ring-primary",
         )}
       >
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
@@ -697,6 +742,10 @@ export function SqlChartCard({
                     <IconMaximize className="h-4 w-4 mr-2" />
                     {t("sqlDashboard.fullScreen")}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void copyTileLink()}>
+                    <IconLink className="h-4 w-4 mr-2" />
+                    {t("sidebar.copyLink")}
+                  </DropdownMenuItem>
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
@@ -779,6 +828,7 @@ export function SqlChartCard({
             dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
+            {...tableColumnProps}
             extensionContext={extensionContext}
           />
         </CardContent>
@@ -799,6 +849,7 @@ export function SqlChartCard({
                 reportScreenshot={reportScreenshot}
                 refreshToken={refreshToken}
                 onRefreshRequested={handleRefresh}
+                {...tableColumnProps}
                 dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />

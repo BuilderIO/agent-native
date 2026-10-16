@@ -84,7 +84,7 @@ export default function SettingsRoute() {
 通常、アプリのページは `extraTabs` の項目から始まり、アプリグループ内の独立したページになります。さらに細かく制御するには、モジュールスコープで `registerSettingsPages` を使って `SettingsPageDefinition`（`id`、`group`、`order`、`label`、`icon`、`component`、および省略可能な `visible`、`subpages`、`searchEntries`）を登録します。既存ページと同じ ID の定義を登録すると、そのページが置き換わります。これを利用して、アプリは core のページを独自の実装に差し替えられます。Dispatch はこの方法で Members にアプリロール列を表示します。
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,

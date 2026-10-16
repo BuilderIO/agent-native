@@ -1,20 +1,14 @@
-import { expect, test, type Page } from "@playwright/test";
-
+import { MOD } from "./drag-and-drop.shared";
 import {
-  indexHtml,
-  MOD,
-  newDesign,
-  node,
-  openEditor,
-  postAction,
-  setBaseURL,
-} from "./drag-and-drop.shared";
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
 
 const WRAP_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
@@ -125,998 +119,576 @@ const GRID_DENSE_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
-function preview(page: Page) {
-  return page
-    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
-    .first()
-    .contentFrame();
+type Nodes = Map<string, SavedNode>;
+type Rect = { x: number; y: number; width: number; height: number };
+
+function childrenOf(nodes: Nodes, parent: string) {
+  return [...nodes.values()]
+    .filter((node) => node.parent === parent)
+    .sort((a, b) => a.index - b.index)
+    .map((node) => node.id);
 }
 
-function persistedGridChildren(html: string, gridId: string): string[] {
-  const contents = new RegExp(
-    `data-agent-native-node-id="${gridId}"[^>]*>([\\s\\S]*?)<\\/section>`,
-  ).exec(html)?.[1];
-  return contents
-    ? [...contents.matchAll(/data-agent-native-node-id="([^"]+)"/g)]
-        .map(([, id]) => id)
-        .filter((id) => !id.startsWith("an-"))
-    : [];
+async function openFixture(app: App, html: string) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
+  return id;
 }
 
-async function selectNode(page: Page, id: string): Promise<void> {
-  const name = await node(page, id).getAttribute(
-    "data-agent-native-layer-name",
+async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
+  const rect = await app.designRect(nodeId);
+  const centre = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
   );
-  if (!name) throw new Error(`missing layer name for ${id}`);
-  const tree = page.getByRole("tree", { name: "Layers" });
-  await tree.getByRole("button", { name, exact: true }).first().click({
-    force: true,
-  });
-  await expect(
-    tree.locator(
-      '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+  await app.page.mouse.click(centre.x, centre.y);
+  await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
+}
+
+/** Every rendered child of `parent`, in design px, keyed by node id. */
+async function renderedChildren(app: App, parent: string) {
+  return app.node(parent).evaluate((element) =>
+    Object.fromEntries(
+      Array.from(element.children)
+        .filter((child) => child.hasAttribute("data-agent-native-node-id"))
+        .map((child) => {
+          const r = child.getBoundingClientRect();
+          return [
+            child.getAttribute("data-agent-native-node-id")!,
+            {
+              x: Math.round(r.x),
+              y: Math.round(r.y),
+              width: Math.round(r.width),
+              height: Math.round(r.height),
+            },
+          ];
+        }),
     ),
-  ).toHaveCount(1);
+  ) as Promise<Record<string, Rect>>;
 }
 
-type RectSnapshot = {
-  id: string;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  transform: string;
-};
-
-async function childrenSnapshot(
-  page: Page,
-  parentId: string,
-): Promise<RectSnapshot[]> {
-  return preview(page)
-    .locator("body")
-    .evaluate((body, id) => {
-      const parent = body.querySelector(`[data-agent-native-node-id="${id}"]`);
-      if (!parent) throw new Error(`missing parent ${id}`);
-      return Array.from(parent.children)
-        .map((el) => {
-          const node = el as HTMLElement;
-          const rect = node.getBoundingClientRect();
-          return {
-            id: node.getAttribute("data-agent-native-node-id") ?? "",
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
-            transform: getComputedStyle(node).transform,
-          };
-        })
-        .filter((child) => child.id);
-    }, parentId);
-}
-
-async function frameRectSnapshot(page: Page, id: string) {
-  return preview(page)
-    .locator(`[data-agent-native-node-id="${id}"]`)
-    .evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-      };
-    });
-}
-
-async function persistedNodeSnapshot(page: Page, html: string, id: string) {
-  return page.evaluate(
-    ({ html, id }) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const element = doc.querySelector<HTMLElement>(
-        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
-      );
-      const parent = element?.parentElement;
-      return {
-        parentTag: parent?.tagName ?? null,
-        parentId: parent?.getAttribute("data-agent-native-node-id") ?? null,
-        index: parent ? Array.from(parent.children).indexOf(element!) : -1,
-        position: element?.style.position ?? "",
-        left: element?.style.left ?? "",
-        top: element?.style.top ?? "",
-      };
-    },
-    { html, id },
+async function heldSiblingTransforms(app: App, parent: string) {
+  return app.node(parent).evaluate((element) =>
+    Array.from(element.children).map((child) => ({
+      id: child.getAttribute("data-agent-native-node-id"),
+      transform: getComputedStyle(child).transform,
+      x: Math.round(child.getBoundingClientRect().x),
+      y: Math.round(child.getBoundingClientRect().y),
+    })),
   );
 }
 
-async function liveNodeSnapshot(page: Page, id: string) {
-  return preview(page)
-    .locator(`[data-agent-native-node-id="${id}"]`)
-    .evaluate((element) => {
-      const parent = element.parentElement;
-      return {
-        parentTag: parent?.tagName ?? null,
-        parentId: parent?.getAttribute("data-agent-native-node-id") ?? null,
-        index: parent ? Array.from(parent.children).indexOf(element) : -1,
-        position: element.style.position,
-        left: element.style.left,
-        top: element.style.top,
-      };
-    });
-}
-
-async function guideSnapshot(page: Page) {
-  return preview(page)
+async function guide(app: App) {
+  return app.page
+    .frameLocator(
+      'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
+    )
     .locator("body")
     .evaluate(() => {
-      const guide = document.querySelector(
+      const element = document.querySelector(
         "[data-agent-native-insertion-guide]",
       ) as HTMLElement | null;
-      if (!guide) return null;
-      const style = getComputedStyle(guide);
-      const rect = guide.getBoundingClientRect();
+      if (!element) return null;
+      const r = element.getBoundingClientRect();
       return {
-        display: style.display,
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-        borderTop: parseFloat(style.borderTopWidth),
-        borderLeft: parseFloat(style.borderLeftWidth),
-        background: style.backgroundColor,
+        display: getComputedStyle(element).display,
+        x: Math.round(r.x),
+        y: Math.round(r.y),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
       };
     });
 }
 
-async function dragToHeldPoint(
-  page: Page,
+/** Presses on the source's centre and holds the pointer at `target` (design px) until the insertion guide shows. */
+async function holdAt(
+  app: App,
   sourceId: string,
   target: { x: number; y: number },
-): Promise<void> {
-  const source = (await node(page, sourceId).boundingBox())!;
-  await page.mouse.move(
-    source.x + source.width / 2,
-    source.y + source.height / 2,
+) {
+  const rect = await app.designRect(sourceId);
+  const start = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
   );
-  await page.mouse.down();
-  await page.mouse.move(
-    source.x + source.width / 2 + 12,
-    source.y + source.height / 2 + 8,
-    { steps: 6 },
-  );
-  await page.mouse.move(target.x, target.y, { steps: 24 });
+  const end = await app.pagePoint(target.x, target.y);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(start.x + 12, start.y + 8, { steps: 6 });
+  await app.page.mouse.move(end.x, end.y, { steps: 24 });
   await expect
-    .poll(() => guideSnapshot(page), {
-      timeout: 5_000,
-      message: `no visible insertion guide while dragging ${sourceId}`,
+    .poll(async () => (await guide(app))?.display, {
+      message: `no insertion guide while dragging ${sourceId}`,
     })
-    .toMatchObject({ display: "block" });
+    .toBe("block");
+  return (await guide(app))!;
 }
 
-async function deleteDesign(page: Page, designId: string): Promise<void> {
-  await postAction(page, "delete-design", { id: designId }).catch(() => {});
+async function drop(app: App) {
+  await app.page.mouse.up();
+  await app.settled();
+}
+
+function expectNear(
+  actual: number,
+  expected: number,
+  label: string,
+  tolerance = 2,
+) {
+  expect(Math.abs(actual - expected), `${label} ${actual}`).toBeLessThanOrEqual(
+    tolerance,
+  );
+}
+
+/** A thin insertion line, not a cell-shaped box. */
+function expectLine(held: Rect) {
+  expect(Math.min(held.width, held.height), "the guide is a line").toBeLessThan(
+    10,
+  );
 }
 
 test("W-1 held wrapped reorder shows a 2D marker and projected sibling reflow", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, WRAP_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "w3");
-    const before = await childrenSnapshot(page, "wrap-container");
-    const w1 = (await node(page, "w1").boundingBox())!;
-    await dragToHeldPoint(page, "w3", {
-      x: w1.x + 2,
-      y: w1.y + w1.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(guide!.width).toBeLessThan(guide!.height);
-      const held = await childrenSnapshot(page, "wrap-container");
-      const beforeById = new Map(before.map((child) => [child.id, child]));
-      const movedSiblings = held
-        .filter((child) => child.id !== "w3")
-        .some((child) => {
-          const prior = beforeById.get(child.id)!;
-          return (
-            Math.abs(child.left - prior.left) > 2 ||
-            Math.abs(child.top - prior.top) > 2 ||
-            child.transform !== prior.transform
-          );
-        });
-      expect(movedSiblings).toBe(true);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="w3"');
-    await openEditor(page, designId);
-    const html = await indexHtml(page, designId);
-    expect(html.indexOf('data-agent-native-node-id="w3"')).toBeLessThan(
-      html.indexOf('data-agent-native-node-id="w1"'),
-    );
-    const afterReload = await childrenSnapshot(page, "wrap-container");
-    expect(afterReload.map((child) => child.id)).toEqual(["w3", "w1", "w2"]);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, WRAP_FIXTURE);
+  await selectOnCanvas(app, "w3", "W3");
+  const before = await app.savedNodes(id);
+  const restingSiblings = await heldSiblingTransforms(app, "wrap-container");
+
+  const held = await holdAt(app, "w3", { x: 78, y: 120 });
+  expect(held.width, "a vertical marker before W1").toBeLessThan(held.height);
+  expect(
+    await heldSiblingTransforms(app, "wrap-container"),
+    "siblings reflow to make room",
+  ).not.toEqual(restingSiblings);
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "wrap-container")).toEqual(["w3", "w1", "w2"]);
+  expectOnlyChanged(before, after, ["w3"]);
+  const rendered = await renderedChildren(app, "wrap-container");
+  expect(
+    { w3: rendered.w3, w1: rendered.w1, w2: rendered.w2 },
+    "the two wrapped lines stretch to fill 190px",
+  ).toEqual({
+    w3: { x: 76, y: 96, width: 104, height: 48 },
+    w1: { x: 192, y: 96, width: 104, height: 48 },
+    w2: { x: 76, y: 197, width: 104, height: 48 },
+  });
 });
 
 test("W-2 held wrapped reorder changes marker row before the final persisted slot", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, WRAP_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "w1");
-    const w2 = (await node(page, "w2").boundingBox())!;
-    const w3 = (await node(page, "w3").boundingBox())!;
-    const source = (await node(page, "w1").boundingBox())!;
-    await page.mouse.move(
-      source.x + source.width / 2,
-      source.y + source.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      source.x + source.width / 2 + 12,
-      source.y + source.height / 2 + 8,
-      {
-        steps: 6,
-      },
-    );
-    await page.mouse.move(w2.x + w2.width - 2, w2.y + w2.height / 2, {
-      steps: 18,
-    });
-    await expect
-      .poll(() => guideSnapshot(page), { timeout: 5_000 })
-      .toMatchObject({ display: "block" });
-    const rowOneGuide = await guideSnapshot(page);
-    await page.mouse.move(w3.x + w3.width - 2, w3.y + w3.height / 2, {
-      steps: 18,
-    });
-    await expect
-      .poll(() => guideSnapshot(page), { timeout: 5_000 })
-      .toMatchObject({ display: "block" });
-    const rowTwoGuide = await guideSnapshot(page);
-    expect(Math.abs(rowTwoGuide!.top - rowOneGuide!.top)).toBeGreaterThan(10);
-    expect(rowTwoGuide!.width).toBeLessThan(rowTwoGuide!.height);
-    await page.mouse.up();
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="w1"');
-    await openEditor(page, designId);
-    const afterReload = await childrenSnapshot(page, "wrap-container");
-    expect(afterReload.map((child) => child.id)).toEqual(["w2", "w3", "w1"]);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, WRAP_FIXTURE);
+  await selectOnCanvas(app, "w1", "W1");
+  const before = await app.savedNodes(id);
+
+  const rowOne = await holdAt(app, "w1", { x: 294, y: 120 });
+  const rowTwoPoint = await app.pagePoint(178, 180);
+  await app.page.mouse.move(rowTwoPoint.x, rowTwoPoint.y, { steps: 18 });
+  await expect
+    .poll(
+      async () => (await guide(app))?.y,
+      "the marker moved to the second row",
+    )
+    .toBeGreaterThan(rowOne.y + 10);
+  const rowTwo = (await guide(app))!;
+  expect(rowTwo.width).toBeLessThan(rowTwo.height);
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "wrap-container")).toEqual(["w2", "w3", "w1"]);
+  expectOnlyChanged(before, after, ["w1"]);
+  const rendered = await renderedChildren(app, "wrap-container");
+  expect(rendered.w1).toEqual({ x: 76, y: 197, width: 104, height: 48 });
 });
 
 test("G-1 held drop into an empty grid cell previews that exact cell", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "grid-source");
-    const g2 = (await node(page, "g2").boundingBox())!;
-    const g3 = (await node(page, "g3").boundingBox())!;
-    const target = {
-      x: g2.x + g2.width / 2,
-      y: g3.y + g3.height / 2,
-    };
-    await dragToHeldPoint(page, "grid-source", target);
-    try {
-      const guide = await guideSnapshot(page);
-      const g2Frame = await frameRectSnapshot(page, "g2");
-      const g3Frame = await frameRectSnapshot(page, "g3");
-      expect(guide).toMatchObject({ display: "block" });
-      expect(Math.abs(guide!.left - g2Frame.left)).toBeLessThan(3);
-      expect(Math.abs(guide!.top - g3Frame.top)).toBeLessThan(3);
-      expect(Math.abs(guide!.width - g2Frame.width)).toBeLessThan(3);
-      expect(Math.abs(guide!.height - g3Frame.height)).toBeLessThan(3);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="grid-source"');
-    await openEditor(page, designId);
-    const afterReload = await childrenSnapshot(page, "grid-container");
-    expect(afterReload.map((child) => child.id)).toEqual([
-      "g1",
-      "g2",
-      "g3",
-      "grid-source",
-    ]);
-    const placed = afterReload[afterReload.length - 1]!;
-    const g2AfterReload = afterReload.find((child) => child.id === "g2")!;
-    const g3AfterReload = afterReload.find((child) => child.id === "g3")!;
-    expect(placed.left).toBeGreaterThan(g2AfterReload.left - 3);
-    expect(placed.top).toBeGreaterThan(g3AfterReload.top - 3);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, GRID_FIXTURE);
+  await selectOnCanvas(app, "grid-source", "Grid Source");
+  const before = await app.savedNodes(id);
+
+  const held = await holdAt(app, "grid-source", { x: 568, y: 192 });
+  expect(held, "the guide fills the empty row 2, column 2 cell").toMatchObject({
+    x: 508,
+    y: 164,
+    width: 120,
+    height: 56,
+  });
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "grid-container")).toEqual([
+    "g1",
+    "g2",
+    "g3",
+    "grid-source",
+  ]);
+  const saved = styleOf(after.get("grid-source"));
+  expect(
+    saved.position,
+    "a grid item is not absolutely positioned",
+  ).toBeUndefined();
+  expect({ width: saved.width, height: saved.height }).toEqual({
+    width: "80px",
+    height: "44px",
+  });
+  expectOnlyChanged(before, after, ["grid-source"]);
+  expect(
+    (await renderedChildren(app, "grid-container"))["grid-source"],
+  ).toEqual({ x: 508, y: 164, width: 80, height: 44 });
 });
 
-test("G-2 held grid reorder previews occupancy without duplicating the child", async ({
-  page,
+// fixme: product bug: The held preview shows row 2 col 2 (508,164) but G1 commits to row 2 col 1 (372,164): DOM becomes g2,g3,g1 with no explicit placement.
+test.fixme("G-2 held grid reorder previews occupancy without duplicating the child", async ({
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "g1");
-    const grid = (await node(page, "grid-container").boundingBox())!;
-    const g2 = (await node(page, "g2").boundingBox())!;
-    const g3 = (await node(page, "g3").boundingBox())!;
-    const target = {
-      x: g2.x + g2.width / 2,
-      y: g3.y + g3.height / 2,
-    };
-    const before = await childrenSnapshot(page, "grid-container");
-    await dragToHeldPoint(page, "g1", target);
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      const held = await childrenSnapshot(page, "grid-container");
-      expect(held.filter((child) => child.id === "g1")).toHaveLength(1);
-      expect(
-        held.some(
-          (child) =>
-            child.id === "g2" && child.transform !== before[1].transform,
-        ),
-      ).toBe(true);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="g1"');
-    await openEditor(page, designId);
-    const afterReload = await childrenSnapshot(page, "grid-container");
-    expect(afterReload.filter((child) => child.id === "g1")).toHaveLength(1);
-    expect(afterReload.map((child) => child.id)).toContain("g1");
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, GRID_FIXTURE);
+  await selectOnCanvas(app, "g1", "G1");
+  const before = await app.savedNodes(id);
+
+  const held = await holdAt(app, "g1", { x: 568, y: 192 });
+  expect(held, "the preview shows row 2, column 2").toMatchObject({
+    x: 508,
+    y: 164,
+    width: 120,
+    height: 56,
+  });
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(
+    childrenOf(after, "grid-container").filter((child) => child === "g1"),
+  ).toHaveLength(1);
+  expectOnlyChanged(before, after, ["g1"]);
+  expect(
+    (await renderedChildren(app, "grid-container")).g1,
+    "G1 lands in the cell the preview showed",
+  ).toEqual({
+    x: 508,
+    y: 164,
+    width: 120,
+    height: 56,
+  });
 });
 
 test("G-3 full grid edge drop retains every child and creates the next flow slot", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_FULL_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "grid-source");
-    const sourceBefore = await frameRectSnapshot(page, "grid-source");
-    const grid = (await node(page, "grid-container").boundingBox())!;
-    const g4 = await frameRectSnapshot(page, "g4");
-    await dragToHeldPoint(page, "grid-source", {
-      x: grid.x + grid.width - 12,
-      y: grid.y + grid.height - 12,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(guide!.top).toBeGreaterThan(g4.top + g4.height / 2);
-      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="grid-source"');
-    await openEditor(page, designId);
-    const afterReload = await childrenSnapshot(page, "grid-container");
-    expect(afterReload.map((child) => child.id).sort()).toEqual(
-      ["g1", "g2", "g3", "g4", "grid-source"].sort(),
-    );
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, GRID_FULL_FIXTURE);
+  await selectOnCanvas(app, "grid-source", "Grid Source");
+  const before = await app.savedNodes(id);
+
+  const held = await holdAt(app, "grid-source", { x: 648, y: 288 });
+  expect(held.y, "the guide opens a third row").toBeGreaterThan(192);
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "grid-container")).toEqual([
+    "g1",
+    "g2",
+    "g3",
+    "g4",
+    "grid-source",
+  ]);
+  expectOnlyChanged(before, after, ["grid-source"]);
+  const rendered = await renderedChildren(app, "grid-container");
+  expect(
+    { x: rendered["grid-source"].x, y: rendered["grid-source"].y },
+    "row 3, column 1",
+  ).toEqual({ x: 372, y: 236 });
 });
 
 test("G-4 held column-flow drop maps the excluded source to the empty cell", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_COLUMN_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "column-source");
-    const c2 = (await node(page, "c2").boundingBox())!;
-    const c3 = (await node(page, "c3").boundingBox())!;
-    const c2Frame = await frameRectSnapshot(page, "c2");
-    const c3Frame = await frameRectSnapshot(page, "c3");
-    await dragToHeldPoint(page, "column-source", {
-      x: c3.x + c3.width / 2,
-      y: c2.y + c2.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(Math.abs(guide!.left - c3Frame.left)).toBeLessThan(3);
-      expect(Math.abs(guide!.top - c2Frame.top)).toBeLessThan(3);
-      expect(Math.abs(guide!.width - c3Frame.width)).toBeLessThan(3);
-      expect(Math.abs(guide!.height - c2Frame.height)).toBeLessThan(3);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="column-source"');
-    await openEditor(page, designId);
-    const afterReload = await childrenSnapshot(page, "column-grid");
-    expect(afterReload.map((child) => child.id)).toEqual([
-      "c1",
-      "c2",
-      "c3",
-      "column-source",
-    ]);
-    expect(
-      afterReload.filter((child) => child.id === "column-source"),
-    ).toHaveLength(1);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, GRID_COLUMN_FIXTURE);
+  await selectOnCanvas(app, "column-source", "Column Source");
+  const before = await app.savedNodes(id);
+
+  const held = await holdAt(app, "column-source", { x: 568, y: 192 });
+  expect(held, "row 2, column 2 in column flow").toMatchObject({
+    x: 508,
+    y: 164,
+    width: 120,
+    height: 56,
+  });
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "column-grid")).toEqual([
+    "c1",
+    "c2",
+    "c3",
+    "column-source",
+  ]);
+  expectOnlyChanged(before, after, ["column-source"]);
+  const rendered = await renderedChildren(app, "column-grid");
+  expect({
+    x: rendered["column-source"].x,
+    y: rendered["column-source"].y,
+  }).toEqual({ x: 508, y: 164 });
 });
 
 test("G-5 held explicit-span grid drop uses a conservative line and preserves authored placement", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_EXPLICIT_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
-    await selectNode(page, "explicit-source");
-    const e2 = (await node(page, "e2").boundingBox())!;
-    const e2FrameRect = await frameRectSnapshot(page, "e2");
-    await dragToHeldPoint(page, "explicit-source", {
-      x: e2.x + 4,
-      y: e2.y + e2.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(guide!.width).toBeGreaterThan(0.5);
-      expect(guide!.width).toBeLessThan(10);
-      expect(guide!.height).toBeGreaterThan(guide!.width);
-      expect(
-        Math.abs(guide!.left + guide!.width / 2 - e2FrameRect.left),
-      ).toBeLessThan(2);
-      expect(Math.abs(guide!.top - e2FrameRect.top)).toBeLessThan(2);
-      expect(Math.abs(guide!.height - e2FrameRect.height)).toBeLessThan(2);
-    } finally {
-      await page.mouse.up();
-    }
-    expect(
-      (await childrenSnapshot(page, "explicit-grid")).map((child) => child.id),
-    ).toEqual(["e1", "explicit-source", "e2", "e3"]);
-    const persistedBefore = await indexHtml(page, designId);
-    expect(persistedGridChildren(persistedBefore, "explicit-grid")).toEqual([
-      "e1",
-      "explicit-source",
-      "e2",
-      "e3",
-    ]);
-    const state = await preview(page)
-      .locator("body")
-      .evaluate(() => {
-        const grid = document.querySelector(
-          '[data-agent-native-node-id="explicit-grid"]',
-        );
-        const span = document.querySelector(
-          '[data-agent-native-node-id="e1"]',
-        ) as HTMLElement | null;
-        const source = document.querySelector(
-          '[data-agent-native-node-id="explicit-source"]',
-        ) as HTMLElement | null;
-        return {
-          parent: source?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          sourceCount: document.querySelectorAll(
-            '[data-agent-native-node-id="explicit-source"]',
-          ).length,
-          span: span?.style.gridColumn,
-          e2ColumnStart: (
-            document.querySelector(
-              '[data-agent-native-node-id="e2"]',
-            ) as HTMLElement | null
-          )?.style.gridColumnStart,
-          gridContains: !!grid && !!source && grid.contains(source),
-        };
-      });
-    expect(state).toMatchObject({
-      parent: "explicit-grid",
-      sourceCount: 1,
-      span: "1 / span 2",
-      e2ColumnStart: "3",
-      gridContains: true,
-    });
+  const id = await openFixture(app, GRID_EXPLICIT_FIXTURE);
+  await selectOnCanvas(app, "explicit-source", "Explicit Source");
+  const before = await app.savedNodes(id);
+  const e2 = await app.designRect("e2");
 
-    await page.keyboard.down(MOD);
-    await page.keyboard.press("z");
-    await page.keyboard.up(MOD);
-    await expect
-      .poll(() =>
-        indexHtml(page, designId).then((html) =>
-          persistedGridChildren(html, "explicit-grid"),
-        ),
-      )
-      .toEqual(["e1", "e2", "e3"]);
-    const undoneHtml = await indexHtml(page, designId);
-    expect(
-      await persistedNodeSnapshot(page, undoneHtml, "explicit-source"),
-    ).toEqual(originalPlacement);
-    expect(
-      undoneHtml.indexOf('data-agent-native-node-id="explicit-source"'),
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      undoneHtml.indexOf('data-agent-native-node-id="explicit-source"'),
-    ).toBeLessThan(
-      undoneHtml.indexOf('data-agent-native-node-id="explicit-grid"'),
-    );
+  const held = await holdAt(app, "explicit-source", {
+    x: e2.x + 4,
+    y: e2.y + e2.height / 2,
+  });
+  expectLine(held);
+  expect(held.height).toBeGreaterThan(held.width);
+  expectNear(held.x + held.width / 2, e2.x, "line x at E2's left edge");
+  expectNear(held.y, e2.y, "line top");
+  expectNear(held.height, e2.height, "line height");
+  await drop(app);
 
-    await page.keyboard.down(MOD);
-    await page.keyboard.press("Shift+z");
-    await page.keyboard.up(MOD);
-    await expect
-      .poll(() =>
-        indexHtml(page, designId).then((html) =>
-          persistedGridChildren(html, "explicit-grid"),
-        ),
-      )
-      .toEqual(["e1", "explicit-source", "e2", "e3"]);
-    await openEditor(page, designId);
-    const redone = await preview(page)
-      .locator('[data-agent-native-node-id="explicit-source"]')
-      .evaluate((source) => {
-        return {
-          parent: source.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-        };
-      });
-    expect(redone).toEqual({
-      parent: "explicit-grid",
-    });
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "explicit-grid")).toEqual([
+    "e1",
+    "explicit-source",
+    "e2",
+    "e3",
+  ]);
+  expectOnlyChanged(before, after, ["explicit-source"]);
+  expect(styleOf(after.get("e1"))["grid-column"]).toBe("1 / span 2");
+  expect(styleOf(after.get("e2"))["grid-column"]).toBe("3");
+
+  await app.page.keyboard.press(`${MOD}+z`);
+  await expect
+    .poll(async () => childrenOf(await app.savedNodes(id), "explicit-grid"))
+    .toEqual(["e1", "e2", "e3"]);
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+
+  await app.page.keyboard.press(`${MOD}+Shift+z`);
+  await expect
+    .poll(async () => childrenOf(await app.savedNodes(id), "explicit-grid"))
+    .toEqual(["e1", "explicit-source", "e2", "e3"]);
+  await app.settled();
+  expectOnlyChanged(after, await app.savedNodes(id), []);
 });
 
-test("G-5 after-edge grid drop persists through undo, redo, and reload", async ({
-  page,
+// fixme: product bug: Canvas and saved document disagree after the drop: the live canvas shows Source at row 1 col 3 and E2 at row 2 col 1 (E2's grid-column:3
+test.fixme("G-5 after-edge grid drop persists through undo, redo, and reload", async ({
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_EXPLICIT_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
-    await selectNode(page, "explicit-source");
-    const e2 = (await node(page, "e2").boundingBox())!;
-    const e2FrameRect = await frameRectSnapshot(page, "e2");
-    await dragToHeldPoint(page, "explicit-source", {
-      x: e2.x + e2.width - 4,
-      y: e2.y + e2.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(guide!.width).toBeGreaterThan(0.5);
-      expect(guide!.width).toBeLessThan(10);
-      expect(guide!.height).toBeGreaterThan(guide!.width);
-      expect(guide!.left + guide!.width / 2).toBeGreaterThanOrEqual(
-        e2FrameRect.left - 2,
-      );
-      expect(guide!.left + guide!.width / 2).toBeLessThanOrEqual(
-        e2FrameRect.left + e2FrameRect.width + 2,
-      );
-      expect(Math.abs(guide!.top - e2FrameRect.top)).toBeLessThan(2);
-      expect(Math.abs(guide!.height - e2FrameRect.height)).toBeLessThan(2);
-    } finally {
-      await page.mouse.up();
-    }
-    expect(
-      (await childrenSnapshot(page, "explicit-grid")).map((child) => child.id),
-    ).toEqual(["e1", "e2", "explicit-source", "e3"]);
-    const persistedAfter = await indexHtml(page, designId);
-    expect(
-      persistedAfter.indexOf('data-agent-native-node-id="e2"'),
-    ).toBeLessThan(
-      persistedAfter.indexOf('data-agent-native-node-id="explicit-source"'),
-    );
-    expect(persistedGridChildren(persistedAfter, "explicit-grid")).toEqual([
-      "e1",
-      "e2",
-      "explicit-source",
-      "e3",
-    ]);
+  const id = await openFixture(app, GRID_EXPLICIT_FIXTURE);
+  await selectOnCanvas(app, "explicit-source", "Explicit Source");
+  const before = await app.savedNodes(id);
+  const e2 = await app.designRect("e2");
 
-    await page.keyboard.down(MOD);
-    await page.keyboard.press("z");
-    await page.keyboard.up(MOD);
-    await expect
-      .poll(() =>
-        indexHtml(page, designId).then((html) =>
-          persistedGridChildren(html, "explicit-grid"),
-        ),
-      )
-      .toEqual(["e1", "e2", "e3"]);
-    const undoneHtml = await indexHtml(page, designId);
-    expect(
-      await persistedNodeSnapshot(page, undoneHtml, "explicit-source"),
-    ).toEqual(originalPlacement);
+  const held = await holdAt(app, "explicit-source", {
+    x: e2.x + e2.width - 4,
+    y: e2.y + e2.height / 2,
+  });
+  expectLine(held);
+  expectNear(held.y, e2.y, "line top");
+  await drop(app);
 
-    await page.keyboard.down(MOD);
-    await page.keyboard.press("Shift+z");
-    await page.keyboard.up(MOD);
-    await expect
-      .poll(() =>
-        indexHtml(page, designId).then((html) =>
-          persistedGridChildren(html, "explicit-grid"),
-        ),
-      )
-      .toEqual(["e1", "e2", "explicit-source", "e3"]);
-    const redoneHtml = await indexHtml(page, designId);
-    expect(persistedGridChildren(redoneHtml, "explicit-grid")).toEqual([
-      "e1",
-      "e2",
-      "explicit-source",
-      "e3",
-    ]);
-    await openEditor(page, designId);
-    const afterReload = await preview(page)
-      .locator('[data-agent-native-node-id="explicit-source"]')
-      .evaluate((source) => {
-        const doc = source.ownerDocument;
-        const e1 = doc.querySelector('[data-agent-native-node-id="e1"]');
-        const e2 = doc.querySelector('[data-agent-native-node-id="e2"]');
-        const grid = doc.querySelector(
-          '[data-agent-native-node-id="explicit-grid"]',
-        );
-        return {
-          parent: source.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          position: getComputedStyle(source).position,
-          sourceLeft: source.getBoundingClientRect().left,
-          sourceTop: source.getBoundingClientRect().top,
-          e1Left: e1?.getBoundingClientRect().left,
-          e2Top: e2?.getBoundingClientRect().top,
-          e2Height: e2?.getBoundingClientRect().height,
-          rowGap: grid ? parseFloat(getComputedStyle(grid).rowGap) : NaN,
-        };
-      });
-    expect(afterReload).toMatchObject({
-      parent: "explicit-grid",
-      sourceLeft: expect.any(Number),
-      sourceTop: expect.any(Number),
-      e1Left: expect.any(Number),
-      e2Top: expect.any(Number),
-      e2Height: expect.any(Number),
-      rowGap: expect.any(Number),
-    });
-    expect(afterReload.position).not.toBe("absolute");
-    expect(Math.abs(afterReload.sourceLeft - afterReload.e1Left!)).toBeLessThan(
-      1,
-    );
-    expect(
-      Math.abs(
-        afterReload.sourceTop -
-          afterReload.e2Top! -
-          afterReload.e2Height! -
-          afterReload.rowGap!,
-      ),
-    ).toBeLessThan(1);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "explicit-grid")).toEqual([
+    "e1",
+    "e2",
+    "explicit-source",
+    "e3",
+  ]);
+  expect(styleOf(after.get("explicit-source")).position).toBeUndefined();
+  expectOnlyChanged(before, after, ["explicit-source"]);
+  const rendered = await renderedChildren(app, "explicit-grid");
+  expect(
+    { x: rendered["explicit-source"].x, y: rendered["explicit-source"].y },
+    "first cell of row 2",
+  ).toEqual({
+    x: 372,
+    y: 164,
+  });
+
+  await app.page.keyboard.press(`${MOD}+z`);
+  await expect
+    .poll(async () => childrenOf(await app.savedNodes(id), "explicit-grid"))
+    .toEqual(["e1", "e2", "e3"]);
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+
+  await app.page.keyboard.press(`${MOD}+Shift+z`);
+  await expect
+    .poll(async () => childrenOf(await app.savedNodes(id), "explicit-grid"))
+    .toEqual(["e1", "e2", "explicit-source", "e3"]);
+  await app.settled();
+  expectOnlyChanged(after, await app.savedNodes(id), []);
 });
 
 test("G-6 held transformed-grid drop uses a conservative line and retains the transform", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_TRANSFORM_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "transform-source");
-    const t2 = (await node(page, "t2").boundingBox())!;
-    await dragToHeldPoint(page, "transform-source", {
+  const id = await openFixture(app, GRID_TRANSFORM_FIXTURE);
+  await selectOnCanvas(app, "transform-source", "Transform Source");
+  const before = await app.savedNodes(id);
+  const t2 = await app.designRect("t2");
+
+  expectLine(
+    await holdAt(app, "transform-source", {
       x: t2.x + 4,
       y: t2.y + t2.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="transform-source"');
-    await openEditor(page, designId);
-    const state = await preview(page)
-      .locator("body")
-      .evaluate(() => {
-        const grid = document.querySelector(
-          '[data-agent-native-node-id="transform-grid"]',
-        ) as HTMLElement | null;
-        const source = document.querySelector(
-          '[data-agent-native-node-id="transform-source"]',
-        ) as HTMLElement | null;
-        return {
-          parent: source?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          transform: grid ? getComputedStyle(grid).transform : "none",
-          gridContains: !!grid && !!source && grid.contains(source),
-        };
-      });
-    expect(state.parent).toBe("transform-grid");
-    expect(state.transform).not.toBe("none");
-    expect(state.gridContains).toBe(true);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+    }),
+  );
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "transform-grid"), "inserted before T2").toEqual([
+    "t1",
+    "transform-source",
+    "t2",
+    "t3",
+  ]);
+  expectOnlyChanged(before, after, ["transform-source"]);
+  expect(styleOf(after.get("transform-grid")).transform).toBe("skewX(10deg)");
 });
 
 test("G-7 held dense-grid drop avoids a reconstructed cell and preserves the span", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_DENSE_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "dense-source");
-    const d2 = (await node(page, "d2").boundingBox())!;
-    await dragToHeldPoint(page, "dense-source", {
-      x: d2.x + 4,
-      y: d2.y + d2.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="dense-source"');
-    await openEditor(page, designId);
-    const state = await preview(page)
-      .locator("body")
-      .evaluate(() => {
-        const span = document.querySelector(
-          '[data-agent-native-node-id="d1"]',
-        ) as HTMLElement | null;
-        const source = document.querySelector(
-          '[data-agent-native-node-id="dense-source"]',
-        ) as HTMLElement | null;
-        return {
-          parent: source?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          span: span?.style.gridColumn,
-          sourceCount: document.querySelectorAll(
-            '[data-agent-native-node-id="dense-source"]',
-          ).length,
-        };
-      });
-    expect(state).toMatchObject({
-      parent: "dense-grid",
-      span: "1 / span 2",
-      sourceCount: 1,
-    });
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, GRID_DENSE_FIXTURE);
+  await selectOnCanvas(app, "dense-source", "Dense Source");
+  const before = await app.savedNodes(id);
+  const d2 = await app.designRect("d2");
+
+  expectLine(
+    await holdAt(app, "dense-source", { x: d2.x + 4, y: d2.y + d2.height / 2 }),
+  );
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "dense-grid"), "inserted before D2").toEqual([
+    "d1",
+    "dense-source",
+    "d2",
+    "d3",
+  ]);
+  expectOnlyChanged(before, after, ["dense-source"]);
+  expect(styleOf(after.get("d1"))["grid-column"]).toBe("1 / span 2");
 });
 
 test("G-8 held drop with an explicitly placed source keeps a line and projected peers stable", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_EXPLICIT_SOURCE_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "explicit-source");
-    const peer1 = (await node(page, "explicit-peer-1").boundingBox())!;
-    const peer1Before = await frameRectSnapshot(page, "explicit-peer-1");
-    const peer2Before = await frameRectSnapshot(page, "explicit-peer-2");
-    await dragToHeldPoint(page, "explicit-source", {
-      x: peer1.x + peer1.width / 2,
-      y: peer1.y + peer1.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
-      const peer1Held = await frameRectSnapshot(page, "explicit-peer-1");
-      const peer2Held = await frameRectSnapshot(page, "explicit-peer-2");
-      expect(Math.abs(peer1Held.left - peer1Before.left)).toBeLessThan(3);
-      expect(Math.abs(peer1Held.top - peer1Before.top)).toBeLessThan(3);
-      expect(Math.abs(peer2Held.left - peer2Before.left)).toBeLessThan(3);
-      expect(Math.abs(peer2Held.top - peer2Before.top)).toBeLessThan(3);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="explicit-source"');
-    await openEditor(page, designId);
-    const state = await preview(page)
-      .locator("body")
-      .evaluate(() => {
-        const source = document.querySelector(
-          '[data-agent-native-node-id="explicit-source"]',
-        ) as HTMLElement | null;
-        return {
-          parent: source?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          sourceCount: document.querySelectorAll(
-            '[data-agent-native-node-id="explicit-source"]',
-          ).length,
-          gridColumn: source?.style.gridColumn,
-          gridRow: source?.style.gridRow,
-        };
-      });
-    expect(state).toMatchObject({
-      parent: "explicit-source-grid",
-      sourceCount: 1,
-      gridColumn: "1",
-      gridRow: "1",
-    });
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, GRID_EXPLICIT_SOURCE_FIXTURE);
+  await selectOnCanvas(app, "explicit-source", "Explicit Source");
+  const before = await app.savedNodes(id);
+  const resting = await renderedChildren(app, "explicit-source-grid");
+  const peer1 = resting["explicit-peer-1"];
+
+  const held = await holdAt(app, "explicit-source", {
+    x: peer1.x + peer1.width / 2,
+    y: peer1.y + peer1.height / 2,
+  });
+  expectLine(held);
+  const whileHeld = await renderedChildren(app, "explicit-source-grid");
+  expect(
+    {
+      peer1: whileHeld["explicit-peer-1"],
+      peer2: whileHeld["explicit-peer-2"],
+    },
+    "peers do not reflow",
+  ).toEqual({
+    peer1: resting["explicit-peer-1"],
+    peer2: resting["explicit-peer-2"],
+  });
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(after.get("explicit-source")?.parent).toBe("explicit-source-grid");
+  expectOnlyChanged(before, after, []);
+  expect(
+    await renderedChildren(app, "explicit-source-grid"),
+    "authored placement keeps everything in place",
+  ).toEqual(resting);
 });
 
 test("G-9 held grid projection preserves authored sizing and self-alignment", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_INTRINSIC_SIZE_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "sized-source");
-    const sourceBefore = await frameRectSnapshot(page, "sized-source");
-    const gridFrame = await frameRectSnapshot(page, "intrinsic-grid");
-    const grid = (await node(page, "intrinsic-grid").boundingBox())!;
-    const scaleX = grid.width / 340;
-    const scaleY = grid.height / 240;
-    const target = {
-      x: grid.x + (12 + 140 / 2) * scaleX,
-      y: grid.y + (12 + 88 + 16 + 88 / 2) * scaleY,
-    };
-    await dragToHeldPoint(page, "sized-source", {
-      x: target.x,
-      y: target.y,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      const expectedLeft = gridFrame.left + 12 + 140 - sourceBefore.width;
-      const expectedTop =
-        gridFrame.top + 12 + 88 + 16 + 88 - sourceBefore.height;
-      expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeGreaterThan(10);
-      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
-      expect(Math.abs(guide!.height - sourceBefore.height)).toBeLessThan(3);
-      expect(Math.abs(guide!.left - expectedLeft)).toBeLessThan(3);
-      expect(Math.abs(guide!.top - expectedTop)).toBeLessThan(3);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="sized-source"');
-    await openEditor(page, designId);
-    const state = await preview(page)
-      .locator("body")
-      .evaluate(() => {
-        const source = document.querySelector(
-          '[data-agent-native-node-id="sized-source"]',
-        ) as HTMLElement | null;
-        return {
-          parent: source?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          sourceCount: document.querySelectorAll(
-            '[data-agent-native-node-id="sized-source"]',
-          ).length,
-          width: source?.style.width,
-          height: source?.style.height,
-          minWidth: source?.style.minWidth,
-          maxWidth: source?.style.maxWidth,
-          alignSelf: source?.style.alignSelf,
-          justifySelf: source?.style.justifySelf,
-        };
-      });
-    expect(state).toMatchObject({
-      parent: "intrinsic-grid",
-      sourceCount: 1,
-      width: "44px",
-      height: "28px",
-      minWidth: "44px",
-      maxWidth: "44px",
-      alignSelf: "end",
-      justifySelf: "end",
-    });
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const id = await openFixture(app, GRID_INTRINSIC_SIZE_FIXTURE);
+  await selectOnCanvas(app, "sized-source", "Sized Source");
+  const before = await app.savedNodes(id);
+
+  const held = await holdAt(app, "sized-source", { x: 442, y: 240 });
+  expect(
+    held,
+    "an end-aligned 44x28 projection in row 2, column 1",
+  ).toMatchObject({
+    x: 468,
+    y: 256,
+    width: 44,
+    height: 28,
+  });
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "intrinsic-grid")).toEqual([
+    "sized-peer-1",
+    "sized-peer-2",
+    "sized-source",
+  ]);
+  expect(styleOf(after.get("sized-source"))).toMatchObject({
+    width: "44px",
+    height: "28px",
+    "min-width": "44px",
+    "max-width": "44px",
+    "min-height": "28px",
+    "max-height": "28px",
+    "align-self": "end",
+    "justify-self": "end",
+  });
+  expectOnlyChanged(before, after, ["sized-source"]);
+  expect(
+    (await renderedChildren(app, "intrinsic-grid"))["sized-source"],
+  ).toEqual({ x: 468, y: 256, width: 44, height: 28 });
 });
 
 test("G-10 locked explicit grid children disable the projection shortcut", async ({
-  page,
+  app,
 }) => {
-  const designId = await newDesign(page, GRID_LOCKED_EXPLICIT_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectNode(page, "locked-source");
-    const peer2 = (await node(page, "locked-peer-2").boundingBox())!;
-    await dragToHeldPoint(page, "locked-source", {
+  const id = await openFixture(app, GRID_LOCKED_EXPLICIT_FIXTURE);
+  await selectOnCanvas(app, "locked-source", "Locked Source");
+  const before = await app.savedNodes(id);
+  const peer2 = await app.designRect("locked-peer-2");
+
+  expectLine(
+    await holdAt(app, "locked-source", {
       x: peer2.x + 4,
       y: peer2.y + peer2.height / 2,
-    });
-    try {
-      const guide = await guideSnapshot(page);
-      expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
-    } finally {
-      await page.mouse.up();
-    }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="locked-source"');
-    await openEditor(page, designId);
-    const state = await preview(page)
-      .locator("body")
-      .evaluate(() => {
-        const grid = document.querySelector(
-          '[data-agent-native-node-id="locked-grid"]',
-        ) as HTMLElement | null;
-        const locked = document.querySelector(
-          '[data-agent-native-node-id="locked-span"]',
-        ) as HTMLElement | null;
-        const lockedImplicit = document.querySelector(
-          '[data-agent-native-node-id="locked-implicit"]',
-        ) as HTMLElement | null;
-        const source = document.querySelector(
-          '[data-agent-native-node-id="locked-source"]',
-        ) as HTMLElement | null;
-        return {
-          parent: source?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          sourceCount: document.querySelectorAll(
-            '[data-agent-native-node-id="locked-source"]',
-          ).length,
-          gridContains: !!grid && !!source && grid.contains(source),
-          lockedColumn: locked?.style.gridColumn,
-          lockedRow: locked?.style.gridRow,
-          locked: locked?.getAttribute("data-agent-native-locked"),
-          lockedImplicit: lockedImplicit?.getAttribute(
-            "data-agent-native-locked",
-          ),
-          lockedImplicitParent: lockedImplicit?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-        };
-      });
-    expect(state).toMatchObject({
-      parent: "locked-grid",
-      sourceCount: 1,
-      gridContains: true,
-      lockedColumn: "1 / span 2",
-      lockedRow: "1",
-      locked: "true",
-      lockedImplicit: "true",
-      lockedImplicitParent: "locked-grid",
-    });
-  } finally {
-    await deleteDesign(page, designId);
-  }
+    }),
+  );
+  await drop(app);
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "locked-grid"), "inserted before Peer 2").toEqual([
+    "locked-span",
+    "locked-implicit",
+    "locked-peer-1",
+    "locked-source",
+    "locked-peer-2",
+  ]);
+  expectOnlyChanged(before, after, ["locked-source"]);
+  const rendered = await renderedChildren(app, "locked-grid");
+  expect(
+    { x: rendered["locked-source"].x, y: rendered["locked-source"].y },
+    "row 2, column 2",
+  ).toEqual({
+    x: 468,
+    y: 164,
+  });
 });

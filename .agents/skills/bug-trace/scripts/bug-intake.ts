@@ -1,7 +1,7 @@
 // Starts a bug-report run: fetches the report from GitHub or Jira (or takes a
 // file or pasted text) and writes the run's bug.json.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -55,13 +55,19 @@ main(async (args) => {
     ...args,
     run: argString(args, "run") ?? defaultRun(intake),
   });
-  const out = path.join(runDir(id), ARTIFACTS.bug);
-  if (existsSync(out) && !args.force) {
+  const dir = runDir(id);
+  const out = path.join(dir, ARTIFACTS.bug);
+  if (existsSync(out)) {
     const existing = readJson<BugReport>(out);
-    if (existing.source.ref !== intake.source.ref) {
-      throw new ScriptError(
-        `${rel(out)} already holds ${existing.source.ref}; pass a different --run or --force`,
-      );
+    if (!sameReport(existing, intake)) {
+      // Analysis, verdicts, and Jira results in the run describe the old
+      // report; --force must not pair them with a new one.
+      const derived = readdirSync(dir).filter((f) => f !== ARTIFACTS.bug);
+      if (!args.force || derived.length) {
+        throw new ScriptError(
+          `${rel(out)} already holds ${existing.source.ref}${derived.length ? ` and its ${derived.join(", ")}` : ""}; pass a different --run${derived.length ? "" : " or --force"}`,
+        );
+      }
     }
   }
   const report: BugReport = {
@@ -82,6 +88,14 @@ main(async (args) => {
   if (report.comments.length)
     console.log(`\n(${report.comments.length} comments in bug.json)`);
 });
+
+// Pasted text and files carry no stable ref ("pasted report", a basename), so
+// only their body identifies them.
+function sameReport(existing: BugReport, intake: Intake): boolean {
+  if (existing.source.ref !== intake.source.ref) return false;
+  const { kind } = intake.source;
+  return (kind !== "text" && kind !== "file") || existing.body === intake.body;
+}
 
 function defaultRun(intake: Intake): string {
   const { kind, ref } = intake.source;

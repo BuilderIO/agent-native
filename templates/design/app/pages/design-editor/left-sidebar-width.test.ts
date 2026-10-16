@@ -7,10 +7,10 @@ import {
 } from "./left-sidebar-width";
 
 describe("left sidebar width", () => {
-  it("defaults to 240", () => {
-    expect(DEFAULT_LEFT_SIDEBAR_WIDTH).toBe(240);
+  it("defaults to 280", () => {
+    expect(DEFAULT_LEFT_SIDEBAR_WIDTH).toBe(280);
     expect(resolveLeftSidebarWidth(DEFAULT_LEFT_SIDEBAR_WIDTH, "file")).toBe(
-      240,
+      280,
     );
   });
 
@@ -27,10 +27,21 @@ describe("left sidebar width", () => {
     expect(snapLeftSidebarDragWidth(300, "file")).toBe(304);
   });
 
-  it("keeps the agent panel at least 320 wide", () => {
-    expect(resolveLeftSidebarWidth(240, "agent")).toBe(320);
-    expect(snapLeftSidebarDragWidth(260, "agent")).toBe(320);
-    expect(snapLeftSidebarDragWidth(900, "agent")).toBe(416);
+  it("renders Layers, Agent, Tokens and Threads at the same width", () => {
+    for (const stored of [100, 232, DEFAULT_LEFT_SIDEBAR_WIDTH, 360, 900]) {
+      const layers = resolveLeftSidebarWidth(stored, "file");
+      for (const panel of ["agent", "tokens", "threads"] as const) {
+        expect(resolveLeftSidebarWidth(stored, panel)).toBe(layers);
+      }
+    }
+  });
+
+  it("holds every non-code panel to the Layers drag limits", () => {
+    for (const panel of ["agent", "tokens", "threads"] as const) {
+      expect(snapLeftSidebarDragWidth(100, panel)).toBe(232);
+      expect(snapLeftSidebarDragWidth(260, panel)).toBe(264);
+      expect(snapLeftSidebarDragWidth(900, panel)).toBe(416);
+    }
   });
 
   it("keeps the code panel renders and drag limits", () => {

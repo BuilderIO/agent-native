@@ -38,12 +38,19 @@ export interface FilterOption {
   label: string;
 }
 
+// A named selection of a multi-select filter's option values.
+export interface FilterPreset {
+  label: string;
+  values: string[];
+}
+
 export interface DashboardFilter {
   id: string;
   label: string;
   type: FilterType;
   default?: string;
   options?: FilterOption[];
+  presets?: FilterPreset[];
 }
 
 export type ColumnFormat =
@@ -61,12 +68,27 @@ export interface TableColumnConfig {
   format?: ColumnFormat;
   linkKey?: string;
   hidden?: boolean;
+  width?: number;
 }
 
 export interface PivotConfig {
   xKey: string;
   seriesKey: string;
   valueKey: string;
+  /** Series values drawn first, in this order; unlisted series follow. */
+  seriesOrder?: string[];
+}
+
+/**
+ * Funnel only: result columns that split each stage's count (`yKey`, the
+ * people shown the stage) by what those people did there.
+ */
+export interface FunnelOutcomesConfig {
+  completedKey: string;
+  leftKey: string;
+  skippedKey?: string;
+  /** A boolean column; true marks a stage people may skip. */
+  optionalKey?: string;
 }
 
 export type DashboardTimeScope =
@@ -75,8 +97,20 @@ export type DashboardTimeScope =
   | "cohort-history"
   | "all-time";
 
+export interface PanelEvent {
+  /** Calendar date in the event's own time zone, "YYYY-MM-DD". */
+  date: string;
+  /** Optional 24-hour time of day, "HH:MM". */
+  time?: string;
+  /** IANA zone for `time`, e.g. "America/New_York"; UTC when omitted. */
+  timeZone?: string;
+  label: string;
+  color?: string;
+}
+
 export interface SqlPanelConfig {
   timeScope?: DashboardTimeScope;
+  events?: PanelEvent[];
   xKey?: string;
   yKey?: string;
   yKeys?: string[];
@@ -89,6 +123,7 @@ export interface SqlPanelConfig {
   seriesLabels?: Record<string, string>;
   description?: string;
   pivot?: PivotConfig;
+  funnelOutcomes?: FunnelOutcomesConfig;
   stacked?: boolean;
   legend?: boolean;
   valueLabels?: Record<string, string>;

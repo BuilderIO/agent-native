@@ -116,9 +116,10 @@ main((args) => {
   if (verdict === "known") {
     if (!ticket) throw new ScriptError("known needs --ticket ENG-123");
     const results = readJiraResults(id);
-    if (!results.some((r) => r.key === ticket)) {
+    // A nightly or unrelated sighting is not evidence the bug is covered.
+    if (!results.some((r) => r.key === ticket && r.source)) {
       throw new ScriptError(
-        `no sighting on ${ticket} in this run; run jira-sighting --key ${ticket} --system <system> --note "..." --apply first`,
+        `no bug-linked sighting on ${ticket} in this run; run jira-upsert --run ${id} --key ${ticket} --system <system> --source <report> --note "..." --apply first`,
       );
     }
   }

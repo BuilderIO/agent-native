@@ -21,7 +21,10 @@ import {
   appendAgentLoopContinuation,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+import {
+  AgentLoopAbortedError,
+  runAgentLoopDirectWithSoftTimeout,
+} from "../agent/run-loop-with-resume.js";
 import {
   abortRun,
   resolveBackgroundAutomationSoftTimeoutMs,
@@ -71,6 +74,7 @@ import { automationRecoveryMessagesForLocale } from "../localization/automation-
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
+  SHARED_OWNER,
   type Resource,
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
@@ -342,6 +346,22 @@ export async function resolveBackgroundAutomationIdentity(
     ) ??
     automation.meta.orgId ??
     undefined;
+  if (
+    !orgId &&
+    automation.resource.owner !== "__shared__" &&
+    !organizationIdFromResourceOwner(automation.resource.owner)
+  ) {
+    const resolved = await resolveAutomationExecutionIdentity(
+      automation.resource.owner,
+      automation.meta,
+    );
+    if (!resolved.ok) return resolved;
+    const validity = await validateAutomationRunIdentity(
+      resolved.identity.userEmail,
+    );
+    if (!validity.ok) return validity;
+    return resolved;
+  }
   const validity = await validateAutomationRunIdentity(userEmail, orgId);
   return validity.ok
     ? {
@@ -349,6 +369,9 @@ export async function resolveBackgroundAutomationIdentity(
         identity: {
           userEmail,
           orgId,
+          ...(!orgId && automation.resource.owner === SHARED_OWNER
+            ? { defaultAgentEngineScope: "deployment" as const }
+            : {}),
           eventOwner: userEmail.toLowerCase(),
         },
       }
@@ -972,7 +995,12 @@ async function resolveBackgroundAutomationModel(
  * paused for `missing_credentials` as soon as the credential exists.
  */
 export async function checkBackgroundAutomationCredentials(
-  identity: { ownerEmail: string; orgId?: string },
+  identity: {
+    ownerEmail: string;
+    orgId?: string;
+    orgScope?: "personal";
+    defaultAgentEngineScope?: "deployment";
+  },
   deps: BackgroundAutomationDeps,
   automationModel?: string,
 ): Promise<
@@ -981,7 +1009,16 @@ export async function checkBackgroundAutomationCredentials(
 > {
   try {
     const { engine, model } = await runWithRequestContext(
-      { userEmail: identity.ownerEmail, orgId: identity.orgId },
+      {
+        userEmail: identity.ownerEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
       async () => {
         const engine = await resolveUsableBackgroundEngine(
           identity,
@@ -1180,6 +1217,41 @@ async function executeBackgroundAutomation(
       const usageRef: {
         current: Awaited<ReturnType<typeof runAgentLoop>> | null;
       } = { current: null };
+      const persistUsage = async () => {
+        const usage = usageRef.current;
+        if (
+          !usage ||
+          (usage.inputTokens <= 0 &&
+            usage.outputTokens <= 0 &&
+            usage.cacheReadTokens <= 0 &&
+            usage.cacheWriteTokens <= 0 &&
+            usage.builderCreditsUsed == null)
+        ) {
+          return;
+        }
+        try {
+          const { recordUsage } = await import("../usage/store.js");
+          await recordUsage({
+            ownerEmail,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+            ...(usage.builderCreditsUsed == null
+              ? {}
+              : { builderCreditsUsed: usage.builderCreditsUsed }),
+            engineName: usage.engineName ?? engine.name,
+            model: usage.model,
+            label: usageLabel,
+            app: deps.appId,
+            refId: options.usageRefId
+              ? `${options.usageRefId}:${runId}`
+              : runId,
+          });
+        } catch (error) {
+          console.error("[automations] Failed to persist run usage:", error);
+        }
+      };
       let responseText = "";
       let outcome:
         | Awaited<ReturnType<typeof confirmAutomationWork>>
@@ -1293,13 +1365,24 @@ async function executeBackgroundAutomation(
               ),
               maxOutputTokens: resolveMainChatMaxOutputTokens(model),
             };
-            const execute = (o: typeof loopOpts = loopOpts) =>
-              runAgentLoopDirectWithSoftTimeout(
-                o,
-                softTimeoutMs,
-                { backgroundFunction: true },
-                control,
-              );
+            const execute = async (o: typeof loopOpts = loopOpts) => {
+              try {
+                return await runAgentLoopDirectWithSoftTimeout(
+                  o,
+                  softTimeoutMs,
+                  { backgroundFunction: true },
+                  control,
+                  (usage) => {
+                    usageRef.current = usage;
+                  },
+                );
+              } catch (error) {
+                if (error instanceof AgentLoopAbortedError) {
+                  usageRef.current = error.usage;
+                }
+                throw error;
+              }
+            };
 
             let instrumented = false;
             try {
@@ -1435,43 +1518,13 @@ async function executeBackgroundAutomation(
               reject(timeoutError);
             });
         }, hardTimeoutMs);
-      }).finally(() => {
+      }).finally(async () => {
         if (hardAbortTimer) {
           clearTimeout(hardAbortTimer);
           hardAbortTimer = null;
         }
+        await persistUsage();
       });
-
-      const usage = usageRef.current;
-      if (
-        usage &&
-        (usage.inputTokens > 0 ||
-          usage.outputTokens > 0 ||
-          usage.cacheReadTokens > 0 ||
-          usage.cacheWriteTokens > 0 ||
-          usage.builderCreditsUsed != null)
-      ) {
-        try {
-          const { recordUsage } = await import("../usage/store.js");
-          await recordUsage({
-            ownerEmail,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            cacheReadTokens: usage.cacheReadTokens,
-            cacheWriteTokens: usage.cacheWriteTokens,
-            ...(usage.builderCreditsUsed == null
-              ? {}
-              : { builderCreditsUsed: usage.builderCreditsUsed }),
-            engineName: usage.engineName ?? engine.name,
-            model: usage.model,
-            label: usageLabel,
-            app: deps.appId,
-            refId: options.usageRefId ?? runId,
-          });
-        } catch {
-          // Usage attribution must not break an otherwise successful run.
-        }
-      }
 
       if (!outcome) {
         throw new BackgroundAutomationRunError(

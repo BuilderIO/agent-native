@@ -3,6 +3,11 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import {
+  type FrameElementTarget,
+  frameElementTarget,
+  type PortableStyleSnapshotRead,
+} from "@/components/design/multi-screen/read-portable-style-snapshot";
+import {
   getDesignClipboardTrustToken,
   plainTextFromDesignHtml,
   writeDesignClipboard,
@@ -14,6 +19,7 @@ import type {
 import { serializeDesignClipboardPayload } from "@/lib/design-import";
 import { resolveClipboardLayerSourceHtml } from "@/pages/design-editor/clipboard-layer-source";
 import { preserveClipboardLayerName } from "@/pages/design-editor/clone-and-pen-edit";
+import { preferredCodeLayerSelector } from "@/pages/design-editor/code-layer-state";
 import type {
   CanvasLayerClipboardEntry,
   LiveScreenSnapshot,
@@ -39,10 +45,40 @@ export interface CopySelectionArgs {
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   pasteCascadeRef: RefObject<number>;
+  readPortableStyleSnapshot: (
+    screenId: string,
+    target: FrameElementTarget,
+  ) => PortableStyleSnapshotRead;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setHasCanvasClipboard: Dispatch<SetStateAction<boolean>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
+}
+
+function portableStylesForClipboard(
+  snapshot: SelectedCanvasLayerSnapshot,
+  readPortableStyleSnapshot: CopySelectionArgs["readPortableStyleSnapshot"],
+): Pick<
+  CanvasLayerClipboardEntry,
+  "portableStyleSnapshot" | "styleSnapshotCaptureFailed"
+> {
+  if (snapshot.portableStyleSnapshot || snapshot.styleSnapshotCaptureFailed) {
+    return {
+      portableStyleSnapshot: snapshot.portableStyleSnapshot,
+      styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
+    };
+  }
+  const read = readPortableStyleSnapshot(
+    snapshot.sourceFileId,
+    frameElementTarget(preferredCodeLayerSelector(snapshot.node), snapshot),
+  );
+  if (read.status === "captured") {
+    return { portableStyleSnapshot: read.snapshot };
+  }
+  if (read.status === "failed" || snapshot.styleSnapshotReadOnDemand) {
+    return { styleSnapshotCaptureFailed: true };
+  }
+  return {};
 }
 
 export async function runCopySelection({
@@ -60,19 +96,24 @@ export async function runCopySelection({
   overviewScreens,
   overviewSelectedScreenIds,
   pasteCascadeRef,
+  readPortableStyleSnapshot,
   runtimeLayerSnapshotsById,
   setHasCanvasClipboard,
   t,
   viewModeRef,
 }: CopySelectionArgs) {
   const snapshots = getSelectedLayerSnapshots();
-  const entries = snapshots.map((snapshot) => ({
-    html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
+  const entries: CanvasLayerClipboardEntry[] = snapshots.map((snapshot) => ({
+    html: preserveClipboardLayerName(
+      snapshot.html,
+      snapshot.node.layerNameSource === "text"
+        ? undefined
+        : snapshot.node.layerName,
+    ),
     rootNodeId: snapshot.rootNodeId,
     sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
-    portableStyleSnapshot: snapshot.portableStyleSnapshot,
-    styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
+    ...portableStylesForClipboard(snapshot, readPortableStyleSnapshot),
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));
   const screens: DesignClipboardPayload["screens"] =
@@ -103,6 +144,7 @@ export async function runCopySelection({
               filename: file.filename,
               fileType: file.fileType,
               content,
+              sourceScreenId: screenId,
               canvasFrame: canvasFrameGeometryById[screenId],
             };
           })
@@ -110,7 +152,9 @@ export async function runCopySelection({
             Boolean(entry),
           )
       : [];
-  if (entries.length === 0 && screens.length === 0) return false;
+  if (entries.length === 0 && screens.length === 0) {
+    return { copied: false, written: false };
+  }
   const copiedHtml =
     entries.length > 0
       ? entries.map((entry) => entry.html).join("\n")
@@ -137,10 +181,12 @@ export async function runCopySelection({
   pasteCascadeRef.current = 0;
   setHasCanvasClipboard(true);
   const writePromise = writeDesignClipboard({ plainText, html: clipboardHtml });
+  let written = false;
   try {
     await writePromise;
+    written = true;
   } catch {
     toast.error(t("designEditor.toasts.clipboardBlocked"));
   }
-  return true;
+  return { copied: true, written };
 }

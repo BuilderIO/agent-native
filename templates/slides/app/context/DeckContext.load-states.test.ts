@@ -160,6 +160,32 @@ describe("deck list loading states", () => {
     queryClient.clear();
   });
 
+  it("reads an optimistic deck update before React rerenders", async () => {
+    const api = setupFetch();
+    const initialDeck = {
+      ...deck("deck-a"),
+      generationContext: { generationAttemptId: "attempt-1" },
+    };
+    api.setServerDecks([initialDeck]);
+
+    const { result } = renderDeckListStates();
+    await waitFor(() => expect(result.current.getDeck("deck-a")).toBeDefined());
+
+    const latestGenerationContext = {
+      generationAttemptId: "attempt-2",
+      originalPrompt: "Updated while cleanup was pending",
+    };
+    act(() => {
+      result.current.updateDeck("deck-a", {
+        generationContext: latestGenerationContext,
+      });
+
+      expect(result.current.getDeckLatest("deck-a")?.generationContext).toEqual(
+        latestGenerationContext,
+      );
+    });
+  });
+
   it("surfaces an unresolved organization read failure and recovers on retry", async () => {
     window.history.pushState({}, "", "/deck/deck-a?slide=1");
     const api = setupFetch();

@@ -90,6 +90,26 @@ describe("recording upload URL helpers", () => {
       failureCode: "upload_failed",
       failureStage: "chunk_upload",
     });
+
+    expect(
+      classifyUploadResponseError({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          errorCode: "hosted_storage_unavailable",
+          retryable: true,
+        }),
+        status: 503,
+        stage: "chunk_upload",
+      }),
+    ).toEqual({
+      isHtml: false,
+      responseText: null,
+      errorCode: "hosted_storage_unavailable",
+      status: 503,
+      failureCode: "upload_failed",
+      failureStage: "chunk_upload",
+    });
   });
 
   it("serializes resumable chunks while keeping buffered upload parallelism", () => {

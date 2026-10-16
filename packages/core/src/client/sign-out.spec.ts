@@ -66,6 +66,24 @@ describe("signOut", () => {
     expect(signingOutDuringRequest).toBe(true);
   });
 
+  it("forgets what the recorder kept before it asks the server to revoke the session", async () => {
+    const { signOut } = await loadSignOut();
+    const { recorder } = await import("./recorder.js");
+    recorder.log("compose.opened", { draftId: "d1" });
+    let eventsDuringRequest: unknown[] | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        eventsDuringRequest = recorder.report().events;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    await signOut();
+
+    expect(eventsDuringRequest).toEqual([]);
+  });
+
   it("waits for the revoke to land before navigating away", async () => {
     const { signOut } = await loadSignOut();
     let settleRevoke: (() => void) | undefined;
@@ -212,10 +230,21 @@ describe("signOut", () => {
       window,
       "localStorage",
     );
-    const setItem = vi.fn();
+    const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) =>
+      values.set(key, value),
+    );
     Object.defineProperty(window, "localStorage", {
       configurable: true,
-      value: { setItem },
+      value: {
+        setItem,
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        key: (index: number) => [...values.keys()][index] ?? null,
+        get length() {
+          return values.size;
+        },
+      },
     });
     try {
       let settleRevoke: ((response: Response) => void) | undefined;
@@ -236,7 +265,11 @@ describe("signOut", () => {
       );
       await pending;
 
-      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(
+        setItem.mock.calls.filter(
+          ([key]) => key === "agent-native:session-invalidated",
+        ),
+      ).toHaveLength(1);
     } finally {
       if (originalLocalStorage) {
         Object.defineProperty(window, "localStorage", originalLocalStorage);

@@ -8,12 +8,25 @@ export function formatBytes(bytes: number): string {
   return `${bytes} bytes`;
 }
 
-export function assertUploadSize(sizeBytes: number | null | undefined): void {
-  if (!Number.isFinite(sizeBytes ?? NaN) || (sizeBytes ?? 0) <= 0) return;
-  if ((sizeBytes ?? 0) > MAX_UPLOAD_BYTES) {
-    throw new Error(
-      `Video is too large to import (${formatBytes(sizeBytes ?? 0)}, max ${formatBytes(MAX_UPLOAD_BYTES)}). Download a shorter or compressed copy and upload it directly.`,
+export class VideoDownloadTooLargeError extends Error {
+  constructor(
+    readonly sizeBytes: number,
+    readonly maxBytes: number,
+  ) {
+    super(
+      `Video is too large to import (${formatBytes(sizeBytes)}, max ${formatBytes(maxBytes)}). Download a shorter or compressed copy and upload it directly.`,
     );
+    this.name = "VideoDownloadTooLargeError";
+  }
+}
+
+export function assertUploadSize(
+  sizeBytes: number | null | undefined,
+  maxBytes = MAX_UPLOAD_BYTES,
+): void {
+  if (!Number.isFinite(sizeBytes ?? NaN) || (sizeBytes ?? 0) <= 0) return;
+  if ((sizeBytes ?? 0) > maxBytes) {
+    throw new VideoDownloadTooLargeError(sizeBytes ?? 0, maxBytes);
   }
 }
 
@@ -25,15 +38,21 @@ function parseContentLength(value: string | null): number | null {
 
 export async function readResponseBytesWithLimit(
   response: Response,
+  maxBytes = MAX_UPLOAD_BYTES,
 ): Promise<Uint8Array> {
   const contentLength = parseContentLength(
     response.headers.get("content-length"),
   );
-  assertUploadSize(contentLength);
+  try {
+    assertUploadSize(contentLength, maxBytes);
+  } catch (error) {
+    await response.body?.cancel().catch(() => undefined);
+    throw error;
+  }
 
   if (!response.body) {
     const arrayBuffer = await response.arrayBuffer();
-    assertUploadSize(arrayBuffer.byteLength);
+    assertUploadSize(arrayBuffer.byteLength, maxBytes);
     return new Uint8Array(arrayBuffer);
   }
 
@@ -48,11 +67,14 @@ export async function readResponseBytesWithLimit(
       if (!value) continue;
 
       totalBytes += value.byteLength;
-      assertUploadSize(totalBytes);
+      assertUploadSize(totalBytes, maxBytes);
       chunks.push(
         Buffer.from(value.buffer, value.byteOffset, value.byteLength),
       );
     }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
   } finally {
     reader.releaseLock();
   }

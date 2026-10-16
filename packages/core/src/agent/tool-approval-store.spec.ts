@@ -10,6 +10,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const ddlMocks = vi.hoisted(() => ({
+  ensureColumnExists: vi.fn(),
   ensureIndexExists: vi.fn(),
   ensureTableExists: vi.fn(),
 }));
@@ -31,6 +32,8 @@ describe("agent tool approval store", () => {
     vi.resetModules();
     dbMocks.execute.mockReset();
     dbMocks.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    ddlMocks.ensureColumnExists.mockReset();
+    ddlMocks.ensureColumnExists.mockResolvedValue(true);
     ddlMocks.ensureIndexExists.mockReset();
     ddlMocks.ensureIndexExists.mockResolvedValue(undefined);
     ddlMocks.ensureTableExists.mockReset();
@@ -66,7 +69,7 @@ describe("agent tool approval store", () => {
     const after = Date.now();
 
     const insertArgs = dbMocks.execute.mock.calls[0]?.[0].args as unknown[];
-    const expiresAt = insertArgs[8] as number;
+    const expiresAt = insertArgs[9] as number;
     expect(expiresAt - after).toBeGreaterThanOrEqual(30 * 60_000);
     expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
   });
@@ -88,6 +91,39 @@ describe("agent tool approval store", () => {
         approvalKeys: [binding.approvalKey],
       }),
     ).resolves.toBe("turn-1");
+    const recoveryQuery = dbMocks.execute.mock.calls[0]?.[0] as {
+      sql: string;
+      args: unknown[];
+    };
+    expect(recoveryQuery.sql).not.toContain("AND id = ?");
+    expect(recoveryQuery.args).not.toContain(null);
+  });
+
+  it("resolves an approval turn by the exact pending approval row id", async () => {
+    const approvalId = "agent-tool-approval-exact";
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [{ turn_id: "turn-1" }],
+      rowsAffected: 0,
+    });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        requestedTurnId: "turn-1",
+        approvalKeys: [binding.approvalKey],
+        approvalId,
+      }),
+    ).resolves.toBe("turn-1");
+    expect(dbMocks.execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("AND id = ?"),
+        args: expect.arrayContaining([approvalId]),
+      }),
+    );
   });
 
   it("does not guess between pending approvals from different turns", async () => {
@@ -119,7 +155,8 @@ describe("agent tool approval store", () => {
         await import("./tool-approval-store.js");
 
       await expect(consumeAgentToolApproval(binding)).resolves.toBe(expected);
-      expect(dbMocks.execute).toHaveBeenLastCalledWith(
+      expect(dbMocks.execute).toHaveBeenNthCalledWith(
+        1,
         expect.objectContaining({
           sql: expect.stringMatching(
             /status = 'pending'[\s\S]*expires_at > \?/,
@@ -131,16 +168,34 @@ describe("agent tool approval store", () => {
           ]),
         }),
       );
-      const consumeQuery = dbMocks.execute.mock.calls.at(-1)?.[0] as {
+      const consumeQuery = dbMocks.execute.mock.calls[0]?.[0] as {
         sql: string;
         args: unknown[];
       };
+      expect(consumeQuery.sql).toContain("HAVING COUNT(*) = 1");
       expect(consumeQuery.sql).toContain("turn_id");
       expect(consumeQuery.sql).not.toContain("call_id = ?");
       expect(consumeQuery.args).toContain(binding.turnId);
       expect(consumeQuery.args).not.toContain(binding.callId);
     },
   );
+
+  it("consumes the exact approval row when an ask id is supplied", async () => {
+    const approvalId = "agent-tool-approval-exact";
+    const { consumeAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      consumeAgentToolApproval({ ...binding, approvalId }),
+    ).resolves.toBe(true);
+    expect(dbMocks.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        sql: expect.stringContaining("AND id = ?"),
+        args: expect.arrayContaining([approvalId]),
+      }),
+    );
+  });
 
   it("propagates database failures instead of authorizing", async () => {
     dbMocks.execute.mockRejectedValueOnce(new Error("consume unavailable"));
@@ -193,6 +248,8 @@ describe("agent tool approval store", () => {
       binding.orgId,
       binding.orgId,
       binding.toolName,
+      null,
+      null,
     ]);
   });
 

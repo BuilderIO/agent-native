@@ -19,11 +19,11 @@ import {
   newOrgSelection,
   ORG_SELECTION_COOKIE,
 } from "../org/request-org-cache.js";
-import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  WORKSPACE_APP_ACCESS_UNAVAILABLE,
-  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
-} from "../org/workspace-app-access.js";
+  isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailableBody,
+} from "../org/workspace-app-access-outcome.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -99,7 +99,7 @@ function toWebRequest(event: H3Event): Request {
 type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -254,6 +254,7 @@ import {
   isCanonicalAgentNativeAppRequest,
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
+  isIdentitySsoAvailableForRequest,
   isIdentitySsoExplicitlyEnabled,
   isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
@@ -284,6 +285,7 @@ import {
   markExplicitPersonalOrgScope,
   runWithRequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 import { captureAuthError } from "./sentry.js";
 import { isTestIdentity } from "./test-identity.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
@@ -380,6 +382,7 @@ export interface AuthSession {
  */
 export interface AuthSessionResponse extends AuthSession {
   testIdentity: boolean;
+  identitySsoEnabled?: boolean;
 }
 
 export interface AuthOptions {
@@ -574,9 +577,17 @@ async function enrichLegacySessionIdentity(
       // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
       .catch(() => null);
   }
-  if (!existing) return session;
+  if (
+    !existing ||
+    existing.user.email.trim().toLowerCase() !==
+      session.email.trim().toLowerCase()
+  ) {
+    return session;
+  }
   return {
     ...session,
+    authUserId: session.authUserId ?? existing.user.id,
+    userId: session.userId ?? existing.user.id,
     ...(!session.name?.trim() && existing.user.name?.trim()
       ? { name: existing.user.name.trim() }
       : {}),
@@ -1912,39 +1923,40 @@ export function isExpectedAuthFailure(error: unknown): boolean {
   return EXPECTED_AUTH_FAILURE_PATTERNS.some((re) => re.test(msg));
 }
 
-let _sessionInitPromise: Promise<void> | undefined;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-export async function ensureSessionTable(): Promise<void> {
-  if (!_sessionInitPromise) {
-    const _sessionInitPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
+export const authSessionsStore = defineStore({
+  id: "auth_sessions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
             created_at BIGINT NOT NULL
           )
         `;
-
-      {
         await ensureTableExists("sessions", createSql);
         await ensureColumnExists(
           "sessions",
           "email",
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS email TEXT`,
         );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         await widenIntColumnsToBigInt("sessions", ["created_at"]);
-        return;
-      }
-    })().catch((err) => {
-      _sessionInitPromise = undefined;
-      throw err;
-    });
-    _sessionInitPromise = retainRequestDbPoolScope(
-      _sessionInitPromiseWithRequestDbPoolScope,
-    );
-  }
-  return _sessionInitPromise;
+      },
+    },
+  ],
+});
+
+export function ensureSessionTable(): Promise<void> {
+  return authSessionsStore.ready();
 }
 
 async function retryIfSessionsMissing<T>(op: () => Promise<T>): Promise<T> {
@@ -1954,7 +1966,7 @@ async function retryIfSessionsMissing<T>(op: () => Promise<T>): Promise<T> {
     if (e?.code !== "42P01") throw e;
     const msg = String(e?.message ?? "");
     if (!msg.includes("sessions")) throw e;
-    _sessionInitPromise = undefined;
+    authSessionsStore.reset();
     await ensureSessionTable();
     return await op();
   }
@@ -3336,6 +3348,7 @@ function isWorkspaceGoogleOAuthProvider(
   | "google_calendar"
   | "google_docs"
   | "google_drive"
+  | "bigquery"
   | "google_sheets"
   | "google_slides" {
   return (
@@ -3343,6 +3356,7 @@ function isWorkspaceGoogleOAuthProvider(
     provider === "google_calendar" ||
     provider === "google_docs" ||
     provider === "google_drive" ||
+    provider === "bigquery" ||
     provider === "google_sheets" ||
     provider === "google_slides"
   );
@@ -4293,9 +4307,9 @@ function createAuthGuardFn(
           email: session.email,
           orgId: session.orgId,
         });
-        if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+        if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
           setResponseStatus(event, 503);
-          return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+          return workspaceAppAccessUnavailableBody(workspaceAppAccess);
         }
         if (workspaceAppAccess === false) {
           setResponseStatus(event, 403);
@@ -4944,6 +4958,14 @@ function setFrameworkSessionHintCookie(event: H3Event): void {
   });
 }
 
+function identitySsoEnabledForRequest(event: H3Event): boolean {
+  const requestOrigin = new URL(getForwardedRequestOrigin(event));
+  return isIdentitySsoAvailableForRequest({
+    requestHost: requestOrigin.host,
+    requestProtocol: requestOrigin.protocol.slice(0, -1),
+  });
+}
+
 export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
   if (!isReadMethod(event)) {
@@ -4963,6 +4985,7 @@ export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
   const response: AuthSessionResponse = {
     ...session,
     testIdentity: isTestIdentity(session.email),
+    identitySsoEnabled: identitySsoEnabledForRequest(event),
   };
   return response;
 });

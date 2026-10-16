@@ -280,10 +280,21 @@ const messages = {
     convertMermaidFailed: "Diagramm konnte nicht umgewandelt werden",
     removeExcalidrawCanvas: "Excalidraw-Zeichenfläche entfernen",
     transition: "Übergang",
-    transition_instant: "Sofort",
+    transition_none: "Keine",
+    transition_dissolve: "Auflösen",
     transition_fade: "Überblenden",
-    transition_slide: "Schieben",
-    transition_zoom: "Zoomen",
+    transition_slide_from_right: "Von rechts einschieben",
+    transition_slide_from_left: "Von links einschieben",
+    transition_flip: "Wenden",
+    transition_cube: "Würfel",
+    transition_gallery: "Galerie",
+    transition_panel: "Folienübergang",
+    transition_speed: "Tempo",
+    transition_slow: "Langsam",
+    transition_fast: "Schnell",
+    transition_seconds: "{{seconds}} Sek.",
+    transition_apply_all: "Auf alle Folien anwenden",
+    transition_play: "Übergang abspielen",
     aspectRatio: "Seitenverhältnis",
     setAspectRatio: "Deck auf {{ratio}} setzen",
     slideTools: "Folienwerkzeuge",
@@ -601,7 +612,6 @@ const messages = {
     selectObject: "Objekt zum Animieren auswählen",
     addTransition: "Übergang hinzufügen",
     effect: "Effekt",
-    trigger: "Auslöser",
     onClick: "Bei Klick",
     byParagraph: "Nach Absatz",
     expand: "Übergang erweitern",
@@ -612,6 +622,13 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "Dieses Objekt ist nicht mehr auf der Folie.",
+    issueMissingElement: "Dieses Objekt wurde auf der Folie nicht gefunden.",
+    issueDuplicate:
+      "Diese Einblendung überschneidet sich mit einer anderen auf der Folie.",
+    blocked:
+      "Entferne oder korrigiere die nicht auflösbare Einblendung, um zu speichern oder abzuspielen.",
+    changeNotApplied: "Diese Änderung wurde nicht übernommen.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -801,7 +818,14 @@ const messages = {
     generationFailed:
       "Es wurden keine Folien erstellt. Prüfe die Details im Chat und versuche es erneut.",
     generationOutcomeUnresolved:
-      "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck oder den Chat und versuche es erneut.",
+      "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck, bevor du es erneut versuchst.",
+    generationOutcomeUnresolvedWithSlides:
+      "Wir konnten nicht bestätigen, ob die Folienerstellung abgeschlossen ist. Sieh dir die hier angezeigten Folien an, bevor du fortfährst.",
+    partialGenerationFailed:
+      "Wir konnten deine Folien nicht fertigstellen. Sieh dir die vorhandenen Folien und deine ursprüngliche Anfrage an, bevor du fortfährst.",
+    originalPrompt: "Deine Anfrage",
+    backToHome: "Zurück zur Startseite",
+    checkedDeckTryAgain: "Deck geprüft. Erneut versuchen",
     deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -837,7 +861,7 @@ const messages = {
     sourceMixed: "Mehrere Quellen",
     sourceBuilder: "Builder-Intelligenz für Designsysteme",
     sourceIndexingDescription:
-      "Builder verarbeitet diese Quelle noch. Die Ergebnisse erscheinen hier, sobald sie bereit sind.",
+      "Dein Markenstil wird noch vorbereitet. Warte, bis er bereit ist, und versuche es dann erneut.",
     sourceIndexedDescription:
       "{{docs}} Dokumente · {{tokens}} Tokens indexiert",
     sourceIndexedDocsOnly: "{{docs}} Dokumente indexiert",
@@ -1048,6 +1072,8 @@ const messages = {
     generationStartFailed: "Deck-Generierung konnte nicht gestartet werden",
     generationStartFailedDescription:
       "Das neue Deck wurde nicht vollständig gespeichert, daher wurde der Agent nicht gegen ein fehlendes Deck gestartet. Dein Prompt wurde gespeichert, damit du es erneut versuchen kannst.",
+    generationContextUnavailableDescription:
+      "Der ausgewählte Markenstil oder die Referenzpräsentation konnte nicht geladen werden. Prüfe, ob du sie öffnen kannst und deine Internetverbindung funktioniert, und versuche es erneut.",
     showAllDecks: "Alle Decks anzeigen",
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",

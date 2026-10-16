@@ -3,15 +3,113 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-15
+
+### Improved
+
+- Blank decks and simple follow-ups like adding one empty slide now finish in a single quick step instead of running the full deck-generation process.
+
+### Fixed
+
+- Selected slide elements now show a single blue outline.
+- Slides shows fallback prompts immediately and persists generated decks before setup waits.
+- Suggestion chips have more breathing room above the chat field
+
+## 2026-10-14
+
+### Improved
+
+- Slash command options are easier to distinguish with pointer and keyboard navigation
+
+### Fixed
+
+- Backspace removes a leading space in a heading or quote without changing its formatting
+- Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
+- Fixed retries so the original deck request stays available if generation is delayed.
+- Slash-command keyboard navigation now starts from the first command when the menu reopens.
+- If a retry never starts, Slides keeps your prompt and lets you try again.
+- Prompting the agent no longer occasionally strips all styling from a slide
+
+## 2026-10-13
+
+### Improved
+
+- Long slide editing sessions preserve more undo history.
+- Choosing a single direction now continues slide generation automatically.
+- The agent now fixes colors and other small style issues across several slides with targeted edits instead of rewriting each slide, so those fixes finish much faster.
+
+### Fixed
+
+- Bold formatting stays consistent when you format and copy selected slide text
+- Keep the caret inside list items when navigating to line edges
+- List formatting keeps the caret after a soft line break
+- Markdown formatting shortcuts preserve styling when the caret is already inside a styled run
+- Slash-menu keyboard selection stays responsive through repeated arrow presses
+- Color and style fixes across slides no longer fail partway through and stop the agent.
+- Deck creation errors disappear after the slides are edited to fix them.
+- Failed deck generations keep your original prompt so you can try again.
+- If slide creation stops after making some slides, the editor shows your original request and keeps the slides already created.
+
+## 2026-10-12
+
+### Fixed
+
+- Failed source imports no longer leave an empty deck behind.
+- Hosted PowerPoint download links keep recent exports available for up to one day, and missing files are recreated automatically when requested.
+- New decks explain when to wait for brand settings to finish loading or check access before trying again.
+- PPTX export tools now return an authenticated download link instead of inline file bytes
+- Slide transition controls stay visible while you choose an effect.
+- Slides asks you to check the deck before trying again when it cannot confirm whether slides were created.
+- Your prompt returns if deck setup fails so you can try again.
+
+### Security
+
+- PowerPoint downloads respect current deck access.
+
+## 2026-10-11
+
+### Improved
+
+- Slide transitions match the Google Slides catalog (None, Dissolve, Fade, Slide from right and left, Flip, Cube, Gallery), with a speed control, Apply to all slides, and a Play preview, and they play the same way going backward.
+
+### Fixed
+
+- Generated deck prompts wait for the first-run status check to resolve.
+- Per-element reveals and "By paragraph" builds stay on the right element after edits, undo and deletes, and public decks with reveals load again.
+- Going back from a new Slides generation returns Home without refilling the submitted prompt.
+
+## 2026-10-10
+
+### Improved
+
+- In a narrow pane, such as the ChatGPT side panel, the editor scrolls through every slide in one column instead of needing the slide rail.
+- The Slides editor in ChatGPT and Codex now uses the same top bar, toolbar, slide rail and canvas as the app
+
+### Fixed
+
+- Deck links stay open while your workspace loads.
+- Home suggestions keep their slot stable through profile errors and generation.
+- Home suggestions stay stable and reflect your role
+- Presentation suggestions stay in place while loading and match your selected role.
+- Slides no longer treat a stray 'Pod 2 slide' or 'at least 10 slides' in a long prompt as a hard slide cap, and placeholder blank slides no longer count toward the requested count.
+
 ## 2026-10-09
 
 ### Improved
 
+- Previous steps back through each revealed paragraph before changing slides.
+- The Slides widget in ChatGPT and Codex now has the editor's deck title, Share button and slide style toolbar, and they fit narrow panels.
 - Slide text editing keeps formatting controls responsive while you type.
 - The Slides chat stays responsive while you type on a slide.
 
 ### Fixed
 
+- By-paragraph animations now work with native paragraphs and bullet lists.
+- By-paragraph animations reveal multiple paragraphs in a list item one at a time.
+- By-paragraph animations step through nested list items in order, preserving explicit paragraph effects and consistently prioritizing the first configured effect when targets overlap.
+- Fixed paragraph reveal order for nested lists and mixed list content
+- Slides keep generating when image search is unavailable.
+- Wrapped paragraphs in list items reveal one at a time
 - Crop animations respect active container-query styles
 - Crop edits preserve in-progress transitions and keep transforms aligned with animated font sizes.
 - Deck style tweaks save when edited from a ChatGPT widget.
@@ -32,6 +130,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- The agent no longer edits slides you didn't ask it to change when it finds contrast or layout issues; it reports them instead
+- Custom-key setup opens model settings after onboarding.
 - Slide slash menus keep opening when the browser updates the caret late.
 - Slides keeps prompts ready, shows one provider retry hint, and blocks generation until a provider is connected.
 - Typing / in a slide text box reliably opens the slash-command menu.

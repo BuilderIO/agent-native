@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildShaderRuntimeScriptTag } from "../../../../shared/shader-fills";
 import { withLocalRuntimes } from "./local-runtime";
 
 const URLS = {
@@ -115,5 +116,34 @@ describe("withLocalRuntimes", () => {
     expect(
       rewritten.match(/<script data-agent-native-group-runtime\b/g),
     ).toHaveLength(1);
+  });
+
+  describe("shader runtime", () => {
+    const PRIVATE = `<script data-agent-native-shader-runtime data-runtime-version="1">(() => { /* the agent's own WebGL loop */ })();</script>`;
+    const doc = (runtime: string) =>
+      `<html><body><div data-an-shader-fill="an-shader-a"></div>${runtime}</body></html>`;
+
+    it("shows the screen the framework's runtime in place of one the agent wrote, so a single runtime owns the shader canvas", () => {
+      const rewritten = withLocalRuntimes(doc(PRIVATE), URLS);
+
+      expect(rewritten).toBe(doc(buildShaderRuntimeScriptTag()));
+      expect(rewritten).not.toContain("the agent's own WebGL loop");
+    });
+
+    it("finds the agent's runtime whichever attributes it puts before the marker", () => {
+      const rewritten = withLocalRuntimes(
+        doc(PRIVATE.replace("<script ", '<script type="text/javascript" ')),
+        URLS,
+      );
+
+      expect(rewritten).toBe(doc(buildShaderRuntimeScriptTag()));
+    });
+
+    it("leaves the framework's runtime, and a screen with none, as they are", () => {
+      const official = doc(buildShaderRuntimeScriptTag());
+      expect(withLocalRuntimes(official, URLS)).toBe(official);
+      const bare = doc("<script>window.ready = true;</script>");
+      expect(withLocalRuntimes(bare, URLS)).toBe(bare);
+    });
   });
 });

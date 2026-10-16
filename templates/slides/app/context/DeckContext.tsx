@@ -50,6 +50,7 @@ import {
   isMergeSafeDeckPatchOperations,
   type SlideFieldBaseline,
 } from "../../shared/deck-write";
+import type { SlideTransitionType } from "../../shared/slide-transitions";
 import { isDeckAccessLostStatus } from "../lib/deck-access-lost";
 import {
   applyRemoteSlideUnderInlineEdit,
@@ -101,6 +102,7 @@ type PatchSlideFields = Partial<
     | "imagePrompt"
     | "excalidrawData"
     | "transition"
+    | "transitionSpeed"
     | "animations"
     | "splitByParagraph"
     | "skipped"
@@ -113,6 +115,7 @@ type PatchSlideFields = Partial<
   imagePrompt?: string | null;
   excalidrawData?: string | null;
   transition?: Slide["transition"] | null;
+  transitionSpeed?: Slide["transitionSpeed"] | null;
   animations?: SlideAnimation[] | null;
   splitByParagraph?: boolean | null;
   skipped?: boolean | null;
@@ -392,7 +395,9 @@ export interface Slide {
   imageLoading?: boolean;
   imagePrompt?: string;
   excalidrawData?: string;
-  transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+  transition?: SlideTransitionType;
+  /** Integer 0..49; absent means the default speed (45). */
+  transitionSpeed?: number;
   animations?: SlideAnimation[];
   /** @deprecated Use animations instead */
   splitByParagraph?: boolean;
@@ -460,8 +465,14 @@ async function probeDeckPersisted(id: string): Promise<DeckPersistenceResult> {
     );
     return normalizeActionDeck(result)
       ? { persisted: true }
-      : { persisted: false, reason: "not-found" };
+      : { persisted: false, reason: "request-failed", error: null };
   } catch (error) {
+    const status =
+      error && typeof error === "object"
+        ? ((error as { status?: unknown; statusCode?: unknown }).status ??
+          (error as { statusCode?: unknown }).statusCode)
+        : undefined;
+    if (status === 404) return { persisted: false, reason: "not-found" };
     return { persisted: false, reason: "request-failed", error };
   }
 }
@@ -520,6 +531,7 @@ interface DeckContextType {
     choice: DeckContentConflictChoice,
   ) => Promise<DeckContentConflictResolution>;
   getDeck: (id: string) => Deck | undefined;
+  getDeckLatest: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
     layout?: SlideLayout,
@@ -3452,6 +3464,7 @@ export function deriveDeckDiffOps(before: Deck, after: Deck): PatchDeckOp[] {
       "imagePrompt",
       "excalidrawData",
       "transition",
+      "transitionSpeed",
       "animations",
       "splitByParagraph",
       "skipped",
@@ -6128,6 +6141,13 @@ export function DeckProvider({
     (id: string) => scopedDecks.find((d) => d.id === id),
     [scopedDecks],
   );
+  const getDeckLatest = useCallback(
+    (id: string) =>
+      deckScopeMatchesOrg
+        ? decksRef.current.find((deck) => deck.id === id)
+        : undefined,
+    [deckScopeMatchesOrg],
+  );
 
   const addSlide = useCallback(
     (
@@ -6868,6 +6888,7 @@ export function DeckProvider({
         refreshOpenDeck: refetchOpenDeckIfChanged,
         resolveDeckContentConflict,
         getDeck,
+        getDeckLatest,
         addSlide,
         flushDeckSave,
         retryDeckSave,

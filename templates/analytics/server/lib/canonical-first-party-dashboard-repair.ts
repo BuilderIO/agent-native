@@ -13,6 +13,8 @@ import {
   PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
   PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
   PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
+  PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL,
+  scopeFirstPartyPanelSql,
   SIGNUPS_OVER_TIME_SQL,
   buildFirstPartyDashboardFilters,
   type ExactFirstPartyPanelReplacement,
@@ -740,6 +742,16 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
       sql: NEW_VS_RECURRING_USERS_SQL,
       legacyDescription: LEGACY_NEW_VS_RECURRING_USERS_DESCRIPTION,
       description: NEW_VS_RECURRING_USERS_DESCRIPTION,
+    },
+    {
+      id: "sessions-by-app",
+      legacySql: [
+        PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL,
+        removeCustomDateRangeClauses(
+          scopeFirstPartyPanelSql(PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL),
+        ),
+      ],
+      sql: buildPanel("sessions-by-app")!.sql,
     },
   ];
 

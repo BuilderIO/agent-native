@@ -285,10 +285,21 @@ const messages = {
     convertMermaidFailed: "Échec de la conversion du diagramme",
     removeExcalidrawCanvas: "Supprimer le canevas Excalidraw",
     transition: "Transition",
-    transition_instant: "Instantanée",
+    transition_none: "Aucune",
+    transition_dissolve: "Fondu enchaîné",
     transition_fade: "Fondu",
-    transition_slide: "Glissement",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Glisser depuis la droite",
+    transition_slide_from_left: "Glisser depuis la gauche",
+    transition_flip: "Retournement",
+    transition_cube: "Cube rotatif",
+    transition_gallery: "Galerie",
+    transition_panel: "Transition de diapositive",
+    transition_speed: "Vitesse",
+    transition_slow: "Lente",
+    transition_fast: "Rapide",
+    transition_seconds: "{{seconds}} sec",
+    transition_apply_all: "Appliquer à toutes les diapositives",
+    transition_play: "Lire la transition",
     aspectRatio: "Format",
     setAspectRatio: "Définir le deck sur {{ratio}}",
     slideTools: "Outils de diapositive",
@@ -609,7 +620,6 @@ const messages = {
     selectObject: "Sélectionner un objet à animer",
     addTransition: "Ajouter une transition",
     effect: "Effet",
-    trigger: "Déclencheur",
     onClick: "Au clic",
     byParagraph: "Par paragraphe",
     expand: "Développer la transition",
@@ -620,6 +630,13 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "Cet objet n'est plus sur la diapositive.",
+    issueMissingElement: "Cet objet est introuvable sur la diapositive.",
+    issueDuplicate:
+      "Cette animation chevauche une autre animation de la diapositive.",
+    blocked:
+      "Supprimez ou corrigez l'animation non résolue pour enregistrer ou lire.",
+    changeNotApplied: "Cette modification n'a pas été appliquée.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -805,7 +822,14 @@ const messages = {
     generationFailed:
       "Les diapositives n’ont pas été créées. Consultez les détails dans le chat, puis réessayez.",
     generationOutcomeUnresolved:
-      "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation ou le chat, puis réessayez.",
+      "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation avant de réessayer.",
+    generationOutcomeUnresolvedWithSlides:
+      "Nous n’avons pas pu confirmer que la création des diapositives est terminée. Vérifiez les diapositives affichées ici avant de continuer.",
+    partialGenerationFailed:
+      "Nous n’avons pas pu terminer la création des diapositives. Vérifiez celles déjà présentes et votre demande initiale avant de continuer.",
+    originalPrompt: "Votre demande",
+    backToHome: "Retour à l’accueil",
+    checkedDeckTryAgain: "J’ai vérifié la présentation. Réessayer",
     deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -842,7 +866,7 @@ const messages = {
     sourceMixed: "Sources multiples",
     sourceBuilder: "Intelligence des systèmes de design Builder",
     sourceIndexingDescription:
-      "Builder traite encore cette source. Les résultats apparaîtront ici dès qu'ils seront prêts.",
+      "Le style de votre marque est encore en préparation. Attendez qu’il soit prêt, puis réessayez.",
     sourceIndexedDescription: "{{docs}} documents · {{tokens}} jetons indexés",
     sourceIndexedDocsOnly: "{{docs}} documents indexés",
     sourceIndexedTokensOnly: "{{tokens}} jetons indexés",
@@ -1053,6 +1077,8 @@ const messages = {
     generationStartFailed: "Impossible de lancer la génération du deck",
     generationStartFailedDescription:
       "Le nouveau deck n’a pas fini d’être enregistré, donc l’agent n’a pas été lancé sur un deck manquant. Votre prompt a été enregistré pour réessayer.",
+    generationContextUnavailableDescription:
+      "Impossible de charger le style de votre marque ou la présentation de référence choisie. Vérifiez que vous pouvez l’ouvrir et que votre connexion Internet fonctionne, puis réessayez.",
     showAllDecks: "Afficher tous les decks",
     all: "Tous",
     showMineDecks: "Afficher les decks créés par moi",

@@ -15,8 +15,21 @@ import type {
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
-import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
+import {
+  describeFunnelOutcomeProblems,
+  resolveDashboardFunnelRows,
+} from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import { formatDollars } from "../../shared/format-dollars";
+import { resolvePanelEvents } from "../../shared/panel-events";
+import {
+  chartPointLimit,
+  limitChartRows,
+  orderPanelSeries,
+  resolveSeriesColors,
+  seriesColorSlots,
+  type ChartPointLimit,
+} from "../../shared/panel-render-contract";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
@@ -32,6 +45,7 @@ import {
   renderReportChartSvg,
   renderFunnelChartSvg,
   REPORT_CHART_FONT_FAMILY,
+  type ReportChartEvent,
   type ReportChartSeries,
   type ReportChartType,
   type ReportChartValueFormatter,
@@ -69,7 +83,6 @@ type ReportAttachment = RenderedReportEmail["attachments"][number];
 
 const DEFAULT_PANEL_TIMEOUT_MS = DASHBOARD_REPORT_ACTION_TIMEOUT_MS;
 const EMAIL_TABLE_ROW_CAP = 50;
-const MAX_CHART_POINTS = 400;
 const CHART_WIDTH = 920;
 const CHART_HEIGHT = 360;
 const CHART_RASTER_SCALE = 2;
@@ -251,7 +264,7 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -278,7 +291,7 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   if (value == null) return "";
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
-    if (format === "currency") return `$${value.toLocaleString()}`;
+    if (format === "currency") return formatDollars(value);
     if (format === "percent") {
       const pct = value <= 1 && value >= -1 ? value * 100 : value;
       return `${pct.toFixed(2)}%`;
@@ -369,11 +382,13 @@ function detectChartKeys(
   return { xKey, yKeys };
 }
 
-function chartColor(config: SqlPanel["config"], index: number): string {
-  const configured = config?.colors?.[index];
-  return configured && !configured.includes("var(")
-    ? configured
-    : CHART_COLORS[index % CHART_COLORS.length];
+// The image has no CSS, so a configured `var(...)` color takes the palette color in its slot.
+function reportPalette(config: SqlPanel["config"]): string[] {
+  const configured = config?.colors;
+  if (!configured?.length) return CHART_COLORS;
+  return configured.map((color, index) =>
+    color.includes("var(") ? CHART_COLORS[index % CHART_COLORS.length] : color,
+  );
 }
 
 function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
@@ -420,6 +435,7 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
   area: "area",
+  combo: "combo",
   pie: "pie",
   funnel: "funnel",
   "stacked-bar": "bar",
@@ -440,9 +456,10 @@ function pivotPanelRows(
 }
 
 type ChartInput = {
+  events: ReportChartEvent[];
   labels: string[];
   series: ReportChartSeries[];
-  droppedPoints: number;
+  pointLimit: ChartPointLimit | null;
 };
 
 function buildChartInput(
@@ -452,31 +469,52 @@ function buildChartInput(
   forcedYKeys: string[] | undefined,
 ): ChartInput | null {
   const config = panel.config;
-  const { xKey, yKeys } = detectChartKeys(rows, config, forcedYKeys);
-  if (!xKey || yKeys.length === 0) return null;
+  const detected = detectChartKeys(rows, config, forcedYKeys);
+  const xKey = detected.xKey;
+  if (!xKey || detected.yKeys.length === 0) return null;
 
-  const droppedPoints = Math.max(0, rows.length - MAX_CHART_POINTS);
-  const visible = droppedPoints ? rows.slice(-MAX_CHART_POINTS) : rows;
+  const visible = limitChartRows(rows, panel.chartType, xKey);
+  const yKeys = orderPanelSeries(visible, detected.yKeys, panel);
   const labels = visible.map((row) =>
     typeof row[xKey] === "string"
       ? row[xKey]
-      : (JSON.stringify(row[xKey]) ?? ""),
+      : row[xKey] == null
+        ? ""
+        : (JSON.stringify(row[xKey]) ?? ""),
   );
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
+  const colors = resolveSeriesColors(
+    plotted,
+    seriesColorSlots(plotted, detected.yKeys, panel),
+    panel,
+    reportPalette(config),
+  );
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
+  const barKeys = new Set(config?.barKeys ?? []);
+
+  const events =
+    chartType === "pie"
+      ? []
+      : resolvePanelEvents(config?.events, visible.map((row) => row[xKey])).map(
+          ({ index, label, color }) => ({ index, label, color }),
+        );
 
   return {
+    events,
     labels,
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
       data: visible.map((row) => toNumber(row[key])),
-      color: chartColor(config, index),
+      color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
+      ...(chartType === "combo"
+        ? { mark: barKeys.has(key) ? ("bar" as const) : ("line" as const) }
+        : {}),
     })),
-    droppedPoints,
+    pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };
 }
 
@@ -846,9 +884,9 @@ async function renderChartBlock(args: {
   }
 
   const subtitleParts = [description].filter(Boolean);
-  if (input.droppedPoints) {
+  if (input.pointLimit) {
     subtitleParts.push(
-      `showing the last ${input.labels.length} of ${input.labels.length + input.droppedPoints} points`,
+      `showing the ${input.pointLimit.keeps} ${input.pointLimit.shown} of ${input.pointLimit.total} points`,
     );
   }
   const subtitle = subtitleParts.join(" · ");
@@ -864,6 +902,7 @@ async function renderChartBlock(args: {
       type: chartType,
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
+      events: input.events,
       ...(panel.config?.stacked === true ? { stacked: true } : {}),
     });
     const png = await rasterizeChartPng(svg, CHART_WIDTH * CHART_RASTER_SCALE);
@@ -907,6 +946,7 @@ async function renderFunnelChartBlock(args: {
     rows,
     panel.config?.xKey,
     panel.config?.yKey,
+    panel.config?.funnelOutcomes,
   );
   if (funnel.items.length === 0) {
     const table = renderTableHtml(panel, rows);
@@ -927,6 +967,7 @@ async function renderFunnelChartBlock(args: {
       title: "",
       subtitle,
       rows: funnel.items,
+      ...(funnel.outcomes ? { outcomes: funnel.outcomes } : {}),
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       formatter: panel.config?.yFormatter,
@@ -936,13 +977,16 @@ async function renderFunnelChartBlock(args: {
     const slug =
       panel.id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "panel";
     const contentId = `dashboard-report-panel-${index}-${slug}`;
+    const outcomeProblems = funnel.outcomes
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
     return {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />`,
+        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />${outcomeProblems ? noteHtml(outcomeProblems) : ""}`,
       ),
-      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}${outcomeProblems ? `\n${outcomeProblems}` : ""}`,
       attachment: {
         filename: `${slug}.png`,
         content: png,

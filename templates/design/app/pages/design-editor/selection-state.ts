@@ -322,7 +322,7 @@ export function getSelectedScreenGeometryForInspector(args: {
 
 function fileIdFromLayerSelectionId(
   layerId: string,
-  fileIds: Set<string>,
+  fileIds: ReadonlySet<string>,
 ): string | null {
   const normalized = layerId.startsWith("code:")
     ? layerId.slice("code:".length)
@@ -401,6 +401,17 @@ export function shouldLimitEditorChromeUntilContentReady(args: {
   );
 }
 
+export function shouldDisableExportsUntilCanvasFramesExist(args: {
+  canvasFrameCount: number;
+  generating: boolean;
+  pendingGenerationActive: boolean;
+}) {
+  return (
+    args.canvasFrameCount === 0 &&
+    (args.generating || args.pendingGenerationActive)
+  );
+}
+
 export function shouldEscapeToOverview(args: {
   activeTool: DesignTool;
   drawMode: boolean;
@@ -449,7 +460,9 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
 export function resolveMarqueeAdditive(
   intent: ElementSelectionIntent | undefined,
 ): boolean {
-  return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
+  if (intent?.range || intent?.shiftKey) return true;
+  if (intent?.metaKey || intent?.ctrlKey) return false;
+  return Boolean(intent?.additive);
 }
 
 export function shouldClearSelectionForReviewThreadTarget(args: {
@@ -490,6 +503,7 @@ export function updateExplicitOverviewScreenSelection(args: {
   currentExplicitScreenIds: readonly string[];
   ownerDerivedScreenIds: ReadonlySet<string>;
   additive: boolean;
+  marqueeSelectedScreenIds?: readonly string[];
 }): string[] {
   const selectedScreenIds = [...new Set(args.selectedScreenIds)];
   const selected = new Set(selectedScreenIds);
@@ -507,7 +521,44 @@ export function updateExplicitOverviewScreenSelection(args: {
       explicit.push(screenId);
     }
   }
+  for (const screenId of args.marqueeSelectedScreenIds ?? []) {
+    if (selected.has(screenId) && !explicit.includes(screenId)) {
+      explicit.push(screenId);
+    }
+  }
   return explicit;
+}
+
+export function reconcileSelectedLayerIdsForOverviewScreens(args: {
+  selectedLayerIds: readonly string[];
+  screenFileIds: ReadonlySet<string>;
+  selectedScreenIds: readonly string[];
+}): string[] {
+  const selectedScreens = new Set(args.selectedScreenIds);
+  return args.selectedLayerIds.filter((id) => {
+    const fileId = fileIdFromLayerSelectionId(id, args.screenFileIds);
+    return fileId === null || selectedScreens.has(fileId);
+  });
+}
+
+export function shouldResetBreakpointAfterOverviewSelectionClear(args: {
+  selectedScreenIds: readonly string[];
+  previousSelectedScreenIds: readonly string[];
+  viewMode: "single" | "overview";
+  activeBreakpointWidth: number | undefined;
+  intent: ElementSelectionIntent | undefined;
+}): boolean {
+  return (
+    args.selectedScreenIds.length === 0 &&
+    args.previousSelectedScreenIds.length > 0 &&
+    args.viewMode === "overview" &&
+    args.activeBreakpointWidth !== undefined &&
+    args.intent?.source === "marquee" &&
+    args.intent.final === true &&
+    args.intent.additive !== true &&
+    args.intent.cancelled !== true &&
+    args.intent.screenSelectionToggle === undefined
+  );
 }
 
 export function applyExplicitOverviewScreenSelectionToggle(args: {

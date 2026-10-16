@@ -395,6 +395,7 @@ vi.mock("../db/index.js", () => {
 const {
   getDashboard,
   upsertDashboard,
+  upsertDashboardOutcome,
   upsertDashboardWithRetry,
   upsertDashboardWithRetryOutcome,
   upsertAnalysis,
@@ -670,6 +671,33 @@ describe("dashboards-store concurrency", () => {
       ),
     ).rejects.toBeInstanceOf(DashboardConflictError);
     expect(readPanelIds()).toEqual(["a", "b"]);
+  });
+
+  it("reports the revision a save left, holding the dashboard from before it", async () => {
+    const outcome = await upsertDashboardOutcome(
+      "traffic",
+      "sql",
+      { name: "Traffic", panels: [panel("a"), panel("b")] },
+      ctx,
+      state.dashboard.updatedAt,
+    );
+
+    const revision = state.revisions.find(
+      (row) => row.id === outcome.revisionId,
+    );
+    expect(JSON.parse(revision.config).panels.map((p: any) => p.id)).toEqual([
+      "a",
+    ]);
+
+    const unchanged = await upsertDashboardOutcome(
+      "traffic",
+      "sql",
+      { name: "Traffic", panels: [panel("a"), panel("b")] },
+      ctx,
+      outcome.dashboard.updatedAt,
+    );
+    expect(unchanged.didWrite).toBe(false);
+    expect(unchanged.revisionId).toBeUndefined();
   });
 
   it("preserves legacy last-write-wins when expectedUpdatedAt is omitted", async () => {

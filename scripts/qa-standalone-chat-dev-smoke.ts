@@ -1781,9 +1781,14 @@ async function handleLoopbackCompletion(
       toolNames.includes("accept-agentkit-release"),
       "generated app must expose the approval fixture action",
     );
-    const result = toolResults.find(
+    const approvalResults = toolResults.filter(
       (item) => item.tool_call_id === approvalToolCallId,
     );
+    assert.ok(
+      approvalResults.length <= 1,
+      "approved action result must appear once in the continuation request",
+    );
+    const [result] = approvalResults;
     if (!result) {
       await streamToolCallResponse(response, requestNumber, {
         id: approvalToolCallId,
@@ -3064,11 +3069,6 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   await approval.getByRole("button", { name: "Approve" }).click();
-  await page
-    .locator(".agentkit-message-content strong")
-    .filter({ hasText: "Approval continuation completed." })
-    .last()
-    .waitFor({ state: "visible" });
   await approval.waitFor({ state: "detached" });
   const releaseCardMatches = page.getByText("Release accepted", {
     exact: true,
@@ -3122,6 +3122,9 @@ async function assertAgentKitChatAcceptance(
       ),
     "completed activity rollups must stay collapsed while the card is visible",
   );
+  await page
+    .getByText("Approval continuation completed.", { exact: true })
+    .waitFor({ state: "visible" });
   await assertViewportContract(page, "narrow dark action widget", {
     dark: true,
   });
@@ -3243,10 +3246,6 @@ async function assertAgentKitChatAcceptance(
   }
   await queue.waitFor({ state: "hidden" });
   await assertComposerFocused(page);
-  await waitForLoopbackState(
-    "approval action continuation",
-    () => provider.approvalActionResults.length === 1,
-  );
   await waitForLoopbackState(
     "automatic queue promotion",
     () => provider.queuedPromptSeen,
@@ -3438,11 +3437,6 @@ async function assertAgentKitChatAcceptance(
     .filter({ hasText: "Hello, AgentKit Browser!" })
     .waitFor({ state: "visible" });
   await page
-    .locator(".agentkit-message-content strong")
-    .filter({ hasText: "Approval continuation completed." })
-    .last()
-    .waitFor({ state: "visible" });
-  await page
     .getByText("Queued follow-up completed through the production queue.", {
       exact: true,
     })
@@ -3579,7 +3573,19 @@ async function runBrowserSmoke(
     "acceptance must exercise tools, rich streaming, suggestions, approval, queue promotion, steering, and recovery",
   );
   assert.equal(provider.helloActionResults.length, 1);
+  assert.deepEqual(
+    provider.requests
+      .filter((request) => request.prompt === approvalPrompt)
+      .map(
+        (request) =>
+          request.toolResultIds.filter((id) => id === approvalToolCallId)
+            .length,
+      ),
+    [0, 1],
+    "the model must receive one direct approval result on continuation",
+  );
   assert.equal(provider.approvalActionResults.length, 1);
+  assert.match(provider.approvalActionResults[0]!, /agentkit-acceptance/u);
   assert.equal(provider.widgetRunCompleted, true);
   assert.deepEqual(
     provider.widgetToolCallIds,

@@ -8,6 +8,7 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
+import { DESIGN_EDITOR_TOOLS } from "../app/pages/design-editor/tool-state";
 import action from "./navigate.js";
 
 describe("navigate", () => {
@@ -80,5 +81,47 @@ describe("navigate", () => {
         fileId: "file_123",
       }).success,
     ).toBe(true);
+  });
+
+  it("accepts every tool the editor knows, and nothing else", () => {
+    const withTool = (tool: string) =>
+      action.schema.safeParse({
+        view: "editor",
+        designId: "design_123",
+        tool,
+      }).success;
+
+    for (const tool of DESIGN_EDITOR_TOOLS) {
+      expect(withTool(tool), tool).toBe(true);
+    }
+    expect(withTool("lasso")).toBe(false);
+  });
+
+  it("takes a stale tool=agent as Move instead of failing", async () => {
+    const parsed = action.schema.parse({
+      view: "editor",
+      designId: "design_123",
+      tool: "agent",
+    });
+
+    expect(parsed.tool).toBe("move");
+    await action.run(parsed);
+
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "editor",
+      designId: "design_123",
+      tool: "move",
+    });
+  });
+
+  it("does not offer the retired Agent tool, and keeps tool optional", () => {
+    const parameters = action.tool.parameters as {
+      properties: { tool: { enum: string[] } };
+      required?: string[];
+    };
+
+    expect(parameters.properties.tool.enum).toContain("move");
+    expect(parameters.properties.tool.enum).not.toContain("agent");
+    expect(parameters.required ?? []).not.toContain("tool");
   });
 });

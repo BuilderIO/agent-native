@@ -113,6 +113,7 @@ describe("server/auth", () => {
     vi.doUnmock("../org/workspace-app-access.js");
     vi.doUnmock("./embed-session.js");
     vi.doUnmock("./email.js");
+    vi.doUnmock("./request-origin.js");
     vi.doUnmock("./sentry.js");
     vi.resetModules();
   });
@@ -3604,7 +3605,13 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: vi.fn(async () => "unavailable"),
+        checkWorkspaceAppAccess: vi.fn(async () => ({
+          status: "unavailable",
+          reason: "registry-http-error",
+          upstreamStatus: 401,
+          audience: "https://workspace.example.test/dispatch",
+          detail: "Unauthorized",
+        })),
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3623,6 +3630,10 @@ describe("server/auth", () => {
 
       await expect(guard(event)).resolves.toEqual({
         error: "Workspace app access is temporarily unavailable.",
+        code: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://workspace.example.test/dispatch",
+        detail: "Unauthorized",
       });
       expect(event.res.status).toBe(503);
     });
@@ -3635,7 +3646,7 @@ describe("server/auth", () => {
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3699,7 +3710,7 @@ describe("server/auth", () => {
       });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -6728,6 +6739,74 @@ describe("server/auth", () => {
       );
       expect(regular).toMatchObject({ email, testIdentity: false });
       expect(JSON.stringify(regular)).not.toContain("qa.acme.co");
+    });
+
+    it("returns identity SSO availability for the current app host", async () => {
+      vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "");
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({ email: "person@example.test" }),
+      });
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      const eventFor = (host: string) => {
+        const event = createMockEvent({
+          path: "/_agent-native/auth/session",
+          headers: { host },
+        });
+        const requestUrl = `https://${host}/_agent-native/auth/session`;
+        event.req.url = requestUrl;
+        event.url = new URL(requestUrl);
+        event.node.req.url = "/_agent-native/auth/session";
+        return event;
+      };
+
+      await expect(
+        sessionHandler(eventFor("design.agent-native.com")),
+      ).resolves.toMatchObject({
+        identitySsoEnabled: true,
+      });
+      await expect(
+        sessionHandler(eventFor("app.example.test")),
+      ).resolves.toMatchObject({
+        identitySsoEnabled: false,
+      });
+    });
+
+    it("propagates an invalid forwarded origin when resolving identity SSO", async () => {
+      const invalidOrigin = Object.assign(
+        new Error("Invalid forwarded request origin"),
+        {
+          statusCode: 400,
+          statusMessage: "Invalid forwarded request origin",
+        },
+      );
+      vi.doMock("./request-origin.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("./request-origin.js")>()),
+        getForwardedRequestOrigin: () => {
+          throw invalidOrigin;
+        },
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({ email: "person@example.test" }),
+      });
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      await expect(
+        sessionHandler(
+          createMockEvent({ path: "/_agent-native/auth/session" }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
+      });
     });
 
     it("returns a retryable status when session resolution is unavailable", async () => {
@@ -12133,6 +12212,7 @@ describe("server/auth", () => {
     async function resolveLegacySession(userRows: {
       combined: Record<string, unknown> | undefined;
       verification?: Record<string, unknown>;
+      canonicalEmail?: string;
     }) {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -12168,7 +12248,11 @@ describe("server/auth", () => {
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       const resolveCanonicalUserForLegacySession = vi.fn(async () => ({
-        user: { id: "user-1", email: "person@example.com", name: "Canonical" },
+        user: {
+          id: "user-1",
+          email: userRows.canonicalEmail ?? "person@example.com",
+          name: "Canonical",
+        },
         accounts: [],
       }));
       vi.doMock("./legacy-auth-migration.js", () => ({
@@ -12199,6 +12283,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: true,
         token: "legacy-token",
         name: "Person",
@@ -12222,6 +12308,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: false,
         token: "legacy-token",
         name: "Canonical",
@@ -12238,12 +12326,28 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         token: "legacy-token",
         name: "Canonical",
       });
       expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
         "person@example.com",
       );
+    });
+
+    it("does not attach a canonical ID for a different email", async () => {
+      const { session } = await resolveLegacySession({
+        combined: undefined,
+        verification: { email_verified: true },
+        canonicalEmail: "another-person@example.com",
+      });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: true,
+        token: "legacy-token",
+      });
     });
   });
 });

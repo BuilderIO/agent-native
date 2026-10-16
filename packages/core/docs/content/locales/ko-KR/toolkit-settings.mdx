@@ -84,7 +84,7 @@ export default function SettingsRoute() {
 일반적으로 앱 페이지는 `extraTabs` 항목에서 시작하며, 이 항목은 앱 그룹의 독립 페이지가 됩니다. 더 세밀하게 제어하려면 모듈 범위에서 `registerSettingsPages`로 `SettingsPageDefinition`(`id`, `group`, `order`, `label`, `icon`, `component` 및 선택 항목인 `visible`, `subpages`, `searchEntries`)을 등록합니다. 기존 페이지와 같은 ID를 가진 정의를 등록하면 해당 페이지를 대체합니다. 앱이 core 페이지를 자체 변형으로 바꿀 때 이 방식을 사용합니다. Dispatch는 이 방식으로 Members에 앱 역할 열을 둡니다.
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,

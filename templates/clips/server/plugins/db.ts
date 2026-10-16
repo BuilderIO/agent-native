@@ -16,6 +16,7 @@ import {
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
 } from "../lib/upload-lease.js";
+import "../lib/hosted-clip-allowance.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -571,6 +572,7 @@ export const migrations = runMigrations(
       started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      cleanup_version BIGINT NOT NULL DEFAULT 0,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -643,6 +645,7 @@ export const migrations = runMigrations(
       started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      cleanup_version BIGINT NOT NULL DEFAULT 0,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -1231,6 +1234,67 @@ export const migrations = runMigrations(
       // Additive. Mirrors `capturedDeviceId` in server/db/schema.ts. NULL rows
       // predate device scoping and stay visible to every device's queue.
       sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
+    },
+    {
+      version: 85,
+      name: "clips-dictation-cleanup-version",
+      sql: [
+        `ALTER TABLE IF EXISTS dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
+        `ALTER TABLE IF EXISTS clips_dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
+      ].join("; "),
+    },
+    {
+      version: 86,
+      name: "recording-browser-diagnostics-app-activity",
+      // Additive. Mirrors `appActivitySummaryJson` and `appActivityBlobJson`
+      // in server/db/schema.ts.
+      sql: [
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_summary_json TEXT`,
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_blob_json TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 87,
+      name: "clips-hosted-clip-allowances",
+      sql: `CREATE TABLE IF NOT EXISTS clips_hosted_clip_allowances (
+        recording_id TEXT PRIMARY KEY,
+        identity_key TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('reserved', 'consumed', 'released')),
+        ip_prefix TEXT,
+        quota_bytes BIGINT NOT NULL DEFAULT 0 CHECK (quota_bytes >= 0),
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        consumed_at TEXT,
+        released_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_identity_created_idx
+        ON clips_hosted_clip_allowances (identity_key, created_at);
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_user_created_idx
+        ON clips_hosted_clip_allowances (user_id, created_at);
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_ip_created_idx
+        ON clips_hosted_clip_allowances (ip_prefix, created_at);
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_created_idx
+        ON clips_hosted_clip_allowances (created_at)`,
+    },
+    {
+      version: 88,
+      name: "clips-recording-storage-mode",
+      sql: `ALTER TABLE recordings
+        ADD COLUMN IF NOT EXISTS storage_mode TEXT
+        CHECK (storage_mode IN ('own', 'hosted'))`,
+    },
+    {
+      version: 89,
+      name: "recording-transcripts-source",
+      // Additive. Mirrors `source` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS source TEXT`,
+    },
+    {
+      version: 90,
+      name: "recording-transcripts-import-id",
+      // Additive. Mirrors `importId` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS import_id TEXT`,
     },
   ],
   { table: "clips_migrations" },

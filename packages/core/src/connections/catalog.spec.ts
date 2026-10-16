@@ -22,6 +22,7 @@ describe("workspace connection provider catalog", () => {
       "notion",
       "gmail",
       "google_calendar",
+      "bigquery",
       "google_drive",
       "google_docs",
       "google_sheets",
@@ -59,6 +60,25 @@ describe("workspace connection provider catalog", () => {
         "https://www.googleapis.com/auth/drive.file",
       ]),
     );
+    expect(getWorkspaceConnectionProvider("bigquery")?.oauth?.scopes).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/bigquery",
+      ]),
+    );
+    expect(
+      getWorkspaceConnectionProvider("google_sheets")?.oauth?.scopes,
+    ).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
+    expect(
+      getWorkspaceConnectionProvider("google_sheets")?.oauth?.provider,
+    ).toBe("google_sheets");
     expect(getWorkspaceConnectionProvider("gmail")?.oauth?.scopes).toEqual(
       expect.arrayContaining([
         "openid",

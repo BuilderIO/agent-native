@@ -1,3 +1,6 @@
+import { inspectorFitsViewport } from "./editor-chrome";
+import type { EditorMode } from "./types";
+
 export function hasMinimalInspectorSelection({
   selectedElement,
   selectedLayerIds,
@@ -11,6 +14,48 @@ export function hasMinimalInspectorSelection({
     selectedElement != null ||
     selectedLayerIds.length > 0 ||
     selectedScreenGeometry != null
+  );
+}
+
+/**
+ * Whether the right inspector is on screen. It is the Design panel: Interact
+ * and Annotate have none, and neither does someone who cannot edit, because
+ * the Code and Comments tabs that used to give them one are gone. Where the
+ * top bar is absent the rail also carries the share controls, so it keeps its
+ * place in every mode.
+ */
+export function isRightInspectorVisible({
+  hostOwnsChrome,
+  isMobileViewport,
+  uiHidden,
+  initialGenerationChromeLimited,
+  responsiveInteractActive,
+  minimalUi,
+  minimalInspectorHasSelection,
+  topBarVisible,
+  mode,
+  canEdit,
+}: {
+  hostOwnsChrome: boolean;
+  /** Below md the docked panel is display:none and a sheet carries the inspector. */
+  isMobileViewport: boolean;
+  uiHidden: boolean;
+  initialGenerationChromeLimited: boolean;
+  responsiveInteractActive: boolean;
+  minimalUi: boolean;
+  minimalInspectorHasSelection: boolean;
+  topBarVisible: boolean;
+  mode: EditorMode;
+  canEdit: boolean;
+}): boolean {
+  return (
+    !hostOwnsChrome &&
+    inspectorFitsViewport({ minimalUi, isMobileViewport }) &&
+    !uiHidden &&
+    !initialGenerationChromeLimited &&
+    !responsiveInteractActive &&
+    (!minimalUi || minimalInspectorHasSelection) &&
+    (!topBarVisible || (mode === "edit" && canEdit))
   );
 }
 

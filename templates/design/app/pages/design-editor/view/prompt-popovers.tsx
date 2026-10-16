@@ -74,7 +74,6 @@ export function renderPromptPopovers({
     setGenerationChatTabId,
     generating,
     promptAnchorRef,
-    tweaksEnabled,
     migrateMutation,
     saveDesignAsTemplateMutation,
   } = editorGenerationAndAccess;
@@ -281,7 +280,7 @@ export function renderPromptPopovers({
       />
       <PromptPopover
         scopeDraftsToOrg={isSignedIn}
-        open={showTweakPrompt && tweaksEnabled}
+        open={showTweakPrompt}
         onOpenChange={handleTweakPromptOpenChange}
         requireAgentEngine
         title={t("designEditor.tweaksPromptTitle")}

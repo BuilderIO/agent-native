@@ -17,7 +17,7 @@ import {
 import { abortRun } from "../agent/run-manager.js";
 import { AppConfigurationError, getAppConfig } from "../app-config/index.js";
 import { isServerlessRuntime } from "../db/client.js";
-import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
+import { getOrgContext } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getSession } from "../server/auth.js";
@@ -184,6 +184,11 @@ import type {
   RemoteDevice,
   RemoteExecutionCapabilities,
 } from "./remote-types.js";
+import {
+  integrationRequestContext,
+  resolveIntegrationRequestScope,
+  type IntegrationRequestScope,
+} from "./request-scope.js";
 import { listIntegrationScopes, saveIntegrationScope } from "./scope-store.js";
 import { buildSlackAgentManifest } from "./slack-manifest.js";
 import {
@@ -429,6 +434,8 @@ type RemoteCodeCommandEnvelope = {
 type IntegrationCredentialContext = {
   userEmail: string;
   orgId?: string;
+  orgScope?: "personal";
+  defaultAgentEngineScope?: "deployment";
   isIntegrationCaller?: boolean;
 };
 
@@ -874,7 +881,10 @@ export function createIntegrationsPlugin(
         .then(operation)
         .finally(release);
     };
-    const createGoogleDocsPollerOptions = (requestBaseUrl?: string) => {
+    const createGoogleDocsPollerOptions = (
+      ownerEmail: string,
+      requestBaseUrl?: string,
+    ) => {
       const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
       const baseUrl = configuredBaseUrl || requestBaseUrl;
       const webhookUrl = baseUrl
@@ -887,7 +897,7 @@ export function createIntegrationsPlugin(
         initialToolNames,
         model: model ?? "",
         apiKey: getApiKey(),
-        ownerEmail: "integration@google-docs",
+        ownerEmail,
         webhookUrl,
       };
     };
@@ -896,18 +906,41 @@ export function createIntegrationsPlugin(
       adapters,
       webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
       async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        if (platform === "google-docs") {
+          if (enabled) {
+            const ownerEmail = actorEmail?.trim();
+            if (!ownerEmail) {
+              throw new Error(
+                "Google Docs requires a signed-in owner to start polling.",
+              );
+            }
+            await saveIntegrationConfig(
+              platform,
+              { enabled },
+              "default",
+              ownerEmail,
+            );
+            await runGoogleDocsPollerTransition(() =>
+              startGoogleDocsPoller(
+                createGoogleDocsPollerOptions(ownerEmail, baseUrl),
+              ),
+            );
+          } else {
+            await saveIntegrationConfig(
+              platform,
+              { enabled },
+              "default",
+              actorEmail,
+            );
+            await runGoogleDocsPollerTransition(stopGoogleDocsPoller);
+          }
+          return;
+        }
         await saveIntegrationConfig(
           platform,
           { enabled },
           "default",
           actorEmail,
-        );
-        if (platform !== "google-docs") return;
-        await runGoogleDocsPollerTransition(
-          enabled
-            ? () =>
-                startGoogleDocsPoller(createGoogleDocsPollerOptions(baseUrl))
-            : stopGoogleDocsPoller,
         );
       },
       async registerWebhook(platform, baseUrl) {
@@ -1033,26 +1066,39 @@ export function createIntegrationsPlugin(
 
     async function requireSessionContext(
       event: any,
-    ): Promise<{ ownerEmail: string; orgId: string | null } | null> {
+    ): Promise<({ ownerEmail: string } & IntegrationRequestScope) | null> {
       const session = await getSession(event).catch(() => null);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return null;
       }
       const orgCtx = await getOrgContext(event).catch(() => null);
-      return {
-        ownerEmail: session.email,
-        orgId: orgCtx?.orgId ?? session.orgId ?? null,
-      };
+      try {
+        return {
+          ownerEmail: session.email,
+          ...(await resolveIntegrationRequestScope({
+            ownerEmail: session.email,
+            orgId: orgCtx?.orgId ?? session.orgId ?? null,
+            principalType: "user",
+          })),
+        };
+      } catch (error) {
+        console.error(
+          "[integrations] Could not resolve signed-in user's organization scope:",
+          error,
+        );
+        setResponseStatus(event, 503);
+        return null;
+      }
     }
 
     function toCredentialContext(
-      ctx: { ownerEmail: string; orgId: string | null },
+      ctx: { ownerEmail: string } & IntegrationRequestScope,
       opts?: { isIntegrationCaller?: boolean },
     ): IntegrationCredentialContext {
       return {
         userEmail: ctx.ownerEmail,
-        ...(ctx.orgId ? { orgId: ctx.orgId } : {}),
+        ...integrationRequestContext(ctx),
         ...(opts?.isIntegrationCaller ? { isIntegrationCaller: true } : {}),
       };
     }
@@ -1063,10 +1109,14 @@ export function createIntegrationsPlugin(
       const ownerEmail =
         typeof config?.owner === "string" ? config.owner.trim() : "";
       if (!ownerEmail) return null;
-      const orgId = await resolveOrgIdForEmail(ownerEmail).catch(() => null);
       return {
         userEmail: ownerEmail,
-        ...(orgId ? { orgId } : {}),
+        ...integrationRequestContext(
+          await resolveIntegrationRequestScope({
+            ownerEmail,
+            principalType: "user",
+          }),
+        ),
         isIntegrationCaller: true,
       };
     }
@@ -2035,7 +2085,11 @@ export function createIntegrationsPlugin(
           | IntegrationSystemNoticeTaskPayload
           | IntegrationResponseDeliveryTaskPayload
           | AutomationWebhookTaskPayload
-          | { kind?: undefined };
+          | {
+              kind?: undefined;
+              principalType?: "user" | "service";
+              orgScope?: "personal";
+            };
         try {
           taskPayload = JSON.parse(task.payload) as typeof taskPayload;
         } catch {
@@ -2167,10 +2221,27 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
+          const principalType =
+            taskPayload.kind === "system-notice"
+              ? "service"
+              : "principalType" in taskPayload
+                ? (taskPayload.principalType ?? "user")
+                : "user";
+          const orgScope =
+            ("orgScope" in taskPayload ? taskPayload.orgScope : undefined) ??
+            (task.orgId === null && principalType === "user"
+              ? "personal"
+              : undefined);
+          const requestScope = await resolveIntegrationRequestScope({
+            ownerEmail: task.ownerEmail,
+            orgId: task.orgId,
+            orgScope,
+            principalType,
+          });
           const processingResult = await runWithRequestContext(
             {
               userEmail: task.ownerEmail,
-              ...(task.orgId ? { orgId: task.orgId } : {}),
+              ...integrationRequestContext(requestScope),
               isIntegrationCaller: true,
             },
             async () => {
@@ -3003,10 +3074,22 @@ export function createIntegrationsPlugin(
             error: err instanceof Error ? err.message : "Slack access denied",
           };
         }
+        let requestScope: IntegrationRequestScope;
+        try {
+          requestScope = await resolveIntegrationRequestScope({
+            ownerEmail: session.email,
+            orgId: org?.orgId ?? session.orgId ?? null,
+            principalType: "user",
+          });
+        } catch (error) {
+          console.error("[slack] Could not resolve install scope:", error);
+          setResponseStatus(event, 503);
+          return { error: "Could not verify your account scope." };
+        }
         return await runWithRequestContext(
           {
             userEmail: session.email,
-            orgId: org?.orgId ?? session.orgId ?? undefined,
+            ...integrationRequestContext(requestScope),
           },
           async () => {
             const clientId = await resolveSecret("SLACK_CLIENT_ID");
@@ -3097,10 +3180,15 @@ export function createIntegrationsPlugin(
             orgId: org?.orgId ?? session.orgId ?? null,
             orgRole: org?.role ?? null,
           });
+          const requestScope = await resolveIntegrationRequestScope({
+            ownerEmail: access.ownerEmail,
+            orgId: access.orgId,
+            principalType: "user",
+          });
           return await runWithRequestContext(
             {
               userEmail: access.ownerEmail,
-              orgId: access.orgId ?? undefined,
+              ...integrationRequestContext(requestScope),
             },
             async () => {
               const clientId = await resolveSecret("SLACK_CLIENT_ID");
@@ -3532,9 +3620,20 @@ export function createIntegrationsPlugin(
 
       if (adapterMap.has("google-docs")) {
         setTimeout(() => {
-          void runGoogleDocsPollerTransition(() =>
-            startGoogleDocsPoller(createGoogleDocsPollerOptions()),
-          );
+          void runGoogleDocsPollerTransition(async () => {
+            const config = await getIntegrationConfig("google-docs");
+            const ownerEmail = config?.owner?.trim();
+            if (!config?.configData?.enabled) return;
+            if (!ownerEmail) {
+              console.error(
+                "[google-docs] Cannot start poller without a configured owner",
+              );
+              return;
+            }
+            await startGoogleDocsPoller(
+              createGoogleDocsPollerOptions(ownerEmail),
+            );
+          });
         }, 2000);
       }
     }

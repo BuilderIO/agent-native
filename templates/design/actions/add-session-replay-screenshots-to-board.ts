@@ -549,6 +549,7 @@ export default defineAction({
                 ? "Private screenshots captured from an Analytics session replay."
                 : `Private screenshots from a cohort of ${cohortTotal} sessions; ${selectedReplayCount ?? screenshots.length} replay(s) selected.`,
             projectType: "prototype",
+            creationMethod: "import_analytics",
           },
           context,
         );

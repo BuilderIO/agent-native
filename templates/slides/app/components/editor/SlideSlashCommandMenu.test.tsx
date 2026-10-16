@@ -777,6 +777,91 @@ describe("slide slash command menu", () => {
     expect(document.activeElement).toBe(editingEl);
   });
 
+  it("keeps repeated keyboard navigation on the active command", () => {
+    const { editingEl, applyAuthoringCommand } = renderWithTypedSlash("");
+
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+
+    const heading3 = screen.getByRole("option", { name: /Heading 3/ });
+    expect(heading3.getAttribute("aria-selected")).toBe("true");
+    expectActiveOption(editingEl, heading3);
+
+    keyDown(editingEl, "Enter");
+
+    expect(applyAuthoringCommand).toHaveBeenCalledWith(
+      "heading3" satisfies InPlaceTextAuthoringCommand,
+      expect.any(Range),
+    );
+  });
+
+  it("reopens at the first command before keyboard navigation", () => {
+    const { editingEl, textNode } = renderWithTypedSlash("");
+
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+    expect(
+      screen
+        .getByRole("option", { name: /Heading 2/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    keyDown(editingEl, "Escape");
+    textNode.deleteData(0, 1);
+    setCaret(textNode, 0);
+    fireInput(editingEl, "deleteContentBackward", null);
+    typeSlash(editingEl, textNode, 0);
+
+    expect(
+      screen
+        .getByRole("option", { name: /Texto/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    keyDown(editingEl, "ArrowDown");
+    expect(
+      screen
+        .getByRole("option", { name: /Heading 1/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("keeps keyboard selection independent from pointer hover", () => {
+    const { editingEl } = renderWithTypedSlash("");
+    const paragraph = screen.getByRole("option", { name: /Plain paragraph/ });
+    const heading1 = screen.getByRole("option", { name: /Heading 1/ });
+    const heading3 = screen.getByRole("option", { name: /Heading 3/ });
+
+    expect(heading3.className).toContain("hover:bg-foreground/20");
+    expect(heading3.className).toContain("hover:text-foreground");
+    expect(heading3.className).not.toContain("hover:bg-accent");
+    expect(heading3.className).not.toContain("hover:text-accent-foreground");
+
+    fireEvent.pointerMove(heading3, { pointerType: "mouse" });
+    expect(paragraph.getAttribute("aria-selected")).toBe("true");
+
+    keyDown(editingEl, "ArrowDown");
+    expect(heading1.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.pointerMove(heading3, { pointerType: "mouse" });
+    expect(heading1.getAttribute("aria-selected")).toBe("true");
+    expectActiveOption(editingEl, heading1);
+  });
+
+  it("applies a pointer-selected command without moving focus", () => {
+    const { editingEl, applyAuthoringCommand } = renderWithTypedSlash("");
+    const heading2 = screen.getByRole("option", { name: /Heading 2/ });
+
+    fireEvent.mouseDown(heading2);
+    fireEvent.click(heading2);
+
+    expect(applyAuthoringCommand).toHaveBeenCalledWith(
+      "heading2" satisfies InPlaceTextAuthoringCommand,
+      expect.any(Range),
+    );
+    expect(document.activeElement).toBe(editingEl);
+  });
+
   it("uses the translated Blocks label as the listbox accessible name", () => {
     const originalLabel = labels["slideSlashMenu.blocks"];
     labels["slideSlashMenu.blocks"] = "Bloques";
