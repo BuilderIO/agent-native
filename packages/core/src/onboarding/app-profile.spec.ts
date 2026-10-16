@@ -216,10 +216,15 @@ describe("onboarding app profiles", () => {
       "browser-automation",
       "web-search",
     ]);
+    expect(builderOnly.every((capability) => !capability.required)).toBe(true);
     expect(
-      builderOnly.every(
-        (capability) => !capability.required && !capability.suggested,
-      ),
+      builderOnly.find((capability) => capability.service === "web-search")
+        ?.suggested,
+    ).toBe(true);
+    expect(
+      builderOnly
+        .filter((capability) => capability.service !== "web-search")
+        .every((capability) => !capability.suggested),
     ).toBe(true);
   });
 
