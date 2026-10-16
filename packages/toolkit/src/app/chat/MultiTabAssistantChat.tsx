@@ -33,7 +33,6 @@ import {
 import {
   useChatThreads,
   type ChatThreadScope,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";

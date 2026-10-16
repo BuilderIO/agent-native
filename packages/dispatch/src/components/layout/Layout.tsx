@@ -143,7 +143,6 @@ import {
 } from "../deferred-chat-components.js";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
-import { Skeleton } from "../ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
