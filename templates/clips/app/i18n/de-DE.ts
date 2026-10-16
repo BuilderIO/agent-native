@@ -1628,6 +1628,9 @@ const messages = {
     disconnected: "Mikrofon getrennt.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Der kostenlose Tarif von Builder.io umfasst Videospeicher, den du mit einem Klick einrichten kannst.",
+    customKeys: "Eigene Schlüssel",
     builderConnectPopupError:
       "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
@@ -1650,7 +1653,7 @@ const messages = {
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
     description:
-      "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
+      "Wähle, wo deine aufgenommenen Videos gespeichert werden. Der kostenlose Tarif von Builder.io umfasst Videospeicher, den du mit einem Klick einrichten kannst.",
     createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",

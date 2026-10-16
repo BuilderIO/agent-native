@@ -1508,6 +1508,8 @@ const messages = {
     disconnected: "麦克风已断开连接。",
   },
   storageSetup: {
+    builderStorageOffer: "Builder.io 免费套餐包含视频存储，可一键设置。",
+    customKeys: "自定义密钥",
     builderConnectPopupError:
       "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请重试。",
     builderConnectError: "Builder.io 设置未完成。请重试，或选择 S3 兼容存储。",
@@ -1526,7 +1528,7 @@ const messages = {
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
     description:
-      "使用 Builder.io 或兼容 S3 的存储来保存录制的视频。Builder.io 包含免费托管和 AI 额度。",
+      "选择录制视频的存储位置。Builder.io 免费套餐包含视频存储，可一键设置。",
     createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 账户登录",
     free: "免费",

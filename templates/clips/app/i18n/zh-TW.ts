@@ -1511,6 +1511,9 @@ const messages = {
     disconnected: "麥克風已中斷連線。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io 免費方案包含影片儲存空間，可一鍵完成設定。",
+    customKeys: "自訂金鑰",
     builderConnectPopupError:
       "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請重試。",
     builderConnectError:
@@ -1530,7 +1533,7 @@ const messages = {
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
     description:
-      "使用 Builder.io 或相容 S3 的儲存空間來保存錄製的影片。Builder.io 包含免費代管和 AI 額度。",
+      "選擇錄製影片的儲存位置。Builder.io 免費方案包含影片儲存空間，可一鍵完成設定。",
     createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
     free: "免費",

@@ -59,11 +59,6 @@ export interface StorageSetupCardProps {
   connectSource?: string;
   connectFlow?: string;
   /**
-   * Open the S3 settings form in a new tab so the page holding an unsaved
-   * recording never navigates away.
-   */
-  openSettingsInNewTab?: boolean;
-  /**
    * The recording waiting on storage, so each step event can be tied to it:
    * the local id of a copy recorded without storage, or the server id of a
    * row waiting to finish. Omit both where no recording exists yet.
@@ -80,7 +75,6 @@ export function StorageSetupCard({
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
-  openSettingsInNewTab = false,
   recordingAttemptId,
   outputId,
 }: StorageSetupCardProps) {
@@ -339,7 +333,9 @@ export function StorageSetupCard({
         <p className="mt-1 text-sm text-muted-foreground">
           {connected
             ? connectedDescription
-            : (description ?? t("storageSetup.description"))}
+            : description
+              ? `${description} ${t("storageSetup.builderStorageOffer")}`
+              : t("storageSetup.description")}
         </p>
       </div>
 
@@ -374,17 +370,16 @@ export function StorageSetupCard({
             <Button asChild variant="secondary" className="w-full">
               <a
                 href={storageSetupHref}
+                target="_blank"
+                rel="noopener noreferrer"
                 onClick={() =>
                   trackStorageStep("onboarding_method_clicked", {
                     ...stepProperties,
                     method_id: "s3",
                   })
                 }
-                {...(openSettingsInNewTab
-                  ? { target: "_blank", rel: "noopener noreferrer" }
-                  : {})}
               >
-                {t("settings.s3Title")}
+                {t("storageSetup.customKeys")}
               </a>
             </Button>
           </>

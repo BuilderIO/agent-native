@@ -4285,7 +4285,6 @@ export default function RecordRoute() {
                   key={pendingLocal.id}
                   recordingAttemptId={pendingLocal.id}
                   connectFlow="record_first"
-                  openSettingsInNewTab
                 />
               </>
             ) : (

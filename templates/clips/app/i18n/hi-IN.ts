@@ -1558,6 +1558,9 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io के मुफ़्त प्लान में वीडियो स्टोरेज शामिल है, जिसे एक क्लिक में सेट अप किया जा सकता है।",
+    customKeys: "कस्टम कुंजियाँ",
     builderConnectPopupError:
       "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा फिर कोशिश करें।",
     builderConnectError:
@@ -1578,7 +1581,7 @@ const messages = {
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
     description:
-      "रिकॉर्ड किए गए वीडियो को Builder.io या S3-संगत स्टोरेज में सहेजें। Builder.io में मुफ़्त होस्टिंग और AI क्रेडिट शामिल हैं।",
+      "चुनें कि रिकॉर्ड किए गए वीडियो कहाँ सहेजने हैं। Builder.io के मुफ़्त प्लान में वीडियो स्टोरेज शामिल है, जिसे एक क्लिक में सेट अप किया जा सकता है।",
     createBuilderAccount: "Builder.io इस्तेमाल करें",
     signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",

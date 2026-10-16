@@ -124,10 +124,18 @@ describe("StorageSetupCard", () => {
   let container: HTMLDivElement;
   let root: Root;
 
-  async function renderCard(onConfigured = vi.fn(), onSkip?: () => void) {
+  async function renderCard(
+    onConfigured = vi.fn(),
+    onSkip?: () => void,
+    description?: string,
+  ) {
     await act(async () => {
       root.render(
-        <StorageSetupCard onConfigured={onConfigured} onSkip={onSkip} />,
+        <StorageSetupCard
+          onConfigured={onConfigured}
+          onSkip={onSkip}
+          description={description}
+        />,
       );
     });
     // The shared popover is lazy-loaded; wait for it to replace its fallback.
@@ -793,13 +801,24 @@ describe("StorageSetupCard", () => {
     expect(container.querySelector("button[disabled]")).toBeNull();
   });
 
-  it("offers S3-compatible storage to owners and admins", async () => {
+  it("offers custom keys in a new tab and explains Builder.io's free setup", async () => {
     mocks.storageSetupHref = "/settings/infra#uploads";
-    await renderCard();
+    await renderCard(
+      vi.fn(),
+      undefined,
+      "Your recording is safe in this browser.",
+    );
 
-    expect(
-      container.querySelector('a[href="/settings/infra#uploads"]')?.textContent,
-    ).toBe("settings.s3Title");
+    const customKeysLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/infra#uploads"]',
+    );
+    expect(customKeysLink?.textContent).toBe("storageSetup.customKeys");
+    expect(customKeysLink?.target).toBe("_blank");
+    expect(customKeysLink?.rel).toBe("noopener noreferrer");
+    expect(container.textContent).toContain(
+      "Your recording is safe in this browser.",
+    );
+    expect(container.textContent).toContain("storageSetup.builderStorageOffer");
     expect(container.textContent).not.toContain(
       "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO",
     );
@@ -809,7 +828,7 @@ describe("StorageSetupCard", () => {
     mocks.storageSetupHref = null;
     await renderCard();
 
-    expect(container.textContent).not.toContain("settings.s3Title");
+    expect(container.textContent).not.toContain("storageSetup.customKeys");
     expect(container.textContent).toContain("clipsSettings.storageAskAdmin");
   });
 
@@ -824,7 +843,7 @@ describe("StorageSetupCard", () => {
       "storageSetup.builderConnectErrorAskAdmin",
     );
     expect(container.textContent).toContain("clipsSettings.storageAskAdmin");
-    expect(container.textContent).not.toContain("settings.s3Title");
+    expect(container.textContent).not.toContain("storageSetup.customKeys");
     expect(container.querySelector("a[href]")).toBeNull();
   });
 

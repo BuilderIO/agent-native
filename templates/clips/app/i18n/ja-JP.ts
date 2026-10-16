@@ -1603,6 +1603,9 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
+    customKeys: "カスタムキー",
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
@@ -1624,7 +1627,7 @@ const messages = {
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
     description:
-      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
+      "録画した動画の保存先を選びます。Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
     createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
