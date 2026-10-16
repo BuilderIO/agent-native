@@ -4,7 +4,6 @@ import { defineAction } from "../../action.js";
 import { orgAdminAudit } from "../../audit/org-admin.js";
 import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
-import { inviteOne } from "../handlers.js";
 
 export default defineAction({
   description:
@@ -32,6 +31,9 @@ export default defineAction({
       args: [caller.orgId],
     });
     const orgName = rows[0]?.name ? String(rows[0].name) : null;
+    // Loaded on first use: the registry imports every core action module
+    // when it is built, and the org route handlers are a heavy graph.
+    const { inviteOne } = await import("../handlers.js");
     return inviteOne(
       { orgId: caller.orgId, orgName, email: caller.email },
       email,
