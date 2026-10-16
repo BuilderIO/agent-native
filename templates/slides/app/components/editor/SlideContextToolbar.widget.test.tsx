@@ -122,7 +122,10 @@ describe("contextual toolbar in a widget pane", () => {
     expect(toolbar.getAttribute("data-compact")).toBeNull();
     expect(toolbar.className).not.toContain("flex-wrap");
     expect(screen.getByLabelText("Opacity")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Send to back" }));
+    const order = screen.getByRole("button", { name: "Order" });
+    fireEvent.pointerDown(order, { button: 0 });
+    fireEvent.pointerUp(order, { button: 0 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Send to back" }));
     expect(onArrange).toHaveBeenCalledWith("back");
   });
 
@@ -133,7 +136,6 @@ describe("contextual toolbar in a widget pane", () => {
 
     for (const name of [
       "Font family",
-      "Weight",
       "Italic",
       "Underline",
       "Text color",
