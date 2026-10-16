@@ -63,8 +63,8 @@ export default defineAction({
           and(eq(v.id, args.versionId), eq(v.recordingId, args.recordingId)),
         );
       if (!version) return null;
-      // Restored anyway, it would be a ready transcript with no captions,
-      // and the version would be spent on it.
+      // Restored anyway, its unreadable cues would drop out of a ready
+      // transcript, and the version would be spent on it.
       if (readSegmentEntries(version.segmentsJson) === null) {
         fail(
           `Saved transcript ${version.id} has unreadable segments, so it can't be restored. Both transcripts were left as they were.`,

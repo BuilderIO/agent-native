@@ -50,25 +50,24 @@ function shiftedJsonArray(
 
 /**
  * Stored cues moved onto the extended timeline, every entry and field kept as
- * stored and its times read the way the player reads them. A cue whose times
- * can't be read fails the extension: dropped, or left on the old timeline, it
- * would be lost quietly.
+ * stored. Cues it can't read fail the extension: dropped, or left on the old
+ * timeline, they would be lost quietly.
  */
 function shiftedSegments(raw: string, addedMs: number, owner: string): string {
-  const shifted = readSegmentEntries(raw)?.map((entry) => {
-    const startMs = Number(entry?.startMs);
-    const endMs = Number(entry?.endMs);
-    return Number.isFinite(startMs) && Number.isFinite(endMs)
-      ? { ...entry, startMs: startMs + addedMs, endMs: endMs + addedMs }
-      : null;
-  });
-  if (!shifted || shifted.includes(null)) {
+  const entries = readSegmentEntries(raw);
+  if (!entries) {
     fail(
       `${owner} has unreadable segments, so it can't move with the video. Nothing was changed.`,
       { errorCode: "transcript_segments_unreadable", statusCode: 500 },
     );
   }
-  return JSON.stringify(shifted);
+  return JSON.stringify(
+    entries.map((entry) => ({
+      ...entry,
+      startMs: entry.startMs + addedMs,
+      endMs: entry.endMs + addedMs,
+    })),
+  );
 }
 
 export default defineAction({
