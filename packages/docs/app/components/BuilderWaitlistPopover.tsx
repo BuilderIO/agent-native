@@ -37,8 +37,9 @@ type BuilderLaunchTrigger = ReactElement<{
   target?: string;
 }>;
 
-export const BUILDER_BUILD_ONLINE_SUPPORTED = false;
-export const BUILDER_SIGNUP_URL = "https://builder.io/signup";
+export const BUILDER_BUILD_ONLINE_SUPPORTED = true;
+export const BUILDER_SIGNUP_URL =
+  "https://builder.io/signup?initialPrompt=true&useFusion=true";
 
 export function BuilderLaunchLink({
   className = primaryButtonClassName,

@@ -6,7 +6,7 @@ import {
   scopedAgentAccessResourceId,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import {
   defineEventHandler,
   readBody,
@@ -293,6 +293,10 @@ export default defineEventHandler(async (event: H3Event) => {
             and(
               eq(schema.recordings.id, recordingId),
               eq(schema.recordings.status, "processing"),
+              or(
+                isNull(schema.recordings.failureCode),
+                ne(schema.recordings.failureCode, "taken_down"),
+              ),
               or(
                 isNull(schema.recordings.loomImportClaimId),
                 isNull(schema.recordings.loomImportClaimedAt),

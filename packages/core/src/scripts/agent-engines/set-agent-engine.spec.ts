@@ -107,7 +107,10 @@ async function addMember(orgId: string, email: string, role: string) {
 }
 
 function as<T>(userEmail: string, orgId: string | undefined, fn: () => T) {
-  return runWithRequestContext({ userEmail, orgId }, fn);
+  return runWithRequestContext(
+    { userEmail, orgId, ...(orgId ? {} : { orgScope: "personal" as const }) },
+    fn,
+  );
 }
 
 beforeEach(async () => {
@@ -165,7 +168,7 @@ describe("manage-agent-engine set", () => {
         model: "old-model",
       });
       const result = JSON.parse(
-        await runWithRequestContext(ctx, () =>
+        await runWithRequestContext({ ...ctx, orgScope: "personal" }, () =>
           runSet({ engine: "ai-sdk:openai", appId: "calendar" }),
         ),
       );
@@ -266,7 +269,11 @@ describe("manage-agent-engine set", () => {
 
   it.each([
     { userEmail: "admin@a.test", orgId: "org-a" },
-    { userEmail: "solo@example.test", orgId: undefined },
+    {
+      userEmail: "solo@example.test",
+      orgId: undefined,
+      orgScope: "personal" as const,
+    },
   ])(
     "preserves every app override and reports the effective model for $userEmail",
     async (ctx) => {
@@ -497,7 +504,10 @@ describe("manage-agent-engine set", () => {
     );
     expect(result).toMatchObject({ ok: true, model: "gpt-5.5" });
     await expect(
-      readDefaultAgentEngineSettingDetailed({ userEmail: "solo@example.test" }),
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: "solo@example.test",
+        orgScope: "personal",
+      }),
     ).resolves.toMatchObject({ source: "user" });
   });
 
@@ -536,6 +546,7 @@ describe("manage-agent-engine set", () => {
     await expect(
       readDefaultAgentEngineSettingDetailed({
         userEmail: "solo@example.test",
+        orgScope: "personal",
       }),
     ).resolves.toMatchObject({
       source: "user",
@@ -588,7 +599,7 @@ describe("manage-agent-engine set", () => {
     );
     await expect(
       readAgentAppModelDefaultSettings(
-        { userEmail: "solo@example.test" },
+        { userEmail: "solo@example.test", orgScope: "personal" },
         "mail",
       ),
     ).resolves.toMatchObject({

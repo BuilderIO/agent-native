@@ -51,6 +51,7 @@ import {
   sendWithInjectionFallback,
   shouldFollowOverlay,
 } from "./overlay-follow";
+import { parseClipDurationLimitMs } from "./recording-duration";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("background");
@@ -212,6 +213,7 @@ type NativeRecording = {
   includeDeveloperLogs: boolean;
   videoDeviceId: string;
   audioDeviceId: string;
+  maxClipDurationMs?: number | null;
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
@@ -1613,6 +1615,7 @@ async function armRecording(args: {
     uploadChunkUrl?: string;
     abortUrl?: string;
     uploadMode?: UploadMode;
+    maxClipDurationMs?: number | null;
   };
   let created: CreatedRecording;
   try {
@@ -1668,6 +1671,7 @@ async function armRecording(args: {
     includeDeveloperLogs: settings.includeDeveloperLogs,
     videoDeviceId: settings.videoDeviceId,
     audioDeviceId: settings.audioDeviceId,
+    maxClipDurationMs: parseClipDurationLimitMs(created.maxClipDurationMs),
     status: "recording",
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
@@ -1702,6 +1706,7 @@ async function armRecording(args: {
       recordingId: created.id,
       uploadUrl,
       uploadMode: created.uploadMode ?? "buffered",
+      maxClipDurationMs: parseClipDurationLimitMs(created.maxClipDurationMs),
       hasCamera: cameraInvolved,
       startDelayMs,
       authToken,
@@ -1896,6 +1901,7 @@ async function handleOverlayRestart() {
       recordingId: recording.recordingId,
       uploadUrl: recording.uploadUrl,
       uploadMode: recording.uploadMode ?? "buffered",
+      maxClipDurationMs: recording.maxClipDurationMs ?? null,
       hasCamera: cameraInvolved,
       startDelayMs: cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000,
       authToken: restartAuthToken,

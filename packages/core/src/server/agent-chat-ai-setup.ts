@@ -10,6 +10,7 @@ import {
 import { getAgentEngineEntry } from "../agent/engine/registry.js";
 import type { AgentEngineEntry } from "../agent/engine/registry.js";
 import { hasUsableBuilderOAuthSessionForReadiness } from "./builder-oauth.js";
+import { hasChatGPTSubscriptionCredential } from "./chatgpt-subscription-oauth.js";
 import {
   assertCredentialStoreReadable,
   getProviderCredentialAuthFailure,
@@ -18,7 +19,11 @@ import {
   resolveBuilderPrivateKey,
   resolveSecretDetailed,
 } from "./credential-provider.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
 
 export const AGENT_CHAT_AI_SETUP_REQUIRED_CODE =
   "AGENT_CHAT_AI_SETUP_REQUIRED" as const;
@@ -38,9 +43,8 @@ export function isBuilderChatSetupReady(input: {
 
 /**
  * Chat accepts the Builder gateway/OAuth lane, a usable BYOK API key, or a
- * configured OpenAI-compatible/Ollama endpoint. Engine selection by itself is
- * not readiness: ChatGPT subscription auth and untyped engine names do not
- * qualify.
+ * configured OpenAI-compatible/Ollama endpoint, or a usable personal ChatGPT
+ * subscription account. Engine selection by itself is not readiness.
  */
 export async function isAgentChatAiSetupReady(input?: {
   status?: AgentEngineStatusResult;
@@ -66,6 +70,10 @@ export async function isAgentChatAiSetupReady(input?: {
       const readiness = await checkProviderEntryReadiness(detectedEntry);
       if (readiness.usable) return true;
       unreadable ||= readiness.unreadable;
+    }
+    const ownerEmail = getRequestUserEmail();
+    if (ownerEmail && (await hasEligibleChatGPTSubscription(ownerEmail))) {
+      return true;
     }
     if (unreadable) throwAgentChatSetupReadUnavailable();
     return false;
@@ -154,7 +162,20 @@ export async function isAgentChatAiSetupReady(input?: {
     throwAgentChatSetupReadUnavailable();
   }
 
+  if (ownerEmail && (await hasEligibleChatGPTSubscription(ownerEmail))) {
+    return true;
+  }
   return false;
+}
+
+async function hasEligibleChatGPTSubscription(
+  ownerEmail: string,
+): Promise<boolean> {
+  const requestContext = getRequestContext();
+  if (getRequestOrgId() || requestContext?.orgScope !== "personal") {
+    return false;
+  }
+  return hasChatGPTSubscriptionCredential(ownerEmail);
 }
 
 async function checkProviderEntryReadiness(

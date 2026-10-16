@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAppStateGet = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
@@ -29,6 +30,9 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
+}));
+vi.mock("./s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -488,6 +492,29 @@ describe("loadRecordingMediaBytes", () => {
     await expect(
       loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("loads hosted recording bytes through the recording-scoped signed reader", async () => {
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("abc", {
+        status: 200,
+        headers: { "content-type": "video/webm" },
+      }),
+    );
+
+    const result = await loadRecordingMediaBytes(
+      makeRecording({ storageMode: "hosted" }) as any,
+    );
+
+    expect(Buffer.from(result.bytes).toString("utf8")).toBe("abc");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      "https://media.example.com/clip.webm",
+      expect.objectContaining({
+        recordingId: "rec-1",
+        storageMode: "hosted",
+      }),
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("streams large remote frame media to a temporary file", async () => {

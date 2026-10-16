@@ -487,6 +487,45 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
   });
 
+  it("preserves confirmed personal scope for queued-message readiness", async () => {
+    const h3App = await mountResourceRoutes();
+    const setupRequired = Object.assign(new Error("Connect AI first"), {
+      statusCode: 403,
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    let setupScope: string | undefined;
+    setupGateMocks.requireAgentChatAiSetup.mockImplementationOnce(async () => {
+      setupScope = getRequestContext()?.orgScope;
+      throw setupRequired;
+    });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-personal-queue-gate",
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-personal-queue-gate/queued",
+      { userEmail: "user@example.test", orgScope: "personal" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "claim",
+            messageId: "queued-personal-claim",
+            claimId: "personal-claim",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(setupScope).toBe("personal");
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
   it("returns a typed conflict when a claimed queue item was removed", async () => {
     const h3App = await mountResourceRoutes();
     const threadId = "thread-claim-race";
@@ -2067,7 +2106,7 @@ describe("compact skills summary and the request registry", () => {
     mocks.getSession.mockResolvedValue({ email: "user@example.test" });
     mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
     const systemPrompt = await runWithRequestContext(
-      { userEmail: "user@example.test" },
+      { userEmail: "user@example.test", orgScope: "personal" },
       () =>
         handler.systemPrompt(
           new H3Event(new Request("https://app.example.test/chat")),

@@ -6,5 +6,6 @@ describe("Clips initial chat tools", () => {
   it("exposes recording trim and split actions to the agent", () => {
     expect(INITIAL_TOOL_NAMES).toContain("trim-recording");
     expect(INITIAL_TOOL_NAMES).toContain("split-recording");
+    expect(INITIAL_TOOL_NAMES).toContain("get-video-storage-status");
   });
 });

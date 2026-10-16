@@ -3,6 +3,12 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-15
+
+### Added
+
+- External Design agents can delete screens when you ask them.
+
 ## 2026-10-14
 
 ### Improved

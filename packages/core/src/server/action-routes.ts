@@ -144,6 +144,7 @@ function currentBuildId(): string {
 
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
+import { isDirectLoopbackRequest } from "./loopback.js";
 import {
   getVerifiedServiceIdentityFromEvent,
   getRequestIdentityAuthenticatedAtMs,
@@ -1207,6 +1208,7 @@ function mountActionRoutesInternal(
             federationMembershipValidated:
               isFederationMembershipValidatedForEvent(event, userEmail, orgId),
             isLoopbackRequest: isLoopbackRequest(event),
+            isDirectLoopbackRequest: isDirectLoopbackRequest(event),
           },
           async () => {
             if (typeof entry.maxBodyBytes === "number" && method !== "GET") {
