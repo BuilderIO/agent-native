@@ -1,4 +1,4 @@
-import { IconCameraOff, IconUserScan } from "@tabler/icons-react";
+import { IconCameraOff } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
@@ -47,7 +47,7 @@ export function Bubble() {
   );
   const [size, setSize] = useState<BubbleSize>("small");
   const [showControls, setShowControls] = useState(false);
-  const [cutout, setCutout] = useCameraCutoutPreference();
+  const [cutout] = useCameraCutoutPreference();
   const [cutoutReady, setCutoutReady] = useState(false);
   const activePathRef = useRef(activePath);
   activePathRef.current = activePath;
@@ -897,17 +897,6 @@ export function Bubble() {
           data-no-drag
         >
           <IconCameraOff size={14} stroke={2} />
-        </button>
-        <button
-          type="button"
-          className={`bubble-control-button ${cutout ? "is-active" : ""}`}
-          onClick={() => setCutout(!cutout)}
-          aria-label="Remove background"
-          aria-pressed={cutout}
-          title={cutout ? "Show background" : "Remove background"}
-          data-no-drag
-        >
-          <IconUserScan size={14} stroke={2} />
         </button>
         <button
           type="button"
