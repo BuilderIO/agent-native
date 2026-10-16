@@ -39,6 +39,7 @@ import {
   type AppShellSkeletonLayout,
 } from "../shared/AppShellSkeleton.js";
 import { ClientOnly } from "../shared/ClientOnly.js";
+import { ConsentBanner } from "../shared/ConsentBanner.js";
 import { EnvironmentBadge } from "../shared/EnvironmentBadge.js";
 import { RouteTransitionIndicator } from "../shared/RouteTransitionIndicator.js";
 import { RuntimeConfigNotice } from "../shared/RuntimeConfigNotice.js";
@@ -462,6 +463,7 @@ function ProvidersInner({
       {showEnvironmentBadge ? (
         <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
       ) : null}
+      {ownsDocument ? <ConsentBanner /> : null}
       {toaster}
     </TooltipProvider>
   );
