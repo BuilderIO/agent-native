@@ -99,6 +99,24 @@ describe("verifyA2ATokenWithClaims", () => {
     ).toBeNull();
   });
 
+  it("rejects delegation when the receiver cannot resolve a local organization ID", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "operator@example.com",
+      orgDomain: "builder.io",
+      orgId: "",
+    });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_domain: "builder.io",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("rejects an ID-only organization claim even when local metadata resolves it", async () => {
     expect(
       await verifyA2ATokenWithClaims(
