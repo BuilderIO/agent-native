@@ -1294,6 +1294,10 @@ export default {
     dashboardActions: "대시보드 세부정보 및 작업",
     certifyForAi: "AI 쿼리용 인증",
     certifiedForAi: "AI 쿼리용 인증됨",
+    duplicateToCustomize: "복제하여 사용자 지정",
+    duplicateToCustomizeHint:
+      "기본 제공 대시보드는 Analytics가 릴리스될 때마다 업데이트됩니다. 변경하려면 내 사본을 만드세요.",
+    duplicateFailed: "이 대시보드를 복제하지 못했습니다.",
     certificationSaved: "대시보드가 AI 쿼리용으로 인증됨",
     certificationFailed: "대시보드를 인증할 수 없음: {{message}}",
     details: "Details",
