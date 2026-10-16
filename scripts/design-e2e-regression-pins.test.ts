@@ -911,6 +911,97 @@ test("runtime suppressions in nested helpers stay attached to their registered t
   }
 });
 
+test("uncalled nested helpers do not suppress their enclosing registration", () => {
+  const source = [
+    'test("pinned behavior", (_fixtures, testInfo) => {',
+    '  function unusedSkip() { testInfo.skip(true, "not called"); }',
+    '  const unusedFixme = () => testInfo.fixme(true, "also not called");',
+    "});",
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(source);
+
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0]?.suppressionKind, null);
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 1);
+});
+
+test("called nested helper cycles retain runtime suppressions", () => {
+  const source = [
+    'test("pinned behavior", (_fixtures, testInfo) => {',
+    "  function cycleA() { cycleB(); }",
+    '  function cycleB() { cycleA(); testInfo.skip(true, "called cycle"); }',
+    "  cycleA();",
+    "});",
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(source);
+
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0]?.suppressionKind, "runtime");
+  assert.throws(
+    () => findDesignE2ETestLine(source, "pinned behavior"),
+    /must run without/,
+  );
+});
+
+test("file and suite lifecycle hook suppressions are scoped to affected tests", () => {
+  const fileHooks = [
+    'test.beforeEach((_fixtures, testInfo) => testInfo.skip(true, "file beforeEach"));',
+    'test.beforeAll(() => test.skip(true, "file beforeAll"));',
+    'test.afterEach((_fixtures, testInfo) => testInfo.fixme(true, "file afterEach"));',
+    'test.afterAll(() => test.fixme(true, "file afterAll"));',
+    'test("file affected", () => {});',
+  ].join("\n");
+  const fileRegistrations = findDesignE2ETestRegistrations(fileHooks);
+
+  assert.equal(fileRegistrations.length, 1);
+  assert.equal(fileRegistrations[0]?.title, "file affected");
+  assert.equal(fileRegistrations[0]?.suppressionKind, "file");
+  const fileEvents = JSON.parse(
+    fileRegistrations[0]?.suppressionFingerprint ?? "[]",
+  ) as Array<{ scope: string; callee: string }>;
+  assert.deepEqual(
+    fileEvents
+      .filter(({ scope }) => scope === "file")
+      .map(({ callee }) => callee)
+      .sort(),
+    ["test.fixme", "test.skip", "testInfo.fixme", "testInfo.skip"],
+  );
+
+  const suiteHooks = [
+    'test.describe("hooked suite", () => {',
+    '  test.beforeEach((_fixtures, testInfo) => testInfo.skip(true, "suite beforeEach"));',
+    '  test.beforeAll(() => test.skip(true, "suite beforeAll"));',
+    '  test.afterEach((_fixtures, testInfo) => testInfo.fixme(true, "suite afterEach"));',
+    '  test.afterAll(() => test.fixme(true, "suite afterAll"));',
+    '  test("suite affected", () => {});',
+    "});",
+    'test.describe("unrelated suite", () => {',
+    '  test("unrelated behavior", () => {});',
+    "});",
+  ].join("\n");
+  const suiteRegistrations = findDesignE2ETestRegistrations(suiteHooks);
+  const affected = suiteRegistrations.find(
+    ({ title }) => title === "suite affected",
+  );
+  const unrelated = suiteRegistrations.find(
+    ({ title }) => title === "unrelated behavior",
+  );
+
+  assert.equal(suiteRegistrations.length, 2);
+  assert.equal(affected?.suppressionKind, "suite");
+  assert.equal(unrelated?.suppressionKind, null);
+  const suiteEvents = JSON.parse(
+    affected?.suppressionFingerprint ?? "[]",
+  ) as Array<{ scope: string; callee: string }>;
+  assert.deepEqual(
+    suiteEvents
+      .filter(({ scope }) => scope === "suite")
+      .map(({ callee }) => callee)
+      .sort(),
+    ["test.fixme", "test.skip", "testInfo.fixme", "testInfo.skip"],
+  );
+});
+
 test("top-level helpers called by tests attach skip and fixme suppressions without recursion leaks", () => {
   const source = [
     "function enterCycleA() { enterCycleB(); }",

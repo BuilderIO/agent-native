@@ -389,6 +389,45 @@ test("moving a runtime suppression without changing it preserves its fingerprint
   assert.deepEqual(compareQuarantineSnapshots([base], [head], []), []);
 });
 
+test("changing a runtime suppression between try, catch, and unconditional paths needs a new receipt", () => {
+  const catchPath = parseSingleSuppressedTest(
+    [
+      'test("existing behavior", (_fixtures, testInfo) => {',
+      '  try { throw new Error("enter catch"); } catch {',
+      '    testInfo.skip(isMobile, "unsupported");',
+      "  }",
+      "});",
+    ].join("\n"),
+  );
+  const tryPath = parseSingleSuppressedTest(
+    [
+      'test("existing behavior", (_fixtures, testInfo) => {',
+      '  try { testInfo.skip(isMobile, "unsupported"); } catch {}',
+      "});",
+    ].join("\n"),
+  );
+  const unconditionalPath = parseSingleSuppressedTest(
+    'test("existing behavior", (_fixtures, testInfo) => { testInfo.skip(isMobile, "unsupported"); });',
+  );
+
+  assert.notEqual(
+    catchPath.suppressionFingerprint,
+    tryPath.suppressionFingerprint,
+  );
+  assert.notEqual(
+    catchPath.suppressionFingerprint,
+    unconditionalPath.suppressionFingerprint,
+  );
+  assert.match(
+    compareQuarantineSnapshots([catchPath], [tryPath], []).join("\n"),
+    /new test suppression needs an explicit exception/,
+  );
+  assert.match(
+    compareQuarantineSnapshots([catchPath], [unconditionalPath], []).join("\n"),
+    /new test suppression needs an explicit exception/,
+  );
+});
+
 test("editing a direct fixme callback does not change its suppression fingerprint", () => {
   const base = parseSingleSuppressedTest(
     'test.fixme("existing behavior", () => { expect(value).toBe(1); });',
