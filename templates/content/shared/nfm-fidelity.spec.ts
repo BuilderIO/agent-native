@@ -144,10 +144,11 @@ describe("canonicalizeNfmWithFidelity", () => {
       Array.from({ length: 500 }, (_, i) => `${"\t".repeat(i)}- a`).join("\n"),
     );
     canonicalizeNfm(`<table>\n<tr>\n${"<td>\n".repeat(16_000)}</tr>\n</table>`);
-    for (const cell of ["<td>a", "<td a"])
+    for (const cell of ["<td>a", "<td a", "<td>`"])
       canonicalizeNfm(
         `<table>\n<tr>${cell.repeat(48_000)}</th></tr>\n</table>`,
       );
+    canonicalizeNfm("$`a".repeat(60_000));
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 

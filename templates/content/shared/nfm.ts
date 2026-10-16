@@ -926,12 +926,17 @@ function makeInlineAtom(
   label: string,
 ): PMNode {
   const attrs = readAttrs(tagName, rawAttrs);
+  const text = unescapeAttr(label);
+  const trimmed = text.trim();
+  // The chip shows the spaces; the editor never makes a label that has them.
+  if (trimmed !== text)
+    reportLoss("dropped-source", `<${tagName}>${label}</${tagName}>`);
   return {
     type: "notionInlineAtom",
     attrs: {
       tagName,
       attrsJson: JSON.stringify(attrs),
-      label: unescapeAttr(label).trim(),
+      label: trimmed,
     },
   };
 }
@@ -2740,8 +2745,8 @@ function parseRawContainer(
 }
 
 // For each line of a table, indexed from its open tag, the first line at or
-// after it that closes a cell, or `close`: a table of unclosed cells would
-// otherwise rescan the rest of itself from every one.
+// after it that closes a cell or starts or ends a row, or `close`: a table of
+// unclosed cells would otherwise rescan the rest of itself from every one.
 function cellClosesFrom(
   start: number,
   close: number,
@@ -2749,10 +2754,13 @@ function cellClosesFrom(
 ): Int32Array {
   const next = new Int32Array(close - start + 1);
   next[close - start] = close;
-  for (let index = close - 1; index > start; index--)
-    next[index - start] = /<\/t[dh]>$/.test(lineAt(index))
-      ? index
-      : next[index - start + 1];
+  for (let index = close - 1; index > start; index--) {
+    const line = lineAt(index);
+    next[index - start] =
+      ROW_EDGE.test(line) || /<\/t[dh]>$/.test(line)
+        ? index
+        : next[index - start + 1];
+  }
   return next;
 }
 
@@ -2777,6 +2785,10 @@ function parseTable(
 
   const openAttrSource = openLine.replace(/^<table/, "").replace(/>$/, "");
   const openAttrs = readAttrs("table", openAttrSource, TABLE_ATTRS);
+  for (const [name, value] of Object.entries(openAttrs)) {
+    if (TABLE_ATTRS.has(name) && value !== "true" && value !== "false")
+      reportLoss("dropped-attribute", `<table ${name}="${value}">`);
+  }
   const colMeta: Array<{ color?: string; width?: string }> = [];
   const rows: Array<{ color: string | null; cells: string[] }> = [];
   let cellCloses: Int32Array | null = null;
@@ -2811,7 +2823,9 @@ function parseTable(
       if (/^<t[dh][\s>]/.test(cd) && !/<\/t[dh]>$/.test(cd)) {
         cellCloses ??= cellClosesFrom(start, close, lineAt);
         const end = cellCloses[i - start];
-        if (end < close) {
+        // A cell left open at its row's end is dropped, not read into the
+        // next row.
+        if (end < close && !ROW_EDGE.test(lineAt(end))) {
           for (; i <= end; i++) cd += ` ${lineAt(i)}`;
           cd = cd
             .replace(/^(<t[dh][^>]*>)\s+/, "$1")
@@ -2819,10 +2833,9 @@ function parseTable(
         }
       }
       // The writer puts one cell on a line and escapes `<` outside code and
-      // math, so a raw close tag inside a line without those is an agent's
-      // `<td>a</td><td>b</td>`.
-      if (/[`$\\]/.test(cd)) cells.push(cd);
-      else pushAll(cells, splitTableCells(cd));
+      // math, so a close tag outside those before the line's end is an
+      // agent's `<td>a</td><td>b</td>`.
+      pushAll(cells, splitTableCells(cd));
     }
     rows.push({
       color: isColor(rowAttrs.color) ? rowAttrs.color : null,
@@ -2902,11 +2915,13 @@ const ROW_ATTRS = new Set(["color"]);
 const CELL_ATTRS = new Set(["color", "align"]);
 const COL_ATTRS = new Set(["color", "width"]);
 const TABLE_WRAPPER_LINE = /^<\/?(?:colgroup|thead|tbody|tfoot)>$/;
+const ROW_EDGE = /^<\/?tr[\s>]/;
 
 function splitTableCells(source: string): string[] {
   const cells: string[] = [];
   // Found by hand, not by one regex: searching from every open tag for a `>`
-  // or a close tag the row lacks rescans the rest of it from each one.
+  // or a close tag the row lacks rescans the rest of it from each one. A
+  // close tag in code or math, or after a backslash, is the cell's text.
   const lastClose = {
     td: source.lastIndexOf("</td>"),
     th: source.lastIndexOf("</th>"),
@@ -2926,11 +2941,18 @@ function splitTableCells(source: string): string[] {
       contentFrom = nextGt + 1;
     }
     const closeTag = `</${tag}>`;
-    if (lastClose[tag] < contentFrom) {
+    const close =
+      lastClose[tag] < contentFrom
+        ? -1
+        : findToken(source, closeTag, contentFrom);
+    if (close < 0) {
+      // Later open tags of this kind count as unclosed too, so no search
+      // runs to the end of the row twice.
+      lastClose[tag] = -1;
       open.lastIndex = m.index + 1;
       continue;
     }
-    const end = source.indexOf(closeTag, contentFrom) + closeTag.length;
+    const end = close + closeTag.length;
     const between = source.slice(last, m.index).trim();
     if (between) reportLoss("dropped-source", between);
     cells.push(source.slice(m.index, end));

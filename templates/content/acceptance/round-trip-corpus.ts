@@ -520,6 +520,20 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     canonical: "<table>\n<tr>\n<td>a</td>\n<td>b</td>\n</tr>\n</table>",
   },
   {
+    id: "html-table-cells-one-line-with-prices",
+    origin: "agent",
+    markdown: "<table>\n<tr>\n<td>$5</td><td>a\\b</td>\n</tr>\n</table>",
+    canonical: "<table>\n<tr>\n<td>\\$5</td>\n<td>a\\\\b</td>\n</tr>\n</table>",
+    note: "A dollar sign or a backslash does not hide the close tag after it.",
+  },
+  {
+    id: "html-table-close-tag-in-code",
+    origin: "editor",
+    markdown: "<table>\n<tr>\n<td>`</td>`</td>\n</tr>\n</table>",
+    canonical: "<table>\n<tr>\n<td>`</td>`</td>\n</tr>\n</table>",
+    note: "A close tag in code is the cell's text.",
+  },
+  {
     id: "html-table-cell-edge-spaces",
     origin: "editor",
     markdown: "<table>\n<tr>\n<td> a </td>\n</tr>\n</table>",
@@ -622,6 +636,28 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     markdown: "<table>\nstray\n<tr>\n<td>x</td>\n</tr>\n</table>",
     unrepresentable: "A table holds only rows.",
     losses: ["dropped-source"],
+  },
+  {
+    id: "refuse-mention-label-edge-spaces",
+    origin: "agent",
+    markdown:
+      'See <mention-page url="https://example.com/p"> Plan </mention-page>.',
+    unrepresentable: "A mention's label has no spaces at its edges.",
+    losses: ["dropped-source"],
+  },
+  {
+    id: "refuse-table-cell-open-at-row-end",
+    origin: "agent",
+    markdown: "<table>\n<tr>\n<td>a\n</tr>\n<tr>\n<td>b</td>\n</tr>\n</table>",
+    unrepresentable: "A cell closes inside its row.",
+    losses: ["dropped-source"],
+  },
+  {
+    id: "refuse-table-header-flag-not-boolean",
+    origin: "agent",
+    markdown: '<table header-row="yes">\n<tr>\n<td>a</td>\n</tr>\n</table>',
+    unrepresentable: 'A table flag is "true" or "false".',
+    losses: ["dropped-attribute"],
   },
   {
     id: "refuse-table-th-in-body",

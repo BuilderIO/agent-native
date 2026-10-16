@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { findTrailingPlainInlineMath, matchInlineMathAt } from "./inline-math";
+import {
+  findTrailingPlainInlineMath,
+  MAX_INLINE_MATH_LENGTH,
+  matchInlineMathAt,
+} from "./inline-math";
 
 describe("inline math delimiters", () => {
   it("matches canonical and GitHub-style syntax", () => {
@@ -14,6 +18,12 @@ describe("inline math delimiters", () => {
       syntax: "github",
       to: 12,
     });
+  });
+
+  it("closes GitHub-style math only within the longest expression", () => {
+    const longest = "x".repeat(MAX_INLINE_MATH_LENGTH);
+    expect(matchInlineMathAt(`$\`${longest}\`$`, 0)?.latex).toBe(longest);
+    expect(matchInlineMathAt(`$\`${longest}x\`$`, 0)).toBeNull();
   });
 
   it("applies Pandoc-style whitespace and currency guards", () => {
