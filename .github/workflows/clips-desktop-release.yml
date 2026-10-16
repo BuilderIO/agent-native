@@ -329,6 +329,11 @@ jobs:
           fs.writeFileSync(cargoPath, updatedCargo);
           NODE
 
+      - name: Install NASM for x86_64 ffmpeg sidecar
+        if: runner.os == 'macOS'
+        shell: bash
+        run: if ! command -v nasm >/dev/null 2>&1; then brew install nasm; fi
+
       - name: Prepare macOS ffmpeg sidecars
         if: runner.os == 'macOS'
         working-directory: ${{ env.TAURI_APP_PATH }}
