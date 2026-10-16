@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -23,29 +23,31 @@ import {
   type RewindExtensionRequest,
 } from "./request-rewind-extension.js";
 
+/** `raw` with each field shifted, or null when it isn't a JSON array. */
 function shiftedJsonArray(
   raw: string | null | undefined,
   addedMs: number,
   fields: string[],
-): string {
+): string | null {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw || "[]");
-    if (!Array.isArray(parsed)) return raw || "[]";
-    return JSON.stringify(
-      parsed.map((item) => {
-        if (!item || typeof item !== "object") return item;
-        const next = { ...item } as Record<string, unknown>;
-        for (const field of fields) {
-          if (typeof next[field] === "number") {
-            next[field] = Math.max(0, Math.round(next[field] + addedMs));
-          }
-        }
-        return next;
-      }),
-    );
+    parsed = JSON.parse(raw || "[]");
   } catch {
-    return raw || "[]";
+    return null; // coercion-ok: null is "unreadable", and every caller handles it
   }
+  if (!Array.isArray(parsed)) return null;
+  return JSON.stringify(
+    parsed.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const next = { ...item } as Record<string, unknown>;
+      for (const field of fields) {
+        if (typeof next[field] === "number") {
+          next[field] = Math.max(0, Math.round(next[field] + addedMs));
+        }
+      }
+      return next;
+    }),
+  );
 }
 
 export default defineAction({
@@ -155,9 +157,13 @@ export default defineAction({
           ...(args.width !== undefined ? { width: args.width } : {}),
           ...(args.height !== undefined ? { height: args.height } : {}),
           editsJson: serializeEdits(edits),
-          chaptersJson: shiftedJsonArray(recording.chaptersJson, args.addedMs, [
-            "startMs",
-          ]),
+          // Unreadable chapters stay as stored rather than blocking the
+          // extension.
+          chaptersJson:
+            shiftedJsonArray(recording.chaptersJson, args.addedMs, [
+              "startMs",
+            ]) ??
+            (recording.chaptersJson || "[]"),
           thumbnailUrl: null,
           animatedThumbnailUrl: null,
           updatedAt: now,
@@ -196,14 +202,21 @@ export default defineAction({
         .where(eq(versions.recordingId, args.recordingId))
         .limit(TRANSCRIPT_VERSION_LIMIT);
       for (const version of saved) {
+        const segmentsJson = shiftedJsonArray(
+          version.segmentsJson,
+          args.addedMs,
+          ["startMs", "endMs"],
+        );
+        // Left as stored, it would come back on the old timeline.
+        if (segmentsJson === null) {
+          fail(
+            `Saved transcript ${version.id} has unreadable segments, so it can't move with the video. Nothing was changed.`,
+            { errorCode: "transcript_version_unreadable", statusCode: 500 },
+          );
+        }
         await tx
           .update(versions)
-          .set({
-            segmentsJson: shiftedJsonArray(version.segmentsJson, args.addedMs, [
-              "startMs",
-              "endMs",
-            ]),
-          })
+          .set({ segmentsJson })
           .where(eq(versions.id, version.id));
       }
       await tx

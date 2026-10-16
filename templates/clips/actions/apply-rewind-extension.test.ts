@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (action: unknown) => action,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mocks.readAppState(...args),
@@ -209,5 +212,26 @@ describe("apply-rewind-extension transcript timeline", () => {
         speaker: "Sample Speaker",
       },
     ]);
+  });
+
+  it("fails instead of leaving an unreadable saved transcript on the old timeline", async () => {
+    const { tx, updates } = fakeTx({
+      transcript: [],
+      versions: [{ id: "version-1", segmentsJson: "{not json" }],
+    });
+    mocks.transaction.mockImplementation(
+      async (runTx: (t: unknown) => unknown) => runTx(tx),
+    );
+
+    await expect(run()).rejects.toMatchObject({
+      errorCode: "transcript_version_unreadable",
+    });
+
+    expect(
+      updates.filter(
+        (u) => Array.isArray(u.where) && u.where[0] === "versions.id",
+      ),
+    ).toEqual([]);
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
   });
 });
