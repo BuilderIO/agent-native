@@ -5605,6 +5605,10 @@ async function runAuthoringFuzzQa(
     const cleanupRequestFinishedAt = new WeakMap<any, number>();
     const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
     const cleanupClaimSequenceByPage = new Map<Page, number>();
+    const cleanupClaimSequenceByPageAndUrl = new WeakMap<
+      Page,
+      Map<string, number>
+    >();
     const cleanupPendingClaimRequestsByPage = new Map<Page, Set<any>>();
     const cleanupSessionIdsByPage = new Map<Page, Set<string>>();
     const cleanupMainFrameNavigationStartsByPage = new Map<Page, number[]>();
@@ -5623,6 +5627,8 @@ async function runAuthoringFuzzQa(
       sameOrigin: boolean;
       sequence: number;
       competingClaimPendingAtFailure: boolean;
+      competingSameUrlClaimStartedAfterFailure?: boolean;
+      competingSameUrlClaimPendingAtFailure: boolean;
       requestWasPendingAtNavigation: boolean;
     }> = [];
     let cleanupClaimSequence = 0;
@@ -5630,6 +5636,7 @@ async function runAuthoringFuzzQa(
     let cleanupNavigationPage: Page | null = null;
     let cleanupNavigationCompetingPollStarted = false;
     let cleanupNavigationCompetingClaimStarted = false;
+    const cleanupNavigationCompetingClaimUrls = new Set<string>();
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
     const cleanupNavigationCompetingSessionRequests = new Set<string>();
     const cleanupSessionRequestKeys = cleanupNavigationSessionRequestKeys;
@@ -5723,6 +5730,10 @@ async function runAuthoringFuzzQa(
           cleanupClaimSequence += 1;
           cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
           cleanupClaimSequenceByPage.set(target, cleanupClaimSequence);
+          const claimSequencesByUrl =
+            cleanupClaimSequenceByPageAndUrl.get(target) ?? new Map();
+          claimSequencesByUrl.set(request.url(), cleanupClaimSequence);
+          cleanupClaimSequenceByPageAndUrl.set(target, claimSequencesByUrl);
           const pendingClaims =
             cleanupPendingClaimRequestsByPage.get(target) ?? new Set();
           pendingClaims.add(request);
@@ -5759,6 +5770,7 @@ async function runAuthoringFuzzQa(
           sessionIdentity?.kind === "poll"
         ) {
           cleanupNavigationCompetingClaimStarted = true;
+          cleanupNavigationCompetingClaimUrls.add(request.url());
         }
         cleanupRequestStartTimes.set(request, {
           page: target,
@@ -5797,6 +5809,13 @@ async function runAuthoringFuzzQa(
             competingClaimPendingAtFailure: [
               ...(cleanupPendingClaimRequestsByPage.get(target) ?? []),
             ].some((pendingRequest) => pendingRequest !== request),
+            competingSameUrlClaimPendingAtFailure: [
+              ...(cleanupPendingClaimRequestsByPage.get(target) ?? []),
+            ].some(
+              (pendingRequest) =>
+                pendingRequest !== request &&
+                pendingRequest.url() === request.url(),
+            ),
             requestWasPendingAtNavigation: (
               cleanupMainFrameNavigationStartsByPage.get(target) ?? []
             ).some(
@@ -6064,6 +6083,8 @@ async function runAuthoringFuzzQa(
               competingClaimStartedAfterNavigation:
                 sessionIdentity?.kind === "poll" &&
                 cleanupNavigationCompetingClaimStarted,
+              competingSameUrlClaimStartedAfterNavigation:
+                cleanupNavigationCompetingClaimUrls.has(candidate.url),
               competingRegistrationStartedAfterNavigation:
                 sessionIdentity?.kind === "heartbeat" &&
                 competingSessionRequestStarted,
@@ -6113,6 +6134,13 @@ async function runAuthoringFuzzQa(
               candidate.sequence,
             competingClaimPendingAtFailure:
               candidate.competingClaimPendingAtFailure,
+            competingSameUrlClaimStartedAfterFailure:
+              (cleanupClaimSequenceByPageAndUrl
+                .get(target)
+                ?.get(candidate.url) ?? candidate.sequence) >
+              candidate.sequence,
+            competingSameUrlClaimPendingAtFailure:
+              candidate.competingSameUrlClaimPendingAtFailure,
             requestWasPendingAtNavigation:
               candidate.requestWasPendingAtNavigation,
           }));

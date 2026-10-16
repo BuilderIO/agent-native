@@ -52,6 +52,8 @@ import {
   isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedReadOnlyStatusProbeAbort,
+  isRecentReadOnlyStatusProbeSettle,
+  readOnlyStatusProbeFailureEvidence,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
@@ -1875,7 +1877,20 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
   ).toBe(false);
   expect(
     isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
-      { ...candidate, competingClaimStartedAfterNavigation: true },
+      {
+        ...candidate,
+        competingClaimStartedAfterNavigation: true,
+        competingSameUrlClaimStartedAfterNavigation: false,
+      },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      {
+        ...candidate,
+        competingClaimStartedAfterNavigation: true,
+        competingSameUrlClaimStartedAfterNavigation: true,
+      },
     ]),
   ).toBe(false);
   expect(
@@ -2166,6 +2181,8 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
     competingClaimPendingAtFailure: false,
+    competingSameUrlClaimStartedAfterFailure: false,
+    competingSameUrlClaimPendingAtFailure: false,
     requestWasPendingAtNavigation: true,
   };
 
@@ -2193,6 +2210,53 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
       [candidate],
     ),
   ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [
+        {
+          ...candidate,
+          competingClaimStartedAfterFailure: true,
+          competingClaimPendingAtFailure: true,
+        },
+        {
+          ...candidate,
+          url: "http://localhost:45715/_agent-native/browser-sessions/other-session/requests/claim",
+          pathname:
+            "/_agent-native/browser-sessions/other-session/requests/claim",
+          sessionId: "other-session",
+        },
+      ],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [candidate, { ...candidate, failureAgeMs: 21 }],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [
+        {
+          ...candidate,
+          competingSameUrlClaimStartedAfterFailure: true,
+        },
+      ],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [
+        {
+          ...candidate,
+          competingSameUrlClaimPendingAtFailure: true,
+        },
+      ],
+    ),
+  ).toBe(false);
   expect(
     isExpectedCleanupRecoveryPageBrowserSessionError(
       "[Agent-Native browser session] poll failed: TypeError: Load failed",
@@ -4231,14 +4295,15 @@ it("ignores a read-only status probe abort only when the outgoing document is re
   const navigation: NonNullable<
     Parameters<typeof isExpectedReadOnlyStatusProbeAbort>[6]
   > = {
-    requestStartedAt: 120,
+    requestStartedAt: 90,
     requestSourceIsMainFrame: true,
     requestFrameUrl: "http://localhost/deck/deck-1?slide=2",
+    requestWasPendingAtReloadNavigation: true,
     reloadNavigationStartedAt: 100,
     outgoingDocumentUrl: "http://localhost/deck/deck-1?slide=2",
     mainFrameNavigationStartedAt: 110,
     mainFrameNavigationUrl: "http://localhost/deck/deck-1?slide=1",
-    mainFrameNavigationCommittedAtAtRequest: null,
+    mainFrameNavigationCommittedAtAtRequest: 85,
     mainFrameNavigationCommittedAt: null,
     failedAt: 150,
   };
@@ -4249,7 +4314,7 @@ it("ignores a read-only status probe abort only when the outgoing document is re
       "net::ERR_ABORTED",
       "save/reload",
       true,
-      21,
+      60,
       navigation,
     ),
   ).toBe(true);
@@ -4261,9 +4326,58 @@ it("ignores a read-only status probe abort only when the outgoing document is re
       "save/reload",
       true,
       5,
-      { ...navigation, requestStartedAt: 105, failedAt: 115 },
+      {
+        ...navigation,
+        requestStartedAt: 105,
+        requestWasPendingAtReloadNavigation: false,
+        mainFrameNavigationCommittedAtAtRequest: null,
+        failedAt: 115,
+      },
     ),
   ).toBe(true);
+  expect(
+    isExpectedReadOnlyStatusProbeAbort(
+      "GET",
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      true,
+      30,
+      {
+        ...navigation,
+        requestStartedAt: 120,
+        requestWasPendingAtReloadNavigation: false,
+        mainFrameNavigationCommittedAtAtRequest: 115,
+      },
+    ),
+  ).toBe(false);
+});
+
+it("retains settled status-probe evidence only for a brief trailing failure", () => {
+  expect(isRecentReadOnlyStatusProbeSettle(1_000, 1_000)).toBe(true);
+  expect(isRecentReadOnlyStatusProbeSettle(1_000, 1_999)).toBe(true);
+  expect(isRecentReadOnlyStatusProbeSettle(1_000, 2_000)).toBe(false);
+  expect(isRecentReadOnlyStatusProbeSettle(1_001, 1_000)).toBe(false);
+  expect(isRecentReadOnlyStatusProbeSettle(Number.NaN, 1_100)).toBe(false);
+});
+
+it("uses a just-settled status probe when its failure event arrives late", () => {
+  const details = { requestSequence: 4 };
+  const settledEvidence = { startedAt: 100, settledAt: 200, details };
+
+  expect(
+    readOnlyStatusProbeFailureEvidence(undefined, settledEvidence, 900),
+  ).toEqual({ startedAt: 100, details });
+  expect(
+    readOnlyStatusProbeFailureEvidence(undefined, settledEvidence, 1_200),
+  ).toBeUndefined();
+  expect(
+    readOnlyStatusProbeFailureEvidence(
+      { startedAt: 150, details: { requestSequence: 5 } },
+      settledEvidence,
+      900,
+    ),
+  ).toEqual({ startedAt: 150, details: { requestSequence: 5 } });
 });
 
 it("keeps status probe aborts that are not expected as page errors", () => {
@@ -4273,11 +4387,12 @@ it("keeps status probe aborts that are not expected as page errors", () => {
     requestStartedAt: 120,
     requestSourceIsMainFrame: true,
     requestFrameUrl: "http://localhost/deck/deck-1?slide=2",
+    requestWasPendingAtReloadNavigation: true,
     reloadNavigationStartedAt: 100,
     outgoingDocumentUrl: "http://localhost/deck/deck-1?slide=2",
     mainFrameNavigationStartedAt: 110,
     mainFrameNavigationUrl: "http://localhost/deck/deck-1?slide=1",
-    mainFrameNavigationCommittedAtAtRequest: null,
+    mainFrameNavigationCommittedAtAtRequest: 85,
     mainFrameNavigationCommittedAt: null,
     failedAt: 150,
   };
@@ -4360,6 +4475,12 @@ it("keeps status probe aborts that are not expected as page errors", () => {
   expect(
     isExpectedWithNavigation({
       ...expected[6],
+      requestWasPendingAtReloadNavigation: false,
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedWithNavigation({
+      ...expected[6],
       requestFrameUrl: "http://localhost/other",
     }),
   ).toBe(false);
@@ -4372,6 +4493,7 @@ it("keeps status probe aborts that are not expected as page errors", () => {
   expect(
     isExpectedWithNavigation({
       ...expected[6],
+      requestWasPendingAtReloadNavigation: false,
       mainFrameNavigationCommittedAtAtRequest: 130,
     }),
   ).toBe(false);
