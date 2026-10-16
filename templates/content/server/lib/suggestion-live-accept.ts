@@ -266,7 +266,11 @@ export async function acceptOnLiveCopy<T>(
     if (error instanceof DecisionReplayed)
       return run({ liveCopy: "replaying" } satisfies LiveCopyDecision);
     if (
-      (error instanceof LiveCopyError && error.code === "not_live_copy") ||
+      // Only the binding declining the Page means the Page left; a released
+      // or replaced binding refuses every retry the same way.
+      (error instanceof LiveCopyError &&
+        error.code === "not_live_copy" &&
+        error.reason === undefined) ||
       (isActionContractError(error) &&
         error.errorCode === "LIVE_BODY_WRITE_PATH_CHANGED")
     )

@@ -44,6 +44,24 @@ vi.mock("./live-body-writer.js", async (importOriginal) => {
   };
 });
 
+// Refusals the live-copy writer throws before writing, in order.
+const liveWrites = vi.hoisted(() => ({ refusals: [] as Error[], calls: 0 }));
+
+vi.mock("../live-copy/write.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../live-copy/write.js")>();
+  return {
+    ...actual,
+    editContentLiveCopy: async (
+      ...args: Parameters<typeof actual.editContentLiveCopy>
+    ) => {
+      liveWrites.calls += 1;
+      const refusal = liveWrites.refusals.shift();
+      if (refusal) throw refusal;
+      return actual.editContentLiveCopy(...args);
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-suggestion-live-accept-${process.pid}-${Date.now()}.pglite`,
@@ -356,6 +374,42 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
         code: "write_refused",
       });
       expect(gateMisses.left).toBe(0);
+      expect(await liveCopy(documentId)).toEqual(before);
+      expect(await stored(documentId)).toEqual(storedBefore);
+      // The suggestion stayed pending.
+      expect((await decide(suggestion, "accepted")).suggestion.status).toBe(
+        "accepted",
+      );
+    },
+  );
+
+  ownerIt(
+    "fails at once with the live copy's refusal when its binding was replaced",
+    async () => {
+      const documentId = await seedPage(page);
+      const suggestion = await suggest(documentId, "sets the scene", "opens");
+      const before = await liveCopy(documentId);
+      const storedBefore = await stored(documentId);
+      // What the old handle throws after a dev reload defines it again.
+      const replaced = () =>
+        new collab.LiveCopyError(
+          "not_live_copy",
+          documentId,
+          "Live copy binding was released or replaced",
+          { reason: "binding_inactive" },
+        );
+      liveWrites.refusals = [replaced(), replaced(), replaced()];
+      liveWrites.calls = 0;
+      try {
+        await expect(decide(suggestion, "accepted")).rejects.toMatchObject({
+          name: "LiveCopyError",
+          code: "not_live_copy",
+          reason: "binding_inactive",
+        });
+        expect(liveWrites.calls).toBe(1);
+      } finally {
+        liveWrites.refusals = [];
+      }
       expect(await liveCopy(documentId)).toEqual(before);
       expect(await stored(documentId)).toEqual(storedBefore);
       // The suggestion stayed pending.
