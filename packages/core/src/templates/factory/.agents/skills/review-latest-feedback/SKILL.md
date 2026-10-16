@@ -464,20 +464,23 @@ instruction or prompt exception.
 ## Phase 3: reply
 
 Thank issue reporters for opening issues and Slack reporters for sharing.
-Follow `address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md)
-for concise status, beta timing, and the one-reply gate. End Slack replies with
-`this was sent from a bot.`.
+Before posting, inspect the full thread and follow the one-reply gate in
+`address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
+send one concise disposition covering done, remaining, and next action/owner.
+Do not reply again to announce merge, publication, or live beta; answer direct
+reporter follow-ups. End Slack replies with `this was sent from a bot.`.
 
 Never send **Open**/**pending** or a symptom recap. Ask for reporter input only
 when it changes the next step; never request supplied evidence or internal
 access. Keep hashes, branches, CI, publisher, and run details in the recap.
 
-Share only new information.
+Keep publisher and beta checks in the internal recap after the disposition;
+they do not trigger a second reporter reply.
 
 ### After a PR merges
 
-Track publisher state and beta verification in the internal recap. Before any
-further Slack write, apply the reference's full-thread one-reply gate.
+Track publisher state and beta verification in the internal recap. Do not send
+a routine post-merge reporter reply; answer only a direct reporter follow-up.
 
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.

@@ -136,10 +136,11 @@ Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
 **Abandoned - no answer in 4 days**, each with required evidence and `👀`. Follow
 `review-latest-feedback` for `✅`/`🎫`. An already-eyed skipped item gets one
 concise **Skipped** reply if absent.
-**Fixed** closes the issue after a verified
-source fix merges; publication, beta, and live verification follow separately.
-For the reporter reply, link the PR and say an open beta fix should reach beta
-soon after merge. If it has merged, state that without claiming it is live.
+**Fixed** closes the issue after a verified source fix merges; publication,
+beta, and live verification follow separately. Use **In progress** while the
+source PR is open. For that reply, link the PR and say beta should follow soon
+after merge, without an exact date. For an already merged fix, follow
+`review-latest-feedback`'s reply reference for verified publisher status.
 **In progress** is an open ownership state. Do not send an interim progress
 reply for work fixed in the same run. If work continues beyond this run, follow
 `review-latest-feedback` and post one concrete status before the next sweep.

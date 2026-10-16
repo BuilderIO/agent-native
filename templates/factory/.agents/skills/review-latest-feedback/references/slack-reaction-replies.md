@@ -8,19 +8,23 @@ permanently: never remove or clean up `👀`, `✅`, `🎫`, or any other
 reaction on a feedback item. Add `✅` when the accepted scope is complete and
 verified: defects meet **Fixed**, and upvoted improvements meet **Shipped**
 after delivery is verified. Add `🎫` only to distinct unfinished scope
-needing a follow-up action or owner, whether or not a ticket exists.
+needing a follow-up action or owner, whether or not a ticket exists. Do not use
+it for routine beta or package publication, expected verification, or optional
+scope without an assigned action or owner.
 
 Before posting, inspect the full thread for an earlier disposition reply. Send
-one concise status reply per feedback item: what changed, meaningful scope
-remaining, and the next action/owner/ticket if needed. For a beta app fix, link
-the PR and say beta should follow soon after merge; give no exact date. If the
-first reply is after merge, say it merged and check the matching publisher. If
+one concise disposition reply per feedback item: what changed, meaningful
+scope remaining, and the next action/owner/ticket if needed. An earlier
+generic “looking into this” is not a disposition; follow it with this one
+reply. Once a disposition exists, do not post again just to announce merge,
+publication, or live beta. Answer a reporter's direct follow-up.
+
+For an open beta app PR, link it and say beta should follow soon after merge;
+give no exact date. Keep the item **In progress** until the source fix merges.
+If the first disposition is after merge, verify the matching publisher. If
 publication is pending, say it should follow soon; if the publisher is missing
 or failed, give no ETA and name the next action/owner. Never claim it is live
-without verification. If an earlier reply already gives the disposition and
-timing, keep later publisher checks in the recap; do not post just to announce
-success. Correct a material change to availability or answer a reporter's
-follow-up. A generic earlier “looking into this” does not count.
+without verification.
 
 Resolve duplicates before claiming. For known non-owner duplicates, list the
 permalink and **Clustered** once in the owner reply; do not react or reply
@@ -31,10 +35,15 @@ disposition, even if the owner reply was sent; do not send a second owner
 update. If another task owns the eye or ownership is unclear, preserve it,
 record the source in the ledger, and stop.
 
-For an open package PR, say publication follows merge without an ETA. If the
-first reply is after merge, link the PR and state verified package availability;
-if publication is pending or failed, name the next action/owner without an
-ETA. Do not post a routine second reply just to announce package publication.
+For package work, check whether the open PR is the source PR or the release PR.
+If source merge creates a separate release PR, say publication follows that
+release PR's merge and registry verification; do not imply source merge
+publishes the package. If the open PR is itself the release PR, say publication
+follows its merge, without an ETA. For a first reply after merge, verify the
+release workflow and registry before claiming availability; if the release PR,
+workflow, or publication is pending or failed, name the next action/owner
+without an ETA. Do not post a routine second reply just to announce package
+publication.
 
 Read back each reaction and reply as the invoking identity before recording the
 item as replied.
