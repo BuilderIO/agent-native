@@ -226,9 +226,11 @@ export function createQueryStagedDatasetAction<
       const args = rawArgs as StagedActionArgs;
       const scope = resolveScope("query-staged-dataset", args, options);
       const datasetId = String(args.datasetId ?? "");
-      const readMeta = async () => {
+      // A dataset removed before or during the query reads as removed, not
+      // as unknown, whichever read finds the marker.
+      const read = async <T>(load: () => Promise<T>) => {
         try {
-          return await runtime.getMeta({ id: datasetId, ...scope });
+          return await load();
         } catch (error) {
           if (error instanceof StagedDatasetRemovedError) {
             fail(error.message, {
@@ -240,13 +242,17 @@ export function createQueryStagedDatasetAction<
           throw error;
         }
       };
+      const readMeta = () =>
+        read(() => runtime.getMeta({ id: datasetId, ...scope }));
       const meta = await readMeta();
       if (!meta) {
         throw new Error(
           `Dataset ${datasetId} not found (or belongs to a different owner/app).`,
         );
       }
-      const rows = await runtime.getRows({ id: datasetId, ...scope });
+      const rows = await read(() =>
+        runtime.getRows({ id: datasetId, ...scope }),
+      );
       // Metadata and rows are separate reads. An eviction or re-stage between
       // them would answer from this metadata with no rows, or another
       // version's rows, and read as a valid result.

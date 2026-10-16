@@ -80,6 +80,7 @@ const {
 } = await import("./staged-datasets-store.js");
 const { createQueryStagedDatasetAction } =
   await import("./actions/staged-datasets.js");
+const { runAggregateQuery } = await import("./staged-datasets-aggregate.js");
 
 const MB = 1024 * 1024;
 const DAY = 24 * 60 * 60 * 1000;
@@ -392,6 +393,28 @@ describe("removed staged datasets on Postgres", () => {
     await expect(query.run({ datasetId: "never_staged" })).rejects.toThrow(
       /not found/,
     );
+  });
+
+  it("reports a dataset removed between the metadata and row reads as removed", async () => {
+    await stage("ada_racing", "ada@example.com");
+    const query = createQueryStagedDatasetAction({
+      appId: APP,
+      getOwnerEmail: () => "ada@example.com",
+      runtime: {
+        getMeta: getStagedDatasetMeta,
+        getRows: async () => {
+          throw new StagedDatasetRemovedError("ada_racing", "capacity");
+        },
+        list: listStagedDatasets,
+        delete: deleteStagedDataset,
+        aggregate: runAggregateQuery,
+      },
+    });
+
+    await expect(query.run({ datasetId: "ada_racing" })).rejects.toMatchObject({
+      errorCode: "staged_dataset_removed",
+      statusCode: 410,
+    });
   });
 
   it("names the max age when a dataset was removed as stale", async () => {
