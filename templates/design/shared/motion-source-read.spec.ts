@@ -25,7 +25,7 @@ describe("passiveMotionSourceReadCapability", () => {
     });
   });
 
-  it("returns unsupported for a passive read with unresolved external stylesheets", () => {
+  it("returns unresolved stylesheets as unsupported during passive reads", () => {
     expect(
       passiveMotionSourceReadCapability(
         {
