@@ -687,6 +687,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     losses: ["dropped-source"],
   },
   {
+    id: "refuse-table-cell-open-before-next-cell",
+    origin: "agent",
+    markdown: "<table>\n<tr>\n<td>a\n<td>b</td>\n</tr>\n</table>",
+    unrepresentable: "A cell closes before the next one opens.",
+    losses: ["dropped-source"],
+  },
+  {
     id: "refuse-table-header-flag-not-boolean",
     origin: "agent",
     markdown: '<table header-row="yes">\n<tr>\n<td>a</td>\n</tr>\n</table>',
