@@ -46,6 +46,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::accessibility::{element_at_position, AxHitTest};
 
+mod upload;
+
 pub const STEP_CAPTURE_SCHEMA_VERSION: u32 = 1;
 const MANIFEST_FILE: &str = "manifest.json";
 /// Pointer travel, in points, before a held left button counts as a drag.
@@ -565,19 +567,31 @@ pub(crate) fn is_active() -> bool {
         .unwrap_or(false)
 }
 
-/// Tray entry point: start a session, or stop it and open its folder so the
-/// screenshots and `manifest.json` can be checked without the console.
+/// Tray entry point: start a session, or stop it, upload its steps into a new
+/// library folder and open that folder. When the upload cannot start (signed
+/// out, server unreachable) the local session folder opens instead, so the
+/// screenshots are never out of reach.
 pub(crate) async fn toggle_from_tray(app: AppHandle) -> Result<(), String> {
     if !is_active() {
         step_capture_start(app).await?;
         return Ok(());
     }
-    let directory = step_capture_status().await?.directory;
-    step_capture_stop(app).await?;
-    if let Some(directory) = directory {
-        platform::reveal(Path::new(&directory))?;
+    let directory = step_capture_status()
+        .await?
+        .directory
+        .map(PathBuf::from)
+        .ok_or_else(|| "step capture has no session folder".to_string())?;
+    let session = step_capture_stop(app.clone()).await?;
+    if session.steps.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    match upload::upload_session(&app, &directory, &session).await {
+        Ok(upload) => platform::open(upload.folder_url.as_ref()),
+        Err(error) => {
+            eprintln!("[clips-tray] step capture upload: {error}");
+            platform::open(directory.as_os_str())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +606,7 @@ mod platform {
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{NSEvent, NSEventMask, NSEventType};
     use std::cell::RefCell;
+    use std::ffi::OsStr;
     use std::path::Path;
     use std::ptr::NonNull;
     use std::sync::mpsc::{self, Sender};
@@ -686,11 +701,12 @@ mod platform {
         })
     }
 
-    pub fn reveal(directory: &Path) -> Result<(), String> {
+    /// Open a folder in Finder or a URL in the default browser.
+    pub fn open(target: &OsStr) -> Result<(), String> {
         std::process::Command::new("open")
-            .arg(directory)
+            .arg(target)
             .status()
-            .map_err(|error| format!("could not open {}: {error}", directory.display()))
+            .map_err(|error| format!("could not open {}: {error}", target.to_string_lossy()))
             .map(|_| ())
     }
 
@@ -717,6 +733,7 @@ mod platform {
 #[cfg(not(target_os = "macos"))]
 mod platform {
     use super::{StepDisplay, StepPoint, WorkerMessage};
+    use std::ffi::OsStr;
     use std::path::Path;
     use std::sync::mpsc::Sender;
     use tauri::AppHandle;
@@ -731,7 +748,7 @@ mod platform {
         Ok(())
     }
 
-    pub fn reveal(_directory: &Path) -> Result<(), String> {
+    pub fn open(_target: &OsStr) -> Result<(), String> {
         Err("Step capture is only available on macOS.".to_string())
     }
 
