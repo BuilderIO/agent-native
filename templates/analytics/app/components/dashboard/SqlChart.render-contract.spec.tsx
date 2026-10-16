@@ -213,4 +213,90 @@ describe("SqlChart render contract parity", () => {
       "common.noData",
     );
   });
+  describe("funnelOutcomes", () => {
+    const rows = [
+      {
+        step: "Your role",
+        shown: 1927,
+        completed: 1168,
+        skipped: 520,
+        left_here: 75,
+        optional: true,
+      },
+      {
+        step: "Choose setup",
+        shown: 2543,
+        completed: 1885,
+        skipped: 0,
+        left_here: 337,
+        optional: false,
+      },
+    ];
+    const steps = panel({
+      chartType: "funnel",
+      config: {
+        xKey: "step",
+        yKey: "shown",
+        funnelOutcomes: {
+          completedKey: "completed",
+          skippedKey: "skipped",
+          leftKey: "left_here",
+          optionalKey: "optional",
+        },
+      },
+    });
+
+    function drawnSegments(stage: Element) {
+      return [...stage.querySelectorAll("[data-funnel-segment]")].map(
+        (segment) => [
+          segment.getAttribute("data-funnel-segment"),
+          (segment as HTMLElement).style.width.slice(0, 4),
+        ],
+      );
+    }
+
+    it("splits each stage and leads it with the share who left the app", async () => {
+      const text = await renderText(steps, rows);
+
+      expect(text).toContain("sqlDashboard.funnelLeftHere");
+      const stages = [...container.querySelectorAll("[data-funnel-stage]")];
+      expect(
+        stages.map((stage) => stage.getAttribute("data-funnel-stage")),
+      ).toEqual(["Your role", "Choose setup"]);
+      expect(
+        stages.map(
+          (stage) =>
+            stage.querySelector("[data-funnel-left-share]")?.textContent,
+        ),
+      ).toEqual(["3.9%", "13.3%"]);
+      expect(stages[0].textContent).toContain("sqlDashboard.funnelOptional");
+      expect(stages[1].textContent).not.toContain(
+        "sqlDashboard.funnelOptional",
+      );
+      expect(drawnSegments(stages[0])).toEqual([
+        ["completed", "60.6"],
+        ["skipped", "26.9"],
+        ["movedOn", "8.51"],
+        ["left", "3.89"],
+      ]);
+      expect(drawnSegments(stages[1]).map(([segment]) => segment)).toEqual([
+        "completed",
+        "movedOn",
+        "left",
+      ]);
+    });
+
+    it("draws a funnel without the key exactly as before", async () => {
+      const plain = panel({
+        chartType: "funnel",
+        config: { xKey: "step", yKey: "shown" },
+      });
+      const text = await renderText(plain, rows);
+
+      expect(container.querySelector("[data-funnel-outcomes]")).toBeNull();
+      expect(text).not.toContain("sqlDashboard.funnelLeftHere");
+      expect(text).toContain("100.0%");
+      expect(text).toContain("↑ 32.0%");
+    });
+  });
 });

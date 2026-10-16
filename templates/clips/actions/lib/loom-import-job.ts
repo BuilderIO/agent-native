@@ -28,6 +28,7 @@ import {
   loomEmbedUrlForId,
   normalizeLoomShareUrl,
 } from "../../shared/loom.js";
+import { notImportedTranscript } from "./imported-transcript.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
@@ -645,22 +646,16 @@ export async function runLoomImportJob({
         failureReason: transcript ? null : loomTranscriptUnavailableMessage(),
         updatedAt: now,
       };
-      const [existingTranscript] = await db
-        .select({ recordingId: schema.recordingTranscripts.recordingId })
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, recordingId));
-      if (existingTranscript) {
-        await db
-          .update(schema.recordingTranscripts)
-          .set(transcriptValues)
-          .where(eq(schema.recordingTranscripts.recordingId, recordingId));
-      } else {
-        await db.insert(schema.recordingTranscripts).values({
-          recordingId,
-          ...transcriptValues,
-          createdAt: now,
+      // An import can create the row at any point, so this is one guarded
+      // upsert rather than a read and then an insert.
+      await db
+        .insert(schema.recordingTranscripts)
+        .values({ recordingId, ...transcriptValues, createdAt: now })
+        .onConflictDoUpdate({
+          target: schema.recordingTranscripts.recordingId,
+          set: transcriptValues,
+          setWhere: notImportedTranscript(),
         });
-      }
     } catch (err) {
       console.warn("[clips] Loom transcript persistence skipped", {
         recordingId,

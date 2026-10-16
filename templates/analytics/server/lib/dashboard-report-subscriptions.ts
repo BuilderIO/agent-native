@@ -5,7 +5,9 @@ import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import type { AnnotationScope } from "./annotation-scope";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
+import { storedDashboardAnnotationScope } from "./dashboard-annotation-scope";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard } from "./dashboards-store";
 
@@ -63,6 +65,8 @@ export interface ReportDashboard {
   id: string;
   title: string;
   config: Record<string, unknown>;
+  /** Whose key dates the dashboard draws, as its page does. */
+  annotationScope: AnnotationScope;
 }
 
 export async function getReportDashboard(
@@ -79,6 +83,7 @@ export async function getReportDashboard(
       id: dashboard.id,
       title: dashboard.title,
       config,
+      annotationScope: storedDashboardAnnotationScope(dashboard, ctx).scope,
     };
   }
 
@@ -91,6 +96,7 @@ export async function getReportDashboard(
         ? seed.name.trim()
         : dashboardId,
     config: seed,
+    annotationScope: ctx,
   };
 }
 
