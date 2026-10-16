@@ -1503,6 +1503,21 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
     );
   });
 
+  it("refuses a replacement that changes how a backslash beside it reads", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        // The backtick the edit adds closes the code span early, so the kept
+        // backslash at its end would escape the backtick after it.
+        const page = await switchedPage("\\\\`text\\` end");
+        expect(page.content).toContain("`text\\`");
+        await expect(
+          suggestOwnSpelling(page, "text", "text`"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
   // A backslash at its line's start escapes the block marker after it.
   for (const { name, content, find } of [
     { name: "a heading marker", content: "\\# Heading", find: "# Heading" },

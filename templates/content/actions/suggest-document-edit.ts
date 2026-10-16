@@ -186,22 +186,37 @@ function backslashReader() {
   const kept = (text: string, positions: number[]) => {
     const probes = unusedCharacters(text, positions.length);
     if (probes === undefined) return undefined;
-    // A probe shows only what follows it, so all of them can be asked in one
-    // parse: one between two backslashes splits them as asking alone would.
-    let probed = "";
-    positions.forEach((at, index) => {
-      probed += `${text.slice(positions[index - 1] ?? 0, at)}${probes[index]}`;
-    });
-    const after = new Map(probes.map((probe) => [probe, [] as string[]]));
-    shownAfter(
-      nfmToDoc(`${probed}${text.slice(positions[positions.length - 1] ?? 0)}`),
-      after,
-    );
+    /** What follows each probe asked about, and the parse it shows in. */
+    const ask = (asked: number[]) => {
+      let probed = "";
+      let from = 0;
+      for (const index of asked) {
+        probed += `${text.slice(from, positions[index])}${probes[index]}`;
+        from = positions[index]!;
+      }
+      const doc = nfmToDoc(`${probed}${text.slice(from)}`);
+      const after = new Map(
+        asked.map((index) => [probes[index]!, [] as string[]]),
+      );
+      shownAfter(doc, after);
+      return { json: JSON.stringify(doc), after };
+    };
+    const together = ask(positions.map((_, index) => index));
+    // A probe can change how another backslash reads (one between two frees
+    // the second to escape a backtick), so asking them all at once counts
+    // only when the page, its probes taken out, reads exactly as it did.
+    const alone =
+      positions.length > 1 &&
+      together.json.replace(new RegExp(`[${probes.join("")}]`, "g"), "") !==
+        parse(text);
     return positions.map((at, index) => {
-      const next = after.get(probes[index]!)!;
+      const next = (alone ? ask([index]) : together).after.get(probes[index]!)!;
       if (!next.length || next.some((shown) => shown !== "\\")) return false;
       const shown = parse(text);
-      const without = parse(`${text.slice(0, at)}${text.slice(at + 1)}`);
+      // Each is parsed once, so it isn't kept.
+      const without = JSON.stringify(
+        nfmToDoc(`${text.slice(0, at)}${text.slice(at + 1)}`),
+      );
       let same = 0;
       while (same < without.length && shown[same] === without[same]) same += 1;
       // JSON spells a shown backslash as two.
