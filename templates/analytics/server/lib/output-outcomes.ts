@@ -313,6 +313,14 @@ export async function recordLostOutputBatch(
   }
 }
 
+/** A gap marker whose span overlaps the use window of the output in `o`. */
+function gapOverlapsOutputSql(o: typeof schema.analyticsOutputOutcomes) {
+  const gaps = schema.analyticsOutputOutcomeGaps;
+  return sql`${gaps.tenantKey} = ${o.tenantKey}
+    and ${gaps.firstAt} <= ${o.useBy}
+    and ${gaps.lastAt} >= ${o.madeAt}`;
+}
+
 /** An output stored in `o` that was made but not used once its window closed. */
 function unusedOutputSql(
   o: typeof schema.analyticsOutputOutcomes,
@@ -324,12 +332,7 @@ function unusedOutputSql(
     and ${o.useBy} <= ${nowIso}
     and ${o.madeAt} >= (select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${o.tenantKey})
     and (${o.firstUsedAt} is null or ${o.firstUsedAt} > ${o.useBy})
-    and not exists (
-      select 1 from ${gaps}
-      where ${gaps.tenantKey} = ${o.tenantKey}
-        and ${gaps.firstAt} <= ${o.useBy}
-        and ${gaps.lastAt} >= ${o.madeAt}
-    )`;
+    and not exists (select 1 from ${gaps} where ${gapOverlapsOutputSql(o)})`;
 }
 
 /**
@@ -543,10 +546,7 @@ export async function getSessionRecordingOutputs(
           firstUsedAt: o.firstUsedAt,
           usedEvent: o.usedEvent,
           hasGap: sql<boolean>`exists (
-            select 1 from ${gaps}
-            where ${gaps.tenantKey} = ${o.tenantKey}
-              and ${gaps.firstAt} <= ${o.useBy}
-              and ${gaps.lastAt} >= ${o.madeAt}
+            select 1 from ${gaps} where ${gapOverlapsOutputSql(o)}
           )`.as("has_gap"),
           sessionRank: sql<number>`row_number() over (
             partition by ${o.madeSessionId}
@@ -656,10 +656,17 @@ export async function pruneOutputOutcomes(
   const result = await db
     .delete(schema.analyticsOutputOutcomes)
     .where(lt(schema.analyticsOutputOutcomes.lastSeenAt, cutoff));
-  // guard:allow-unscoped -- retention intentionally sweeps gap markers older than every output they could cover.
+  // A late event keeps an old output's row past the cutoff, so a gap is kept
+  // while any remaining output overlaps it; otherwise that output reads unused.
+  // guard:allow-unscoped -- retention intentionally sweeps expired gap markers across tenants.
   await db
     .delete(schema.analyticsOutputOutcomeGaps)
-    .where(lt(schema.analyticsOutputOutcomeGaps.lastAt, cutoff));
+    .where(
+      and(
+        lt(schema.analyticsOutputOutcomeGaps.lastAt, cutoff),
+        sql`not exists (select 1 from ${schema.analyticsOutputOutcomes} where ${gapOverlapsOutputSql(schema.analyticsOutputOutcomes)})`,
+      ),
+    );
   return { outputs: Number(result?.rowCount ?? 0) };
 }
 

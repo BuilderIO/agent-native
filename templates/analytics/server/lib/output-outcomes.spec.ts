@@ -689,4 +689,28 @@ describe("output outcomes on Postgres", () => {
     );
     expect(gaps.rows[0].count).toBe(0);
   });
+
+  it("keeps a gap while an output it overlaps is kept", async () => {
+    const now = new Date("2026-12-31T00:00:00.000Z");
+    const daysAgo = (days: number) =>
+      new Date(now.getTime() - days * 86_400_000).toISOString();
+    await ingest([made("s1", "deck-1", daysAgo(60))]);
+    // A use long after the window keeps the row without making it used.
+    await ingest([exported("deck-1", daysAgo(1))]);
+    const tenant = sessionEventTenantKey(OWNER, ORG);
+    await db.execute(
+      sql`INSERT INTO analytics_output_outcome_gaps (id, tenant_key, owner_email, org_id, first_at, last_at, recorded_at)
+          VALUES ('gap-overlapping', ${tenant}, ${OWNER}, ${ORG}, ${daysAgo(58)}, ${daysAgo(57)}, ${daysAgo(57)}),
+                 ('gap-unrelated', ${tenant}, ${OWNER}, ${ORG}, ${daysAgo(100)}, ${daysAgo(99)}, ${daysAgo(99)})`,
+    );
+
+    expect(await pruneOutputOutcomes(30, now)).toEqual({ outputs: 0 });
+    const gaps = await client.query(
+      "SELECT id FROM analytics_output_outcome_gaps ORDER BY id",
+    );
+    expect(gaps.rows).toEqual([{ id: "gap-overlapping" }]);
+    await addRecording("r1", "s1");
+    const result = await getSessionRecordingOutputs(SCOPE, ["r1"], now);
+    expect(result.outputs.r1?.[0]?.status).toBe("unmeasured");
+  });
 });
