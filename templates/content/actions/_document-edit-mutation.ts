@@ -77,9 +77,9 @@ function conflict(
 }
 
 // A page in Trash refuses edits the way get-document refuses to read it.
-export function assertEditableDocument(
-  document: typeof schema.documents.$inferSelect | undefined,
-): asserts document is typeof schema.documents.$inferSelect {
+export function assertEditableDocument<T extends { trashedAt: string | null }>(
+  document: T | undefined,
+): asserts document is T {
   if (!document || document.trashedAt) {
     throw new ActionContractError("Document not found.", {
       errorCode: "DOCUMENT_NOT_FOUND",

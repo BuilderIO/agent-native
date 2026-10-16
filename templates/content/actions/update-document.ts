@@ -91,6 +91,7 @@ import {
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
+  assertEditableDocument,
   documentContentHash,
   documentRevisionToken,
   parseDocumentRevisionToken,
@@ -1095,11 +1096,23 @@ const updateDocumentAction = defineAction({
         const mutate = async (tx: any) => {
           measurement.outcome = "unchanged";
           measurement.history_effect = "none";
+          const mayWriteBody =
+            content !== undefined || authoredCandidateContent !== undefined;
           const lockedDatabaseId = await lockDocumentMetadataDatabase({
             db: tx as unknown as ReturnType<typeof getDb>,
             documentId: id,
             ownerEmail,
+            includeInlineDatabases: mayWriteBody,
           });
+          // Collections, then memberships, then the page (_row-lock-order.ts).
+          // The body write below re-locks these memberships with any added
+          // since.
+          if (mayWriteBody) {
+            await lockPrimaryBlocksFields(
+              tx as unknown as ReturnType<typeof getDb>,
+              id,
+            );
+          }
           await tx
             .select({ id: schema.documents.id })
             .from(schema.documents)
@@ -1142,6 +1155,9 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
+          // After the replay check, so a retried save that already landed
+          // still gets its receipt. The page lock above makes this see Trash.
+          if (!favoriteOnly) assertEditableDocument(existing);
           if (settlesPreviewDraft) {
             await lockPreviewDocumentDraftSettlement({
               db: tx,

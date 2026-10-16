@@ -29,6 +29,7 @@ import {
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
+  assertEditableDocument,
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
@@ -134,6 +135,7 @@ export default defineAction({
     const [afterFlush] = await db
       .select({
         title: schema.documents.title,
+        trashedAt: schema.documents.trashedAt,
         updatedAt: schema.documents.updatedAt,
       })
       .from(schema.documents)
@@ -144,12 +146,7 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (!afterFlush) {
-      throw new ActionContractError("Document not found.", {
-        errorCode: "DOCUMENT_NOT_FOUND",
-        statusCode: 404,
-      });
-    }
+    assertEditableDocument(afterFlush);
     const expectedUpdatedAt = afterFlush.updatedAt;
     const requestUserEmail = getRequestUserEmail();
     const titleOrganizationIds =
@@ -167,7 +164,14 @@ export default defineAction({
         db: tx as unknown as ReturnType<typeof getDb>,
         documentId,
         ownerEmail,
+        includeInlineDatabases: true,
       });
+      // Collections, then memberships, then the page (_row-lock-order.ts).
+      // The body write below re-locks these memberships with any added since.
+      await lockPrimaryBlocksFields(
+        tx as unknown as ReturnType<typeof getDb>,
+        documentId,
+      );
       await tx
         .select({ id: schema.documents.id })
         .from(schema.documents)
@@ -188,12 +192,7 @@ export default defineAction({
           ),
         )
         .limit(1);
-      if (!current) {
-        throw new ActionContractError("Document not found.", {
-          errorCode: "DOCUMENT_NOT_FOUND",
-          statusCode: 404,
-        });
-      }
+      assertEditableDocument(current);
       if (isLinkedLocalSource(documentId, current)) {
         linkedLocalRestoreUnsupported();
       }

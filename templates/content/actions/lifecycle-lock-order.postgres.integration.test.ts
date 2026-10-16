@@ -581,6 +581,75 @@ async function seedFavorites() {
   return { ids, rows };
 }
 
+/** A page that owns an inline collection its body no longer embeds. */
+async function seedInlineCollection() {
+  const key = fixtureKey();
+  const ids = {
+    collection: `${key}_c`,
+    owner: `${key}_p2`,
+    collectionPage: `${key}_p1`,
+  };
+  const db = getDb();
+  await db
+    .insert(schema.documents)
+    .values([
+      pageValues(ids.owner, null, "Owner", { content: "Owner body" }),
+      pageValues(ids.collectionPage, ids.owner, "Inline collection"),
+    ]);
+  await db.insert(schema.contentDatabases).values({
+    id: ids.collection,
+    ownerEmail: OWNER,
+    spaceId: SPACE_ID,
+    documentId: ids.collectionPage,
+    ownerDocumentId: ids.owner,
+    ownerBlockId: `${key}_block`,
+    title: "Inline collection",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  const rows: LockedRow[] = [
+    { label: "inline collection", kind: "collection", id: ids.collection },
+    { label: "owner page", kind: "page", id: ids.owner },
+    { label: "inline collection page", kind: "page", id: ids.collectionPage },
+  ];
+  return { key, ids, rows };
+}
+
+async function recordVersion(key: string, documentId: string) {
+  const versionId = `${key}_version`;
+  await getDb()
+    .insert(schema.documentVersions)
+    .values({
+      id: versionId,
+      ownerEmail: OWNER,
+      documentId,
+      title: (await readPage(documentId)).title,
+      content: "Earlier body",
+      bodyRevision: 0,
+      createdAt: STAMP,
+    });
+  return versionId;
+}
+
+const saveBody = (id: string) =>
+  asOwner(() => updateDocument.run({ id, content: "Saved body" }));
+
+const restoreVersion = (documentId: string, versionId: string) =>
+  asOwner(() =>
+    restoreDocumentVersion.run({
+      documentId,
+      versionId,
+      expectedUpdatedAt: STAMP,
+    }),
+  );
+
+/** Locks a page the way an UPDATE of it does, without changing it. */
+const touchPage = (tx: Db, id: string) =>
+  tx
+    .update(schema.documents)
+    .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+    .where(eq(schema.documents.id, id));
+
 async function readPage(id: string) {
   const [page] = await getDb()
     .select()
@@ -1108,48 +1177,61 @@ describe.skipIf(!POSTGRES_URL)(
         expect(report.waitedOn).toEqual(["row membership", "row page"]);
       });
 
-      // SF-03 known loss, owned by L5b: these still lock the page row before
-      // its memberships. Flip each to `toEqual([])` when the save path moves.
-      it("update-document still locks the page before its membership", async () => {
+      it("update-document", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedCollection();
           return {
             rows: seed.rows,
-            run: () =>
-              asOwner(() =>
-                updateDocument.run({ id: seed.ids.row, content: "Saved body" }),
-              ),
+            run: () => saveBody(seed.ids.row),
           };
         });
-        expect(report.violations).toEqual(["row page before row membership"]);
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["row membership", "row page"]);
       });
 
-      it("restore-document-version still locks the page before its membership", async () => {
+      it("restore-document-version", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedCollection();
-          const versionId = `${seed.key}_version`;
-          await getDb().insert(schema.documentVersions).values({
-            id: versionId,
-            ownerEmail: OWNER,
-            documentId: seed.ids.row,
-            title: "Row",
-            content: "Earlier body",
-            bodyRevision: 0,
-            createdAt: STAMP,
-          });
+          const versionId = await recordVersion(seed.key, seed.ids.row);
           return {
             rows: seed.rows,
-            run: () =>
-              asOwner(() =>
-                restoreDocumentVersion.run({
-                  documentId: seed.ids.row,
-                  versionId,
-                  expectedUpdatedAt: STAMP,
-                }),
-              ),
+            run: () => restoreVersion(seed.ids.row, versionId),
           };
         });
-        expect(report.violations).toEqual(["row page before row membership"]);
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["row membership", "row page"]);
+      });
+    });
+
+    describe("saves that drop an inline collection lock it before the owner page", () => {
+      it("update-document", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedInlineCollection();
+          return {
+            rows: seed.rows,
+            run: () => saveBody(seed.ids.owner),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["inline collection", "owner page"]);
+        const seed = await seedInlineCollection();
+        await saveBody(seed.ids.owner);
+        expect(
+          (await readCollection(seed.ids.collection)).deletedAt,
+        ).toBeTruthy();
+      });
+
+      it("restore-document-version", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedInlineCollection();
+          const versionId = await recordVersion(seed.key, seed.ids.owner);
+          return {
+            rows: seed.rows,
+            run: () => restoreVersion(seed.ids.owner, versionId),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["inline collection", "owner page"]);
       });
     });
 
@@ -1161,11 +1243,7 @@ describe.skipIf(!POSTGRES_URL)(
           return {
             // edit-document: the page's memberships, then the page.
             first: (tx) => lockPrimaryBlocksFields(tx, seed.ids.row),
-            second: (tx) =>
-              tx
-                .update(schema.documents)
-                .set({ updatedAt: sql`${schema.documents.updatedAt}` })
-                .where(eq(schema.documents.id, seed.ids.row)),
+            second: (tx) => touchPage(tx, seed.ids.row),
             run: () =>
               asOwner(() =>
                 restoreDocument.run(
@@ -1191,6 +1269,41 @@ describe.skipIf(!POSTGRES_URL)(
             first: (tx) => lockContentDatabaseMutation(tx, seed.ids.collection),
             second: (tx) => lockDocumentRows(tx, [seed.ids.row]),
             run: () => asOwner(() => undoContentImport.run({ importId })),
+          };
+        });
+      }, 120_000);
+
+      it("saving a collection row against an edit of it (cycle A)", async () => {
+        await runCycle(async () => {
+          const seed = await seedCollection();
+          return {
+            first: (tx) => lockPrimaryBlocksFields(tx, seed.ids.row),
+            second: (tx) => touchPage(tx, seed.ids.row),
+            run: () => saveBody(seed.ids.row),
+          };
+        });
+      }, 120_000);
+
+      it("restoring a version of a collection row against an edit of it (cycle B)", async () => {
+        await runCycle(async () => {
+          const seed = await seedCollection();
+          const versionId = await recordVersion(seed.key, seed.ids.row);
+          return {
+            first: (tx) => lockPrimaryBlocksFields(tx, seed.ids.row),
+            second: (tx) => touchPage(tx, seed.ids.row),
+            run: () => restoreVersion(seed.ids.row, versionId),
+          };
+        });
+      }, 120_000);
+
+      it("saving a page that drops its inline collection against a Trash of the page (cycle C)", async () => {
+        await runCycle(async () => {
+          const seed = await seedInlineCollection();
+          return {
+            // Trash: the subtree's collections, then its pages.
+            first: (tx) => lockContentDatabaseMutation(tx, seed.ids.collection),
+            second: (tx) => lockDocumentRows(tx, [seed.ids.owner]),
+            run: () => saveBody(seed.ids.owner),
           };
         });
       }, 120_000);
@@ -1237,8 +1350,22 @@ describe.skipIf(!POSTGRES_URL)(
             replace: "Edited body",
           }),
       },
+      {
+        path: "browser save",
+        edit: (seed: Awaited<ReturnType<typeof seedCollection>>) =>
+          updateDocument.run({ id: seed.ids.row, content: "Saved body" }),
+      },
+      {
+        path: "version restore",
+        edit: async (seed: Awaited<ReturnType<typeof seedCollection>>) =>
+          restoreDocumentVersion.run({
+            documentId: seed.ids.row,
+            versionId: await recordVersion(seed.key, seed.ids.row),
+            expectedUpdatedAt: STAMP,
+          }),
+      },
     ])(
-      "refuses a $path edit whose page moves to Trash while the edit commits",
+      "refuses an edit ($path) whose page moves to Trash while it commits",
       async ({ edit: runEdit }) => {
         const seed = await seedCollection();
         let proceed!: () => void;
