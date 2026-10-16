@@ -2797,18 +2797,31 @@ function parseTable(
       reportLoss("dropped-attribute", `<table ${name}="${value}">`);
   }
   const colMeta: Array<{ color?: string; width?: string }> = [];
-  const rows: Array<{ color: string | null; cells: string[] }> = [];
+  const rows: Array<{ color: string | null; cells: string[]; head: boolean }> =
+    [];
+  let group: string | null = null;
+  // The editor has no footer rows, so a `<tfoot>` reads as body rows.
+  const enterGroups = (source: string) => {
+    for (const [tag, close, name] of source.matchAll(ROW_GROUP_TAG)) {
+      group = close ? null : name;
+      if (group === "tfoot") reportLoss("dropped-source", tag);
+    }
+  };
   const openRow = (attrSource: string | undefined) => {
     const rowAttrs = readAttrs("tr", attrSource ?? "", ROW_ATTRS);
     rows.push({
       color: isColor(rowAttrs.color) ? rowAttrs.color : null,
       cells: [],
+      head: group === "thead",
     });
   };
   const addCells = (source: string) => {
     for (const part of splitTableCells(source)) {
       if (typeof part === "string") rows[rows.length - 1].cells.push(part);
-      else openRow(part.rowAttrs);
+      else {
+        enterGroups(part.gap);
+        openRow(part.rowAttrs);
+      }
     }
   };
   let cellCloses: Int32Array | null = null;
@@ -2816,7 +2829,11 @@ function parseTable(
   let i = start + 1;
   while (i < close) {
     const ld = lineAt(i++);
-    if (!ld || TABLE_WRAPPER_LINE.test(ld)) continue;
+    if (!ld) continue;
+    if (TABLE_WRAPPER_LINE.test(ld)) {
+      enterGroups(ld);
+      continue;
+    }
     const colMatch = ld.match(/^<col(\s[^>]*?)?\s*\/?>$/);
     if (colMatch) {
       const a = readAttrs("col", colMatch[1] ?? "", COL_ATTRS);
@@ -2888,15 +2905,19 @@ function parseTable(
     }),
   }));
 
-  // The writer spells header cells as attributes, never `<th>`, so an
-  // agent's `<th>` cells name the header row or column when no attribute
-  // does.
+  // The writer spells header cells as attributes, never `<th>` or `<thead>`,
+  // so an agent's `<th>` cells, or a `<thead>` around the first row, name the
+  // header row or column when no attribute does.
   const allHeaders = (cells: Array<{ header: boolean }>) =>
     cells.length > 0 && cells.every((cell) => cell.header);
   const headerRow =
     openAttrs["header-row"] !== undefined
       ? openAttrs["header-row"] === "true"
-      : parsedRows.length > 0 && allHeaders(parsedRows[0].cells);
+      : parsedRows.length > 0 &&
+        (rows[0].head || allHeaders(parsedRows[0].cells));
+  // The editor's one header row is all a `<thead>` can become.
+  if (rows.some((row, index) => row.head && !(index === 0 && headerRow)))
+    reportLoss("dropped-source", "<thead>");
   const bodyRows = headerRow ? parsedRows.slice(1) : parsedRows;
   const headerColumn =
     openAttrs["header-column"] !== undefined
@@ -2942,9 +2963,10 @@ const CELL_OPEN = /^<t[dh][\s>]/;
 const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 const ROW_BREAK =
   /^(?:<\/tr>\s*)?(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
+const ROW_GROUP_TAG = /<(\/?)(thead|tbody|tfoot)>/g;
 
 // A cell's source, or where the next row opens.
-type TableLinePart = string | { rowAttrs: string };
+type TableLinePart = string | { rowAttrs: string; gap: string };
 
 function splitTableCells(source: string): TableLinePart[] {
   const cells: TableLinePart[] = [];
@@ -2952,7 +2974,7 @@ function splitTableCells(source: string): TableLinePart[] {
   // own, with or without closing this one; HTML closes it there.
   const readGap = (gap: string) => {
     const rowBreak = gap.match(ROW_BREAK);
-    if (rowBreak) cells.push({ rowAttrs: rowBreak[1] ?? "" });
+    if (rowBreak) cells.push({ rowAttrs: rowBreak[1] ?? "", gap });
     else if (gap) reportLoss("dropped-source", gap);
   };
   // Found by hand, not by one regex: searching from every open tag for a `>`
