@@ -21,6 +21,12 @@ import * as Y from "yjs";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import * as nfm from "../../shared/nfm.js";
 
+const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  countOutcome: outcomeCounter,
+}));
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-live-copy-${process.pid}-${Date.now()}.pglite`,
@@ -997,16 +1003,43 @@ describe("server writers through editContentLiveCopy", () => {
   it("refuses a replace that names no base body before it reaches the live copy", async () => {
     await switchedPage("no-base", "Before");
     const version = await collabVersion("no-base");
+    const edit: string = binding.CONTENT_LIVE_COPY_EDITS.replaceBody;
 
     await expect(
       writer.editContentLiveCopy("no-base", {
         cause: { operation: "test-no-base" },
-        edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-        input: { content: "After" } as never,
+        edit,
+        // @ts-expect-error An edit typed as any string still owes its base.
+        input: { content: "After" },
       }),
     ).rejects.toThrow(/must name the body it was built from/);
     expect(await collabVersion("no-base")).toBe(version);
     expect((await page("no-base")).content).toBe("Before");
+  });
+
+  it("checks the base a replace names even when a structured clone would drop it", async () => {
+    await switchedPage("hidden-base", "Same");
+    const spy = peerCommitsAfterBuild("hidden-base", "Peer");
+    const input = Object.defineProperty({ content: "Mine" }, "expected", {
+      value: "Same",
+      enumerable: false,
+    }) as { content: string; expected: string };
+    try {
+      await expect(
+        writer.editContentLiveCopy("hidden-base", {
+          cause: { operation: "test-hidden-base" },
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input,
+        }),
+      ).rejects.toMatchObject({
+        name: "LiveCopyError",
+        reason: "base_changed",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("hidden-base")).content).toBe("Peer");
   });
 
   it("takes an intent's hash and changed blocks from the commit when the writer leaves them out", async () => {
@@ -1115,6 +1148,12 @@ describe("a browser save to a switched page's body", () => {
     );
   }
 
+  /** The reason the last save's outcome was counted under. */
+  async function countedReason() {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return outcomeCounter.mock.lastCall?.[1]?.reason_code;
+  }
+
   async function receipts(id: string) {
     return getDb()
       .select({ attemptId: schema.documentBrowserSaveAttempts.attemptId })
@@ -1163,8 +1202,10 @@ describe("a browser save to a switched page's body", () => {
 
     const saved = await browserSave("two-tabs", loaded, "Hello there A");
 
+    expect(await countedReason()).toBe("live_copy_save_unheld");
     expect(saved).not.toHaveProperty("preservationRequired");
     expect(saved).not.toHaveProperty("conflict");
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
     expect(saved).toMatchObject({
       content: "Hello there B2",
       bodySave: {
@@ -1239,6 +1280,74 @@ describe("a browser save to a switched page's body", () => {
       bodySave: { matchesLiveCopy: true },
       browserSaveAttempt: { result: "replayed" },
     });
+  });
+
+  it("settles a save the live copy holds, though a peer committed after it", async () => {
+    await switchedPage("held", "First\n\nSecond");
+    const loaded = await page("held");
+    // Tab A's own updates reach the live copy over collab before its save.
+    await asOwner(async () =>
+      collab.applyUpdate(
+        "held",
+        await editorUpdate("held", markdownBlocks("First A\n\nSecond")),
+      ),
+    );
+    const typed = (await page("held")).content;
+    await typeInOtherTab("held", ["First A\n\nSecond B"]);
+    await keepDraft("held", typed);
+    const before = await page("held");
+
+    const saved = await browserSave("held", loaded, typed, {
+      editorSnapshotTitle: "held",
+      editorSnapshotContent: typed,
+    });
+
+    expect(await countedReason()).toBe("live_copy_save_held");
+    expect(saved).not.toHaveProperty("preservationRequired");
+    expect(saved).toMatchObject({
+      content: before.content,
+      bodyIntentOutcome: { status: "applied" },
+      bodySave: { status: "live_copy", matchesLiveCopy: false },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await page("held")).toEqual(before);
+    expect(await drafts("held")).toEqual([]);
+    expect(await receipts("held")).toEqual([{ attemptId: "held-attempt" }]);
+    expect(await bodyIntents("held")).toEqual([]);
+  });
+
+  it("keeps a tab's draft when the live copy cannot compare its save in time", async () => {
+    await switchedPage("unchecked", "Hello there");
+    const loaded = await page("unchecked");
+    await keepDraft("unchecked", "Hello there\nOnly in tab A");
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    // Unclosed backtick runs, as in the SF-07 deadline test, under the
+    // 500,000-character bound on an authored body.
+    const base = Array.from({ length: 990 }, (_, index) =>
+      "`".repeat(index + 1),
+    ).join(" ");
+
+    const saved = await browserSave(
+      "unchecked",
+      loaded,
+      "Hello there\nOnly in tab A",
+      {
+        authoredBaseRevision: documentRevisionToken(loaded.bodyRevision, base),
+        authoredBaseContent: base,
+        editorSnapshotTitle: "unchecked",
+        editorSnapshotContent: "Hello there\nOnly in tab A",
+      },
+    );
+
+    expect(await countedReason()).toBe("live_copy_save_unchecked");
+    expect(saved).toMatchObject({ bodySave: { matchesLiveCopy: false } });
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
+    expect(saved).not.toHaveProperty("browserSaveAttempt");
+    expect(await drafts("unchecked")).toEqual([
+      { content: "Hello there\nOnly in tab A" },
+    ]);
+    expect(await receipts("unchecked")).toEqual([]);
   });
 
   it("applies a save's title and leaves its body to the live copy", async () => {
@@ -1672,16 +1781,21 @@ describe("the SF-07 bound on Content's derive and build", () => {
     expect(content.split("\n")).toHaveLength(200_003);
   });
 
-  it("stops building a body of 1M [ at the deadline", async () => {
-    await switchedPage("brackets", "Hello there");
+  it("stops building a body of 1,000 unmatched backtick runs at the deadline", async () => {
+    await switchedPage("backticks", "Hello there");
+    // Runs of 1 to 1,000 backticks, none closed. Building it takes over 20 s
+    // with either NFM parser; 1M `[` stopped tripping once the parser got fast.
+    const content = Array.from({ length: 1_000 }, (_, index) =>
+      "`".repeat(index + 1),
+    ).join(" ");
 
     await expectRefused(
-      "brackets",
+      "backticks",
       () =>
         cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
-          collab.mutateLiveCopy(binding.contentLiveCopy, "brackets", {
+          collab.mutateLiveCopy(binding.contentLiveCopy, "backticks", {
             edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-            input: { content: "[".repeat(1_000_000) },
+            input: { content },
           }),
         ),
       { code: "build_failed", reason: "deadline_exceeded" },

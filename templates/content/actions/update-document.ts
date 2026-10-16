@@ -62,6 +62,7 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { liveCopyHoldsSave } from "../server/live-copy/holds.js";
 import type {
   DocumentUpdateResponse,
   LiveCopyBodySave,
@@ -1074,6 +1075,10 @@ const updateDocumentAction = defineAction({
       let bodyIntentOutcome: BrowserDocumentUpdateResponse["bodyIntentOutcome"];
       let discardedEditorGeneration: number | undefined;
       let liveCopyBodySave: LiveCopyBodySave | undefined;
+      // Only a save the live copy already holds settles its draft or keeps a
+      // receipt. A tab whose updates never reached the live copy has nothing
+      // else on the server holding its text.
+      let settlesLiveCopyBody = false;
       let preservationRequired:
         | {
             reason: "structure" | "provenance";
@@ -1239,12 +1244,32 @@ const updateDocumentAction = defineAction({
               // body part of its save is not written here. Comparing it with
               // the stored body would read every peer's live-copy commit as
               // an unmerged edit and divert this save to History.
+              const matchesLiveCopy = content === historyBefore.content;
               liveCopyBodySave = {
                 status: "live_copy",
-                matchesLiveCopy: content === historyBefore.content,
+                matchesLiveCopy,
                 bodyRevision: historyBefore.bodyRevision,
                 collabVersion: page.liveCopyVersion as number,
               };
+              // A tab's body trails peers' commits it hasn't received, so
+              // most saves from two open tabs match no stored body. Old
+              // editors read an unsettled save as unsaved and send its text
+              // to History when the tab reopens.
+              const hold =
+                matchesLiveCopy ||
+                !authoredBase ||
+                authoredCandidateContent === undefined
+                  ? undefined
+                  : await liveCopyHoldsSave({
+                      base: args.authoredBaseContent as string,
+                      stored: historyBefore.content,
+                      candidate: authoredCandidateContent,
+                    });
+              settlesLiveCopyBody = matchesLiveCopy || hold === "held";
+              if (hold) measurement.reason_code = `live_copy_save_${hold}`;
+              if (settlesLiveCopyBody) {
+                bodyIntentOutcome = { status: "applied" };
+              }
               content = undefined;
             } else if (
               staleBodySave &&
@@ -1255,10 +1280,6 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
-          // Only a body the live copy already holds settles its draft or
-          // keeps a receipt. A tab whose updates never reached the live copy
-          // has nothing else on the server holding its text.
-          const settlesLiveCopyBody = !!liveCopyBodySave?.matchesLiveCopy;
           const confirmBrowserSave = async (
             snapshot: { title: string; content: string },
             now: string,
@@ -1270,7 +1291,6 @@ const updateDocumentAction = defineAction({
               args.editorSnapshotContent !== undefined &&
               snapshot.title === args.editorSnapshotTitle &&
               (snapshot.content === args.editorSnapshotContent ||
-                settlesLiveCopyBody ||
                 bodyIntentOutcome?.status === "applied" ||
                 bodyIntentOutcome?.status === "displaced-preserved")
             ) {

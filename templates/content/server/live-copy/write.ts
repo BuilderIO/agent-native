@@ -18,9 +18,27 @@ import {
  * silently overwrite the peer's text on that retry.
  */
 type ContentLiveCopyEditInput<Edit extends string> =
-  Edit extends typeof CONTENT_LIVE_COPY_EDITS.replaceBody
+  typeof CONTENT_LIVE_COPY_EDITS.replaceBody extends Edit
     ? { content: string; expected: string }
     : unknown;
+
+function replaceBodyInput(
+  documentId: string,
+  input: unknown,
+): { content: unknown; expected: string } {
+  const { content, expected } = (input ?? {}) as {
+    content?: unknown;
+    expected?: unknown;
+  };
+  if (typeof expected !== "string") {
+    throw new Error(
+      `A server writer's replace of page ${documentId} must name the body it was built from as \`expected\`.`,
+    );
+  }
+  // The worker gets a structured clone, which drops a getter's or a
+  // non-enumerable property's value, so send the values checked here.
+  return { content, expected };
+}
 
 /**
  * Applies a named edit to a switched page's live copy for a server writer.
@@ -45,19 +63,14 @@ export async function editContentLiveCopy<Edit extends string>(
     persist?: (tx: DbExec, change: LiveCopyCallChange) => Promise<void>;
   },
 ): Promise<LiveCopyMutationResult> {
-  if (
-    options.edit === CONTENT_LIVE_COPY_EDITS.replaceBody &&
-    typeof (options.input as { expected?: unknown } | null)?.expected !==
-      "string"
-  ) {
-    throw new Error(
-      `A server writer's replace of page ${documentId} must name the body it was built from as \`expected\`.`,
-    );
-  }
+  const input =
+    options.edit === CONTENT_LIVE_COPY_EDITS.replaceBody
+      ? replaceBodyInput(documentId, options.input)
+      : options.input;
   return withContentBodyWriteCause(options.cause, () =>
     mutateLiveCopy(contentLiveCopy, documentId, {
       edit: options.edit,
-      input: options.input,
+      input,
       ...(options.requestSource
         ? { requestSource: options.requestSource }
         : {}),
