@@ -41,6 +41,7 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
+import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
@@ -396,7 +397,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
-  options?: { threadId: string; turnId: string },
+  options?: { threadId?: string; turnId?: string; messages?: EngineMessage[] },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -12246,6 +12247,136 @@ describe("runAgentLoop", () => {
         errorCode: "write_tool_outcome_unknown",
       }),
     );
+  });
+
+  describe("provider-api-request POST retries", () => {
+    const providerRequestAction = (
+      executeRequest: (args: unknown) => Promise<unknown>,
+    ): ActionEntry => ({
+      ...actionEntry({}),
+      ...createProviderApiRequestAction({
+        executeRequest: executeRequest as never,
+      }),
+    });
+    const rejected = {
+      response: { ok: false, status: 400, statusText: "Bad Request", json: {} },
+    };
+    const accepted = {
+      response: { ok: true, status: 200, json: { rows: [] } },
+    };
+
+    it("retries a failed GA4 report with corrected arguments", async () => {
+      const executeRequest = vi
+        .fn()
+        .mockResolvedValueOnce(rejected)
+        .mockResolvedValueOnce(accepted);
+      const report = (dimension: string) => ({
+        provider: "ga4",
+        method: "POST",
+        path: "/properties/{propertyId}:runReport",
+        body: { dimensions: [{ name: dimension }] },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: report("sessionSourc") },
+          { name: "provider-api-request", input: report("sessionSource") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(2);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ outcomeUnknown: true }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
+
+    it("still stops after a failed POST that may have written", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      const create = (email: string) => ({
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email } },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: create("a@example.com") },
+          { name: "provider-api-request", input: create("b@example.com") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    });
+
+    it("runs the write again when the user replies continue in a new turn", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(accepted);
+      const input = {
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email: "a@example.com" } },
+      };
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "add the contact" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "earlier-create",
+              name: "provider-api-request",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "earlier-create",
+              toolName: "provider-api-request",
+              content: "Error running provider-api-request: timed out",
+              isError: true,
+              outcome: "unknown",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: 'I stopped before running provider-api-request again. Reply "continue" and I will verify it.',
+            },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ];
+
+      const events = await runToolCallSequence(
+        [{ name: "provider-api-request", input }],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+        { messages },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
   });
 
   it("resets other tools' repeat-error counts after a successful write", async () => {
