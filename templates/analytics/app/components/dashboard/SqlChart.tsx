@@ -104,6 +104,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
+import { csvCell } from "@/lib/csv";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -550,13 +551,6 @@ function formatSeriesLabel(value: string): string {
   }
 
   return truncateLabel(metric || value);
-}
-
-function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }
 
 function usesPrometheusPresentation(panel: SqlPanel): boolean {
@@ -1249,6 +1243,28 @@ function chartClickProps(
         state?.activeIndex ?? state?.activeTooltipIndex,
         xKey,
       );
+      if (datum) onDatumClick(datum);
+    },
+  };
+}
+
+function chartSeriesClickProps(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  series: string | undefined,
+  valueKey: string,
+  onDatumClick: DatumClickHandler | undefined,
+) {
+  if (!onDatumClick) return {};
+  return {
+    style: { cursor: "pointer" } as CSSProperties,
+    onClick: (
+      _data: unknown,
+      index: unknown,
+      event?: { stopPropagation?: () => void },
+    ) => {
+      event?.stopPropagation?.();
+      const datum = rowDatum(rows, index, xKey, series, valueKey);
       if (datum) onDatumClick(datum);
     },
   };
@@ -2404,10 +2420,14 @@ function TableRenderer({
   const handleExportCsv = useCallback(() => {
     const headers = columns.map((col) => col.label ?? col.key);
     const rowsCsv = sortedRows.map((row) =>
-      columns.map((col) => formatCell(row[col.key], col.format)).map(csvEscape),
+      columns.map((col) =>
+        csvCell(row[col.key], {
+          displayValue: formatCell(row[col.key], col.format),
+        }),
+      ),
     );
     const csv = [
-      headers.map(csvEscape).join(","),
+      headers.map((header) => csvCell(header)).join(","),
       ...rowsCsv.map((r) => r.join(",")),
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -2892,17 +2912,13 @@ function BarRenderer({
               stackId={stacked ? "stack" : undefined}
               hide={hiddenKeys.has(key)}
               isAnimationActive={false}
-              style={onDatumClick ? { cursor: "pointer" } : undefined}
-              onClick={(_, index) => {
-                const datum = rowDatum(
-                  rows,
-                  index,
-                  xKey,
-                  panel.config?.pivot ? key : undefined,
-                  key,
-                );
-                if (datum) onDatumClick?.(datum);
-              }}
+              {...chartSeriesClickProps(
+                rows,
+                xKey,
+                panel.config?.pivot ? key : undefined,
+                key,
+                onDatumClick,
+              )}
             />
           ))}
         </BarChart>
@@ -3010,6 +3026,13 @@ function ComboRenderer({
                 radius={[4, 4, 0, 0]}
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  rows,
+                  xKey,
+                  panel.config?.pivot ? key : undefined,
+                  key,
+                  onDatumClick,
+                )}
               />
             ) : (
               <Line
@@ -3023,6 +3046,13 @@ function ComboRenderer({
                 dot={false}
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  rows,
+                  xKey,
+                  panel.config?.pivot ? key : undefined,
+                  key,
+                  onDatumClick,
+                )}
               />
             ),
           )}
@@ -3139,6 +3169,13 @@ function TimeSeriesRenderer({
                 dot={false}
                 hide={hiddenKeys.has(item.key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  chartRows,
+                  xKey,
+                  panel.config?.pivot ? item.key : undefined,
+                  item.solidKey,
+                  onDatumClick,
+                )}
               />
             ))}
             {series.map((item, i) =>
@@ -3155,6 +3192,13 @@ function TimeSeriesRenderer({
                   dot={false}
                   hide={hiddenKeys.has(item.key)}
                   isAnimationActive={false}
+                  {...chartSeriesClickProps(
+                    chartRows,
+                    xKey,
+                    panel.config?.pivot ? item.key : undefined,
+                    item.partialKey,
+                    onDatumClick,
+                  )}
                 />
               ) : null,
             )}
@@ -3249,6 +3293,13 @@ function TimeSeriesRenderer({
               stackId={stacked ? "stack" : undefined}
               hide={hiddenKeys.has(item.key)}
               isAnimationActive={false}
+              {...chartSeriesClickProps(
+                chartRows,
+                xKey,
+                panel.config?.pivot ? item.key : undefined,
+                item.solidKey,
+                onDatumClick,
+              )}
             />
           ))}
           {series.map((item, i) =>
@@ -3267,6 +3318,13 @@ function TimeSeriesRenderer({
                 stackId={stacked ? "partial-stack" : undefined}
                 hide={hiddenKeys.has(item.key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  chartRows,
+                  xKey,
+                  panel.config?.pivot ? item.key : undefined,
+                  item.partialKey,
+                  onDatumClick,
+                )}
               />
             ) : null,
           )}

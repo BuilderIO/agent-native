@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { csvCell } from "@/lib/csv";
 import { useSqlQuery } from "@/lib/sql-query";
 import { cn } from "@/lib/utils";
 
@@ -45,19 +46,15 @@ function cellText(value: unknown): string {
   return String(value);
 }
 
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function downloadCsv(
   name: string,
   columns: string[],
   rows: Record<string, unknown>[],
 ) {
   const lines = [
-    columns.map(csvCell).join(","),
+    columns.map((column) => csvCell(column)).join(","),
     ...rows.map((row) =>
-      columns.map((column) => csvCell(cellText(row[column]))).join(","),
+      columns.map((column) => csvCell(row[column])).join(","),
     ),
   ];
   const url = URL.createObjectURL(
@@ -85,13 +82,20 @@ export function PanelDrilldownDialog({
   const scopeId = dashboardId || panel.id;
   const aggregateSql = serializePanelSql(resolvedSql ?? panel.sql);
 
-  const { data: drilldownData, isLoading: drilldownLoading } = useActionQuery(
+  const drilldownQuery = useActionQuery(
     "get-panel-drilldown",
     { panelId: panel.id },
     { enabled: open, staleTime: 5 * 60 * 1000 },
   );
+  const drilldownData = drilldownQuery.data;
   const drilldownSql = drilldownData?.drilldown?.sql ?? null;
-  const hasRecordQuery = drilldownSql !== null;
+  const hasDrilldownResult =
+    drilldownQuery.isSuccess &&
+    (drilldownData?.drilldown === null ||
+      (typeof drilldownSql === "string" && drilldownSql.length > 0));
+  const hasRecordQuery = hasDrilldownResult && drilldownSql !== null;
+  const hasAggregateQuery =
+    hasDrilldownResult && drilldownData?.drilldown === null;
 
   const recordSql = useMemo(
     () =>
@@ -120,16 +124,21 @@ export function PanelDrilldownDialog({
     ["sql-chart", scopeId, aggregateSql, panel.source],
     aggregateSql,
     panel.source,
-    { enabled: open && !drilldownLoading && !hasRecordQuery },
+    {
+      enabled: open && hasAggregateQuery,
+    },
   );
 
   const activeQuery = hasRecordQuery ? recordQuery : aggregateQuery;
   const allRows = activeQuery.data?.rows ?? [];
   const error =
-    activeQuery.data?.error ??
-    (activeQuery.error ? t("sqlDashboard.drilldownLoadFailed") : undefined);
+    (drilldownQuery.isError ||
+    (drilldownQuery.isSuccess && !hasDrilldownResult) ||
+    activeQuery.error
+      ? t("sqlDashboard.drilldownLoadFailed")
+      : undefined) ?? activeQuery.data?.error;
   const loading =
-    drilldownLoading || activeQuery.isLoading || activeQuery.isFetching;
+    drilldownQuery.isLoading || activeQuery.isLoading || activeQuery.isFetching;
 
   const columns = useMemo(
     () =>
