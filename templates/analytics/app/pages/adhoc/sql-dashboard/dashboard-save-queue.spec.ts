@@ -142,6 +142,47 @@ describe("dashboard save queue", () => {
     await expect(second).resolves.toMatchObject({ isLatest: true });
   });
 
+  it("reapplies a new edit after failure against the last confirmed config", async () => {
+    const firstSave = deferred();
+    const secondSave = deferred();
+    const save =
+      vi.fn<
+        (
+          config: { width: number; height: number },
+          expectedUpdatedAt: string | undefined,
+        ) => Promise<DashboardSaveOutcome>
+      >();
+    save
+      .mockReturnValueOnce(firstSave.promise)
+      .mockReturnValueOnce(secondSave.promise);
+    const queue = createDashboardSaveQueue(save);
+    const base = { width: 1, height: 2 };
+    const failedResize = { ...base, width: 2 };
+    const resizeWidth = (current: typeof base) => ({ ...current, width: 2 });
+
+    const first = queue.enqueue(failedResize, "v0", resizeWidth, base);
+    firstSave.reject(new Error("Resize failed"));
+    await expect(first).rejects.toThrow("Resize failed");
+    expect(queue.confirmed()).toEqual(base);
+
+    const resizeHeight = (current: typeof base) => ({ ...current, height: 3 });
+    const second = queue.enqueue(
+      { ...failedResize, height: 3 },
+      "v0",
+      resizeHeight,
+      { ...failedResize, height: 3 },
+    );
+
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenLastCalledWith({ width: 1, height: 3 }, "v0");
+    });
+    secondSave.resolve({ changed: true, updatedAt: "v1" });
+    await expect(second).resolves.toMatchObject({
+      isLatest: true,
+      config: { width: 1, height: 3 },
+    });
+  });
+
   it("does not save a diverged config after an earlier queued save fails", async () => {
     const firstSave = deferred();
     const { save, queue } = queueOf(firstSave);

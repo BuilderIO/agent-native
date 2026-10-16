@@ -39,6 +39,8 @@ export type DashboardSaveQueue<T> = {
   ): Promise<DashboardSaveResult<T>>;
   /** Saves queued and not yet settled. */
   pending(): number;
+  /** The latest config confirmed by a successful save or authoritative load. */
+  confirmed(): T | undefined;
 };
 
 /**
@@ -68,7 +70,11 @@ export function createDashboardSaveQueue<T>(
   return {
     enqueue(config, baseUpdatedAt, update, baseConfig) {
       if (waiting.size === 0) {
-        if (baseConfig !== undefined) {
+        const needsNewBase =
+          !previousSaveFailed ||
+          !hasConfirmedConfig ||
+          baseUpdatedAt !== confirmedVersion;
+        if (baseConfig !== undefined && needsNewBase) {
           confirmedConfig = baseConfig;
           confirmedVersion = baseUpdatedAt;
           hasConfirmedConfig = true;
@@ -134,5 +140,6 @@ export function createDashboardSaveQueue<T>(
       return saveResult;
     },
     pending: () => waiting.size,
+    confirmed: () => confirmedConfig,
   };
 }

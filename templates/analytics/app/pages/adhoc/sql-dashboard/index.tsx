@@ -212,7 +212,7 @@ import {
   DEFAULT_DASHBOARD_COLUMNS,
   MAX_PANEL_HEIGHT,
   PANEL_HEIGHT_UNIT_PX,
-  mergeLatestPanelHeight,
+  mergeUnchangedPanelDimensions,
   type DashboardFilter,
   type FilterPreset,
   type SqlDashboardConfig,
@@ -324,7 +324,9 @@ const PanelCell = memo(function PanelCell({
   onRemovePanel,
   onEditPanel,
   onSavePanel,
+  onResizePanel,
   onSaveColumns,
+  hasPendingDashboardSave,
   dashboardExtensionContext,
 }: {
   panel: SqlPanel;
@@ -345,7 +347,13 @@ const PanelCell = memo(function PanelCell({
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSavePanel: (panel: SqlPanel) => Promise<void>;
+  onResizePanel: (
+    panelId: string,
+    axis: "width" | "height",
+    value: number,
+  ) => Promise<SqlPanel>;
   onSaveColumns: (panelId: string, columns: TableColumnConfig[]) => void;
+  hasPendingDashboardSave: boolean;
   dashboardExtensionContext: Record<string, unknown>;
 }) {
   const t = useT();
@@ -370,6 +378,7 @@ const PanelCell = memo(function PanelCell({
   });
   const savedResizeValuesRef = useRef(resizeValuesRef.current);
   const resizeSaveCountRef = useRef(0);
+  const resizeSaveAxisCountRef = useRef({ width: 0, height: 0 });
   const resizeSaveSequenceRef = useRef(0);
   const [resizeSaveGeneration, setResizeSaveGeneration] = useState(0);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
@@ -388,7 +397,7 @@ const PanelCell = memo(function PanelCell({
     }
   }, [timeRangeOverride, validTimeRangeOverride]);
   useEffect(() => {
-    if (resizeSaveCountRef.current > 0) return;
+    if (resizeSaveCountRef.current > 0 || hasPendingDashboardSave) return;
     const savedValues = {
       panelId: panel.id,
       width: clampPanelWidth(panel.width, gridColumns),
@@ -398,7 +407,14 @@ const PanelCell = memo(function PanelCell({
     savedResizeValuesRef.current = savedValues;
     setPreviewWidth(null);
     setPreviewHeight(null);
-  }, [panel.id, panel.width, panel.height, gridColumns, resizeSaveGeneration]);
+  }, [
+    panel.id,
+    panel.width,
+    panel.height,
+    gridColumns,
+    resizeSaveGeneration,
+    hasPendingDashboardSave,
+  ]);
   const effectiveVars = useMemo(
     () =>
       validTimeRangeOverride
@@ -460,36 +476,60 @@ const PanelCell = memo(function PanelCell({
       ),
     );
 
-  const saveResize = (nextPanel: SqlPanel) => {
-    const nextValues = {
-      panelId: nextPanel.id,
-      width: clampPanelWidth(nextPanel.width, gridColumns),
-      height: nextPanel.height,
-    };
+  const saveResize = (axis: "width" | "height", value: number) => {
+    const current =
+      resizeValuesRef.current.panelId === panel.id
+        ? resizeValuesRef.current
+        : {
+            panelId: panel.id,
+            width: clampPanelWidth(panel.width, gridColumns),
+            height: panel.height,
+          };
+    const nextValues = { ...current, [axis]: value };
     const sequence = ++resizeSaveSequenceRef.current;
     resizeValuesRef.current = nextValues;
     resizeSaveCountRef.current += 1;
-    setPreviewWidth(nextValues.width);
-    setPreviewHeight(nextValues.height ?? null);
+    resizeSaveAxisCountRef.current[axis] += 1;
+    if (axis === "width") setPreviewWidth(value);
+    else setPreviewHeight(value);
 
-    void onSavePanel(nextPanel)
-      .then(() => {
-        savedResizeValuesRef.current = nextValues;
+    void onResizePanel(panel.id, axis, value)
+      .then((savedPanel) => {
+        const savedValues = {
+          panelId: savedPanel.id,
+          width: clampPanelWidth(savedPanel.width, gridColumns),
+          height: savedPanel.height,
+        };
+        savedResizeValuesRef.current = savedValues;
         resizeSaveCountRef.current -= 1;
+        resizeSaveAxisCountRef.current[axis] -= 1;
         setResizeSaveGeneration((generation) => generation + 1);
         if (sequence !== resizeSaveSequenceRef.current) return;
-        resizeValuesRef.current = nextValues;
+        resizeValuesRef.current = savedValues;
         setPreviewWidth(null);
         setPreviewHeight(null);
       })
       .catch((err: unknown) => {
         resizeSaveCountRef.current -= 1;
+        resizeSaveAxisCountRef.current[axis] -= 1;
         setResizeSaveGeneration((generation) => generation + 1);
-        if (sequence !== resizeSaveSequenceRef.current) return;
         const savedValues = savedResizeValuesRef.current;
-        resizeValuesRef.current = savedValues;
-        setPreviewWidth(savedValues.width);
-        setPreviewHeight(savedValues.height ?? null);
+        if (
+          resizeSaveAxisCountRef.current[axis] === 0 &&
+          savedValues.panelId === panel.id
+        ) {
+          const currentValues =
+            resizeValuesRef.current.panelId === panel.id
+              ? resizeValuesRef.current
+              : savedValues;
+          resizeValuesRef.current = {
+            ...currentValues,
+            [axis]: savedValues[axis],
+          };
+          if (axis === "width") setPreviewWidth(savedValues.width);
+          else setPreviewHeight(savedValues.height ?? null);
+        }
+        if (sequence !== resizeSaveSequenceRef.current) return;
         toast.error(
           err instanceof DashboardSaveQueueConflictError ||
             (err instanceof Error &&
@@ -580,21 +620,7 @@ const PanelCell = memo(function PanelCell({
       }
       return;
     }
-    const current =
-      resizeValuesRef.current.panelId === panel.id
-        ? resizeValuesRef.current
-        : {
-            panelId: panel.id,
-            width: clampPanelWidth(panel.width, gridColumns),
-            height: panel.height,
-          };
-    saveResize({
-      ...panel,
-      width: axis === "width" ? preview.width : current.width,
-      ...(axis === "height"
-        ? { height: preview.height }
-        : { height: current.height }),
-    });
+    saveResize(axis, preview[axis]);
   };
 
   const cancelResize = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -641,17 +667,7 @@ const PanelCell = memo(function PanelCell({
     if (nextValue === null || nextValue === currentValue) return;
     event.preventDefault();
     event.stopPropagation();
-    const nextValues = {
-      ...current,
-      [axis]: nextValue,
-    };
-    if (axis === "width") setPreviewWidth(nextValue);
-    else setPreviewHeight(nextValue);
-    saveResize({
-      ...panel,
-      width: nextValues.width,
-      height: nextValues.height,
-    });
+    saveResize(axis, nextValue);
   };
 
   const renderedWidth =
@@ -947,6 +963,12 @@ function SqlDashboardPageContent({
   const dashboardSaveQueuesRef = useRef(
     new Map<string, DashboardSaveQueue<SqlDashboardConfig>>(),
   );
+  const [dashboardSavePendingCounts, setDashboardSavePendingCounts] = useState<
+    Record<string, number>
+  >({});
+  const hasPendingDashboardSave = Boolean(
+    dashboardId && dashboardSavePendingCounts[dashboardId],
+  );
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   // Every dashboard opens in view mode: drag handles, column edits, and inline
@@ -1144,6 +1166,36 @@ function SqlDashboardPageContent({
     );
     return hold;
   }, [dashboardId, dashboardScope, queryClient]);
+
+  const rollbackFailedDashboardSave = useCallback(
+    (
+      id: string,
+      optimisticConfig: SqlDashboardConfig,
+      queue: DashboardSaveQueue<SqlDashboardConfig>,
+      hold: DashboardAdoptionHold | null,
+    ) => {
+      if (queue.pending() > 0) return false;
+      pendingConfigRef.current = releaseDashboardAdoptionHold(
+        pendingConfigRef.current,
+        hold,
+      );
+      const confirmedConfig = queue.confirmed();
+      const latest = loadedDashboardRef.current;
+      if (
+        confirmedConfig &&
+        latest?.id === id &&
+        latest.config === optimisticConfig
+      ) {
+        updateDashboard(id, () => confirmedConfig);
+        updateCachedDashboardConfig(confirmedConfig);
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", id, dashboardScope],
+      });
+      return true;
+    },
+    [dashboardScope, queryClient, updateCachedDashboardConfig, updateDashboard],
+  );
 
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
     Map<string, { color: string; name: string }>
@@ -1564,6 +1616,25 @@ function SqlDashboardPageContent({
     return queue;
   }, []);
 
+  const trackDashboardSaveQueue = useCallback(
+    (id: string, save: Promise<DashboardSaveResult<SqlDashboardConfig>>) => {
+      setDashboardSavePendingCounts((counts) => ({
+        ...counts,
+        [id]: (counts[id] ?? 0) + 1,
+      }));
+      return save.finally(() => {
+        setDashboardSavePendingCounts((counts) => {
+          const pending = (counts[id] ?? 1) - 1;
+          if (pending > 0) return { ...counts, [id]: pending };
+          const next = { ...counts };
+          delete next[id];
+          return next;
+        });
+      });
+    },
+    [],
+  );
+
   const persist = useCallback(
     (update: DashboardConfigUpdate) => {
       if (!dashboardId) return;
@@ -1581,11 +1652,14 @@ function SqlDashboardPageContent({
       updateCachedDashboardConfig(updated);
       const queue = dashboardSaveQueue(dashboardId);
       void trackSave(
-        queue.enqueue(
-          updated,
-          dashboardUpdatedAtRef.current,
-          update,
-          loaded.config,
+        trackDashboardSaveQueue(
+          dashboardId,
+          queue.enqueue(
+            updated,
+            dashboardUpdatedAtRef.current,
+            update,
+            loaded.config,
+          ),
         ),
       )
         .then(({ isLatest, config: savedConfig }) => {
@@ -1614,14 +1688,9 @@ function SqlDashboardPageContent({
         .catch((err) => {
           // A newer queued save owns the optimistic state and reports its own
           // outcome, so this one no longer says what the dashboard holds.
-          if (queue.pending() > 0) return;
-          pendingConfigRef.current = releaseDashboardAdoptionHold(
-            pendingConfigRef.current,
-            hold,
-          );
-          void queryClient.invalidateQueries({
-            queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
-          });
+          if (!rollbackFailedDashboardSave(dashboardId, updated, queue, hold)) {
+            return;
+          }
           toast.error(
             err instanceof DashboardSaveQueueConflictError
               ? t("sqlDashboard.saveFailed")
@@ -1639,6 +1708,8 @@ function SqlDashboardPageContent({
       canEdit,
       dashboardSaveQueue,
       holdDashboardConfig,
+      rollbackFailedDashboardSave,
+      trackDashboardSaveQueue,
       queryClient,
       resetRevisionNavigation,
       t,
@@ -1657,7 +1728,7 @@ function SqlDashboardPageContent({
       const loaded = loadedDashboardRef.current;
       if (loaded?.id !== dashboardId || !loaded.config) return;
       const updated = update(loaded.config);
-      if (updated === loaded.config) return;
+      if (updated === loaded.config) return loaded.config;
       resetRevisionNavigation();
       const hold = holdDashboardConfig();
       updateDashboard(dashboardId, () => updated);
@@ -1666,31 +1737,25 @@ function SqlDashboardPageContent({
       let saveResult: DashboardSaveResult<SqlDashboardConfig>;
       try {
         saveResult = await trackSave(
-          queue.enqueue(
-            updated,
-            dashboardUpdatedAtRef.current,
-            update,
-            loaded.config,
+          trackDashboardSaveQueue(
+            dashboardId,
+            queue.enqueue(
+              updated,
+              dashboardUpdatedAtRef.current,
+              update,
+              loaded.config,
+            ),
           ),
         );
       } catch (err) {
-        // A newer queued save still needs the hold and may replay its edit.
-        if (queue.pending() === 0) {
-          pendingConfigRef.current = releaseDashboardAdoptionHold(
-            pendingConfigRef.current,
-            hold,
-          );
-          void queryClient.invalidateQueries({
-            queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
-          });
-        }
+        rollbackFailedDashboardSave(dashboardId, updated, queue, hold);
         if (err instanceof DashboardSaveQueueConflictError) {
           throw new Error(t("sqlDashboard.saveFailed"));
         }
         throw err;
       }
       const { isLatest, config: savedConfig } = saveResult;
-      if (!isLatest) return;
+      if (!isLatest) return savedConfig;
       const latest = loadedDashboardRef.current;
       if (latest?.id === dashboardId && latest.config === updated) {
         updateDashboard(dashboardId, () => savedConfig);
@@ -1711,6 +1776,7 @@ function SqlDashboardPageContent({
       void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
+      return savedConfig;
     },
     [
       dashboardId,
@@ -1718,6 +1784,8 @@ function SqlDashboardPageContent({
       canEdit,
       dashboardSaveQueue,
       holdDashboardConfig,
+      rollbackFailedDashboardSave,
+      trackDashboardSaveQueue,
       queryClient,
       resetRevisionNavigation,
       t,
@@ -1900,13 +1968,40 @@ function SqlDashboardPageContent({
     [persist],
   );
 
+  const handleResizePanel = useCallback(
+    async (
+      panelId: string,
+      axis: "width" | "height",
+      value: number,
+    ): Promise<SqlPanel> => {
+      const savedConfig = await persistThrow((current) => {
+        const panel = current.panels.find((p) => p.id === panelId);
+        if (!panel) return current;
+        return {
+          ...current,
+          panels: current.panels.map((p) =>
+            p.id === panelId ? { ...p, [axis]: value } : p,
+          ),
+        };
+      });
+      const savedPanel = savedConfig?.panels.find((p) => p.id === panelId);
+      if (!savedPanel) throw new DashboardSaveQueueConflictError();
+      return savedPanel;
+    },
+    [persistThrow],
+  );
   const handleSavePanel = useCallback(
-    async (panel: SqlPanel, preserveLatestHeight = false) => {
+    async (panel: SqlPanel, editorBaseline?: SqlPanel | null) => {
       await persistThrow((current) => {
         const idx = current.panels.findIndex((p) => p.id === panel.id);
-        const nextPanel = preserveLatestHeight
-          ? mergeLatestPanelHeight(panel, idx >= 0 ? current.panels[idx] : null)
-          : panel;
+        const nextPanel =
+          editorBaseline !== undefined && idx >= 0
+            ? mergeUnchangedPanelDimensions(
+                panel,
+                editorBaseline,
+                current.panels[idx],
+              )
+            : panel;
         const nextPanels =
           idx >= 0
             ? current.panels.map((p, i) => (i === idx ? nextPanel : p))
@@ -1917,8 +2012,10 @@ function SqlDashboardPageContent({
     [persistThrow],
   );
   const handleSaveEditedPanel = useCallback(
-    (panel: SqlPanel) => handleSavePanel(panel, true),
-    [handleSavePanel],
+    async (panel: SqlPanel) => {
+      await handleSavePanel(panel, editingPanel);
+    },
+    [editingPanel, handleSavePanel],
   );
 
   // Column edits apply optimistically through `persist`, the same path as
@@ -3239,7 +3336,11 @@ function SqlDashboardPageContent({
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
+                                onResizePanel={handleResizePanel}
                                 onSaveColumns={handleSaveColumns}
+                                hasPendingDashboardSave={
+                                  hasPendingDashboardSave
+                                }
                                 dashboardExtensionContext={
                                   dashboardExtensionContext
                                 }

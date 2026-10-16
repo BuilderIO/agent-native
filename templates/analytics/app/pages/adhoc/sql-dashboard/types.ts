@@ -230,14 +230,19 @@ export function clampPanelHeight(value: unknown): number {
   return integer;
 }
 
-export function mergeLatestPanelHeight(
+export function mergeUnchangedPanelDimensions(
   editedPanel: SqlPanel,
+  basePanel: SqlPanel | null,
   currentPanel: SqlPanel | null,
 ): SqlPanel {
   const merged = { ...editedPanel };
+  if (!currentPanel || currentPanel.id !== editedPanel.id) return merged;
+  if (!basePanel || editedPanel.width === basePanel.width) {
+    merged.width = currentPanel.width;
+  }
   if (editedPanel.chartType === "section") {
     delete merged.height;
-  } else if (currentPanel) {
+  } else if (!basePanel || editedPanel.height === basePanel.height) {
     if (currentPanel.height === undefined) delete merged.height;
     else merged.height = currentPanel.height;
   }

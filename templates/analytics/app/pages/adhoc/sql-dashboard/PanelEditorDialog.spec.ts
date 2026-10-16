@@ -6,7 +6,7 @@ import {
   panelToForm,
   type PanelFormValues,
 } from "./PanelEditorDialog";
-import { mergeLatestPanelHeight } from "./types";
+import { mergeUnchangedPanelDimensions } from "./types";
 import type { SqlPanel } from "./types";
 
 const baseForm: PanelFormValues = {
@@ -142,14 +142,18 @@ describe("dashboard extension panel editor values", () => {
       "Untitled panel",
       "dashboard-1",
     );
-    const merged = mergeLatestPanelHeight(panel, {
+    const original: SqlPanel = {
       id: "pipeline-widget",
       title: "Pipeline Widget",
       chartType: "table",
       source: "bigquery",
       width: 2,
-      height: 4,
+      height: 3,
       sql: "SELECT 1",
+    };
+    const merged = mergeUnchangedPanelDimensions(panel, original, {
+      ...original,
+      height: 4,
     });
 
     expect(panel).toMatchObject({ chartType: "section", columns: 4 });
@@ -158,34 +162,48 @@ describe("dashboard extension panel editor values", () => {
   });
 
   it("keeps the latest persisted height when saving unrelated panel fields", () => {
-    const edited = formToPanel(
-      { ...baseForm, chartType: "table", title: "Updated title" },
-      {
-        id: "pipeline-widget",
-        title: "Pipeline Widget",
-        chartType: "table",
-        source: "bigquery",
-        width: 2,
-        height: 2,
-        sql: "SELECT 1",
-      },
-      "Untitled panel",
-      "dashboard-1",
-    );
-    const current = {
+    const original: SqlPanel = {
       id: "pipeline-widget",
       title: "Pipeline Widget",
       chartType: "table",
       source: "bigquery",
       width: 2,
-      height: 4,
+      height: 2,
       sql: "SELECT 1",
-    } satisfies SqlPanel;
+    };
+    const edited = formToPanel(
+      { ...baseForm, chartType: "table", title: "Updated title", width: 2 },
+      original,
+      "Untitled panel",
+      "dashboard-1",
+    );
+    const current = { ...original, width: 3, height: 4 };
 
-    expect(mergeLatestPanelHeight(edited, current)).toMatchObject({
+    expect(
+      mergeUnchangedPanelDimensions(edited, original, current),
+    ).toMatchObject({
       title: "Updated title",
+      width: 3,
       height: 4,
     });
+  });
+
+  it("keeps dimension edits made in the panel editor", () => {
+    const original: SqlPanel = {
+      id: "pipeline-widget",
+      title: "Pipeline Widget",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      height: 2,
+      sql: "SELECT 1",
+    };
+    const edited = { ...original, width: 4, height: 5 };
+    const current = { ...original, width: 3, height: 6 };
+
+    expect(
+      mergeUnchangedPanelDimensions(edited, original, current),
+    ).toMatchObject({ width: 4, height: 5 });
   });
 
   it("clears a stale fixed height when the latest panel is auto-height", () => {
@@ -207,8 +225,8 @@ describe("dashboard extension panel editor values", () => {
       sql: "SELECT 1",
     };
 
-    expect(mergeLatestPanelHeight(edited, current)).not.toHaveProperty(
-      "height",
-    );
+    expect(
+      mergeUnchangedPanelDimensions(edited, edited, current),
+    ).not.toHaveProperty("height");
   });
 });
