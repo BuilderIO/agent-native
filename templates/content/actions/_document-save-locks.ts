@@ -1,9 +1,11 @@
-import type { getDb } from "../server/db/index.js";
+import { eq } from "drizzle-orm";
+
+import { schema, type getDb } from "../server/db/index.js";
 import {
   lockDocumentBodyDatabases,
   lockDocumentMetadataDatabase,
 } from "../server/lib/document-metadata-updated-at.js";
-import { lockPrimaryBlocksFields } from "./_blocks-field-identity.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
 /**
@@ -14,8 +16,10 @@ import { lockDocumentRows } from "./_row-lock-order.js";
  * order against the page's own collection.
  *
  * Returns the id of the collection the page backs, or null, and every
- * collection it locked. Pass `lockedDatabaseIds` to the inline-collection
- * reconcile, which refuses to touch a collection created after this ran.
+ * collection and membership it locked. Pass `lockedDatabaseIds` to the
+ * inline-collection reconcile and `lockedMembershipIds` to
+ * `lockPrimaryBlocksFields` as `heldMembershipIds`: both refuse a row added
+ * after this ran rather than lock it after the page.
  */
 export async function lockDocumentForSave(
   db: ReturnType<typeof getDb>,
@@ -23,6 +27,7 @@ export async function lockDocumentForSave(
 ): Promise<{
   databaseId: string | null;
   lockedDatabaseIds: ReadonlySet<string>;
+  lockedMembershipIds: ReadonlySet<string>;
 }> {
   const scope = {
     db,
@@ -35,8 +40,15 @@ export async function lockDocumentForSave(
         databaseId,
         lockedDatabaseIds: new Set(databaseId ? [databaseId] : []),
       }));
-  // The body write re-locks these memberships with any added since.
-  if (args.body) await lockPrimaryBlocksFields(db, args.documentId);
+  const membershipIds = args.body
+    ? (
+        await db
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.documentId, args.documentId))
+      ).map((membership) => membership.id)
+    : [];
+  await lockDatabaseMemberships(db, membershipIds);
   await lockDocumentRows(db, [args.documentId]);
-  return locked;
+  return { ...locked, lockedMembershipIds: new Set(membershipIds) };
 }

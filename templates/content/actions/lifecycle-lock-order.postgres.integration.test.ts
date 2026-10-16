@@ -1345,6 +1345,37 @@ describe.skipIf(!POSTGRES_URL)(
         ]);
       });
 
+      it("move an inline collection's page out of its owner page", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedInlineCollection();
+          return {
+            rows: seed.rows,
+            run: async () => {
+              await asOwner(() =>
+                moveDocument.run({
+                  id: seed.ids.collectionPage,
+                  parentId: null,
+                }),
+              );
+              const [collection] = await getDb()
+                .select({
+                  ownerDocumentId: schema.contentDatabases.ownerDocumentId,
+                })
+                .from(schema.contentDatabases)
+                .where(eq(schema.contentDatabases.id, seed.ids.collection));
+              if (collection?.ownerDocumentId !== null) {
+                throw new Error("The move kept the collection's owner page.");
+              }
+            },
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "inline collection",
+          "inline collection page",
+        ]);
+      });
+
       it("undo import", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedCollection();
@@ -1711,7 +1742,7 @@ describe.skipIf(!POSTGRES_URL)(
       },
     );
 
-    it.each([
+    const saves = [
       {
         path: "browser save",
         prepare: async (_key: string, pageId: string) => () => saveBody(pageId),
@@ -1723,50 +1754,82 @@ describe.skipIf(!POSTGRES_URL)(
           return () => restoreVersion(pageId, versionId);
         },
       },
-    ])(
-      "refuses a $path that would drop an inline collection created while it waited",
-      async ({ prepare }) => {
-        const key = fixtureKey();
-        const ids = {
-          collection: `${key}_c`,
-          collectionPage: `${key}_p1`,
-          page: `${key}_p2`,
-        };
-        await getDb()
-          .insert(schema.documents)
-          .values(
-            pageValues(ids.page, null, "Owner", { content: "Owner body" }),
-          );
-        const save = await prepare(key, ids.page);
-        // Created after the save locked its collections, so the save holds the
-        // page but not the collection a Trash of the page would lock first.
-        const { action } = await raceAgainst(async (tx) => {
-          await lockDocumentRows(tx, [ids.page]);
+    ];
+    // Each row is added after the save took its locks, so the save holds the
+    // page but not the row an edit, restore or Trash of the page locks first.
+    const scopeChanges = [
+      {
+        change: "an inline collection it would drop is created",
+        add: async (tx: Db, key: string, pageId: string) => {
           await tx
             .insert(schema.documents)
-            .values(pageValues(ids.collectionPage, ids.page, "Inline"));
+            .values(pageValues(`${key}_p1`, pageId, "Inline"));
           await tx.insert(schema.contentDatabases).values({
-            id: ids.collection,
+            id: `${key}_c`,
             ownerEmail: OWNER,
             spaceId: SPACE_ID,
-            documentId: ids.collectionPage,
-            ownerDocumentId: ids.page,
+            documentId: `${key}_p1`,
+            ownerDocumentId: pageId,
             ownerBlockId: `${key}_block`,
             title: "Inline",
             createdAt: STAMP,
             updatedAt: STAMP,
           });
+        },
+        unchanged: async (key: string) => {
+          const [collection] = await getDb()
+            .select({ deletedAt: schema.contentDatabases.deletedAt })
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.id, `${key}_c`));
+          expect(collection).toEqual({ deletedAt: null });
+        },
+      },
+      {
+        change: "the page is added to a collection",
+        add: async (tx: Db, key: string, pageId: string) => {
+          await tx
+            .insert(schema.documents)
+            .values(pageValues(`${key}_p1`, null, "Collection"));
+          await tx.insert(schema.contentDatabases).values({
+            id: `${key}_c`,
+            ownerEmail: OWNER,
+            spaceId: SPACE_ID,
+            documentId: `${key}_p1`,
+            title: "Collection",
+            createdAt: STAMP,
+            updatedAt: STAMP,
+          });
+          await tx
+            .insert(schema.contentDatabaseItems)
+            .values(itemValues(`${key}_m`, `${key}_c`, pageId, 0));
+        },
+        unchanged: async () => {},
+      },
+    ];
+
+    it.each(
+      saves.flatMap((save) =>
+        scopeChanges.map((scopeChange) => ({ ...save, ...scopeChange })),
+      ),
+    )(
+      "refuses a $path when $change while it waits",
+      async ({ prepare, add, unchanged }) => {
+        const key = fixtureKey();
+        const pageId = `${key}_p2`;
+        await getDb()
+          .insert(schema.documents)
+          .values(pageValues(pageId, null, "Owner", { content: "Owner body" }));
+        const save = await prepare(key, pageId);
+        const { action } = await raceAgainst(async (tx) => {
+          await lockDocumentRows(tx, [pageId]);
+          await add(tx, key, pageId);
         }, save);
         await expect(action).rejects.toMatchObject({
           errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED",
           statusCode: 409,
         });
-        const [collection] = await getDb()
-          .select({ deletedAt: schema.contentDatabases.deletedAt })
-          .from(schema.contentDatabases)
-          .where(eq(schema.contentDatabases.id, ids.collection));
-        expect(collection).toEqual({ deletedAt: null });
-        expect(await readPage(ids.page)).toMatchObject({
+        await unchanged(key);
+        expect(await readPage(pageId)).toMatchObject({
           content: "Owner body",
           bodyRevision: 0,
         });

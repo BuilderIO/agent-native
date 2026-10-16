@@ -156,12 +156,15 @@ export default defineAction({
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
-      const { databaseId: lockedDatabaseId, lockedDatabaseIds } =
-        await lockDocumentForSave(tx as unknown as ReturnType<typeof getDb>, {
-          documentId,
-          ownerEmail,
-          body: true,
-        });
+      const {
+        databaseId: lockedDatabaseId,
+        lockedDatabaseIds,
+        lockedMembershipIds,
+      } = await lockDocumentForSave(tx as unknown as ReturnType<typeof getDb>, {
+        documentId,
+        ownerEmail,
+        body: true,
+      });
       const [current] = await tx
         .select()
         .from(schema.documents)
@@ -225,6 +228,7 @@ export default defineAction({
       const primaryBlocksFields = await lockPrimaryBlocksFields(
         tx as unknown as ReturnType<typeof getDb>,
         documentId,
+        { heldMembershipIds: lockedMembershipIds },
       );
       const applied = await tx
         .update(schema.documents)

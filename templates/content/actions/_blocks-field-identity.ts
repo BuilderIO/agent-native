@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -70,17 +71,28 @@ function groups<T>(values: T[], size: number): T[][] {
 export async function lockPrimaryBlocksFields(
   db: ContentDb,
   documentId: string,
+  options: LockPrimaryBlocksFieldsOptions = {},
 ): Promise<PrimaryBlocksField[]> {
   return (
-    (await lockPrimaryBlocksFieldsForDocuments(db, [documentId])).get(
+    (await lockPrimaryBlocksFieldsForDocuments(db, [documentId], options)).get(
       documentId,
     ) ?? []
   );
 }
 
+interface LockPrimaryBlocksFieldsOptions {
+  /**
+   * Memberships the caller locked before the page. Any other membership was
+   * added since, and locking it after the page deadlocks against an edit or
+   * restore that locks memberships first, so it is refused instead.
+   */
+  heldMembershipIds?: ReadonlySet<string>;
+}
+
 export async function lockPrimaryBlocksFieldsForDocuments(
   db: ContentDb,
   documentIds: string[],
+  options: LockPrimaryBlocksFieldsOptions = {},
 ): Promise<Map<string, PrimaryBlocksField[]>> {
   const uniqueDocumentIds = [...new Set(documentIds)];
   const memberships: Array<{
@@ -101,6 +113,13 @@ export async function lockPrimaryBlocksFieldsForDocuments(
     );
   }
   const membershipIds = memberships.map((membership) => membership.id);
+  const held = options.heldMembershipIds;
+  if (held && membershipIds.some((membershipId) => !held.has(membershipId))) {
+    throw new ActionContractError(
+      "The document was added to a collection while it saved. Read the document again and retry.",
+      { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },
+    );
+  }
   await lockDatabaseMemberships(db, membershipIds);
   if (membershipIds.length === 0) return new Map();
 
