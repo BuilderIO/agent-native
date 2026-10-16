@@ -187,6 +187,13 @@ describe("apply-rewind-extension transcript timeline", () => {
             },
           ]),
         },
+        {
+          id: "version-2",
+          // The player reads numeric strings as times, so they move too.
+          segmentsJson: JSON.stringify([
+            { startMs: "2000", endMs: "6000", text: "Times as text." },
+          ]),
+        },
       ],
     });
     mocks.transaction.mockImplementation(
@@ -195,43 +202,71 @@ describe("apply-rewind-extension transcript timeline", () => {
 
     await run();
 
-    const writeWhere = (column: string) =>
-      updates.find((u) => Array.isArray(u.where) && u.where[0] === column);
     expect(locks).toEqual(["update"]);
-    const transcriptWrite = writeWhere("transcripts.recordingId");
+    const transcriptWrite = updates.find(
+      (u) => Array.isArray(u.where) && u.where[0] === "transcripts.recordingId",
+    );
     expect(JSON.parse(String(transcriptWrite?.values.segmentsJson))).toEqual([
       { startMs: 30_000, endMs: 34_000, text: "Current words." },
     ]);
-    const versionWrite = writeWhere("versions.id");
-    expect(versionWrite?.where).toEqual(["versions.id", "version-1"]);
-    expect(JSON.parse(String(versionWrite?.values.segmentsJson))).toEqual([
-      {
-        startMs: 31_000,
-        endMs: 35_000,
-        text: "Earlier words.",
-        speaker: "Sample Speaker",
-      },
+    const versionWrites = updates
+      .filter((u) => Array.isArray(u.where) && u.where[0] === "versions.id")
+      .map((u) => [
+        (u.where as unknown[])[1],
+        JSON.parse(String(u.values.segmentsJson)),
+      ]);
+    expect(versionWrites).toEqual([
+      [
+        "version-1",
+        [
+          {
+            startMs: 31_000,
+            endMs: 35_000,
+            text: "Earlier words.",
+            speaker: "Sample Speaker",
+          },
+        ],
+      ],
+      [
+        "version-2",
+        [{ startMs: 32_000, endMs: 36_000, text: "Times as text." }],
+      ],
     ]);
   });
 
-  it("fails instead of leaving an unreadable saved transcript on the old timeline", async () => {
-    const { tx, updates } = fakeTx({
-      transcript: [],
-      versions: [{ id: "version-1", segmentsJson: "{not json" }],
-    });
-    mocks.transaction.mockImplementation(
-      async (runTx: (t: unknown) => unknown) => runTx(tx),
-    );
+  it.each([
+    [
+      "the transcript",
+      { transcript: [{ segmentsJson: "{not json" }], versions: [] },
+    ],
+    [
+      "a saved transcript",
+      {
+        transcript: [],
+        versions: [{ id: "version-1", segmentsJson: "{not json" }],
+      },
+    ],
+  ])(
+    "fails instead of emptying or stranding %s with unreadable segments",
+    async (_, rows) => {
+      const { tx, updates } = fakeTx(rows);
+      mocks.transaction.mockImplementation(
+        async (runTx: (t: unknown) => unknown) => runTx(tx),
+      );
 
-    await expect(run()).rejects.toMatchObject({
-      errorCode: "transcript_version_unreadable",
-    });
+      await expect(run()).rejects.toMatchObject({
+        errorCode: "transcript_segments_unreadable",
+      });
 
-    expect(
-      updates.filter(
-        (u) => Array.isArray(u.where) && u.where[0] === "versions.id",
-      ),
-    ).toEqual([]);
-    expect(mocks.writeAppState).not.toHaveBeenCalled();
-  });
+      expect(
+        updates.filter(
+          (u) =>
+            Array.isArray(u.where) &&
+            (u.where[0] === "versions.id" ||
+              u.where[0] === "transcripts.recordingId"),
+        ),
+      ).toEqual([]);
+      expect(mocks.writeAppState).not.toHaveBeenCalled();
+    },
+  );
 });

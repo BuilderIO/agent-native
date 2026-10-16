@@ -16,37 +16,57 @@ import {
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
 import { TRANSCRIPT_VERSION_LIMIT } from "../server/lib/transcript-versions.js";
-import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import { readTranscriptSegments } from "../shared/transcript-segments.js";
 import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 import {
   rewindExtensionKey,
   type RewindExtensionRequest,
 } from "./request-rewind-extension.js";
 
-/** `raw` with each field shifted, or null when it isn't a JSON array. */
 function shiftedJsonArray(
   raw: string | null | undefined,
   addedMs: number,
   fields: string[],
-): string | null {
-  let parsed: unknown;
+): string {
   try {
-    parsed = JSON.parse(raw || "[]");
-  } catch {
-    return null; // coercion-ok: null is "unreadable", and every caller handles it
-  }
-  if (!Array.isArray(parsed)) return null;
-  return JSON.stringify(
-    parsed.map((item) => {
-      if (!item || typeof item !== "object") return item;
-      const next = { ...item } as Record<string, unknown>;
-      for (const field of fields) {
-        if (typeof next[field] === "number") {
-          next[field] = Math.max(0, Math.round(next[field] + addedMs));
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return raw || "[]";
+    return JSON.stringify(
+      parsed.map((item) => {
+        if (!item || typeof item !== "object") return item;
+        const next = { ...item } as Record<string, unknown>;
+        for (const field of fields) {
+          if (typeof next[field] === "number") {
+            next[field] = Math.max(0, Math.round(next[field] + addedMs));
+          }
         }
-      }
-      return next;
-    }),
+        return next;
+      }),
+    );
+  } catch {
+    return raw || "[]";
+  }
+}
+
+/**
+ * Transcript cues moved onto the extended timeline, read the way the player
+ * reads them. Cues it can't read fail the extension: written back unshifted
+ * or empty, they would be lost on the new timeline.
+ */
+function shiftedSegments(raw: string, addedMs: number, owner: string): string {
+  const segments = readTranscriptSegments(raw);
+  if (segments === null) {
+    fail(
+      `${owner} has unreadable segments, so it can't move with the video. Nothing was changed.`,
+      { errorCode: "transcript_segments_unreadable", statusCode: 500 },
+    );
+  }
+  return JSON.stringify(
+    segments.map((segment) => ({
+      ...segment,
+      startMs: segment.startMs + addedMs,
+      endMs: segment.endMs + addedMs,
+    })),
   );
 }
 
@@ -157,13 +177,9 @@ export default defineAction({
           ...(args.width !== undefined ? { width: args.width } : {}),
           ...(args.height !== undefined ? { height: args.height } : {}),
           editsJson: serializeEdits(edits),
-          // Unreadable chapters stay as stored rather than blocking the
-          // extension.
-          chaptersJson:
-            shiftedJsonArray(recording.chaptersJson, args.addedMs, [
-              "startMs",
-            ]) ??
-            (recording.chaptersJson || "[]"),
+          chaptersJson: shiftedJsonArray(recording.chaptersJson, args.addedMs, [
+            "startMs",
+          ]),
           thumbnailUrl: null,
           animatedThumbnailUrl: null,
           updatedAt: now,
@@ -180,14 +196,10 @@ export default defineAction({
         await tx
           .update(schema.recordingTranscripts)
           .set({
-            segmentsJson: JSON.stringify(
-              parseTranscriptSegments(transcript.segmentsJson).map(
-                (segment) => ({
-                  ...segment,
-                  startMs: segment.startMs + args.addedMs,
-                  endMs: segment.endMs + args.addedMs,
-                }),
-              ),
+            segmentsJson: shiftedSegments(
+              transcript.segmentsJson,
+              args.addedMs,
+              "The transcript",
             ),
             updatedAt: now,
           })
@@ -202,21 +214,15 @@ export default defineAction({
         .where(eq(versions.recordingId, args.recordingId))
         .limit(TRANSCRIPT_VERSION_LIMIT);
       for (const version of saved) {
-        const segmentsJson = shiftedJsonArray(
-          version.segmentsJson,
-          args.addedMs,
-          ["startMs", "endMs"],
-        );
-        // Left as stored, it would come back on the old timeline.
-        if (segmentsJson === null) {
-          fail(
-            `Saved transcript ${version.id} has unreadable segments, so it can't move with the video. Nothing was changed.`,
-            { errorCode: "transcript_version_unreadable", statusCode: 500 },
-          );
-        }
         await tx
           .update(versions)
-          .set({ segmentsJson })
+          .set({
+            segmentsJson: shiftedSegments(
+              version.segmentsJson,
+              args.addedMs,
+              `Saved transcript ${version.id}`,
+            ),
+          })
           .where(eq(versions.id, version.id));
       }
       await tx

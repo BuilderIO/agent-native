@@ -526,6 +526,24 @@ describe("restore-transcript-version", () => {
     expect(await readFullTranscript()).toEqual(before);
   });
 
+  it("refuses a version with unreadable segments and keeps both transcripts", async () => {
+    const imported = await run({ text: VTT, replace: true });
+    await client.query(
+      "UPDATE recording_transcript_versions SET segments_json = '{not json'",
+    );
+    const before = await readFullTranscript();
+
+    await expect(restore(imported.savedVersionId)).rejects.toMatchObject({
+      errorCode: "transcript_segments_unreadable",
+    });
+
+    expect(await readFullTranscript()).toEqual(before);
+    const versions = await readVersions();
+    expect(versions.map((version) => version.id)).toEqual([
+      imported.savedVersionId,
+    ]);
+  });
+
   it("leaves the transcript alone for a caller without editor access", async () => {
     const imported = await run({ text: VTT, replace: true });
     const before = await readFullTranscript();

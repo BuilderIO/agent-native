@@ -14,33 +14,42 @@ const MIN_CAPTION_MS = 900;
 export function parseTranscriptSegments(
   raw: string | null | undefined,
 ): TranscriptSegment[] {
-  if (!raw) return [];
+  return readTranscriptSegments(raw) ?? [];
+}
 
+/**
+ * The segments in stored JSON, or null when it isn't a JSON array, for a
+ * writer that must not turn unreadable cues into none.
+ */
+export function readTranscriptSegments(
+  raw: string | null | undefined,
+): TranscriptSegment[] | null {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((segment) => ({
-        startMs: Number(segment?.startMs),
-        endMs: Number(segment?.endMs),
-        text: typeof segment?.text === "string" ? segment.text.trim() : "",
-        source:
-          segment?.source === "mic" || segment?.source === "system"
-            ? segment.source
-            : undefined,
-        speaker:
-          typeof segment?.speaker === "string" ? segment.speaker : undefined,
-      }))
-      .filter(
-        (segment) =>
-          Number.isFinite(segment.startMs) &&
-          Number.isFinite(segment.endMs) &&
-          segment.endMs > segment.startMs &&
-          segment.text,
-      );
+    parsed = JSON.parse(raw ?? "");
   } catch {
-    return [];
+    return null; // coercion-ok: null is "unreadable", and callers tell it from []
   }
+  if (!Array.isArray(parsed)) return null;
+  return parsed
+    .map((segment) => ({
+      startMs: Number(segment?.startMs),
+      endMs: Number(segment?.endMs),
+      text: typeof segment?.text === "string" ? segment.text.trim() : "",
+      source:
+        segment?.source === "mic" || segment?.source === "system"
+          ? segment.source
+          : undefined,
+      speaker:
+        typeof segment?.speaker === "string" ? segment.speaker : undefined,
+    }))
+    .filter(
+      (segment) =>
+        Number.isFinite(segment.startMs) &&
+        Number.isFinite(segment.endMs) &&
+        segment.endMs > segment.startMs &&
+        segment.text,
+    );
 }
 
 export function buildCaptionSegmentsFromText(

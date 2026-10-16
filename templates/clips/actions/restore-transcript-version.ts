@@ -11,7 +11,10 @@ import {
   hasTranscriptContent,
   saveTranscriptVersion,
 } from "../server/lib/transcript-versions.js";
-import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import {
+  parseTranscriptSegments,
+  readTranscriptSegments,
+} from "../shared/transcript-segments.js";
 
 export default defineAction({
   description:
@@ -60,6 +63,14 @@ export default defineAction({
           and(eq(v.id, args.versionId), eq(v.recordingId, args.recordingId)),
         );
       if (!version) return null;
+      // Restored anyway, it would be a ready transcript with no captions,
+      // and the version would be spent on it.
+      if (readTranscriptSegments(version.segmentsJson) === null) {
+        fail(
+          `Saved transcript ${version.id} has unreadable segments, so it can't be restored. Both transcripts were left as they were.`,
+          { errorCode: "transcript_segments_unreadable", statusCode: 500 },
+        );
+      }
 
       // Removed before the current transcript is saved, so keeping that one
       // never prunes an older version to make room for this one.
