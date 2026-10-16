@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { knownLossSpec, type KnownLoss } from "../acceptance/known-loss";
-import { ACTION_HEADERS, postAction } from "./helpers";
+import { ACTION_HEADERS, postAction, postUiAction } from "./helpers";
 
 // Decision D2 of the stored-form rebuild: a page takes the new body paths only
 // when both flags are on for the person and the page itself is switched.
@@ -97,10 +97,10 @@ async function switchPage(
       true,
       "Gate on: this test creates its page through the UI, and only a page that exists can be switched.",
     );
-  const response = await page.request.post(
-    `/_agent-native/actions/${SWITCH_ACTION}`,
-    { data: { id: documentId, switched: true }, headers: ACTION_HEADERS },
-  );
+  const response = await postUiAction(page, SWITCH_ACTION, {
+    id: documentId,
+    switched: true,
+  });
   const text = await response.text();
   if (response.status() === 404 && text.includes("Cannot find any route"))
     test.skip(

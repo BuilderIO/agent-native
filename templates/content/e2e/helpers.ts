@@ -11,6 +11,7 @@ import path from "node:path";
 
 import {
   expect,
+  type APIRequestContext,
   type BrowserContext,
   type Page,
   type Request,
@@ -60,6 +61,63 @@ export const RECOVERY_UI = [
   "Something went wrong",
 ];
 
+export interface SignInResult {
+  loginStatus: number;
+  loginError?: string;
+  registerStatus?: number;
+  registerError?: string;
+  sessionEmail?: string;
+  firstRunStatus?: number;
+}
+
+/**
+ * Sign the request's browser context in as `email`, registering the account
+ * the first time this database sees it, and complete first-run so its survey
+ * does not cover the page. Every call goes through the request client: the
+ * sign-in page reloads once a session appears, which destroys a page script
+ * still awaiting the login.
+ */
+export async function signInAccount(
+  request: APIRequestContext,
+  baseURL: string,
+  account: { email: string; password: string; name: string },
+): Promise<SignInResult> {
+  const headers = {
+    Origin: new URL(baseURL).origin,
+    Referer: new URL("/sign-in", baseURL).href,
+  };
+  const credentials = { email: account.email, password: account.password };
+  const logIn = () =>
+    request.post("/_agent-native/auth/login", { data: credentials, headers });
+  let login = await logIn();
+  const result: SignInResult = { loginStatus: login.status() };
+  if (!login.ok()) {
+    const register = await request.post("/_agent-native/auth/register", {
+      data: { ...credentials, name: account.name, callbackURL: "/" },
+      headers,
+    });
+    result.registerStatus = register.status();
+    if (!register.ok())
+      result.registerError = (await register.text()).slice(0, 300);
+    login = await logIn();
+    result.loginStatus = login.status();
+    if (!login.ok()) result.loginError = (await login.text()).slice(0, 300);
+  }
+  const session = await request.get(SESSION_PATH, {
+    headers: { Accept: "application/json" },
+  });
+  if (session.ok())
+    result.sessionEmail = ((await session.json()) as { email?: string }).email;
+  if (login.ok()) {
+    const firstRun = await request.post(
+      "/_agent-native/onboarding/first-run/complete",
+      { data: {}, headers },
+    );
+    result.firstRunStatus = firstRun.status();
+  }
+  return result;
+}
+
 export async function postAction<T = Record<string, unknown>>(
   page: Page,
   name: string,
@@ -73,6 +131,30 @@ export async function postAction<T = Record<string, unknown>>(
   const text = await response.text();
   expect(response.ok(), `${name} (${response.status()}): ${text}`).toBe(true);
   return JSON.parse(text) as T;
+}
+
+/**
+ * POST a uiOnly action the way the app UI does. The server answers those only
+ * for a same-origin request carrying the capability cookie that
+ * /_agent-native/ui-capability sets; without either it refuses with 403
+ * ui_capability_required, which the caller must see as a failure.
+ */
+export async function postUiAction(
+  page: Page,
+  name: string,
+  data: Record<string, unknown>,
+) {
+  const capability = await page.request.get("/_agent-native/ui-capability", {
+    headers: ACTION_HEADERS,
+  });
+  expect(
+    capability.ok(),
+    `ui-capability (${capability.status()}): ${await capability.text()}`,
+  ).toBe(true);
+  return page.request.post(`/_agent-native/actions/${name}`, {
+    data,
+    headers: { ...ACTION_HEADERS, Origin: new URL(capability.url()).origin },
+  });
 }
 
 export async function getDocument(page: Page, id: string) {

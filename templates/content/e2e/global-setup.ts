@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
-import { AgentClient } from "./helpers";
+import { AgentClient, signInAccount, type SignInResult } from "./helpers";
 
 const EMAIL =
   process.env.CONTENT_E2E_EMAIL ||
@@ -20,79 +20,27 @@ async function globalSetup(_config: FullConfig) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ baseURL });
   const page = await ctx.newPage();
-  let result: Record<string, unknown> = {};
+  let result: SignInResult | { error: string };
   try {
-    await page.goto(`${baseURL}/sign-in`, {
-      waitUntil: "domcontentloaded",
+    result = await signInAccount(page.request, baseURL, {
+      email: EMAIL,
+      password: PASS,
+      name: "E2E Tester",
     });
-    result = await page.evaluate(
-      async ({ email, pass }) => {
-        const post = (path: string, body: unknown) =>
-          fetch(path, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }).then(async (r) => ({
-            ok: r.ok,
-            status: r.status,
-            data: (await r.json().catch(() => ({}))) as Record<string, unknown>,
-          }));
-        let login = await post("/_agent-native/auth/login", {
-          email,
-          password: pass,
-        });
-        let regStatus: number | undefined;
-        let regErr: unknown;
-        if (!login.ok) {
-          const reg = await post("/_agent-native/auth/register", {
-            email,
-            password: pass,
-            name: "E2E Tester",
-            callbackURL: "/",
-          });
-          regStatus = reg.status;
-          regErr = reg.data?.error || reg.data?.message;
-          login = await post("/_agent-native/auth/login", {
-            email,
-            password: pass,
-          });
-        }
-        const sess = await fetch("/_agent-native/auth/session", {
-          headers: { Accept: "application/json" },
-        })
-          .then((r) => r.json())
-          .catch(() => ({}));
-        // A new account opens on the first-run survey, which covers the page.
-        const firstRun = login.ok
-          ? await post("/_agent-native/onboarding/first-run/complete", {})
-          : undefined;
-        return {
-          loginOk: login.ok,
-          loginStatus: login.status,
-          loginErr: login.data?.error || login.data?.message,
-          regStatus,
-          regErr,
-          firstRunCompleteStatus: firstRun?.status,
-          sessionEmail: (sess as Record<string, unknown>)?.email,
-        };
-      },
-      { email: EMAIL, pass: PASS },
-    );
   } catch (error) {
     result = { error: (error as Error).message };
   }
+  const sessionEmail = "sessionEmail" in result ? result.sessionEmail : null;
   // eslint-disable-next-line no-console
   console.log("[content global-setup] auth:", JSON.stringify(result));
   await ctx.storageState({ path: ".auth/state.json" });
-  writeFileSync(
-    ".auth/email.txt",
-    (typeof result.sessionEmail === "string"
-      ? result.sessionEmail
-      : EMAIL
-    ).trim(),
-  );
+  writeFileSync(".auth/email.txt", (sessionEmail ?? EMAIL).trim());
   try {
-    if (!result.sessionEmail || result.firstRunCompleteStatus !== 200) {
+    if (
+      !sessionEmail ||
+      !("firstRunStatus" in result) ||
+      result.firstRunStatus !== 200
+    ) {
       throw new Error(
         `[content global-setup] sign-in or first-run setup failed, so authed specs would not reach a usable page: ${JSON.stringify(result)}`,
       );

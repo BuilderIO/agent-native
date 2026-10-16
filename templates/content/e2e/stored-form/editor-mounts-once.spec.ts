@@ -15,6 +15,7 @@ import {
   createPage,
   expectEditorReady,
   postAction,
+  signInAccount,
 } from "../helpers";
 import { enterGateArm } from "../live-body-gate";
 import { liveCopyContaining } from "./collab-blocks";
@@ -398,10 +399,7 @@ async function landingAccountEmail(page: Page): Promise<string> {
   return email!.replace("@", "-landing@");
 }
 
-/**
- * Sign the context in as `email`, registering the account the first time a
- * run against this database asks for it, and return a page in that session.
- */
+/** A page in `context`, signed in as `email`. */
 async function signIn(
   context: BrowserContext,
   baseURL: string,
@@ -409,34 +407,14 @@ async function signIn(
   name: string,
 ): Promise<Page> {
   const page = await context.newPage();
-  await page.goto(`${baseURL}/sign-in`, { waitUntil: "domcontentloaded" });
   const password = ["example", "sf06", "account", "pw"].join("-");
-  const headers = { Origin: baseURL, Referer: `${baseURL}/sign-in` };
-  const logIn = () =>
-    page.request.post("/_agent-native/auth/login", {
-      data: { email, password },
-      headers,
-    });
-  let login = await logIn();
-  if (!login.ok()) {
-    const register = await page.request.post("/_agent-native/auth/register", {
-      data: { email, password, name, callbackURL: "/" },
-      headers,
-    });
-    expect(register.ok(), `register ${email}: ${await register.text()}`).toBe(
-      true,
-    );
-    login = await logIn();
-  }
-  expect(login.ok(), `login ${email}: ${await login.text()}`).toBe(true);
-  const session = await page.request.get("/_agent-native/auth/session");
-  expect((await session.json()).email, "signed-in session").toBe(email);
-  const firstRun = await page.request.post(
-    "/_agent-native/onboarding/first-run/complete",
-    { data: {}, headers },
-  );
-  expect(firstRun.ok(), `first-run ${email}: ${await firstRun.text()}`).toBe(
-    true,
-  );
+  const result = await signInAccount(page.request, baseURL, {
+    email,
+    password,
+    name,
+  });
+  const evidence = JSON.stringify(result);
+  expect(result.sessionEmail, `sign in ${email}: ${evidence}`).toBe(email);
+  expect(result.firstRunStatus, `first-run ${email}: ${evidence}`).toBe(200);
   return page;
 }
