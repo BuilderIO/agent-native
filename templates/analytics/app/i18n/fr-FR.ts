@@ -1466,6 +1466,8 @@ export default {
     rowBreakdownBytesRead: "{{bytes}} lus",
     rowBreakdownOverByteCap:
       "Cette ventilation lirait plus de {{gib}} Gio, elle n'a donc pas été exécutée. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
+    rowBreakdownTruncated:
+      "Le résultat a été tronqué : certains groupes manquent ou sont comptés dans Autres.",
     deleteSectionTitle: "Supprimer la rubrique ?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Supprimer le panneau ?",

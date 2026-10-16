@@ -1461,6 +1461,8 @@ export default {
     rowBreakdownBytesRead: "Se leyeron {{bytes}}",
     rowBreakdownOverByteCap:
       "Este desglose leería más de {{gib}} GiB, así que no se ejecutó. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
+    rowBreakdownTruncated:
+      "El resultado se cortó, así que faltan algunos grupos o se cuentan en Otros.",
     deleteSectionTitle: "¿Eliminar sección?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "¿Eliminar panel?",

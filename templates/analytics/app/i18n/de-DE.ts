@@ -1474,6 +1474,8 @@ export default {
     rowBreakdownBytesRead: "{{bytes}} gelesen",
     rowBreakdownOverByteCap:
       "Diese Aufschlüsselung würde mehr als {{gib}} GiB lesen und wurde deshalb nicht ausgeführt. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",
+    rowBreakdownTruncated:
+      "Das Ergebnis wurde abgeschnitten, daher fehlen einige Gruppen oder sind unter „Andere“ gezählt.",
     deleteSectionTitle: "Abschnitt löschen?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Panel löschen?",

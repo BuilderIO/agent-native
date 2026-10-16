@@ -1441,6 +1441,7 @@ export default {
     rowBreakdownBytesRead: "已讀取 {{bytes}}",
     rowBreakdownOverByteCap:
       "此細分將讀取超過 {{gib}} GiB 的資料，因此未執行。請縮小儀表板的篩選條件或日期範圍後再試一次。",
+    rowBreakdownTruncated: "結果被截斷，部分群組缺漏或計入「其他」。",
     deleteSectionTitle: "刪除部分？",
     deleteSectionDescription: "要刪除「{{title}}」嗎？此操作無法復原。",
     deletePanelTitle: "刪除面板？",

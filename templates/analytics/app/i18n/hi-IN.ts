@@ -1397,6 +1397,8 @@ export default {
     rowBreakdownBytesRead: "{{bytes}} पढ़ा गया",
     rowBreakdownOverByteCap:
       "यह विभाजन {{gib}} GiB से ज़्यादा पढ़ेगा, इसलिए यह नहीं चला। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
+    rowBreakdownTruncated:
+      "नतीजा बीच में कट गया, इसलिए कुछ समूह गायब हैं या अन्य में गिने गए हैं।",
     deleteSectionTitle: "अनुभाग हटाएं?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "पैनल हटाएं?",

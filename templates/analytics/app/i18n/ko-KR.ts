@@ -1414,6 +1414,8 @@ export default {
     rowBreakdownBytesRead: "{{bytes}} 읽음",
     rowBreakdownOverByteCap:
       "이 분석은 {{gib}}GiB를 넘게 읽게 되어 실행하지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
+    rowBreakdownTruncated:
+      "결과가 잘려서 일부 그룹이 빠졌거나 기타에 포함되었습니다.",
     deleteSectionTitle: "섹션을 삭제하시겠습니까?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "패널을 삭제하시겠습니까?",

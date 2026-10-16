@@ -1456,6 +1456,8 @@ export default {
     rowBreakdownBytesRead: "{{bytes}} lidos",
     rowBreakdownOverByteCap:
       "Este detalhamento leria mais de {{gib}} GiB, então não foi executado. Restrinja os filtros ou o período do painel e tente de novo.",
+    rowBreakdownTruncated:
+      "O resultado foi cortado, então alguns grupos estão faltando ou contados em Outros.",
     deleteSectionTitle: "Excluir seção?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Excluir painel?",

@@ -419,6 +419,11 @@ export function RowBreakdownSheet({
             </table>
           )}
         </div>
+        {plan.kind === "query" && query.data?.truncated ? (
+          <p className="text-xs text-muted-foreground">
+            {t("sqlDashboard.rowBreakdownTruncated")}
+          </p>
+        ) : null}
         {costNote ? (
           <p className="text-xs text-muted-foreground">{costNote}</p>
         ) : null}

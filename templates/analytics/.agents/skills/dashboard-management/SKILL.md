@@ -421,7 +421,9 @@ opens a row; one capped breakdown query then serves every row on the same
 filters. If the panel's rows already carry the column, no block is needed and
 no query runs. For web, desktop or mobile, first-party events carry
 `properties.client_platform` (`web`, `electron`, `mobile`); label `electron`
-Desktop. Rows match their breakdown by the first shown text column. The
+Desktop. Rows match their breakdown on every column that is not a number, so
+give a numeric column that names rows (a week, a year, an ID) `format: "text"`
+or `"date"` in `config.columns`; unformatted numbers count as measures. The
 open breakdown is in `view-screen` as `rowBreakdown`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,

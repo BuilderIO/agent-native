@@ -1407,6 +1407,8 @@ export default {
     rowBreakdownBytesRead: "تمت قراءة {{bytes}}",
     rowBreakdownOverByteCap:
       "قد يقرأ هذا التفصيل أكثر من {{gib}} غيغابايت، لذلك لم يُشغَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
+    rowBreakdownTruncated:
+      "تم اقتطاع النتيجة، لذلك بعض المجموعات مفقودة أو محسوبة ضمن «أخرى».",
     deleteSectionTitle: "هل تريد حذف القسم؟",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "هل تريد حذف اللوحة؟",

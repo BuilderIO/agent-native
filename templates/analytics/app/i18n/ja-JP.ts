@@ -1437,6 +1437,8 @@ export default {
     rowBreakdownBytesRead: "{{bytes}} を読み取りました",
     rowBreakdownOverByteCap:
       "この内訳は {{gib}} GiB を超えて読み込むため、実行しませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
+    rowBreakdownTruncated:
+      "結果が途中で切れたため、一部のグループが表示されていないか「その他」に含まれています。",
     deleteSectionTitle: "セクションを削除しますか?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "パネルを削除しますか?",
