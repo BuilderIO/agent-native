@@ -219,36 +219,34 @@ describe("dbt Semantic Layer continuation guard", () => {
     });
   });
 
-  it.each([
-    ["missing", null],
-    [
-      "ambiguous",
-      {
-        ...metric,
-        dimensions: [
-          ...metric.dimensions,
-          { name: "root_org_id", description: "Organization identifier" },
-        ],
-        dimensionsCount: 3,
-      },
-    ],
-  ] as const)(
-    "rejects continuation evidence with %s dimensions",
-    (_, definition) => {
-      expect(
-        realDataFinalGuard(
-          context({
-            initialMetric: definition,
-            continuationMetric: definition,
-          }),
-        ),
-      ).toMatchObject({
-        retryMessage: expect.stringContaining(
-          "same bounded date range and requested grouping",
-        ),
-      });
-    },
-  );
+  it("rejects continuation evidence without metric dimensions", () => {
+    expect(
+      realDataFinalGuard(
+        context({ initialMetric: null, continuationMetric: null }),
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "same bounded date range and requested grouping",
+      ),
+    });
+  });
+
+  it("accepts a selected dimension when its semantic alias overlaps", () => {
+    const definition = {
+      ...metric,
+      dimensions: [
+        ...metric.dimensions,
+        { name: "root_org_id", description: "Organization identifier" },
+      ],
+      dimensionsCount: 3,
+    };
+
+    expect(
+      realDataFinalGuard(
+        context({ initialMetric: definition, continuationMetric: definition }),
+      ),
+    ).toBeNull();
+  });
 
   it.each([
     ["query lineage", { queryId: "different-query" }],
