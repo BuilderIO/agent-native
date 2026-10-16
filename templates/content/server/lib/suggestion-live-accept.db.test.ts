@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { commentAnchorText } from "../../shared/comment-reanchor.js";
+import { materializeLiveBody } from "../../shared/live-body.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "../../shared/suggestion-diff.js";
 
@@ -153,19 +154,9 @@ async function stored(documentId: string) {
   return row!;
 }
 
-/**
- * The live copy's version, and each top-level block's Yjs item and text. A
- * legacy write takes the Page off its live copy, so `uncovered` reads the
- * state browsers load without the gate.
- */
-async function liveCopy(
-  documentId: string,
-  options: { uncovered?: boolean } = {},
-) {
-  const read = await collab.readLiveCopy(
-    options.uncovered ? { ...binding, appliesTo: () => true } : binding,
-    documentId,
-  );
+/** The live copy's version, and each top-level block's Yjs item and text. */
+async function liveCopy(documentId: string) {
+  const read = await collab.readLiveCopy(binding, documentId);
   if (read.kind !== "live") throw new Error(`live copy is ${read.kind}`);
   const doc = new Y.Doc();
   Y.applyUpdate(doc, read.state);
@@ -178,6 +169,19 @@ async function liveCopy(
     }));
   doc.destroy();
   return { version: read.version, text: read.text, blocks };
+}
+
+/**
+ * The body browsers load. A legacy write takes the Page off its live copy,
+ * which the binding then refuses to read.
+ */
+async function browsersBody(documentId: string) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, await collab.getState(documentId));
+  const body = materializeLiveBody(doc);
+  doc.destroy();
+  if (body.kind !== "body") throw new Error(`browsers' body is ${body.kind}`);
+  return body.markdown;
 }
 
 async function suggest(
@@ -526,9 +530,7 @@ describe("accepting a suggestion on a Page its legacy writer still writes", () =
       }
       const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
       expect((await stored(documentId)).content).toBe(expected);
-      expect((await liveCopy(documentId, { uncovered: true })).text).toBe(
-        expected,
-      );
+      expect(await browsersBody(documentId)).toBe(expected);
     },
   );
 
@@ -562,8 +564,6 @@ describe("accepting a suggestion on a Page its legacy writer still writes", () =
     }
     const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
     expect((await stored(documentId)).content).toBe(expected);
-    expect((await liveCopy(documentId, { uncovered: true })).text).toBe(
-      expected,
-    );
+    expect(await browsersBody(documentId)).toBe(expected);
   });
 });
