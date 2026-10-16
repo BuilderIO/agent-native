@@ -17,6 +17,7 @@ import { writeTextFileAtomically } from "./atomic-json-file.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
 import {
   addMinimumReleaseAgeExclude,
+  pnpmWorkspacePackagePatterns,
   pnpmWorkspaceListsProject,
 } from "./workspace-yaml.js";
 
@@ -829,23 +830,12 @@ function parseWorkspacePackagePatterns(workspaceYaml: string): string[] {
   } catch {
     return ["apps/*", "packages/*"];
   }
-  const patterns: string[] = [];
-  let inPackages = false;
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    if (/^[A-Za-z0-9_-]+:/.test(trimmed)) {
-      inPackages = trimmed === "packages:";
-      continue;
-    }
-    if (!inPackages || !trimmed.startsWith("-")) continue;
-    const pattern = trimmed
-      .slice(1)
-      .trim()
-      .replace(/^['"]|['"]$/g, "");
-    if (pattern) patterns.push(pattern);
+  try {
+    const patterns = pnpmWorkspacePackagePatterns(text);
+    return patterns.length ? patterns : ["apps/*", "packages/*"];
+  } catch {
+    return ["apps/*", "packages/*"];
   }
-  return patterns.length ? patterns : ["apps/*", "packages/*"];
 }
 
 function packageFilesForWorkspacePattern(

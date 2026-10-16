@@ -1316,6 +1316,34 @@ describe("runUpgrade", () => {
       );
     });
 
+    it("finds Agent-Native dependencies in flow-style workspace members from the root", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: [
+          'packages: ["services/*"]',
+          "minimumReleaseAge: 1440",
+          "minimumReleaseAgeExclude:",
+          '  - "@agent-native/core"',
+          "",
+        ].join("\n"),
+        workspaces: {
+          "services/web": {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toContain('  - "@agent-native/*"');
+    });
+
     it("updates the workspace root's file when run from a member app", async () => {
       const root = makeTempProject({
         kind: "workspace",

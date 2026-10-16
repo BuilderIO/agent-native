@@ -4,7 +4,7 @@ import { minimatch } from "minimatch";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 // pnpm-workspace.yaml helpers: text-preserving edits shared by `create` and
-// `upgrade`, and the project membership check `upgrade` runs.
+// `upgrade`, and the workspace discovery and membership checks it runs.
 
 // Directories pnpm skips when it globs for workspace projects.
 const PNPM_IGNORED_PROJECT_GLOBS = [
@@ -42,6 +42,19 @@ export function pnpmWorkspaceListsProject(
     }
   }
   return included;
+}
+
+/** Return pnpm workspace package globs from either block- or flow-style YAML. */
+export function pnpmWorkspacePackagePatterns(yaml: string): string[] {
+  const parsed: unknown = parseYaml(yaml);
+  const packages = isPlainRecord(parsed) ? parsed.packages : undefined;
+  if (!Array.isArray(packages)) return [];
+  const patterns: string[] = [];
+  for (const pattern of packages) {
+    if (typeof pattern !== "string" || !pattern) return [];
+    patterns.push(pattern);
+  }
+  return patterns;
 }
 
 /**
