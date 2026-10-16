@@ -69,6 +69,16 @@ export async function liveBodyWriterGateForRow(
     return { writePath: "legacy", reason: "not_switched" };
   if (row.collabBodyRevision !== row.bodyRevision)
     return { writePath: "legacy", reason: "live_copy_behind" };
+  return (await liveBodyWriterFlagsOn(row, options))
+    ? { writePath: "live_copy" }
+    : { writePath: "legacy", reason: "flag_off" };
+}
+
+/** Both flags, for the page's owner and org; throws like the gate. */
+export async function liveBodyWriterFlagsOn(
+  row: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
+  options: { transaction?: DbExec } = {},
+): Promise<boolean> {
   const scope = { userEmail: row.ownerEmail, orgId: row.orgId };
   const [writer, shadow] = await Promise.all(
     [LIVE_BODY_WRITER_FLAG, LIVE_BODY_SHADOW_FLAG].map(async (flag) =>
@@ -82,9 +92,7 @@ export async function liveBodyWriterGateForRow(
       ),
     ),
   );
-  return writer && shadow
-    ? { writePath: "live_copy" }
-    : { writePath: "legacy", reason: "flag_off" };
+  return writer && shadow;
 }
 
 type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
