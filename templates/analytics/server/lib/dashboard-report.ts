@@ -9,6 +9,7 @@ import type {
   FilterType,
   SqlDashboardConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { dataNotesForPanel } from "../../shared/data-notes";
 import { keyDateEvents } from "../../shared/key-dates";
 import {
   fetchReportPanelData,
@@ -22,6 +23,7 @@ import {
   type DashboardReportCaptureOutcome,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
+import { listDataNotes } from "./data-notes-store";
 import { ANALYTICS_DASHBOARD_REPORT_EMAIL_ID } from "./emails";
 import { listKeyDateSets } from "./key-dates-store";
 
@@ -166,6 +168,8 @@ export async function collectReportSnapshot(
   };
   // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.
   const filters = normalizeReportFilters(config.filters, linkFilters);
+  const scope = dashboard.annotationScope;
+  const dataNotes = await listDataNotes(scope);
 
   return {
     dashboardId: sub.dashboardId,
@@ -179,9 +183,17 @@ export async function collectReportSnapshot(
     generatedAt: new Date().toISOString(),
     panelIds: listReportablePanelIds(config.panels),
     panels: config.panels,
-    keyDates: keyDateEvents(
-      await listKeyDateSets(dashboard.annotationScope),
-      config.annotations,
+    keyDates: keyDateEvents(await listKeyDateSets(scope), config.annotations),
+    dataNotesByPanel: Object.fromEntries(
+      config.panels.flatMap((panel) => {
+        const notes = dataNotesForPanel(
+          dataNotes,
+          sub.dashboardId,
+          panel,
+          config.annotations,
+        );
+        return notes.length > 0 ? [[panel.id, notes]] : [];
+      }),
     ),
     variables: config.variables,
   };

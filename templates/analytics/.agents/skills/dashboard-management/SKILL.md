@@ -63,8 +63,9 @@ Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
 Dashboards open in View mode. An editor switches the header toggle to Edit
-before drags, renames, and column edits on the page save for everyone; the chat
-context reports the current mode. A table column width dragged in View mode is
+before drags, renames, column edits, and adding, editing, showing or hiding key
+dates and data notes on the page save for everyone; the chat context reports the current
+mode. A table column width dragged in View mode is
 stored only in that person's browser, so "widen this column for me" is a drag
 in View mode, not a dashboard change. `config.columns[].width` is the shared
 width everyone sees; set it only when asked to change the dashboard itself.
@@ -244,7 +245,9 @@ for this. They live in two places:
 
 A dashboard leaves sets off its charts with `config.annotations`, set through
 `mutate-dashboard`'s `setDashboard({ annotations: { hiddenKeyDateSets: [setId, ...] } })`.
-The patch replaces the whole list, so include the sets already hidden.
+The patch replaces the whole `annotations` object, so include the sets and
+data notes already hidden. In Edit mode, people do the same from the dashboard
+header's Annotations menu, which also adds and edits key dates and sets.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
   multiple are allowed. `date` is the calendar date in the event's own zone.
@@ -274,6 +277,51 @@ The patch replaces the whole list, so include the sets already hidden.
   a date you save lands in your own organization's sets, not on that
   dashboard. Human Review previews get
   them from `get-sql-dashboard` with `reviewPreview` as `keyDates`.
+
+## Data Notes
+
+A data note says the numbers on a chart are wrong or unusual for a stretch of
+time: an incident (`kind: "incident"`) or a tracking problem (`kind: "data"`).
+Use one instead of a key date whenever the point is "don't trust this range".
+Notes belong to the organization, like key-date sets, and a dashboard draws
+its owner organization's. Read them with `list-data-notes`, passing
+`dashboardId` for the ones a dashboard draws; add or change one with
+`save-data-note` (pass `id` to change only the fields given); remove with
+`delete-data-note`.
+
+- `matchEvents` lists the event names the problem affects. A note shows on every
+  chart whose SQL filters on one of them: either side of `=` (in `WHERE` or
+  `CASE WHEN`), an `IN (...)` item, or a simple `CASE event WHEN` value,
+  matched exactly and case-sensitively; or a `LIKE` pattern (`ILIKE` in any
+  case). A name the SQL only selects as a label, returns from `THEN`/`ELSE`,
+  excludes (`!=`, `<>`, or a `NOT` over its comparison or parentheses), or
+  writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
+  `IN UNNEST([...])`. `unlessEvents` skips charts that also filter on the
+  corrected event. Pin a note to specific charts with
+  `panels: [{ dashboardId, panelId }]` when no event filter identifies them.
+- `startDate` and `endDate` are `YYYY-MM-DD`. Leave out `endDate` while the
+  problem is ongoing, and `startDate` when it has been wrong since before
+  tracking began. Marking a note `status: "fixed"` needs an `endDate`; say what
+  fixed it in `fix`. Pass `null` to clear a date or the fix.
+- Time charts shade the note's range, with an edge only where it starts or ends
+  inside the chart, and a hoverable title. Rows sorted by something other than
+  date shade each run of the note's rows, never a row between them, under one
+  title. Incidents are red; open data problems amber; fixed data problems grey.
+  Other charts flag the note by the title and write it under the chart while it
+  is ongoing or ended in the last 30 days, as does a time chart whose x values
+  aren't dates.
+- A dashboard hides a note on one chart with
+  `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
+  keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
+- In Edit mode, people add a note from a chart's menu ("Add data note", pinned
+  to that chart) or the Annotations menu; a note's hover card offers Edit, Mark
+  fixed, and Hide on this chart, and the chart's menu offers Hide for each of
+  its notes.
+  On a dashboard from another organization they can hide its notes and sets
+  but not add or change them.
+- Scheduled email reports shade the same ranges, title each note once in the
+  label rows above the plot alongside key dates (a title with no room left is
+  counted), and write each note's text under the chart.
 
 ## Reusable Native Dashboard Patterns
 

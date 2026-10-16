@@ -1,9 +1,8 @@
 import { fail } from "@agent-native/core/action";
 
+import type { AnnotationScope } from "./annotation-scope.js";
 import { loadDashboardSeed } from "./dashboard-seeds.js";
 import { getDashboard, type DashboardRecord } from "./dashboards-store.js";
-
-export type AnnotationScope = { email: string; orgId: string | null };
 
 /**
  * Whose annotations a dashboard draws. A reader whose own writes would land

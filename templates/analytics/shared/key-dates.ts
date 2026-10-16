@@ -3,6 +3,7 @@ import type {
   PanelEvent,
   SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { hiddenDataNotesIssue } from "./data-notes";
 import { LEGACY_CHART_TYPE_ALIASES } from "./panel-render-contract";
 
 export interface KeyDate {
@@ -33,6 +34,13 @@ export interface KeyDateSet {
 export const KEY_DATE_CHART_TYPES: ReadonlySet<SqlPanel["chartType"]> = new Set(
   ["line", "area", "bar", "combo"],
 );
+
+/** True for a chart type that draws key dates, including a legacy alias such as "stacked-bar". */
+export function isKeyDateChartType(chartType: SqlPanel["chartType"]): boolean {
+  return KEY_DATE_CHART_TYPES.has(
+    LEGACY_CHART_TYPE_ALIASES[chartType] ?? chartType,
+  );
+}
 
 const MAX_HIDDEN_SETS = 100;
 
@@ -66,9 +74,7 @@ export function panelEventsWithKeyDates(
   keyDates: readonly PanelEvent[],
 ): unknown {
   const own = panel.config?.events;
-  const chartType =
-    LEGACY_CHART_TYPE_ALIASES[panel.chartType] ?? panel.chartType;
-  if (keyDates.length === 0 || !KEY_DATE_CHART_TYPES.has(chartType)) {
+  if (keyDates.length === 0 || !isKeyDateChartType(panel.chartType)) {
     return own;
   }
   const ownEvents: unknown[] = Array.isArray(own) ? own : [];
@@ -89,12 +95,15 @@ export function panelEventsWithKeyDates(
 export function dashboardAnnotationsIssue(value: unknown): string | null {
   if (value === undefined) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return "config.annotations must be an object like { hiddenKeyDateSets: [setId, ...] }";
+    return "config.annotations must be an object like { hiddenKeyDateSets: [setId, ...], hiddenDataNotes: [{ noteId, panelId }, ...] }";
   }
-  const { hiddenKeyDateSets, ...rest } = value as Record<string, unknown>;
+  const { hiddenKeyDateSets, hiddenDataNotes, ...rest } = value as Record<
+    string,
+    unknown
+  >;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
-    return `config.annotations has unknown keys: ${unknownKeys.join(", ")}. Supported: hiddenKeyDateSets`;
+    return `config.annotations has unknown keys: ${unknownKeys.join(", ")}. Supported: hiddenKeyDateSets, hiddenDataNotes`;
   }
   if (
     hiddenKeyDateSets !== undefined &&
@@ -106,5 +115,5 @@ export function dashboardAnnotationsIssue(value: unknown): string | null {
   ) {
     return `config.annotations.hiddenKeyDateSets must be an array of up to ${MAX_HIDDEN_SETS} key-date set ids from list-key-dates`;
   }
-  return null;
+  return hiddenDataNotesIssue(hiddenDataNotes);
 }

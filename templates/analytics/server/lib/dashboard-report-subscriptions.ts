@@ -5,11 +5,9 @@ import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import type { AnnotationScope } from "./annotation-scope";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
-import {
-  storedDashboardAnnotationScope,
-  type AnnotationScope,
-} from "./dashboard-annotation-scope";
+import { storedDashboardAnnotationScope } from "./dashboard-annotation-scope";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard } from "./dashboards-store";
 

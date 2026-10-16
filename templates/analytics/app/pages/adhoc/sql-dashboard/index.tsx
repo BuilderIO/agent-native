@@ -70,9 +70,9 @@ import {
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
-import { DashboardKeyDatesProvider } from "@/components/dashboard/key-dates-context";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -140,6 +140,7 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
+import { useAnnotationEditing } from "./annotation-editing";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
@@ -2009,6 +2010,13 @@ function SqlDashboardPageContent({
     ) : null,
   );
 
+  const annotationEditing = useAnnotationEditing({
+    dashboardId: loadedDashboardId ?? undefined,
+    dashboard,
+    editing,
+    persist,
+  });
+
   useSetHeaderActions(
     reportScreenshot ? null : dashboard ? (
       <>
@@ -2065,6 +2073,7 @@ function SqlDashboardPageContent({
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
+        {annotationEditing.menu}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"
@@ -2761,11 +2770,15 @@ function SqlDashboardPageContent({
     </DashboardReportCaptureSurface>
   );
   return (
-    <DashboardKeyDatesProvider
+    <DashboardAnnotationsProvider
       dashboardId={loadedDashboardId}
       annotations={dashboard.annotations}
+      dataNoteActions={
+        reportScreenshot ? undefined : annotationEditing.dataNoteActions
+      }
     >
       {content}
-    </DashboardKeyDatesProvider>
+      {annotationEditing.dialogs}
+    </DashboardAnnotationsProvider>
   );
 }

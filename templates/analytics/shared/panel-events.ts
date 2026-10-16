@@ -157,7 +157,7 @@ export function panelEventInstant(
   return instant;
 }
 
-function xInstant(value: unknown): number | null {
+export function xInstant(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
   const text = value.trim();
@@ -252,6 +252,137 @@ function xDay(value: unknown, instant: number): number {
     : Math.floor(instant / DAY_MS) * DAY_MS;
 }
 
+/** A row whose x is a date: the instant it names and the calendar day it is written on. */
+export interface XDatePoint {
+  row: number;
+  instant: number;
+  day: number;
+}
+
+/** The rows whose x `toInstant` reads as a date, skipping a null bucket or a total row. */
+export function xDatePoints(
+  xValues: readonly unknown[],
+  toInstant: (value: unknown) => number | null = xInstant,
+): XDatePoint[] {
+  return xValues.flatMap((x, row) => {
+    const instant = toInstant(x);
+    return instant === null ? [] : [{ row, instant, day: xDay(x, instant) }];
+  });
+}
+
+/**
+ * How much time each x value stands for: the shortest step between points
+ * on an axis with several a day, otherwise whole calendar days or months.
+ */
+export type XCadence =
+  | { unit: "time"; step: number }
+  | { unit: "days" | "months"; count: number };
+
+/** A bucket size an x column can name. */
+export type XGrain = "day" | "week" | "month" | "quarter" | "year";
+
+const GRAIN_CADENCE: Record<XGrain, XCadence> = {
+  day: { unit: "days", count: 1 },
+  week: { unit: "days", count: 7 },
+  month: { unit: "months", count: 1 },
+  quarter: { unit: "months", count: 3 },
+  year: { unit: "months", count: 12 },
+};
+
+const GRAIN_WORDS = new Set<string>(Object.keys(GRAIN_CADENCE));
+
+function xColumnWords(xKey: string): string[] {
+  return xKey
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .map((word) => word.replace(/s$/, ""));
+}
+
+/**
+ * The grain an x column's name gives: "day", "signup_week", "monthStart".
+ * Null when it names none, or more than one. A column named `date` names
+ * none, since queries write weekly and monthly buckets under that name too.
+ */
+export function xColumnGrain(xKey: string): XGrain | null {
+  const grains = new Set(
+    xColumnWords(xKey).filter((word) => GRAIN_WORDS.has(word)),
+  );
+  return grains.size === 1 ? ([...grains][0] as XGrain) : null;
+}
+
+/** Whether an x column's name, like "week_ending" or "monthEnd", dates each bucket by its last day. */
+export function xColumnDatesBucketEnds(xKey: string): boolean {
+  return xColumnWords(xKey).some((word) => word === "end" || word === "ending");
+}
+
+/**
+ * Cadence comes from the grain the x column names, and otherwise from the
+ * calendar dates the points fall on, not the gaps between them: local
+ * midnights 23 or 25 hours apart across a daylight-saving change are still
+ * one point a day, and days a query returned no row for do not stretch the
+ * points either side. Points all on the first of a month step by months, or
+ * by quarters or years when they are all whole quarters or whole years
+ * apart, points all on one weekday by weeks, and anything else, or a lone
+ * point, by days. Several points a day step by the shortest gap between them
+ * in time order, whatever the column says, so rows sorted by value don't
+ * stretch a point into the next day.
+ */
+export function xCadence(
+  points: readonly XDatePoint[],
+  grain: XGrain | null = null,
+): XCadence {
+  const days = [...new Set(points.map((point) => point.day))];
+  if (new Set(points.map((point) => point.instant)).size > days.length) {
+    const instants = points.map((point) => point.instant).sort((a, b) => a - b);
+    const gaps = instants
+      .slice(1)
+      .map((instant, index) => instant - instants[index])
+      .filter((gap) => gap > 0);
+    return { unit: "time", step: Math.min(...gaps) };
+  }
+  if (grain) return GRAIN_CADENCE[grain];
+  if (days.length < 2) return { unit: "days", count: 1 };
+  const dates = days.map((day) => new Date(day));
+  if (dates.every((date) => date.getUTCDate() === 1)) {
+    const months = dates.map((date) => date.getUTCMonth());
+    const count = months.every((month) => month === months[0])
+      ? 12
+      : months.every((month) => month % 3 === months[0] % 3)
+        ? 3
+        : 1;
+    return { unit: "months", count };
+  }
+  const weekday = dates[0].getUTCDay();
+  const weekly = dates.every((date) => date.getUTCDay() === weekday);
+  return { unit: "days", count: weekly ? 7 : 1 };
+}
+
+/** The bucket whose last day is `day`: that many days up to it, or its months. */
+export function xBucketEndingOn(
+  cadence: Exclude<XCadence, { unit: "time" }>,
+  day: number,
+): { start: number; end: number } {
+  if (cadence.unit === "days") {
+    const end = day + DAY_MS;
+    return { start: end - cadence.count * DAY_MS, end };
+  }
+  const date = new Date(day);
+  const next = date.getUTCMonth() + 1;
+  return {
+    start: Date.UTC(date.getUTCFullYear(), next - cadence.count, 1),
+    end: Date.UTC(date.getUTCFullYear(), next, 1),
+  };
+}
+
+/** Where the bucket starting at `start` ends, exclusive. */
+export function xBucketEnd(cadence: XCadence, start: number): number {
+  if (cadence.unit === "time") return start + cadence.step;
+  if (cadence.unit === "days") return start + cadence.count * DAY_MS;
+  const date = new Date(start);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + cadence.count, 1);
+}
+
 /**
  * Snaps each event to the nearest x value. Daily axes match on the event's
  * date. On an axis with several points per day, a timed event marks the
@@ -265,27 +396,14 @@ export function resolvePanelEvents(
   xValues: readonly unknown[],
 ): ResolvedPanelEvent[] {
   if (!Array.isArray(events)) return [];
-  const rows = xValues.flatMap((x, row) => {
-    const instant = xInstant(x);
-    return instant === null ? [] : [{ row, instant, day: xDay(x, instant) }];
-  });
+  const rows = xDatePoints(xValues);
   if (rows.length === 0) return [];
-  // Cadence comes from calendar dates, not gaps: local midnights 23 or 25
-  // hours apart across a daylight-saving change are still one point a day.
-  const subDaily =
-    new Set(rows.map((entry) => entry.instant)).size >
-    new Set(rows.map((entry) => entry.day)).size;
+  const cadence = xCadence(rows);
+  const subDaily = cadence.unit === "time";
   const points = rows.map((entry) => (subDaily ? entry.instant : entry.day));
   const min = Math.min(...points);
   const max = Math.max(...points);
-  const step = subDaily
-    ? Math.min(
-        ...points
-          .slice(1)
-          .map((point, index) => Math.abs(point - points[index]))
-          .filter((gap) => gap > 0),
-      )
-    : 0;
+  const step = subDaily ? cadence.step : 0;
   const sorted = sortPoints(points);
   const firstRowByDay = firstRowsByDay(rows);
   // An event's instant is under two days from its date's midnight in any

@@ -364,9 +364,9 @@ describe("key-dates store", () => {
     );
 
     expect(locks()).toEqual([
-      "analytics-annotations:org:org-1",
-      "analytics-annotations:org:org-1",
-      "analytics-annotations:user:alice@example.test",
+      "org:org-1",
+      "org:org-1",
+      "user:alice@example.test",
     ]);
     expect(queries[0].query).toContain("pg_advisory_xact_lock");
   });

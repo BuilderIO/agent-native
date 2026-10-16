@@ -875,6 +875,33 @@ export const analyticsKeyDates = table(
   }),
 );
 
+export const analyticsDataNotes = table(
+  "analytics_data_notes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    title: varchar("title", { length: 120 }).notNull(),
+    note: varchar("note", { length: 1000 }).notNull(),
+    startDate: varchar("start_date", { length: 10 }),
+    endDate: varchar("end_date", { length: 10 }),
+    status: varchar("status", { length: 8 }).notNull().default("open"),
+    fix: varchar("fix", { length: 500 }),
+    /** JSON array of event names. */
+    matchEvents: text("match_events").notNull().default("[]"),
+    /** JSON array of event names. */
+    unlessEvents: text("unless_events").notNull().default("[]"),
+    /** JSON array of { dashboardId, panelId }. */
+    panels: text("panels").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_data_notes_org_idx").on(t.orgId),
+  }),
+);
+
 export const sessionRecordings = table(
   "session_recordings",
   {

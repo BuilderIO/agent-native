@@ -410,9 +410,14 @@ describe("validateDashboardConfig annotations", () => {
     annotations,
   });
 
-  it("accepts the key-date sets a dashboard hides", () => {
+  it("accepts the key-date sets and data notes a dashboard hides", () => {
     expect(
-      validateDashboardConfig(config({ hiddenKeyDateSets: ["launches"] })),
+      validateDashboardConfig(
+        config({
+          hiddenKeyDateSets: ["launches"],
+          hiddenDataNotes: [{ noteId: "note-1", panelId: "a" }],
+        }),
+      ),
     ).toBeNull();
   });
 
@@ -423,5 +428,8 @@ describe("validateDashboardConfig annotations", () => {
     expect(
       validateDashboardConfig(config({ hiddenKeyDateSets: "launches" })),
     ).toMatch(/hiddenKeyDateSets must be an array/);
+    expect(
+      validateDashboardConfig(config({ hiddenDataNotes: ["note-1"] })),
+    ).toMatch(/hiddenDataNotes must be/);
   });
 });

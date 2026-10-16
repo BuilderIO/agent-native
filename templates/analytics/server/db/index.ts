@@ -34,6 +34,14 @@ registerIdentityColumns([
       "Records who added an organization's key date or set; the dates stay with the organization when that person leaves.",
   })),
   {
+    table: "analytics_data_notes",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Records who added an organization's data note; the note stays with the organization when that person leaves.",
+  },
+  {
     table: "session_recordings",
     column: "session_id",
     emailChange: "retain",

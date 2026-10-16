@@ -1,47 +1,30 @@
 import { randomUUID } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
-import { and, asc, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 
 import type { KeyDate, KeyDateSet } from "../../shared/key-dates.js";
 import { panelEventProblem } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  inAnnotationScope,
+  writeInAnnotationScope,
+  requireAnnotationScope,
+  type AnnotationScope,
+} from "./annotation-scope.js";
 
 export const MAX_KEY_DATE_SETS = 50;
 export const MAX_KEY_DATES = 1000;
 const MAX_SET_NAME_LENGTH = 80;
 const MAX_LABEL_LENGTH = 120;
 
-export type KeyDateScope = { email: string; orgId: string | null };
+export type KeyDateScope = AnnotationScope;
 
 const sets = schema.analyticsKeyDateSets;
 const dates = schema.analyticsKeyDates;
 
-export function requireKeyDateScope(): KeyDateScope {
-  const email = getRequestUserEmail()?.trim();
-  if (!email) {
-    fail("Sign in to manage key dates.", {
-      errorCode: "unauthenticated",
-      statusCode: 401,
-    });
-  }
-  const orgId = getRequestOrgId()?.trim();
-  return { email, orgId: orgId ? orgId : null };
-}
-
-/** An organization's key dates belong to all its members; without one they are the user's own. */
-function inScope(table: typeof sets | typeof dates, scope: KeyDateScope) {
-  return scope.orgId
-    ? eq(table.orgId, scope.orgId)
-    : and(
-        isNull(table.orgId),
-        sql`lower(${table.ownerEmail}) = ${scope.email.toLowerCase()}`,
-      );
-}
+export const requireKeyDateScope = requireAnnotationScope;
+const inScope = inAnnotationScope;
 
 function toKeyDate(row: typeof dates.$inferSelect): KeyDate {
   return {
@@ -54,32 +37,6 @@ function toKeyDate(row: typeof dates.$inferSelect): KeyDate {
     addedBy: row.ownerEmail,
     updatedAt: row.updatedAt,
   };
-}
-
-/**
- * Holds until the transaction ends, so name checks, set and date quotas, and a
- * set's deletion see every other write in the scope as done or not started.
- */
-async function lockAnnotationScope(
-  tx: any,
-  scope: { email: string; orgId: string | null },
-): Promise<void> {
-  const key = scope.orgId
-    ? `org:${scope.orgId}`
-    : `user:${scope.email.toLowerCase()}`;
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${`analytics-annotations:${key}`}))`,
-  );
-}
-
-function writeInScope<T>(
-  scope: KeyDateScope,
-  write: (tx: any) => Promise<T>,
-): Promise<T> {
-  return (getDb() as any).transaction(async (tx: any) => {
-    await lockAnnotationScope(tx, scope);
-    return write(tx);
-  });
 }
 
 export async function listKeyDateSets(
@@ -176,7 +133,7 @@ export async function saveKeyDateSet(
   input: { id?: string; name: string },
 ): Promise<KeyDateSet> {
   const name = cleanSetName(input.name);
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     const duplicate = await findSet(
       tx,
       scope,
@@ -216,7 +173,7 @@ export async function deleteKeyDateSet(
   scope: KeyDateScope,
   id: string,
 ): Promise<{ id: string; deletedDates: number }> {
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     if (!(await findSet(tx, scope, eq(sets.id, id)))) notFound("set", id);
     const removedDates = await tx
       .delete(dates)
@@ -329,7 +286,7 @@ export async function saveKeyDate(
   const label = input.label.trim();
   // An add has nothing stored to merge, so it can be refused before any query.
   if (!input.id) validKeyDate(keyDateEvent(input, label, undefined));
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     const stored = input.id
       ? await findKeyDate(tx, scope, input.id)
       : undefined;
@@ -381,7 +338,7 @@ export async function deleteKeyDate(
   scope: KeyDateScope,
   id: string,
 ): Promise<{ id: string }> {
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     const deleted = await tx
       .delete(dates)
       .where(and(inScope(dates, scope), eq(dates.id, id)))
