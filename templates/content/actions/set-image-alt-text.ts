@@ -3,6 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
 import updateDocument from "./update-document.js";
 
 function escapeRegExp(value: string): string {
@@ -116,7 +117,7 @@ export default defineAction({
         "Zero-based occurrence of this image URL in document order. Use this when the same image URL appears more than once.",
       ),
   }),
-  run: async ({ documentId, imageUrl, altText, imageOccurrence }) => {
+  run: async ({ documentId, imageUrl, altText, imageOccurrence }, ctx) => {
     const trimmedAlt = altText.trim();
     if (!trimmedAlt) throw new Error("altText cannot be empty");
 
@@ -133,7 +134,19 @@ export default defineAction({
       throw new Error("Could not find that image URL in the document content.");
     }
 
-    await updateDocument.run({ id: documentId, content: nextContent });
+    const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
+      cause: { ctx, operation: "set-image-alt-text" },
+      rewrite: (content) =>
+        updateImageAltInContent({
+          content,
+          imageUrl,
+          altText: trimmedAlt,
+          imageOccurrence,
+        }),
+    });
+    if (!wroteLiveCopy) {
+      await updateDocument.run({ id: documentId, content: nextContent });
+    }
 
     return {
       documentId,

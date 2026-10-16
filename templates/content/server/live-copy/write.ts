@@ -6,7 +6,10 @@ import {
   type LiveCopyMutationResult,
 } from "@agent-native/core/collab";
 import type { DbExec } from "@agent-native/core/db";
+import { eq } from "drizzle-orm";
 
+import { getDb, schema } from "../db/index.js";
+import { isLiveBodyWriterPage } from "../lib/live-body-writer.js";
 import { CONTENT_LIVE_COPY_EDITS, contentLiveCopy } from "./binding.js";
 import { persistUnchangedContentBodyEdit } from "./persist.js";
 import {
@@ -159,5 +162,59 @@ export async function editContentLiveCopy<Edit extends string>(
         await options.persist?.(tx, change);
       },
     }),
+  );
+}
+
+// A commit between a rewrite's read and its write refuses the replace;
+// each attempt reads the body again.
+const REWRITE_ATTEMPTS = 3;
+
+/**
+ * Writes `rewrite(body)` to a switched page for a server writer that derives
+ * its change from the page's current body, such as alt text or a
+ * transcript. The replace names the body it was built from, so a tab's
+ * commit since the read runs the rewrite again on the newer body rather
+ * than overwrite it; `rewrite` returns null when its target is gone from
+ * that body. False when the page is not on its live copy, or left it before
+ * anything committed, so the writer takes its legacy path.
+ */
+export async function rewriteContentLiveCopyBody(
+  documentId: string,
+  options: {
+    cause: ContentBodyWriteCause;
+    rewrite: (body: string) => string | null;
+  },
+): Promise<boolean> {
+  for (let attempt = 0; attempt < REWRITE_ATTEMPTS; attempt += 1) {
+    if (!(await isLiveBodyWriterPage(documentId))) return false;
+    // guard:allow-unscoped — callers assert editor access to the page first.
+    const [row] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    const body = row?.content ?? "";
+    const content = options.rewrite(body);
+    if (content === null) {
+      throw new ActionContractError(
+        "The document changed, and this change no longer applies to it. Read it again and retry.",
+        { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
+      );
+    }
+    try {
+      await editContentLiveCopy(documentId, {
+        cause: options.cause,
+        edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+        input: { content, expected: body },
+      });
+      return true;
+    } catch (error) {
+      if (liveCopyBaseChanged(error)) continue;
+      if (liveCopyWriteLeftPath(error)) return false;
+      throw unrepresentableBodyError(error) ?? error;
+    }
+  }
+  throw new ActionContractError(
+    "The document kept changing while this change was being written. Retry it.",
+    { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
   );
 }

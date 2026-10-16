@@ -1399,6 +1399,68 @@ describe("edit-document on a switched page", () => {
   });
 });
 
+describe("a server rewrite of a switched page's body", () => {
+  const IMAGE = "https://example.com/cat.png";
+
+  async function setAltText(id: string, altText: string) {
+    const action = (await import("../../actions/set-image-alt-text.js"))
+      .default;
+    return asOwner(async () =>
+      action.run(
+        { documentId: id, imageUrl: IMAGE, altText } as never,
+        { caller: "tool", userEmail: OWNER } as never,
+      ),
+    );
+  }
+
+  it("writes alt text through the live copy, so the page stays switched", async () => {
+    await switchedPage("alt-text", `Intro\n\n![](${IMAGE})`);
+    const loaded = await page("alt-text");
+
+    await setAltText("alt-text", "A cat");
+
+    const after = await page("alt-text");
+    expect(after.content).toContain(`![A cat](${IMAGE})`);
+    expect(after.bodyRevision).toBe(loaded.bodyRevision + 1);
+    expect(await gateFor("alt-text")).toEqual({ writePath: "live_copy" });
+    await expect(
+      collab.readLiveCopy(binding.contentLiveCopy, "alt-text"),
+    ).resolves.toMatchObject({ kind: "live", text: after.content });
+    expect((await history("alt-text")).map((row) => row.operation)).toContain(
+      "set-image-alt-text",
+    );
+  });
+
+  it("writes alt text on top of a commit made after it read the body", async () => {
+    await switchedPage("alt-text-peer", `Intro\n\n![](${IMAGE})`);
+    const spy = peerCommitsAfterBuild(
+      "alt-text-peer",
+      `Intro typed\n![](${IMAGE})`,
+    );
+    try {
+      await setAltText("alt-text-peer", "A cat");
+    } finally {
+      spy.mockRestore();
+    }
+
+    const after = await page("alt-text-peer");
+    expect(after.content).toContain("Intro typed");
+    expect(after.content).toContain(`![A cat](${IMAGE})`);
+  });
+
+  it("writes alt text through update-document with the flags off, as on main", async () => {
+    await setFlags(false);
+    await insertPage("alt-text-off", `Intro\n\n![](${IMAGE})`);
+
+    await setAltText("alt-text-off", "A cat");
+
+    const after = await page("alt-text-off");
+    expect(after.content).toBe(`Intro\n\n![A cat](${IMAGE})`);
+    expect(after.liveBodySwitchedAt).toBeNull();
+    expect(await collabVersion("alt-text-off")).toBeUndefined();
+  });
+});
+
 describe("a browser save to a switched page's body", () => {
   /** What a tab that loaded `base` and typed `candidate` sends. */
   async function browserSave(
