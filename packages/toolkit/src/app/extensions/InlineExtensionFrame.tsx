@@ -14,6 +14,11 @@ import {
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
+import {
+  EXTENSION_OPEN_URL_MESSAGE,
+  useExtensionFrameKey,
+  useOpenUrlLatch,
+} from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
@@ -339,6 +344,7 @@ export function InlineExtensionFrame({
     isAuthor: !!providedExtension?.content,
   });
   const bindingLatchedRef = useRef(false);
+  const openUrl = useOpenUrlLatch();
   const [fetchedExtension, setFetchedExtension] =
     useState<InlineExtensionDefinition | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -412,6 +418,10 @@ export function InlineExtensionFrame({
     );
   }, [extension, iframeMetaCsp, isTransient]);
 
+  const frameKey = useExtensionFrameKey(
+    `${resolvedId}|${extension?.updatedAt ?? "inline"}|${isTransient}|${iframeSrc ?? ""}|${srcDoc ?? ""}`,
+  );
+
   useEffect(() => {
     bridgeContextRef.current = isTransient
       ? { role: "owner", isAuthor: true }
@@ -466,6 +476,7 @@ export function InlineExtensionFrame({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
+        openUrl.latch(message, event.source);
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
         const binding = (message as any).binding ?? {};
@@ -503,6 +514,11 @@ export function InlineExtensionFrame({
             cancelable: true,
           }),
         );
+        return;
+      }
+
+      if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
+        openUrl.open(message);
         return;
       }
 
@@ -655,7 +671,7 @@ export function InlineExtensionFrame({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extension, isTransient, resolvedId]);
+  }, [extension, isTransient, openUrl, resolvedId]);
 
   if (!extension) {
     if (!isLoading) return null;
@@ -673,7 +689,7 @@ export function InlineExtensionFrame({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}`}
+        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}-${frameKey}`}
         src={iframeSrc}
         srcDoc={srcDoc}
         title={extension.name}
