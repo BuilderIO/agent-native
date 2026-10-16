@@ -488,6 +488,12 @@ async function runProductionChatPath(args: {
     };
   } catch (err) {
     if (!controller.signal.aborted) controller.abort(err);
+    if (!timedOut) {
+      console.error(
+        "[eval] Production chat eval adapter failed",
+        productionAdapterErrorDetails(err),
+      );
+    }
     return {
       text: "",
       toolCalls: [],
@@ -504,6 +510,39 @@ async function runProductionChatPath(args: {
       controller.abort(timeoutError);
     }
   }
+}
+
+function productionAdapterErrorDetails(error: unknown): {
+  errorType: string;
+  statusCode?: number;
+} {
+  if (!(error instanceof Error)) {
+    return { errorType: error === null ? "null" : typeof error };
+  }
+
+  const details = error as Error & {
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  const errorName =
+    error.name === "Error" ? error.constructor.name : error.name;
+  const errorType =
+    typeof errorName === "string" &&
+    /^[A-Z][A-Za-z0-9_.-]{0,63}$/.test(errorName)
+      ? errorName
+      : "Error";
+  const statusCode = [details.statusCode, details.status].find(
+    (value): value is number =>
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= 100 &&
+      value <= 599,
+  );
+
+  return {
+    errorType,
+    ...(statusCode ? { statusCode } : {}),
+  };
 }
 
 function validateProductionPathRun(

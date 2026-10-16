@@ -182,6 +182,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("scoreEval with a JS scorer", () => {
@@ -1024,11 +1025,14 @@ describe("runEvalSuite runner creation", () => {
       scorers: [contains("active users")],
     });
     const productionChatPath = testProductionChatPath();
+    const adapterError = Object.assign(
+      new Error("token=sk-test-example; customer=example.customer@example.com"),
+      { name: "ProviderAuthError", code: "sk-test-example", status: 401 },
+    );
     productionChatPath.run = async () => {
-      throw new Error(
-        "token=sk-test-example; customer=example.customer@example.com",
-      );
+      throw adapterError;
     };
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const suite = await runEvalSuite({
       evals: [evalCase],
@@ -1056,6 +1060,20 @@ describe("runEvalSuite runner creation", () => {
     expect(JSON.stringify(suite.report)).not.toContain(
       "example.customer@example.com",
     );
+    expect(errorLog).toHaveBeenCalledWith(
+      "[eval] Production chat eval adapter failed",
+      {
+        errorType: "ProviderAuthError",
+        statusCode: 401,
+      },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+      "sk-test-example",
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+      "example.customer@example.com",
+    );
+    errorLog.mockRestore();
   });
 
   it("does not expose returned production adapter errors after usage is reported", async () => {
