@@ -65,9 +65,9 @@ export interface BoundedTaskRunnerOptions {
   /** Tasks allowed to wait for a worker. Beyond this, `queue_full`. Default 8. */
   maxQueue?: number;
   /**
-   * Longest a task may wait for a busy worker. A task waiting only for a
-   * worker to start is bounded by `startupTimeoutMs` instead. Default
-   * `deadlineMs`.
+   * Longest a task may wait for a busy or terminating worker. A task waiting
+   * only for a worker to start is bounded by `startupTimeoutMs` instead.
+   * Default `deadlineMs`.
    */
   queueTimeoutMs?: number;
   /** Strings count two bytes per UTF-16 unit. Default 8 MiB. */
@@ -580,7 +580,11 @@ export function createBoundedTaskRunner(
         }
         queue.push(pending);
         drain();
-        if (slots.some((slot) => slot.ready)) armQueueTimers();
+        // Only a starting worker bounds the wait by itself. With no slot at
+        // all, the task waits on a worker still terminating, which has none.
+        if (slots.length === 0 || slots.some((slot) => slot.ready)) {
+          armQueueTimers();
+        }
       });
     },
     stats() {

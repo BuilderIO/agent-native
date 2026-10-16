@@ -368,7 +368,7 @@ async function loadDoc(docId: string): Promise<Y.Doc> {
   }
 }
 
-export async function getDocForWrite(docId: string): Promise<Y.Doc> {
+async function getDocForWrite(docId: string): Promise<Y.Doc> {
   const cached = _cache.get(docId);
   if (cached) {
     cached.lastAccess = Date.now();
@@ -451,6 +451,8 @@ const LIVE_COPY_COMMIT_ATTEMPTS = 5;
 const EMPTY_STATE = new Uint8Array([0, 0]);
 
 interface LiveCopyCacheEntry {
+  /** Bytes are valid only for the binding that checked them. */
+  binding: LiveCopyBinding;
   state: Uint8Array;
   /** Null when the copy was absent. */
   version: number | null;
@@ -461,6 +463,7 @@ interface LiveCopyCacheEntry {
 const _liveCopyCache = new Map<string, LiveCopyCacheEntry>();
 
 function cacheLiveCopyState(
+  binding: LiveCopyBinding,
   docId: string,
   state: Uint8Array,
   version: number | null,
@@ -470,7 +473,12 @@ function cacheLiveCopyState(
     stale.doc.destroy();
     _cache.delete(docId);
   }
-  _liveCopyCache.set(docId, { state, version, lastAccess: Date.now() });
+  _liveCopyCache.set(docId, {
+    binding,
+    state,
+    version,
+    lastAccess: Date.now(),
+  });
   if (_liveCopyCache.size <= MAX_CACHE) return;
   let oldest: string | null = null;
   let oldestTime = Infinity;
@@ -497,7 +505,10 @@ async function loadLiveCopyState(
   docId: string,
 ): Promise<StoredLiveCopy> {
   const cached = _liveCopyCache.get(docId);
-  if (cached && cached.version === (await loadYDocVersion(docId))) {
+  if (
+    cached?.binding === binding &&
+    cached.version === (await loadYDocVersion(docId))
+  ) {
     cached.lastAccess = Date.now();
     return cached.version === null
       ? { kind: "absent" }
@@ -518,18 +529,18 @@ async function liveCopyStateForRead(
   await ensureTable();
   const version = await loadYDocVersion(docId);
   const cached = _liveCopyCache.get(docId);
-  if (cached && cached.version === version) {
+  if (cached?.binding === binding && cached.version === version) {
     cached.lastAccess = Date.now();
     return cached.state;
   }
   const stored = await readStoredLiveCopy(binding, getDbExec(), docId);
   if (stored.kind === "absent") {
-    cacheLiveCopyState(docId, EMPTY_STATE, null);
+    cacheLiveCopyState(binding, docId, EMPTY_STATE, null);
     return EMPTY_STATE;
   }
   await readLiveCopyState(binding, docId, stored.state, false);
   const state = stored.state.length > 0 ? stored.state : EMPTY_STATE;
-  cacheLiveCopyState(docId, state, stored.version);
+  cacheLiveCopyState(binding, docId, state, stored.version);
   return state;
 }
 
@@ -562,7 +573,7 @@ async function commitLiveCopyUpdate(
       ...(requestSource ? { requestSource } : {}),
     });
     if (!outcome) continue;
-    cacheLiveCopyState(docId, result.state, version);
+    cacheLiveCopyState(binding, docId, result.state, version);
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
     return outcome;
   }
@@ -693,14 +704,17 @@ export async function mutateLiveCopy(
         options.input,
       );
       if (result.kind === "unchanged") {
-        if (callPersist) {
-          await persistLiveCopyCall(docId, (tx) =>
+        if (
+          callPersist &&
+          !(await persistLiveCopyCall(docId, stored.version, (tx) =>
             callPersist(tx, {
               changed: false,
               version: stored.version,
               text: result.text,
             }),
-          );
+          ))
+        ) {
+          continue;
         }
         return {
           changed: false,
@@ -731,7 +745,7 @@ export async function mutateLiveCopy(
             callPersist(tx, { changed: true, version, text: result.text })),
       );
       if (!outcome) continue;
-      cacheLiveCopyState(docId, result.state, version);
+      cacheLiveCopyState(binding, docId, result.state, version);
       emitCollabUpdate(
         docId,
         uint8ArrayToBase64(result.update),
@@ -826,7 +840,7 @@ export async function seedLiveCopy(
           : {}),
       });
       if (!outcome) continue;
-      cacheLiveCopyState(docId, result.state, version);
+      cacheLiveCopyState(binding, docId, result.state, version);
       emitCollabUpdate(
         docId,
         uint8ArrayToBase64(result.update),
@@ -847,6 +861,29 @@ export async function seedLiveCopy(
       { reason: String(LIVE_COPY_COMMIT_ATTEMPTS) },
     );
   });
+}
+
+function assertXmlFragmentSeed(seedUpdate: Uint8Array): void {
+  const candidate = new Y.Doc();
+  try {
+    const decoded = Y.decodeUpdate(seedUpdate);
+    if (decoded.ds.clients.size > 0) {
+      throw new Error("Initial XmlFragment seed cannot contain deletions");
+    }
+    Y.applyUpdate(candidate, seedUpdate);
+    const fragment = candidate.getXmlFragment("default");
+    if (
+      candidate.share.size !== 1 ||
+      !candidate.share.has("default") ||
+      isEmptyXmlSeedTarget(fragment)
+    ) {
+      throw new Error(
+        "Initial XmlFragment seed must contain only a nonempty default fragment",
+      );
+    }
+  } finally {
+    candidate.destroy();
+  }
 }
 
 function isEmptyXmlSeedTarget(fragment: Y.XmlFragment): boolean {
@@ -870,30 +907,15 @@ export async function seedXmlFragmentIfEmpty(
   seedUpdate: Uint8Array,
   requestSource?: string,
 ): Promise<{ seeded: boolean; state: Uint8Array }> {
-  const candidate = new Y.Doc();
-  try {
-    const decoded = Y.decodeUpdate(seedUpdate);
-    if (decoded.ds.clients.size > 0) {
-      throw new Error("Initial XmlFragment seed cannot contain deletions");
-    }
-    Y.applyUpdate(candidate, seedUpdate);
-    const fragment = candidate.getXmlFragment("default");
-    if (
-      candidate.share.size !== 1 ||
-      !candidate.share.has("default") ||
-      isEmptyXmlSeedTarget(fragment)
-    ) {
-      throw new Error(
-        "Initial XmlFragment seed must contain only a nonempty default fragment",
-      );
-    }
-  } finally {
-    candidate.destroy();
-  }
+  // Once a live copy exists, decode only after the lock's refusal check, so
+  // a covered document never integrates a seed on this thread.
+  const validateInLock = liveCopiesDefined();
+  if (!validateInLock) assertXmlFragmentSeed(seedUpdate);
 
   return withDocWriteLock(
     docId,
     async () => {
+      if (validateInLock) assertXmlFragmentSeed(seedUpdate);
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const stored = await loadYDocRecord(docId);
         const committed = new Y.Doc();
