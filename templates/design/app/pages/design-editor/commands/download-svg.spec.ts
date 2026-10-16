@@ -454,6 +454,112 @@ describe("runDownloadSvg", () => {
     },
   );
 
+  it("reports a mounted preview readiness timeout as an export error", async () => {
+    document.body.replaceChildren();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    iframe.dataset.designSourceType = "inline";
+    document.body.append(iframe);
+    iframe.contentDocument!.body.innerHTML = "<main>Waiting for bridge</main>";
+    let performanceCalls = 0;
+    const performanceNow = vi
+      .spyOn(window.performance, "now")
+      .mockImplementation(() => (performanceCalls++ === 0 ? 0 : 20_000));
+    const tracking = vi.mocked(trackBrowserDesignExported);
+    const prepareScreenForExport = vi.fn();
+    const releaseScreenFromExport = vi.fn();
+    const triggerBlobDownload = vi.fn();
+    tracking.mockClear();
+    toastMocks.error.mockClear();
+
+    try {
+      await runDownloadSvg({
+        activeCanvasSourceType: "inline",
+        activePreviewFrameId: "screen-1",
+        design: null,
+        exportScreenId: "screen-1",
+        exportScreenSourceType: "inline",
+        fallbackExportName: (extension) => `design.${extension}`,
+        requireContentSizeReport: true,
+        pngExportingRef: { current: false },
+        prepareScreenForExport,
+        releaseScreenFromExport,
+        selectedElement: null,
+        setSvgExporting: () => undefined,
+        t: (key) => key,
+        triggerBlobDownload,
+      });
+
+      expect(performanceCalls).toBe(2);
+      expect(prepareScreenForExport).toHaveBeenCalledOnce();
+      expect(releaseScreenFromExport).toHaveBeenCalledOnce();
+      expect(triggerBlobDownload).not.toHaveBeenCalled();
+      expect(tracking).toHaveBeenLastCalledWith(
+        "svg",
+        expect.objectContaining({
+          status: "failed",
+          errorType: "export_error",
+        }),
+      );
+      expect(toastMocks.error).toHaveBeenLastCalledWith(
+        "designEditor.toasts.svgExportError",
+      );
+    } finally {
+      performanceNow.mockRestore();
+      document.body.replaceChildren();
+    }
+  });
+
+  it("reports a requested preview that never mounts as no preview", async () => {
+    document.body.replaceChildren();
+    let performanceCalls = 0;
+    const performanceNow = vi
+      .spyOn(window.performance, "now")
+      .mockImplementation(() => (performanceCalls++ === 0 ? 0 : 20_000));
+    const tracking = vi.mocked(trackBrowserDesignExported);
+    const prepareScreenForExport = vi.fn();
+    const releaseScreenFromExport = vi.fn();
+    const triggerBlobDownload = vi.fn();
+    tracking.mockClear();
+    toastMocks.error.mockClear();
+
+    try {
+      await runDownloadSvg({
+        activeCanvasSourceType: "inline",
+        activePreviewFrameId: "screen-1",
+        design: null,
+        exportScreenId: "screen-1",
+        exportScreenSourceType: "inline",
+        fallbackExportName: (extension) => `design.${extension}`,
+        pngExportingRef: { current: false },
+        prepareScreenForExport,
+        releaseScreenFromExport,
+        selectedElement: null,
+        setSvgExporting: () => undefined,
+        t: (key) => key,
+        triggerBlobDownload,
+      });
+
+      expect(performanceCalls).toBe(2);
+      expect(prepareScreenForExport).toHaveBeenCalledOnce();
+      expect(releaseScreenFromExport).toHaveBeenCalledOnce();
+      expect(triggerBlobDownload).not.toHaveBeenCalled();
+      expect(tracking).toHaveBeenLastCalledWith(
+        "svg",
+        expect.objectContaining({
+          status: "failed",
+          errorType: "no_preview",
+        }),
+      );
+      expect(toastMocks.error).toHaveBeenLastCalledWith(
+        "designEditor.toasts.openScreenSvg",
+      );
+    } finally {
+      performanceNow.mockRestore();
+      document.body.replaceChildren();
+    }
+  });
+
   it("downloads parseable XML when the preview contains Alpine directives", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-screen-iframe-id", "screen-1");

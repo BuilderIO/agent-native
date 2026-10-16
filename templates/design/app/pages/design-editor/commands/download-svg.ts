@@ -51,6 +51,7 @@ async function waitForSvgExportIframe(args: {
 }): Promise<
   | { kind: "ready"; iframe: HTMLIFrameElement; doc: Document }
   | { kind: "unreadable"; iframe: HTMLIFrameElement }
+  | { kind: "timeout" }
   | null
 > {
   const deadline =
@@ -99,7 +100,7 @@ async function waitForSvgExportIframe(args: {
       }
     }
     if (window.performance.now() >= deadline) {
-      return null;
+      return iframe?.isConnected ? { kind: "timeout" } : null;
     }
     await new Promise<void>((resolve) => window.setTimeout(resolve, 16));
   }
@@ -166,6 +167,15 @@ export async function runDownloadSvg(
         errorType: "no_preview",
       });
       toast.error(t("designEditor.toasts.openScreenSvg"));
+      return;
+    }
+    if (iframe.kind === "timeout") {
+      trackBrowserDesignExported("svg", {
+        ...exportTracking,
+        status: "failed",
+        errorType: "export_error",
+      });
+      toast.error(t("designEditor.toasts.svgExportError"));
       return;
     }
     if (iframe.kind === "unreadable") {

@@ -413,34 +413,35 @@ function validateInventory(inventory: Inventory): string[] {
         const hasTicket = (parent.reactionOwners.ticket ?? []).includes(
           inventory.sweepActorId,
         );
-        const fixedScopes = parent.fixedScopes ?? [];
-        if (!Array.isArray(fixedScopes)) {
-          throw new Error(`${parentName}: fixedScopes must be an array`);
-        }
-        const fixedScopeNames = new Set<string>();
-        for (const [scopeIndex, fixedScope] of fixedScopes.entries()) {
-          if (
-            !fixedScope ||
-            typeof fixedScope.scope !== "string" ||
-            !fixedScope.scope.trim() ||
-            typeof fixedScope.verification !== "string" ||
-            !fixedScope.verification.trim()
-          ) {
-            throw new Error(
-              `${parentName}: fixed scope ${scopeIndex + 1} needs scope and verification evidence`,
-            );
+        const reconcilesOwnedStatus = ownsEye || hasCheckmark || hasTicket;
+        if (reconcilesOwnedStatus) {
+          const fixedScopes = parent.fixedScopes ?? [];
+          if (!Array.isArray(fixedScopes)) {
+            throw new Error(`${parentName}: fixedScopes must be an array`);
           }
-          const normalizedScope = normalizeScope(fixedScope.scope);
-          if (fixedScopeNames.has(normalizedScope)) {
-            throw new Error(`${parentName}: fixed scopes must be distinct`);
+          const fixedScopeNames = new Set<string>();
+          for (const [scopeIndex, fixedScope] of fixedScopes.entries()) {
+            if (
+              !fixedScope ||
+              typeof fixedScope.scope !== "string" ||
+              !fixedScope.scope.trim() ||
+              typeof fixedScope.verification !== "string" ||
+              !fixedScope.verification.trim()
+            ) {
+              throw new Error(
+                `${parentName}: fixed scope ${scopeIndex + 1} needs scope and verification evidence`,
+              );
+            }
+            const normalizedScope = normalizeScope(fixedScope.scope);
+            if (fixedScopeNames.has(normalizedScope)) {
+              throw new Error(`${parentName}: fixed scopes must be distinct`);
+            }
+            fixedScopeNames.add(normalizedScope);
           }
-          fixedScopeNames.add(normalizedScope);
-        }
-        if (ownsEye) {
           const reactionDecision = parent.reactionDecision;
           if (!reactionDecision) {
             throw new Error(
-              `${parentName}: record a ✅ and 🎫 decision for every owned eye`,
+              `${parentName}: record a ✅ and 🎫 decision for every owned eye or own status mark`,
             );
           }
           for (const reaction of ["checkmark", "ticket"] as const) {
@@ -459,7 +460,7 @@ function validateInventory(inventory: Inventory): string[] {
           const reply = parent.statusReply;
           if (!reply) {
             throw new Error(
-              `${parentName}: an owned 👀 needs a same-parent status reply by the same actor`,
+              `${parentName}: an owned 👀 or own ✅/🎫 needs a same-parent status reply by the same actor`,
             );
           }
           const replyTs = slackTimestamp(
@@ -483,7 +484,7 @@ function validateInventory(inventory: Inventory): string[] {
           }
           if (reply.actorId !== inventory.sweepActorId) {
             throw new Error(
-              `${parentName}: status reply author must match the owned-eye actor ID`,
+              `${parentName}: status reply author must match this actor's owned eye or status mark`,
             );
           }
           if (
@@ -509,101 +510,105 @@ function validateInventory(inventory: Inventory): string[] {
               `${parentName}: status reply evidence must include every fixed scope's recorded verification`,
             );
           }
-        }
-        if (fixedScopes.length > 0 && !hasCheckmark) {
-          throw new Error(
-            `${parentName}: verified fixed scope needs this actor's ✅`,
-          );
-        }
-        if (
-          fixedScopes.length > 0 &&
-          !["Fixed", "Partially fixed"].includes(parent.disposition)
-        ) {
-          throw new Error(
-            `${parentName}: verified fixed scope needs Fixed or Partially fixed disposition`,
-          );
-        }
-        if (parent.disposition === "Fixed" && fixedScopes.length === 0) {
-          throw new Error(
-            `${parentName}: Fixed disposition needs verified fixed-scope evidence`,
-          );
-        }
-        if (
-          parent.disposition === "Partially fixed" &&
-          fixedScopes.length === 0
-        ) {
-          throw new Error(
-            `${parentName}: Partially fixed disposition needs verified fixed-scope evidence`,
-          );
-        }
-        if (hasCheckmark && fixedScopes.length === 0) {
-          throw new Error(
-            `${parentName}: this actor's ✅ needs a verified fixed scope`,
-          );
-        }
-        if (
-          hasCheckmark &&
-          !["Fixed", "Partially fixed"].includes(parent.disposition)
-        ) {
-          throw new Error(
-            `${parentName}: this actor's ✅ requires Fixed or Partially fixed disposition`,
-          );
-        }
-        if (parent.handoff && parent.handoffs !== undefined) {
-          throw new Error(`${parentName}: use handoff or handoffs, not both`);
-        }
-        if (parent.handoffs !== undefined && !Array.isArray(parent.handoffs)) {
-          throw new Error(`${parentName}: handoffs must be an array`);
-        }
-        const handoffs =
-          parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
-        const handoffScopes = new Set<string>();
-        for (const [handoffIndex, handoff] of handoffs.entries()) {
+          if (fixedScopes.length > 0 && !hasCheckmark) {
+            throw new Error(
+              `${parentName}: verified fixed scope needs this actor's ✅`,
+            );
+          }
           if (
-            !handoff ||
-            typeof handoff.scope !== "string" ||
-            !handoff.scope.trim() ||
-            typeof handoff.owner !== "string" ||
-            !handoff.owner.trim() ||
-            typeof handoff.action !== "string" ||
-            !handoff.action.trim()
+            fixedScopes.length > 0 &&
+            !["Fixed", "Partially fixed"].includes(parent.disposition)
           ) {
             throw new Error(
-              `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, owner, and action`,
+              `${parentName}: verified fixed scope needs Fixed or Partially fixed disposition`,
             );
           }
-          const normalizedScope = normalizeScope(handoff.scope);
-          if (handoffScopes.has(normalizedScope)) {
-            throw new Error(`${parentName}: handoff scopes must be distinct`);
-          }
-          handoffScopes.add(normalizedScope);
-          if (fixedScopeNames.has(normalizedScope)) {
+          if (parent.disposition === "Fixed" && fixedScopes.length === 0) {
             throw new Error(
-              `${parentName}: 🎫 handoff scope must be distinct from verified fixed scopes`,
+              `${parentName}: Fixed disposition needs verified fixed-scope evidence`,
             );
           }
-        }
-        if (handoffs.length > 0 && !hasTicket) {
-          throw new Error(`${parentName}: every handoff needs this actor's 🎫`);
-        }
-        if (handoffs.length === 0 && hasTicket) {
-          throw new Error(
-            `${parentName}: this actor's 🎫 needs a distinct handoff owner and action`,
-          );
-        }
-        if (parent.disposition === "Fixed" && handoffs.length > 0) {
-          throw new Error(
-            `${parentName}: Fixed disposition cannot retain unfinished handoffs; use Partially fixed`,
-          );
-        }
-        if (
-          ownsEye &&
-          handoffs.length > 0 &&
-          !replyNamesHandoffs(parent.statusReply!.text, handoffs)
-        ) {
-          throw new Error(
-            `${parentName}: status reply must name each handoff's owner and action`,
-          );
+          if (
+            parent.disposition === "Partially fixed" &&
+            fixedScopes.length === 0
+          ) {
+            throw new Error(
+              `${parentName}: Partially fixed disposition needs verified fixed-scope evidence`,
+            );
+          }
+          if (hasCheckmark && fixedScopes.length === 0) {
+            throw new Error(
+              `${parentName}: this actor's ✅ needs a verified fixed scope`,
+            );
+          }
+          if (
+            hasCheckmark &&
+            !["Fixed", "Partially fixed"].includes(parent.disposition)
+          ) {
+            throw new Error(
+              `${parentName}: this actor's ✅ requires Fixed or Partially fixed disposition`,
+            );
+          }
+          if (parent.handoff && parent.handoffs !== undefined) {
+            throw new Error(`${parentName}: use handoff or handoffs, not both`);
+          }
+          if (
+            parent.handoffs !== undefined &&
+            !Array.isArray(parent.handoffs)
+          ) {
+            throw new Error(`${parentName}: handoffs must be an array`);
+          }
+          const handoffs =
+            parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
+          const handoffScopes = new Set<string>();
+          for (const [handoffIndex, handoff] of handoffs.entries()) {
+            if (
+              !handoff ||
+              typeof handoff.scope !== "string" ||
+              !handoff.scope.trim() ||
+              typeof handoff.owner !== "string" ||
+              !handoff.owner.trim() ||
+              typeof handoff.action !== "string" ||
+              !handoff.action.trim()
+            ) {
+              throw new Error(
+                `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, owner, and action`,
+              );
+            }
+            const normalizedScope = normalizeScope(handoff.scope);
+            if (handoffScopes.has(normalizedScope)) {
+              throw new Error(`${parentName}: handoff scopes must be distinct`);
+            }
+            handoffScopes.add(normalizedScope);
+            if (fixedScopeNames.has(normalizedScope)) {
+              throw new Error(
+                `${parentName}: 🎫 handoff scope must be distinct from verified fixed scopes`,
+              );
+            }
+          }
+          if (handoffs.length > 0 && !hasTicket) {
+            throw new Error(
+              `${parentName}: every handoff needs this actor's 🎫`,
+            );
+          }
+          if (handoffs.length === 0 && hasTicket) {
+            throw new Error(
+              `${parentName}: this actor's 🎫 needs a distinct handoff owner and action`,
+            );
+          }
+          if (parent.disposition === "Fixed" && handoffs.length > 0) {
+            throw new Error(
+              `${parentName}: Fixed disposition cannot retain unfinished handoffs; use Partially fixed`,
+            );
+          }
+          if (
+            handoffs.length > 0 &&
+            !replyNamesHandoffs(parent.statusReply!.text, handoffs)
+          ) {
+            throw new Error(
+              `${parentName}: status reply must name each handoff's owner and action`,
+            );
+          }
         }
 
         if (seen.has(key)) {
@@ -865,6 +870,85 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     })),
   });
+  const withUnownedCheckmark = (
+    overrides: Partial<Parent> = {},
+  ): Inventory => ({
+    ...valid,
+    channels: valid.channels.map((channel) => ({
+      ...channel,
+      pages: channel.pages.map((page) => ({
+        ...page,
+        parents: page.parents.map((parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                reactionSummary:
+                  "1+ (1): UOTHER; white_check_mark (1): USWEEPER",
+                reactionOwners: {
+                  "1+": ["UOTHER"],
+                  white_check_mark: ["USWEEPER"],
+                },
+                reactionDecision: {
+                  checkmark: {
+                    state: "present",
+                    reason: "Verified initial route screen fix",
+                  },
+                  ticket: {
+                    state: "none",
+                    reason: "No separate human-owned action remains",
+                  },
+                },
+                ...overrides,
+              }
+            : parent,
+        ),
+      })),
+    })),
+  });
+  const withUnownedTicket = (overrides: Partial<Parent> = {}): Inventory => ({
+    ...valid,
+    channels: valid.channels.map((channel) => ({
+      ...channel,
+      pages: channel.pages.map((page) => ({
+        ...page,
+        parents: page.parents.map((parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                disposition: "In progress",
+                reactionSummary: "ticket (1): USWEEPER",
+                reactionOwners: { ticket: ["USWEEPER"] },
+                reactionDecision: {
+                  checkmark: {
+                    state: "none",
+                    reason: "No verified scope is complete yet",
+                  },
+                  ticket: {
+                    state: "present",
+                    reason: "A product owner owns the remaining action",
+                  },
+                },
+                fixedScopes: [],
+                handoffs: [
+                  {
+                    scope: "remaining design choice",
+                    owner: "Product owner",
+                    action: "choose the remaining behavior",
+                  },
+                ],
+                statusReply: {
+                  ...parent.statusReply!,
+                  disposition: "In progress",
+                  evidence: "Product owner will choose the remaining behavior",
+                  text: "In progress: Product owner will choose the remaining behavior. Handoff: Product owner — choose the remaining behavior.",
+                },
+                ...overrides,
+              }
+            : parent,
+        ),
+      })),
+    })),
+  });
   const invalid = [
     {
       name: "noncanonical disposition label",
@@ -1007,6 +1091,27 @@ if (args[0] === "--self-test" && args.length === 1) {
           })),
         })),
       },
+    },
+    {
+      name: "checkmark without an owned eye still needs a status reply",
+      inventory: withUnownedCheckmark({ statusReply: undefined }),
+    },
+    {
+      name: "checkmark without an owned eye still needs its recorded evidence",
+      inventory: withUnownedCheckmark({
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "Fixed",
+          evidence: "focused test passed in the open PR; merge pending",
+          text: "Fixed: a different note",
+        },
+      }),
+    },
+    {
+      name: "ticket without an owned eye still needs reaction decisions",
+      inventory: withUnownedTicket({ reactionDecision: undefined }),
     },
     {
       name: "reply root is missing from page rows and threadRoots",
@@ -1500,6 +1605,47 @@ if (args[0] === "--self-test" && args.length === 1) {
   ];
   try {
     validateInventory(valid);
+    validateInventory({
+      ...valid,
+      channels: valid.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  reactionSummary:
+                    "eyes (1): UOTHER; white_check_mark (1): UOTHER; ticket (1): UOTHER",
+                  reactionOwners: {
+                    eyes: ["UOTHER"],
+                    white_check_mark: ["UOTHER"],
+                    ticket: ["UOTHER"],
+                  },
+                  disposition: "Partially fixed",
+                  reactionDecision: undefined,
+                  statusReply: undefined,
+                  fixedScopes: [
+                    {
+                      scope: "verified route behavior",
+                      verification: "another actor verified the route behavior",
+                    },
+                  ],
+                  handoffs: [
+                    {
+                      scope: "remaining design choice",
+                      owner: "Product owner",
+                      action: "choose the remaining behavior",
+                    },
+                  ],
+                }
+              : parent,
+          ),
+        })),
+      })),
+    });
+    validateInventory(withUnownedCheckmark());
+    validateInventory(withUnownedTicket());
     validateInventory(
       withHandoffReply(
         "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product owner to choose the remaining behavior.",
@@ -1761,7 +1907,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 9 positive cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 12 positive cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
