@@ -51,7 +51,7 @@ vi.mock("../db/client.js", () => ({
       }
 
       if (
-        /SELECT id FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
+        /SELECT id(, removed_at, removed_reason)? FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
           rawSql,
         )
       ) {

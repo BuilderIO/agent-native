@@ -607,10 +607,11 @@ export async function getStagedDatasetRows(options: {
   await ensureTables();
   const db = getDbExec();
   const { rows: meta } = await db.execute({
-    sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ? AND removed_at IS NULL`,
+    sql: `SELECT id, removed_at, removed_reason FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
     args: [options.id, options.appId, options.ownerEmail],
   });
   if (meta.length === 0) return [];
+  if (meta[0].removed_at != null) throw removedError(meta[0]);
 
   const { rows } = await db.execute({
     sql: `SELECT row_data FROM staged_dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC`,

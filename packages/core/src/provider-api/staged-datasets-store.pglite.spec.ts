@@ -372,6 +372,13 @@ describe("removed staged datasets on Postgres", () => {
         ownerEmail: "ada@example.com",
       }),
     ).rejects.toBeInstanceOf(StagedDatasetRemovedError);
+    await expect(
+      getStagedDatasetRows({
+        id: "ada_victim",
+        appId: APP,
+        ownerEmail: "ada@example.com",
+      }),
+    ).rejects.toBeInstanceOf(StagedDatasetRemovedError);
 
     const query = createQueryStagedDatasetAction({
       appId: APP,
