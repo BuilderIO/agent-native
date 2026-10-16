@@ -8,6 +8,7 @@ import { BoundedTaskError, type BoundedTaskRunner } from "./bounded-tasks.js";
 import {
   LIVE_COPY_TASK,
   type LiveCopyApplyInput,
+  type LiveCopyCatchUp,
   type LiveCopyEditInput,
   type LiveCopyReadInput,
   type LiveCopySeedInput,
@@ -235,7 +236,7 @@ export function assertOwnTransaction(docId: string, path: string): void {
   throw new LiveCopyError(
     "write_refused",
     docId,
-    `${path} was called for live copy ${docId} inside a database transaction. Call it outside the transaction and write the app's rows in the binding's persist hook.`,
+    `${path} was called for live copy ${docId} inside a database transaction. Call it outside the transaction, and write the app's rows in the binding's persist hook, or in mutateLiveCopy's persist option for rows that belong to one edit.`,
     { reason: "caller_transaction" },
   );
 }
@@ -391,12 +392,24 @@ const isString = (value: unknown): value is string => typeof value === "string";
 const isBytes = (value: unknown): value is Uint8Array =>
   value instanceof Uint8Array;
 
+function catchUpOf(
+  docId: string,
+  result: TaskOutput,
+  failure: "derive_failed" | "build_failed",
+): LiveCopyCatchUp {
+  return {
+    stateVector: required(docId, result.stateVector, isBytes, failure),
+    deletions: required(docId, result.deletions, isBytes, failure),
+  };
+}
+
 export interface LiveCopyChange {
   kind: "changed";
   state: Uint8Array;
   text: string;
   /** What this change added to the state it started from. */
   update: Uint8Array;
+  catchUp: LiveCopyCatchUp;
 }
 
 /** Validates stored state in the runner; derives its text when asked. */
@@ -405,7 +418,10 @@ export async function readLiveCopyState(
   docId: string,
   state: Uint8Array,
   derive: boolean,
-): Promise<{ kind: "unseeded" } | { kind: "live"; text: string | null }> {
+): Promise<
+  | { kind: "unseeded"; catchUp: LiveCopyCatchUp }
+  | { kind: "live"; text: string | null; catchUp: LiveCopyCatchUp }
+> {
   const input: Omit<LiveCopyReadInput, "field" | "maxStateBytes"> = {
     state,
     derive,
@@ -418,12 +434,14 @@ export async function readLiveCopyState(
     "derive_failed",
     ["unseeded", "live"],
   );
-  if (result.kind === "unseeded") return { kind: "unseeded" };
+  const catchUp = catchUpOf(docId, result, "derive_failed");
+  if (result.kind === "unseeded") return { kind: "unseeded", catchUp };
   return {
     kind: "live",
     text: derive
       ? required(docId, result.text, isString, "derive_failed")
       : null,
+    catchUp,
   };
 }
 
@@ -434,7 +452,13 @@ export async function applyLiveCopyUpdate(
   state: Uint8Array | null,
   update: Uint8Array,
 ): Promise<
-  { kind: "unchanged" } | { kind: "changed"; state: Uint8Array; text: string }
+  | { kind: "unchanged" }
+  | {
+      kind: "changed";
+      state: Uint8Array;
+      text: string;
+      catchUp: LiveCopyCatchUp;
+    }
 > {
   const input: Omit<LiveCopyApplyInput, "field" | "maxStateBytes"> = {
     state,
@@ -453,6 +477,7 @@ export async function applyLiveCopyUpdate(
     kind: "changed",
     state: result.state as Uint8Array,
     text: result.text as string,
+    catchUp: catchUpOf(docId, result, "derive_failed"),
   };
 }
 
@@ -486,6 +511,7 @@ export async function seedLiveCopyState(
     state: result.state as Uint8Array,
     text: result.text as string,
     update: required(docId, result.update, isBytes, "build_failed"),
+    catchUp: catchUpOf(docId, result, "build_failed"),
   };
 }
 
@@ -521,6 +547,7 @@ export async function editLiveCopyState(
     state: result.state as Uint8Array,
     text: result.text as string,
     update: required(docId, result.update, isBytes, "build_failed"),
+    catchUp: catchUpOf(docId, result, "build_failed"),
   };
 }
 

@@ -37,6 +37,8 @@ let live: LiveCopyModule;
 let bounded: BoundedModule;
 let runner: BoundedTaskRunner;
 let emitted: Array<{ docId: string; update: string }>;
+// Yjs decodes that ran on this thread, by function name.
+const mainThreadDecodes: string[] = [];
 const bindings: Array<import("./live-copy.js").LiveCopyBinding> = [];
 const extraRunners: BoundedTaskRunner[] = [];
 
@@ -203,6 +205,31 @@ beforeEach(async () => {
     emitCollabUpdate: (docId: string, update: string) =>
       emitted.push({ docId, update }),
   }));
+  mainThreadDecodes.length = 0;
+  vi.doMock("yjs", async (importOriginal) => {
+    const actual = await importOriginal<typeof Y>();
+    const recorded = <F extends (...args: never[]) => unknown>(
+      name: string,
+      decode: F,
+    ) =>
+      ((...args: Parameters<F>) => {
+        mainThreadDecodes.push(name);
+        return decode(...args);
+      }) as F;
+    return {
+      ...actual,
+      applyUpdate: recorded("applyUpdate", actual.applyUpdate),
+      applyUpdateV2: recorded("applyUpdateV2", actual.applyUpdateV2),
+      readUpdate: recorded("readUpdate", actual.readUpdate),
+      diffUpdate: recorded("diffUpdate", actual.diffUpdate),
+      mergeUpdates: recorded("mergeUpdates", actual.mergeUpdates),
+      decodeUpdate: recorded("decodeUpdate", actual.decodeUpdate),
+      encodeStateVectorFromUpdate: recorded(
+        "encodeStateVectorFromUpdate",
+        actual.encodeStateVectorFromUpdate,
+      ),
+    };
+  });
   manager = await import("./ydoc-manager.js");
   live = await import("./live-copy.js");
   bounded = await import("./bounded-tasks.js");
@@ -221,6 +248,7 @@ afterEach(async () => {
   vi.doUnmock("../db/client.js");
   vi.doUnmock("../db/ddl-guard.js");
   vi.doUnmock("./emitter.js");
+  vi.doUnmock("yjs");
 });
 
 afterAll(() => {
@@ -1149,6 +1177,47 @@ describe("mutateLiveCopy", () => {
         manager.mutateLiveCopy(binding, "plain:doc", { edit: "append" }),
       ),
     ).toMatchObject({ code: "not_live_copy" });
+  });
+});
+
+describe("catch-up reads", () => {
+  it("bring every client up to date without decoding the copy on this thread", async () => {
+    const binding = define();
+    const seeded = await manager.seedLiveCopy(binding, "live:doc", {
+      source: "base\nsecond",
+    });
+    await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "third" },
+    });
+    const beforeDeletion = await manager.getState("live:doc");
+    // Deleting moves the delete set but not the state vector, so this
+    // client ends up at the copy's vector without the deletion.
+    const lacksDeletion = new Y.Doc();
+    Y.applyUpdate(lacksDeletion, beforeDeletion);
+    await manager.applyUpdate(
+      "live:doc",
+      clientEdit(beforeDeletion, (doc) => {
+        const second = doc.getXmlFragment("default").get(1) as Y.XmlElement;
+        (second.get(0) as Y.XmlText).delete(0, 3);
+      }),
+    );
+    await manager.readLiveCopy(binding, "live:doc");
+
+    const behind = new Y.Doc();
+    Y.applyUpdate(behind, seeded.state);
+    for (const client of [new Y.Doc(), behind, lacksDeletion]) {
+      const update = await manager.getIncUpdate(
+        "live:doc",
+        Y.encodeStateVector(client),
+      );
+      if (client === lacksDeletion) {
+        expect(Y.decodeUpdate(update).structs).toHaveLength(0);
+      }
+      Y.applyUpdate(client, update);
+      expect(textOf(Y.encodeStateAsUpdate(client))).toBe("base\nond\nthird");
+    }
+    expect(mainThreadDecodes).toEqual([]);
   });
 });
 

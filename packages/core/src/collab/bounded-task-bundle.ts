@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   BOUNDED_TASK_GLOBAL,
   type BoundedTaskSource,
-} from "./bounded-tasks.js";
+} from "./bounded-task-source.js";
 
 export interface BundleBoundedTaskSourceOptions {
   /** Shown in errors and runner names. Defaults to the entry file's name. */

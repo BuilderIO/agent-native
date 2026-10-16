@@ -1,22 +1,12 @@
 import type { Worker as NodeWorker } from "node:worker_threads";
 
 import { getWorkerThreads } from "../shared/optional-node-builtins.js";
+import {
+  BOUNDED_TASK_GLOBAL,
+  type BoundedTaskSource,
+} from "./bounded-task-source.js";
 
-/**
- * Identifier the bundled task module is assigned to. `bundleBoundedTaskSource`
- * emits an IIFE with this global name; the worker host reads it back.
- */
-export const BOUNDED_TASK_GLOBAL = "__agentNativeBoundedTasks";
-
-/**
- * A self-contained task module, bundled to one script. Produce it with
- * `bundleBoundedTaskSource` (Node, esbuild); never hand-write `code`.
- */
-export interface BoundedTaskSource {
-  readonly kind: "bounded-task-source";
-  readonly name: string;
-  readonly code: string;
-}
+export { BOUNDED_TASK_GLOBAL, type BoundedTaskSource };
 
 export type BoundedTaskErrorCode =
   | "unavailable"
@@ -409,11 +399,15 @@ export function createBoundedTaskRunner(
     });
     worker.on("error", (error: Error & { code?: string }) => {
       const outOfMemory = error?.code === "ERR_WORKER_OUT_OF_MEMORY";
-      if (!slot.ready && !outOfMemory) {
+      // Before ready no task is running, so running out of heap means the
+      // module itself does; a respawn would too, forever.
+      if (!slot.ready) {
         killSlot(
           slot,
           "startup_failed",
-          `Bounded task module ${source.name} failed to start: ${error?.message}`,
+          outOfMemory
+            ? `Bounded task module ${source.name} exceeded its ${memoryLimitMb} MiB heap while starting`
+            : `Bounded task module ${source.name} failed to start: ${error?.message}`,
           error,
         );
         return;

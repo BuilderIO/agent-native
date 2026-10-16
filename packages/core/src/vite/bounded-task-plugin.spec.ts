@@ -60,7 +60,7 @@ describe("boundedTaskSourcePlugin", () => {
           field: "default",
           maxStateBytes: 1024,
         }),
-      ).resolves.toEqual({ kind: "unseeded" });
+      ).resolves.toMatchObject({ kind: "unseeded" });
     } finally {
       await runner.close();
     }
@@ -80,7 +80,7 @@ describe("boundedTaskSourcePlugin", () => {
           field: "default",
           maxStateBytes: 1024,
         }),
-      ).resolves.toEqual({ kind: "unseeded" });
+      ).resolves.toMatchObject({ kind: "unseeded" });
     } finally {
       await runner.close();
     }
