@@ -4,7 +4,9 @@ import type {
 } from "../app/pages/adhoc/sql-dashboard/types";
 import {
   xBucketEnd,
+  xBucketEndingOn,
   xCadence,
+  xColumnDatesBucketEnds,
   xColumnGrain,
   xDatePoints,
   xInstant,
@@ -397,15 +399,20 @@ interface DateAxis {
 
 /**
  * The chart's date rows by their position in xValues, each the length of the
- * grain its x column names, if it names one; null when the x axis is not dates.
+ * grain its x column names, if it names one, and ending on its date when the
+ * name says the dates are bucket ends; null when the x axis is not dates.
  */
 function dateAxis(xValues: readonly unknown[], xKey?: string): DateAxis | null {
   if (!xValuesAreDates(xValues)) return null;
   const points = xDatePoints(xValues, xDateInstant);
   const cadence = xCadence(points, xKey ? xColumnGrain(xKey) : null);
+  const datesEnds = xKey !== undefined && xColumnDatesBucketEnds(xKey);
   const buckets = points.map(({ row, instant, day }) => {
-    const start = cadence.unit === "time" ? instant : day;
-    return { row, start, end: xBucketEnd(cadence, start) };
+    if (cadence.unit === "time") {
+      return { row, start: instant, end: xBucketEnd(cadence, instant) };
+    }
+    if (datesEnds) return { row, ...xBucketEndingOn(cadence, day) };
+    return { row, start: day, end: xBucketEnd(cadence, day) };
   });
   return {
     buckets,
