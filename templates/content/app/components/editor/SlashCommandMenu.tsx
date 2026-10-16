@@ -1315,7 +1315,7 @@ export function SlashCommandMenu({
 
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
-      if (editor.isDestroyed) return;
+      if (editor.isDestroyed || !editor.isEditable) return;
       if (!slashCommandAllowedInMode(cmd, suggestingRef.current)) return;
       const beforeDoc = editor.state.doc;
       const slashRange =
@@ -1472,7 +1472,8 @@ export function SlashCommandMenu({
       const { state } = editor;
       const { from } = state.selection;
       const { $from } = state.selection;
-      if (!$from.parent.isTextblock) {
+      // A selection lands next to a "/" in a read-only editor too.
+      if (!editor.isEditable || !$from.parent.isTextblock) {
         if (isOpen) {
           setIsOpen(false);
           setIsTurnInto(false);

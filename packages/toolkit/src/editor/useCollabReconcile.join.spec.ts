@@ -650,6 +650,31 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
+  it("counts a report that becomes one it can trust while it catches up", async () => {
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    tabs.holdCatchUp();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      // B's report reaches C before B can flush its updates, so it vouches for
+      // nothing yet; B can flush by the time C's catch-up answers.
+      await act(async () =>
+        tabs.discoverPeers("ready", [
+          [2, peer("A")],
+          [3, { ...peer("B", STORED.revision), canFlushDocument: false }],
+        ]),
+      );
+      act(() => tabs.reportToC(3, peer("B", STORED.revision)));
+      await act(async () => tabs.releaseCatchUp());
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(tabs.catchUp.C).toHaveBeenCalledTimes(2);
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("neither edits nor saves until it learns who else is open", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
@@ -712,6 +737,38 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       expect(tabs.markdown("C")).toBe(ORIGINAL);
       expect(tabs.joinFailed("C")).toBe(false);
       expect(tabs.editors.C!.isEditable).toBe(true);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("takes the stored body as its base the moment a failed join's doc matches it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      await act(async () => tabs.discoverPeers("failed"));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(true);
+
+      // A deletes its word and types it again before C reconciles.
+      act(() => {
+        tabs.editAsA((author) =>
+          author.commands.deleteRange({ from: 17, to: 18 + WORD.length }),
+        );
+        tabs.editAsA((author) =>
+          author.commands.command(({ tr }) => {
+            tr.insertText(` ${WORD}`, 17);
+            return true;
+          }),
+        );
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+      expect(heldRevision(tabs.awareness.C)).toBe(STORED.revision);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
     } finally {
       tabs.dispose();
     }

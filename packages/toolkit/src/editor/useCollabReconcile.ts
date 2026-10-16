@@ -75,18 +75,34 @@ const HELD_REVISION_FIELD = "reconciledRevision";
 
 const JOIN_READ_ONLY = new PluginKey("collabJoinReadOnly");
 
+/**
+ * The stored revision a collaborator's report vouches for. Only a person's
+ * editor that flushes its updates before reporting vouches for one.
+ */
+function heldRevisionClaim(state: unknown): string | null {
+  const peer = state as
+    | {
+        user?: unknown;
+        canFlushDocument?: boolean;
+        [HELD_REVISION_FIELD]?: unknown;
+      }
+    | undefined;
+  if (!peer?.user || peer.canFlushDocument === false) return null;
+  const revision = peer[HELD_REVISION_FIELD];
+  return typeof revision === "string" ? revision : null;
+}
+
 function heldRevisionsMatch(
   first: Map<number, unknown>,
   second: Map<number, unknown>,
   localClientId: number,
 ): boolean {
-  const revisionOf = (states: Map<number, unknown>, clientId: number) =>
-    (states.get(clientId) as { [HELD_REVISION_FIELD]?: unknown } | undefined)?.[
-      HELD_REVISION_FIELD
-    ] ?? null;
   for (const clientId of new Set([...first.keys(), ...second.keys()])) {
-    if (clientId === localClientId) continue;
-    if (revisionOf(first, clientId) !== revisionOf(second, clientId))
+    if (clientId === localClientId || clientId === AGENT_CLIENT_ID) continue;
+    if (
+      heldRevisionClaim(first.get(clientId)) !==
+      heldRevisionClaim(second.get(clientId))
+    )
       return false;
   }
   return true;
@@ -104,14 +120,8 @@ function peerHoldsRevision(
   peers.forEach((state, clientId) => {
     if (held || clientId === localClientId || clientId === AGENT_CLIENT_ID)
       return;
-    const peer = state as {
-      user?: unknown;
-      canFlushDocument?: boolean;
-      [HELD_REVISION_FIELD]?: unknown;
-    };
-    if (!peer?.user || peer.canFlushDocument === false) return;
-    const peerRevision = peer[HELD_REVISION_FIELD];
-    if (typeof peerRevision !== "string") return;
+    const peerRevision = heldRevisionClaim(state);
+    if (peerRevision === null) return;
     const order =
       peerRevision === revision
         ? 0
@@ -229,6 +239,12 @@ export interface UseCollabReconcileResult {
    */
   joinEvidenceFailed: boolean;
   retryJoinEvidence: () => void;
+  /**
+   * True while a joining client does not know whether its doc holds the
+   * stored body, including after it failed to learn. Nothing may save the doc
+   * meanwhile: it can lack a stored-only edit, which the save would delete.
+   */
+  joinPending: boolean;
   isSettingContentRef: MutableRefObject<boolean>;
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
   reportRemoteUpdate: (transaction: Transaction) => void;
@@ -510,7 +526,9 @@ export function useCollabReconcile({
     };
   }, [editor, joinPending]);
   // A failed join is moot once the doc holds the stored body, whether the
-  // stored body or the doc moved.
+  // stored body or the doc moved. That body becomes the base at once: the doc
+  // can move on again before the next reconcile, which would then find it
+  // differing with no join left to wait for.
   useEffect(() => {
     if (
       !editor ||
@@ -522,15 +540,22 @@ export function useCollabReconcile({
     const check = () => {
       if (editor.isDestroyed) return;
       const callbacks = reconcileCallbacksRef.current;
-      if (callbacks.getMarkdown(editor) === callbacks.normalizeValue(value))
-        setJoinEvidence(null);
+      const normalizedValue = callbacks.normalizeValue(value);
+      if (callbacks.getMarkdown(editor) !== normalizedValue) return;
+      lastAppliedValueRef.current = value;
+      lastAppliedSerializedRef.current = normalizedValue;
+      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+      if (contentRevision)
+        holdAuthoritativeBase({ value, revision: contentRevision });
+      reportedConflictRevisionRef.current = null;
+      setJoinEvidence(null);
     };
     check();
     editor.on("update", check);
     return () => {
       editor.off("update", check);
     };
-  }, [editor, joinEvidence, value, ydoc]);
+  }, [contentRevision, contentUpdatedAt, editor, joinEvidence, value, ydoc]);
   const acknowledgedLocalSnapshotRef = useRef<{
     value: string;
     revision: string;
@@ -1487,6 +1512,7 @@ export function useCollabReconcile({
       joinEvidenceRequestRef.current = null;
       setJoinEvidence(null);
     },
+    joinPending,
     isSettingContentRef,
     shouldIgnoreUpdate,
     reportRemoteUpdate,
