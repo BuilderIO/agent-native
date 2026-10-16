@@ -500,6 +500,20 @@ describe("Markdown import", () => {
       ]);
     });
 
+    it("takes each database's primary field for the body", () => {
+      const page = importMarkdown(
+        exported("Intro", [
+          field("Content", true, "Intro"),
+          field("Body", true, "Intro"),
+          field("Notes", false, "Private notes"),
+        ]),
+      );
+      expect(page.content).toBe("Intro");
+      expect(page.report.notes.map((note) => note.samples)).toEqual([
+        ["Notes"],
+      ]);
+    });
+
     it("takes the field that ends an older export for its body", () => {
       const fields = [
         { name: "Content", markdown: "Intro" },
@@ -558,6 +572,20 @@ describe("Markdown import", () => {
       expect(page.content).toBe("Intro");
       expect(noteKinds(page)).toEqual(["export-manifest-unreadable"]);
       expect(page.report.status).toBe("lost");
+    });
+
+    it("reads the body under a manifest it cannot read like any Markdown", () => {
+      const page = importMarkdown(
+        "# Launch plan\n\n> [!NOTE]\n> Read this first.\n\n<!-- agent-native-blocks:{broken -->\n",
+      );
+      expect(page.dialect).toBe("markdown");
+      expect(textOf(nodesOfType(page.doc, "notionCallout")[0])).toBe(
+        "Read this first.",
+      );
+      expect(noteKinds(page)).toEqual([
+        "export-manifest-unreadable",
+        "github-alert-to-callout",
+      ]);
     });
   });
 

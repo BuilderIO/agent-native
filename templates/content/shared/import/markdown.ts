@@ -292,8 +292,9 @@ export function parseMarkdownImport(
     frontmatterMatch ? (frontmatterMatch[1] ?? "") : null,
     notes,
   );
-  // A Content export is its page's stored Markdown, whatever it looks like.
-  const storedForm = exported.manifest.kind !== "absent";
+  // A Content export is its page's stored Markdown, whatever it looks like. An
+  // unreadable manifest may not be one, so its body is read like any file.
+  const storedForm = exported.manifest.kind === "read";
   const dialect: MarkdownDialect =
     storedForm || looksLikeNfm(body) ? "nfm" : "markdown";
   const referencePrefix = newReferencePrefix();
@@ -516,8 +517,9 @@ function withoutCodeSpans(paragraph: string): string {
   return parts.join("");
 }
 
-// The page body is the export's primary field. Its other fields, and the
-// block identities of all of them, do not come back: an import is a new page.
+// The page body is the export's primary field, one per database the page
+// belongs to, each a copy of it. Its other fields, and the block identities of
+// all of them, do not come back: an import is a new page.
 function noteExportManifest(
   manifest: ExportManifest,
   body: string,
@@ -526,11 +528,12 @@ function noteExportManifest(
   if (manifest.kind === "unreadable")
     notes.add("export-manifest-unreadable", manifest.reason);
   if (manifest.kind !== "read") return;
-  const bodyField =
-    manifest.fields.find((field) => field.primary === true) ??
-    olderExportBodyField(manifest.fields, body);
+  const olderBodyField = manifest.fields.some((field) => field.primary === true)
+    ? undefined
+    : olderExportBodyField(manifest.fields, body);
   for (const field of manifest.fields) {
-    if (field !== bodyField && field.markdown.trim())
+    if (field.primary === true || field === olderBodyField) continue;
+    if (field.markdown.trim())
       notes.add("blocks-field-not-imported", field.name);
   }
 }
