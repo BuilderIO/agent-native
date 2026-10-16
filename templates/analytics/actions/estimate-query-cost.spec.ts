@@ -204,6 +204,7 @@ describe("estimate-query-cost action", () => {
     expect(result.total.estimatedBytes).toBe(191 * GIB);
     expect(result.summary).toContain("2 panels (2 priced)");
     expect(result.summary).toContain("per full refresh");
+    expect(result.summary).toContain("if its email reports use these filters");
     expect(result.summary).toContain('"Big"');
     expect(result.summary).not.toContain('"Small"');
   });
@@ -254,6 +255,70 @@ describe("estimate-query-cost action", () => {
     });
     expect(result.summary).toContain("1 panel could not be estimated");
     expect(result.summary).not.toContain("full refresh");
+  });
+
+  it("stops waiting on a panel when the deadline passes mid-estimate", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
+      mocks.resolvePanels.mockReturnValueOnce([
+        {
+          panelId: "slow",
+          title: "Slow",
+          source: "bigquery",
+          query: "SELECT 1",
+        },
+      ]);
+      let panelSignal: AbortSignal | undefined;
+      mocks.estimateResolvedPanel.mockImplementationOnce(
+        (_panel, _scope, _runs, received: AbortSignal) => {
+          panelSignal = received;
+          return new Promise(() => {});
+        },
+      );
+
+      const pending = run({ dashboardId: "d1" });
+      await vi.advanceTimersByTimeAsync(41_000);
+      const result = await pending;
+
+      expect(result.panels[0]).toMatchObject({
+        status: "failed",
+        failure: "timeout",
+      });
+      expect(panelSignal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("warns when the dashboard total crosses a threshold no panel does", async () => {
+    mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
+    mocks.resolvePanels.mockReturnValueOnce(
+      ["a", "b"].map((panelId) => ({
+        panelId,
+        title: panelId,
+        source: "bigquery",
+        query: "SELECT 1",
+      })),
+    );
+    mocks.estimateResolvedPanel.mockImplementation(async (panel) => ({
+      panelId: panel.panelId,
+      title: panel.title,
+      source: panel.source,
+      ...costFromBytes(100 * GIB, null),
+    }));
+
+    const result = await run({ dashboardId: "d1" });
+
+    expect(result.total).toMatchObject({
+      overPerRunThreshold: true,
+      overPerMonthThreshold: false,
+      partial: false,
+    });
+    expect(result.summary).toContain(
+      "The dashboard as a whole is over the $1.00/run threshold.",
+    );
+    expect(result.summary).not.toContain("Over threshold:");
   });
 
   it("treats a null or empty run count as not given", async () => {

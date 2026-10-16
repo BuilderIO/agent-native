@@ -11,6 +11,7 @@ import { isSafeDashboardId } from "../server/lib/dashboard-id";
 import {
   pageDashboardConfig,
   resolveDashboardPanelQueries,
+  type ResolvedDashboardPanelQuery,
 } from "../server/lib/dashboard-panel-verification";
 import { countEnabledDashboardReportSubscriptions } from "../server/lib/dashboard-report-subscriptions";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
@@ -36,6 +37,66 @@ const MAX_PANELS = 60;
 const DRY_RUN_CONCURRENCY = 6;
 /** Stop starting dry runs here so the action returns before its 55 s timeout. */
 const DASHBOARD_DEADLINE_MS = 40_000;
+
+function timedOutPanel(
+  panel: { panelId: string; title: string; source: string },
+  error: string,
+): PanelCostEstimate {
+  return {
+    panelId: panel.panelId,
+    title: panel.title,
+    source: panel.source,
+    status: "failed",
+    failure: "timeout",
+    error,
+  };
+}
+
+/**
+ * Estimate one panel, but give up when the dashboard deadline passes, even
+ * mid-way through credential, table, or backend lookups, so finished panels
+ * still come back before the action's own timeout.
+ */
+async function estimatePanelBefore(
+  deadline: number,
+  panel: ResolvedDashboardPanelQuery,
+  scope: AnalyticsScope,
+  runsPerMonth: number | null,
+  signal?: AbortSignal,
+): Promise<PanelCostEstimate> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return timedOutPanel(
+      panel,
+      "Skipped: this request ran out of time. Estimate this panel on its own with panelId.",
+    );
+  }
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) forwardAbort();
+  signal?.addEventListener("abort", forwardAbort, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<PanelCostEstimate>((resolve) => {
+    timer = setTimeout(() => {
+      resolve(
+        timedOutPanel(
+          panel,
+          "Stopped: this panel's dry run didn't finish in time. Estimate it on its own with panelId.",
+        ),
+      );
+      controller.abort();
+    }, remaining);
+  });
+  try {
+    return await Promise.race([
+      estimateResolvedPanel(panel, scope, runsPerMonth, controller.signal),
+      timedOut,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
 
 async function mapPool<T, R>(
   items: readonly T[],
@@ -249,18 +310,8 @@ export default defineAction({
     const panels: PanelCostEstimate[] = await mapPool(
       estimated,
       DRY_RUN_CONCURRENCY,
-      (panel): Promise<PanelCostEstimate> =>
-        Date.now() > deadline
-          ? Promise.resolve({
-              panelId: panel.panelId,
-              title: panel.title,
-              source: panel.source,
-              status: "failed",
-              failure: "timeout",
-              error:
-                "Skipped: this request ran out of time. Estimate this panel on its own with panelId.",
-            })
-          : estimateResolvedPanel(panel, scope, runsPerMonth, signal),
+      (panel) =>
+        estimatePanelBefore(deadline, panel, scope, runsPerMonth, signal),
     );
     const total = totalCost(panels);
     const flagged = panels.filter(
@@ -277,14 +328,30 @@ export default defineAction({
     ).length;
     const omitted = Math.max(0, selected.length - MAX_PANELS);
     // Panels outside BigQuery cost nothing; any other gap makes the total partial.
-    const totalScope =
-      failed + notEstimated + omitted === 0
-        ? "per full refresh"
-        : "per refresh of the priced panels only";
+    const partial = failed + notEstimated + omitted > 0;
+    const totalScope = partial
+      ? "per refresh of the priced panels only"
+      : "per full refresh";
+    // Report schedules keep their own saved filters; this prices them at the
+    // filters passed here (or the defaults), so say so.
     const monthly =
       total.usdPerMonth === null
         ? "no scheduled runs"
-        : `~${formatUsd(total.usdPerMonth)}/month in scheduled runs`;
+        : args.runsPerMonth === undefined
+          ? `~${formatUsd(total.usdPerMonth)}/month if its email reports use these filters`
+          : `~${formatUsd(total.usdPerMonth)}/month in scheduled runs`;
+    const totalFlags = {
+      overPerRunThreshold: total.usdPerRun > QUERY_COST_THRESHOLDS.perRunUsd,
+      overPerMonthThreshold:
+        total.usdPerMonth !== null &&
+        total.usdPerMonth > QUERY_COST_THRESHOLDS.perMonthUsd,
+    };
+    const totalOver = [
+      totalFlags.overPerRunThreshold &&
+        `the ${formatUsd(QUERY_COST_THRESHOLDS.perRunUsd)}/run`,
+      totalFlags.overPerMonthThreshold &&
+        `the ${formatUsd(QUERY_COST_THRESHOLDS.perMonthUsd)}/month`,
+    ].filter(Boolean);
 
     return {
       target: "dashboard",
@@ -300,7 +367,7 @@ export default defineAction({
           : reportSchedules > 0
             ? `${reportSchedules} enabled daily email report${reportSchedules === 1 ? "" : "s"}`
             : "none",
-      total,
+      total: { ...total, ...totalFlags, partial },
       panels,
       ...(selected.length > MAX_PANELS
         ? { omittedPanelIds: selected.slice(MAX_PANELS).map((p) => p.panelId) }
@@ -311,6 +378,9 @@ export default defineAction({
         (priced === 0
           ? `${panels.length} panel${panels.length === 1 ? "" : "s"}: none read BigQuery, so nothing was priced.`
           : `${panels.length} panel${panels.length === 1 ? "" : "s"} (${priced} priced): ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} ${totalScope}, ${monthly}.`) +
+        (totalOver.length
+          ? ` The dashboard as a whole is over ${totalOver.join(" and ")} threshold${partial ? ", even counting only the priced panels" : ""}.`
+          : "") +
         (flagged.length
           ? ` Over threshold: ${flagged.map((panel) => `"${panel.title}" (${describeEstimate(panel)})`).join("; ")}.`
           : "") +
