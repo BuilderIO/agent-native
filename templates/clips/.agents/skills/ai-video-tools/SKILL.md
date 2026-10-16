@@ -154,7 +154,8 @@ ask the user first and pass `replaceImportId` set to `transcript.importId` from
 `get-recording-player-data`. Importing over a ready transcript fails with
 `transcript_exists`; to replace it, call again with `replace: true` and
 `replaceImportId` set to the error's `details.importId`. That call asks the
-user to approve it, so don't ask in chat first; if they decline, the transcript
+user to approve it, over MCP on every call and in the app unless they chose to
+always allow it, so don't ask in chat first; if they decline, the transcript
 stays as it was. If a different transcript took its place in the meantime, the
 approved call fails with `transcript_exists` again, naming the new one: tell
 the user before calling again with the new ID. A malformed file fails with
