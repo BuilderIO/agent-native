@@ -63,26 +63,24 @@ export const liveBodyWriterPageColumns = {
 
 /**
  * Decides the write path for a page row the caller already read, for example
- * under the row lock its write holds; pass that transaction so the flags are
- * read in it rather than from the request's settings snapshot. A caller that
- * knows the live copy's version, as a commit's persist does, passes it as
- * `collabVersion` (null for none); otherwise it is read. Unreadable or malformed flag state
- * throws: reading it as "off" would send a switched page's writes down the
- * legacy path.
+ * under the row lock its write holds; pass that transaction so the flags and
+ * the stored live copy's version are read in it rather than from the
+ * request's settings snapshot. Unreadable or malformed flag state throws:
+ * reading it as "off" would send a switched page's writes down the legacy
+ * path.
  */
 export async function liveBodyWriterGateForRow(
   row: LiveBodyWriterPageRow | null | undefined,
-  options: { transaction?: DbExec; collabVersion?: number | null } = {},
+  options: { transaction?: DbExec } = {},
 ): Promise<LiveBodyWriterGate> {
   if (!row) return { writePath: "legacy", reason: "no_page" };
   if (!row.liveBodySwitchedAt)
     return { writePath: "legacy", reason: "not_switched" };
   if (row.collabBodyRevision !== row.bodyRevision)
     return { writePath: "legacy", reason: "live_copy_behind" };
-  const collabVersion =
-    options.collabVersion === undefined
-      ? await storedCollabVersion(row.id, options.transaction)
-      : options.collabVersion;
+  // The stored version, not the one an edit was built on: a peer's commit
+  // moves both markers, and core's fence retries the overtaken edit.
+  const collabVersion = await storedCollabVersion(row.id, options.transaction);
   if (collabVersion === null || row.liveCopyVersion !== collabVersion)
     return { writePath: "legacy", reason: "stored_body_behind" };
   return (await liveBodyWriterFlagsOn(row, options))

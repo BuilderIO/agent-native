@@ -115,6 +115,40 @@ function flagsOffAfterBuild() {
   });
 }
 
+/**
+ * Once the worker has built the first edit, another server commits `content`
+ * to the page: the live copy and the page row move together, outside this
+ * process's per-document queue.
+ */
+function peerCommitsAfterBuild(id: string, content: string) {
+  const runner = binding.contentLiveCopy.runner;
+  const run = runner.run.bind(runner);
+  let committed = false;
+  return vi
+    .spyOn(runner, "run")
+    .mockImplementation(async (task, input, ...rest) => {
+      const result = await run(task, input, ...rest);
+      if (committed || task !== "liveCopy.edit") return result;
+      committed = true;
+      const peer = (await run(
+        task,
+        { ...(input as object), input: { content } },
+        ...rest,
+      )) as { state: Uint8Array; text: string };
+      await inTransaction(async (tx) => {
+        await tx.execute({
+          sql: "UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1 WHERE doc_id = ?",
+          args: [collab.uint8ArrayToBase64(peer.state), peer.text, id],
+        });
+        await tx.execute({
+          sql: "UPDATE documents SET content = ?, body_revision = body_revision + 1, collab_body_revision = body_revision + 1, live_copy_version = live_copy_version + 1 WHERE id = ?",
+          args: [peer.text, id],
+        });
+      });
+      return result;
+    });
+}
+
 async function history(id: string) {
   return getDb()
     .select({
@@ -842,6 +876,42 @@ describe("server writers through editContentLiveCopy", () => {
       },
     ]);
   });
+
+  for (const unchanged of [false, true]) {
+    it(`retries ${unchanged ? "an unchanged" : "a changed"} edit a peer's commit overtook, rather than refusing it`, async () => {
+      await switchedPage("overtaken", "Same");
+      const spy = peerCommitsAfterBuild("overtaken", "Peer");
+      try {
+        await expect(
+          writer.editContentLiveCopy("overtaken", {
+            cause: { operation: "test-overtaken", intent: intent("op-mine") },
+            edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+            input: { content: unchanged ? "Same" : "Mine" },
+          }),
+        ).resolves.toMatchObject({ attempts: 2, liveCopy: "derived" });
+      } finally {
+        spy.mockRestore();
+      }
+
+      const row = await page("overtaken");
+      expect(row).toMatchObject({
+        content: unchanged ? "Same" : "Mine",
+        bodyRevision: 5,
+        collabBodyRevision: 5,
+        liveCopyVersion: await collabVersion("overtaken"),
+      });
+      expect(await bodyIntents("overtaken")).toEqual([
+        expect.objectContaining({
+          operationId: "op-mine",
+          authoredBaseRevision: 4,
+          committedRevision: 5,
+        }),
+      ]);
+      await expect(gateFor("overtaken")).resolves.toEqual({
+        writePath: "live_copy",
+      });
+    });
+  }
 
   it("takes an intent's hash and changed blocks from the commit when the writer leaves them out", async () => {
     await switchedPage("derived-intent", "First\n\nSecond");

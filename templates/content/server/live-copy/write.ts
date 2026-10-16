@@ -20,8 +20,8 @@ import {
  * the same transaction, with the page locked.
  *
  * Throws `LIVE_BODY_WRITE_PATH_CHANGED` when the page left its live copy
- * after the writer chose it; nothing commits, and the writer takes the
- * legacy path.
+ * after the writer chose it; nothing commits, so the writer can take its
+ * legacy path. An edit a peer's commit overtook is retried, not refused.
  */
 export function editContentLiveCopy(
   documentId: string,
@@ -38,12 +38,7 @@ export function editContentLiveCopy(
       input: options.input,
       persist: async (tx, change) => {
         if (!change.changed) {
-          await persistUnchangedContentBodyEdit(
-            tx,
-            documentId,
-            options.cause,
-            change.version,
-          );
+          await persistUnchangedContentBodyEdit(tx, documentId, options.cause);
         }
         await options.persist?.(tx, change);
       },
