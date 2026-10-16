@@ -1,0 +1,621 @@
+---
+title: "الدردشة: دليل المطور"
+description: "البدء السريع، وقائمة الإجراءات، ونموذج البيانات، وإجراء مشروح بالتفصيل، ومرجع المسارات، وكيفية إضافة أول ميزة إلى قالب الدردشة."
+---
+
+# دليل المطور
+
+هذه الصفحة للمطورين الذين يشغّلون قالب الدردشة أو يوسّعونه. تغطي البدء السريع،
+وكل إجراء مدمج، ونموذج البيانات، وإجراءً واحدًا مشروحًا بالتفصيل، والمسارات،
+وكيفية إضافة أول ميزة. راجع [الدردشة](/docs/template-chat) لمعرفة ما يفعله
+التطبيق.
+
+## البدء السريع {#quick-start}
+
+يشرح هذا تشغيل الدردشة من عدم وجود أي تثبيت إلى محادثة مباشرة مع الوكيل.
+الأوامر متطابقة سواء كنت في Terminal على macOS أو PowerShell/Command Prompt
+على Windows، فهي أدوات Node.js عادية.
+
+<Steps>
+
+### أنشئ التطبيق
+
+```bash
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+corepack enable
+pnpm install
+```
+
+يتطلب هذا [Node.js](https://nodejs.org) الإصدار 22.22 أو أحدث. إذا لم يكن
+`pnpm` في `PATH` لديك، فشغّل `corepack enable` في التطبيق المولَّد. راجع [بدء
+الاستخدام](/docs/getting-started) إذا لم تكن قد ثبّت Node.js بعد.
+
+### شغّل خادم التطوير
+
+```bash
+pnpm dev
+```
+
+يُفتح التطبيق على العنوان المحلي الذي يطبعه `pnpm dev`. إذا لم يُفتح تلقائيًا،
+فزُر ذلك العنوان في متصفحك. قد يتغير المنفذ عندما يكون 8080 قيد الاستخدام
+بالفعل.
+
+### سجّل الدخول واربط نموذجًا لغويًا
+
+في شاشة الترحيب، اختر **Continue as local dev**. لا حاجة إلى بريد إلكتروني أو
+كلمة مرور للتطوير المحلي. ثم اربط نموذجًا لغويًا: اختر **استخدم Builder.io**
+للحصول على رصيد مجاني، أو **إضافة مفاتيحك الخاصة** لاستخدام مفتاح مزوّد نماذج
+خاص بك. لا تأتي الدردشة ببيانات نطاق لتهيئتها، لذا بمجرد ربط نموذج لغوي لا
+يوجد شيء آخر لإعداده قبل أن تبدأ المحادثة.
+
+</Steps>
+
+الدردشة مبنية لواجهة متصفح. إذا كنت تريد وكيلًا بلا شاشة على الإطلاق، للمهام
+المجدولة وقوائم الانتظار وحلقات سطر الأوامر وسير عمل الوكلاء الخارجيين، فأنشئ
+المشروع باستخدام `--headless` بدلاً من ذلك:
+
+```bash
+npx --yes @agent-native/core@latest create my-agent --headless
+```
+
+تبقى الفكرة الأساسية نفسها. الإجراءات هي السطح المشترك للدردشة وواجهة المستخدم
+وHTTP وMCP وA2A وسطر الأوامر. راجع
+[التطبيقات القائمة على الأتمتة أولًا](/docs/pure-agent-apps) لمعرفة هذا المسار
+بعمق.
+
+## قائمة الإجراءات {#actions}
+
+كل عملية هي ملف TypeScript في `actions/`، يتم تركيبه تلقائيًا على
+`POST /_agent-native/actions/:name` ما لم يضبط الإجراء `http: false`.
+
+| الإجراء                | ما الذي يفعله                                         |
+| ---------------------- | ----------------------------------------------------- |
+| `hello`                | إجراء مثال. يعيد تحية. استبدله أو أضف إجراءات بجانبه. |
+| `view-screen`          | إجراء سياق قياسي. يقرأ العرض الحالي للوكيل.           |
+| `navigate`             | إجراء تنقل قياسي. ينقل واجهة المستخدم إلى مسار.       |
+| `provider-api-request` | يستدعي Slack Web API عبر مساحة عمل Slack متصلة.       |
+
+### وقت تشغيل الدردشة {#chat-runtime}
+
+الملف `server/plugins/agent-chat.ts` هو المكان الذي يُضبط فيه وقت تشغيل الدردشة.
+يفعل أربعة أشياء:
+
+- يسجّل كل إجراء في `actions/` كأداة قابلة للاستدعاء، عبر
+  `loadActionsFromStaticRegistry`.
+- يحدد المؤسسة الحالية لأغراض النطاق، عبر `resolveOrgId`.
+- يضبط موجّه النظام.
+- يعلن عن الأدوات التي يراها النموذج في دورته الأولى، عبر
+  `initialToolNames`.
+
+### كيف تصبح الإجراءات أدوات {#actions-as-tools}
+
+كل `defineAction` هو أداة افتراضيًا. اضبط `agentTool: false` لإبقاء الإجراء
+متاحًا لشاشاتك لكن مخفيًا عن الوكيل.
+
+### ما يراه النموذج أولًا {#initial-tools}
+
+تسرد `INITIAL_TOOL_NAMES` كلًا من `view-screen` و`navigate` و`hello` و
+`provider-api-request`. هذه هي الأدوات الوحيدة المرسلة في الدورة الأولى. يظل كل
+ما عداها، بما في ذلك أي إجراء تضيفه، متاحًا عبر `tool-search` ويُحمَّل عند
+الطلب.
+
+أضف اسمًا إلى تلك القائمة فقط إذا كنت تريد الإجراء ضمن مجموعة أدوات النموذج
+الافتراضية منذ الرسالة الأولى.
+
+## نموذج البيانات {#data-model}
+
+لا تعرّف الدردشة أي جداول خاصة بها. لا يوجد `server/db/schema.ts` حتى تضيف واحدًا.
+يعمل التطبيق على الجداول الأساسية لإطار العمل الخاصة بخيوط الدردشة والرسائل،
+وحالة التطبيق، والإعدادات، والجلسات، والموارد، وسجل التشغيل. هذه تخص إطار
+العمل، لذا لا تعدّلها. راجع [قاعدة البيانات](/docs/server-database) لنموذج
+الاتصال وأين ينبغي أن تعيش البيانات الجديدة.
+
+الدالة `useDbSync()` مربوطة بالفعل في هيكل التطبيق. عندما يكتب الوكيل أو أي شخص
+آخر في SQL، يتلقى العميل التغيير عبر SSE، أو عبر الاستطلاع الاحتياطي كل ثانيتين،
+ويُبطل ذاكرات React Query المؤقتة المطابقة. راجع
+[`useDbSync`](/docs/client-data#usedbsync) لواجهة الخطّاف الكاملة.
+
+جدولك الأول هو ملف جديد. راجع [أضف أول ميزة](#first-feature).
+
+## المصادقة {#auth}
+
+تعمل المصادقة على Better Auth: تسجيل الدخول، والتسجيل، والجلسات، والمؤسسات، وتُضبط في `server/plugins/auth.ts` عبر `createAuthPlugin`. يعمل التدفق نفسه محليًا وفي الإنتاج، باستثناء أن التطوير يتخطى التحقق من البريد الإلكتروني لتتمكن من التسجيل والبدء في البناء فورًا. كما يقبل `createAuthPlugin` النص التسويقي لصفحة تسجيل الدخول (اسم التطبيق، والشعار، ونقاط الميزات) كإعداد عادي في الملف نفسه. راجع [المصادقة](/docs/authentication) لنموذج المصادقة الكامل (الجلسات، والمؤسسات، والمسارات المحمية).
+
+## مرجع المسارات {#routes}
+
+يستخدم التطبيق التوجيه المبني على نظام الملفات (`flatRoutes()` في
+`app/routes.ts`)، لذا فإن إضافة ملف مسار تكفي لتركيبه.
+
+<FileTree
+  id="doc-block-chat3"
+  title="مسارات ومكونات قالب الدردشة"
+  entries={[
+    {
+      path: "app/routes/_index.tsx",
+      note: "/: صفحة تسجيل الدخول المشتركة، ثم إلى /home",
+    },
+    {
+      path: "app/routes/home.tsx",
+      note: "/home: صفحة Get started، تعرضها app/components/home/HomePage.tsx",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat: يبدأ دردشة جديدة ويحيلها إلى /chat/:threadId",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "/chat/:threadId: يعرض ChatRouteContent لذلك الخيط",
+    },
+    {
+      path: "app/routes/settings.tsx",
+      note: "/settings و/settings/*: صفحات الحساب والاتصالات والوكيل والمؤسسة",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "/agent: يعيد التوجيه إلى صفحات الوكيل في الإعدادات",
+    },
+    {
+      path: "app/routes/team.tsx",
+      note: "/team: يعيد التوجيه إلى /settings/organization",
+    },
+    {
+      path: "app/routes/database.tsx",
+      note: "/database: متصفح الجداول ومحررها",
+    },
+    {
+      path: "app/routes/observability.tsx",
+      note: "/observability: تتبعات الوكيل والتكلفة والتقييمات والملاحظات",
+    },
+    {
+      path: "app/routes/extensions._index.tsx",
+      note: "/extensions: يعيد التوجيه إلى /settings/extensions",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "/extensions/:id (و/extensions/:id/:slug): يشغّل امتدادًا محفوظًا واحدًا",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "سطح الدردشة بملء الصفحة. عدّل هنا الحالة الفارغة والمحرر وفتحات الرسائل",
+    },
+    {
+      path: "app/components/layout/Sidebar.tsx",
+      note: "الشريط الجانبي: الرئيسية، وقائمة الخيوط، ومبدّل المؤسسات",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "دوال مساعدة للمسارات لعناوين الدردشة والصفحة الرئيسية",
+    },
+  ]}
+/>
+
+**Database** (`/database`) هي نفسها `DbAdminPage` التي يحصل عليها كل قالب. إنها
+متصفح ومحرر مباشر للجداول فوق قاعدة بيانات SQL الخاصة بالتطبيق. راجع
+[قاعدة البيانات](/docs/server-database) لنموذج الاتصال الذي يقف خلفها.
+
+**قابلية المراقبة** (`/observability`) هي نفسها `ObservabilityDashboard` عديمة
+الإعداد التي يحصل عليها كل قالب. تعرض التتبعات والتكلفة والتقييمات والملاحظات
+لكل تشغيل للوكيل، محسوبة من بيانات موجودة بالفعل في قاعدة بياناتك. راجع
+[مراقبة الوكيل](/docs/observability).
+
+**الإضافات** هي تطبيقات مصغّرة معزولة مبنية بـ Alpine.js. تركّب الدردشة
+المسارات التي تعرضها وتشغّلها (`/extensions/:id`) وتعيد توجيه `/extensions` إلى
+صفحة الإضافات في الإعدادات. لا يستطيع الوكيل إنشاءها إلا بعد تشغيل
+`frameworkTools.extensions` في `server/plugins/agent-chat.ts`، وهو ما تتركه
+الدردشة مُطفأً. راجع [الامتدادات](/docs/extensions) لمعرفة ما يمكنها فعله وما
+لا يمكنها.
+
+## تخصيصه {#customizing}
+
+كل جزء من التطبيق مصدر قابل للتحرير. ابدأ من هنا:
+
+- `actions/`: أضف ملفًا جديدًا باستخدام `defineAction` لكشف إجراء جديد لكل من
+  الوكيل والواجهة الأمامية.
+- `app/routes/`: واجهة المستخدم. أضف ملف مسار لتركيب صفحة.
+- `server/db/schema.ts`: أضف جداولك الخاصة باستخدام Drizzle عندما تتجاوز
+  الجداول الأساسية. حافظ على توافق الكود مع PostgreSQL ليستخدم PGlite المحلي
+  وPostgres المستضاف الدلالات نفسها.
+- `AGENTS.md`: تعليمات الوكيل. حدّث هذا الملف عندما تعلّم الوكيل إجراءات أو
+  اصطلاحات جديدة.
+- `.agents/skills/`: الأنماط التفصيلية التي يتبعها الوكيل.
+
+إذا أضفت ميزة، تذكّر تحديث المجالات الأربعة كلها: واجهة المستخدم، والإجراء،
+وإدخال skill أو `AGENTS.md`، وأي حالة تطبيق يحتاج الوكيل إلى رؤيتها. هذا ما
+يحافظ على تكافؤ الوكيل وواجهة المستخدم.
+
+### مسار الدردشة {#chat-route}
+
+يعرض `app/components/chat/ChatRouteContent.tsx` الدردشة بملء الصفحة على
+`/chat/<threadId>`. يُجمَّع سطح الدردشة من قطع AgentKit: وسيلة نقل، وجذر خيط،
+وعرض الدردشة. يأتي نصه من مفاتيح i18n بدلاً من نصوص حرفية. الملف الحقيقي أطول.
+هذا هو الجزء الذي ستعدّله أكثر من غيره.
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/components/chat/ChatRouteContent.tsx (مختصر)"
+  filename="app/components/chat/ChatRouteContent.tsx"
+  language="tsx"
+  code={
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "15-21",
+      label: "وسيلة النقل",
+      note: "تربط `createAgentNativeAgentKitTransport` عرض الدردشة بوقت تشغيل وكيل التطبيق. يتيح `TAB_ID` (`app/lib/tab-id.ts`، معرّف عشوائي يُولَّد مرة واحدة لكل تبويب متصفح) لوقت التشغيل التمييز بين التبويبات المفتوحة للتطبيق نفسه، فلا يُخلط بين تشغيل بدأ في تبويب وآخر في تبويب مختلف.",
+    },
+    {
+      lines: "25-30",
+      label: "جذر الخيط",
+      note: "يحمّل `CoreAgentKitRoot` الخيط المسمّى في `/chat/:threadId` (`chat.$threadId.tsx`). تؤدي زيارة `/chat` إلى إنشاء معرّف خيط جديد وتحيله إلى هنا. عندما يُفرَّع خيط، تنقل `chatThreadPath` عنوان URL إلى الخيط الجديد.",
+    },
+    {
+      lines: "29",
+      label: "الفتحات",
+      note: "تستبدل الفتحات أجزاء من عرض الدردشة. يمرّر الملف الحقيقي أيضًا فتحات `message` و`runFailure` و`connectionRequest` و`footer` لرسائل الاسترداد وبطاقات اتصال MCP وتذييل الوكيل.",
+    },
+    {
+      lines: "32-35",
+      label: "المحرر في المنتصف",
+      note: '`emptyComposerPlacement="center"` يضع المحرر في المنتصف حتى تحتوي المحادثة على رسالة. يعرض `requireAgentEngine` بطاقة Connect AI حتى يتم ربط نموذج.',
+    },
+    {
+      lines: "40-47",
+      label: "الحالة الفارغة",
+      note: "العنوان فوق المحرر المتوسط. نصه هو `chat.heroTitle` في `app/i18n/en-US.ts`: عدّل الفهرس لتغيير الطرح، أو أضف عناصر هنا.",
+    },
+  ]}
+/>
+
+### استخدم واجهة وكيل خلفية خاصة بك {#own-agent-backend}
+
+يستخدم القالب حلقة وكيل التطبيق المدمجة افتراضيًا. لربط واجهة خلفية مخصصة،
+بدّل وقت تشغيل الدردشة خلف إضافة دردشة الوكيل بدلاً من إعادة كتابة واجهة
+المستخدم. ينبغي أن يبقى مسار الدردشة عارضًا رفيعًا حول سطح الدردشة المشترك،
+ويعود اختيار الواجهة الخلفية إلى إضافة الخادم ومحوّل وقت التشغيل.
+
+استخدم هذا عندما يكون تنسيق النموذج لديك موجودًا في مكان آخر لكنك لا تزال
+تريد تطبيقًا بمصادقة وخيوط وإجراءات وحالة واجهة وصفحات قابلة للنشر. راجع
+[واجهة الدردشة الأصلية](/docs/native-chat-ui#byo-agent-runtimes) لخيارات وقت
+التشغيل.
+
+## أضف أول ميزة {#first-feature}
+
+تتبع معظم الميزات الأولى الشكل نفسه: جدول، وإجراء أو اثنان، وصفحة، وإدخال في
+التنقل، وتحديث لـ `AGENTS.md`. يبني هذا القسم ميزة ملاحظات في أربعة أجزاء، مع
+الكود الكامل لكل ملف. يمكنك أيضًا أن تطلب من الوكيل فعل كل ذلك:
+
+> Add a data model for `notes`. A note has an id, title, body, and owner. Render a notes page at `/notes`, add create/list actions, and keep chat able to create notes.
+
+### 1. أضف طبقة البيانات
+
+لا تأتي الدردشة بمجلد `server/db`، لذا فإن الملفات الثلاثة هنا جديدة كلها.
+
+يعرّف المخطط الجداول. تضيف `ownableColumns()` أعمدة المالك والمؤسسة والرؤية،
+وتضيف `createSharesTable()` جدولًا مطابقًا للمشاركة.
+
+```ts filename="server/db/schema.ts"
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import {
+  createSharesTable,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  ...ownableColumns(),
+});
+
+export const noteShares = createSharesTable("note_shares");
+```
+
+يمنح عميل قاعدة البيانات إجراءاتك `getDb()` ويسجّل الملاحظات في نظام المشاركة.
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+
+registerShareableResource({
+  type: "note",
+  resourceTable: schema.notes,
+  sharesTable: schema.noteShares,
+  displayName: "Note",
+  titleColumn: "title",
+  getResourcePath: (note) => `/notes/${note.id}`,
+  getDb,
+});
+```
+
+ينشئ الترحيل الجداول عند بدء التطبيق. أضف إدخالات جديدة للتغييرات اللاحقة ولا
+تعدّل أبدًا إدخالًا سبق تشغيله.
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "notes",
+      sql: `CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now()),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
+);
+CREATE TABLE IF NOT EXISTS note_shares (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (now()),
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_owner_org_idx ON notes (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS note_shares_resource_idx ON note_shares (resource_id, principal_type, principal_id)`,
+    },
+  ],
+  { table: "notes_app_migrations" },
+);
+```
+
+### 2. أضف الإجراءات
+
+كل إجراء هو ملف في `actions/`، ويصبح اسم الملف اسم الأداة. يستدعي الوكيل
+وصفحتك الإجراءين نفسيهما.
+
+يسجّل `create-note` المستخدم المسجَّل دخوله كمالك. تكون الملاحظة مرئية
+للمؤسسة عندما تكون واحدة نشطة، وخاصة بمنشئها بخلاف ذلك.
+
+```ts filename="actions/create-note.ts"
+import { defineAction, fail } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description:
+    "Create a note with a title and body. It is visible to the organization when one is active, otherwise only to its creator.",
+  schema: z.object({
+    title: z.string().min(1).describe("Short title for the note"),
+    body: z.string().describe("Full text of the note"),
+  }),
+  run: async (args, ctx) => {
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create notes.", { statusCode: 401 });
+    const orgId = ctx?.orgId ?? null;
+    const note = {
+      id: crypto.randomUUID(),
+      title: args.title,
+      body: args.body,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? ("org" as const) : ("private" as const),
+    };
+    await getDb().insert(schema.notes).values(note);
+    return { id: note.id, title: note.title };
+  },
+});
+```
+
+`list-notes` للقراءة فقط، وتحصر `accessFilter` النتائج في الملاحظات التي يستطيع
+المستخدم الحالي رؤيتها.
+
+```ts filename="actions/list-notes.ts"
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the notes the current user can see, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async () => {
+    const { notes, noteShares } = schema;
+    const rows = await getDb()
+      .select({
+        id: notes.id,
+        title: notes.title,
+        body: notes.body,
+        createdAt: notes.createdAt,
+      })
+      .from(notes)
+      .where(accessFilter(notes, noteShares))
+      .orderBy(desc(notes.createdAt))
+      .limit(200);
+    return { notes: rows };
+  },
+});
+```
+
+يصبح الإجراء الجديد قابلًا للاستدعاء من الدردشة بمجرد وجوده. راجع
+[ما يراه النموذج أولًا](#initial-tools) إذا كنت تريده ضمن مجموعة أدوات
+النموذج الافتراضية.
+
+### 3. أضف الصفحة ورابط الشريط الجانبي
+
+يستخدم التطبيق التوجيه المبني على نظام الملفات، لذا فإن إضافة هذا الملف تركّب
+`/notes`. تستدعي الصفحة الإجراءات نفسها التي يستدعيها الوكيل عبر
+`useActionQuery()` و`useActionMutation()`، وتحدّث عملية التعديل الناجحة القائمة
+من تلقاء نفسها.
+
+```tsx filename="app/routes/notes.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APP_TITLE } from "@/lib/app-config";
+
+export function meta() {
+  return [{ title: `Notes - ${APP_TITLE}` }];
+}
+
+export default function NotesRoute() {
+  useSetPageTitle("Notes");
+  const { data, isLoading } = useActionQuery("list-notes");
+  const createNote = useActionMutation("create-note", {
+    onError: (error) => toast.error(error.message),
+  });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    createNote.mutate(
+      { title, body },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setBody("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Title"
+          required
+        />
+        <Input
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a note"
+        />
+        <Button type="submit" disabled={createNote.isPending}>
+          Add note
+        </Button>
+      </form>
+      <ul className="flex flex-col gap-2">
+        {isLoading && (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        )}
+        {data?.notes.map((note) => (
+          <li key={note.id} className="rounded-lg border p-3">
+            <p className="font-medium">{note.title}</p>
+            <p className="text-sm text-muted-foreground">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+في `app/components/layout/Sidebar.tsx`، أضف `IconNotes` إلى استيراد
+`@tabler/icons-react` الموجود. ثم أضف هذا المكوّن أسفل `HomeNavLink`. يتبع
+النمط نفسه، بما في ذلك الشريط الجانبي المطوي.
+
+```tsx filename="app/components/layout/Sidebar.tsx"
+function NotesNavLink({ collapsed }: { collapsed: boolean }) {
+  const location = useLocation();
+  const active = location.pathname.startsWith("/notes");
+  const link = (
+    <Link
+      to="/notes"
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? "Notes" : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconNotes className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>Notes</span>
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">Notes</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
+}
+```
+
+ثم اعرضه في `<nav>` الخاص بالشريط الجانبي، قبل قائمة الخيوط:
+
+```diff filename="app/components/layout/Sidebar.tsx"
+ <HomeNavLink collapsed={collapsed} />
++<NotesNavLink collapsed={collapsed} />
+ <ChatThreadsSection collapsed={collapsed} />
+```
+
+تأتي تسميات الدردشة من ملفات الترجمة، لذا فإن النص الحرفي "Notes" اختصار. إذا
+كان تطبيقك مترجمًا، فأضف مفاتيح إلى `app/i18n/en-US.ts` واقرأها عبر `useT()`
+بدلاً من ذلك. راجع [التدويل](/docs/internationalization).
+
+### 4. أخبر الوكيل عنها
+
+أضف قسمًا قصيرًا إلى `AGENTS.md` ليعرف الوكيل أن الملاحظات موجودة وأي إجراءات
+تديرها. اجعله موجزًا، لأن موجّه وقت التشغيل يقتطع الملف عند 6,000 حرف.
+
+```md filename="AGENTS.md"
+## Notes
+
+Notes live at `/notes`. Each note has a title and a body. A note is visible to
+the organization when one is active and private to its creator otherwise.
+
+| Action        | Purpose                             |
+| ------------- | ----------------------------------- |
+| `list-notes`  | List the notes the user can see     |
+| `create-note` | Create a note with a title and body |
+```
+
+أعد تشغيل `pnpm dev` ليتم تحميل الإجراءات الجديدة والترحيل. ثم أضف ملاحظة في
+صفحة **Notes**، واطلب من دردشة "Create a note called Groceries with milk and
+eggs". ستظهر الملاحظتان في القائمة.
+
+## ما التالي
+
+- [**الدردشة**](/docs/template-chat): ما يأتي افتراضيًا ولمن هو مخصص
+- [**الميزات**](/docs/template-chat-features): المحادثات، وإجراء المثال، والفرق، وصفحات الإدارة
+- [**الإجراءات**](/docs/actions-overview): نظام الإجراءات الذي يُبنى عليه هذا القالب
+- [**واجهة الدردشة الأصلية**](/docs/native-chat-ui): عناصر سطح الدردشة وخيارات وقت التشغيل
+- [**قاعدة البيانات**](/docs/server-database): ربط PostgreSQL ونموذج بيانات إطار العمل
+- [**مراقبة الوكيل**](/docs/observability): ما تتتبعه اللوحة وكيف
+- [**الامتدادات**](/docs/extensions): بناء تطبيقات مصغّرة داخل قالب
+- [**المصادقة**](/docs/authentication): الجلسات والمؤسسات والمسارات المحمية

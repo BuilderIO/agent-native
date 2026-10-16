@@ -1,0 +1,70 @@
+---
+title: "Chat en un espacio de trabajo con varias apps"
+description: "Cómo se conecta Chat con Dispatch y otras apps, y cómo su agente encuentra las apps de un espacio de trabajo y les pide que hagan trabajo."
+---
+
+# Chat en un espacio de trabajo con varias apps
+
+Chat es una app entre muchas en un espacio de trabajo de
+[Dispatch](/docs/template-dispatch). Esta página cubre lo que eso significa en
+la práctica: cómo funciona la conexión y cómo el agente de Chat puede llegar a
+las demás apps que lo rodean. Consulta [Chat](/docs/template-chat) para ver la
+visión general.
+
+## Cómo se conecta Chat con Dispatch
+
+Que esto sea automático depende de cómo se configuraron juntos Chat y
+Dispatch, no de si alguno de los dos está alojado o ejecutándose localmente.
+
+### Mismo espacio de trabajo: automático
+
+Si Chat y Dispatch se generaron o se añadieron juntos en un mismo espacio de
+trabajo de Agent Native (mediante `create` o `add-app`) y se desplegaron como
+una sola unidad, ya comparten un `.env`, un `A2A_SECRET` y un registro de
+espacio de trabajo. Tanto el descubrimiento como las llamadas A2A
+autenticadas simplemente funcionan, sin nada que configurar, ya sea que ese
+espacio de trabajo se ejecute en tu máquina o en producción.
+
+### Despliegues separados: un paso manual
+
+Si Chat y Dispatch son dos proyectos de Agent-Native creados de forma
+independiente, no comparten un secreto y todavía no pueden llamarse entre sí.
+Conectarlos requiere un paso manual en cada lado: añade un recurso
+`remote-agents/<id>.json` con un secreto compartido, desde Ajustes → Agent →
+Sub-agents (Connect agent), o Dispatch → Agentes → Añadir agente externo.
+Consulta [Protocolo A2A](/docs/a2a-protocol) para ver el recorrido completo.
+
+Para comprobar en qué situación estás, pregúntale al agente de cualquiera de
+las dos apps "what apps can you see?". Si Chat no aparece en la respuesta de
+Dispatch, estás en el segundo caso.
+
+## Estrategias de integración
+
+**Pedir ayuda a otras apps.** El agente de Chat puede consultar qué apps hay en
+el espacio de trabajo y qué puede hacer cada una. Después puede pedirle a una
+de ellas que ejecute una acción específica y usar la respuesta en la
+conversación. Por ejemplo, en un espacio de trabajo con Calendario, podrías
+preguntarle a Chat "what's on my calendar tomorrow?" y el agente le pasa esa
+pregunta a Calendario en lugar de adivinar. Chat no necesita tener la conexión
+de Calendario con Google. Calendario ya la tiene.
+
+**Chat como puerta de entrada.** Como el agente de cada app es accesible de la
+misma forma, una conversación en Chat es un lugar natural para iniciar trabajo
+que vive en otras apps. Describes lo que quieres en un solo lugar, y el agente
+decide qué app debe encargarse. Chat funciona bien aquí porque no tiene un
+dominio propio que estorbe.
+
+**Mantenerse desacoplado.** Chat nunca necesita las credenciales de otra app, y
+ninguna otra app necesita las de Chat. Cada app conserva sus propias
+conexiones y sus propios datos. Chat solo transmite una petición y recibe una
+respuesta.
+
+## Qué sigue
+
+- [**Chat**](/docs/template-chat) — la visión general
+- [**Funciones**](/docs/template-chat-features) — conversaciones, la acción de ejemplo, equipos y páginas de administración
+- [**Hablar con el Agent**](/docs/template-chat-agent) — qué puede ver el agente y peticiones para probar
+- [**Guía para desarrolladores**](/docs/template-chat-developers) — inicio rápido, acciones, la ruta del chat y cómo añadir tu primera función
+- [**Dispatch**](/docs/template-dispatch) — el plano de control del espacio de trabajo bajo el que se ejecutan estos patrones
+- [**Protocolo A2A**](/docs/a2a-protocol) — cómo las apps se descubren, se autentican y se llaman entre sí
+- [**Espacio de trabajo con varias apps**](/docs/multi-app-workspace) — el patrón general de componer apps propias en lugar de anidarlas

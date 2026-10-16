@@ -1,0 +1,621 @@
+---
+title: "चैट: डेवलपर गाइड"
+description: "क्विक स्टार्ट, actions की इन्वेंटरी, डेटा मॉडल, एक action का पूरा वॉकथ्रू, रूट्स का रेफ़रेंस, और चैट टेम्पलेट में अपना पहला फ़ीचर जोड़ने का तरीका।"
+---
+
+# डेवलपर गाइड
+
+यह पेज उन डेवलपर्स के लिए है जो चैट टेम्पलेट चला रहे हैं या उसे एक्सटेंड कर रहे हैं।
+इसमें क्विक स्टार्ट, हर बिल्ट-इन action, डेटा मॉडल, एक action का वॉकथ्रू, रूट्स, और
+अपना पहला फ़ीचर जोड़ने का तरीका शामिल है। ऐप क्या करता है यह जानने के लिए
+[चैट](/docs/template-chat) देखें।
+
+## क्विक स्टार्ट {#quick-start}
+
+यह कुछ भी इंस्टॉल न होने से लेकर एजेंट के साथ लाइव बातचीत तक, चैट चलाने का पूरा
+तरीका बताता है। कमांड वही रहते हैं चाहे आप macOS पर Terminal में हों या Windows पर
+PowerShell/Command Prompt में, ये सादे Node.js टूलिंग हैं।
+
+<Steps>
+
+### ऐप बनाएं
+
+```bash
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+corepack enable
+pnpm install
+```
+
+इसके लिए [Node.js](https://nodejs.org) 22.22 या उसके बाद का वर्शन चाहिए। अगर `pnpm`
+आपके `PATH` में नहीं है, तो जनरेट किए गए ऐप में `corepack enable` चलाएं। अगर आपने
+अभी तक Node.js इंस्टॉल नहीं किया है, तो [शुरुआत
+करें](/docs/getting-started) देखें।
+
+### डेव सर्वर शुरू करें
+
+```bash
+pnpm dev
+```
+
+ऐप उस लोकल URL पर खुलता है जो `pnpm dev` प्रिंट करता है। अगर यह अपने आप न खुले, तो
+अपने ब्राउज़र में वह URL खोलें। अगर 8080 पहले से इस्तेमाल में है तो पोर्ट बदल सकता है।
+
+### साइन इन करें और एक LLM कनेक्ट करें
+
+Welcome स्क्रीन पर **Continue as local dev** चुनें। लोकल डेवलपमेंट के लिए ईमेल या
+पासवर्ड की ज़रूरत नहीं है। फिर एक LLM कनेक्ट करें: मुफ़्त क्रेडिट के लिए **Builder.io इस्तेमाल करें** चुनें, या अपनी खुद की मॉडल प्रोवाइडर key इस्तेमाल करने के लिए **अपनी कुंजियाँ जोड़ें** चुनें। चैट में सीड करने के लिए कोई डोमेन डेटा नहीं आता, इसलिए LLM कनेक्ट होते
+ही बातचीत शुरू करने से पहले और कुछ सेट अप करने की ज़रूरत नहीं है।
+
+</Steps>
+
+चैट ब्राउज़र UI के लिए बनी है। अगर आप बिना किसी स्क्रीन वाला एजेंट चाहते हैं, यानी
+शेड्यूल्ड जॉब्स, क्यू, CLI लूप, या एक्सटर्नल-एजेंट वर्कफ़्लो के लिए, तो इसके बजाय
+`--headless` के साथ स्कैफ़ोल्ड करें:
+
+```bash
+npx --yes @agent-native/core@latest create my-agent --headless
+```
+
+मुख्य विचार वही रहता है। Actions चैट, UI, HTTP, MCP, A2A, और CLI की साझा सतह हैं। उस
+रास्ते की पूरी जानकारी के लिए [Automation-First Apps](/docs/pure-agent-apps) देखें।
+
+## Action इन्वेंटरी {#actions}
+
+हर ऑपरेशन `actions/` में एक TypeScript फ़ाइल है, जो `POST
+/_agent-native/actions/:name` पर अपने आप माउंट होती है, जब तक action `http: false`
+सेट न करे।
+
+| Action                 | यह क्या करता है                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `hello`                | उदाहरण action। एक ग्रीटिंग लौटाता है। इसे बदलें या इसके बगल में actions जोड़ें। |
+| `view-screen`          | स्टैंडर्ड कॉन्टेक्स्ट action। एजेंट के लिए मौजूदा व्यू वापस पढ़ता है।           |
+| `navigate`             | स्टैंडर्ड नेविगेशन action। UI को किसी रूट पर ले जाता है।                        |
+| `provider-api-request` | कनेक्टेड Slack वर्कस्पेस के ज़रिए Slack Web API को कॉल करता है।                 |
+
+### चैट रनटाइम {#chat-runtime}
+
+`server/plugins/agent-chat.ts` वह जगह है जहां चैट रनटाइम कॉन्फ़िगर होता है। यह चार काम
+करता है:
+
+- `actions/` में मौजूद हर action को callable टूल के रूप में रजिस्टर करता है,
+  `loadActionsFromStaticRegistry` के साथ।
+- स्कोपिंग के लिए मौजूदा organization को resolve करता है, `resolveOrgId` के साथ।
+- सिस्टम प्रॉम्प्ट सेट करता है।
+- यह घोषित करता है कि पहले टर्न पर मॉडल को कौन से टूल दिखते हैं, `initialToolNames`
+  के साथ।
+
+### Actions टूल कैसे बनते हैं {#actions-as-tools}
+
+हर `defineAction` डिफ़ॉल्ट रूप से एक टूल है। किसी action को अपनी स्क्रीन के लिए उपलब्ध
+रखने और एजेंट से छिपाने के लिए `agentTool: false` सेट करें।
+
+### मॉडल को पहले क्या दिखता है {#initial-tools}
+
+`INITIAL_TOOL_NAMES` में `view-screen`, `navigate`, `hello`, और `provider-api-request`
+की सूची है। पहले टर्न पर सिर्फ़ यही टूल भेजे जाते हैं। बाकी सब कुछ, आपके जोड़े गए
+action सहित, `tool-search` से पहुंच में रहता है और ज़रूरत पड़ने पर लोड होता है।
+
+उस सूची में कोई नाम तभी जोड़ें जब आप चाहें कि action पहले मैसेज से ही मॉडल के डिफ़ॉल्ट
+टूलसेट में हो।
+
+## डेटा मॉडल {#data-model}
+
+चैट अपनी कोई टेबल नहीं बनाती। जब तक आप एक नहीं जोड़ते, `server/db/schema.ts` मौजूद नहीं
+होता। ऐप चैट थ्रेड्स और मैसेज, application state, settings, सेशन, resources, और रन
+हिस्ट्री के लिए फ़्रेमवर्क की कोर टेबल्स पर चलता है। ये फ़्रेमवर्क की हैं, इसलिए इन्हें
+एडिट न करें। कनेक्शन मॉडल और नया डेटा कहां रखें, इसके लिए [Database](/docs/server-database)
+देखें।
+
+`useDbSync()` पहले से ऐप शेल में जुड़ा हुआ है। जब एजेंट या कोई और SQL में लिखता है, तो
+क्लाइंट को बदलाव SSE से, या 2 सेकंड के पोलिंग फ़ॉलबैक से मिलता है, और वह मेल खाने वाले
+React Query कैश को invalidate कर देता है। पूरे हुक API के लिए
+[`useDbSync`](/docs/client-data#usedbsync) देखें।
+
+आपकी पहली टेबल एक नई फ़ाइल है। [अपना पहला फ़ीचर जोड़ें](#first-feature) देखें।
+
+## Auth {#auth}
+
+Auth Better Auth पर चलता है: लॉगिन, साइनअप, सेशन, और organizations, जिन्हें
+`server/plugins/auth.ts` में `createAuthPlugin` से कॉन्फ़िगर किया जाता है। वही फ़्लो
+लोकली और प्रोडक्शन में चलता है, सिवाय इसके कि डेवलपमेंट में ईमेल वेरिफ़िकेशन छोड़ दिया
+जाता है ताकि आप तुरंत साइन अप करके बनाना शुरू कर सकें। `createAuthPlugin` लॉगिन पेज की
+मार्केटिंग कॉपी (ऐप का नाम, टैगलाइन, और फ़ीचर बुलेट्स) को भी उसी फ़ाइल में सादे config के
+रूप में लेता है। पूरे auth मॉडल (सेशन, organizations, प्रोटेक्टेड रूट्स) के लिए
+[प्रमाणीकरण](/docs/authentication) देखें।
+
+## रूट्स रेफ़रेंस {#routes}
+
+ऐप फ़ाइल-सिस्टम राउटिंग इस्तेमाल करता है (`app/routes.ts` में `flatRoutes()`), इसलिए
+रूट फ़ाइल जोड़ना ही उसे माउंट करने के लिए काफ़ी है।
+
+<FileTree
+  id="doc-block-chat3"
+  title="चैट टेम्पलेट के रूट्स और कॉम्पोनेंट्स"
+  entries={[
+    {
+      path: "app/routes/_index.tsx",
+      note: "/: साझा साइन-इन पेज, फिर /home पर आगे",
+    },
+    {
+      path: "app/routes/home.tsx",
+      note: "/home: Get started पेज, जिसे app/components/home/HomePage.tsx रेंडर करता है",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat: नई चैट शुरू करता है और /chat/:threadId को सौंप देता है",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "/chat/:threadId: उस थ्रेड के लिए ChatRouteContent रेंडर करता है",
+    },
+    {
+      path: "app/routes/settings.tsx",
+      note: "/settings और /settings/*: अकाउंट, कनेक्शन, एजेंट, और organization पेज",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "/agent: Settings में एजेंट पेजों पर रीडायरेक्ट करता है",
+    },
+    {
+      path: "app/routes/team.tsx",
+      note: "/team: /settings/organization पर रीडायरेक्ट करता है",
+    },
+    {
+      path: "app/routes/database.tsx",
+      note: "/database: टेबल ब्राउज़र और एडिटर",
+    },
+    {
+      path: "app/routes/observability.tsx",
+      note: "/observability: एजेंट ट्रेसेस, कॉस्ट, evals, और फ़ीडबैक",
+    },
+    {
+      path: "app/routes/extensions._index.tsx",
+      note: "/extensions: /settings/extensions पर रीडायरेक्ट करता है",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "/extensions/:id (और /extensions/:id/:slug): एक सेव किया हुआ extension चलाता है",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "पूरे पेज की चैट सतह। empty state, composer, और message स्लॉट्स यहां एडिट करें",
+    },
+    {
+      path: "app/components/layout/Sidebar.tsx",
+      note: "साइडबार: Home, थ्रेड सूची, और organization स्विचर",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "चैट और होम URLs के लिए पाथ हेल्पर्स",
+    },
+  ]}
+/>
+
+**Database** (`/database`) वही `DbAdminPage` है जो हर टेम्पलेट को मिलता है। यह ऐप के SQL
+डेटाबेस पर एक सीधा टेबल ब्राउज़र और एडिटर है। इसके पीछे के कनेक्शन मॉडल के लिए
+[Database](/docs/server-database) देखें।
+
+**अवलोकनक्षमता** (`/observability`) वही zero-config `ObservabilityDashboard` है जो हर
+टेम्पलेट को मिलता है। यह हर एजेंट रन के लिए ट्रेसेस, कॉस्ट, evals, और फ़ीडबैक दिखाता है,
+जिसकी गणना आपके अपने डेटाबेस में पहले से मौजूद डेटा से होती है। [Agent
+Observability](/docs/observability) देखें।
+
+**एक्सटेंशन** sandboxed Alpine.js मिनी-ऐप्स हैं। चैट उन्हें देखने और चलाने वाले रूट्स
+(`/extensions/:id`) माउंट करती है और `/extensions` को Settings के एक्सटेंशन पेज पर
+रीडायरेक्ट करती है। एजेंट इन्हें तभी बना सकता है जब आप `server/plugins/agent-chat.ts` में
+`frameworkTools.extensions` चालू करें, जिसे चैट बंद रखती है। ये क्या कर सकते हैं और क्या
+नहीं, यह जानने के लिए [Extensions](/docs/extensions) देखें।
+
+## इसे कस्टमाइज़ करना {#customizing}
+
+ऐप का हर हिस्सा एडिट करने योग्य सोर्स है। यहां से शुरू करें:
+
+- `actions/`: एजेंट और फ्रंटएंड दोनों के लिए नया action एक्सपोज़ करने के लिए
+  `defineAction` के साथ नई फ़ाइल जोड़ें।
+- `app/routes/`: UI। कोई पेज माउंट करने के लिए रूट फ़ाइल जोड़ें।
+- `server/db/schema.ts`: जब कोर टेबल्स कम पड़ने लगें, तो Drizzle के साथ अपनी टेबल्स जोड़ें।
+  कोड को PostgreSQL-specific रखें ताकि लोकल PGlite और होस्टेड Postgres में एक जैसा
+  व्यवहार रहे।
+- `AGENTS.md`: एजेंट के निर्देश। जब आप एजेंट को नए actions या कन्वेंशन सिखाएं, तो इसे
+  अपडेट करें।
+- `.agents/skills/`: विस्तृत पैटर्न जिन्हें एजेंट फ़ॉलो करता है।
+
+अगर आप कोई फ़ीचर जोड़ते हैं, तो सभी चार क्षेत्रों को अपडेट करना याद रखें: UI, action,
+skill या `AGENTS.md` एंट्री, और कोई भी application state जो एजेंट को देखना ज़रूरी है।
+यही वो चीज़ है जो एजेंट और UI को parity में रखती है।
+
+### चैट रूट {#chat-route}
+
+`app/components/chat/ChatRouteContent.tsx` `/chat/<threadId>` पर पूरे पेज की चैट रेंडर
+करता है। चैट सतह AgentKit के हिस्सों से बनी है: एक transport, एक थ्रेड रूट, और चैट
+व्यू। इसकी कॉपी लिटरल स्ट्रिंग्स के बजाय i18n keys से आती है। असली फ़ाइल इससे लंबी है।
+यह वह हिस्सा है जिसे आप सबसे ज़्यादा एडिट करते हैं।
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/components/chat/ChatRouteContent.tsx (छोटा किया हुआ)"
+  filename="app/components/chat/ChatRouteContent.tsx"
+  language="tsx"
+  code={
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "15-21",
+      label: "Transport",
+      note: "`createAgentNativeAgentKitTransport` चैट व्यू को ऐप के एजेंट रनटाइम से जोड़ता है। `TAB_ID` (`app/lib/tab-id.ts`, हर ब्राउज़र टैब के लिए एक बार जनरेट होने वाला रैंडम id) रनटाइम को एक ही ऐप के खुले टैब्स को अलग पहचानने देता है, ताकि एक टैब में शुरू हुए रन को दूसरे टैब का रन न समझ लिया जाए।",
+    },
+    {
+      lines: "25-30",
+      label: "थ्रेड रूट",
+      note: "`CoreAgentKitRoot` उस थ्रेड को लोड करता है जिसका नाम `/chat/:threadId` (`chat.$threadId.tsx`) में है। `/chat` खोलने पर एक नया थ्रेड id बनता है और यहां सौंप दिया जाता है। जब कोई थ्रेड fork होता है, तो `chatThreadPath` URL को नए थ्रेड पर ले जाता है।",
+    },
+    {
+      lines: "29",
+      label: "स्लॉट्स",
+      note: "स्लॉट्स चैट व्यू के हिस्सों को बदलते हैं। असली फ़ाइल रिकवरी मैसेज, MCP कनेक्शन कार्ड, और एजेंट फ़ुटर के लिए `message`, `runFailure`, `connectionRequest`, और `footer` स्लॉट्स भी देती है।",
+    },
+    {
+      lines: "32-35",
+      label: "बीच में composer",
+      note: '`emptyComposerPlacement="center"` थ्रेड में मैसेज आने तक composer को बीच में रखता है। `requireAgentEngine` मॉडल कनेक्ट होने तक Connect AI कार्ड दिखाता है।',
+    },
+    {
+      lines: "40-47",
+      label: "खाली स्थिति",
+      note: "बीच वाले composer के ऊपर की हेडिंग। इसकी कॉपी `app/i18n/en-US.ts` में `chat.heroTitle` है: पिच बदलने के लिए कैटलॉग एडिट करें, या यहां एलिमेंट्स जोड़ें।",
+    },
+  ]}
+/>
+
+### अपना खुद का एजेंट बैकएंड इस्तेमाल करें {#own-agent-backend}
+
+टेम्पलेट डिफ़ॉल्ट रूप से बिल्ट-इन app-agent लूप इस्तेमाल करता है। कस्टम बैकएंड जोड़ने के
+लिए, UI को दोबारा लिखने के बजाय agent chat plugin के पीछे का चैट रनटाइम बदलें। चैट रूट
+को साझा चैट सतह के आस-पास एक पतला renderer ही रहना चाहिए, और बैकएंड का चुनाव सर्वर
+प्लगइन और रनटाइम adapter में होना चाहिए।
+
+इसका इस्तेमाल तब करें जब आपका मॉडल ऑर्केस्ट्रेशन पहले से कहीं और हो, पर आप फिर भी
+auth, थ्रेड्स, actions, UI state, और डिप्लॉय करने योग्य पेजों वाला ऐप चाहते हों। रनटाइम
+विकल्पों के लिए [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) देखें।
+
+## अपना पहला फ़ीचर जोड़ें {#first-feature}
+
+ज़्यादातर पहले फ़ीचर एक ही ढांचे पर चलते हैं: एक टेबल, एक या दो actions, एक पेज, एक नेव
+एंट्री, और एक `AGENTS.md` अपडेट। यह सेक्शन चार हिस्सों में एक नोट्स फ़ीचर बनाता है,
+हर फ़ाइल के पूरे कोड के साथ। आप यह सब एजेंट से भी करवा सकते हैं:
+
+> Add a data model for `notes`. A note has an id, title, body, and owner. Render a notes page at `/notes`, add create/list actions, and keep chat able to create notes.
+
+### 1. डेटा लेयर जोड़ें
+
+चैट में `server/db` फ़ोल्डर नहीं आता, इसलिए यहां की तीनों फ़ाइलें नई हैं।
+
+स्कीमा टेबल्स को डिफ़ाइन करता है। `ownableColumns()` ओनर, organization, और visibility
+कॉलम जोड़ता है, और `createSharesTable()` शेयरिंग के लिए एक मेल खाती टेबल जोड़ता है।
+
+```ts filename="server/db/schema.ts"
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import {
+  createSharesTable,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  ...ownableColumns(),
+});
+
+export const noteShares = createSharesTable("note_shares");
+```
+
+डेटाबेस क्लाइंट आपके actions को `getDb()` देता है और नोट्स को शेयरिंग सिस्टम में रजिस्टर
+करता है।
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+
+registerShareableResource({
+  type: "note",
+  resourceTable: schema.notes,
+  sharesTable: schema.noteShares,
+  displayName: "Note",
+  titleColumn: "title",
+  getResourcePath: (note) => `/notes/${note.id}`,
+  getDb,
+});
+```
+
+माइग्रेशन ऐप शुरू होने पर टेबल्स बनाता है। बाद के बदलावों के लिए नई एंट्रीज़ जोड़ें, और जो
+एंट्री एक बार चल चुकी हो उसे कभी एडिट न करें।
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "notes",
+      sql: `CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now()),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
+);
+CREATE TABLE IF NOT EXISTS note_shares (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (now()),
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_owner_org_idx ON notes (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS note_shares_resource_idx ON note_shares (resource_id, principal_type, principal_id)`,
+    },
+  ],
+  { table: "notes_app_migrations" },
+);
+```
+
+### 2. Actions जोड़ें
+
+हर action `actions/` में एक फ़ाइल है, और फ़ाइल का नाम ही टूल का नाम बन जाता है। एजेंट और
+आपका पेज यही दो actions कॉल करते हैं।
+
+`create-note` साइन-इन किए हुए यूज़र को ओनर के रूप में दर्ज करता है। अगर कोई organization
+एक्टिव है तो नोट organization को दिखता है, वरना सिर्फ़ उसके बनाने वाले को।
+
+```ts filename="actions/create-note.ts"
+import { defineAction, fail } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description:
+    "Create a note with a title and body. It is visible to the organization when one is active, otherwise only to its creator.",
+  schema: z.object({
+    title: z.string().min(1).describe("Short title for the note"),
+    body: z.string().describe("Full text of the note"),
+  }),
+  run: async (args, ctx) => {
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create notes.", { statusCode: 401 });
+    const orgId = ctx?.orgId ?? null;
+    const note = {
+      id: crypto.randomUUID(),
+      title: args.title,
+      body: args.body,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? ("org" as const) : ("private" as const),
+    };
+    await getDb().insert(schema.notes).values(note);
+    return { id: note.id, title: note.title };
+  },
+});
+```
+
+`list-notes` रीड-ओनली है, और `accessFilter` नतीजों को उन नोट्स तक सीमित करता है जो
+मौजूदा यूज़र देख सकता है।
+
+```ts filename="actions/list-notes.ts"
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the notes the current user can see, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async () => {
+    const { notes, noteShares } = schema;
+    const rows = await getDb()
+      .select({
+        id: notes.id,
+        title: notes.title,
+        body: notes.body,
+        createdAt: notes.createdAt,
+      })
+      .from(notes)
+      .where(accessFilter(notes, noteShares))
+      .orderBy(desc(notes.createdAt))
+      .limit(200);
+    return { notes: rows };
+  },
+});
+```
+
+नया action बनते ही चैट उसे कॉल कर सकती है। अगर आप इसे मॉडल के डिफ़ॉल्ट टूलसेट में चाहते हैं तो
+[मॉडल को पहले क्या दिखता है](#initial-tools) देखें।
+
+### 3. पेज और साइडबार लिंक जोड़ें
+
+ऐप फ़ाइल-सिस्टम राउटिंग इस्तेमाल करता है, इसलिए यह फ़ाइल जोड़ने से `/notes` माउंट हो जाता है।
+पेज `useActionQuery()` और `useActionMutation()` से वही actions कॉल करता है जो एजेंट करता है,
+और सफल mutation सूची को अपने आप रिफ़्रेश कर देता है।
+
+```tsx filename="app/routes/notes.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APP_TITLE } from "@/lib/app-config";
+
+export function meta() {
+  return [{ title: `Notes - ${APP_TITLE}` }];
+}
+
+export default function NotesRoute() {
+  useSetPageTitle("Notes");
+  const { data, isLoading } = useActionQuery("list-notes");
+  const createNote = useActionMutation("create-note", {
+    onError: (error) => toast.error(error.message),
+  });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    createNote.mutate(
+      { title, body },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setBody("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Title"
+          required
+        />
+        <Input
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a note"
+        />
+        <Button type="submit" disabled={createNote.isPending}>
+          Add note
+        </Button>
+      </form>
+      <ul className="flex flex-col gap-2">
+        {isLoading && (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        )}
+        {data?.notes.map((note) => (
+          <li key={note.id} className="rounded-lg border p-3">
+            <p className="font-medium">{note.title}</p>
+            <p className="text-sm text-muted-foreground">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+`app/components/layout/Sidebar.tsx` में, मौजूदा `@tabler/icons-react` इम्पोर्ट में
+`IconNotes` जोड़ें। फिर `HomeNavLink` के नीचे यह कॉम्पोनेंट जोड़ें। यह उसी पैटर्न पर चलता है,
+समेटे हुए साइडबार सहित।
+
+```tsx filename="app/components/layout/Sidebar.tsx"
+function NotesNavLink({ collapsed }: { collapsed: boolean }) {
+  const location = useLocation();
+  const active = location.pathname.startsWith("/notes");
+  const link = (
+    <Link
+      to="/notes"
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? "Notes" : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconNotes className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>Notes</span>
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">Notes</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
+}
+```
+
+फिर इसे साइडबार के `<nav>` में, थ्रेड सूची से पहले रेंडर करें:
+
+```diff filename="app/components/layout/Sidebar.tsx"
+ <HomeNavLink collapsed={collapsed} />
++<NotesNavLink collapsed={collapsed} />
+ <ChatThreadsSection collapsed={collapsed} />
+```
+
+चैट के अपने लेबल अनुवाद फ़ाइलों से आते हैं, इसलिए लिटरल "Notes" एक शॉर्टकट है। अगर आपका ऐप
+localized है, तो इसके बजाय `app/i18n/en-US.ts` में keys जोड़ें और `useT()` से पढ़ें।
+[अंतर्राष्ट्रीयकरण](/docs/internationalization) देखें।
+
+### 4. एजेंट को इसके बारे में बताएं
+
+`AGENTS.md` में एक छोटा सेक्शन जोड़ें ताकि एजेंट को पता चले कि नोट्स मौजूद हैं और कौन से
+actions उन्हें मैनेज करते हैं। इसे छोटा रखें, क्योंकि रनटाइम प्रॉम्प्ट फ़ाइल को 6,000 अक्षरों
+पर काट देता है।
+
+```md filename="AGENTS.md"
+## Notes
+
+Notes live at `/notes`. Each note has a title and a body. A note is visible to
+the organization when one is active and private to its creator otherwise.
+
+| Action        | Purpose                             |
+| ------------- | ----------------------------------- |
+| `list-notes`  | List the notes the user can see     |
+| `create-note` | Create a note with a title and body |
+```
+
+नए actions और माइग्रेशन लोड करने के लिए `pnpm dev` दोबारा शुरू करें। फिर **Notes** पेज पर एक
+नोट जोड़ें, और किसी चैट से कहें "Create a note called Groceries with milk and eggs"। दोनों
+नोट्स सूची में दिखते हैं।
+
+## आगे क्या
+
+- [**चैट**](/docs/template-chat): डिफ़ॉल्ट रूप से क्या आता है और यह किसके लिए है
+- [**सुविधाएं**](/docs/template-chat-features): बातचीत, उदाहरण action, टीमें, और एडमिन पेज
+- [**Actions**](/docs/actions-overview): action सिस्टम जिस पर यह टेम्पलेट बना है
+- [**Native Chat UI**](/docs/native-chat-ui): चैट सतह के प्रिमिटिव्स और रनटाइम विकल्प
+- [**Database**](/docs/server-database): PostgreSQL कनेक्ट करना और फ़्रेमवर्क का डेटा मॉडल
+- [**Agent Observability**](/docs/observability): डैशबोर्ड क्या ट्रैक करता है और कैसे
+- [**Extensions**](/docs/extensions): टेम्पलेट के अंदर मिनी-ऐप्स बनाना
+- [**प्रमाणीकरण**](/docs/authentication): सेशन, organizations, और प्रोटेक्टेड रूट्स

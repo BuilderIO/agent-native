@@ -1,0 +1,67 @@
+---
+title: "Chat dans un espace de travail multi-apps"
+description: "Comment Chat se connecte à Dispatch et à d'autres applications, et comment son agent trouve les applications d'un espace de travail et leur demande d'effectuer du travail."
+---
+
+# Chat dans un espace de travail multi-apps
+
+Chat est une application parmi d'autres dans un espace de travail
+[Dispatch](/docs/template-dispatch). Cette page couvre ce que cela signifie concrètement :
+comment la connexion fonctionne, et comment l'agent de Chat peut atteindre les autres applications qui l'entourent. Consultez
+[Chat](/docs/template-chat) pour la vue d'ensemble.
+
+## Comment Chat se connecte à Dispatch
+
+Le fait que ce soit automatique dépend de la façon dont Chat et Dispatch ont été configurés
+ensemble, pas du fait que l'un ou l'autre soit hébergé ou exécuté localement.
+
+### Même espace de travail : automatique
+
+Si Chat et Dispatch ont été générés ou ajoutés ensemble dans un seul espace de travail
+Agent Native (via `create` ou `add-app`) et déployés comme une seule unité, ils
+partagent déjà un seul `.env`, un seul `A2A_SECRET`, et un seul registre d'espace de travail.
+La découverte et l'appel A2A authentifié fonctionnent tous les deux sans rien à configurer, que
+cet espace de travail s'exécute sur votre machine ou en production.
+
+### Déploiements séparés : une étape manuelle
+
+Si Chat et Dispatch sont deux projets Agent-Native créés indépendamment,
+ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux. Les connecter
+demande une étape manuelle de chaque côté : ajoutez une ressource `remote-agents/<id>.json`
+avec un secret partagé, depuis Settings → Agent → Sub-agents (Connect agent), ou
+Dispatch → Agents → Ajouter un agent externe. Consultez
+[Protocole A2A](/docs/a2a-protocol) pour le guide complet.
+
+Pour vérifier dans quelle situation vous êtes, demandez à l'agent de l'une des deux applications
+« quelles applications peux-tu voir ? » Si Chat est absent de la réponse de Dispatch,
+vous êtes dans le second cas.
+
+## Stratégies d'intégration
+
+**Demander de l'aide à d'autres applications.** L'agent de Chat peut chercher quelles applications se trouvent dans
+l'espace de travail et ce que chacune sait faire. Il peut ensuite demander à l'une d'elles d'exécuter une
+action précise et utiliser la réponse dans la conversation. Par exemple, dans un
+espace de travail avec Calendrier, vous pouvez demander à Chat « qu'y a-t-il sur mon calendrier demain ? »
+et l'agent transmet cette question à Calendrier au lieu de deviner. Chat
+n'a pas besoin de détenir la connexion de Calendrier à Google. Calendrier l'a
+déjà.
+
+**Chat comme porte d'entrée.** Comme l'agent de chaque application est joignable de la même
+manière, une conversation dans Chat est un endroit naturel pour lancer du travail qui se trouve dans
+d'autres applications. Vous décrivez ce que vous voulez à un seul endroit, et l'agent décide
+quelle application doit s'en charger. Chat convient bien ici parce qu'il n'a pas de domaine
+propre qui gênerait.
+
+**Rester découplé.** Chat n'a jamais besoin des identifiants d'une autre application, et aucune
+autre application n'a besoin de ceux de Chat. Chaque application garde ses propres connexions et ses propres données.
+Chat ne fait que transmettre une demande et recevoir une réponse.
+
+## Et ensuite
+
+- [**Chat**](/docs/template-chat) — la vue d'ensemble
+- [**Fonctionnalités**](/docs/template-chat-features) — conversations, action d'exemple, équipes et pages d'administration
+- [**Parler à l'agent**](/docs/template-chat-agent) — ce que l'agent peut voir, et des invites à essayer
+- [**Guide développeur**](/docs/template-chat-developers) — démarrage rapide, actions, la route du chat et ajout de votre première fonctionnalité
+- [**Dispatch**](/docs/template-dispatch) — le plan de contrôle d'espace de travail sur lequel ces modèles s'exécutent
+- [**Protocole A2A**](/docs/a2a-protocol) — comment les applications se découvrent, s'authentifient et s'appellent entre elles
+- [**Espace de travail multi-apps**](/docs/multi-app-workspace) — le modèle général de composition d'applications de première partie plutôt que de les imbriquer

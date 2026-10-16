@@ -1,0 +1,616 @@
+---
+title: "채팅: 개발자 가이드"
+description: "빠른 시작, 액션 목록, 데이터 모델, 자세히 살펴보는 액션 하나, 라우트 참조, 그리고 채팅 템플릿에 첫 기능을 추가하는 방법을 다룹니다."
+---
+
+# 개발자 가이드
+
+이 페이지는 채팅 템플릿을 실행하거나 확장하는 개발자를 위한 것입니다. 빠른 시작,
+모든 기본 제공 액션, 데이터 모델, 자세히 살펴보는 액션 하나, 라우트, 그리고 첫
+기능을 추가하는 방법을 다룹니다. 앱이 무엇을 하는지는 [채팅](/docs/template-chat)
+문서를 참고하세요.
+
+## 빠른 시작 {#quick-start}
+
+아무것도 설치되지 않은 상태에서 시작해 에이전트와 실제 대화를 나누기까지 채팅을
+실행하는 과정을 안내합니다. macOS의 터미널이든 Windows의 PowerShell/명령
+프롬프트든 명령어는 동일합니다. 순수한 Node.js 도구이기 때문입니다.
+
+<Steps>
+
+### 앱 만들기
+
+```bash
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+corepack enable
+pnpm install
+```
+
+이를 위해서는 [Node.js](https://nodejs.org) 22.22 이상이 필요합니다. `pnpm`이
+`PATH`에 없다면 생성된 앱에서 `corepack enable`을 실행하세요. 아직 Node.js를
+설치하지 않았다면 [시작하기](/docs/getting-started) 문서를 참고하세요.
+
+### 개발 서버 시작하기
+
+```bash
+pnpm dev
+```
+
+앱은 `pnpm dev`가 출력하는 로컬 URL에서 열립니다. 자동으로 열리지 않으면 브라우저에서
+해당 URL로 직접 접속하세요. 8080 포트가 이미 사용 중이면 포트가 바뀔 수 있습니다.
+
+### 로그인하고 LLM 연결하기
+
+Welcome 화면에서 **Continue as local dev**를 선택하세요. 로컬 개발에는 이메일이나
+비밀번호가 필요하지 않습니다. 그런 다음 LLM을 연결하세요. 무료 크레딧을 받으려면
+**Builder.io 사용**을, 직접 가진 모델 프로바이더 키를 사용하려면 **직접 키 추가**를 선택하세요. 채팅에는 시드할 도메인 데이터가 없으므로, LLM을 연결하고
+나면 채팅을 시작하기 전에 따로 설정할 것이 없습니다.
+
+</Steps>
+
+채팅은 브라우저 UI를 위해 만들어졌습니다. 예약된 작업, 큐, CLI 루프, 외부 에이전트
+워크플로를 위해 화면이 전혀 없는 에이전트를 원한다면, 대신 `--headless`로
+스캐폴딩하세요.
+
+```bash
+npx --yes @agent-native/core@latest create my-agent --headless
+```
+
+핵심 아이디어는 같습니다. 액션은 채팅, UI, HTTP, MCP, A2A, CLI가 함께 쓰는 공유
+접점입니다. 이 경로를 자세히 알아보려면 [자동화 우선 앱](/docs/pure-agent-apps)을
+참고하세요.
+
+## 액션 목록 {#actions}
+
+모든 작업은 `actions/` 안의 TypeScript 파일이며, 액션이 `http: false`를 설정하지
+않는 한 `POST /_agent-native/actions/:name`에 자동으로 마운트됩니다.
+
+| 액션                   | 동작                                                                  |
+| ---------------------- | --------------------------------------------------------------------- |
+| `hello`                | 예제 액션. 인사말을 반환합니다. 교체하거나 그 옆에 액션을 추가하세요. |
+| `view-screen`          | 표준 컨텍스트 액션. 에이전트를 위해 현재 화면을 읽어 돌려줍니다.      |
+| `navigate`             | 표준 내비게이션 액션. UI를 특정 라우트로 이동시킵니다.                |
+| `provider-api-request` | 연결된 Slack 작업 공간을 통해 Slack Web API를 호출합니다.             |
+
+### 채팅 런타임 {#chat-runtime}
+
+`server/plugins/agent-chat.ts`는 채팅 런타임을 구성하는 곳입니다. 네 가지 일을
+합니다.
+
+- `loadActionsFromStaticRegistry`로 `actions/`의 모든 액션을 호출 가능한 도구로
+  등록합니다.
+- `resolveOrgId`로 범위 지정을 위한 현재 조직을 확인합니다.
+- 시스템 프롬프트를 설정합니다.
+- `initialToolNames`로 모델이 첫 턴에 볼 도구를 선언합니다.
+
+### 액션이 도구가 되는 방식 {#actions-as-tools}
+
+모든 `defineAction`은 기본적으로 도구입니다. 액션을 화면에서는 쓸 수 있지만
+에이전트에게는 숨기려면 `agentTool: false`를 설정하세요.
+
+### 모델이 처음 보는 것 {#initial-tools}
+
+`INITIAL_TOOL_NAMES`에는 `view-screen`, `navigate`, `hello`, `provider-api-request`가
+나열되어 있습니다. 첫 턴에 전송되는 도구는 이것들뿐입니다. 추가한 액션을 포함한 나머지
+모든 것은 `tool-search`를 통해 접근할 수 있으며 필요할 때 로드됩니다.
+
+첫 메시지부터 모델의 기본 도구 모음에 액션이 있기를 원할 때만 그 목록에 이름을
+추가하세요.
+
+## 데이터 모델 {#data-model}
+
+채팅은 자체 테이블을 정의하지 않습니다. 직접 추가하기 전까지는 `server/db/schema.ts`도
+없습니다. 앱은 채팅 스레드와 메시지, 애플리케이션 상태, 설정, 세션, 리소스, 실행
+기록을 위한 프레임워크의 핵심 테이블 위에서 동작합니다. 이 테이블들은 프레임워크의
+것이므로 수정하지 마세요. 연결 모델과 새 데이터를 어디에 두어야 하는지는
+[데이터베이스](/docs/server-database) 문서를 참고하세요.
+
+`useDbSync()`는 이미 앱 셸에 연결되어 있습니다. 에이전트나 다른 누군가가 SQL에
+쓰면, 클라이언트가 SSE 또는 2초 폴링 대체 경로로 변경을 받아 해당하는 React Query
+캐시를 무효화합니다. 전체 훅 API는 [`useDbSync`](/docs/client-data#usedbsync)를
+참고하세요.
+
+첫 테이블은 새 파일입니다. [첫 기능 추가하기](#first-feature)를 참고하세요.
+
+## 인증 {#auth}
+
+인증은 Better Auth로 동작합니다. 로그인, 가입, 세션, 조직이 `server/plugins/auth.ts`에서 `createAuthPlugin`을 통해 구성됩니다. 개발 환경에서는 바로 가입하고 만들기 시작할 수 있도록 이메일 인증을 건너뛴다는 점을 제외하면, 로컬과 프로덕션에서 같은 흐름이 실행됩니다. `createAuthPlugin`은 로그인 페이지의 마케팅 문구(앱 이름, 태그라인, 기능 목록)도 같은 파일 안의 일반 설정으로 받습니다. 전체 인증 모델(세션, 조직, 보호된 라우트)은 [인증](/docs/authentication) 문서를 참고하세요.
+
+## 라우트 참조 {#routes}
+
+앱은 파일 시스템 라우팅(`app/routes.ts`의 `flatRoutes()`)을 사용하므로, 라우트 파일을
+추가하는 것만으로 마운트됩니다.
+
+<FileTree
+  id="doc-block-chat3"
+  title="채팅 템플릿 라우트와 컴포넌트"
+  entries={[
+    {
+      path: "app/routes/_index.tsx",
+      note: "/: 공유 로그인 페이지, 이후 /home으로 이동",
+    },
+    {
+      path: "app/routes/home.tsx",
+      note: "/home: 시작하기 페이지, app/components/home/HomePage.tsx가 렌더링",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat: 새 채팅을 시작하고 /chat/:threadId로 넘김",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "/chat/:threadId: 해당 스레드의 ChatRouteContent를 렌더링",
+    },
+    {
+      path: "app/routes/settings.tsx",
+      note: "/settings 및 /settings/*: 계정, 연결, 에이전트, 조직 페이지",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "/agent: 설정의 에이전트 페이지로 리디렉션",
+    },
+    {
+      path: "app/routes/team.tsx",
+      note: "/team: /settings/organization으로 리디렉션",
+    },
+    {
+      path: "app/routes/database.tsx",
+      note: "/database: 테이블 브라우저 및 편집기",
+    },
+    {
+      path: "app/routes/observability.tsx",
+      note: "/observability: 에이전트 트레이스, 비용, 평가, 피드백",
+    },
+    {
+      path: "app/routes/extensions._index.tsx",
+      note: "/extensions: /settings/extensions로 리디렉션",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "/extensions/:id (및 /extensions/:id/:slug): 저장된 확장 하나를 실행",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "전체 화면 채팅 화면. 여기서 빈 상태, 컴포저, 메시지 슬롯을 편집",
+    },
+    {
+      path: "app/components/layout/Sidebar.tsx",
+      note: "사이드바: 홈, 스레드 목록, 조직 전환기",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "채팅과 홈 URL을 위한 경로 헬퍼",
+    },
+  ]}
+/>
+
+**Database**(`/database`)는 모든 템플릿이 제공받는 것과 같은 `DbAdminPage`입니다.
+앱의 SQL 데이터베이스를 직접 다루는 테이블 브라우저 및 편집기입니다. 그 뒤에 있는
+연결 모델은 [데이터베이스](/docs/server-database) 문서를 참고하세요.
+
+**관찰성**(`/observability`)은 모든 템플릿이 제공받는 것과 같은 설정이 필요
+없는 `ObservabilityDashboard`입니다. 이미 여러분의 데이터베이스에 있는 데이터로
+계산한, 모든 에이전트 실행의 트레이스, 비용, 평가, 피드백을 보여줍니다.
+[에이전트 관측성](/docs/observability)을 참고하세요.
+
+**확장**은 샌드박스된 Alpine.js 미니 앱입니다. 채팅은 이를 보고 실행하는 라우트
+(`/extensions/:id`)를 마운트하고 `/extensions`를 설정의 확장 프로그램 페이지로
+리디렉션합니다. 에이전트는 `server/plugins/agent-chat.ts`에서
+`frameworkTools.extensions`를 켠 뒤에만 이를 만들 수 있으며, 채팅은 이를 꺼진
+상태로 둡니다. 확장이 할 수 있는 일과 할 수 없는 일은 [확장](/docs/extensions)을
+참고하세요.
+
+## 커스터마이즈하기 {#customizing}
+
+앱의 모든 부분은 편집 가능한 소스입니다. 여기서부터 시작하세요.
+
+- `actions/`: `defineAction`으로 새 파일을 추가하면 새 액션이 에이전트와
+  프런트엔드 모두에 노출됩니다.
+- `app/routes/`: UI. 라우트 파일을 추가하면 페이지가 마운트됩니다.
+- `server/db/schema.ts`: 핵심 테이블로 부족해지면 Drizzle로 자신만의 테이블을
+  추가하세요. 로컬 PGlite와 호스팅된 Postgres가 같은 의미론을 쓰도록 코드를
+  PostgreSQL 전용으로 유지하세요.
+- `AGENTS.md`: 에이전트 지침. 에이전트에게 새 액션이나 규칙을 가르칠 때 이 파일을
+  업데이트하세요.
+- `.agents/skills/`: 에이전트가 따르는 자세한 패턴.
+
+기능을 추가한다면 네 영역을 모두 업데이트하는 것을 잊지 마세요. UI, 액션, 스킬 또는
+`AGENTS.md` 항목, 그리고 에이전트가 봐야 하는 모든 애플리케이션 상태입니다. 이것이
+에이전트와 UI를 동등하게 유지하는 방법입니다.
+
+### 채팅 라우트 {#chat-route}
+
+`app/components/chat/ChatRouteContent.tsx`는 `/chat/<threadId>`에서 전체 화면 채팅을
+렌더링합니다. 채팅 화면은 AgentKit 조각들, 즉 트랜스포트, 스레드 루트, 채팅 뷰로
+구성됩니다. 문구는 리터럴 문자열이 아니라 i18n 키에서 가져옵니다. 실제 파일은 더
+깁니다. 여기가 가장 자주 편집하게 될 부분입니다.
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/components/chat/ChatRouteContent.tsx (축약)"
+  filename="app/components/chat/ChatRouteContent.tsx"
+  language="tsx"
+  code={
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "15-21",
+      label: "트랜스포트",
+      note: "`createAgentNativeAgentKitTransport`는 채팅 뷰를 앱의 에이전트 런타임에 연결합니다. `TAB_ID`(`app/lib/tab-id.ts`, 브라우저 탭마다 한 번 생성되는 임의의 id)는 런타임이 같은 앱의 열린 탭들을 구분할 수 있게 해주므로, 한 탭에서 시작한 실행이 다른 탭의 실행으로 오인되지 않습니다.",
+    },
+    {
+      lines: "25-30",
+      label: "스레드 루트",
+      note: "`CoreAgentKitRoot`는 `/chat/:threadId`(`chat.$threadId.tsx`)에 명시된 스레드를 로드합니다. `/chat`을 방문하면 새 스레드 id가 만들어지고 여기로 넘어옵니다. 스레드가 포크되면 `chatThreadPath`가 URL을 새 스레드로 옮깁니다.",
+    },
+    {
+      lines: "29",
+      label: "슬롯",
+      note: "슬롯은 채팅 뷰의 일부를 대체합니다. 실제 파일은 복구 메시지, MCP 연결 카드, 에이전트 푸터를 위해 `message`, `runFailure`, `connectionRequest`, `footer` 슬롯도 전달합니다.",
+    },
+    {
+      lines: "32-35",
+      label: "가운데 정렬된 컴포저",
+      note: '`emptyComposerPlacement="center"`는 스레드에 메시지가 생기기 전까지 컴포저를 가운데에 둡니다. `requireAgentEngine`은 모델이 연결되기 전까지 Connect AI 카드를 보여줍니다.',
+    },
+    {
+      lines: "40-47",
+      label: "빈 상태",
+      note: "가운데 정렬된 컴포저 위의 제목입니다. 문구는 `app/i18n/en-US.ts`의 `chat.heroTitle`입니다. 소개 문구를 바꾸려면 카탈로그를 편집하거나 여기에 요소를 추가하세요.",
+    },
+  ]}
+/>
+
+### 나만의 에이전트 백엔드 사용하기 {#own-agent-backend}
+
+템플릿은 기본적으로 내장된 앱 에이전트 루프를 사용합니다. 커스텀 백엔드를 연결하려면
+UI를 다시 쓰는 대신 에이전트 채팅 플러그인 뒤의 채팅 런타임을 교체하세요. 채팅
+라우트는 공유 채팅 화면을 감싸는 얇은 렌더러로 유지하고, 백엔드 선택은 서버 플러그인과
+런타임 어댑터에 두어야 합니다.
+
+모델 오케스트레이션은 이미 다른 곳에 있지만, 인증, 스레드, 액션, UI 상태, 배포 가능한
+페이지를 갖춘 앱도 여전히 원할 때 사용하세요. 런타임 옵션은
+[네이티브 채팅 UI](/docs/native-chat-ui#byo-agent-runtimes)를 참고하세요.
+
+## 첫 기능 추가하기 {#first-feature}
+
+대부분의 첫 기능은 같은 형태를 따릅니다. 테이블 하나, 액션 하나나 둘, 페이지 하나,
+내비게이션 항목 하나, 그리고 `AGENTS.md` 업데이트입니다. 이 섹션은 메모 기능을 네
+부분으로 만들며, 각 파일의 전체 코드를 보여줍니다. 에이전트에게 이 모든 것을
+요청할 수도 있습니다.
+
+> Add a data model for `notes`. A note has an id, title, body, and owner. Render a notes page at `/notes`, add create/list actions, and keep chat able to create notes.
+
+### 1. 데이터 계층 추가하기
+
+채팅에는 `server/db` 폴더가 없으므로, 여기 있는 세 파일은 모두 새 파일입니다.
+
+스키마는 테이블을 정의합니다. `ownableColumns()`는 소유자, 조직, 공개 범위 열을
+추가하고, `createSharesTable()`은 공유를 위한 대응 테이블을 추가합니다.
+
+```ts filename="server/db/schema.ts"
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import {
+  createSharesTable,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  ...ownableColumns(),
+});
+
+export const noteShares = createSharesTable("note_shares");
+```
+
+데이터베이스 클라이언트는 액션에 `getDb()`를 제공하고 메모를 공유 시스템에
+등록합니다.
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+
+registerShareableResource({
+  type: "note",
+  resourceTable: schema.notes,
+  sharesTable: schema.noteShares,
+  displayName: "Note",
+  titleColumn: "title",
+  getResourcePath: (note) => `/notes/${note.id}`,
+  getDb,
+});
+```
+
+마이그레이션은 앱이 시작될 때 테이블을 만듭니다. 이후 변경에는 새 항목을 추가하고,
+이미 실행된 항목은 절대 수정하지 마세요.
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "notes",
+      sql: `CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now()),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
+);
+CREATE TABLE IF NOT EXISTS note_shares (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (now()),
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_owner_org_idx ON notes (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS note_shares_resource_idx ON note_shares (resource_id, principal_type, principal_id)`,
+    },
+  ],
+  { table: "notes_app_migrations" },
+);
+```
+
+### 2. 액션 추가하기
+
+각 액션은 `actions/`의 파일 하나이며, 파일 이름이 도구 이름이 됩니다. 에이전트와
+페이지가 같은 두 액션을 호출합니다.
+
+`create-note`는 로그인한 사용자를 소유자로 기록합니다. 메모는 조직이 활성화되어
+있으면 조직에게 보이고, 그렇지 않으면 작성자에게만 비공개입니다.
+
+```ts filename="actions/create-note.ts"
+import { defineAction, fail } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description:
+    "Create a note with a title and body. It is visible to the organization when one is active, otherwise only to its creator.",
+  schema: z.object({
+    title: z.string().min(1).describe("Short title for the note"),
+    body: z.string().describe("Full text of the note"),
+  }),
+  run: async (args, ctx) => {
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create notes.", { statusCode: 401 });
+    const orgId = ctx?.orgId ?? null;
+    const note = {
+      id: crypto.randomUUID(),
+      title: args.title,
+      body: args.body,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? ("org" as const) : ("private" as const),
+    };
+    await getDb().insert(schema.notes).values(note);
+    return { id: note.id, title: note.title };
+  },
+});
+```
+
+`list-notes`는 읽기 전용이며, `accessFilter`가 결과를 현재 사용자가 볼 수 있는
+메모로 제한합니다.
+
+```ts filename="actions/list-notes.ts"
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the notes the current user can see, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async () => {
+    const { notes, noteShares } = schema;
+    const rows = await getDb()
+      .select({
+        id: notes.id,
+        title: notes.title,
+        body: notes.body,
+        createdAt: notes.createdAt,
+      })
+      .from(notes)
+      .where(accessFilter(notes, noteShares))
+      .orderBy(desc(notes.createdAt))
+      .limit(200);
+    return { notes: rows };
+  },
+});
+```
+
+새 액션은 존재하는 즉시 채팅에서 호출할 수 있습니다. 모델의 기본 도구 모음에 넣고
+싶다면 [모델이 처음 보는 것](#initial-tools)을 참고하세요.
+
+### 3. 페이지와 사이드바 링크 추가하기
+
+앱은 파일 시스템 라우팅을 사용하므로, 이 파일을 추가하면 `/notes`가 마운트됩니다.
+페이지는 `useActionQuery()`와 `useActionMutation()`으로 에이전트와 같은 액션을
+호출하며, 변경에 성공하면 목록이 저절로 새로고침됩니다.
+
+```tsx filename="app/routes/notes.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APP_TITLE } from "@/lib/app-config";
+
+export function meta() {
+  return [{ title: `Notes - ${APP_TITLE}` }];
+}
+
+export default function NotesRoute() {
+  useSetPageTitle("Notes");
+  const { data, isLoading } = useActionQuery("list-notes");
+  const createNote = useActionMutation("create-note", {
+    onError: (error) => toast.error(error.message),
+  });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    createNote.mutate(
+      { title, body },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setBody("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Title"
+          required
+        />
+        <Input
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a note"
+        />
+        <Button type="submit" disabled={createNote.isPending}>
+          Add note
+        </Button>
+      </form>
+      <ul className="flex flex-col gap-2">
+        {isLoading && (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        )}
+        {data?.notes.map((note) => (
+          <li key={note.id} className="rounded-lg border p-3">
+            <p className="font-medium">{note.title}</p>
+            <p className="text-sm text-muted-foreground">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+`app/components/layout/Sidebar.tsx`에서 기존 `@tabler/icons-react` import에
+`IconNotes`를 추가하세요. 그런 다음 `HomeNavLink` 아래에 이 컴포넌트를 추가하세요.
+접힌 사이드바를 포함해 같은 패턴을 따릅니다.
+
+```tsx filename="app/components/layout/Sidebar.tsx"
+function NotesNavLink({ collapsed }: { collapsed: boolean }) {
+  const location = useLocation();
+  const active = location.pathname.startsWith("/notes");
+  const link = (
+    <Link
+      to="/notes"
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? "Notes" : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconNotes className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>Notes</span>
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">Notes</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
+}
+```
+
+그런 다음 사이드바의 `<nav>`에서 스레드 목록 앞에 렌더링하세요.
+
+```diff filename="app/components/layout/Sidebar.tsx"
+ <HomeNavLink collapsed={collapsed} />
++<NotesNavLink collapsed={collapsed} />
+ <ChatThreadsSection collapsed={collapsed} />
+```
+
+채팅 자체의 레이블은 번역 파일에서 오므로, 리터럴 "Notes"는 지름길입니다. 앱을
+현지화한다면 `app/i18n/en-US.ts`에 키를 추가하고 대신 `useT()`로 읽으세요.
+[국제화](/docs/internationalization)를 참고하세요.
+
+### 4. 에이전트에게 알려주기
+
+에이전트가 메모가 있다는 것과 어떤 액션이 이를 관리하는지 알 수 있도록 `AGENTS.md`에
+짧은 섹션을 추가하세요. 런타임 프롬프트는 파일을 6,000자에서 잘라내므로 간결하게
+유지하세요.
+
+```md filename="AGENTS.md"
+## Notes
+
+Notes live at `/notes`. Each note has a title and a body. A note is visible to
+the organization when one is active and private to its creator otherwise.
+
+| Action        | Purpose                             |
+| ------------- | ----------------------------------- |
+| `list-notes`  | List the notes the user can see     |
+| `create-note` | Create a note with a title and body |
+```
+
+새 액션과 마이그레이션이 로드되도록 `pnpm dev`를 다시 시작하세요. 그런 다음
+**Notes** 페이지에서 메모를 추가하고, 채팅에 "Create a note called Groceries with
+milk and eggs"라고 요청하세요. 두 메모 모두 목록에 나타납니다.
+
+## 다음 단계
+
+- [**채팅**](/docs/template-chat): 기본으로 제공되는 것과 대상 사용자
+- [**기능**](/docs/template-chat-features): 대화, 예제 액션, 팀, 관리자 페이지
+- [**액션**](/docs/actions-overview): 이 템플릿이 기반으로 하는 액션 시스템
+- [**네이티브 채팅 UI**](/docs/native-chat-ui): 채팅 화면 기본 요소와 런타임 옵션
+- [**데이터베이스**](/docs/server-database): PostgreSQL 연결과 프레임워크 데이터 모델
+- [**에이전트 관측성**](/docs/observability): 대시보드가 추적하는 것과 방법
+- [**확장**](/docs/extensions): 템플릿 안에 미니 앱 만들기
+- [**인증**](/docs/authentication): 세션, 조직, 보호된 라우트

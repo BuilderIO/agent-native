@@ -1,0 +1,603 @@
+---
+title: "聊天：開發者指南"
+description: "快速入門、action 清單、資料模型、逐步解析一個 action、路由參考，以及如何為聊天範本新增您的第一項功能。"
+---
+
+# 開發者指南
+
+本頁面適用於執行或擴充聊天範本的開發者。內容涵蓋快速入門、每個內建 action、
+資料模型、逐步解析一個 action、路由，以及如何新增您的第一項功能。這個應用程式
+的功能說明請參閱 [聊天](/docs/template-chat)。
+
+## 快速入門 {#quick-start}
+
+這一節將完整說明如何從尚未安裝任何東西，一路走到與代理展開一場真正的對話。
+無論您使用的是 macOS 上的終端機，還是 Windows 上的 PowerShell/命令提示字元，
+指令都完全相同，因為它們都是純粹的 Node.js 工具。
+
+<Steps>
+
+### 建立應用程式
+
+```bash
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+corepack enable
+pnpm install
+```
+
+這需要先安裝 [Node.js](https://nodejs.org) 22.22 或更新版本。如果 `pnpm` 不在
+您的 `PATH` 中，請在產生的應用程式中執行 `corepack enable`。如果您還沒有安裝
+Node.js，請參閱 [開始使用](/docs/getting-started)。
+
+### 啟動開發伺服器
+
+```bash
+pnpm dev
+```
+
+應用程式會在 `pnpm dev` 印出的本機網址開啟。如果沒有自動開啟，請在瀏覽器中
+造訪該網址。當 8080 連接埠已被使用時，連接埠可能會改變。
+
+### 登入並連線 LLM
+
+在 Welcome 畫面上，選取 **Continue as local dev**。本機開發不需要電子郵件或
+密碼。接著連線 LLM：選取 **使用 Builder.io** 可取得免費額度，或選取 **加入您自己的金鑰** 以使用您自己的模型提供者金鑰。聊天沒有需要填入的領域資料，所以一旦
+連線了 LLM，在開始聊天之前就沒有其他需要設定的了。
+
+</Steps>
+
+聊天是為瀏覽器 UI 打造的。如果您想要一個完全沒有畫面的代理，用於排程工作、
+佇列、CLI 迴圈或外部代理工作流程，請改用 `--headless` 來建立：
+
+```bash
+npx --yes @agent-native/core@latest create my-agent --headless
+```
+
+核心概念維持不變。actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 的共用介面。這條
+路徑的詳細說明請參閱 [自動化優先應用程式](/docs/pure-agent-apps)。
+
+## Action 清單 {#actions}
+
+每一個操作都是 `actions/` 目錄下的一個 TypeScript 檔案，除非 action 設定了
+`http: false`，否則會自動掛載到 `POST /_agent-native/actions/:name`。
+
+| Action                 | 功能說明                                                        |
+| ---------------------- | --------------------------------------------------------------- |
+| `hello`                | 範例 action。回傳一句問候語。請取代它，或在它旁邊新增 actions。 |
+| `view-screen`          | 標準的情境 action。為代理讀回目前的檢視畫面。                   |
+| `navigate`             | 標準的導覽 action。將 UI 移動到某個路由。                       |
+| `provider-api-request` | 透過已連線的 Slack 工作區呼叫 Slack Web API。                   |
+
+### 聊天執行階段 {#chat-runtime}
+
+`server/plugins/agent-chat.ts` 是設定聊天執行階段的地方。它做四件事：
+
+- 以 `loadActionsFromStaticRegistry`，將 `actions/` 中的每個 action 註冊為
+  可呼叫的工具。
+- 以 `resolveOrgId` 解析目前的組織，以進行範圍限定。
+- 設定系統提示。
+- 以 `initialToolNames` 宣告模型在第一回合能看到哪些工具。
+
+### actions 如何變成工具 {#actions-as-tools}
+
+每一個 `defineAction` 預設都是一個工具。設定 `agentTool: false`，可以讓某個
+action 仍供您的畫面使用，但對代理隱藏。
+
+### 模型最先看到什麼 {#initial-tools}
+
+`INITIAL_TOOL_NAMES` 列出 `view-screen`、`navigate`、`hello` 和
+`provider-api-request`。這些是第一回合唯一會傳送的工具。其他一切，包括您新增
+的 action，都仍可透過 `tool-search` 取得，並依需求載入。
+
+只有在您希望某個 action 從第一則訊息起就出現在模型的預設工具集中時，才把它的
+名稱加入那個清單。
+
+## 資料模型 {#data-model}
+
+聊天沒有定義自己的資料表。在您新增之前，沒有 `server/db/schema.ts`。應用程式
+運作於框架的核心資料表之上，涵蓋聊天對話串和訊息、application state、設定、
+工作階段、資源和執行記錄。這些屬於框架，所以請不要編輯它們。連線模型，以及
+新資料應該放在哪裡，請參閱 [資料庫](/docs/server-database)。
+
+`useDbSync()` 已經接入應用程式外殼。當代理或任何其他人寫入 SQL 時，用戶端會
+透過 SSE，或每 2 秒一次的輪詢備援收到變更，並讓對應的 React Query 快取失效。
+完整的 hook API 請參閱 [`useDbSync`](/docs/client-data#usedbsync)。
+
+您的第一個資料表是一個新檔案。請參閱 [新增您的第一項功能](#first-feature)。
+
+## 驗證 {#auth}
+
+驗證以 Better Auth 運作：登入、註冊、工作階段和組織，透過 `createAuthPlugin`，在 `server/plugins/auth.ts` 中設定。相同的流程在本機和生產環境中都一樣運作，唯一的差別是開發環境會略過電子郵件驗證，讓您可以立即註冊並開始建置。`createAuthPlugin` 也接受登入頁面的行銷文案（應用程式名稱、標語和功能重點），作為同一個檔案中的單純設定。完整的驗證模型（工作階段、組織、受保護的路由）請參閱 [驗證](/docs/authentication)。
+
+## 路由參考 {#routes}
+
+應用程式使用檔案系統路由（`app/routes.ts` 中的 `flatRoutes()`），所以新增一個
+路由檔案就足以掛載它。
+
+<FileTree
+  id="doc-block-chat3"
+  title="聊天範本的路由和元件"
+  entries={[
+    {
+      path: "app/routes/_index.tsx",
+      note: "/：共用的登入頁面，然後前往 /home",
+    },
+    {
+      path: "app/routes/home.tsx",
+      note: "/home：Get started 頁面，由 app/components/home/HomePage.tsx 渲染",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat：開始一個新的聊天，並交給 /chat/:threadId",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "/chat/:threadId：為該對話串渲染 ChatRouteContent",
+    },
+    {
+      path: "app/routes/settings.tsx",
+      note: "/settings 和 /settings/*：帳戶、連線、代理和組織頁面",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "/agent：重新導向到 Settings 中的代理頁面",
+    },
+    {
+      path: "app/routes/team.tsx",
+      note: "/team：重新導向到 /settings/organization",
+    },
+    {
+      path: "app/routes/database.tsx",
+      note: "/database：資料表瀏覽器和編輯器",
+    },
+    {
+      path: "app/routes/observability.tsx",
+      note: "/observability：代理追蹤、成本、評估和回饋",
+    },
+    {
+      path: "app/routes/extensions._index.tsx",
+      note: "/extensions：重新導向到 /settings/extensions",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "/extensions/:id（以及 /extensions/:id/:slug）：執行一個已儲存的擴充功能",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "全頁聊天介面。在這裡編輯空白狀態、輸入框和訊息插槽",
+    },
+    {
+      path: "app/components/layout/Sidebar.tsx",
+      note: "側邊欄：Home、對話串清單和組織切換器",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "聊天和首頁網址的路徑輔助函式",
+    },
+  ]}
+/>
+
+**Database**（`/database`）就是每個範本都有的同一個 `DbAdminPage`。它是針對應用程式 SQL 資料庫的直接資料表瀏覽器和編輯器。它背後的連線模型請參閱
+[資料庫](/docs/server-database)。
+
+**可觀測性**（`/observability`）就是每個範本都有的同一個零設定
+`ObservabilityDashboard`。它會顯示每次代理執行的追蹤、成本、評估和回饋，資料
+是從您自己資料庫中已有的資料計算而來。請參閱
+[代理可觀察性](/docs/observability)。
+
+**擴充功能**是沙盒化的 Alpine.js 小型應用程式。聊天掛載了檢視和執行它們的路由
+（`/extensions/:id`），並把 `/extensions` 重新導向到 Settings 中的 Extensions
+頁面。只有在您開啟 `server/plugins/agent-chat.ts` 中的
+`frameworkTools.extensions` 時，代理才能建立它們，而聊天預設是關閉的。它們能做
+什麼、不能做什麼，請參閱 [擴充功能](/docs/extensions)。
+
+## 自訂它 {#customizing}
+
+應用程式的每個部分都是可編輯的原始碼。從這裡開始：
+
+- `actions/`：新增一個包含 `defineAction` 的檔案，即可向代理和前端同時公開
+  新的 action。
+- `app/routes/`：UI。新增一個路由檔案即可掛載一個頁面。
+- `server/db/schema.ts`：當核心資料表不敷使用時，使用 Drizzle 新增您自己的
+  資料表。請保持程式碼與 PostgreSQL 相容，讓本機 PGlite 和託管 Postgres 使用
+  相同的語意。
+- `AGENTS.md`：代理指令。當您教代理新的 actions 或慣例時，請更新這個檔案。
+- `.agents/skills/`：代理遵循的詳細模式。
+
+如果您新增一項功能，請記得更新這四個區域：UI、action、skill 或 `AGENTS.md`
+條目，以及代理需要看到的任何 application state。這正是讓代理和 UI 保持一致的
+關鍵。
+
+### 聊天路由 {#chat-route}
+
+`app/components/chat/ChatRouteContent.tsx` 會在 `/chat/<threadId>` 渲染全頁
+聊天。聊天介面是由 AgentKit 的各個部分組合而成：一個傳輸層、一個對話串根元件，
+以及聊天檢視。它的文案來自 i18n 鍵值，而不是寫死的字串。實際的檔案更長。這是
+您最常編輯的部分。
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/components/chat/ChatRouteContent.tsx（精簡版）"
+  filename="app/components/chat/ChatRouteContent.tsx"
+  language="tsx"
+  code={
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "15-21",
+      label: "傳輸層",
+      note: "`createAgentNativeAgentKitTransport` 會把聊天檢視連接到應用程式的代理執行階段。`TAB_ID`（`app/lib/tab-id.ts`，每個瀏覽器分頁產生一次的隨機 id）讓執行階段能區分同一個應用程式的各個已開啟分頁，這樣在某個分頁中開始的執行，就不會被誤認為是另一個分頁中的執行。",
+    },
+    {
+      lines: "25-30",
+      label: "對話串根元件",
+      note: "`CoreAgentKitRoot` 會載入 `/chat/:threadId`（`chat.$threadId.tsx`）中指定的對話串。造訪 `/chat` 會建立一個新的對話串 id 並交給這裡處理。當對話串被分岔時，`chatThreadPath` 會把網址移到新的對話串。",
+    },
+    {
+      lines: "29",
+      label: "插槽",
+      note: "插槽會取代聊天檢視的部分內容。實際的檔案還會傳入 `message`、`runFailure`、`connectionRequest` 和 `footer` 插槽，用於復原訊息、MCP 連線卡片和代理頁尾。",
+    },
+    {
+      lines: "32-35",
+      label: "置中的輸入框",
+      note: '`emptyComposerPlacement="center"` 會讓輸入框在對話串有訊息之前保持置中。`requireAgentEngine` 會在連線模型之前顯示 Connect AI 卡片。',
+    },
+    {
+      lines: "40-47",
+      label: "空白狀態",
+      note: "置中輸入框上方的標題。它的文案是 `app/i18n/en-US.ts` 中的 `chat.heroTitle`：編輯該目錄即可變更宣傳語，或在這裡新增元素。",
+    },
+  ]}
+/>
+
+### 使用您自己的代理後端 {#own-agent-backend}
+
+範本預設使用內建的應用程式代理迴圈。若要連接自訂後端，請替換代理聊天外掛程式
+背後的聊天執行階段，而不是重寫 UI。聊天路由應該維持為共用聊天介面外面的一層
+薄薄的渲染器，後端的選擇則屬於伺服器外掛程式和執行階段轉接器。
+
+當您的模型編排已經存在於其他地方，但仍想要一個具備驗證、對話串、actions、UI
+狀態和可部署頁面的應用程式時，請使用這個做法。執行階段選項請參閱
+[原生聊天 UI](/docs/native-chat-ui#byo-agent-runtimes)。
+
+## 新增您的第一項功能 {#first-feature}
+
+大多數的第一項功能都遵循相同的形態：一個資料表、一兩個 actions、一個頁面、
+一個導覽項目，以及一次 `AGENTS.md` 更新。這一節分四個部分建置一個筆記功能，並
+附上每個檔案的完整程式碼。您也可以請代理完成所有這些：
+
+> Add a data model for `notes`. A note has an id, title, body, and owner. Render a notes page at `/notes`, add create/list actions, and keep chat able to create notes.
+
+### 1. 新增資料層
+
+聊天沒有附帶 `server/db` 資料夾，所以這裡的三個檔案都是新的。
+
+schema 定義資料表。`ownableColumns()` 會新增擁有者、組織和可見性欄位，
+`createSharesTable()` 則會新增一個對應的資料表供共用使用。
+
+```ts filename="server/db/schema.ts"
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import {
+  createSharesTable,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  ...ownableColumns(),
+});
+
+export const noteShares = createSharesTable("note_shares");
+```
+
+資料庫用戶端提供您的 actions `getDb()`，並向共用系統註冊 notes。
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+
+registerShareableResource({
+  type: "note",
+  resourceTable: schema.notes,
+  sharesTable: schema.noteShares,
+  displayName: "Note",
+  titleColumn: "title",
+  getResourcePath: (note) => `/notes/${note.id}`,
+  getDb,
+});
+```
+
+migration 會在應用程式啟動時建立資料表。之後的變更請新增項目，並且絕不要編輯
+已經執行過的項目。
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "notes",
+      sql: `CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now()),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
+);
+CREATE TABLE IF NOT EXISTS note_shares (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (now()),
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_owner_org_idx ON notes (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS note_shares_resource_idx ON note_shares (resource_id, principal_type, principal_id)`,
+    },
+  ],
+  { table: "notes_app_migrations" },
+);
+```
+
+### 2. 新增 actions
+
+每個 action 都是 `actions/` 中的一個檔案，檔名就是工具名稱。代理和您的頁面呼叫
+的是相同的兩個 actions。
+
+`create-note` 會把已登入的使用者記錄為擁有者。當有作用中的組織時，筆記對該組織
+可見，否則只有建立者自己可見。
+
+```ts filename="actions/create-note.ts"
+import { defineAction, fail } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description:
+    "Create a note with a title and body. It is visible to the organization when one is active, otherwise only to its creator.",
+  schema: z.object({
+    title: z.string().min(1).describe("Short title for the note"),
+    body: z.string().describe("Full text of the note"),
+  }),
+  run: async (args, ctx) => {
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create notes.", { statusCode: 401 });
+    const orgId = ctx?.orgId ?? null;
+    const note = {
+      id: crypto.randomUUID(),
+      title: args.title,
+      body: args.body,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? ("org" as const) : ("private" as const),
+    };
+    await getDb().insert(schema.notes).values(note);
+    return { id: note.id, title: note.title };
+  },
+});
+```
+
+`list-notes` 是唯讀的，而 `accessFilter` 會把結果限制在目前使用者可以看到的
+筆記。
+
+```ts filename="actions/list-notes.ts"
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the notes the current user can see, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async () => {
+    const { notes, noteShares } = schema;
+    const rows = await getDb()
+      .select({
+        id: notes.id,
+        title: notes.title,
+        body: notes.body,
+        createdAt: notes.createdAt,
+      })
+      .from(notes)
+      .where(accessFilter(notes, noteShares))
+      .orderBy(desc(notes.createdAt))
+      .limit(200);
+    return { notes: rows };
+  },
+});
+```
+
+新的 action 一存在，聊天就能呼叫它。如果您想讓它出現在模型的預設工具集中，請
+參閱 [模型最先看到什麼](#initial-tools)。
+
+### 3. 新增頁面和側邊欄連結
+
+應用程式使用檔案系統路由，所以新增這個檔案就會掛載 `/notes`。頁面透過
+`useActionQuery()` 和 `useActionMutation()` 呼叫與代理相同的 actions，而成功的
+mutation 會自動重新整理清單。
+
+```tsx filename="app/routes/notes.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APP_TITLE } from "@/lib/app-config";
+
+export function meta() {
+  return [{ title: `Notes - ${APP_TITLE}` }];
+}
+
+export default function NotesRoute() {
+  useSetPageTitle("Notes");
+  const { data, isLoading } = useActionQuery("list-notes");
+  const createNote = useActionMutation("create-note", {
+    onError: (error) => toast.error(error.message),
+  });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    createNote.mutate(
+      { title, body },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setBody("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Title"
+          required
+        />
+        <Input
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a note"
+        />
+        <Button type="submit" disabled={createNote.isPending}>
+          Add note
+        </Button>
+      </form>
+      <ul className="flex flex-col gap-2">
+        {isLoading && (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        )}
+        {data?.notes.map((note) => (
+          <li key={note.id} className="rounded-lg border p-3">
+            <p className="font-medium">{note.title}</p>
+            <p className="text-sm text-muted-foreground">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+在 `app/components/layout/Sidebar.tsx` 中，將 `IconNotes` 加入既有的
+`@tabler/icons-react` 匯入。然後把這個元件加在 `HomeNavLink` 的下方。它遵循
+相同的模式，包括收合的側邊欄。
+
+```tsx filename="app/components/layout/Sidebar.tsx"
+function NotesNavLink({ collapsed }: { collapsed: boolean }) {
+  const location = useLocation();
+  const active = location.pathname.startsWith("/notes");
+  const link = (
+    <Link
+      to="/notes"
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? "Notes" : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconNotes className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>Notes</span>
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">Notes</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
+}
+```
+
+然後在側邊欄的 `<nav>` 中，於對話串清單之前渲染它：
+
+```diff filename="app/components/layout/Sidebar.tsx"
+ <HomeNavLink collapsed={collapsed} />
++<NotesNavLink collapsed={collapsed} />
+ <ChatThreadsSection collapsed={collapsed} />
+```
+
+聊天自己的標籤來自翻譯檔案，所以直接寫入「Notes」字樣只是一個捷徑。如果您的
+應用程式已本地化，請在 `app/i18n/en-US.ts` 中新增鍵值，並改用 `useT()` 讀取
+它們。請參閱 [國際化](/docs/internationalization)。
+
+### 4. 告訴代理這件事
+
+在 `AGENTS.md` 的結尾附加一個簡短的段落，讓代理知道 notes 的存在，以及由哪些
+actions 來管理它們。請保持簡短，因為執行階段提示會在 6,000 個字元處截斷這個
+檔案。
+
+```md filename="AGENTS.md"
+## Notes
+
+Notes live at `/notes`. Each note has a title and a body. A note is visible to
+the organization when one is active and private to its creator otherwise.
+
+| Action        | Purpose                             |
+| ------------- | ----------------------------------- |
+| `list-notes`  | List the notes the user can see     |
+| `create-note` | Create a note with a title and body |
+```
+
+重新啟動 `pnpm dev`，讓新的 actions 和 migration 載入。然後在 **Notes** 頁面上
+新增一則筆記，並請聊天「Create a note called Groceries with milk and eggs」。
+兩則筆記都會出現在清單中。
+
+## 接下來
+
+- [**聊天**](/docs/template-chat)：預設內含什麼，以及適合誰使用
+- [**功能**](/docs/template-chat-features)：對話、範例 action、團隊和管理頁面
+- [**Actions**](/docs/actions-overview)：這個範本所建立於其上的 action 系統
+- [**原生聊天 UI**](/docs/native-chat-ui)：聊天介面原語和執行階段選項
+- [**資料庫**](/docs/server-database)：連線 PostgreSQL 和框架資料模型
+- [**代理可觀察性**](/docs/observability)：儀表板追蹤什麼，以及如何追蹤
+- [**擴充功能**](/docs/extensions)：在範本內部建置小型應用程式
+- [**驗證**](/docs/authentication)：工作階段、組織和受保護的路由

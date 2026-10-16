@@ -1,0 +1,114 @@
+---
+title: "Chat: Funktionen"
+description: "Alle Funktionen, die mit Chat ausgeliefert werden, darunter Konversationen, das Verbinden eines Modells, die Beispielaktion, Agent-Einstellungen, Teams und die Admin-Seiten, jeweils mit Einrichtungsschritten."
+---
+
+# Funktionen
+
+Alle Funktionen, die mit Chat ausgeliefert werden: wie sie funktionieren und wie Sie sie einrichten. Einen Überblick finden Sie unter [Chat](/docs/template-chat), Eingabeaufforderungen zum Ausprobieren unter [Mit dem Agent sprechen](/docs/template-chat-agent).
+
+## Konversationen
+
+Chat öffnet sich mit einem einzelnen Nachrichtenfeld unter der Überschrift „Wie kann ich helfen?“ Geben Sie eine Nachricht ein, und der Agent antwortet auf demselben Bildschirm. Das Feld bleibt zentriert, bis Sie Ihre erste Nachricht senden, und wandert dann nach unten, während die Konversation wächst.
+
+Die Seitenleiste listet Ihre Konversationen in zwei Gruppen auf. **Angepinnt** hält Chats ganz oben, und **Kürzlich** zeigt alles andere, die neuesten zuerst. Ein Chat, der noch arbeitet, zeigt neben seinem Titel einen Spinner, sodass Sie eine weitere Konversation starten können, ohne den Überblick über die erste zu verlieren.
+
+- **Einen neuen Chat starten** Sie mit **Neuer Chat** oben in der Seitenleiste.
+- **Einen Chat erneut öffnen** Sie, indem Sie ihn in der Liste auswählen.
+- **Einen Chat umbenennen, anheften oder archivieren** Sie über das Optionsmenü in seiner Zeile. Beim Archivieren verschwindet er aus der Liste.
+- **Die Seitenleiste einklappen** Sie, wenn Sie mehr Platz für die Konversation möchten.
+
+<Steps>
+
+### Einen Chat umbenennen
+
+Öffnen Sie das Optionsmenü in der Zeile des Chats und wählen Sie **Chat umbenennen**. Geben Sie den neuen Titel ein und drücken Sie die Eingabetaste. Titel können bis zu 160 Zeichen lang sein.
+
+### Einen Chat anheften, zu dem Sie zurückkehren
+
+Wählen Sie **Chat anheften** im selben Menü. Der Chat wandert nach **Angepinnt**, bis Sie **Chat lösen** wählen.
+
+### Einen Chat archivieren, mit dem Sie fertig sind
+
+Wählen Sie **Chat archivieren**. Wenn das Archivieren fehlschlägt, erscheint eine Meldung, und der Chat bleibt an seinem Platz.
+
+</Steps>
+
+## Ein Modell verbinden
+
+Der Agent braucht ein Modell, um zu antworten. Solange keines verbunden ist, steht im Nachrichtenfeld „Connect AI to start chatting...“. Wählen Sie **Builder.io verwenden** für kostenlose Credits oder **Eigene Schlüssel hinzufügen**, um einen eigenen Anbieterschlüssel zu verwenden. Danach kann der Agent sofort antworten.
+
+Um das Modell später zu ändern, öffnen Sie **Einstellungen** und wählen Sie **Modell**. Diese Seite legt das Standardmodell und die Anbieter fest, die die App nutzen kann.
+
+<Callout tone="info">
+
+Chat wählt kein Modell für Sie aus. Welche Modelle Sie auswählen können, hängt vom Anbieter ab, den Sie verbinden.
+
+</Callout>
+
+## Spracheingabe
+
+Das Nachrichtenfeld enthält eine Mikrofontaste. Wählen Sie sie, um eine Nachricht zu diktieren, statt sie zu tippen, und senden Sie sie dann wie jede andere. Sprach- und Diktieroptionen finden Sie unter **Einstellungen → Präferenzen**.
+
+## Die Beispielaktion
+
+Chat enthält eine Beispielaktion namens **hello**. Eine Aktion ist eine einzelne Sache, die die App tun kann, etwa jemanden begrüßen, eine Notiz erstellen oder einen Datensatz nachschlagen. Jede Aktion hat einen Namen, eine Beschreibung ihrer Funktion und die Angaben, die sie zum Ausführen braucht. Der Agent liest diese Beschreibungen, um zu entscheiden, welche Aktion er für Ihre Anfrage verwendet.
+
+Bitten Sie den Agenten, jemanden zu begrüßen, etwa „Rufe die Aktion hello für Alex auf“, und er führt hello mit diesem Namen aus und zeigt das Ergebnis. Sie existiert, damit Sie den gesamten Ablauf einmal sehen können, von Ihrer Nachricht über die Ausführung einer Aktion durch den Agenten bis zur Anzeige des Ergebnisses, bevor Sie Ihre eigene schreiben.
+
+Aktionen sind die gemeinsame Oberfläche einer Agent-Native-App. Der Agent nutzt sie, und die eigenen Bildschirme der App können es auch, sodass eine neue Aktion an beiden Orten ohne zusätzliche Einrichtung funktioniert. Entwickler fügen eigene Aktionen hinzu, wenn die App wächst. Wie sie funktionieren, erfahren Sie unter [Aktionen](/docs/actions-overview), und wie Sie eine schreiben, unter [Aktionen definieren](/docs/actions-defining).
+
+## Den Agenten in den Einstellungen formen
+
+Öffnen Sie **Einstellungen** und sehen Sie unter der Gruppe **Agent** nach. Diese Seiten steuern, wie sich der Agent in jedem Chat verhält.
+
+| Seite                | Was sie steuert                                                               |
+| -------------------- | ----------------------------------------------------------------------------- |
+| **Modell**           | Das Standardmodell und die Anbieterschlüssel.                                 |
+| **Anweisungen**      | Dauerhafte Vorgaben, denen der Agent in jedem Chat folgt.                     |
+| **Personalisierung** | Ihre eigenen benutzerdefinierten Anweisungen und Gedächtnispräferenzen.       |
+| **Gedächtnis**       | Dinge, die der Agent gelernt hat und sich chatübergreifend merkt.             |
+| **Skills**           | Wiederverwendbare Anleitungen, die der Agent für eine Aufgabenart laden kann. |
+| **Dateien**          | Referenzdateien, die der Agent lesen kann.                                    |
+| **Sub-Agenten**      | Hilfsagenten, an die der Hauptagent Arbeit übergeben kann.                    |
+
+Die Gruppe **Verbindungen** enthält **Integrationen** und **API-Schlüssel**, und die Gruppe **Konto** enthält **Profil**, **Präferenzen** und **Sicherheit**.
+
+<Steps>
+
+### Einstellungen öffnen
+
+Wählen Sie die Suchschaltfläche unten in der Seitenleiste und wählen Sie **Einstellungen**.
+
+### Eine Seite auswählen
+
+Wählen Sie eine Seite aus der Liste links. Änderungen gelten für Ihre nächste Nachricht.
+
+</Steps>
+
+## Anmeldung und Teams
+
+Chat erfordert eine Anmeldung. Login, Registrierung und Sitzungen sind ab dem ersten Start eingerichtet, und Anmeldemethoden, Mitglieder und Rollen verwalten Sie in den Einstellungen unter der Gruppe **Organisation**.
+
+Der Organisationswechsler unten in der Seitenleiste zeigt, in welcher Organisation Sie arbeiten, und lässt Sie wechseln. Halten Sie pro Arbeitsbereich eine einzige Organisation und fügen Sie Personen als Mitglieder hinzu. Zugangsdaten, die Sie verbinden, werden pro Organisation gespeichert, sodass eine zweite Organisation die Schlüssel, die unter der ersten verbunden wurden, nicht sieht.
+
+## Datenbank und Beobachtbarkeit
+
+Mit Chat werden zwei Admin-Seiten ausgeliefert. Sie sind nicht in der Seitenleiste verlinkt, öffnen Sie sie also über ihre Adresse.
+
+- **Datenbank** unter `/database` zeigt die Tabellen der App und lässt Sie die Zeilen durchsuchen, die der Agent und die App gespeichert haben.
+- **Beobachtbarkeit** unter `/observability` zeigt, was der Agent getan hat, mit Tabs für eine Übersicht, Konversationen, Evals, Experimente und Feedback.
+
+Beide sind für die Person gedacht, die die App betreibt. Sie sind eingebunden, ob Sie sie je öffnen oder nicht.
+
+## Mini-Apps
+
+Chat hat eine Seite für **Erweiterungen**, kleine, isolierte Werkzeuge, die innerhalb der App laufen, etwa ein Taschenrechner oder eine Checkliste. Sie finden sie in den Einstellungen unter Erweiterungen. Der Agent kann sie noch nicht bauen. Ihm das Erstellen von Erweiterungen zu erlauben, ist ein Schalter, den ein Entwickler umlegt, und Chat wird mit ausgeschaltetem Schalter ausgeliefert. Unter [Erweiterungen](/docs/extensions) erfahren Sie, was sie sind und wie Sie sie aktivieren.
+
+## Wie geht es weiter?
+
+- [**Mit dem Agent sprechen**](/docs/template-chat-agent) — was der Agent sehen kann, und Eingabeaufforderungen zum Ausprobieren
+- [**Chat in einem Multi-App-Arbeitsbereich**](/docs/template-chat-integrations) — Chat mit Dispatch und anderen Apps verbinden
+- [**Entwicklerhandbuch**](/docs/template-chat-developers) — Schnellstart, Aktionen, die Chat-Route und das Hinzufügen Ihrer ersten Funktion
+- [**Chat**](/docs/template-chat) — der Überblick
+- [**Erweiterungen**](/docs/extensions) — wie Mini-Apps gebaut und geteilt werden

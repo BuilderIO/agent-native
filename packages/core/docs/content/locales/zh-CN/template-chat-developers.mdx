@@ -1,0 +1,594 @@
+---
+title: "聊天：开发者指南"
+description: "快速入门、action 清单、数据模型、逐步解析一个 action、路由参考，以及如何为聊天模板添加您的第一个功能。"
+---
+
+# Developer Guide
+
+本页适用于运行或扩展聊天模板的开发者。内容涵盖快速入门、每一个内置 action、
+数据模型、逐步解析一个 action、路由，以及如何添加您的第一个功能。有关该应用
+的功能，请参阅 [聊天](/docs/template-chat)。
+
+## 快速入门 {#quick-start}
+
+本节将引导您从零安装开始，一直到与代理开始一场真实的对话为止。无论您是在
+macOS 的终端中，还是在 Windows 的 PowerShell/命令提示符中，这些命令都完全
+相同，它们都是普通的 Node.js 工具命令。
+
+<Steps>
+
+### 创建应用
+
+```bash
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+corepack enable
+pnpm install
+```
+
+这需要先安装 [Node.js](https://nodejs.org) 22.22 或更高版本。如果 `pnpm`
+不在您的 `PATH` 中，请在生成的应用中运行 `corepack enable`。如果您还没有
+安装 Node.js，请参阅[快速入门](/docs/getting-started)。
+
+### 启动开发服务器
+
+```bash
+pnpm dev
+```
+
+应用会在 `pnpm dev` 打印出的本地 URL 打开。如果没有自动打开，请在浏览器中访问
+该 URL。当 8080 已被占用时，端口可能会改变。
+
+### 登录并连接 LLM
+
+在欢迎屏幕上，选择**以本地开发身份继续**。本地开发无需邮箱或密码。然后连接
+LLM：选择**使用 Builder.io** 可获得免费额度，或选择**添加您自己的密钥**来使用
+您自己的模型服务商密钥。聊天没有需要预置的领域数据，因此一旦连接了 LLM，您就
+无需任何其他设置，可以直接开始聊天。
+
+</Steps>
+
+聊天是为浏览器界面构建的。如果您想要一个完全没有屏幕的代理，用于定时作业、
+队列、CLI 循环或外部代理工作流，请改用 `--headless` 来搭建：
+
+```bash
+npx --yes @agent-native/core@latest create my-agent --headless
+```
+
+核心思路保持不变。actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的接口。有关这
+条路径的详细介绍，请参阅[自动化优先应用](/docs/pure-agent-apps)。
+
+## Action 清单 {#actions}
+
+每一个操作都是 `actions/` 中的一个 TypeScript 文件，除非该 action 设置了
+`http: false`，否则会自动挂载在 `POST /_agent-native/actions/:name`。
+
+| Action                 | 功能                                                            |
+| ---------------------- | --------------------------------------------------------------- |
+| `hello`                | 示例 action。返回一句问候。可以替换它，或在它旁边添加 actions。 |
+| `view-screen`          | 标准的上下文 action。将当前视图读回给代理。                     |
+| `navigate`             | 标准的导航 action。将界面移动到某个路由。                       |
+| `provider-api-request` | 通过已连接的 Slack 工作区调用 Slack Web API。                   |
+
+### 聊天运行时 {#chat-runtime}
+
+`server/plugins/agent-chat.ts` 是配置聊天运行时的地方。它做四件事：
+
+- 通过 `loadActionsFromStaticRegistry`，将 `actions/` 中的每一个 action 注册为
+  可调用的工具。
+- 通过 `resolveOrgId`，解析用于限定范围的当前组织。
+- 设置系统提示。
+- 通过 `initialToolNames`，声明模型在第一轮对话中能看到哪些工具。
+
+### action 如何成为工具 {#actions-as-tools}
+
+每一个 `defineAction` 默认都是一个工具。设置 `agentTool: false` 可以让某个
+action 对您的界面可用，但对代理隐藏。
+
+### 模型最先看到什么 {#initial-tools}
+
+`INITIAL_TOOL_NAMES` 列出了 `view-screen`、`navigate`、`hello` 和
+`provider-api-request`。这些是在第一轮对话中发送的唯一工具。其他所有内容，包括您
+添加的 action，都可以通过 `tool-search` 访问，并按需加载。
+
+只有当您希望某个 action 从第一条消息起就出现在模型的默认工具集中时，才把它的
+名称添加到该列表。
+
+## 数据模型 {#data-model}
+
+聊天没有定义自己的任何表。在您添加之前，不存在 `server/db/schema.ts`。应用运行在
+框架的核心表之上，这些表涵盖聊天线程和消息、应用状态、设置、会话、资源和运行历史。
+它们属于框架，因此请不要编辑它们。有关连接模型以及新数据应存放在哪里，请参阅
+[数据库](/docs/server-database)。
+
+`useDbSync()` 已经接入应用外壳。当代理或其他任何人写入 SQL 时，客户端会通过
+SSE（或 2 秒的轮询回退机制）收到这一更改，并使匹配的 React Query 缓存失效。有关
+完整的 hook API，请参阅 [`useDbSync`](/docs/client-data#usedbsync)。
+
+您的第一个表是一个新文件。请参阅[添加您的第一个功能](#first-feature)。
+
+## 身份验证 {#auth}
+
+身份验证运行在 Better Auth 之上：登录、注册、会话和组织，通过 `createAuthPlugin` 在 `server/plugins/auth.ts` 中配置。本地和生产环境运行的是同一套流程，只是开发环境会跳过邮箱验证，以便您可以立即注册并开始构建。`createAuthPlugin` 还会在同一个文件中，以普通配置的形式接收登录页面的宣传文案（应用名称、标语和功能要点）。有关完整的身份验证模型（会话、组织、受保护的路由），请参阅[身份验证](/docs/authentication)。
+
+## 路由参考 {#routes}
+
+应用使用文件系统路由（`app/routes.ts` 中的 `flatRoutes()`），因此添加一个路由
+文件就足以挂载它。
+
+<FileTree
+  id="doc-block-chat3"
+  title="聊天模板的路由和组件"
+  entries={[
+    {
+      path: "app/routes/_index.tsx",
+      note: "/：共用的登录页面，之后跳转到 /home",
+    },
+    {
+      path: "app/routes/home.tsx",
+      note: "/home：“开始使用”页面，由 app/components/home/HomePage.tsx 渲染",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat：开始一个新聊天，并转交给 /chat/:threadId",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "/chat/:threadId：为该线程渲染 ChatRouteContent",
+    },
+    {
+      path: "app/routes/settings.tsx",
+      note: "/settings 和 /settings/*：账户、连接、代理和组织页面",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "/agent：重定向到设置中的代理页面",
+    },
+    {
+      path: "app/routes/team.tsx",
+      note: "/team：重定向到 /settings/organization",
+    },
+    {
+      path: "app/routes/database.tsx",
+      note: "/database：表浏览器和编辑器",
+    },
+    {
+      path: "app/routes/observability.tsx",
+      note: "/observability：代理追踪、成本、评估和反馈",
+    },
+    {
+      path: "app/routes/extensions._index.tsx",
+      note: "/extensions：重定向到 /settings/extensions",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "/extensions/:id（以及 /extensions/:id/:slug）：运行一个已保存的扩展",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "全页聊天界面。在这里编辑空状态、输入框和消息插槽",
+    },
+    {
+      path: "app/components/layout/Sidebar.tsx",
+      note: "侧边栏：首页、线程列表和组织切换器",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "聊天和首页 URL 的路径辅助函数",
+    },
+  ]}
+/>
+
+**数据库**（`/database`）是每个模板都有的同一个 `DbAdminPage`。它是针对应用 SQL
+数据库的直接表浏览器和编辑器。有关其背后的连接模型，请参阅
+[数据库](/docs/server-database)。
+
+**可观测性**（`/observability`）是每个模板都有的同一个零配置
+`ObservabilityDashboard`。它显示每次代理运行的追踪、成本、评估和反馈，数据来自您自己数据库中
+已有的内容。请参阅[代理可观测性](/docs/observability)。
+
+**扩展**是沙盒化的 Alpine.js 小型应用。聊天挂载了用于查看和运行它们的路由
+（`/extensions/:id`），并将 `/extensions` 重定向到设置中的扩展页面。只有当您在
+`server/plugins/agent-chat.ts` 中开启 `frameworkTools.extensions` 之后，代理才能创建它们，
+而聊天默认将其关闭。有关它们能做什么和不能做什么，请参阅[扩展](/docs/extensions)。
+
+## 自定义 {#customizing}
+
+应用的每一部分都是可编辑的源代码。可以从这里开始：
+
+- `actions/`：使用 `defineAction` 添加一个新文件，即可同时向代理和前端暴露一个新的 action。
+- `app/routes/`：界面。添加一个路由文件即可挂载一个页面。
+- `server/db/schema.ts`：当核心表不够用时，使用 Drizzle 添加您自己的表。请保持代码兼容
+  PostgreSQL，让本地 PGlite 和托管的 Postgres 使用相同的语义。
+- `AGENTS.md`：代理指令。当您教代理新的 actions 或约定时，请更新它。
+- `.agents/skills/`：代理遵循的详细模式。
+
+如果您添加了一个功能，请记得更新全部四个方面：界面、action、技能或 `AGENTS.md` 条目，以及
+代理需要看到的任何应用状态。这样才能让代理和界面保持对等。
+
+### 聊天路由 {#chat-route}
+
+`app/components/chat/ChatRouteContent.tsx` 在 `/chat/<threadId>` 渲染全页聊天。
+聊天界面由 AgentKit 的几个部分组装而成：一个 transport、一个线程根节点和聊天视图。
+它的文案来自 i18n 键，而不是字面字符串。真实的文件更长。这是您最常编辑的部分。
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/components/chat/ChatRouteContent.tsx（已精简）"
+  filename="app/components/chat/ChatRouteContent.tsx"
+  language="tsx"
+  code={
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "15-21",
+      label: "Transport（传输层）",
+      note: "`createAgentNativeAgentKitTransport` 将聊天视图连接到应用的代理运行时。`TAB_ID`（`app/lib/tab-id.ts`，每个浏览器标签页生成一次的随机 id）让运行时能够区分同一应用中打开的多个标签页，因此在一个标签页中启动的运行不会被误认为是另一个标签页中的运行。",
+    },
+    {
+      lines: "25-30",
+      label: "线程根节点",
+      note: "`CoreAgentKitRoot` 会加载 `/chat/:threadId`（`chat.$threadId.tsx`）中指定的线程。访问 `/chat` 会创建一个新的线程 id 并转交到这里。当某个线程被分叉时，`chatThreadPath` 会将 URL 移动到新线程。",
+    },
+    {
+      lines: "29",
+      label: "插槽",
+      note: "插槽用于替换聊天视图的各个部分。真实的文件还会传入 `message`、`runFailure`、`connectionRequest` 和 `footer` 插槽，分别用于恢复消息、MCP 连接卡片和代理页脚。",
+    },
+    {
+      lines: "32-35",
+      label: "居中的输入框",
+      note: '`emptyComposerPlacement="center"` 会让输入框居中，直到线程中有了消息。`requireAgentEngine` 会显示“连接 AI”卡片，直到连接了模型。',
+    },
+    {
+      lines: "40-47",
+      label: "空状态",
+      note: "居中输入框上方的标题。它的文案是 `app/i18n/en-US.ts` 中的 `chat.heroTitle`：编辑该目录即可更改宣传语，也可以在这里添加元素。",
+    },
+  ]}
+/>
+
+### 使用您自己的代理后端 {#own-agent-backend}
+
+模板默认使用内置的应用代理循环。如需连接自定义后端，请替换代理聊天插件背后的
+聊天运行时，而不是重写界面。聊天路由应当只是围绕共享聊天界面的一层轻量渲染器，
+后端的选择应放在服务器插件和运行时适配器中。
+
+当您的模型编排已经存在于其他地方，但您仍然想要一个具备身份验证、线程、actions、
+界面状态和可部署页面的应用时，请使用这种方式。有关运行时选项，请参阅
+[原生聊天界面](/docs/native-chat-ui#byo-agent-runtimes)。
+
+## 添加您的第一个功能 {#first-feature}
+
+大多数第一个功能都遵循相同的结构：一个表、一两个 actions、一个页面、一个导航入口，
+以及对 `AGENTS.md` 的更新。本节分四个部分构建一个笔记功能，并给出每个文件的完整代码。
+您也可以请代理来完成这一切：
+
+> 为 `notes` 添加一个数据模型。一条笔记有 id、标题、正文和所有者。在 `/notes` 渲染一个笔记页面，添加创建和列表 actions，并保持聊天能够创建笔记。
+
+### 1. 添加数据层
+
+聊天没有自带 `server/db` 文件夹，因此这里的三个文件都是新增的。
+
+schema 定义了这些表。`ownableColumns()` 会添加所有者、组织和可见性列，
+`createSharesTable()` 会添加一个与之匹配的用于共享的表。
+
+```ts filename="server/db/schema.ts"
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import {
+  createSharesTable,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  ...ownableColumns(),
+});
+
+export const noteShares = createSharesTable("note_shares");
+```
+
+数据库客户端为您的 actions 提供 `getDb()`，并将笔记注册到共享系统中。
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+
+registerShareableResource({
+  type: "note",
+  resourceTable: schema.notes,
+  sharesTable: schema.noteShares,
+  displayName: "Note",
+  titleColumn: "title",
+  getResourcePath: (note) => `/notes/${note.id}`,
+  getDb,
+});
+```
+
+迁移会在应用启动时创建这些表。之后的更改请添加新条目，切勿编辑已经运行过的条目。
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "notes",
+      sql: `CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now()),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
+);
+CREATE TABLE IF NOT EXISTS note_shares (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (now()),
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_owner_org_idx ON notes (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS note_shares_resource_idx ON note_shares (resource_id, principal_type, principal_id)`,
+    },
+  ],
+  { table: "notes_app_migrations" },
+);
+```
+
+### 2. 添加 actions
+
+每个 action 都是 `actions/` 中的一个文件，文件名会成为工具名称。代理和您的页面
+调用的是同样的两个 actions。
+
+`create-note` 会将已登录用户记录为所有者。当有活跃的组织时，该笔记对组织可见，否则
+仅对其创建者私有。
+
+```ts filename="actions/create-note.ts"
+import { defineAction, fail } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description:
+    "Create a note with a title and body. It is visible to the organization when one is active, otherwise only to its creator.",
+  schema: z.object({
+    title: z.string().min(1).describe("Short title for the note"),
+    body: z.string().describe("Full text of the note"),
+  }),
+  run: async (args, ctx) => {
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create notes.", { statusCode: 401 });
+    const orgId = ctx?.orgId ?? null;
+    const note = {
+      id: crypto.randomUUID(),
+      title: args.title,
+      body: args.body,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? ("org" as const) : ("private" as const),
+    };
+    await getDb().insert(schema.notes).values(note);
+    return { id: note.id, title: note.title };
+  },
+});
+```
+
+`list-notes` 是只读的，`accessFilter` 会将结果限制为当前用户可以看到的笔记。
+
+```ts filename="actions/list-notes.ts"
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the notes the current user can see, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async () => {
+    const { notes, noteShares } = schema;
+    const rows = await getDb()
+      .select({
+        id: notes.id,
+        title: notes.title,
+        body: notes.body,
+        createdAt: notes.createdAt,
+      })
+      .from(notes)
+      .where(accessFilter(notes, noteShares))
+      .orderBy(desc(notes.createdAt))
+      .limit(200);
+    return { notes: rows };
+  },
+});
+```
+
+新的 action 一经创建，聊天就可以调用。如果您希望它出现在模型的默认工具集中，请参阅
+[模型最先看到什么](#initial-tools)。
+
+### 3. 添加页面和侧边栏链接
+
+应用使用文件系统路由，因此添加这个文件就会挂载 `/notes`。该页面通过 `useActionQuery()`
+和 `useActionMutation()` 调用与代理相同的 actions，成功的变更会自动刷新列表。
+
+```tsx filename="app/routes/notes.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APP_TITLE } from "@/lib/app-config";
+
+export function meta() {
+  return [{ title: `Notes - ${APP_TITLE}` }];
+}
+
+export default function NotesRoute() {
+  useSetPageTitle("Notes");
+  const { data, isLoading } = useActionQuery("list-notes");
+  const createNote = useActionMutation("create-note", {
+    onError: (error) => toast.error(error.message),
+  });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    createNote.mutate(
+      { title, body },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setBody("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Title"
+          required
+        />
+        <Input
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a note"
+        />
+        <Button type="submit" disabled={createNote.isPending}>
+          Add note
+        </Button>
+      </form>
+      <ul className="flex flex-col gap-2">
+        {isLoading && (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        )}
+        {data?.notes.map((note) => (
+          <li key={note.id} className="rounded-lg border p-3">
+            <p className="font-medium">{note.title}</p>
+            <p className="text-sm text-muted-foreground">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+在 `app/components/layout/Sidebar.tsx` 中，将 `IconNotes` 添加到现有的
+`@tabler/icons-react` 导入中。然后在 `HomeNavLink` 下方添加这个组件。它遵循相同的
+模式，包括折叠后的侧边栏。
+
+```tsx filename="app/components/layout/Sidebar.tsx"
+function NotesNavLink({ collapsed }: { collapsed: boolean }) {
+  const location = useLocation();
+  const active = location.pathname.startsWith("/notes");
+  const link = (
+    <Link
+      to="/notes"
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? "Notes" : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconNotes className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>Notes</span>
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">Notes</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
+}
+```
+
+然后在侧边栏的 `<nav>` 中、线程列表之前渲染它：
+
+```diff filename="app/components/layout/Sidebar.tsx"
+ <HomeNavLink collapsed={collapsed} />
++<NotesNavLink collapsed={collapsed} />
+ <ChatThreadsSection collapsed={collapsed} />
+```
+
+聊天自身的标签来自翻译文件，因此这里直接写入字面量“Notes”只是一种捷径。如果您的应用
+已本地化，请改为向 `app/i18n/en-US.ts` 添加键，并通过 `useT()` 读取。请参阅
+[国际化](/docs/internationalization)。
+
+### 4. 告诉代理
+
+在 `AGENTS.md` 末尾追加一个简短的章节，让代理知道笔记的存在以及由哪些 actions 管理它们。
+请保持简短，因为运行时提示会在 6,000 个字符处截断该文件。
+
+```md filename="AGENTS.md"
+## Notes
+
+Notes live at `/notes`. Each note has a title and a body. A note is visible to
+the organization when one is active and private to its creator otherwise.
+
+| Action        | Purpose                             |
+| ------------- | ----------------------------------- |
+| `list-notes`  | List the notes the user can see     |
+| `create-note` | Create a note with a title and body |
+```
+
+重启 `pnpm dev`，让新的 actions 和迁移加载。然后在**Notes** 页面添加一条笔记，并请聊天
+“Create a note called Groceries with milk and eggs”。两条笔记都会出现在列表中。
+
+## 接下来
+
+- [**聊天**](/docs/template-chat)：默认内置了什么，以及适合谁
+- [**功能**](/docs/template-chat-features)：对话、示例 action、团队和管理页面
+- [**Actions**](/docs/actions-overview)：此模板所构建于其上的 action 系统
+- [**原生聊天界面**](/docs/native-chat-ui)：聊天界面的基础组件和运行时选项
+- [**数据库**](/docs/server-database)：连接 PostgreSQL 以及框架数据模型
+- [**代理可观测性**](/docs/observability)：仪表板追踪什么以及如何追踪
+- [**扩展**](/docs/extensions)：在模板内构建小型应用
+- [**身份验证**](/docs/authentication)：会话、组织和受保护的路由

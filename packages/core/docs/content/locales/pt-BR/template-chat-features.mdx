@@ -1,0 +1,168 @@
+---
+title: "Chat: Funcionalidades"
+description: "Todas as funcionalidades que vêm com o Chat, incluindo conversas, conexão de um modelo, a action de exemplo, configurações do agente, equipes e as páginas de administração, com passos de configuração para cada uma."
+---
+
+# Funcionalidades
+
+Todas as funcionalidades que vêm com o Chat: como funcionam e como
+configurá-las. Veja [Chat](/docs/template-chat) para a visão geral e
+[Conversar com o Agent](/docs/template-chat-agent) para prompts para
+experimentar.
+
+## Conversas
+
+O Chat abre com uma única caixa de mensagem sob o título "Como posso ajudar?"
+Digite uma mensagem e o agente responde na mesma tela. A caixa fica
+centralizada até você enviar a primeira mensagem e depois vai para a parte
+inferior conforme a conversa cresce.
+
+A barra lateral lista suas conversas em dois grupos. Os chats **Fixados**
+ficam no topo, e **Recentes** mostra todo o resto, do mais novo para o mais
+antigo. Um chat que ainda está trabalhando mostra um indicador de progresso
+ao lado do título, para que você possa iniciar outra conversa sem perder o
+controle da primeira.
+
+- **Inicie um novo chat** com **Novo chat** no topo da barra lateral.
+- **Reabra** qualquer chat selecionando-o na lista.
+- **Renomeie, fixe ou arquive** um chat pelo menu de opções na linha dele.
+  Arquivar remove o chat da lista.
+- **Recolha a barra lateral** quando quiser mais espaço para a conversa.
+
+<Steps>
+
+### Renomeie um chat
+
+Abra o menu de opções na linha do chat e escolha **Renomear chat**. Digite o
+novo título e pressione Enter. Os títulos podem ter até 160 caracteres.
+
+### Fixe um chat ao qual você volta
+
+Escolha **Fixar chat** no mesmo menu. O chat vai para **Fixados** até você
+escolher **Desafixar chat**.
+
+### Arquive um chat que você já concluiu
+
+Escolha **Arquivar chat**. Se o arquivamento falhar, uma mensagem aparece e o
+chat permanece onde está.
+
+</Steps>
+
+## Conecte um modelo
+
+O agente precisa de um modelo para responder. Até que um seja conectado, a
+caixa de mensagem mostra "Conecte a IA para começar a conversar..." Escolha
+**Usar Builder.io** para ganhar créditos gratuitos, ou **Adicionar suas
+próprias chaves** para usar uma chave de provedor sua. Depois disso, o agente
+já pode responder.
+
+Para trocar o modelo depois, abra **Configurações** e escolha **Modelo**.
+Essa página define o modelo padrão e os provedores que o aplicativo pode usar.
+
+<Callout tone="info">
+
+O Chat não escolhe um modelo por você. Os modelos entre os quais você pode
+escolher dependem do provedor que você conectar.
+
+</Callout>
+
+## Entrada de voz
+
+A caixa de mensagem inclui um botão de microfone. Selecione-o para ditar uma
+mensagem em vez de digitar, e então envie como qualquer outra. As opções de
+idioma e de ditado ficam em **Configurações → Preferências**.
+
+## A action de exemplo
+
+O Chat inclui uma action de exemplo chamada **hello**. Uma action é uma
+única coisa que o aplicativo sabe fazer, como cumprimentar alguém, criar uma
+nota ou buscar um registro. Cada action tem um nome, uma descrição do que
+faz e os detalhes de que precisa para ser executada. O agente lê essas
+descrições para decidir qual action usar para o seu pedido.
+
+Peça ao agente para cumprimentar alguém, como "Chame a action hello para o
+Alex", e ele executa a hello com esse nome e mostra o resultado. Ela existe
+para que você veja o ciclo completo uma vez, da sua mensagem até o agente
+executar uma action e mostrar o que voltou, antes de escrever as suas.
+
+As actions são a superfície compartilhada de um aplicativo agent-native. O
+agente as usa, e as próprias telas do aplicativo também podem usá-las, então
+uma nova action funciona nos dois lugares sem nenhuma configuração extra.
+Os desenvolvedores adicionam suas próprias actions conforme o aplicativo
+cresce. Veja [Actions](/docs/actions-overview) para saber como elas funcionam
+e [Definindo actions](/docs/actions-defining) para escrever uma.
+
+## Ajuste o agente em Configurações
+
+Abra **Configurações** e olhe no grupo **Agente**. Essas páginas controlam
+como o agente se comporta em todos os chats.
+
+| Página             | O que ela controla                                                              |
+| ------------------ | ------------------------------------------------------------------------------- |
+| **Modelo**         | O modelo padrão e as chaves dos provedores.                                     |
+| **Instruções**     | Orientações permanentes que o agente segue em todos os chats.                   |
+| **Personalização** | Suas próprias instruções personalizadas e preferências de memória.              |
+| **Memória**        | Coisas que o agente aprendeu e lembra entre os chats.                           |
+| **Habilidades**    | Guias práticos reutilizáveis que o agente pode carregar para um tipo de tarefa. |
+| **Arquivos**       | Arquivos de referência que o agente pode ler.                                   |
+| **Subagentes**     | Agentes auxiliares para os quais o agente principal pode delegar trabalho.      |
+
+O grupo **Conexões** reúne **Integrações** e **Chaves de API**, e o grupo
+**Conta** reúne **Perfil**, **Preferências** e **Segurança**.
+
+<Steps>
+
+### Abra as Configurações
+
+Selecione o botão de busca na parte inferior da barra lateral e escolha
+**Configurações**.
+
+### Escolha uma página
+
+Escolha uma página na lista à esquerda. As mudanças valem a partir da sua
+próxima mensagem.
+
+</Steps>
+
+## Login e equipes
+
+O Chat exige login. Login, cadastro e sessões já vêm configurados desde a
+primeira execução, e os métodos de login, os membros e as funções são
+gerenciados no grupo **Organização** em Configurações.
+
+O seletor de organização na parte inferior da barra lateral mostra em qual
+organização você está trabalhando e permite trocar. Mantenha uma única
+organização por workspace e adicione pessoas a ela como membros. As
+credenciais que você conecta são salvas por organização, então uma segunda
+organização não enxerga as chaves conectadas na primeira.
+
+## Banco de dados e Observabilidade
+
+Duas páginas de administração vêm com o Chat. Elas não têm link na barra
+lateral, então abra-as pelo endereço.
+
+- **Banco de dados** em `/database` mostra as tabelas do aplicativo e permite
+  navegar pelas linhas que o agente e o aplicativo salvaram.
+- **Observabilidade** em `/observability` mostra o que o agente tem feito,
+  com abas para uma visão geral, conversas, avaliações, experimentos e
+  feedback.
+
+Ambas são para quem executa o aplicativo. Elas ficam montadas mesmo que você
+nunca as abra.
+
+## Mini-apps
+
+O Chat tem uma página para **Extensões**, pequenas ferramentas isoladas que
+rodam dentro do aplicativo, como uma calculadora ou uma lista de verificação.
+Você as encontra em Extensões, em Configurações. O agente ainda não consegue
+criá-las. Permitir que ele crie extensões é uma chave que um desenvolvedor
+liga, e o Chat vem com ela desligada. Veja [Extensões](/docs/extensions) para
+saber o que elas são e como ativá-las.
+
+## Próximos passos
+
+- [**Conversar com o Agent**](/docs/template-chat-agent) — o que o agente consegue ver e prompts para experimentar
+- [**Chat em um workspace com múltiplos apps**](/docs/template-chat-integrations) — conectando o Chat ao Dispatch e a outros aplicativos
+- [**Guia do desenvolvedor**](/docs/template-chat-developers) — início rápido, actions, a rota de chat e como adicionar sua primeira funcionalidade
+- [**Chat**](/docs/template-chat) — a visão geral
+- [**Extensões**](/docs/extensions) — como os mini-apps são criados e compartilhados
