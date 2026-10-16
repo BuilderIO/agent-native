@@ -72,6 +72,7 @@ import {
   ActionHttpError,
   ActionRequestTimeoutError,
   ActionTransportError,
+  AuthoringFuzzStallError,
   CouldNotRun,
   getHarnessUnavailableError,
   isPlaywrightTimeoutFailure,
@@ -173,6 +174,14 @@ it("classifies fuzz action transport failures as could-not-run", () => {
       new Error("get-slide-content returned HTTP 500"),
     ),
   ).toBeNull();
+});
+
+it("keeps watchdog-detected stalls out of harness-unavailable outcomes", () => {
+  const stall = new AuthoringFuzzStallError(
+    "authoring fuzz failed (seed=7): Target page, context or browser has been closed",
+  );
+
+  expect(getHarnessUnavailableError(stall)).toBeNull();
 });
 
 it("keeps authoring action and canvas timeouts as seed failures", () => {
@@ -2121,6 +2130,17 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
       { ...candidate, competingClaimStartedAfterNavigation: true },
+      {
+        ...candidate,
+        pathname:
+          "/_agent-native/browser-sessions/other-session/requests/claim",
+        competingClaimStartedAfterNavigation: true,
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      candidate,
       {
         ...candidate,
         pathname:

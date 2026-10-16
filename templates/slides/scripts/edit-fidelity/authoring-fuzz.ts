@@ -1,6 +1,10 @@
 import type { OutsideSnapshot } from "./lib/in-page.ts";
 import { outsideChangesFor } from "./lib/metrics.ts";
-import { CouldNotRun, getHarnessUnavailableError } from "./run-outcomes.ts";
+import {
+  AuthoringFuzzStallError,
+  CouldNotRun,
+  getHarnessUnavailableError,
+} from "./run-outcomes.ts";
 
 export const AUTHORING_FUZZ_STYLE_PROPERTIES = [
   "font-family",
@@ -1661,9 +1665,13 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
 ) {
+  const possibleClaims = candidates.filter((candidate) =>
+    isBrowserSessionClaimRequest(candidate.method, candidate.pathname),
+  );
   return (
     message ===
       "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
+    possibleClaims.length === 1 &&
     hasExactlyOneExpectedBrowserSessionAbort(
       candidates,
       [browserSessionClaimRequestRule],
@@ -9109,7 +9117,7 @@ export async function runAuthoringFuzz(
     } catch (diagnosticError) {
       diagnostics = { status: "unavailable", error: String(diagnosticError) };
     }
-    throw formatAuthoringFuzzFailure(
+    const failure = formatAuthoringFuzzFailure(
       seed,
       activePhase,
       prefix,
@@ -9125,6 +9133,10 @@ export async function runAuthoringFuzz(
       ].join("\n"),
       options.browser,
     );
+    if (stallState.error) {
+      throw new AuthoringFuzzStallError(failure.message);
+    }
+    throw failure;
   } finally {
     if (traceWatchdog) clearInterval(traceWatchdog);
     let deferredOutgoingAbortErrors: string[] = [];
