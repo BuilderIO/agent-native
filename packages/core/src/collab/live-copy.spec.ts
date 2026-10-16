@@ -153,24 +153,6 @@ async function rejection(promise: Promise<unknown>) {
   throw new Error("expected a rejection");
 }
 
-/** Runs `work` while measuring the longest gap between 10 ms timer ticks. */
-async function withHeartbeat<T>(
-  work: () => Promise<T>,
-): Promise<{ result: T; maxGapMs: number }> {
-  let last = performance.now();
-  let maxGapMs = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    maxGapMs = Math.max(maxGapMs, now - last);
-    last = now;
-  }, 10);
-  try {
-    return { result: await work(), maxGapMs };
-  } finally {
-    clearInterval(timer);
-  }
-}
-
 beforeAll(async () => {
   taskSource = await bundleBoundedTaskSource(
     new URL("./__fixtures__/live-copy-tasks.ts", import.meta.url),
@@ -685,7 +667,18 @@ describe("applyUpdate on a live copy", () => {
       deadlineMs: 200,
       memoryLimitMb: 64,
     });
-    define();
+    const dispatched: string[] = [];
+    define({
+      runner: {
+        name: runner.name,
+        stats: () => runner.stats(),
+        close: () => runner.close(),
+        run: ((task: string, input: unknown) => {
+          dispatched.push(task);
+          return runner.run(task, input);
+        }) as BoundedTaskRunner["run"],
+      },
+    });
     // Yjs bookkeeping is quadratic in depth: this update takes most of a
     // second to integrate, on whichever thread integrates it.
     const deep = new Y.Doc();
@@ -707,14 +700,15 @@ describe("applyUpdate on a live copy", () => {
     const update = Y.encodeStateAsUpdate(deep, vector);
     await insertRow("live:deep", base64(base));
 
-    const { result, maxGapMs } = await withHeartbeat(() =>
-      rejection(manager.applyUpdate("live:deep", update)),
-    );
+    const result = await rejection(manager.applyUpdate("live:deep", update));
     expect(result).toMatchObject({
       code: "derive_failed",
       reason: "deadline_exceeded",
     });
-    expect(maxGapMs).toBeLessThan(250);
+    // Where the merge ran, not how long this thread stalled: a stall bound
+    // fails on a busy machine.
+    expect(dispatched).toEqual(["liveCopy.apply"]);
+    expect(mainThreadDecodes).toEqual([]);
     expect(await row("live:deep")).toMatchObject({ version: 0 });
   });
 
