@@ -160,6 +160,49 @@ function alignIcon(textAlign: string) {
   return IconAlignLeft;
 }
 
+type StyleScrubProps = {
+  snapshot: SlideStyleSnapshot;
+  onChange: (patch: SlideStylePatch) => boolean | void;
+  className?: string;
+};
+
+function OpacityScrub({ snapshot, onChange, className }: StyleScrubProps) {
+  const t = useT();
+  return (
+    <VisualScrubInput
+      label={t("styleInspector.opacity")}
+      icon={IconGridDots}
+      prefix="icon"
+      value={snapshot.opacity}
+      min={0}
+      max={100}
+      step={5}
+      unit="%"
+      className={className}
+      onChange={(opacity) => onChange({ opacity: String(opacity / 100) })}
+    />
+  );
+}
+
+function CornerRadiusScrub({ snapshot, onChange, className }: StyleScrubProps) {
+  const t = useT();
+  return (
+    <VisualScrubInput
+      label={t("styleInspector.cornerRadius")}
+      icon={IconBorderRadius}
+      prefix="icon"
+      value={snapshot.borderRadius}
+      min={0}
+      max={96}
+      unit="px"
+      className={className}
+      onChange={(radius) =>
+        onChange({ borderRadius: `${formatValue(radius)}px` })
+      }
+    />
+  );
+}
+
 export function SlideContextToolbar({
   snapshot,
   background,
@@ -1079,19 +1122,10 @@ export function SlideContextToolbar({
             </>
           ) : hasMultiObjectSelection ? (
             <>
-              <VisualScrubInput
-                label={t("styleInspector.opacity")}
-                icon={IconGridDots}
-                prefix="icon"
-                value={snapshot.opacity}
-                min={0}
-                max={100}
-                step={5}
-                unit="%"
+              <OpacityScrub
+                snapshot={snapshot}
+                onChange={onChange}
                 className={SCRUB_CLASS}
-                onChange={(opacity) =>
-                  onChange({ opacity: String(opacity / 100) })
-                }
               />
             </>
           ) : isVideoSelection ? (
@@ -1120,32 +1154,15 @@ export function SlideContextToolbar({
                   onChange({ height: `${formatValue(height)}px` })
                 }
               />
-              <VisualScrubInput
-                label={t("styleInspector.opacity")}
-                icon={IconGridDots}
-                prefix="icon"
-                value={snapshot.opacity}
-                min={0}
-                max={100}
-                step={5}
-                unit="%"
+              <OpacityScrub
+                snapshot={snapshot}
+                onChange={onChange}
                 className={SCRUB_CLASS}
-                onChange={(opacity) =>
-                  onChange({ opacity: String(opacity / 100) })
-                }
               />
-              <VisualScrubInput
-                label={t("styleInspector.cornerRadius")}
-                icon={IconBorderRadius}
-                prefix="icon"
-                value={snapshot.borderRadius}
-                min={0}
-                max={96}
-                unit="px"
+              <CornerRadiusScrub
+                snapshot={snapshot}
+                onChange={onChange}
                 className={SCRUB_CLASS}
-                onChange={(radius) =>
-                  onChange({ borderRadius: `${formatValue(radius)}px` })
-                }
               />
             </>
           ) : snapshot.isImage ? (
@@ -1177,32 +1194,15 @@ export function SlideContextToolbar({
                 </Button>
               )}
               <div className={TOOLBAR_DIVIDER} />
-              <VisualScrubInput
-                label={t("styleInspector.opacity")}
-                icon={IconGridDots}
-                prefix="icon"
-                value={snapshot.opacity}
-                min={0}
-                max={100}
-                step={5}
-                unit="%"
+              <OpacityScrub
+                snapshot={snapshot}
+                onChange={onChange}
                 className={SCRUB_CLASS}
-                onChange={(opacity) =>
-                  onChange({ opacity: String(opacity / 100) })
-                }
               />
-              <VisualScrubInput
-                label={t("styleInspector.cornerRadius")}
-                icon={IconBorderRadius}
-                prefix="icon"
-                value={snapshot.borderRadius}
-                min={0}
-                max={96}
-                unit="px"
+              <CornerRadiusScrub
+                snapshot={snapshot}
+                onChange={onChange}
                 className={SCRUB_CLASS}
-                onChange={(radius) =>
-                  onChange({ borderRadius: `${formatValue(radius)}px` })
-                }
               />
             </>
           ) : (
@@ -1216,32 +1216,15 @@ export function SlideContextToolbar({
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ backgroundColor: value })}
               />
-              <VisualScrubInput
-                label={t("styleInspector.opacity")}
-                icon={IconGridDots}
-                prefix="icon"
-                value={snapshot.opacity}
-                min={0}
-                max={100}
-                step={5}
-                unit="%"
+              <OpacityScrub
+                snapshot={snapshot}
+                onChange={onChange}
                 className={SCRUB_CLASS}
-                onChange={(opacity) =>
-                  onChange({ opacity: String(opacity / 100) })
-                }
               />
-              <VisualScrubInput
-                label={t("styleInspector.cornerRadius")}
-                icon={IconBorderRadius}
-                prefix="icon"
-                value={snapshot.borderRadius}
-                min={0}
-                max={96}
-                unit="px"
+              <CornerRadiusScrub
+                snapshot={snapshot}
+                onChange={onChange}
                 className={SCRUB_CLASS}
-                onChange={(radius) =>
-                  onChange({ borderRadius: `${formatValue(radius)}px` })
-                }
               />
 
               <div className={TOOLBAR_DIVIDER} />
@@ -1512,30 +1495,10 @@ export function SlideContextToolbar({
               {snapshot.isText && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
-                    <VisualScrubInput
-                      label={t("styleInspector.opacity")}
-                      icon={IconGridDots}
-                      prefix="icon"
-                      value={snapshot.opacity}
-                      min={0}
-                      max={100}
-                      step={5}
-                      unit="%"
-                      onChange={(opacity) =>
-                        onChange({ opacity: String(opacity / 100) })
-                      }
-                    />
-                    <VisualScrubInput
-                      label={t("styleInspector.cornerRadius")}
-                      icon={IconBorderRadius}
-                      prefix="icon"
-                      value={snapshot.borderRadius}
-                      min={0}
-                      max={96}
-                      unit="px"
-                      onChange={(radius) =>
-                        onChange({ borderRadius: `${formatValue(radius)}px` })
-                      }
+                    <OpacityScrub snapshot={snapshot} onChange={onChange} />
+                    <CornerRadiusScrub
+                      snapshot={snapshot}
+                      onChange={onChange}
                     />
                   </div>
                   <VisualScrubInput
