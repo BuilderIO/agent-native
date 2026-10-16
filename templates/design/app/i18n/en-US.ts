@@ -1632,6 +1632,8 @@ export default {
     tweaksPlaceholder: "Accent options, density, radius, dark mode...",
     designExport: "Design export",
     designPreview: "Design Preview",
+    preview: "Preview",
+    publish: "Publish",
     presentMode: "Present Mode",
     useThisDirection: "Use this direction",
     variantHandoffHelp:

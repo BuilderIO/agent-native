@@ -120,6 +120,7 @@ import { cn } from "@/lib/utils";
 import { updateCanvasPolygonSvgGeometry } from "@/pages/design-editor/canvas-primitive-insert";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
 import { CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS } from "@/pages/design-editor/commands/cross-screen-insert-timeout";
+import { getMarqueeScreenSelectionIds } from "@/pages/design-editor/selection-state";
 
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { parseBreakpointWidthInput } from "./BreakpointBar";
@@ -6263,9 +6264,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         if (final) {
           const hitScreenIds = [...latestFullyEnclosedScreenIds];
-          const selectedScreenIds = state.additive
-            ? xorMarqueeSelection(state.baseSelectedIds, hitScreenIds)
-            : hitScreenIds;
+          const selectedScreenIds = getMarqueeScreenSelectionIds({
+            additive: state.additive,
+            baseSelectedScreenIds: state.baseSelectedIds,
+            hitScreenIds,
+          });
           intent.selectedScreenIds = selectedScreenIds;
           intent.marqueeHitScreenIds = hitScreenIds;
           intent.marqueeSelectedScreenIds = hitScreenIds.filter((id) =>
@@ -6405,9 +6408,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
         collectForIntersectedScreens(intersectedScreenIds);
 
-        const selectedScreenIds = state.additive
-          ? xorMarqueeSelection(state.baseSelectedIds, hitIds)
-          : hitIds;
+        const selectedScreenIds = getMarqueeScreenSelectionIds({
+          additive: state.additive,
+          baseSelectedScreenIds: state.baseSelectedIds,
+          hitScreenIds: hitIds,
+        });
         updateSelectedIds(() => selectedScreenIds, {
           source: "marquee",
           additive: state.additive,

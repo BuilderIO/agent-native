@@ -119,6 +119,7 @@ vi.mock("../../../../actions/export-to-brain.js", () => ({
   default: { run: vi.fn() },
 }));
 
+import requestTranscript from "../../../../actions/request-transcript.js";
 import handler from "./post-finalize-worker.post";
 
 describe("post-finalize worker", () => {
@@ -211,6 +212,36 @@ describe("post-finalize worker", () => {
       retryAttempt: 1,
       regenerate: undefined,
       requireAccepted: true,
+    });
+  });
+
+  it("hands a regenerate the import it was accepted against", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "transcript",
+      token: "valid-token",
+      regenerate: true,
+      replaceImportId: "import-1",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          { id: "rec-1", ownerEmail: "owner@example.test", status: "ready" },
+        ]),
+      };
+      return builder;
+    });
+
+    await handler({} as any);
+
+    expect(requestTranscript.run).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      force: true,
+      retryAttempt: undefined,
+      regenerate: true,
+      replaceImportId: "import-1",
     });
   });
 

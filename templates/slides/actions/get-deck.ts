@@ -196,6 +196,8 @@ function compactAnimationSummary(value: unknown, content: string) {
           typeof animation.byParagraph === "boolean"
             ? animation.byParagraph
             : false,
+        trigger:
+          animation.trigger === "with-previous" ? "with-previous" : "on-click",
         type: typeof animation.type === "string" ? animation.type : null,
         targetPreview: targetSummary?.targetPreview ?? null,
         resolvedPath: targetSummary?.resolvedPath ?? null,

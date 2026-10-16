@@ -3,7 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
-const mockInsertValues = vi.hoisted(() => vi.fn());
+const mockInsertReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ recordingId: "rec_native" }]),
+);
+const mockInsertOnConflict = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockInsertReturning })),
+);
+const mockInsertValues = vi.hoisted(() =>
+  vi.fn(() => ({ onConflictDoUpdate: mockInsertOnConflict })),
+);
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ recordingId: "rec_native" }]),
 );
@@ -78,6 +86,9 @@ vi.mock("@agent-native/core/tracking", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  isNull: vi.fn((column: unknown) => ({ isNull: column })),
+  ne: vi.fn((column: unknown, value: unknown) => ({ ne: [column, value] })),
+  or: vi.fn((...args: unknown[]) => ({ or: args })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -106,6 +117,8 @@ vi.mock("../server/db/index.js", () => ({
       updatedAt: "recordingTranscripts.updatedAt",
       language: "recordingTranscripts.language",
       retryCount: "recordingTranscripts.retryCount",
+      source: "recordingTranscripts.source",
+      importId: "recordingTranscripts.importId",
     },
   },
 }));
@@ -736,6 +749,7 @@ describe("requestTranscript regeneration", () => {
         recordingId: "rec_ready",
         kind: "transcript",
         regenerate: true,
+        replaceImportId: null,
       });
       expect(result).toEqual({
         recordingId: "rec_ready",
@@ -976,6 +990,479 @@ describe("requestTranscript regeneration", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("with an imported transcript", () => {
+    const pendingRow = {
+      status: "pending",
+      fullText: "",
+      segmentsJson: "[]",
+      updatedAt: "2026-07-09T00:00:00.000Z",
+      language: "en",
+      retryCount: 0,
+      source: null,
+    };
+    // Mostly CJK text under the default "en" language: an automatic
+    // transcript like this would be retried as language-mismatched.
+    const importedRow = {
+      status: "ready",
+      fullText: "このプルリクエストはチャートの不具合を三つ直します。",
+      segmentsJson: JSON.stringify([
+        {
+          startMs: 0,
+          endMs: 4000,
+          text: "このプルリクエストはチャートの不具合を三つ直します。",
+        },
+      ]),
+      language: "en",
+      source: "imported",
+      importId: "import_1",
+    };
+    const recordingRow = {
+      videoUrl: "https://cdn.example.com/recording.mp4",
+      videoFormat: "mp4",
+      hasAudio: true,
+      durationMs: 4000,
+      title: "PR 7419",
+    };
+    const titleRow = {
+      title: "PR 7419",
+      titleSource: "manual",
+      description: "Saved",
+      durationMs: 4000,
+    };
+    const cloudTextWrites = () =>
+      mockUpdateSet.mock.calls.filter(
+        ([values]) =>
+          (values as { fullText?: string }).fullText === "Fresh transcript.",
+      );
+
+    it("keeps an import that finished before the job started", async () => {
+      mockSelectRows.queue = [[importedRow], [titleRow]];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(result).toMatchObject({ status: "ready", provider: "existing" });
+      expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+      expect(cloudTextWrites()).toHaveLength(0);
+    });
+
+    it("keeps an imported cue as written instead of rechunking it", async () => {
+      const longCue = "One imported cue that runs well past seven words long.";
+      mockSelectRows.queue = [
+        [
+          {
+            ...importedRow,
+            fullText: longCue,
+            segmentsJson: JSON.stringify([
+              { startMs: 0, endMs: 4000, text: longCue },
+            ]),
+          },
+        ],
+        [titleRow],
+      ];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(result).toMatchObject({ status: "ready", provider: "existing" });
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+      expect(mockInsertValues).not.toHaveBeenCalled();
+    });
+
+    it("titles the clip from an import that lands while a ready transcript is rechunked", async () => {
+      const untitledRow = {
+        ...titleRow,
+        title: "Untitled recording",
+        titleSource: "default",
+      };
+      mockRegenerateTitleRun.mockResolvedValue({ updated: true });
+      mockSelectRows.queue = [
+        [
+          {
+            ...pendingRow,
+            status: "ready",
+            fullText: "Automatic words with no segments yet.",
+          },
+        ],
+        [untitledRow],
+        [{ language: "en" }],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [untitledRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockRegenerateTitleRun).toHaveBeenCalledTimes(1);
+      expect(mockRegenerateTitleRun).toHaveBeenCalledWith(
+        expect.objectContaining({ transcriptText: importedRow.fullText }),
+      );
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
+    it("keeps an import that lands while cloud transcription runs", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [importedRow],
+        [titleRow],
+      ];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+      expect(cloudTextWrites()).toHaveLength(0);
+    });
+
+    it("lets a regenerate replace an import with the Loom transcript", async () => {
+      const startedFrom = {
+        ...importedRow,
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      };
+      mockFetchLoomTranscript.mockResolvedValueOnce({
+        language: "en",
+        segments: [{ startMs: 0, endMs: 4000, text: "Loom words." }],
+        fullText: "Loom words.",
+      });
+      mockSelectRows.queue = [
+        [startedFrom],
+        [
+          {
+            ...recordingRow,
+            videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+            sourceAppName: "Loom",
+            sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          },
+        ],
+        [{ recordingId: "rec_imported" }],
+      ];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+      });
+
+      const loomWrite = mockUpdateSet.mock.calls.findIndex(
+        ([values]) =>
+          (values as { fullText?: string }).fullText === "Loom words.",
+      );
+      expect(mockUpdateSet.mock.calls[loomWrite][0]).toMatchObject({
+        source: null,
+        importId: null,
+      });
+      expect(mockUpdateWhere.mock.calls[loomWrite][0]).toContainEqual({
+        or: [
+          {
+            or: [
+              { isNull: "recordingTranscripts.source" },
+              { ne: ["recordingTranscripts.source", "imported"] },
+            ],
+          },
+          {
+            column: "recordingTranscripts.importId",
+            value: startedFrom.importId,
+          },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", provider: "loom" });
+    });
+
+    it("lets a regenerate replace only the import it started from, not an identical re-import", async () => {
+      const startedFrom = {
+        ...importedRow,
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      };
+      mockSelectRows.queue = [
+        [startedFrom],
+        [recordingRow],
+        [{ recordingId: "rec_imported" }],
+        [{ ...startedFrom, importId: "import_2" }],
+        [titleRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+      });
+
+      const [cloudWrite] = cloudTextWrites();
+      expect(cloudWrite[0]).toMatchObject({ source: null, importId: null });
+      const cloudWriteIndex = mockUpdateSet.mock.calls.indexOf(cloudWrite);
+      expect(mockUpdateWhere.mock.calls[cloudWriteIndex][0]).toContainEqual({
+        or: [
+          {
+            or: [
+              { isNull: "recordingTranscripts.source" },
+              { ne: ["recordingTranscripts.source", "imported"] },
+            ],
+          },
+          {
+            column: "recordingTranscripts.importId",
+            value: startedFrom.importId,
+          },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
+    it.each([
+      ["the import current when it is accepted", undefined, "import_1"],
+      ["the import the user agreed to replace", "import_0", "import_0"],
+      ["no import when the user saw an automatic transcript", null, null],
+    ])(
+      "queues a regenerate pinned to %s",
+      async (_, replaceImportId, pinned) => {
+        mockSelectRows.queue = [
+          [{ ...importedRow, updatedAt: "2026-07-09T00:00:00.000Z" }],
+        ];
+
+        await requestTranscript.run(
+          {
+            recordingId: "rec_imported",
+            regenerate: true,
+            ...(replaceImportId !== undefined ? { replaceImportId } : {}),
+          },
+          { caller: "frontend" } as any,
+        );
+
+        expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+          recordingId: "rec_imported",
+          kind: "transcript",
+          regenerate: true,
+          replaceImportId: pinned,
+        });
+      },
+    );
+
+    it("keeps an import that lands while a queued regenerate waits", async () => {
+      const newerImport = {
+        ...importedRow,
+        importId: "import_2",
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      };
+      mockSelectRows.queue = [
+        [newerImport],
+        [recordingRow],
+        [{ recordingId: "rec_imported" }],
+        [newerImport],
+        [titleRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+        replaceImportId: "import_1",
+      });
+
+      const [cloudWrite] = cloudTextWrites();
+      const cloudWriteIndex = mockUpdateSet.mock.calls.indexOf(cloudWrite);
+      expect(mockUpdateWhere.mock.calls[cloudWriteIndex][0]).toContainEqual({
+        or: [
+          {
+            or: [
+              { isNull: "recordingTranscripts.source" },
+              { ne: ["recordingTranscripts.source", "imported"] },
+            ],
+          },
+          { column: "recordingTranscripts.importId", value: "import_1" },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
+    it("keeps any import when a queued regenerate started from an automatic transcript", async () => {
+      mockSelectRows.queue = [
+        [importedRow],
+        [recordingRow],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [titleRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+        replaceImportId: null,
+      });
+
+      const [cloudWrite] = cloudTextWrites();
+      const cloudWriteIndex = mockUpdateSet.mock.calls.indexOf(cloudWrite);
+      expect(mockUpdateWhere.mock.calls[cloudWriteIndex][0]).toContainEqual({
+        or: [
+          { isNull: "recordingTranscripts.source" },
+          { ne: ["recordingTranscripts.source", "imported"] },
+        ],
+      });
+      expect(
+        JSON.stringify(mockUpdateWhere.mock.calls[cloudWriteIndex][0]),
+      ).not.toContain("recordingTranscripts.importId");
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
+    it("never writes the cloud result over an import that lands just before the write", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [titleRow],
+      ];
+      mockUpdateReturning
+        .mockResolvedValueOnce([{ recordingId: "rec_imported" }])
+        .mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      const [cloudWrite] = cloudTextWrites();
+      expect(cloudWrite).toBeDefined();
+      const cloudWriteIndex = mockUpdateSet.mock.calls.indexOf(cloudWrite);
+      expect(mockUpdateWhere.mock.calls[cloudWriteIndex][0]).toContainEqual({
+        or: [
+          { isNull: "recordingTranscripts.source" },
+          { ne: ["recordingTranscripts.source", "imported"] },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+      expect(mockTrack).not.toHaveBeenCalledWith(
+        "recording_completed",
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it("stops before transcribing when an import lands just before the pending write", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [titleRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "pending" }),
+      );
+      expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
+    it("fails rather than transcribing when the row is deleted before the pending write", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      await expect(
+        requestTranscript.run({ recordingId: "rec_imported", force: true }),
+      ).rejects.toThrow("was removed while saving");
+      expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+    });
+
+    it("reports an import that lands just before a failure write, not the failure", async () => {
+      mockTranscribeWithBuilder.mockRejectedValue(new Error("provider down"));
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [titleRow],
+      ];
+      mockUpdateReturning
+        .mockResolvedValueOnce([{ recordingId: "rec_imported" }])
+        .mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      const failureWrite = mockUpdateSet.mock.calls.findIndex(
+        ([values]) => (values as { status?: string }).status === "failed",
+      );
+      expect(mockUpdateWhere.mock.calls[failureWrite][0]).toContainEqual({
+        or: [
+          { isNull: "recordingTranscripts.source" },
+          { ne: ["recordingTranscripts.source", "imported"] },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+      expect(mockTrack).not.toHaveBeenCalledWith(
+        "recording_transcription_failed",
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it("keeps an import that creates the row just before the first insert", async () => {
+      mockTranscribeWithBuilder.mockRejectedValue(new Error("provider down"));
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [pendingRow],
+        [],
+        [importedRow],
+        [titleRow],
+      ];
+      mockInsertReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "failed" }),
+      );
+      expect(mockInsertOnConflict).toHaveBeenCalledWith(
+        expect.objectContaining({
+          set: expect.objectContaining({ status: "failed" }),
+          setWhere: {
+            or: [
+              { isNull: "recordingTranscripts.source" },
+              { ne: ["recordingTranscripts.source", "imported"] },
+            ],
+          },
+        }),
+      );
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
   });
 });
 

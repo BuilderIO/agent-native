@@ -15,7 +15,8 @@ function resolveScope() {
 }
 
 export default defineAction({
-  description: "List saved dashboard history revisions for undo/restore.",
+  description:
+    "List saved dashboard history revisions for undo/restore. Each revision is the dashboard before one save: createdBy and createdAt name that save, and `changes` lists what it changed (changesStatus is `absent` for older revisions, `unreadable` when the stored list is corrupt).",
   schema: z.object({
     dashboardId: z.string().describe("Dashboard id to inspect"),
   }),
@@ -37,6 +38,13 @@ export default defineAction({
         chatContextStatus: revision.chatContextStatus,
         editable: revision.chatContextStatus === "valid",
         ...(revision.chatContext ? { chatContext: revision.chatContext } : {}),
+        changesStatus: revision.changesStatus,
+        ...(revision.changesStatus === "valid"
+          ? {
+              changes: revision.changes,
+              omittedChanges: revision.omittedChanges,
+            }
+          : {}),
       })),
     };
   },
