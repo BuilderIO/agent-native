@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   contentCollectionConfigSchema,
   searchConsoleSiteSchema,
+  signupsSettingsUpdateSchema,
 } from "../server/lib/content-metrics/config.js";
 import { ensureContentDashboard } from "../server/lib/content-metrics/dashboard.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
@@ -41,9 +42,14 @@ export default defineAction({
       .describe(
         'Search Console properties to collect, replacing the saved list, e.g. [{"siteUrl":"sc-domain:example.com","pathPrefix":"/blog/"}].',
       ),
+    signups: signupsSettingsUpdateSchema
+      .optional()
+      .describe(
+        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource, signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
   }),
   run: async (
-    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites },
+    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites, signups },
     ctx,
   ) => {
     const admin = await requireAnalyticsAdminContext({
@@ -63,6 +69,7 @@ export default defineAction({
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,
       },
+      signups: { ...saved.signups, ...signups },
     });
     await writeContentCollection(scope, { enabled, config });
     const dashboard = enabled ? await ensureContentDashboard(admin) : null;
