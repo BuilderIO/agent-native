@@ -5,6 +5,7 @@ import {
   type SuggestionOperation,
 } from "@agent-native/core/review";
 
+import { ACTIVE_COMMENT_AI_STATUSES } from "../../shared/comment-ai.js";
 import {
   commentAnchorText,
   rebaselinedCommentQuote,
@@ -17,14 +18,6 @@ import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "./suggested-edits.js";
 // every pending suggestion and comment quote is anchored to. This moves them
 // onto the canonical text in the conversion's own transaction, or refuses
 // the conversion when one of them would lose its target.
-
-const ACTIVE_COMMENT_AI_STATUSES = [
-  "classifying",
-  "classified",
-  "queued",
-  "running",
-  "refreshing",
-];
 
 export type PageRebaselineInput = {
   documentId: string;

@@ -14,25 +14,19 @@ import { z } from "zod";
 
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
-import type {
-  CommentAiErrorCode,
-  CommentAiIntent,
-  CommentAiPendingSession,
-  CommentAiRequest,
-  CommentAiSessionStatus,
-  CommentAiStatus,
-  CommentAiSubmittedMode,
-  StartCommentAiResult,
+import {
+  ACTIVE_COMMENT_AI_STATUSES,
+  type CommentAiErrorCode,
+  type CommentAiIntent,
+  type CommentAiPendingSession,
+  type CommentAiRequest,
+  type CommentAiSessionStatus,
+  type CommentAiStatus,
+  type CommentAiSubmittedMode,
+  type StartCommentAiResult,
 } from "../../shared/comment-ai.js";
 import { getDb, schema } from "../db/index.js";
 
-const ACTIVE_STATUSES = [
-  "classifying",
-  "classified",
-  "queued",
-  "running",
-  "refreshing",
-] as const;
 const TERMINAL_SUCCESS = ["replied", "suggested", "resolved"] as const;
 const MAX_ATTEMPTS = 2;
 
@@ -691,7 +685,9 @@ export async function startCommentAiRequest(
           and(
             eq(schema.commentAiRequests.documentId, args.documentId),
             eq(schema.commentAiRequests.rootCommentId, args.rootCommentId),
-            inArray(schema.commentAiRequests.status, [...ACTIVE_STATUSES]),
+            inArray(schema.commentAiRequests.status, [
+              ...ACTIVE_COMMENT_AI_STATUSES,
+            ]),
           ),
         )
         .limit(1);

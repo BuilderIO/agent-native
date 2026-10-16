@@ -14,6 +14,15 @@ export type CommentAiStatus =
   | "failed"
   | "cancelled";
 
+/** Statuses of a Comment AI request that is still working on its thread. */
+export const ACTIVE_COMMENT_AI_STATUSES = [
+  "classifying",
+  "classified",
+  "queued",
+  "running",
+  "refreshing",
+] as const satisfies readonly CommentAiStatus[];
+
 export type CommentAiAttemptStatus =
   | "reasoning"
   | "committing"

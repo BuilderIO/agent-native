@@ -160,23 +160,92 @@ export function rebaselinedCommentQuote(
     return nextText.includes(quote.quotedText)
       ? { kind: "unchanged" }
       : { kind: "orphaned" };
-  const diffs = new DiffMatchPatch().diff_main(previousText, nextText);
   const dmp = new DiffMatchPatch();
-  const from = dmp.diff_xIndex(diffs, at);
-  const to = dmp.diff_xIndex(diffs, at + quote.quotedText.length);
+  const { from, to } = mappedRange(
+    dmp,
+    dmp.diff_main(previousText, nextText),
+    at,
+    quote.quotedText.length,
+  );
   const quotedText = nextText.slice(from, to);
   if (!quotedText.trim() || words(quotedText) !== words(quote.quotedText))
     return { kind: "blocked" };
-  const next = {
-    quotedText,
-    prefix: nextText.slice(Math.max(0, from - CONTEXT_LEN), from),
-    suffix: nextText.slice(to, to + CONTEXT_LEN),
-    startOffset: from,
-  };
-  return next.quotedText === quote.quotedText &&
-    next.prefix === quote.prefix &&
-    next.suffix === quote.suffix &&
-    next.startOffset === quote.startOffset
+  const next = anchorAt(nextText, from, to);
+  return sameAnchor(next, quote)
     ? { kind: "unchanged" }
     : { kind: "rebased", quote: next };
+}
+
+type Diffs = ReturnType<DiffMatchPatch["diff_main"]>;
+
+// Where [from, from + length) of the old text lands in the new one. The end
+// follows the quote's last character, so text typed just after a quote stays
+// outside it, as text typed just before it does.
+function mappedRange(
+  dmp: DiffMatchPatch,
+  diffs: Diffs,
+  from: number,
+  length: number,
+) {
+  const start = dmp.diff_xIndex(diffs, from);
+  return {
+    from: start,
+    to: length ? dmp.diff_xIndex(diffs, from + length - 1) + 1 : start,
+  };
+}
+
+function anchorAt(text: string, from: number, to: number): CommentQuoteAnchor {
+  return {
+    quotedText: text.slice(from, to),
+    prefix: text.slice(Math.max(0, from - CONTEXT_LEN), from),
+    suffix: text.slice(to, to + CONTEXT_LEN),
+    startOffset: from,
+  };
+}
+
+function sameAnchor(left: CommentQuoteAnchor, right: CommentQuoteAnchor) {
+  return (
+    left.quotedText === right.quotedText &&
+    left.prefix === right.prefix &&
+    left.suffix === right.suffix &&
+    left.startOffset === right.startOffset
+  );
+}
+
+export type CommentQuoteFollow =
+  | { kind: "unchanged" }
+  /** The quote's text is intact; its context or position moved. */
+  | { kind: "moved"; quote: CommentQuoteAnchor }
+  /**
+   * The edit changed the quote's own text, or the quote didn't resolve to
+   * one place before it. The stored anchor stays: only an accepted
+   * suggestion re-anchors a quote.
+   */
+  | { kind: "left" };
+
+/**
+ * Follows comment quotes through one edit of a page, from `previousText` to
+ * `nextText`, both `commentAnchorText` of the page's body. The stored context
+ * then resolves to the same copy of a quote the editor's highlight is on,
+ * even where the quoted words appear more than once.
+ */
+export function commentQuoteFollower(previousText: string, nextText: string) {
+  const dmp = new DiffMatchPatch();
+  // This runs on every commit of a page: a large rewrite settles for a
+  // coarser diff, which can only leave more quotes where they were.
+  dmp.Diff_Timeout = 0.1;
+  let diffs: Diffs | undefined;
+  return (quote: CommentQuoteAnchor): CommentQuoteFollow => {
+    if (!quote.quotedText || previousText === nextText)
+      return { kind: "unchanged" };
+    const at = ownOccurrence(quote, previousText);
+    if (at == null) return { kind: "left" };
+    diffs ??= dmp.diff_main(previousText, nextText);
+    const { from, to } = mappedRange(dmp, diffs, at, quote.quotedText.length);
+    if (nextText.slice(from, to) !== quote.quotedText) return { kind: "left" };
+    const next = anchorAt(nextText, from, to);
+    return sameAnchor(next, quote)
+      ? { kind: "unchanged" }
+      : { kind: "moved", quote: next };
+  };
 }

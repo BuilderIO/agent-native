@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   commentAnchorText,
+  commentQuoteFollower,
   rebaselinedCommentQuote,
   reanchoredCommentQuote,
 } from "./comment-reanchor";
@@ -233,5 +234,76 @@ describe("rebaselinedCommentQuote", () => {
         "Some text here.",
       ),
     ).toEqual({ kind: "orphaned" });
+  });
+});
+
+describe("commentQuoteFollower", () => {
+  const text = "Keep the plan here. Move the plan there.";
+  // The comment is on the second "the plan".
+  const second = {
+    quotedText: "the plan",
+    prefix: "Keep the plan here. Move ",
+    suffix: " there.",
+    startOffset: 25,
+  };
+
+  it("moves the context and offset past text typed before the quote", () => {
+    const next = `Intro. ${text}`;
+    expect(commentQuoteFollower(text, next)(second)).toEqual({
+      kind: "moved",
+      quote: {
+        quotedText: "the plan",
+        prefix: "Intro. Keep the plan here. Move ",
+        suffix: " there.",
+        startOffset: 32,
+      },
+    });
+  });
+
+  it("keeps text typed just after or just before the quote outside it", () => {
+    const after = text.replace("plan there", "plans there");
+    expect(commentQuoteFollower(text, after)(second)).toMatchObject({
+      kind: "moved",
+      quote: { quotedText: "the plan", suffix: "s there.", startOffset: 25 },
+    });
+    const before = text.replace("Move the", "Move all the");
+    expect(commentQuoteFollower(text, before)(second)).toMatchObject({
+      kind: "moved",
+      quote: { quotedText: "the plan", startOffset: 29 },
+    });
+  });
+
+  it("leaves the stored anchor when the edit changes the quote's own text", () => {
+    const next = text.replace("Move the plan", "Move the new plan");
+    expect(commentQuoteFollower(text, next)(second)).toEqual({ kind: "left" });
+  });
+
+  it("stays on its own copy of a repeated quote through edits around both", () => {
+    // Each step is one commit. Afterwards the first copy's context reads like
+    // the second's original context, which the stored anchor would have kept.
+    const steps = [
+      text,
+      "Keep the plan here. Shift the plan there.",
+      "Move the plan there. Shift the plan there.",
+    ];
+    let anchor = second;
+    for (const [index, next] of steps.slice(1).entries()) {
+      const outcome = commentQuoteFollower(steps[index]!, next)(anchor);
+      if (outcome.kind !== "moved") throw new Error(JSON.stringify(outcome));
+      anchor = outcome.quote;
+    }
+    expect(anchor.startOffset).toBe(steps[2]!.lastIndexOf("the plan"));
+    // The original anchor, never followed, now resolves to the first copy.
+    expect(
+      commentQuoteFollower(steps[2]!, `${steps[2]} `)(second),
+    ).toMatchObject({
+      quote: { startOffset: steps[2]!.indexOf("the plan") },
+    });
+  });
+
+  it("leaves a page that didn't change alone", () => {
+    expect(commentQuoteFollower(text, text)(second)).toEqual({
+      kind: "unchanged",
+    });
   });
 });
