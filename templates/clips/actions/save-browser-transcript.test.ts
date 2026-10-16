@@ -60,6 +60,8 @@ vi.mock("../server/db/index.js", () => ({
       status: "recordingTranscripts.status",
       fullText: "recordingTranscripts.fullText",
       segmentsJson: "recordingTranscripts.segmentsJson",
+      earlierAudioMs: "recordingTranscripts.earlierAudioMs",
+      earlierAudioRemovedAt: "recordingTranscripts.earlierAudioRemovedAt",
     },
   },
 }));
@@ -76,6 +78,8 @@ vi.mock("./lib/finalize-ended-meetings.js", () => ({
   finalizeEndedMeetingsForRecording: (...args: unknown[]) =>
     mocks.finalizeEndedMeetingsForRecording(...args),
 }));
+
+import { isNull } from "drizzle-orm";
 
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import saveBrowserTranscript from "./save-browser-transcript";
@@ -340,5 +344,114 @@ describe("save-browser-transcript", () => {
         source: "web-speech",
       }),
     ).rejects.toThrow("was removed while saving");
+  });
+
+  describe("audio from before notes started", () => {
+    const earlierSegment = {
+      startMs: 0,
+      endMs: 1_000,
+      text: "Before the call.",
+      source: "mic" as const,
+      earlier: true as const,
+    };
+    const liveSegment = {
+      startMs: 400_000,
+      endMs: 401_000,
+      text: "Live words.",
+      source: "system" as const,
+    };
+
+    function updateSet(written = [{ recordingId: "rec-1" }]) {
+      const set = vi.fn((_values: Record<string, unknown>) => ({
+        where: vi.fn(() => ({ returning: vi.fn(async () => written) })),
+      }));
+      mocks.update.mockReturnValue({ set });
+      return set;
+    }
+
+    it("stores how much was added and keeps its segments marked", async () => {
+      const values = insertValues();
+      mocks.insert.mockReturnValue({ values });
+      mocks.rows = [[], [{ status: "uploading", title: "Sync" }]];
+
+      await saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Me: Before the call.\n\nThem: Live words.",
+        source: "whisper",
+        overwriteReady: true,
+        earlierAudioMs: 300_000,
+        segments: [earlierSegment, liveSegment],
+      });
+
+      const inserted = values.mock.calls[0][0] as {
+        segmentsJson: string;
+        earlierAudioMs?: number;
+      };
+      expect(inserted.earlierAudioMs).toBe(300_000);
+      expect(JSON.parse(inserted.segmentsJson)).toEqual([
+        earlierSegment,
+        liveSegment,
+      ]);
+    });
+
+    it("drops it from a live save after the owner removed it", async () => {
+      const set = updateSet();
+      mocks.rows = [
+        [
+          {
+            recordingId: "rec-1",
+            status: "ready",
+            segmentsJson: JSON.stringify([liveSegment]),
+            earlierAudioRemovedAt: "2026-10-16T10:00:00.000Z",
+          },
+        ],
+        [{ status: "uploading", title: "Sync" }],
+      ];
+
+      const result = await saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Me: Before the call.\n\nThem: Live words.",
+        source: "whisper",
+        overwriteReady: true,
+        earlierAudioMs: 300_000,
+        segments: [earlierSegment, liveSegment],
+      });
+
+      const written = set.mock.calls[0][0];
+      expect(JSON.parse(written.segmentsJson as string)).toEqual([liveSegment]);
+      expect(written.fullText).toBe("Them: Live words.");
+      expect(written).not.toHaveProperty("earlierAudioMs");
+      expect(result).toMatchObject({
+        status: "ready",
+        earlierAudioRemoved: true,
+      });
+    });
+
+    it("does not write it back when the removal lands mid-save", async () => {
+      updateSet([]);
+      mocks.rows = [
+        [{ recordingId: "rec-1", status: "ready", segmentsJson: "[]" }],
+        [{ source: null, earlierAudioRemovedAt: "2026-10-16T10:00:00.000Z" }],
+      ];
+
+      const result = await saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Me: Before the call.",
+        source: "whisper",
+        overwriteReady: true,
+        segments: [earlierSegment],
+      });
+
+      expect(isNull).toHaveBeenCalledWith(
+        "recordingTranscripts.earlierAudioRemovedAt",
+      );
+      expect(result).toEqual({
+        recordingId: "rec-1",
+        status: "skipped",
+        reason: "Earlier audio was removed while saving",
+        earlierAudioRemoved: true,
+      });
+      expect(mocks.writeAppState).not.toHaveBeenCalled();
+    });
   });
 });

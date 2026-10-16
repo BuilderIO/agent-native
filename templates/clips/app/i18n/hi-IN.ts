@@ -583,6 +583,13 @@ const messages = {
     endMeetingDescription:
       "इससे इस मीटिंग की रिकॉर्डिंग और ट्रांसक्रिप्शन रुक जाएगी। अभी तक कैप्चर किए गए हिस्से से आप फिर भी नोट्स बना सकते हैं।",
     couldNotEndMeeting: "मीटिंग समाप्त नहीं हो सकी",
+    earlierAudioAdded_one: "आपके शुरू करने से पहले का {{count}} मिनट जोड़ा गया",
+    earlierAudioAdded_other: "आपके शुरू करने से पहले के {{count}} मिनट जोड़े गए",
+    removeEarlierAudioTitle: "पहले का ऑडियो हटाएं?",
+    removeEarlierAudioDescription:
+      "Clips इसे ट्रांसक्रिप्ट से हटा देता है, फिर इसके बिना सारांश और एक्शन आइटम दोबारा लिखता है।",
+    earlierAudioRemoved: "पहले का ऑडियो हटाया गया",
+    couldNotRemoveEarlierAudio: "पहले का ऑडियो हटाया नहीं जा सका",
   },
   transcriptPanel: {
     transcribing: "प्रतिलेखन...",

@@ -54,6 +54,22 @@ capturing audio played from a separate device. Mobile recordings still receive
 Clips transcription and summaries, but do not promise desktop-quality remote
 speaker attribution or per-attendee action items.
 
+### Audio from before notes started
+
+When the user starts notes late for a scheduled meeting and Rewind kept audio
+from the scheduled start, the desktop app adds that audio's transcript ahead of
+the live one. Its segments carry `earlier: true`, and the transcript row's
+`earlierAudioMs` says how much was added. The meeting page says "Added N
+minutes from before you started" with a Remove button.
+
+`remove-earlier-meeting-audio` takes those segments out of the transcript and
+clears what was written from them: the summary, bullets, action items, and the
+Clip summary and AI title. It then queues them to be written again from the
+rest, which also refreshes the Brain export. It sets `earlierAudioRemovedAt`,
+and every later save drops `earlier` segments, so a live session can't bring
+them back. If nothing is left after the removal, there's nothing to re-export,
+so an earlier Brain export keeps its old text.
+
 ## Bidirectional recording ↔ meeting link
 
 A meeting can have an associated recording, and a recording can be linked back to a meeting:
@@ -84,6 +100,7 @@ When meetings are enabled, the Clips desktop app also watches for native Zoom (`
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
 | `finalize-meeting`        | Delegate Gemini Flash-Lite cleanup + summary + bullets + action items |
+| `remove-earlier-meeting-audio` | Remove the Rewind audio from before notes started, and write the notes again without it |
 | `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)            |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                 |
 | `list-calendar-accounts`  | What's connected                                                      |

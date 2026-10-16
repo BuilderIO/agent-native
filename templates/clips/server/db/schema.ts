@@ -262,6 +262,12 @@ export const recordingTranscripts = table("recording_transcripts", {
   // New on every import, even of the same file in the same millisecond, so a
   // regenerate replaces only the import it started from.
   importId: text("import_id"),
+  // Audio from before meeting notes started, recovered from Rewind. Null when
+  // none was added. Segments from it carry `earlier: true`.
+  earlierAudioMs: integer("earlier_audio_ms"),
+  // Set when the owner removed that audio. Every later save drops segments
+  // marked `earlier`, so a live session cannot bring them back.
+  earlierAudioRemovedAt: text("earlier_audio_removed_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

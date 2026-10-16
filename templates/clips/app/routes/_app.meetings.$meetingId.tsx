@@ -16,6 +16,7 @@ import {
   IconDotsVertical,
   IconEdit,
   IconExternalLink,
+  IconHistory,
   IconLoader2,
   IconNotes,
   IconPlus,
@@ -471,6 +472,8 @@ export default function MeetingDetailRoute() {
     transcript?: {
       fullText?: string | null;
       segmentsJson?: TranscriptSegment[] | null;
+      earlierAudioMs?: number | null;
+      earlierAudioRemovedAt?: string | null;
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
@@ -503,6 +506,9 @@ export default function MeetingDetailRoute() {
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
+  const removeEarlierAudio = useActionMutation<any, any>(
+    "remove-earlier-meeting-audio",
+  );
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
   );
@@ -510,6 +516,7 @@ export default function MeetingDetailRoute() {
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [endMeetingOpen, setEndMeetingOpen] = useState(false);
+  const [removeEarlierOpen, setRemoveEarlierOpen] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
@@ -916,6 +923,48 @@ export default function MeetingDetailRoute() {
     finalize.mutate({ meetingId: meeting.id, force: true });
   };
 
+  // Only this field: a live meeting polls, so the rest of the cached
+  // response may be newer than when Remove was clicked.
+  const patchEarlierAudioRemovedAt = (removedAt: string | null) => {
+    qc.setQueryData<GetMeetingResp | undefined>(
+      ["action", "get-meeting", { id: meetingId }],
+      (prev) =>
+        prev?.transcript
+          ? {
+              ...prev,
+              transcript: {
+                ...prev.transcript,
+                earlierAudioRemovedAt: removedAt,
+              },
+            }
+          : prev,
+    );
+  };
+
+  const handleRemoveEarlierAudio = () => {
+    if (!meeting) return;
+    setRemoveEarlierOpen(false);
+    patchEarlierAudioRemovedAt(new Date().toISOString());
+    removeEarlierAudio.mutate(
+      { meetingId: meeting.id },
+      {
+        onSuccess: () => {
+          patchEarlierAudioRemovedAt(new Date().toISOString());
+          toast.success(t("meetingDetail.earlierAudioRemoved"));
+          void refetchMeeting();
+        },
+        onError: (err: unknown) => {
+          patchEarlierAudioRemovedAt(null);
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotRemoveEarlierAudio"),
+          );
+        },
+      },
+    );
+  };
+
   const handleDeleteMeeting = () => {
     if (!meeting) return;
     deleteMeeting.mutate(
@@ -1053,6 +1102,13 @@ export default function MeetingDetailRoute() {
   const bullets = meeting.bulletsJson ?? [];
   const actionItems = meeting.actionItemsJson ?? [];
   const segments = meeting.segmentsJson ?? [];
+  const earlierAudioMs =
+    data?.transcript?.earlierAudioRemovedAt || removeEarlierAudio.isPending
+      ? null
+      : data?.transcript?.earlierAudioMs;
+  const earlierAudioMinutes = earlierAudioMs
+    ? Math.max(1, Math.round(earlierAudioMs / 60_000))
+    : null;
   const hasSummary =
     !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
 
@@ -1252,6 +1308,54 @@ export default function MeetingDetailRoute() {
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {(finalize.error as Error)?.message ||
             t("meetingDetail.generateNotesFailed")}
+        </div>
+      )}
+
+      {canEdit && earlierAudioMinutes != null && (
+        <div className="mb-4 flex items-center gap-3 rounded-md border border-border bg-accent/20 px-3 py-1.5">
+          <IconHistory className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 text-sm">
+            {t("meetingDetail.earlierAudioAdded", {
+              count: earlierAudioMinutes,
+            })}
+          </span>
+          <AlertDialog
+            open={removeEarlierOpen}
+            onOpenChange={setRemoveEarlierOpen}
+          >
+            <Button
+              size="sm"
+              variant="ghost"
+              className="cursor-pointer"
+              onClick={() => setRemoveEarlierOpen(true)}
+            >
+              {t("meetingDetail.remove")}
+            </Button>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t("meetingDetail.removeEarlierAudioTitle")}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("meetingDetail.removeEarlierAudioDescription")}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  {t("meetingDetail.cancel")}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(event) => {
+                    event.preventDefault();
+                    handleRemoveEarlierAudio();
+                  }}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {t("meetingDetail.remove")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       )}
 

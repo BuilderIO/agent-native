@@ -561,6 +561,13 @@ const messages = {
     endMeetingDescription:
       "这将停止本次会议的录制和转录。您仍然可以根据目前捕获的内容生成笔记。",
     couldNotEndMeeting: "无法结束会议",
+    earlierAudioAdded_one: "已添加开始前的 {{count}} 分钟",
+    earlierAudioAdded_other: "已添加开始前的 {{count}} 分钟",
+    removeEarlierAudioTitle: "移除开始前的音频？",
+    removeEarlierAudioDescription:
+      "Clips 会将其从转录中移除，然后在不含这部分的情况下重新生成摘要和待办事项。",
+    earlierAudioRemoved: "已移除开始前的音频",
+    couldNotRemoveEarlierAudio: "无法移除开始前的音频",
   },
   transcriptPanel: {
     transcribing: "正在抄写…",

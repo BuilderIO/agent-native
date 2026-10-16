@@ -4,6 +4,9 @@ export interface TranscriptSegment {
   text: string;
   source?: "mic" | "system";
   speaker?: string | null;
+  // Recovered from Rewind's audio from before meeting notes started. Every
+  // parse and re-chunk must carry it, or the owner can no longer remove it.
+  earlier?: true;
 }
 
 const MAX_WORDS_PER_CAPTION = 7;
@@ -30,6 +33,7 @@ export function parseTranscriptSegments(
             : undefined,
         speaker:
           typeof segment?.speaker === "string" ? segment.speaker : undefined,
+        ...(segment?.earlier === true ? { earlier: true as const } : {}),
       }))
       .filter(
         (segment) =>
@@ -84,6 +88,25 @@ export function buildCaptionSegmentsFromText(
     cursorMs = endMs;
     return segment;
   });
+}
+
+/**
+ * Meeting notes text in the desktop's "Me: …" / "Them: …" paragraph form,
+ * one paragraph per run of segments from the same side.
+ */
+export function meetingTranscriptText(segments: TranscriptSegment[]): string {
+  const paragraphs: { speaker: string; words: string[] }[] = [];
+  for (const segment of segments) {
+    const text = segment.text.trim();
+    if (!text) continue;
+    const speaker = segment.source === "system" ? "Them" : "Me";
+    const last = paragraphs[paragraphs.length - 1];
+    if (last?.speaker === speaker) last.words.push(text);
+    else paragraphs.push({ speaker, words: [text] });
+  }
+  return paragraphs
+    .map(({ speaker, words }) => `${speaker}: ${words.join(" ")}`)
+    .join("\n\n");
 }
 
 /**
@@ -190,6 +213,7 @@ function splitTimedSegmentIntoCaptions(
       text: chunk,
       source: segment.source,
       speaker: segment.speaker,
+      ...(segment.earlier ? { earlier: true as const } : {}),
     };
     cursorMs = endMs;
     return next;

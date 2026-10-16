@@ -618,6 +618,13 @@ const messages = {
     endMeetingDescription:
       "Dies stoppt Aufnahme und Transkription für dieses Meeting. Aus dem bisher Aufgezeichneten können weiterhin Notizen erstellt werden.",
     couldNotEndMeeting: "Meeting konnte nicht beendet werden",
+    earlierAudioAdded_one: "{{count}} Minute von vor dem Start hinzugefügt",
+    earlierAudioAdded_other: "{{count}} Minuten von vor dem Start hinzugefügt",
+    removeEarlierAudioTitle: "Früheres Audio entfernen?",
+    removeEarlierAudioDescription:
+      "Clips nimmt es aus dem Transkript und erstellt Zusammenfassung und Aufgaben ohne es neu.",
+    earlierAudioRemoved: "Früheres Audio entfernt",
+    couldNotRemoveEarlierAudio: "Früheres Audio konnte nicht entfernt werden",
   },
   transcriptPanel: {
     transcribing: "Transkribieren…",

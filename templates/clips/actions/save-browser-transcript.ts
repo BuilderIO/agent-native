@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,7 +10,10 @@ import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
-import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
+import {
+  buildCaptionSegmentsFromText,
+  meetingTranscriptText,
+} from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import { notImportedTranscript } from "./lib/imported-transcript.js";
@@ -30,15 +33,17 @@ const segmentSchema = z
     text: z.string(),
     source: z.enum(["mic", "system"]).optional(),
     speaker: z.string().nullable().optional(),
+    earlier: z.boolean().optional(),
   })
-  .transform((s) => {
+  .transform(({ earlier, ...s }) => {
+    const segment = { ...s, ...(earlier ? { earlier: true as const } : {}) };
     if (s.endMs < s.startMs) {
       console.warn(
         `[clips] save-browser-transcript: repaired reversed segment timestamps (startMs=${s.startMs}, endMs=${s.endMs})`,
       );
-      return { ...s, endMs: s.startMs };
+      return { ...segment, endMs: s.startMs };
     }
-    return s;
+    return segment;
   });
 
 export default defineAction({
@@ -59,7 +64,15 @@ export default defineAction({
       .array(segmentSchema)
       .optional()
       .describe(
-        "Transcript segments with per-segment timings (ms) and the `mic`/`system` stream each came from. Stored verbatim when provided, instead of synthesizing timings from fullText. Timings are the engine's own where it reported them; the mic-only engines report none, so callers may send estimates to keep each segment's speaker.",
+        "Transcript segments with per-segment timings (ms) and the `mic`/`system` stream each came from. Stored verbatim when provided, instead of synthesizing timings from fullText. Timings are the engine's own where it reported them; the mic-only engines report none, so callers may send estimates to keep each segment's speaker. `earlier: true` marks a segment recovered from Rewind's audio from before meeting notes started.",
+      ),
+    earlierAudioMs: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "How much audio from before meeting notes started was recovered from Rewind and sent as `earlier` segments.",
       ),
     overwriteReady: booleanParam
       .default(false)
@@ -76,12 +89,7 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
-    const fullText = args.fullText.trim();
     const failureReason = args.failureReason?.trim() || "";
-    const segmentsJson =
-      args.segments && args.segments.length > 0
-        ? JSON.stringify(args.segments)
-        : nativeSegmentsJson(fullText, args.source);
 
     const [current] = await db
       .select({
@@ -90,10 +98,28 @@ export default defineAction({
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
         source: schema.recordingTranscripts.source,
+        earlierAudioRemovedAt:
+          schema.recordingTranscripts.earlierAudioRemovedAt,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
+
+    // Once the owner removed the earlier audio, a live session that still
+    // holds it must not write it back.
+    const earlierAudioRemoved = Boolean(current?.earlierAudioRemovedAt);
+    const segments =
+      earlierAudioRemoved && args.segments?.some((s) => s.earlier)
+        ? args.segments.filter((s) => !s.earlier)
+        : args.segments;
+    const fullText =
+      segments === args.segments
+        ? args.fullText.trim()
+        : meetingTranscriptText(segments ?? []);
+    const segmentsJson =
+      segments && segments.length > 0
+        ? JSON.stringify(segments)
+        : nativeSegmentsJson(fullText, args.source);
 
     const hasReadySegments =
       current?.status === "ready" &&
@@ -109,6 +135,7 @@ export default defineAction({
           recordingId: args.recordingId,
           status: "skipped" as const,
           reason: "Empty transcript",
+          earlierAudioRemoved,
         };
       }
       if (hasReadyTranscript) {
@@ -160,17 +187,21 @@ export default defineAction({
       segmentsJson,
       status: savedStatus,
       failureReason: savedFailureReason,
+      ...(args.earlierAudioMs && !earlierAudioRemoved
+        ? { earlierAudioMs: args.earlierAudioMs }
+        : {}),
       updatedAt: now,
     };
-    // An import can land after the read above; the guarded write then
-    // changes no row.
+    // An import or an earlier-audio removal can land after the read above;
+    // the guarded write then changes no row.
+    const writable = segments?.some((s) => s.earlier)
+      ? and(notImportedTranscript(), isNull(t.earlierAudioRemovedAt))
+      : notImportedTranscript();
     const written = current
       ? await db
           .update(t)
           .set(set)
-          .where(
-            and(eq(t.recordingId, args.recordingId), notImportedTranscript()),
-          )
+          .where(and(eq(t.recordingId, args.recordingId), writable))
           .returning({ recordingId: t.recordingId })
       : await db
           .insert(t)
@@ -183,16 +214,27 @@ export default defineAction({
           .onConflictDoUpdate({
             target: t.recordingId,
             set,
-            setWhere: notImportedTranscript(),
+            setWhere: writable,
           })
           .returning({ recordingId: t.recordingId });
     if (written.length === 0) {
       const [row] = await db
-        .select({ source: t.source })
+        .select({
+          source: t.source,
+          earlierAudioRemovedAt: t.earlierAudioRemovedAt,
+        })
         .from(t)
         .where(eq(t.recordingId, args.recordingId))
         .limit(1);
       if (row?.source === IMPORTED_TRANSCRIPT_SOURCE) return importKept;
+      if (row?.earlierAudioRemovedAt) {
+        return {
+          recordingId: args.recordingId,
+          status: "skipped" as const,
+          reason: "Earlier audio was removed while saving",
+          earlierAudioRemoved: true,
+        };
+      }
       fail(`Transcript row for ${args.recordingId} was removed while saving`, {
         errorCode: "transcript_removed",
         statusCode: 409,
@@ -268,6 +310,7 @@ export default defineAction({
       truncated,
       titleQueued,
       summaryQueued,
+      earlierAudioRemoved,
     };
   },
 });

@@ -530,6 +530,13 @@ const messages = {
     endMeetingDescription:
       "This stops recording and transcription for this meeting. You can still generate notes from what was captured so far.",
     couldNotEndMeeting: "Couldn't end meeting",
+    earlierAudioAdded_one: "Added {{count}} minute from before you started",
+    earlierAudioAdded_other: "Added {{count}} minutes from before you started",
+    removeEarlierAudioTitle: "Remove the earlier audio?",
+    removeEarlierAudioDescription:
+      "Clips takes it out of the transcript, then writes the summary and action items again without it.",
+    earlierAudioRemoved: "Earlier audio removed",
+    couldNotRemoveEarlierAudio: "Couldn't remove the earlier audio",
   },
   transcriptPanel: {
     transcribing: "Transcribing…",

@@ -563,6 +563,13 @@ const messages = {
     endMeetingDescription:
       "這會停止本次會議的錄製與轉錄。您仍然可以根據目前擷取的內容產生筆記。",
     couldNotEndMeeting: "無法結束會議",
+    earlierAudioAdded_one: "已新增開始前的 {{count}} 分鐘",
+    earlierAudioAdded_other: "已新增開始前的 {{count}} 分鐘",
+    removeEarlierAudioTitle: "移除開始前的音訊？",
+    removeEarlierAudioDescription:
+      "Clips 會將其從轉錄中移除，然後在不含這部分的情況下重新產生摘要和待辦事項。",
+    earlierAudioRemoved: "已移除開始前的音訊",
+    couldNotRemoveEarlierAudio: "無法移除開始前的音訊",
   },
   transcriptPanel: {
     transcribing: "正在轉錄…",

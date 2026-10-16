@@ -40,6 +40,8 @@ interface MeetingTranscriptionSession {
   engine: TranscriptionEngine;
   audioTransitionInFlight: Promise<void> | null;
   liveTimelineOffsetMs: number;
+  // Rewind audio from before notes started that this session added.
+  earlierAudioMs: number | null;
   historyInFlight: Promise<void> | null;
   flushInFlight: Promise<void> | null;
   flushSeq: number;
@@ -122,13 +124,27 @@ export function useMeetingTranscription({
     const seq = session.dirtySeq;
     session.flushSeq = seq;
     const run = (async () => {
-      await callClipsAction("save-browser-transcript", {
-        recordingId: session.recordingId,
-        fullText: transcriptFullText(session.lines),
-        segments: transcriptSegments(session.lines),
-        source: session.engine,
-        overwriteReady: true,
-      });
+      const saved = await callClipsAction<{ earlierAudioRemoved?: boolean }>(
+        "save-browser-transcript",
+        {
+          recordingId: session.recordingId,
+          fullText: transcriptFullText(session.lines),
+          segments: transcriptSegments(session.lines),
+          source: session.engine,
+          overwriteReady: true,
+          ...(session.earlierAudioMs
+            ? { earlierAudioMs: session.earlierAudioMs }
+            : {}),
+        },
+      );
+      // Removed from the meeting page while notes run: the server already
+      // dropped it, so stop sending it.
+      if (saved?.earlierAudioRemoved) {
+        session.earlierAudioMs = null;
+        session.lines = session.lines.filter(
+          (line) => !line.segments.some((segment) => segment.earlier),
+        );
+      }
       emit("clips:meeting-saved", {
         meetingId: session.meetingId,
         ts: Date.now(),
@@ -333,6 +349,7 @@ export function useMeetingTranscription({
           engine: "whisper",
           audioTransitionInFlight: null,
           liveTimelineOffsetMs: 0,
+          earlierAudioMs: null,
           historyInFlight: null,
           flushInFlight: null,
           flushSeq: 0,
@@ -609,6 +626,7 @@ export function useMeetingTranscription({
                   endMs?: number;
                   text: string;
                   source?: "mic" | "system";
+                  earlier?: boolean;
                 }>;
                 if (segs.length > 0) {
                   const storedLines = segs.map((s) =>
@@ -617,6 +635,7 @@ export function useMeetingTranscription({
                       endMs: s.endMs ?? 0,
                       text: s.text,
                       source: s.source ?? "mic",
+                      ...(s.earlier === true ? { earlier: true as const } : {}),
                     }),
                   );
                   session.lines = [...storedLines, ...session.lines];
@@ -701,9 +720,15 @@ export function useMeetingTranscription({
           }>("rewind_meeting_history_collect", { token: prepared.token })
             .then((history) => {
               if (sessionRef.current !== session) return;
-              const historyLines = history.segments.map(
-                transcriptLineFromSegment,
+              const historyLines = history.segments.map((segment) =>
+                transcriptLineFromSegment({ ...segment, earlier: true }),
               );
+              const earlierAudioMs =
+                Date.parse(prepared.capturedUntil) -
+                Date.parse(prepared.scheduledStart);
+              if (historyLines.length && earlierAudioMs > 0) {
+                session.earlierAudioMs = earlierAudioMs;
+              }
               session.lines = [...historyLines, ...session.lines];
               const preloadedLines = pillTranscriptLines(session.lines);
               if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {

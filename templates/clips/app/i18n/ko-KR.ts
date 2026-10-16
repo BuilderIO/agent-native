@@ -593,6 +593,13 @@ const messages = {
     endMeetingDescription:
       "이 회의의 녹음과 기록이 중지됩니다. 지금까지 기록된 내용으로 노트를 생성할 수 있습니다.",
     couldNotEndMeeting: "회의를 종료할 수 없습니다",
+    earlierAudioAdded_one: "시작하기 전 {{count}}분을 추가했습니다",
+    earlierAudioAdded_other: "시작하기 전 {{count}}분을 추가했습니다",
+    removeEarlierAudioTitle: "시작 전 오디오를 삭제할까요?",
+    removeEarlierAudioDescription:
+      "Clips가 기록에서 이 부분을 빼고, 이를 제외한 요약과 작업 항목을 다시 작성합니다.",
+    earlierAudioRemoved: "시작 전 오디오를 삭제했습니다",
+    couldNotRemoveEarlierAudio: "시작 전 오디오를 삭제할 수 없습니다",
   },
   transcriptPanel: {
     transcribing: "스크립트 작성 중…",

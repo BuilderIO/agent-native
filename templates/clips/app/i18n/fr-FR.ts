@@ -611,6 +611,16 @@ const messages = {
     endMeetingDescription:
       "Cela arrête l'enregistrement et la transcription de cette réunion. Vous pourrez toujours générer des notes à partir de ce qui a été capturé jusqu'ici.",
     couldNotEndMeeting: "Impossible de terminer la réunion",
+    earlierAudioAdded_one: "{{count}} minute d'avant votre démarrage ajoutée",
+    earlierAudioAdded_many:
+      "{{count}} minutes d'avant votre démarrage ajoutées",
+    earlierAudioAdded_other:
+      "{{count}} minutes d'avant votre démarrage ajoutées",
+    removeEarlierAudioTitle: "Retirer l'audio antérieur ?",
+    removeEarlierAudioDescription:
+      "Clips le retire de la transcription, puis rédige à nouveau le résumé et les actions sans lui.",
+    earlierAudioRemoved: "Audio antérieur retiré",
+    couldNotRemoveEarlierAudio: "Impossible de retirer l'audio antérieur",
   },
   transcriptPanel: {
     transcribing: "Transcription…",

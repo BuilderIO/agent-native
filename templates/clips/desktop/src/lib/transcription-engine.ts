@@ -12,6 +12,8 @@ export interface TranscriptSegment {
 
 export interface SourcedTranscriptSegment extends TranscriptSegment {
   source: TranscriptSource;
+  // Recovered from Rewind's audio from before notes started.
+  earlier?: true;
 }
 
 export interface FinalTranscriptEvent {

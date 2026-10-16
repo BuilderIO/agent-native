@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCaptionSegmentsFromText,
+  meetingTranscriptText,
   nextTranscriptBoundaryMs,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -195,5 +196,54 @@ describe("nextTranscriptBoundaryMs", () => {
     expect(nextTranscriptBoundaryMs(segments, 17_011)).toBe(
       Number.POSITIVE_INFINITY,
     );
+  });
+});
+
+describe("audio from before meeting notes started", () => {
+  it("stays marked through a parse and a re-chunk", () => {
+    const raw = JSON.stringify([
+      {
+        startMs: 0,
+        endMs: 9_000,
+        text: "We were talking before anyone pressed start on the notes today.",
+        source: "mic",
+        earlier: true,
+      },
+      { startMs: 10_000, endMs: 11_000, text: "Live now.", source: "system" },
+    ]);
+
+    const parsed = parseTranscriptSegments(raw);
+    expect(parsed.map((segment) => segment.earlier)).toEqual([true, undefined]);
+
+    const captions = normalizeTranscriptSegments({ segments: parsed });
+    expect(captions.length).toBeGreaterThan(2);
+    expect(
+      captions.filter((segment) => segment.earlier).map((s) => s.text),
+    ).toEqual([
+      "We were talking before anyone pressed start",
+      "on the notes today.",
+    ]);
+    expect(captions[captions.length - 1]).not.toHaveProperty("earlier");
+  });
+
+  it("ignores a non-true earlier value", () => {
+    const parsed = parseTranscriptSegments(
+      JSON.stringify([{ startMs: 0, endMs: 500, text: "Hi", earlier: "yes" }]),
+    );
+    expect(parsed[0]).not.toHaveProperty("earlier");
+  });
+});
+
+describe("meetingTranscriptText", () => {
+  it("writes one Me/Them paragraph per run from the same side", () => {
+    expect(
+      meetingTranscriptText([
+        { startMs: 0, endMs: 1, text: "Hello.", source: "mic" },
+        { startMs: 1, endMs: 2, text: "Still me.", source: "mic" },
+        { startMs: 2, endMs: 3, text: "Hi there.", source: "system" },
+        { startMs: 3, endMs: 4, text: "  ", source: "system" },
+        { startMs: 4, endMs: 5, text: "No source." },
+      ]),
+    ).toBe("Me: Hello. Still me.\n\nThem: Hi there.\n\nMe: No source.");
   });
 });

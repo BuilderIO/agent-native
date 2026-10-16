@@ -591,6 +591,17 @@ const messages = {
     endMeetingDescription:
       "يوقف هذا التسجيل والنسخ لهذا الاجتماع. لا يزال بإمكانك إنشاء ملاحظات مما تم التقاطه حتى الآن.",
     couldNotEndMeeting: "تعذر إنهاء الاجتماع",
+    earlierAudioAdded_zero: "أُضيفت {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_one: "أُضيفت دقيقة واحدة من قبل أن تبدأ",
+    earlierAudioAdded_two: "أُضيفت دقيقتان من قبل أن تبدأ",
+    earlierAudioAdded_few: "أُضيفت {{count}} دقائق من قبل أن تبدأ",
+    earlierAudioAdded_many: "أُضيفت {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_other: "أُضيفت {{count}} دقيقة من قبل أن تبدأ",
+    removeEarlierAudioTitle: "إزالة الصوت السابق؟",
+    removeEarlierAudioDescription:
+      "يزيله Clips من النص المكتوب، ثم يكتب الملخص وعناصر الإجراءات من جديد بدونه.",
+    earlierAudioRemoved: "تمت إزالة الصوت السابق",
+    couldNotRemoveEarlierAudio: "تعذرت إزالة الصوت السابق",
   },
   transcriptPanel: {
     transcribing: "جارٍ النسخ…",

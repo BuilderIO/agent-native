@@ -604,6 +604,13 @@ const messages = {
     endMeetingDescription:
       "この会議の録音と文字起こしを停止します。ここまでに記録された内容からノートを生成できます。",
     couldNotEndMeeting: "会議を終了できませんでした",
+    earlierAudioAdded_one: "開始前の {{count}} 分を追加しました",
+    earlierAudioAdded_other: "開始前の {{count}} 分を追加しました",
+    removeEarlierAudioTitle: "開始前の音声を削除しますか？",
+    removeEarlierAudioDescription:
+      "Clips は文字起こしからこの部分を削除し、それを除いて要約とアクションアイテムを作り直します。",
+    earlierAudioRemoved: "開始前の音声を削除しました",
+    couldNotRemoveEarlierAudio: "開始前の音声を削除できませんでした",
   },
   transcriptPanel: {
     transcribing: "文字起こし中…",

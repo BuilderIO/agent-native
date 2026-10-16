@@ -1304,6 +1304,13 @@ export const migrations = runMigrations(
       sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS include_microphone BOOLEAN;
       ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS include_system_audio BOOLEAN`,
     },
+    {
+      version: 92,
+      name: "recording-transcripts-earlier-audio",
+      // Additive. Mirrors `earlierAudioMs` and `earlierAudioRemovedAt` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_ms INTEGER;
+      ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );
