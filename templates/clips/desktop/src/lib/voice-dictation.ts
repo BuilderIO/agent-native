@@ -70,7 +70,6 @@ type FlowProcessingStage =
   | "cleaning"
   | "pasting"
   | "saving-history";
-type VoiceInsertionResult = DictationInsertion;
 interface FlowStateDetails {
   runId?: number;
   failure?: DictationFailure;
