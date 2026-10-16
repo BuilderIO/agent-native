@@ -217,8 +217,7 @@ test("gradient fill trigger stays inside its cell and opens from one click", asy
 });
 
 // oracle: none — gradient alpha persistence is app behavior with no native Figma counterpart; only the stop opacity locator changed.
-// fixme: product bug: The first PNG export POSTs render-export-png without the agent-native-ui-capability cookie and gets 403 (console error); the client then
-test.fixme("gradient fill opacity preserves stop alpha through zero and reload", async ({
+test("gradient fill opacity preserves stop alpha through zero and reload", async ({
   app,
   page,
 }) => {

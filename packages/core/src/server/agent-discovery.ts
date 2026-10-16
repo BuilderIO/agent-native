@@ -383,7 +383,7 @@ function resolveRemoteAgentManifestUrl(
   manifestUrl: string,
   builtin: DiscoveredAgent | undefined,
   options?: { preferLocalUrls?: boolean },
-): { url: string; isLegacyAssetsManifest: boolean } | undefined {
+): { url: string; isLegacyAliasManifest: boolean } | undefined {
   const catalogBuiltin = BUILTIN_AGENT_CATALOG.find(
     (candidate) => candidate.id === manifestId,
   );
@@ -403,11 +403,17 @@ function resolveRemoteAgentManifestUrl(
     url = builtin.url;
   }
 
-  const isLegacyAssetsManifest =
+  const isLegacyAliasManifest =
     rawManifestId.trim().toLowerCase() !== manifestId;
-  if (isLegacyAssetsManifest && builtin?.url) {
+  if (isLegacyAliasManifest && builtin?.url) {
     try {
-      if (new URL(url).hostname === "images.agent-native.com") {
+      const hostname = new URL(url).hostname;
+      const legacyHost =
+        rawManifestId.trim().toLowerCase() === "videos" &&
+        manifestId === "clips"
+          ? "videos.agent-native.com"
+          : "images.agent-native.com";
+      if (hostname === legacyHost) {
         url = builtin.url;
       }
     } catch {
@@ -415,7 +421,7 @@ function resolveRemoteAgentManifestUrl(
     }
   }
 
-  return { url, isLegacyAssetsManifest };
+  return { url, isLegacyAliasManifest };
 }
 
 export async function discoverAgents(
@@ -497,12 +503,12 @@ export async function discoverAgents(
           options,
         );
         if (!resolved) continue;
-        const { url, isLegacyAssetsManifest } = resolved;
+        const { url, isLegacyAliasManifest } = resolved;
 
         agentsById.set(manifestId, {
           id: manifestId,
           name:
-            isLegacyAssetsManifest && builtin?.name
+            isLegacyAliasManifest && builtin?.name
               ? builtin.name
               : manifest.name,
           description: manifest.description || "",
@@ -657,11 +663,11 @@ async function overlayRemoteAgentResources(
       options,
     );
     if (!resolved) continue;
-    const { url, isLegacyAssetsManifest } = resolved;
+    const { url, isLegacyAliasManifest } = resolved;
     agentsById.set(manifestId, {
       id: manifestId,
       name:
-        isLegacyAssetsManifest && builtin?.name ? builtin.name : manifest.name,
+        isLegacyAliasManifest && builtin?.name ? builtin.name : manifest.name,
       description: manifest.description || "",
       url,
       // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.

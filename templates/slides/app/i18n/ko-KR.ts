@@ -704,6 +704,16 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
+    voiceNavigation: "음성 탐색",
+    voiceNavigationNextCommand: "다음 슬라이드",
+    voiceNavigationPreviousCommand: "이전 슬라이드",
+    voiceNavigationHint:
+      "탐색하려면 “{{next}}” 또는 “{{previous}}”라고 말하세요.",
+    voiceNavigationListening: "“{{next}}” 또는 “{{previous}}”를 듣고 있습니다.",
+    voiceNavigationUnavailable:
+      "이 브라우저에서는 음성 탐색을 사용할 수 없습니다.",
+    voiceNavigationError:
+      "음성 탐색이 중지되었습니다. 마이크 권한과 연결을 확인한 후 다시 시도해 주세요.",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",

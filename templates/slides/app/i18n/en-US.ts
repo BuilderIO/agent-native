@@ -708,6 +708,15 @@ const messages = {
     noSlides: "No slides to present",
     previousSlide: "Previous slide",
     nextSlide: "Next slide",
+    voiceNavigation: "Voice navigation",
+    voiceNavigationNextCommand: "Next slide",
+    voiceNavigationPreviousCommand: "Previous slide",
+    voiceNavigationHint: "Say “{{next}}” or “{{previous}}” to navigate.",
+    voiceNavigationListening: "Listening for “{{next}}” or “{{previous}}”.",
+    voiceNavigationUnavailable:
+      "Voice navigation isn't available in this browser.",
+    voiceNavigationError:
+      "Voice navigation stopped. Check microphone permission and connection, then try again.",
     exitPresentation: "Exit presentation",
     enterFullscreen: "Enter fullscreen",
     clickToEnterFullscreen: "Click to enter fullscreen",
