@@ -311,6 +311,7 @@ async function proposalOnStoredBody(
   operation: SuggestionOperation,
 ): Promise<SuggestionOperation> {
   if (!transaction || typeof content !== "string") failBeforeStateConflict();
+  // guard:allow-unscoped — core's propose action asserted comment access to this Page before validating the proposal.
   const [page] = await drizzleTransactionForExec(transaction)
     .select(liveBodyWriterPageColumns)
     .from(schema.documents)
@@ -447,6 +448,7 @@ async function applyOnLiveCopy(
   )
     failDecisionMoved();
   const tx = context.transaction as DbExec;
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before applying.
   const current = (
     await tx.execute({
       sql: "SELECT content,body_revision,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ? FOR UPDATE",
