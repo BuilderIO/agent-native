@@ -75,6 +75,20 @@ export function getAgentNativeAnalyticsConfigScript(): string | null {
   ].join("");
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+export function getHeadScriptTag(): string | null {
+  const src = getAppConfig().analytics.headScriptSrc;
+  if (!src) return null;
+  return `<script src="${escapeHtmlAttribute(src)}" defer data-agent-native-head-script></script>`;
+}
+
 export function getGaInlineConfigScriptBody(options?: {
   dataLayerName?: string;
   sendPageView?: boolean;
@@ -150,6 +164,7 @@ type AnalyticsInjection = {
 
 function getAnalyticsInjection(): AnalyticsInjection | null {
   const agentNativeAnalytics = getAgentNativeAnalyticsConfigScript();
+  const headScript = getHeadScriptTag();
   const containerId = getGtmContainerId();
   if (containerId) {
     return {
@@ -157,6 +172,7 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
         agentNativeAnalytics,
         getGtmHeadScript(containerId),
         getGtmGaFallbackScript(),
+        headScript,
       ]
         .filter(Boolean)
         .join(""),
@@ -165,7 +181,9 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
   }
 
   const gaScript = getGaScript();
-  const head = [agentNativeAnalytics, gaScript].filter(Boolean).join("");
+  const head = [agentNativeAnalytics, gaScript, headScript]
+    .filter(Boolean)
+    .join("");
   return head ? { head, body: "" } : null;
 }
 

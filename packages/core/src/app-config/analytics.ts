@@ -28,4 +28,11 @@ export const analyticsConfig = z.object({
       ],
       doc: "Endpoint for first-party Agent-Native Analytics events.",
     }),
+  headScriptSrc: z
+    .url({ protocol: /^https$/ })
+    .optional()
+    .meta({
+      env: "AGENT_NATIVE_HEAD_SCRIPT_SRC",
+      doc: "HTTPS URL of a script loaded with `defer` on every server-rendered page, for deployment-specific tooling such as support or feedback widgets.",
+    }),
 });
