@@ -570,6 +570,7 @@ describe("Analytics agent Plan mode policy", () => {
       "pick the default and label it",
       '"Reading this as: <metric definition>, <window>, <filters>, <source>"',
       '"Changing <panel title> on <dashboard>"',
+      "A source the user names wins",
       "Never ask the user for dataset, table, column, or SQL identifiers",
     ]) {
       expect(rule).toContain(clause);
