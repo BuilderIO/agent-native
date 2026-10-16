@@ -19,6 +19,8 @@ import {
 } from "../server/lib/credential-keys";
 import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
+import { DBT_PROVIDER_ID } from "../server/lib/dbt-connection";
+import { dbtProviderReadiness } from "../server/lib/dbt-readiness";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
 import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
@@ -27,6 +29,12 @@ const DATA_SOURCES_SETUP_LINK = buildDeepLink({
   app: APP_ID,
   view: "data-sources",
   to: "/data-sources",
+});
+// dbt's org token and environment ID are saved on the Semantic Layer page.
+const DBT_SETUP_LINK = buildDeepLink({
+  app: APP_ID,
+  view: "semantic-layer",
+  to: "/semantic-layer",
 });
 
 function dataSourceSetupLink(provider: string): string {
@@ -166,7 +174,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "Report available Analytics sources without exposing secrets, including first-party events and granted workspace connections. Use `query-agent-native-analytics` for first-party events. Each provider includes a setup link; key accepts a credential name or provider alias.",
+    "Report available Analytics sources without exposing secrets, including first-party events and granted workspace connections. Use `query-agent-native-analytics` for first-party events. Each provider includes a setup link; key accepts a credential name or provider alias. A null `configured` or `connected` value means the lookup failed: report it as unknown, not disconnected. For dbt, `dbtReadiness` names the missing step; only `ready` means the Semantic Layer can answer.",
   schema: z.object({
     key: z
       .string()
@@ -205,6 +213,22 @@ export default defineAction({
         ...workspace.connections.map((connection) => connection.provider),
       ]),
     ];
+    const dbtConnections = workspaceConnectionsForProviderStatus(
+      DBT_PROVIDER_ID,
+      workspace.connections,
+      ctx.userEmail,
+    );
+    const dbtGrantedIds = new Set(
+      summarizeWorkspaceConnections(
+        DBT_PROVIDER_ID,
+        dbtConnections,
+        workspace.grants,
+      ).connections.map((connection) => connection.id),
+    );
+    const dbtReadiness = await dbtProviderReadiness(
+      dbtConnections.filter((connection) => dbtGrantedIds.has(connection.id)),
+      ctx.orgId ?? null,
+    );
     const workspaceProviderStatuses = workspaceProviderIds.map((providerId) => {
       const catalogProvider =
         workspaceCatalog.find((provider) => provider.id === providerId) ??
@@ -223,6 +247,9 @@ export default defineAction({
           })) ?? [],
         recommendedForAnalytics:
           catalogProvider?.recommendedTemplateUses.includes(APP_ID) ?? false,
+        ...(providerId === DBT_PROVIDER_ID
+          ? { setupLink: DBT_SETUP_LINK, dbtReadiness }
+          : {}),
         ...summarizeWorkspaceConnections(
           providerId,
           workspaceConnectionsForProviderStatus(
@@ -385,6 +412,8 @@ export default defineAction({
       if (
         (provider.grantState !== "connected" &&
           provider.grantState !== "granted") ||
+        (provider.id === DBT_PROVIDER_ID &&
+          provider.dbtReadiness !== "ready") ||
         (scopedProviderIds && !scopedProviderIds.has(provider.id)) ||
         configuredProviderIds.has(provider.id)
       ) {
@@ -406,7 +435,9 @@ export default defineAction({
     // grant has a healthy active connection.
     const connectedExternalDataSources = workspaceProviderStatuses.filter(
       (provider) =>
-        provider.grantState === "connected" &&
+        (provider.id === DBT_PROVIDER_ID
+          ? provider.dbtReadiness === "ready"
+          : provider.grantState === "connected") &&
         (scopedProviderIds === null || scopedProviderIds.has(provider.id)),
     );
     const hasUnknownProviderStatus =

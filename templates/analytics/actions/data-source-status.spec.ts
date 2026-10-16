@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  hasAppSecret: vi.fn(async () => true),
   hasCredential: vi.fn(),
   getGitHubAccessToken: vi.fn(),
   tryRequestCredentialContext: vi.fn(),
@@ -99,6 +100,10 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   ),
 }));
 
+vi.mock("@agent-native/core/secrets", () => ({
+  hasAppSecret: mocks.hasAppSecret,
+}));
+
 vi.mock("../server/lib/credentials", () => ({
   hasCredential: mocks.hasCredential,
 }));
@@ -118,6 +123,41 @@ vi.mock("../server/lib/provider-credentials", () => ({
 const { default: dataSourceStatus } = await import("./data-source-status");
 
 describe("data-source-status", () => {
+  // One granted dbt connection with the environment ID set. The token lookup
+  // (hasAppSecret) decides whether it is ready.
+  function mockGrantedDbtConnection() {
+    mocks.workspaceProviderCatalog.push({
+      id: "dbt",
+      label: "dbt Cloud",
+      description: null,
+      capabilities: [],
+      credentialKeys: [],
+      recommendedTemplateUses: ["analytics"],
+    });
+    mocks.listWorkspaceConnections.mockResolvedValue([
+      {
+        id: "conn_dbt_1",
+        provider: "dbt",
+        status: "connected",
+        config: { semanticLayerEnvironmentId: "123456" },
+      },
+    ] as any);
+    mocks.workspaceSummaryByProvider.dbt = {
+      ...mocks.workspaceSummary,
+      grantState: "connected",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 1,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: true,
+      connections: [
+        { id: "conn_dbt_1", status: "connected", grantedToApp: true },
+      ],
+    };
+  }
+
   beforeEach(() => {
     mocks.hasCredential.mockReset();
     mocks.getGitHubAccessToken.mockReset();
@@ -150,6 +190,7 @@ describe("data-source-status", () => {
     });
     mocks.getGitHubAccessToken.mockResolvedValue({ token: null });
     mocks.hasCredential.mockResolvedValue(false);
+    mocks.hasAppSecret.mockResolvedValue(true);
     mocks.workspaceSummary = {
       ...mocks.workspaceSummary,
       grantState: "not_connected",
@@ -201,28 +242,7 @@ describe("data-source-status", () => {
   });
 
   it("counts a connected workspace-only provider as configured", async () => {
-    mocks.workspaceProviderCatalog.push({
-      id: "dbt",
-      label: "dbt Cloud",
-      description: null,
-      capabilities: [],
-      credentialKeys: [],
-      recommendedTemplateUses: ["analytics"],
-    });
-    mocks.listWorkspaceConnections.mockResolvedValue([
-      { provider: "dbt" },
-    ] as any);
-    mocks.workspaceSummaryByProvider.dbt = {
-      ...mocks.workspaceSummary,
-      grantState: "connected",
-      grantAvailability: "available",
-      connectionCount: 1,
-      grantedConnectionCount: 1,
-      activeConnectionCount: 1,
-      hasWorkspaceConnection: true,
-      hasGrantedWorkspaceConnection: true,
-      hasActiveWorkspaceConnection: true,
-    };
+    mockGrantedDbtConnection();
 
     const result = (await dataSourceStatus.run({})) as any;
 
@@ -254,6 +274,28 @@ describe("data-source-status", () => {
       ],
       connectedExternalDataSourceCount: 1,
     });
+  });
+
+  it("does not count a granted dbt row with no saved token as configured or connected", async () => {
+    mockGrantedDbtConnection();
+    mocks.hasAppSecret.mockResolvedValue(false);
+
+    const result = (await dataSourceStatus.run({})) as any;
+
+    expect(result.connectedExternalDataSources).toEqual([]);
+    expect(result.configuredDataSources).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ provider: "dbt" })]),
+    );
+    expect(result.workspaceConnections.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "dbt",
+          grantState: "connected",
+          dbtReadiness: "token_missing",
+          setupLink: expect.stringContaining("semantic-layer"),
+        }),
+      ]),
+    );
   });
 
   it("uses the canonical PostgreSQL source id in focused setup links", async () => {

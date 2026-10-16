@@ -129,6 +129,25 @@ vi.mock("../lib/analytics-memory-capture.js", () => ({
 
 vi.mock("@agent-native/core/tracking", () => ({ track }));
 
+const { dbtProviderReadiness, getOrgContext, listWorkspaceConnectionsForApp } =
+  vi.hoisted(() => ({
+    dbtProviderReadiness: vi.fn(async (): Promise<string> => "ready"),
+    getOrgContext: vi.fn(async () => ({ orgId: "org_test" })),
+    listWorkspaceConnectionsForApp: vi.fn(async () => []),
+  }));
+
+vi.mock("@agent-native/core/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/org")>()),
+  getOrgContext,
+}));
+vi.mock("@agent-native/core/workspace-connections", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/workspace-connections")
+  >()),
+  listWorkspaceConnectionsForApp,
+}));
+vi.mock("../lib/dbt-readiness", () => ({ dbtProviderReadiness }));
+
 vi.mock("@agent-native/core/server", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("@agent-native/core/server")>();
@@ -487,12 +506,37 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
-  it("hands the plugin the same rules as extraContext", async () => {
+  it("hands the plugin the same rules as extraContext plus one dbt readiness line", async () => {
     const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string> | string)
+      | ((event: unknown, owner: string) => Promise<string>)
       | undefined;
 
-    expect(await extraContext?.()).toBe(analyticsExtraContext());
+    expect(await extraContext?.({}, "owner@example.test")).toBe(
+      analyticsExtraContext("dbt Semantic Layer: ready."),
+    );
+  });
+
+  it("names the dbt readiness reason in guidance, and unknown when the lookup fails", async () => {
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | ((event: unknown, owner: string) => Promise<string>)
+      | undefined;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    dbtProviderReadiness.mockResolvedValueOnce("token_missing");
+    const notReady = await extraContext?.({}, "owner@example.test");
+    expect(notReady).toContain(
+      "dbt Semantic Layer: not ready (token_missing). The dbt Semantic Layer token is not saved. Setup: [Semantic Layer](",
+    );
+
+    dbtProviderReadiness.mockRejectedValueOnce(
+      new Error("unreadable environment id"),
+    );
+    const unknown = await extraContext?.({}, "owner@example.test");
+    expect(unknown).toContain(
+      "dbt Semantic Layer: unknown (the readiness check failed).",
+    );
+    expect(unknown).not.toContain("not ready");
+    warn.mockRestore();
   });
 
   const ruleText = (id: string) => {
@@ -2122,6 +2166,53 @@ describe("realDataFinalGuard", () => {
       expandToolSurface: true,
       exhaustedDraftPrefix: expect.stringContaining("Unverified"),
     });
+  });
+
+  it("gives the unverified fallback the dbt readiness reason and does not count a not-ready dbt grant as healthy", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText: "Signup conversion was 4.2% last week.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                providers: [
+                  {
+                    id: "github",
+                    label: "GitHub",
+                    grantState: "connected",
+                  },
+                  {
+                    id: "dbt",
+                    label: "dbt Cloud",
+                    grantState: "connected",
+                    dbtReadiness: "token_missing",
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    const note =
+      "The dbt Semantic Layer is not ready: The dbt Semantic Layer token is not saved. Set it up on the [Semantic Layer page](";
+    expect(result).toMatchObject({
+      exhaustedDraftPrefix: expect.stringContaining(note),
+      fallbackMessage: expect.stringContaining(note),
+    });
+    expect(
+      (result as { exhaustedDraftPrefix: string }).exhaustedDraftPrefix,
+    ).toContain("healthy workspace connections: GitHub");
+    expect(
+      (result as { exhaustedDraftPrefix: string }).exhaustedDraftPrefix,
+    ).not.toContain("dbt Cloud");
   });
 
   it("distinguishes configured credentials from healthy workspace connections in guard copy", () => {

@@ -8,6 +8,7 @@ import {
 import {
   getGrantedWorkspaceConnectionStatuses,
   type DataSourceStatusResponse,
+  type WorkspaceConnectionProviderSummary,
 } from "./data-source-status";
 
 export const SOURCE_HEALTH_SOURCES = [
@@ -25,6 +26,17 @@ export type SourceHealthState =
   | "not_connected"
   | "needs_reauth"
   | "error";
+
+// A granted dbt row is connected only when the org token and environment ID are
+// saved too. A missing readiness value is unknown, so it reads as an error.
+function dbtHealthState(
+  connection: WorkspaceConnectionProviderSummary | undefined,
+): SourceHealthState {
+  const readiness = connection?.dbtReadiness;
+  if (readiness === undefined || readiness === "error") return "error";
+  if (readiness === "needs_reauth") return "needs_reauth";
+  return readiness === "ready" ? "connected" : "not_connected";
+}
 
 export function sourceHealthState(
   sourceId: SourceHealthId,
@@ -49,7 +61,9 @@ export function sourceHealthState(
   const grantState = connection?.grantState;
   // The aggregate status list includes connections granted to other apps.
   // Use the per-connection list filtered for Analytics when assessing health.
-  if (grantState === "connected") return "connected";
+  if (grantState === "connected") {
+    return sourceId === "dbt" ? dbtHealthState(connection) : "connected";
+  }
   if (grantState === "needs_grant") {
     const missingRequiredKeys = provider?.missingRequiredKeys;
     const requiredCredentialsConfigured =

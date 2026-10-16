@@ -13,3 +13,19 @@ the action schema before any provider call. The same cases are exercised by
 The production smoke check is separate and read-only: one `metricsPaginated`
 metadata request against the granted dbt workspace connection. It does not
 create a MetricFlow query, start a dbt job, or write to the production app.
+
+## Routing cases
+
+`dbt-semantic-layer.eval.ts` adds two synthetic agent-routing cases for the
+metric `synthetic_active_accounts`. `dbt-semantic-layer.spec.ts` feeds canned
+transcripts to each scorer.
+
+- Owner metric: the first source query must be `query-dbt-semantic-metric`. A
+  `bigquery` or dashboard query first fails.
+- Unconnected org: `get-dbt-connection` must report `not_connected` or
+  `token_missing`, and the answer must say it reads warehouse tables and is not
+  the owner-approved Semantic Layer definition.
+
+Both cases run against the same org in one live run. Run the suite once against
+a connected org and once against an unconnected org; the unconnected case fails
+on a connected org by design.

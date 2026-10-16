@@ -10,6 +10,63 @@ export type DbtConnectionCheck<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
 
+export const DBT_CONNECTION_READINESS = [
+  "ready",
+  "not_connected",
+  "token_missing",
+  "environment_missing",
+  "needs_reauth",
+  "error",
+] as const;
+export type DbtConnectionReadiness = (typeof DBT_CONNECTION_READINESS)[number];
+
+// The one readiness answer every surface uses. A granted row is not enough:
+// the org token and environment ID are required too. `tokenConfigured: null`
+// means the token lookup failed, which is an error, not a missing token.
+export function dbtConnectionReadiness({
+  status,
+  tokenConfigured,
+  environmentId,
+}: {
+  status:
+    | "connected"
+    | "checking"
+    | "needs_reauth"
+    | "error"
+    | "disabled"
+    | null;
+  tokenConfigured: boolean | null;
+  environmentId: string | null;
+}): DbtConnectionReadiness {
+  if (status === null) return "not_connected";
+  if (status === "needs_reauth") return "needs_reauth";
+  if (status === "error") return "error";
+  if (status !== "connected") return "not_connected";
+  if (tokenConfigured === null) return "error";
+  if (!tokenConfigured) return "token_missing";
+  if (!environmentId) return "environment_missing";
+  return "ready";
+}
+
+export function dbtConnectionReadinessReason(
+  readiness: DbtConnectionReadiness,
+): string | null {
+  switch (readiness) {
+    case "ready":
+      return null;
+    case "not_connected":
+      return "No dbt Cloud connection is granted to Analytics.";
+    case "token_missing":
+      return "The dbt Semantic Layer token is not saved.";
+    case "environment_missing":
+      return "The dbt environment ID is not saved.";
+    case "needs_reauth":
+      return "The dbt connection needs to be reconnected.";
+    case "error":
+      return "The dbt connection has an error, or its status could not be read.";
+  }
+}
+
 export function validateEnvironmentId(
   input: string,
 ): DbtConnectionCheck<string> {

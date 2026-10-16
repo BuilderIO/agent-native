@@ -426,7 +426,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 export default defineAction({
   description:
-    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. Returns the metric definition, bounded live rows, and explicit permission, deployment, or connection states; it cannot run dbt jobs or accept arbitrary GraphQL.",
+    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. Returns the metric definition, bounded live rows, and explicit permission, deployment, or connection states; it cannot run dbt jobs or accept arbitrary GraphQL. On `not_found`, search `find-data` for the exact name once, then retry. On `ambiguous_metric`, list the matching names and ask which metric is meant; retrying the same name returns the same ambiguity. On `connection_selection_required`, pass a `connectionId` from its `connections` list. On a connection-required error, report the Settings step (Settings → Integrations) and do not answer with a different metric.",
   schema: z
     .object({
       metricName: z

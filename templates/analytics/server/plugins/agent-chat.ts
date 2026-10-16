@@ -10,6 +10,7 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+import { listWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
@@ -22,7 +23,15 @@ import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
 import "../lib/sigma-setup-secret-sweep.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import {
+  DBT_CONNECTION_READINESS,
+  DBT_PROVIDER_ID,
+  dbtConnectionReadinessReason,
+  type DbtConnectionReadiness,
+} from "../lib/dbt-connection";
+import { dbtProviderReadiness } from "../lib/dbt-readiness";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
+import { ANALYTICS_APP_ID } from "../lib/provider-credentials";
 import {
   deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
@@ -192,6 +201,11 @@ const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   view: "data-sources",
   to: "/data-sources",
 });
+const DBT_SEMANTIC_LAYER_LINK = buildDeepLink({
+  app: "analytics",
+  view: "semantic-layer",
+  to: "/semantic-layer",
+});
 
 const DASHBOARD_BUILD_PAUSE_PATTERN =
   /\b(?:want me to|would you like me to|shall i|should i|can i|may i|do you want me to)\b[\s\S]{0,160}\b(?:proceed|continue|seed|populate|save|embed|finish|run|apply|create|build)\b/i;
@@ -317,8 +331,41 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
 ];
 
-export function analyticsExtraContext(): string {
-  return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
+export function analyticsExtraContext(dbtReadinessLine?: string): string {
+  const lines = ANALYTICS_PROMPT_RULES.map((rule) => rule.text);
+  if (dbtReadinessLine) lines.push(dbtReadinessLine);
+  return `<data-source-guidance>\n${lines.join("\n")}\n</data-source-guidance>`;
+}
+
+const DBT_READINESS_UNKNOWN_LINE =
+  "dbt Semantic Layer: unknown (the readiness check failed).";
+
+// Runs on every agent run. A throw here drops the whole guidance block (core
+// returns an empty string), so a failed lookup must become the "unknown" line.
+async function dbtReadinessLine(event: any): Promise<string> {
+  try {
+    const ctx = await getOrgContext(event);
+    const grantedConnections = await listWorkspaceConnectionsForApp({
+      appId: ANALYTICS_APP_ID,
+      provider: DBT_PROVIDER_ID,
+      includeDisabled: true,
+    });
+    const readiness = await dbtProviderReadiness(
+      grantedConnections,
+      ctx.orgId ?? null,
+    );
+    if (readiness === "ready") return "dbt Semantic Layer: ready.";
+    return `dbt Semantic Layer: not ready (${readiness}). ${dbtConnectionReadinessReason(readiness)} Setup: [Semantic Layer](${DBT_SEMANTIC_LAYER_LINK}).`;
+  } catch (error) {
+    console.warn("[analytics] dbt readiness unavailable for agent context", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return DBT_READINESS_UNKNOWN_LINE;
+  }
+}
+
+async function analyticsRequestExtraContext(event: any): Promise<string> {
+  return analyticsExtraContext(await dbtReadinessLine(event));
 }
 
 // A request stays inside one sentence or one bulleted list: a summary of the
@@ -477,6 +524,29 @@ function exhaustedDraftPrefixFor({
   );
 }
 
+// Names dbt only when this turn gives a reason to: the in-turn status check
+// reported dbt not ready, or a dbt metric query failed. Silence is not "ready".
+function dbtUnverifiedNote(
+  sourceStatus: DataSourceStatusSummary,
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): string | null {
+  const readiness = sourceStatus.dbtReadiness;
+  if (readiness !== undefined && readiness !== "ready") {
+    return `The dbt Semantic Layer is not ready: ${dbtConnectionReadinessReason(readiness)} Set it up on the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}), then ask again.`;
+  }
+  const dbtQueryFailed = (toolResults ?? []).some(
+    (result) =>
+      result.isError === true &&
+      String(result.name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-") === "query-dbt-semantic-metric",
+  );
+  return dbtQueryFailed
+    ? `The dbt Semantic Layer query failed this turn. Check the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}) for the connection status, then ask again.`
+    : null;
+}
+
 function isRealUserTextMessage(message: {
   role?: string;
   content?: unknown;
@@ -554,6 +624,15 @@ interface DataSourceStatusSummary {
     setupLink?: string;
   }>;
   setupLink: string;
+  // Absent when no in-turn status reported dbt. Absent means unknown, not
+  // not-connected.
+  dbtReadiness?: DbtConnectionReadiness;
+}
+
+function parseDbtReadiness(value: unknown): DbtConnectionReadiness | undefined {
+  return (DBT_CONNECTION_READINESS as readonly unknown[]).includes(value)
+    ? (value as DbtConnectionReadiness)
+    : undefined;
 }
 
 function inferRequiredCredentialsConfigured(
@@ -733,6 +812,7 @@ function dataSourceStatusSummary(
   >();
   let checked = false;
   let setupLink = ANALYTICS_DATA_SOURCES_LINK;
+  let dbtReadiness: DbtConnectionReadiness | undefined;
 
   const addAvailableExternalSource = (
     provider: unknown,
@@ -993,24 +1073,40 @@ function dataSourceStatusSummary(
       const label = record.label ?? providerId;
       const grantState =
         typeof record.grantState === "string" ? record.grantState : null;
-      const configured =
-        record.configured === true ||
-        grantState === "connected" ||
-        grantState === "granted"
+      const isDbt = providerId === DBT_PROVIDER_ID;
+      if (isDbt) dbtReadiness = parseDbtReadiness(record.dbtReadiness);
+      // Mirrors data-source-status: a granted dbt row whose Semantic Layer is
+      // not ready is neither configured nor a healthy workspace connection.
+      const dbtNotReady =
+        isDbt && dbtReadiness !== undefined && dbtReadiness !== "ready";
+      const configured = dbtNotReady
+        ? false
+        : record.configured === true ||
+            grantState === "connected" ||
+            grantState === "granted"
           ? true
           : record.configured === false ||
               grantState === "needs_grant" ||
               grantState === "not_connected"
             ? false
             : null;
-      addAvailableExternalSource(providerId, label, configured, undefined, {
-        ...(grantState ? { workspaceGrantState: grantState } : {}),
-      });
+      addAvailableExternalSource(
+        providerId,
+        label,
+        configured,
+        dbtNotReady ? record.setupLink : undefined,
+        {
+          ...(grantState && !dbtNotReady
+            ? { workspaceGrantState: grantState }
+            : {}),
+        },
+      );
       if (configured && typeof label === "string" && label.trim()) {
         configuredSourceLabels.add(label.trim());
       }
       if (
         grantState === "connected" &&
+        !dbtNotReady &&
         typeof label === "string" &&
         label.trim()
       ) {
@@ -1025,6 +1121,7 @@ function dataSourceStatusSummary(
     workspaceConnectedSourceLabels: [...workspaceConnectedSourceLabels],
     availableExternalSources: [...availableExternalSources.values()],
     setupLink,
+    dbtReadiness,
   };
 }
 
@@ -1375,19 +1472,26 @@ export function realDataFinalGuard(
     ? ` \`data-source-status\` reports ${sourceStatusDetails}. It checks configuration and workspace grants but does not run a source query. Treat configured credentials separately from healthy workspace connections; do not call a credential-only source connected or ask the user to reconnect before trying its query action.`
     : "";
   const catalogSearched = hasCatalogSearchAttempt(context.toolResults);
-  const exhaustedDraftPrefix = exhaustedDraftPrefixFor({
-    toolResults: context.toolResults,
-    setupMarkdown,
-    includeConnectOption: !catalogSearched,
-  });
+  // The draft prefix is what the user sees when a draft exists, so the dbt
+  // note goes there as well as into the fallbacks.
+  const dbtNote = dbtUnverifiedNote(sourceStatus, context.toolResults);
+  const withDbtNote = (text: string) => (dbtNote ? `${text} ${dbtNote}` : text);
+  const exhaustedDraftPrefix = withDbtNote(
+    exhaustedDraftPrefixFor({
+      toolResults: context.toolResults,
+      setupMarkdown,
+      includeConnectOption: !catalogSearched,
+    }),
+  );
 
   if (catalogSearched) {
     return {
       retryMessage:
         "You already ran data-reference discovery this turn. If it returned a usable dashboard or query, adapt and run it now and cite the dashboard; if not, inspect exact metadata with search-bigquery-schema or data-source-status, then run one bounded query." +
         UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
-      fallbackMessage:
+      fallbackMessage: withDbtNote(
         "I searched the dashboard/query catalog but didn't finish a real source query. Please retry; I'll adapt a matching dashboard or query if one exists, or run the next discovery pass and query it directly.",
+      ),
       maxRetries: 2,
       expandToolSurface: true,
       exhaustedDraftPrefix,
@@ -1400,9 +1504,11 @@ export function realDataFinalGuard(
       configuredSourceGuidance +
       " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead." +
       UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
-    fallbackMessage: configuredSources.length
-      ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
-      : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
+    fallbackMessage: withDbtNote(
+      configuredSources.length
+        ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
+        : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
+    ),
     maxRetries: 2,
     expandToolSurface: true,
     exhaustedDraftPrefix,
@@ -1523,7 +1629,7 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  extraContext: analyticsExtraContext,
+  extraContext: analyticsRequestExtraContext,
   mentionProviders: {
     dashboards: {
       label: "Dashboards",
