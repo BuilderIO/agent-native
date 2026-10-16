@@ -74,6 +74,7 @@ const mocks = vi.hoisted(() => ({
   ),
   revision: 0,
   listeners: new Set<() => void>(),
+  getDeckLatest: vi.fn(),
   sendToAgentChat: vi.fn(),
   sendToAgentChatAndConfirm: vi.fn(async () => ({
     tabId: "generation-thread",
@@ -138,7 +139,7 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
 vi.mock("@/context/DeckContext", () => ({
   useDecks: () => ({
     getDeck: () => (mocks.deckMissing ? null : mocks.deck),
-    getDeckLatest: () => (mocks.deckMissing ? null : mocks.deck),
+    getDeckLatest: mocks.getDeckLatest,
     reloadDecks: vi.fn(),
     reloadDecksWithStatus: vi.fn(),
     refreshOpenDeck: mocks.refreshOpenDeck,
@@ -511,6 +512,9 @@ describe("DeckEditor generation signal wiring", () => {
     });
     mocks.flushDeckSave.mockReset().mockResolvedValue(undefined);
     mocks.clearStartedGenerationAttempt.mockClear();
+    mocks.getDeckLatest
+      .mockReset()
+      .mockImplementation(() => (mocks.deckMissing ? null : mocks.deck));
     mocks.refreshOpenDeck.mockReset().mockResolvedValue(mocks.deck);
     mocks.submitAndConfirm
       .mockReset()
