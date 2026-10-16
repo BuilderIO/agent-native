@@ -89,7 +89,7 @@ function OutputLink({ output }: { output: SessionOutput }) {
   const t = useT();
   if (!output.url) return null;
   return (
-    <Button asChild variant="ghost" size="sm" className="h-7 shrink-0 text-xs">
+    <Button asChild variant="ghost" size="xs" className="shrink-0">
       <a href={output.url} target="_blank" rel="noreferrer">
         {openOutputLabel(output, t)}
         <IconExternalLink />
@@ -139,7 +139,6 @@ export function SessionOutputsButton({ recordingId }: { recordingId: string }) {
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 font-normal text-muted-foreground"
         onClick={() => void query.refetch()}
         disabled={query.isFetching}
       >
@@ -155,7 +154,7 @@ export function SessionOutputsButton({ recordingId }: { recordingId: string }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 font-normal">
+        <Button variant="outline">
           <IconPackage />
           {t(
             total === 1 ? "sessions.deckCountSingular" : "sessions.deckCount",

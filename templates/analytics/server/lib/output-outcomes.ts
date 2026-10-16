@@ -1,14 +1,5 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import {
-  type AnyColumn,
-  and,
-  asc,
-  eq,
-  inArray,
-  lt,
-  lte,
-  sql,
-} from "drizzle-orm";
+import { type AnyColumn, and, eq, inArray, lt, lte, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import {
@@ -114,7 +105,7 @@ function parseProperties(properties: string): Record<string, unknown> {
     : {};
 }
 
-function useByOf(madeAt: string): string {
+function computeUseBy(madeAt: string): string {
   return new Date(Date.parse(madeAt) + OUTPUT_USE_WINDOW_MS).toISOString();
 }
 
@@ -177,7 +168,7 @@ export function aggregateOutputOutcomeRows(
     if (made) {
       if (!outcome.madeAt || row.timestamp < outcome.madeAt) {
         outcome.madeAt = row.timestamp;
-        outcome.useBy = useByOf(row.timestamp);
+        outcome.useBy = computeUseBy(row.timestamp);
         outcome.madeSessionId = sessionId ?? outcome.madeSessionId ?? null;
       } else if (!outcome.madeSessionId) {
         outcome.madeSessionId = sessionId;
