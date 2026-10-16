@@ -53,22 +53,28 @@ describe("detectTranscriptFormat", () => {
     });
   });
 
-  it("keeps a timestamped line that starts with an arrow as text", () => {
-    const text = [
-      "0:00 Intro.",
-      "0:05 --> 0:10 is the range we trim.",
-      "0:12 Done.",
-    ].join("\n");
-    expect(detectTranscriptFormat(text)).toBe("text");
-    const result = parseTranscriptImport(text);
-    if (!result.ok)
-      throw new Error(describeTranscriptImportError(result.error));
-    expect(result.segments.map((s) => [s.startMs, s.endMs, s.text])).toEqual([
-      [0, 5000, "Intro."],
-      [5000, 12_000, "--> 0:10 is the range we trim."],
-      [12_000, 13_000, "Done."],
-    ]);
-  });
+  it.each([
+    ["0:05 --> 0:10 is the range we trim.", "--> 0:10 is the range we trim."],
+    [
+      "0:05.000 --> 0:10.000 is the range we trim.",
+      "--> 0:10.000 is the range we trim.",
+    ],
+    ["0:05 --> 0:10 https://example.com/a", "--> 0:10 https://example.com/a"],
+  ])(
+    "keeps the timestamped line %j, which starts with an arrow, as text",
+    (line, kept) => {
+      const text = ["0:00 Intro.", line, "0:12 Done."].join("\n");
+      expect(detectTranscriptFormat(text)).toBe("text");
+      const result = parseTranscriptImport(text);
+      if (!result.ok)
+        throw new Error(describeTranscriptImportError(result.error));
+      expect(result.segments.map((s) => [s.startMs, s.endMs, s.text])).toEqual([
+        [0, 5000, "Intro."],
+        [5000, 12_000, kept],
+        [12_000, 13_000, "Done."],
+      ]);
+    },
+  );
 
   it("reads cue timings with no WEBVTT header as SRT", () => {
     const text =
@@ -223,6 +229,12 @@ describe("parseTranscriptImport", () => {
       "1\n00:00:01,000 --> soon\nhello",
       "bad-timing",
       2,
+    ],
+    [
+      "an unreadable cue timing with no fraction",
+      "00:00:01 --> soon\nHello",
+      "bad-timing",
+      1,
     ],
     [
       "an unreadable timing right under the previous cue",

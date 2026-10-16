@@ -65,12 +65,14 @@ const TIME = String.raw`${CLOCK}(?:[.,]\d{1,3})?`;
 const CUE_TIMING = new RegExp(
   String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+.*)?$`,
 );
-// A cue timing is a start time with a fraction right before the arrow, or a
-// whole timing followed by nothing but WebVTT cue settings. Timestamped prose
-// such as "0:05 Use a --> b" or "0:05 --> 0:10 is the range" is still text,
-// while a cue with a bad end time is SRT and gets SRT's line-specific error.
-const CUE_TIMING_START = new RegExp(
-  String.raw`^\s*(?:${CLOCK}[.,]\d{1,3}\s*-->|${TIME}\s*-->\s*${TIME}(?:\s+[a-z]+:\S+)*\s*$)`,
+const CUE_SETTING = String.raw`(?:vertical|line|position|size|align|region):\S+`;
+// A cue timing line holds a start time, an arrow, one end time and nothing
+// after it but WebVTT cue settings, so prose after the end time, as in
+// "0:05 --> 0:10 is the range" or "0:05 --> 0:10 https://…", stays
+// timestamped text. The end is any one word, so a cue with an unreadable end
+// time ("00:00:01 --> soon") is still a cue and gets its line-specific error.
+const CUE_TIMING_LINE = new RegExp(
+  String.raw`^\s*${TIME}\s*-->\s*\S*(?:\s+${CUE_SETTING})*\s*$`,
 );
 // Text can follow a closing bracket or bold marker directly, as in
 // "[0:21]The chart."; a bare time needs a space after it, so "3:45pm" in
@@ -104,7 +106,7 @@ export function detectTranscriptFormat(text: string): TranscriptImportFormat {
   const body = stripBom(text);
   const firstLine = body.trimStart().split(/\r?\n/, 1)[0] ?? "";
   if (/^WEBVTT(?:\s|$)/.test(firstLine)) return "vtt";
-  if (splitLines(body).some((line) => CUE_TIMING_START.test(line))) {
+  if (splitLines(body).some((line) => CUE_TIMING_LINE.test(line))) {
     return "srt";
   }
   return "text";
@@ -453,8 +455,8 @@ function decodeEntities(text: string): string {
 
 // Like WebVTT's own parser, a timing line starts a new cue even without a
 // blank line before it, so the next cue is not read as this one's text. A
-// line that only starts like one splits too, so a bad end time gets its
-// line-specific error. An SRT index right above that line moves with it.
+// timing with an unreadable end time splits too, so it gets its line-specific
+// error. An SRT index right above that line moves with it.
 function splitAtCueTimings(
   block: Array<{ text: string; number: number }>,
 ): Array<Array<{ text: string; number: number }>> {
@@ -462,7 +464,7 @@ function splitAtCueTimings(
   let start = 0;
   let seenTiming = false;
   for (const [index, line] of block.entries()) {
-    if (!CUE_TIMING_START.test(line.text)) continue;
+    if (!CUE_TIMING_LINE.test(line.text)) continue;
     // A part's own timing is its first line, or its second after an
     // identifier; one further down starts the next cue, even after a NOTE.
     if (seenTiming || index - start > 1) {
