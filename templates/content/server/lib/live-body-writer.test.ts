@@ -90,7 +90,22 @@ beforeAll(async () => {
   registerFeatureFlags(CONTENT_FEATURE_FLAGS);
   gate = await import("./live-body-writer.js");
   collab = await import("@agent-native/core/collab");
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
+  )`);
 }, 60_000);
+
+async function joinOrg(email: string, orgId: string) {
+  await getDbExec().execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: [`${orgId}:${email}`, orgId, email, "owner", Date.now()],
+  });
+}
 
 beforeEach(async () => {
   await getDb().delete(schema.documents);
@@ -100,7 +115,10 @@ beforeEach(async () => {
       // The first test runs before core creates the table.
       if (!/_collab_docs" does not exist/.test(String(error))) throw error;
     });
+  await getDbExec().execute("DELETE FROM org_members");
+  // Global rules first: the settings table is created by its first write.
   await setFlags({});
+  await getDbExec().execute("DELETE FROM public.settings WHERE key LIKE 'o:%'");
 });
 
 afterAll(() => {
@@ -173,11 +191,47 @@ describe("live-body writer gate", () => {
   it("follows an organization rollout for the page's organization", async () => {
     await insertPage("org-page", { orgId: ORG });
     await insertPage("personal-page");
+    await joinOrg(OWNER, ORG);
     await putOrgSetting(ORG, SHADOW, rules({ orgIds: [ORG] }));
     await putOrgSetting(ORG, WRITER, rules({ orgIds: [ORG] }));
 
     await expect(gate.liveBodyWriterGate("org-page")).resolves.toEqual({
       writePath: "live_copy",
+    });
+    await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "flag_off",
+    });
+  });
+
+  it("switches an owner's personal pages on their own enablement in one of their orgs, whoever is calling", async () => {
+    await insertPage("personal-page");
+    await joinOrg(OWNER, ORG);
+    await joinOrg(COLLABORATOR, ORG);
+    // What enable-for-current-user stores for a manager whose active org is ORG.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [OWNER] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [OWNER] }));
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR, orgId: ORG }, () =>
+        gate.liveBodyWriterGate("personal-page"),
+      ),
+    ).resolves.toEqual({ writePath: "live_copy" });
+
+    // A collaborator's own enablement does not switch the owner's page.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [COLLABORATOR] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [COLLABORATOR] }));
+    await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "flag_off",
+    });
+
+    // Nor does the owner's listing in an org they have left.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [OWNER] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [OWNER] }));
+    await getDbExec().execute({
+      sql: "UPDATE org_members SET federation_removal_pending_at = ? WHERE email = ?",
+      args: [Date.now(), OWNER],
     });
     await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
       writePath: "legacy",
