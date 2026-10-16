@@ -89,7 +89,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { ContextToolbarQuickPick } from "@/lib/editor-agent-handoff";
 import type { VideoPlaybackSettings } from "@/lib/slide-video";
-import { cn, shortcutLabel } from "@/lib/utils";
+import { cn, normalizeLinkHref, shortcutLabel } from "@/lib/utils";
 
 import type { SlideListKind } from "./list-editing";
 import type {
@@ -942,7 +942,7 @@ export function SlideContextToolbar({
                 className="flex items-center gap-1"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  onSetLink(linkHref.trim() || null);
+                  onSetLink(normalizeLinkHref(linkHref));
                   setLinkOpen(false);
                 }}
               >

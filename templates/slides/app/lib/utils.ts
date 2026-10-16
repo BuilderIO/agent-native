@@ -11,6 +11,12 @@ export function shortcutModifierLabel(): string {
   return isMacPlatform() ? "\u2318" : "Ctrl";
 }
 
+export function normalizeLinkHref(value: string): string | null {
+  const href = value.trim();
+  if (!href) return null;
+  return href.startsWith("http") ? href : `https://${href}`;
+}
+
 export function shortcutLabel(shortcut: string): string {
   const isMac = isMacPlatform();
   return shortcut
