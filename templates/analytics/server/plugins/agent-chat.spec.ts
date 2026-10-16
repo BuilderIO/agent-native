@@ -1632,6 +1632,67 @@ describe("realDataFinalGuard", () => {
     ).toBeNull();
   });
 
+  it("uses the named current quarter for year-ago comparisons", () => {
+    const currentQuarter = {
+      startDate: "2026-07-01",
+      endDate: "2026-09-30",
+    };
+    const priorYearQuarter = {
+      startDate: "2025-07-01",
+      endDate: "2025-09-30",
+    };
+    const currentCall = dbtMetricCall(currentQuarter, [], "quarter-current");
+    const priorCall = dbtMetricCall(priorYearQuarter, [], "quarter-prior");
+    const currentResult = dbtMetricResult(
+      { groupBy: [], timeRange: currentQuarter },
+      undefined,
+      {},
+      "quarter-current",
+    );
+    const priorResult = dbtMetricResult(
+      { groupBy: [], timeRange: priorYearQuarter },
+      undefined,
+      {},
+      "quarter-prior",
+    );
+    const context = (
+      toolCalls: AgentLoopFinalResponseGuardContext["toolCalls"],
+      toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+    ) =>
+      guardContext({
+        userText:
+          "Compare activation rate for Q3 2026 with the equivalent period last year.",
+        draftText: "The activation rate was 42% in Q3 2026 and 39% in Q3 2025.",
+        runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+        toolCalls,
+        toolResults,
+      });
+
+    expect(
+      realDataFinalGuard(
+        context([currentCall, priorCall], [currentResult, priorResult]),
+      ),
+    ).toBeNull();
+    expect(
+      realDataFinalGuard(context([currentCall], [currentResult])),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "Compare activation rate for Q3 2026 with last year.",
+          draftText: "The activation rate was 42% in Q3 2026.",
+          runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+          toolCalls: [currentCall],
+          toolResults: [currentResult],
+        }),
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
   it("fails closed on invalid explicit dates in a year-ago comparison", () => {
     const result = realDataFinalGuard(
       guardContext({

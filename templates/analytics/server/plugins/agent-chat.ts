@@ -1152,6 +1152,9 @@ function boundedPeriodRequest(userText: string): boolean {
     ) ||
     /\b(?:year|quarter|month|week|day)\s+to\s+date\b|\b(?:ytd|qtd|mtd)\b|\b(?:in|during)\s+(?:19|20)\d{2}\b/i.test(
       userText,
+    ) ||
+    /\b(?:q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|quarter\s+[1-4])\s+(?:of\s+)?(?:19|20)\d{2}\b/i.test(
+      userText,
     )
   );
 }
@@ -1293,6 +1296,21 @@ function requestedCalendarRange(
     }
   }
 
+  const namedQuarter = userText.match(
+    /\b(?:q([1-4])|([1-4])(?:st|nd|rd|th)\s+quarter|quarter\s+([1-4]))\s+(?:of\s+)?((?:19|20)\d{2})\b/i,
+  );
+  const quarterNumber = Number(
+    namedQuarter?.[1] ?? namedQuarter?.[2] ?? namedQuarter?.[3],
+  );
+  if (namedQuarter?.[4] && quarterNumber >= 1 && quarterNumber <= 4) {
+    const year = Number(namedQuarter[4]);
+    const startMonth = (quarterNumber - 1) * 3;
+    return dateRange(
+      new Date(Date.UTC(year, startMonth, 1)),
+      new Date(Date.UTC(year, startMonth + 3, 0)),
+    );
+  }
+
   const namedYear = userText.match(
     /\b(?:in|during|for|year)\s+((?:19|20)\d{2})\b/i,
   );
@@ -1422,7 +1440,7 @@ function requestedFirstComparisonRange(
   now: Date,
 ): DbtMetricTimeRange | null {
   const comparisonConnector = userText.match(
-    /\b(?:vs\.?|versus|against|compared\s+to)\b/i,
+    /\b(?:vs\.?|versus|against|compared\s+to|with)\b/i,
   );
   if (comparisonConnector?.index === undefined) return null;
   return requestedCalendarRange(
@@ -1532,7 +1550,7 @@ function requestedComparisonCalendarRanges(
   }
 
   const comparisonConnector = userText.match(
-    /\b(?:vs\.?|versus|against|compared\s+to)\b/i,
+    /\b(?:vs\.?|versus|against|compared\s+to|with)\b/i,
   );
   const comparisonSuffix =
     comparisonConnector?.index !== undefined
