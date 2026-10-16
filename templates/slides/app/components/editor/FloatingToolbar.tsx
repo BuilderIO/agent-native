@@ -187,6 +187,8 @@ interface ToolGroupProps<V extends string> {
   value?: V | null;
   /** Individual rows that stay visible but cannot be chosen. */
   disabledValues?: readonly V[];
+  /** Tooltip on a disabled row, saying why it cannot be chosen. */
+  disabledReason?: string;
 }
 
 function ToolGroup<V extends string>({
@@ -200,6 +202,7 @@ function ToolGroup<V extends string>({
   openMenuOnActivate = false,
   value,
   disabledValues,
+  disabledReason,
 }: ToolGroupProps<V>) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -245,6 +248,7 @@ function ToolGroup<V extends string>({
               item={item}
               selected={item.value === value}
               disabled={Boolean(disabledValues?.includes(item.value))}
+              disabledReason={disabledReason}
               onSelect={onSelect}
             />
           ))}
@@ -258,29 +262,46 @@ function MenuRow<V extends string>({
   item,
   selected,
   disabled,
+  disabledReason,
   onSelect,
 }: {
   item: MenuItem<V>;
   selected: boolean;
   disabled: boolean;
+  disabledReason?: string;
   onSelect?: (value: V) => void;
 }) {
   const t = useT();
   const ItemIcon = item.icon;
+  const row = (
+    <DropdownMenuItem
+      disabled={disabled}
+      onSelect={() => onSelect?.(item.value)}
+      className={cn("gap-2", selected && "bg-accent")}
+    >
+      <ItemIcon className="size-4 shrink-0" aria-hidden />
+      {t(item.labelKey)}
+      {item.shortcut ? (
+        <DropdownMenuShortcut>{item.shortcut}</DropdownMenuShortcut>
+      ) : null}
+    </DropdownMenuItem>
+  );
   return (
     <>
       {item.separatorBefore ? <DropdownMenuSeparator /> : null}
-      <DropdownMenuItem
-        disabled={disabled}
-        onSelect={() => onSelect?.(item.value)}
-        className={cn("gap-2", selected && "bg-accent")}
-      >
-        <ItemIcon className="size-4 shrink-0" aria-hidden />
-        {t(item.labelKey)}
-        {item.shortcut ? (
-          <DropdownMenuShortcut>{item.shortcut}</DropdownMenuShortcut>
-        ) : null}
-      </DropdownMenuItem>
+      {disabled && disabledReason ? (
+        <Tooltip>
+          {/* A disabled item takes no pointer events, so the wrapper is the hover target. */}
+          <TooltipTrigger asChild>
+            <div>{row}</div>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="max-w-56">
+            {disabledReason}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        row
+      )}
     </>
   );
 }
@@ -297,8 +318,8 @@ export interface FloatingToolbarProps {
   transitionsOpen?: boolean;
   /** The selected element's animation; "none" when it has none. */
   transitionValue?: FloatingToolbarTransition | null;
-  /** No element is selected, or the deck is read-only. */
-  transitionsDisabled?: boolean;
+  /** Why the quick picks cannot be used right now; set disables them. */
+  transitionsDisabledReason?: string | null;
   onOpenTransitions?: () => void;
   onSelectTransition?: (transition: FloatingToolbarTransition) => void;
   /** True while the comments panel is open. */
@@ -321,7 +342,7 @@ export const FloatingToolbar = memo(function FloatingToolbar({
   onInsert,
   transitionsOpen = false,
   transitionValue = null,
-  transitionsDisabled = false,
+  transitionsDisabledReason = null,
   onOpenTransitions,
   onSelectTransition,
   commentsOpen = false,
@@ -373,7 +394,8 @@ export const FloatingToolbar = memo(function FloatingToolbar({
         items={TRANSITION_ITEMS}
         active={transitionsOpen}
         value={transitionValue}
-        disabledValues={transitionsDisabled ? ALL_TRANSITIONS : undefined}
+        disabledValues={transitionsDisabledReason ? ALL_TRANSITIONS : undefined}
+        disabledReason={transitionsDisabledReason ?? undefined}
         onActivate={onOpenTransitions}
         onSelect={onSelectTransition}
       />

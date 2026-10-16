@@ -3230,6 +3230,14 @@ export default function SlideEditor({
     [onToggleComments, onTogglePinMode, onToggleDrawMode],
   );
 
+  const transitionsDisabledReason = readOnly
+    ? t("floatingToolbar.transitionsReadOnly")
+    : multiSelection.size > 1
+      ? t("floatingToolbar.transitionsMultiple")
+      : animationTarget
+        ? null
+        : t("floatingToolbar.transitionsNeedElement");
+
   const openTransitionsPanel = useCallback(() => {
     if (!animationsOpen && animationTarget) onOpenAnimations?.(animationTarget);
     else onToggleAnimations?.();
@@ -10935,7 +10943,7 @@ export default function SlideEditor({
                       ? (selectedElementAnimation?.type ?? "none")
                       : null
                   }
-                  transitionsDisabled={readOnly || !animationTarget}
+                  transitionsDisabledReason={transitionsDisabledReason}
                   onOpenTransitions={openTransitionsPanel}
                   onSelectTransition={applyTransitionQuickPick}
                   commentsOpen={Boolean(commentsOpen)}

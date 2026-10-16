@@ -237,6 +237,10 @@ const messages = {
     chart: "Chart",
     transitions: "Transitions",
     transitionsMenu: "Transition options",
+    transitionsReadOnly: "This deck is read-only.",
+    transitionsMultiple:
+      "Transitions apply to one element at a time. Select a single element.",
+    transitionsNeedElement: "Select an element to add a transition.",
     transitionNone: "None",
     transitionAppear: "Appear",
     transitionFade: "Fade",
