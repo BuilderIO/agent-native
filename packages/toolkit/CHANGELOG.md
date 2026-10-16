@@ -1,5 +1,19 @@
 # @agent-native/toolkit
 
+## 0.209.2
+
+### Patch Changes
+
+- ce4eca0: Fix chat recovery retry actions, storage setup controls, and Builder account connection flow.
+- Release all public npm packages with a patch version bump.
+- 95aa388: Restyle dropdown, context, and menubar menus to the shared menu design: 28px rows, 10px menu radius, full-width separators, and a 20px check column.
+- 36fc751: First-run onboarding step events carry `optional`, true when the screen offers a skip, so Analytics funnels can tell a skip from drop-off. First-run extensions declare it with `optional: true`.
+- f99e655: Add Report a problem to the bottom of the app sidebar, the agent panel menu, and the command menu. It previews what the recorder captured, stores the full report as a private blob only after the user confirms, and sends the agent a summary of at most 8 KB that includes the report's ref; apps without agent chat copy the summary instead. If storage fails, the dialog says the report was not attached. The new read-only `read-problem-report` action lets the agent, or an MCP client, read slices of the report by event type and time. Only the reporting user, in the same organization, can open it.
+- f99e655: Add `readVisualScrubInputs()`, which returns what each mounted scrub input is showing, so an app can include its inspector values in a recorder report.
+- 95aa388: Keep the share popover's email field and send button at the standard 36px height on every screen size.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.2
+
 ## 0.209.1
 
 ### Patch Changes
@@ -1208,13 +1222,5 @@
 
 - 901769d: Keep the chat history panel layout balanced.
 - 901769d: Remove the translate control slot from the shared sidebar footer actions.
-
-## 0.11.0
-
-### Minor Changes
-
-- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
-  creation, label SQL-backed extensions as sandboxed custom blocks, and let
-  editors promote them into app code through a server-verified Builder handoff.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -694,6 +694,8 @@ export const recordingContextItems = table(
     // The desktop device that captured the Clip. NULL (web-requested or
     // pre-dating device scoping) is claimable by every device.
     capturedDeviceId: text("captured_device_id"),
+    includeMicrophone: boolean("include_microphone"),
+    includeSystemAudio: boolean("include_system_audio"),
     durationMs: integer("duration_ms"),
     width: integer("width"),
     height: integer("height"),

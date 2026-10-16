@@ -9,8 +9,9 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import type { MigrationEntry } from "../db/migrations.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
@@ -182,12 +183,11 @@ export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
   },
 ];
 
+/** Kept for callers of the public export; the store owns these migrations. */
 export async function runAutomationRunMigrations(
-  nitroApp: unknown,
+  _nitroApp?: unknown,
 ): Promise<void> {
-  await runMigrations(AUTOMATION_RUN_MIGRATIONS, {
-    table: "_automation_run_migrations",
-  })(nitroApp);
+  await automationRunHistoryStore.ready();
 }
 
 export const automationRunHistoryStore = defineStore({
@@ -291,6 +291,10 @@ export const automationRunHistoryStore = defineStore({
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
       },
     },
+    ...fromMigrationEntries(
+      "_automation_run_migrations",
+      AUTOMATION_RUN_MIGRATIONS,
+    ),
   ],
 });
 

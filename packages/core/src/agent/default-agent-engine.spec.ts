@@ -72,8 +72,12 @@ async function adminAuthority(orgId: string | undefined, email: string) {
   return authority;
 }
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   await pglite.exec(`CREATE TABLE settings (
     key TEXT PRIMARY KEY,

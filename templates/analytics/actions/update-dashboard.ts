@@ -50,6 +50,7 @@ import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-part
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
+import { dashboardAnnotationsIssue } from "../shared/key-dates";
 import { panelLabel, stableStringify } from "../shared/panel-render-contract";
 import {
   applyPanelOrder,
@@ -285,6 +286,8 @@ function collectDashboardConfigIssues(
       );
     }
   }
+  const annotationsIssue = dashboardAnnotationsIssue(config.annotations);
+  if (annotationsIssue) return dashboardIssue(annotationsIssue);
   const filters = config.filters;
   if (filters !== undefined && !Array.isArray(filters)) {
     return dashboardIssue("config.filters must be an array");
@@ -369,6 +372,15 @@ function collectDashboardConfigIssues(
             );
           }
         }
+      }
+      // isDashboardFilter rejects a non-boolean customRange, so a save that passes here would drop the whole filter set on read.
+      if (
+        f.customRange !== undefined &&
+        (typeof f.customRange !== "boolean" || f.type !== "select")
+      ) {
+        return dashboardIssue(
+          `config.filters[${i}].customRange must be a boolean, and only select filters take it`,
+        );
       }
       if (f.presets !== undefined) {
         // isDashboardFilter rejects a malformed preset, so a save that passes here would drop the whole filter set on read.

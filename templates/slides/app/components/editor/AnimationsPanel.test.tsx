@@ -24,7 +24,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
-import type { Slide } from "@/context/DeckContext";
+import type { Slide, SlideAnimation } from "@/context/DeckContext";
 
 const slide: Slide = {
   id: "slide-1",
@@ -70,7 +70,7 @@ describe("AnimationsPanel", () => {
     const { rerender } = render(
       <AnimationsPanel
         slide={slide}
-        selectedTarget={selectedTarget}
+        selectedTargets={[selectedTarget]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,
@@ -94,16 +94,45 @@ describe("AnimationsPanel", () => {
           ...slide,
           animations: onUpdateSlide.mock.calls[0]?.[0]?.animations,
         }}
-        selectedTarget={selectedTarget}
+        selectedTargets={[selectedTarget]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,
     );
     expect(screen.getByRole("button", { name: /Appear/ })).toBeTruthy();
-    // The Trigger dropdown is hidden until a trigger other than On click exists.
     expect(
-      screen.queryByRole("combobox", { name: "animations.trigger" }),
-    ).toBeNull();
+      screen.getByRole("combobox", { name: "animations.trigger" }),
+    ).toBeTruthy();
+  });
+
+  it("adds every selected object, the first on click and the rest with previous", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          content: `<div class="fmd-slide"><h1>A</h1><p>B</p><p>C</p></div>`,
+        }}
+        selectedTargets={[
+          { elementIndex: 0, elementPath: [0], preview: "A" },
+          { elementIndex: 1, elementPath: [1], preview: "B" },
+          { elementIndex: 2, elementPath: [2], preview: "C" },
+        ]}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    const [{ animations }] = onUpdateSlide.mock.calls[0]!;
+    expect(
+      animations.map((a: SlideAnimation) => [a.elementPath, a.trigger]),
+    ).toEqual([
+      [[0], undefined],
+      [[1], "with-previous"],
+      [[2], "with-previous"],
+    ]);
   });
 
   it("says a refused add was not applied, not that the stored reveals are blocked", () => {
@@ -124,11 +153,13 @@ describe("AnimationsPanel", () => {
     render(
       <AnimationsPanel
         slide={paragraphSlide}
-        selectedTarget={{
-          elementIndex: 0,
-          elementPath: [0],
-          preview: "First",
-        }}
+        selectedTargets={[
+          {
+            elementIndex: 0,
+            elementPath: [0],
+            preview: "First",
+          },
+        ]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,
@@ -158,7 +189,7 @@ describe("AnimationsPanel", () => {
             },
           ],
         }}
-        selectedTarget={selectedTarget}
+        selectedTargets={[selectedTarget]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,
@@ -216,11 +247,13 @@ describe("AnimationsPanel", () => {
             { id: "gone-b", elementIndex: 0, elementPath: [8], type: "fade" },
           ],
         }}
-        selectedTarget={{
-          elementIndex: 0,
-          elementPath: [9],
-          preview: "Missing",
-        }}
+        selectedTargets={[
+          {
+            elementIndex: 0,
+            elementPath: [9],
+            preview: "Missing",
+          },
+        ]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,

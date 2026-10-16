@@ -262,6 +262,8 @@ export function useEditorScreenRendering({
     canEditLiveScreen,
     designFusionUrl,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
     motionSelectedTarget,
     motionOriginEditing,
   } = editorLiveEditsAndPresence;
@@ -964,7 +966,8 @@ export function useEditorScreenRendering({
             motionDockOpen &&
             (canEditDesign || canEditLiveScreen(screen.id))
           }
-          motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          motionPathTargetNodeId={motionPathTargetNodeId}
+          motionPathTrackId={motionPathTrackId}
           motionOriginEditingEnabled={
             screenIsActive &&
             motionOriginEditing &&
@@ -1192,6 +1195,8 @@ export function useEditorScreenRendering({
       designFusionUrl,
       handleComponentSourceJump,
       motionTracksWire,
+      motionPathTargetNodeId,
+      motionPathTrackId,
       motionSelectedTarget,
       motionOriginEditing,
       motionDockOpen,

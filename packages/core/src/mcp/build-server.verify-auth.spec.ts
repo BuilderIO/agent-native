@@ -9,7 +9,7 @@ const resolveA2AOrganizationCredentialsByDomainMock = vi.fn();
 const resolveA2AOrganizationMetadataByDomainMock = vi.fn();
 const resolveA2AOrganizationMetadataByIdMock = vi.fn();
 const isOrgMemberForA2AMock = vi.fn();
-const resolveOrgByDomainMock = vi.fn();
+const lookupOrgByDomainMock = vi.fn();
 const resolveOrgIdForEmailMock = vi.fn();
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
@@ -24,7 +24,7 @@ vi.mock("../org/context.js", () => ({
     resolveA2AOrganizationMetadataByDomainMock(...a),
   resolveA2AOrganizationMetadataById: (...a: any[]) =>
     resolveA2AOrganizationMetadataByIdMock(...a),
-  resolveOrgByDomain: (...a: any[]) => resolveOrgByDomainMock(...a),
+  lookupOrgByDomain: (...a: any[]) => lookupOrgByDomainMock(...a),
   resolveOrgIdForEmail: (...a: any[]) => resolveOrgIdForEmailMock(...a),
 }));
 vi.mock("../org/membership.js", () => ({
@@ -53,8 +53,12 @@ vi.mock("../org/service-principal-guard.js", async (importActual) => ({
     recordServicePrincipalDenialMock(...a),
 }));
 
-const { resolveMcpIdentityOrgId, verifyAuth } =
-  await import("./build-server.js");
+const {
+  McpIdentityVerificationUnavailableError,
+  McpIdentityVerificationRefusedError,
+  resolveMcpIdentityOrgId,
+  verifyAuth,
+} = await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 const SECRET = "verify-auth-secret";
@@ -85,7 +89,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockResolvedValue(true);
-    resolveOrgByDomainMock.mockResolvedValue(null);
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     process.env.A2A_SECRET = SECRET;
     delete process.env.BETTER_AUTH_SECRET;
@@ -434,7 +438,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res).toEqual({ authed: false, refusal: "unknown-connect-token" });
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
-    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(lookupOrgByDomainMock).not.toHaveBeenCalled();
   });
 
   it("restores org scope for a legacy connect JWT from its stored token row", async () => {
@@ -986,7 +990,7 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockResolvedValue(true);
-    resolveOrgByDomainMock.mockResolvedValue(null);
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
@@ -1566,7 +1570,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
       resolveMcpIdentityOrgId(res.identity),
     ).resolves.toBeUndefined();
     expect(resolveA2AOrganizationMetadataByDomainMock).not.toHaveBeenCalled();
-    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(lookupOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
@@ -1666,7 +1670,7 @@ describe("verifyAuth — a credential for an address an email change retired", (
 describe("resolveMcpIdentityOrgId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveOrgByDomainMock.mockResolvedValue(null);
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
     resolveOrgIdForEmailMock.mockResolvedValue(null);
   });
 
@@ -1679,7 +1683,7 @@ describe("resolveMcpIdentityOrgId", () => {
       }),
     ).resolves.toBe("org-explicit");
 
-    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(lookupOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
 
@@ -1694,12 +1698,15 @@ describe("resolveMcpIdentityOrgId", () => {
       }),
     ).resolves.toBeUndefined();
 
-    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(lookupOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
 
   it("resolves verified org_domain before falling back to email membership", async () => {
-    resolveOrgByDomainMock.mockResolvedValue({ orgId: "org-domain" });
+    lookupOrgByDomainMock.mockResolvedValue({
+      status: "found",
+      org: { orgId: "org-domain", orgName: "Example" },
+    });
     resolveOrgIdForEmailMock.mockResolvedValue("org-email");
 
     await expect(
@@ -1709,7 +1716,42 @@ describe("resolveMcpIdentityOrgId", () => {
       }),
     ).resolves.toBe("org-domain");
 
-    expect(resolveOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unknown", { status: "not-found" }],
+    ["ambiguous", { status: "ambiguous" }],
+  ] as const)(
+    "refuses a supplied %s org_domain without falling back to email membership",
+    async (_label, resolution) => {
+      lookupOrgByDomainMock.mockResolvedValue(resolution);
+      resolveOrgIdForEmailMock.mockResolvedValue("org-email");
+
+      await expect(
+        resolveMcpIdentityOrgId({
+          userEmail: "alice@example.com",
+          orgDomain: "example.com",
+        }),
+      ).rejects.toBeInstanceOf(McpIdentityVerificationRefusedError);
+
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps domain lookup failures on the retryable identity path", async () => {
+    const databaseError = new Error("database connection failed");
+    lookupOrgByDomainMock.mockRejectedValue(databaseError);
+
+    const error = await resolveMcpIdentityOrgId({
+      userEmail: "alice@example.com",
+      orgDomain: "example.com",
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(McpIdentityVerificationUnavailableError);
+    expect(error).toMatchObject({ cause: databaseError });
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
 

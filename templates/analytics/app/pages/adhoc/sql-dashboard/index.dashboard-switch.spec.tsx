@@ -97,6 +97,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     throw new Error(`Unexpected action ${name}`);
   },
   useChangeVersion: () => 0,
+  useActionQuery: () => ({ data: undefined, isError: false, isLoading: false }),
   useActionMutation: () => mocks.mutation,
 }));
 

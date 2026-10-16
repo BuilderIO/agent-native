@@ -1,7 +1,14 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useRef, useState } from "react";
+import {
+  DATA_NOTE_KINDS,
+  DATA_NOTE_STATUSES,
+  type DataNote,
+} from "@shared/data-notes";
+import { isValidPanelEvent } from "@shared/panel-events";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ResolvedAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import Markdown from "@/components/Markdown";
 import type { SqlQueryResult } from "@/lib/sql-query";
@@ -14,8 +21,10 @@ import { interpolateDashboardPanelSql } from "@/pages/adhoc/sql-dashboard/interp
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { timeRangeDays } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
+  DashboardAnnotations,
   DataSourceType,
   ChartType,
+  PanelEvent,
   SqlPanel,
 } from "@/pages/adhoc/sql-dashboard/types";
 import LegacyFusionAnalysis, {
@@ -106,6 +115,30 @@ export function reviewDashboardPanels(value: unknown): SqlPanel[] {
   ];
 }
 
+/** The key dates get-sql-dashboard sends with a reviewed dashboard, or null when it sent none. */
+export function reviewDashboardKeyDates(value: unknown): PanelEvent[] | null {
+  if (!isRecord(value) || !Array.isArray(value.keyDates)) return null;
+  return value.keyDates.filter(isValidPanelEvent);
+}
+
+function isDataNote(value: unknown): value is DataNote {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    DATA_NOTE_KINDS.includes(value.kind as DataNote["kind"]) &&
+    DATA_NOTE_STATUSES.includes(value.status as DataNote["status"]) &&
+    Array.isArray(value.matchEvents) &&
+    Array.isArray(value.unlessEvents) &&
+    Array.isArray(value.panels)
+  );
+}
+
+export function reviewDashboardDataNotes(value: unknown): DataNote[] | null {
+  if (!isRecord(value) || !Array.isArray(value.dataNotes)) return null;
+  return value.dataNotes.filter(isDataNote);
+}
+
 export function AnalyticsReviewArtifactPreview({
   artifactId,
   artifactPath,
@@ -155,6 +188,11 @@ function AnalyticsReviewDashboardPreview({
   const panels = reviewDashboardPanels(data);
   const filters = reviewDashboardFilters(data);
   const variables = reviewDashboardVariables(data);
+  const keyDates = useMemo(() => reviewDashboardKeyDates(data), [data]);
+  const dataNotes = useMemo(() => reviewDashboardDataNotes(data), [data]);
+  const annotations = isRecord(data?.annotations)
+    ? (data.annotations as DashboardAnnotations)
+    : undefined;
   if (isLoading) {
     return (
       <div
@@ -167,7 +205,14 @@ function AnalyticsReviewDashboardPreview({
       />
     );
   }
-  if (isError || panels.length === 0 || !filters || !variables) {
+  if (
+    isError ||
+    panels.length === 0 ||
+    !filters ||
+    !variables ||
+    !keyDates ||
+    !dataNotes
+  ) {
     return (
       <div
         className="flex size-full items-center justify-center bg-muted px-2 text-center text-xs text-muted-foreground"
@@ -183,25 +228,32 @@ function AnalyticsReviewDashboardPreview({
   const visiblePanels = compact ? panels.slice(0, 1) : panels;
 
   return (
-    <div
-      className={
-        compact
-          ? "pointer-events-none h-[600%] w-[600%] origin-top-left scale-[0.166667] overflow-hidden"
-          : "min-h-64 w-full overflow-visible"
-      }
-      data-preview-kind="analytics-sql-chart"
+    <ResolvedAnnotationsProvider
+      dashboardId={artifactId}
+      annotations={annotations}
+      keyDates={keyDates}
+      dataNotes={dataNotes}
     >
-      {visiblePanels.map((panel) => (
-        <ReviewDashboardPanel
-          key={panel.id}
-          artifactId={artifactId}
-          reviewOrgId={reviewOrgId}
-          panel={panel}
-          variables={vars}
-          compact={compact}
-        />
-      ))}
-    </div>
+      <div
+        className={
+          compact
+            ? "pointer-events-none h-[600%] w-[600%] origin-top-left scale-[0.166667] overflow-hidden"
+            : "min-h-64 w-full overflow-visible"
+        }
+        data-preview-kind="analytics-sql-chart"
+      >
+        {visiblePanels.map((panel) => (
+          <ReviewDashboardPanel
+            key={panel.id}
+            artifactId={artifactId}
+            reviewOrgId={reviewOrgId}
+            panel={panel}
+            variables={vars}
+            compact={compact}
+          />
+        ))}
+      </div>
+    </ResolvedAnnotationsProvider>
   );
 }
 

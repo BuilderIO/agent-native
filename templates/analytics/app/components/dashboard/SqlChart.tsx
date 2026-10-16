@@ -114,7 +114,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip as HoverTooltip,
   TooltipContent as HoverTooltipContent,
@@ -141,8 +140,28 @@ import type {
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
 
+import {
+  usePanelDataNotes,
+  usePanelEvents,
+} from "./dashboard-annotations-context";
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
-import { renderEventMarkers } from "./event-markers";
+import {
+  DataNoteLines,
+  renderDataNoteBands,
+  useDataNoteChartMargin,
+  useDataNoteLayout,
+} from "./data-note-bands";
+import {
+  renderEventMarkers,
+  useEventMarkerAxisPadding,
+  useEventMarkerGroups,
+} from "./event-markers";
+import {
+  useIsStaleResult,
+  useRefreshConfirmation,
+  type PanelFreshness,
+} from "./panel-freshness";
+import { PanelFreshnessClock } from "./PanelFreshnessClock";
 
 export { limitChartRows };
 
@@ -932,6 +951,7 @@ function ChartFrame({
   onToggleLegendKey,
   onFilterLegendKey,
   showCustomLegend = false,
+  footer,
   children,
 }: {
   panel: SqlPanel;
@@ -941,6 +961,7 @@ function ChartFrame({
   onToggleLegendKey?: (key: string) => void;
   onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const fill = useContext(ChartFillHeightContext);
@@ -950,7 +971,12 @@ function ChartFrame({
 
   if (!renderLegend) {
     return (
-      <div className={`${chartHeight} w-full overflow-visible`}>{children}</div>
+      <>
+        <div className={`${chartHeight} w-full overflow-visible`}>
+          {children}
+        </div>
+        {footer}
+      </>
     );
   }
 
@@ -971,6 +997,7 @@ function ChartFrame({
         onToggleKey={onToggleLegendKey}
         onFilterKey={onFilterLegendKey}
       />
+      {footer}
     </div>
   );
 }
@@ -1244,6 +1271,11 @@ interface SqlChartProps {
   refreshToken?: number;
   onRefreshRequested?: () => void;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  /**
+   * The freshness of the result on screen, for a host that shows it outside
+   * the chart; null when no result is shown, and again when the chart unmounts.
+   */
+  onFreshnessChange?: (freshness: PanelFreshness | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   /** Passing this makes a table's columns editable; omit it for read-only tables. */
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
@@ -1270,6 +1302,7 @@ export function SqlChart({
   refreshToken = 0,
   onRefreshRequested,
   onExportCsvChange,
+  onFreshnessChange,
   onCopyTableChange,
   onSaveColumns,
   columnWidths,
@@ -1311,6 +1344,8 @@ export function SqlChart({
     isFetching: queryIsFetching,
     isPlaceholderData: queryIsPlaceholderData,
     error: queryError,
+    freshness: queryFreshness,
+    completedManualRefreshToken,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
@@ -1322,6 +1357,7 @@ export function SqlChart({
       retainPreviousScope,
       retainWhilePaused: retainWhileOffscreen,
       reuseCompletedOnEnable: retainWhileOffscreen,
+      snapshots: !isSection && !isExtension && !resultOverride,
     },
   );
 
@@ -1387,6 +1423,59 @@ export function SqlChart({
     [chartType, rows, xKey],
   );
 
+  const showsRetainedResult = retainWhileOffscreen && queryResult !== undefined;
+  const showsSkeleton =
+    isLoading ||
+    isFetching ||
+    (!loadData && showLoadingWhenDisabled && !showsRetainedResult);
+  // A result handed in by the caller was not fetched by this panel's query.
+  const shownFreshness = resultOverride ? undefined : queryFreshness;
+  const isStale = useIsStaleResult(shownFreshness?.fetchedAt);
+  const refreshConfirmed = useRefreshConfirmation({
+    requestToken: refreshToken + localRefreshToken,
+    scopeKey: JSON.stringify([
+      dashboardId ?? null,
+      panel.id,
+      panel.source,
+      sql,
+    ]),
+    completedToken: completedManualRefreshToken,
+  });
+  const canReportFreshness =
+    !isSection && !isExtension && !resultOverride && !error && !showsSkeleton;
+  const reportedCache = shownFreshness?.cache;
+  const reportedFetchedAt = shownFreshness?.fetchedAt;
+  const reportedStatus: PanelFreshness["status"] = isUpdating
+    ? isShowingPreviousFilters
+      ? "previous-filters-updating"
+      : "updating"
+    : isPausedOnPreviousFilters
+      ? "previous-filters"
+      : refreshConfirmed
+        ? "refreshed"
+        : isStale
+          ? "stale"
+          : undefined;
+  useEffect(() => {
+    if (!onFreshnessChange) return;
+    onFreshnessChange(
+      canReportFreshness && (reportedCache || reportedStatus)
+        ? {
+            fetchedAt: reportedFetchedAt,
+            cache: reportedCache ?? "unknown",
+            ...(reportedStatus ? { status: reportedStatus } : {}),
+          }
+        : null,
+    );
+    return () => onFreshnessChange(null);
+  }, [
+    onFreshnessChange,
+    canReportFreshness,
+    reportedCache,
+    reportedFetchedAt,
+    reportedStatus,
+  ]);
+
   if (isSection) {
     return (
       <div className="px-1 py-2">
@@ -1440,12 +1529,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  const showsRetainedResult = retainWhileOffscreen && queryResult !== undefined;
-  if (
-    isLoading ||
-    isFetching ||
-    (!loadData && showLoadingWhenDisabled && !showsRetainedResult)
-  ) {
+  if (showsSkeleton) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 
@@ -1474,33 +1558,6 @@ export function SqlChart({
   }
 
   const missingConfigKeys = plan.missingKeys;
-  const updatingNotice = isUpdating ? (
-    <div className="pointer-events-none relative h-0">
-      <span
-        role="status"
-        data-dashboard-report-updating={
-          isShowingPreviousFilters ? "previous-filters" : "refresh"
-        }
-        className="absolute right-0 top-0 z-10 inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
-      >
-        <Spinner aria-hidden="true" className="size-3" />
-        {t(
-          isShowingPreviousFilters
-            ? "sqlDashboard.updatingPreviousFilters"
-            : "sqlDashboard.updating",
-        )}
-      </span>
-    </div>
-  ) : isPausedOnPreviousFilters ? (
-    <div className="pointer-events-none relative h-0">
-      <span
-        data-dashboard-report-paused="previous-filters"
-        className="absolute right-0 top-0 z-10 inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
-      >
-        {t("sqlDashboard.previousFilters")}
-      </span>
-    </div>
-  ) : null;
   const withConfigBanners = (node: ReactNode) => {
     if (refreshError) {
       return (
@@ -1545,12 +1602,38 @@ export function SqlChart({
     );
   };
 
-  const withConfigWarning = (node: ReactNode) => (
-    <>
-      {updatingNotice}
-      {withConfigBanners(node)}
-    </>
+  const showStandaloneStatus =
+    !onFreshnessChange &&
+    (shownFreshness !== undefined || reportedStatus !== undefined);
+  const withNotice = (node: ReactNode) => (
+    <div
+      className={
+        showStandaloneStatus
+          ? "grid h-full min-h-0 grid-cols-[minmax(0,1fr)_1.5rem] items-start gap-x-1"
+          : "flex h-full min-h-0 flex-col"
+      }
+    >
+      <div data-dashboard-report-chart-body className="h-full min-h-0 min-w-0">
+        {node}
+      </div>
+      {showStandaloneStatus ? (
+        <div data-dashboard-report-standalone-status className="min-w-0">
+          <HoverTooltipProvider>
+            <PanelFreshnessClock
+              freshness={{
+                cache: "unknown",
+                ...shownFreshness,
+                status: reportedStatus,
+              }}
+              className="h-6 w-6 p-1"
+            />
+          </HoverTooltipProvider>
+        </div>
+      ) : null}
+    </div>
   );
+  const withConfigWarning = (node: ReactNode) =>
+    withNotice(withConfigBanners(node));
 
   const pointLimit = plan.pointLimit;
   const withPointLimit = (node: ReactNode) =>
@@ -1566,7 +1649,7 @@ export function SqlChart({
   if (plan.empty) {
     const noData = (
       <div
-        className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
+        className={`flex h-full flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
         <p className="text-sm text-muted-foreground text-center">
           {t("common.noData")}
@@ -1576,14 +1659,9 @@ export function SqlChart({
     // A funnel or heatmap with rows that draws nothing keeps the warning and
     // refresh banner that say why; a result with no rows to plot is a bare
     // "No data".
-    return plan.rows.length === 0 ? (
-      <>
-        {updatingNotice}
-        {noData}
-      </>
-    ) : (
-      withConfigWarning(noData)
-    );
+    return plan.rows.length === 0
+      ? withNotice(noData)
+      : withConfigWarning(noData);
   }
 
   if (chartType === "metric") {
@@ -2874,6 +2952,15 @@ function BarRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2892,9 +2979,16 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
-        <BarChart key={JSON.stringify(yKeys)} data={rows}>
+        <BarChart
+          key={JSON.stringify(yKeys)}
+          data={rows}
+          margin={chartMargin.margin}
+        >
           {categoryLabels ? (
             <CategoryXAxis
               dataKey={xKey}
@@ -2909,6 +3003,7 @@ function BarRenderer({
               tickLine={false}
               axisLine={false}
               tickFormatter={xLabelFormatter}
+              padding={xPadding}
             />
           )}
           {renderChartYAxes(dualAxis, yFormatter)}
@@ -2917,6 +3012,14 @@ function BarRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
@@ -2949,9 +3052,7 @@ function BarRenderer({
             />
           ))}
           {renderEventMarkers(
-            panel.config?.events,
-            rows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}
@@ -2988,6 +3089,15 @@ function ComboRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -3007,9 +3117,12 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
-        <ComposedChart data={rows}>
+        <ComposedChart data={rows} margin={chartMargin.margin}>
           {categoryLabels ? (
             <CategoryXAxis
               dataKey={xKey}
@@ -3024,6 +3137,7 @@ function ComboRenderer({
               tickLine={false}
               axisLine={false}
               tickFormatter={xLabelFormatter}
+              padding={xPadding}
             />
           )}
           {renderChartYAxes(dualAxis, yFormatter)}
@@ -3032,6 +3146,14 @@ function ComboRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
@@ -3074,9 +3196,7 @@ function ComboRenderer({
             ),
           )}
           {renderEventMarkers(
-            panel.config?.events,
-            rows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}
@@ -3112,6 +3232,8 @@ function TimeSeriesRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNotes = usePanelDataNotes(panel);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
@@ -3136,6 +3258,10 @@ function TimeSeriesRenderer({
           },
     [rows, xKey, yKeys, splitPartialDay],
   );
+  const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
+  const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, chartRows, xKey);
 
   if (chartType === "line") {
     return (
@@ -3147,9 +3273,12 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
+        footer={
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+        }
       >
         <ChartResponsiveContainer>
-          <LineChart data={chartRows}>
+          <LineChart data={chartRows} margin={chartMargin.margin}>
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -3157,6 +3286,7 @@ function TimeSeriesRenderer({
               tickLine={false}
               axisLine={false}
               tickFormatter={xLabelFormatter}
+              padding={xPadding}
             />
             {renderChartYAxes(dualAxis, yFormatter)}
             <CartesianGrid
@@ -3164,6 +3294,14 @@ function TimeSeriesRenderer({
               stroke="hsl(var(--border))"
               vertical={false}
             />
+            {renderDataNoteBands(dataNoteLayout.shaded, {
+              rows: chartRows,
+              xKey,
+              yAxisId: dualAxis.enabled ? "left" : undefined,
+              panelId: panel.id,
+              onHoverChange: setEventHovered,
+              onLabelRows: chartMargin.onLabelRows,
+            })}
             <Tooltip
               active={eventHovered ? false : undefined}
               {...CHART_TOOLTIP_PROPS}
@@ -3210,9 +3348,7 @@ function TimeSeriesRenderer({
               ) : null,
             )}
             {renderEventMarkers(
-              panel.config?.events,
-              chartRows,
-              xKey,
+              eventGroups,
               dualAxis.enabled ? "left" : undefined,
               setEventHovered,
             )}
@@ -3233,9 +3369,16 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
-        <AreaChart key={JSON.stringify(yKeys)} data={chartRows}>
+        <AreaChart
+          key={JSON.stringify(yKeys)}
+          data={chartRows}
+          margin={chartMargin.margin}
+        >
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (
@@ -3268,6 +3411,7 @@ function TimeSeriesRenderer({
             tickLine={false}
             axisLine={false}
             tickFormatter={xLabelFormatter}
+            padding={xPadding}
           />
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
@@ -3275,6 +3419,14 @@ function TimeSeriesRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows: chartRows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
@@ -3326,9 +3478,7 @@ function TimeSeriesRenderer({
             ) : null,
           )}
           {renderEventMarkers(
-            panel.config?.events,
-            chartRows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}
