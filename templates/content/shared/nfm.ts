@@ -511,7 +511,7 @@ function mergeSpanMark(
         ? spanAttrs.color === value || spanAttrs.bgColor === value
         : name === "bg_color"
           ? spanAttrs.bgColor === value
-          : name === "underline";
+          : name === "underline" && (value === "true" || value === "false");
     if (!kept) reportLoss("dropped-attribute", `<span ${name}="${value}">`);
   }
   const unparsed = unparsedAttrSource(rawAttrs);
@@ -2941,14 +2941,15 @@ const CELL_OPEN = /^<t[dh][\s>]/;
 // A cell's line may also close its row; the writer never closes one there.
 const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 const ROW_BREAK =
-  /^<\/tr>\s*(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
+  /^(?:<\/tr>\s*)?(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
 
 // A cell's source, or where the next row opens.
 type TableLinePart = string | { rowAttrs: string };
 
 function splitTableCells(source: string): TableLinePart[] {
   const cells: TableLinePart[] = [];
-  // An agent may close a row and open the next between two cells.
+  // An agent may start the next row between two cells or on a line of its
+  // own, with or without closing this one; HTML closes it there.
   const readGap = (gap: string) => {
     const rowBreak = gap.match(ROW_BREAK);
     if (rowBreak) cells.push({ rowAttrs: rowBreak[1] ?? "" });
