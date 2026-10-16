@@ -11,6 +11,7 @@ import {
 } from "./credentials-context";
 import { getBigQueryAccessToken, raceWithAbort } from "./gcloud";
 import { assertReadOnlySql } from "./read-only-sql";
+import type { SourceGenerationResult } from "./source-generation";
 
 async function getProjectContext(signal?: AbortSignal): Promise<{
   projectId: string;
@@ -62,6 +63,8 @@ export interface BigQueryTableMetadata {
   location?: string;
   numRows?: string;
   numBytes?: string;
+  /** Epoch milliseconds, as a string. */
+  lastModifiedTime?: string;
   timePartitioning?: unknown;
   clustering?: unknown;
   schema?: { fields?: BigQueryTableField[] };
@@ -218,6 +221,17 @@ export interface BigQueryTableSummary {
   labels?: Record<string, string>;
 }
 
+/** A metadata read that BigQuery answered with an error status. */
+export class BigQueryMetadataError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "BigQueryMetadataError";
+    this.status = status;
+  }
+}
+
 export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
@@ -240,11 +254,9 @@ export async function bigQueryGet<T>(
     } catch {
       // coercion-ok: a non-JSON error body is reported verbatim in the error thrown below.
     }
-    if (detail) {
-      throw new Error(detail);
-    }
-    throw new Error(
-      `BigQuery metadata request failed (${res.status}): ${text}`,
+    throw new BigQueryMetadataError(
+      res.status,
+      detail || `BigQuery metadata request failed (${res.status}): ${text}`,
     );
   }
 
@@ -822,12 +834,38 @@ export interface QueryResult {
   fetchedAt?: string;
   /** BigQuery getQueryResults `cacheHit` for the original request; absent means unknown. */
   providerCacheHit?: boolean;
+  /** Source generation read before the original request; kept on cache hits. */
+  sourceGeneration?: SourceGenerationResult;
 }
 
 export interface RunQueryOptions {
   signal?: AbortSignal;
   forceRefresh?: boolean;
   maxBytesBilled?: number;
+  /**
+   * Generation of the tables the SQL reads, resolved before the query runs.
+   * It joins the cache key, so a new generation never matches an old row, and
+   * is stored with the result as read.
+   */
+  sourceGeneration?: SourceGenerationResult;
+}
+
+/** How long a result read while its source generation was unknown is reused. */
+export const UNKNOWN_SOURCE_GENERATION_REUSE_MS = 60 * 60_000;
+
+function sourceGenerationCacheKey(result: SourceGenerationResult): string {
+  return result.status === "ok"
+    ? result.generation
+    : `unknown:${result.sources.map((source) => source.tableId).join(",")}`;
+}
+
+function reusableCacheHit(hit: QueryResult | null): QueryResult | null {
+  if (!hit || hit.sourceGeneration?.status !== "unavailable") return hit;
+  const fetchedAt = Date.parse(hit.fetchedAt ?? "");
+  return Number.isFinite(fetchedAt) &&
+    Date.now() - fetchedAt < UNKNOWN_SOURCE_GENERATION_REUSE_MS
+    ? hit
+    : null;
 }
 
 interface BigQueryField {
@@ -1159,7 +1197,14 @@ export async function runQuery(
   );
   const cacheableSql = addUtcDateCacheKey(resolvedSql);
 
-  const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
+  const cacheKey = getCacheKey(
+    options.sourceGeneration
+      ? `${cacheableSql}
+${sourceGenerationCacheKey(options.sourceGeneration)}`
+      : cacheableSql,
+    projectId,
+    cacheScope,
+  );
   const forceRefresh = options.forceRefresh === true;
   let cacheFence: CacheFence | null = null;
   try {
@@ -1175,15 +1220,13 @@ export async function runQuery(
     } else {
       // Validate shared generation before L1 so another instance's refresh invalidates local entries.
       cacheFence = await getCacheFence(cacheKey);
-      const l1Hit = getL1(
-        cacheKey,
-        cacheFence.generation,
-        cacheFence.fenceToken,
+      const l1Hit = reusableCacheHit(
+        getL1(cacheKey, cacheFence.generation, cacheFence.fenceToken),
       );
       if (l1Hit) {
         return { ...l1Hit, cached: true };
       }
-      const l2Hit = await getL2(cacheKey);
+      const l2Hit = reusableCacheHit(await getL2(cacheKey));
       if (l2Hit) {
         setL1(cacheKey, l2Hit, cacheFence);
         return { ...l2Hit, cached: true };
@@ -1380,6 +1423,9 @@ export async function runQuery(
       schema,
       bytesProcessed,
       fetchedAt,
+      ...(options.sourceGeneration
+        ? { sourceGeneration: options.sourceGeneration }
+        : {}),
       ...(typeof data.cacheHit === "boolean"
         ? { providerCacheHit: data.cacheHit }
         : {}),
