@@ -48,6 +48,7 @@ const bodySchema = z.object({
   uploadAttemptId: z.string().min(1).max(128).nullable().optional(),
   uploadGenerationId: z.string().min(1).max(128).nullable().optional(),
   regenerate: z.boolean().optional(),
+  replaceImportId: z.string().min(1).max(128).nullable().optional(),
 });
 
 const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
@@ -89,6 +90,7 @@ export default defineEventHandler(async (event: H3Event) => {
     uploadAttemptId,
     uploadGenerationId,
     regenerate,
+    replaceImportId,
   } = parsed.data;
   console.log("[post-finalize-worker] received job", { recordingId, kind });
   const verified = verifyShortLivedToken(
@@ -182,6 +184,7 @@ export default defineEventHandler(async (event: H3Event) => {
               }
             : {}),
           regenerate,
+          replaceImportId,
           requireAccepted: kind === "media-ready" || kind === "thumbnail",
         });
         return {
@@ -342,6 +345,7 @@ export default defineEventHandler(async (event: H3Event) => {
         force: true,
         retryAttempt,
         regenerate,
+        replaceImportId,
       });
       return { ok: true, kind, result };
     },

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, type ReactNode } from "react";
+import { act, useLayoutEffect, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   MemoryRouter,
@@ -34,6 +34,9 @@ const mocks = vi.hoisted(() => ({
     args: Record<string, unknown>,
   ) => Promise<unknown>,
   cardRenders: [] as CardRender[],
+  editableRenders: [] as boolean[],
+  editorRenders: [] as { open: boolean; dashboardId: string }[],
+  submitEditorOn: null as string | null,
   session: { email: "viewer@example.com" },
   noop: () => {},
   mutation: { mutateAsync: async () => ({}), isPending: false },
@@ -45,10 +48,14 @@ const mocks = vi.hoisted(() => ({
     saveView: async () => {},
   },
   userPref: {
-    data: undefined,
+    data: undefined as unknown,
     isSuccess: true,
     isError: false,
-    save: () => {},
+    isFetching: false,
+    save: (() => {}) as (
+      value: unknown,
+      options?: { onError?: () => void },
+    ) => void,
   },
   chatContext: { selectedPanelId: null, selectPanelForChat: () => {} },
   collab: {
@@ -155,29 +162,39 @@ vi.mock("./EmailReportDialog", () => ({
 
 vi.mock("./PanelEditorDialog", () => ({
   AddPanelPopover: ({ children }: { children: ReactNode }) => <>{children}</>,
-  PanelEditorDialog: ({
+  PanelEditorDialog: function PanelEditorDialog({
     open,
     panel,
     onSave,
+    dashboardId,
   }: {
     open: boolean;
     panel: SqlPanel | null;
     onSave: (panel: SqlPanel) => Promise<void>;
-  }) =>
-    open ? (
+    dashboardId: string;
+  }) {
+    mocks.editorRenders.push({ open, dashboardId });
+    const save = () => {
+      if (panel) {
+        void onSave({ ...panel, title: `${panel.title} edited` }).catch(
+          mocks.noop,
+        );
+      }
+    };
+    // A layout effect runs after the commit and before the page's effects,
+    // like a click that lands before the route reset.
+    useLayoutEffect(() => {
+      if (open && dashboardId === mocks.submitEditorOn) {
+        mocks.submitEditorOn = null;
+        save();
+      }
+    });
+    return open ? (
       <div data-testid="panel-editor" data-panel-id={panel?.id ?? ""}>
-        <button
-          data-testid="panel-editor-save"
-          onClick={() => {
-            if (panel) {
-              void onSave({ ...panel, title: `${panel.title} edited` }).catch(
-                mocks.noop,
-              );
-            }
-          }}
-        />
+        <button data-testid="panel-editor-save" onClick={save} />
       </div>
-    ) : null,
+    ) : null;
+  },
 }));
 
 // The real card hook keeps the personal widths; only the chart is replaced.
@@ -190,11 +207,14 @@ vi.mock("./SqlChartCard", async () => {
       panel,
       dashboardId = "",
       onEdit,
+      editable = false,
     }: {
       panel: SqlPanel;
       dashboardId?: string;
       onEdit?: () => void;
+      editable?: boolean;
     }) => {
+      mocks.editableRenders.push(editable);
       const { widths } = usePersonalColumnWidths(
         dashboardId,
         panel.id,
@@ -306,7 +326,18 @@ describe("SqlDashboardPage dashboard switch", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     window.localStorage.clear();
     mocks.cardRenders = [];
+    mocks.editableRenders = [];
+    mocks.editorRenders = [];
+    mocks.submitEditorOn = null;
+    mocks.session = { email: "viewer@example.com" };
     mocks.saveDashboard = async () => ({});
+    mocks.userPref = {
+      data: undefined,
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      save: () => {},
+    };
     mocks.dashboards = {
       "dash-a": dashboardRecord("Dashboard A", [tablePanel("Accounts A", 200)]),
       "dash-b": dashboardRecord("Dashboard B", [tablePanel("Accounts B", 200)]),
@@ -327,17 +358,68 @@ describe("SqlDashboardPage dashboard switch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("closes a panel editor opened on one dashboard when the route moves to another", async () => {
+  it("never shows or saves a panel editor opened on one dashboard on the next", async () => {
+    const savedTo: unknown[] = [];
+    mocks.saveDashboard = async (args) => {
+      savedTo.push(args.dashboardId);
+      return {};
+    };
     await renderAt("/dashboards/dash-a");
     await click("edit-shared-table");
-    expect(byTestId("panel-editor")?.getAttribute("data-panel-id")).toBe(
-      "shared-table",
-    );
+    expect(byTestId("panel-editor")).not.toBeNull();
 
+    mocks.submitEditorOn = "dash-b";
     await goTo("/dashboards/dash-b");
 
+    expect(savedTo).not.toContain("dash-b");
+    expect(mocks.editorRenders).not.toContainEqual({
+      open: true,
+      dashboardId: "dash-b",
+    });
     expect(container.textContent).toContain("Accounts B");
+  });
+
+  it("never shows or saves a panel editor opened under another account on the same dashboard", async () => {
+    const savedTo: unknown[] = [];
+    mocks.saveDashboard = async (args) => {
+      savedTo.push(args.dashboardId);
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    await click("edit-shared-table");
+    expect(byTestId("panel-editor")).not.toBeNull();
+
+    mocks.editorRenders = [];
+    mocks.submitEditorOn = "dash-a";
+    mocks.session = { email: "other@example.com" };
+    await renderAt("/dashboards/dash-a");
+
+    expect(savedTo).toEqual([]);
+    expect(mocks.editorRenders).not.toContainEqual({
+      open: true,
+      dashboardId: "dash-a",
+    });
     expect(byTestId("panel-editor")).toBeNull();
+  });
+
+  it("never offers editing under a new account until its access loads", async () => {
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+    expect(mocks.editableRenders[mocks.editableRenders.length - 1]).toBe(true);
+
+    mocks.editableRenders = [];
+    mocks.session = { email: "other@example.com" };
+    await renderAt("/dashboards/dash-a");
+
+    expect(mocks.editableRenders.length).toBeGreaterThan(0);
+    expect(mocks.editableRenders).not.toContain(true);
   });
 
   it("closes report settings opened on one dashboard when the route moves to another", async () => {
@@ -419,4 +501,53 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(dashBRenders.length).toBeGreaterThan(0);
     for (const render of dashBRenders) expect(render.widths).toEqual({});
   });
+
+  it("saves filters again after a failed write once they come back, even while the preference rereads", async () => {
+    const writes: unknown[] = [];
+    let failNextWrite = true;
+    mocks.userPref = {
+      data: { filters: { f_region: "eu" } },
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      save: (value, options) => {
+        writes.push(value);
+        if (failNextWrite) {
+          failNextWrite = false;
+          options?.onError?.();
+        }
+      },
+    };
+    async function afterSaveDelay() {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1600));
+      });
+    }
+
+    await renderAt("/dashboards/dash-a?f_region=eu");
+    await goTo("/dashboards/dash-a?f_region=us");
+    await afterSaveDelay();
+    expect(writes).toEqual([{ filters: { f_region: "us" } }]);
+
+    // The failed write rereads the saved preference; that must not resend it.
+    mocks.userPref = {
+      ...mocks.userPref,
+      data: { filters: { f_region: "eu" } },
+    };
+    await renderAt("/dashboards/dash-a?f_region=us");
+    await afterSaveDelay();
+    expect(writes).toHaveLength(1);
+
+    // Leaving them counts while the preference is still being reread.
+    mocks.userPref = { ...mocks.userPref, isFetching: true };
+    await goTo("/dashboards/dash-a?f_region=eu");
+    await afterSaveDelay();
+    mocks.userPref = { ...mocks.userPref, isFetching: false };
+    await goTo("/dashboards/dash-a?f_region=us");
+    await afterSaveDelay();
+    expect(writes).toEqual([
+      { filters: { f_region: "us" } },
+      { filters: { f_region: "us" } },
+    ]);
+  }, 15_000);
 });

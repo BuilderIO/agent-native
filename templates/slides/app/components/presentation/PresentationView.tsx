@@ -24,7 +24,10 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
-import { isMediaKeyboardEvent } from "@/lib/slide-video";
+import {
+  isInteractiveKeyboardEvent,
+  isMediaKeyboardEvent,
+} from "@/lib/slide-video";
 import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
@@ -497,7 +500,7 @@ export default function PresentationView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (isMediaKeyboardEvent(e)) return;
+      if (isMediaKeyboardEvent(e) || isInteractiveKeyboardEvent(e)) return;
       // A held key auto-repeats keydown with repeat=true. Each one would step
       // again, so one physical press could advance two or more slides.
       if (e.repeat) return;

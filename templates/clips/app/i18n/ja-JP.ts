@@ -647,6 +647,34 @@ const messages = {
     waiting: "待っている…",
     nativeSpeechPrimary: "ネイティブ音声が引き続き主な文字起こしソースです。",
   },
+  transcriptImport: {
+    addFile: "トランスクリプトファイルを追加",
+    imported: "インポート済み",
+    replaceTitle: "トランスクリプトを置き換えますか？",
+    replaceDescription:
+      "{{fileName}} で現在のトランスクリプトが置き換えられます。",
+    replace: "置き換える",
+    regenerateOverImportTitle:
+      "インポートしたトランスクリプトを置き換えますか？",
+    regenerateOverImportDescription:
+      "録画の音声から作成した新しいトランスクリプトで、ファイルからインポートしたものが置き換えられます。",
+    added: "トランスクリプトを追加しました",
+    replaced: "トランスクリプトを置き換えました",
+    failed: "トランスクリプトを追加できませんでした",
+    invalidFile: "{{fileName}} を読み取れませんでした",
+    errorEmpty: "ファイルにトランスクリプトのテキストがありません。",
+    errorTooLarge: "ファイルが大きすぎるためインポートできません。",
+    errorNotUtf8:
+      "ファイルが UTF-8 のテキストではありません。UTF-8 で保存してから、もう一度お試しください。",
+    errorMissingTiming:
+      "{{line}} 行目: 00:00:01.000 --> 00:00:04.000 のような字幕のタイミング行が必要です。",
+    errorBadTiming: "{{line}} 行目: 字幕のタイミングを読み取れませんでした。",
+    errorBadRange: "{{line}} 行目: 字幕が開始前に終了しています。",
+    errorMissingTimestamp:
+      "{{line}} 行目: 0:21 や [0:21] のような開始時刻が必要です。",
+    errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
+    errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
+  },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
     failedGif: "GIF の生成に失敗しました - より短い範囲を試してください",
