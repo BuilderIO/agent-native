@@ -102,6 +102,39 @@ function placeOnCanonical(
   };
 }
 
+// Siblings saved together keep listing each other, and each one's context
+// stops at its neighbors, as when they were first saved. A suggestion seen
+// without its siblings, such as one proposal member being validated, maps the
+// ranges it lists instead; those are positions in its own before-state, so
+// that has to be the stored body. Null when a listed sibling can't be placed.
+function siblingRangesOnCanonical<T extends MarkdownSuggestionOperationLike>(
+  suggestion: RebaselineSuggestion<T>,
+  suggestions: RebaselineSuggestion<T>[],
+  placed: Map<string, Placed>,
+  stored: string,
+  canonical: string,
+): MarkdownRange[] | null {
+  const listed = operationAnchor(suggestion.operation).siblingRanges ?? [];
+  if (!listed.length) return [];
+  const group = suggestions.filter(
+    (other) => other.id !== suggestion.id && other.group === suggestion.group,
+  );
+  if (
+    group.length ||
+    markdownPayload(suggestion.operation.before, "before").markdown !== stored
+  )
+    return group
+      .filter((other) => placed.has(other.id))
+      .map((other) => placed.get(other.id)!.range)
+      .sort((left, right) => left.from - right.from);
+  const mapped = listed.map((range) =>
+    placeInCanonicalForm(stored, canonical, range),
+  );
+  return mapped.every((range): range is MarkdownRange => range !== null)
+    ? mapped.sort((left, right) => left.from - right.from)
+    : null;
+}
+
 /**
  * Moves `suggestions`, all pending on a page whose stored body is `stored`,
  * onto `canonical`, the canonical form of `stored`. Each outcome is keyed by
@@ -133,20 +166,17 @@ export function rebaselineSuggestions<
   for (const suggestion of suggestions) {
     const own = placed.get(suggestion.id);
     if (!own) continue;
-    const anchor = operationAnchor(suggestion.operation);
-    // Siblings saved together keep listing each other, and each one's
-    // context stops at its neighbors, as when they were first saved.
-    const siblings = anchor.siblingRanges?.length
-      ? suggestions
-          .filter(
-            (other) =>
-              other.id !== suggestion.id &&
-              other.group === suggestion.group &&
-              placed.has(other.id),
-          )
-          .map((other) => placed.get(other.id)!.range)
-          .sort((left, right) => left.from - right.from)
-      : [];
+    const siblings = siblingRangesOnCanonical(
+      suggestion,
+      suggestions,
+      placed,
+      stored,
+      canonical,
+    );
+    if (!siblings) {
+      outcomes.set(suggestion.id, { kind: "stale" });
+      continue;
+    }
     const previousEnd = Math.max(
       0,
       ...siblings

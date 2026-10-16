@@ -207,4 +207,68 @@ describe("rebaselineSuggestions", () => {
       canonicalizeNfm("It costs $65 today.\n\n\nIt costs $6 tomorrow."),
     );
   });
+
+  it("maps the sibling ranges a suggestion seen alone lists", () => {
+    const stored = "It costs $60 today.\n\n\nIt costs $5 tomorrow.";
+    const canonical = canonicalizeNfm(stored);
+    const operations = markdownSuggestionOperationsForFindReplace({
+      before: stored,
+      find: stored,
+      replace: "It costs $65 today.\n\n\nIt costs $6 tomorrow.",
+      start: 0,
+    });
+    const together = rebaselineSuggestions(
+      operations.map((operation, index) => ({
+        id: `s${index}`,
+        group: "proposal",
+        operation,
+      })),
+      stored,
+      canonical,
+    );
+    // Validation sees one proposal member at a time.
+    for (const [index, operation] of operations.entries()) {
+      const alone = rebaselineSuggestions(
+        [{ id: "alone", group: "alone", operation }],
+        stored,
+        canonical,
+      ).get("alone");
+      const expected = together.get(`s${index}`);
+      if (alone?.kind !== "rebased" || expected?.kind !== "rebased")
+        throw new Error(JSON.stringify({ alone, expected }));
+      expect(alone.operation.anchor.siblingRanges).toEqual(
+        expected.operation.anchor.siblingRanges,
+      );
+    }
+  });
+
+  it("reports a suggestion seen alone whose listed sibling can't be placed as stale", () => {
+    const stored = "Before.\n\n\nIt costs $60 today.";
+    const canonical = canonicalizeNfm(stored);
+    const [operation] = markdownSuggestionOperationsForFindReplace({
+      before: stored,
+      find: "today",
+      replace: "now",
+      start: stored.indexOf("today"),
+    });
+    const blank = stored.indexOf("\n\n\n");
+    const outcome = rebaselineSuggestions(
+      [
+        {
+          id: "alone",
+          group: "alone",
+          operation: {
+            ...operation!,
+            anchor: {
+              ...operation!.anchor,
+              siblingRanges: [{ from: blank, to: blank + 3 }],
+            },
+          },
+        },
+      ],
+      stored,
+      canonical,
+    ).get("alone");
+    expect(outcome).toEqual({ kind: "stale" });
+  });
 });

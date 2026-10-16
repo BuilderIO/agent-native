@@ -15,6 +15,7 @@ import {
   type TransactionalChange,
 } from "@agent-native/core/server";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
 import {
@@ -30,6 +31,7 @@ import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.j
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import { reanchoredCommentQuote } from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
+import { canonicalizeNfm } from "../../shared/nfm.js";
 import {
   applyMarkdownSuggestionWithSiblings,
   markdownPayload,
@@ -39,11 +41,16 @@ import {
   type MarkdownRange,
 } from "../../shared/suggestion-apply.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
+import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { schema } from "../db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
+import {
+  liveBodyWriterGateForRow,
+  liveBodyWriterPageColumns,
+} from "./live-body-writer.js";
 import { syncPrivateCalloutReferences } from "./private-icon-references.js";
 
 export { applyMarkdownSuggestionOperation } from "../../shared/suggestion-apply.js";
@@ -298,6 +305,60 @@ function replacePreparedCollabContent(
   );
 }
 
+function failBeforeStateConflict(): never {
+  fail(
+    "The suggestion before-state does not match the Page; refresh before saving this suggestion",
+    {
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    },
+  );
+}
+
+/**
+ * A Page written through its live copy stores its body in canonical form, so
+ * an agent can propose against the same body written another way, such as
+ * `$60` for the stored `\$60`. That proposal is moved onto the stored text.
+ * Any other Page keeps the exact before-state comparison.
+ */
+async function proposalOnStoredBody(
+  transaction: DbExec | undefined,
+  documentId: string,
+  content: unknown,
+  operation: SuggestionOperation,
+): Promise<SuggestionOperation> {
+  if (!transaction || typeof content !== "string") failBeforeStateConflict();
+  const [page] = await drizzleTransactionForExec(transaction)
+    .select(liveBodyWriterPageColumns)
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId))
+    .limit(1);
+  const gate = await liveBodyWriterGateForRow(page, { transaction });
+  const before = markdownPayload(operation.before, "before").markdown;
+  if (gate.writePath !== "live_copy" || canonicalizeNfm(before) !== content)
+    failBeforeStateConflict();
+  const outcome = rebaselineSuggestions(
+    [{ id: "proposal", group: "proposal", operation }],
+    before,
+    content,
+  ).get("proposal");
+  if (outcome?.kind === "rebased") return outcome.operation;
+  if (outcome?.kind === "blocked" && outcome.reason === "change_vanishes")
+    fail("This suggestion changes nothing once written in the Page's form.", {
+      statusCode: 422,
+      errorCode: "suggestion_no_change",
+    });
+  if (outcome?.kind === "blocked")
+    fail(
+      "This suggestion changes content or formatting that suggestions do not support yet once written in the Page's form. Suggest a change to the text instead.",
+      {
+        statusCode: 422,
+        errorCode: "suggestion_structure_unsupported",
+      },
+    );
+  failBeforeStateConflict();
+}
+
 /**
  * Accepting an AI suggestion leaves the comment that asked for it open, so its
  * quote follows the rewritten text instead of losing its highlight.
@@ -474,18 +535,22 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       transaction ?? getDbExec(),
       input.resourceId,
     );
-    const operations = validateOperations(input.operations);
+    let operations = validateOperations(input.operations);
+    if (
+      document.content !==
+      markdownPayload(operations[0]!.before, "before").markdown
+    ) {
+      operations = [
+        await proposalOnStoredBody(
+          transaction,
+          input.resourceId,
+          document.content,
+          operations[0]!,
+        ),
+      ];
+    }
     const before = markdownPayload(operations[0]!.before, "before");
     const after = markdownPayload(operations[0]!.after, "after");
-    if (document.content !== before.markdown) {
-      fail(
-        "The suggestion before-state does not match the Page; refresh before saving this suggestion",
-        {
-          statusCode: 409,
-          errorCode: "suggestion_conflict",
-        },
-      );
-    }
     if (before.markdown.includes("<InlineDatabase")) {
       fail("Pages with inline databases cannot receive suggestions yet.", {
         statusCode: 409,

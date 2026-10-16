@@ -174,7 +174,7 @@ async function addComment(documentId: string, text: string, quote: string) {
 
 /** Converts the page the way L6b does, with the re-baseline inside it. */
 async function convert(documentId: string, previousLiveBody: string | null) {
-  return getDbExec().transaction(async (tx: DbExec) => {
+  return getDbExec().transaction!(async (tx: DbExec) => {
     const row = (
       await tx.execute({
         sql: "SELECT content, body_revision FROM documents WHERE id = ? FOR UPDATE",

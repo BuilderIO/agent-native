@@ -35,7 +35,10 @@ import {
   getProposalDecision,
   recordProposalDecision,
 } from "./store.js";
-import type { ResourceSuggestion } from "./types.js";
+import type {
+  ResourceSuggestion,
+  SuggestionDecisionRunOptions,
+} from "./types.js";
 
 const base = { resourceType: z.string().min(1), resourceId: z.string().min(1) };
 const operation = z.object({
@@ -585,102 +588,104 @@ export const decideResourceSuggestion = defineAction({
       }
       return { suggestion: latest, decision };
     };
-    const decide = (coordination?: unknown) =>
-      db.transaction!(async (tx) => {
-        const current = await getSuggestion(args.id, tx);
-        if (!current) throw new Error("Suggestion not found");
-        const decisionAccess = await assertReviewableResourceAccess(
-          current.resourceType,
-          current.resourceId,
-          { ...(ctx as any), transaction: tx },
-          decisionAccessRole(current, args.decision, ctx),
-        );
-        if (current.status !== "pending") {
-          return replayDecision(tx);
-        }
-        const currentAdapter = getSuggestionAdapter(current.adapterKind);
-        if (observedRevision !== current.revision) {
-          fail("The suggestion changed; refresh before deciding", {
-            statusCode: 409,
-            errorCode: "suggestion_conflict",
-          });
-        }
-        if (
-          !currentAdapter ||
-          currentAdapter.version !== current.adapterVersion
-        )
-          throw new Error("Suggestion adapter version is unavailable");
-        // Withdrawing never applies the suggestion, so a base that moved on
-        // since the author last saw it is no conflict.
-        if (
-          args.decision !== "withdrawn" &&
-          current.baseRevision !== args.observedBase
-        ) {
-          fail("The suggestion changed; refresh before deciding", {
-            statusCode: 409,
-            errorCode: "suggestion_conflict",
-          });
-        }
-        const claimed = await updateSuggestionStatus(
-          tx,
-          current.id,
-          args.decision,
-          current.revision,
-        );
-        if (!claimed) return replayDecision(tx);
-        const prior = await recordDecision(tx, {
-          suggestionId: current.id,
-          idempotencyKey: args.idempotencyKey,
-          reviewer: (ctx as any)?.userEmail ?? null,
-          decision: args.decision,
-          observedBase: args.observedBase,
-          outcome: args.decision,
-          detail: null,
+    const decideIn = async (tx: DbExec, coordination: unknown) => {
+      const current = await getSuggestion(args.id, tx);
+      if (!current) throw new Error("Suggestion not found");
+      const decisionAccess = await assertReviewableResourceAccess(
+        current.resourceType,
+        current.resourceId,
+        { ...(ctx as any), transaction: tx },
+        decisionAccessRole(current, args.decision, ctx),
+      );
+      if (current.status !== "pending") {
+        return replayDecision(tx);
+      }
+      const currentAdapter = getSuggestionAdapter(current.adapterKind);
+      if (observedRevision !== current.revision) {
+        fail("The suggestion changed; refresh before deciding", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
         });
-        if (!prior.duplicate && args.decision === "accepted") {
-          try {
-            await currentAdapter.apply({
-              resourceType: current.resourceType,
-              resourceId: current.resourceId,
-              suggestion: current,
-              operations: current.operations,
-              access: decisionAccess,
-              ctx: {
-                ...(ctx as any),
-                suggestionAccess: decisionAccess,
-                transaction: tx,
-              },
-              transaction: tx,
-              coordination,
-            });
-          } catch (error) {
-            // Failing inside the transaction also rolls back the claim and
-            // decision above, so the suggestion stays pending and reviewable.
-            if (error instanceof Error && error.name === "SuggestionStaleError")
-              fail(error.message, {
-                statusCode: 409,
-                errorCode: "suggestion_stale",
-              });
-            throw error;
-          }
-        }
-        if (!prior.duplicate) {
-          await resolveReviewThreadWithClient(
-            tx,
-            current.threadId,
-            (ctx as any)?.userEmail ?? null,
-            {
-              resourceType: current.resourceType,
-              resourceId: current.resourceId,
-            },
-            args.decision,
-          );
-        }
-        return {
-          suggestion: await getSuggestion(current.id, tx),
-          decision: prior.record,
-        };
+      }
+      if (!currentAdapter || currentAdapter.version !== current.adapterVersion)
+        throw new Error("Suggestion adapter version is unavailable");
+      // Withdrawing never applies the suggestion, so a base that moved on
+      // since the author last saw it is no conflict.
+      if (
+        args.decision !== "withdrawn" &&
+        current.baseRevision !== args.observedBase
+      ) {
+        fail("The suggestion changed; refresh before deciding", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      const claimed = await updateSuggestionStatus(
+        tx,
+        current.id,
+        args.decision,
+        current.revision,
+      );
+      if (!claimed) return replayDecision(tx);
+      const prior = await recordDecision(tx, {
+        suggestionId: current.id,
+        idempotencyKey: args.idempotencyKey,
+        reviewer: (ctx as any)?.userEmail ?? null,
+        decision: args.decision,
+        observedBase: args.observedBase,
+        outcome: args.decision,
+        detail: null,
       });
+      if (!prior.duplicate && args.decision === "accepted") {
+        try {
+          await currentAdapter.apply({
+            resourceType: current.resourceType,
+            resourceId: current.resourceId,
+            suggestion: current,
+            operations: current.operations,
+            access: decisionAccess,
+            ctx: {
+              ...(ctx as any),
+              suggestionAccess: decisionAccess,
+              transaction: tx,
+            },
+            transaction: tx,
+            coordination,
+          });
+        } catch (error) {
+          // Failing inside the transaction also rolls back the claim and
+          // decision above, so the suggestion stays pending and reviewable.
+          if (error instanceof Error && error.name === "SuggestionStaleError")
+            fail(error.message, {
+              statusCode: 409,
+              errorCode: "suggestion_stale",
+            });
+          throw error;
+        }
+      }
+      if (!prior.duplicate) {
+        await resolveReviewThreadWithClient(
+          tx,
+          current.threadId,
+          (ctx as any)?.userEmail ?? null,
+          {
+            resourceType: current.resourceType,
+            resourceId: current.resourceId,
+          },
+          args.decision,
+        );
+      }
+      const decided = await getSuggestion(current.id, tx);
+      if (!decided) throw new Error("Decided suggestion disappeared");
+      return { suggestion: decided, decision: prior.record };
+    };
+    const decide = (
+      coordination?: unknown,
+      options: SuggestionDecisionRunOptions = {},
+    ) =>
+      options.transaction
+        ? decideIn(options.transaction as DbExec, coordination)
+        : db.transaction!((tx) => decideIn(tx, coordination));
     if (args.decision === "accepted" && adapter.coordinateDecision) {
       return adapter.coordinateDecision(
         {
@@ -1086,138 +1091,145 @@ export const decideResourceSuggestionProposal = defineAction({
         suggestions: suggestions as ResourceSuggestion[],
       };
     };
-    const decide = (coordination?: unknown) =>
-      db.transaction!(async (tx) => {
-        const currentProposal = await getSuggestionProposal(
-          tx,
-          args.proposalId,
-        );
-        if (!currentProposal)
-          fail("Proposal not found", {
-            statusCode: 404,
-            errorCode: "not_found",
+    const decideIn = async (tx: DbExec, coordination: unknown) => {
+      const currentProposal = await getSuggestionProposal(tx, args.proposalId);
+      if (!currentProposal)
+        fail("Proposal not found", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      await assertReviewableResourceAccess(
+        proposal.resourceType,
+        proposal.resourceId,
+        { ...(ctx as any), transaction: tx },
+        "editor",
+      );
+      const prior = await getProposalDecision(tx, args.idempotencyKey);
+      if (prior) return replayDecision(tx, prior);
+      const suggestions: ResourceSuggestion[] = [];
+      for (const observed of members) {
+        const current = await getSuggestion(observed.id, tx);
+        if (
+          !current ||
+          current.proposalId !== proposal.id ||
+          current.resourceType !== proposal.resourceType ||
+          current.resourceId !== proposal.resourceId ||
+          current.adapterKind !== proposal.adapterKind ||
+          current.adapterVersion !== adapter.version ||
+          current.status !== "pending" ||
+          current.revision !== observed.observedRevision ||
+          current.baseRevision !== observed.observedBase
+        ) {
+          fail("A proposal member changed; refresh before deciding", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
           });
-        await assertReviewableResourceAccess(
-          proposal.resourceType,
-          proposal.resourceId,
-          { ...(ctx as any), transaction: tx },
-          "editor",
-        );
-        const prior = await getProposalDecision(tx, args.idempotencyKey);
-        if (prior) return replayDecision(tx, prior);
-        const suggestions: ResourceSuggestion[] = [];
-        for (const observed of members) {
-          const current = await getSuggestion(observed.id, tx);
-          if (
-            !current ||
-            current.proposalId !== proposal.id ||
-            current.resourceType !== proposal.resourceType ||
-            current.resourceId !== proposal.resourceId ||
-            current.adapterKind !== proposal.adapterKind ||
-            current.adapterVersion !== adapter.version ||
-            current.status !== "pending" ||
-            current.revision !== observed.observedRevision ||
-            current.baseRevision !== observed.observedBase
-          ) {
-            fail("A proposal member changed; refresh before deciding", {
-              statusCode: 409,
-              errorCode: "suggestion_conflict",
-            });
-          }
-          suggestions.push(current);
         }
-        for (const suggestion of suggestions) {
-          const updated = await updateSuggestionStatus(
-            tx,
-            suggestion.id,
-            args.decision,
-            suggestion.revision,
-          );
-          if (!updated)
-            fail("A proposal member changed; refresh before deciding", {
-              statusCode: 409,
-              errorCode: "suggestion_conflict",
-            });
-          if (args.decision === "accepted") {
-            try {
-              await adapter.apply({
-                resourceType: suggestion.resourceType,
-                resourceId: suggestion.resourceId,
-                suggestion,
-                operations: suggestion.operations,
-                access,
-                ctx: {
-                  ...(ctx as any),
-                  suggestionAccess: access,
-                  transaction: tx,
-                },
-                transaction: tx,
-                coordination,
-              });
-            } catch (error) {
-              if (
-                error instanceof Error &&
-                error.name === "SuggestionStaleError"
-              ) {
-                fail(
-                  "A proposal member is stale; no proposal edits were applied",
-                  { statusCode: 409, errorCode: "suggestion_stale" },
-                );
-              }
-              throw error;
-            }
-          }
-          await resolveReviewThreadWithClient(
-            tx,
-            suggestion.threadId,
-            reviewer,
-            {
+        suggestions.push(current);
+      }
+      for (const suggestion of suggestions) {
+        const updated = await updateSuggestionStatus(
+          tx,
+          suggestion.id,
+          args.decision,
+          suggestion.revision,
+        );
+        if (!updated)
+          fail("A proposal member changed; refresh before deciding", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        if (args.decision === "accepted") {
+          try {
+            await adapter.apply({
               resourceType: suggestion.resourceType,
               resourceId: suggestion.resourceId,
-            },
-            args.decision,
-          );
+              suggestion,
+              operations: suggestion.operations,
+              access,
+              ctx: {
+                ...(ctx as any),
+                suggestionAccess: access,
+                transaction: tx,
+              },
+              transaction: tx,
+              coordination,
+            });
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.name === "SuggestionStaleError"
+            ) {
+              fail(
+                "A proposal member is stale; no proposal edits were applied",
+                { statusCode: 409, errorCode: "suggestion_stale" },
+              );
+            }
+            throw error;
+          }
         }
-        if (args.decision === "accepted") {
-          await adapter.finalizeProposalDecision?.({
-            resourceType: proposal.resourceType,
-            resourceId: proposal.resourceId,
-            transaction: tx,
-            coordination,
-          });
-        }
-        await recordProposalDecision(
+        await resolveReviewThreadWithClient(
           tx,
-          args.idempotencyKey,
-          proposal.id,
+          suggestion.threadId,
           reviewer,
+          {
+            resourceType: suggestion.resourceType,
+            resourceId: suggestion.resourceId,
+          },
           args.decision,
-          request,
-          suggestions.map((suggestion) => suggestion.id),
         );
-        return {
-          proposal: currentProposal,
-          suggestions: await Promise.all(
-            suggestions.map(async (suggestion) => {
-              const latest = await getSuggestion(suggestion.id, tx);
-              if (!latest) throw new Error("Decided suggestion disappeared");
-              return latest;
-            }),
-          ),
-        };
-      }).catch(async (error) => {
-        const prior = await getProposalDecision(db, args.idempotencyKey);
-        if (!prior) throw error;
-        return db.transaction!(async (tx) => {
-          await assertReviewableResourceAccess(
-            proposal.resourceType,
-            proposal.resourceId,
-            { ...(ctx as any), transaction: tx },
-            "editor",
-          );
-          return replayDecision(tx, prior);
+      }
+      if (args.decision === "accepted") {
+        await adapter.finalizeProposalDecision?.({
+          resourceType: proposal.resourceType,
+          resourceId: proposal.resourceId,
+          transaction: tx,
+          coordination,
         });
-      });
+      }
+      await recordProposalDecision(
+        tx,
+        args.idempotencyKey,
+        proposal.id,
+        reviewer,
+        args.decision,
+        request,
+        suggestions.map((suggestion) => suggestion.id),
+      );
+      return {
+        proposal: currentProposal,
+        suggestions: await Promise.all(
+          suggestions.map(async (suggestion) => {
+            const latest = await getSuggestion(suggestion.id, tx);
+            if (!latest) throw new Error("Decided suggestion disappeared");
+            return latest;
+          }),
+        ),
+      };
+    };
+    // A failure in the adapter's transaction aborts it, so the receipt of a
+    // decision that won meanwhile can't be read here; the adapter replays.
+    const decide = (
+      coordination?: unknown,
+      options: SuggestionDecisionRunOptions = {},
+    ) =>
+      options.transaction
+        ? decideIn(options.transaction as DbExec, coordination)
+        : db.transaction!((tx) => decideIn(tx, coordination)).catch(
+            async (error) => {
+              const prior = await getProposalDecision(db, args.idempotencyKey);
+              if (!prior) throw error;
+              return db.transaction!(async (tx) => {
+                await assertReviewableResourceAccess(
+                  proposal.resourceType,
+                  proposal.resourceId,
+                  { ...(ctx as any), transaction: tx },
+                  "editor",
+                );
+                return replayDecision(tx, prior);
+              });
+            },
+          );
     if (args.decision === "accepted" && adapter.coordinateDecision) {
       return adapter.coordinateDecision(
         {
