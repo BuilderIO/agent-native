@@ -2586,6 +2586,35 @@ parentId: "${seed.ids.moved}"
       }
     });
 
+    it("appends a page moved to another space after a page another move appended while it waited", async () => {
+      const seed = await seedSpaceMove();
+      const sibling = `${seed.key}_p4`;
+      await getDb()
+        .insert(schema.documents)
+        .values(
+          pageValues(sibling, null, "Sibling", { spaceId: seed.ids.toSpace }),
+        );
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: seed.ids.parent, position: 0 })
+            .where(eq(schema.documents.id, sibling));
+        },
+        () => moveToOtherSpace(seed),
+      );
+      await expect(moved).resolves.toMatchObject({ id: seed.ids.moved });
+      expect(await readPage(sibling)).toMatchObject({
+        parentId: seed.ids.parent,
+        position: 0,
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        parentId: seed.ids.parent,
+        position: 1,
+      });
+    });
+
     it("skips an imported update of a page already in Trash", async () => {
       const seed = await seedSpaceMove();
       await getDb()

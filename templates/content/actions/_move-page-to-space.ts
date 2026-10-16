@@ -360,25 +360,6 @@ export async function movePageToSpace(args: {
   await withPositionLock(
     documentsPositionScope(userEmail, parentId),
     async () => {
-      const [maxPosition] = await db
-        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-        .from(schema.documents)
-        .where(
-          parentId
-            ? and(
-                eq(schema.documents.ownerEmail, userEmail),
-                eq(schema.documents.parentId, parentId),
-              )
-            : and(
-                eq(schema.documents.ownerEmail, userEmail),
-                eq(schema.documents.visibility, visibility),
-                orgId
-                  ? eq(schema.documents.orgId, orgId)
-                  : isNull(schema.documents.orgId),
-                isNull(schema.documents.parentId),
-              ),
-        );
-
       await db.transaction(async (tx) => {
         const parent = await lockMoveBetweenSpaces({
           tx: tx as unknown as ContentDb,
@@ -397,6 +378,26 @@ export async function movePageToSpace(args: {
             .from(schema.documentShares)
             .where(eq(schema.documentShares.resourceId, parentId));
         }
+        // Under the mover's page-tree lock, which every move into the
+        // mover's pages takes, so two appends can't take one position.
+        const [maxPosition] = await tx
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+          .from(schema.documents)
+          .where(
+            parentId
+              ? and(
+                  eq(schema.documents.ownerEmail, userEmail),
+                  eq(schema.documents.parentId, parentId),
+                )
+              : and(
+                  eq(schema.documents.ownerEmail, userEmail),
+                  eq(schema.documents.visibility, visibility),
+                  orgId
+                    ? eq(schema.documents.orgId, orgId)
+                    : isNull(schema.documents.orgId),
+                  isNull(schema.documents.parentId),
+                ),
+          );
         const idSet = new Set(ids);
         for (const idGroup of groups(ids)) {
           const children: Array<{ id: string }> = await tx

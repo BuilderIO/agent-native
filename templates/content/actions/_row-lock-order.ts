@@ -42,8 +42,9 @@ export async function lockOwnerPageTree(
  * Re-reads a new page's parent with a share lock, and refuses when the parent
  * moved to Trash or changed owner, space, org or visibility since the page
  * copied them. A move or Trash of the parent holds its row until it commits,
- * so this reads the result; a move that locks the parent after this sees the
- * new page in its child scan. Take it last in the creating transaction.
+ * so this reads the result. A Trash or a move to another space that locks the
+ * parent after this sees the new page when it re-reads the parent's children
+ * under its locks. Take it last in the creating transaction.
  */
 export async function lockParentOfNewPage(
   db: ReturnType<typeof getDb>,
