@@ -494,6 +494,68 @@ describe("writes through a switched page's live copy", () => {
     ]);
     expect(softDeleted).toEqual(["db-a-inline"]);
   });
+
+  it("locks the page in Content's order from an unchanged edit's own persist, and refuses it in Trash", async () => {
+    await switchedPage("unchanged", "Hello there");
+    await getDb().insert(schema.contentDatabases).values({
+      id: "db-unchanged-parent",
+      ownerEmail: OWNER,
+      documentId: "elsewhere",
+    });
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: "unchanged-row",
+      ownerEmail: OWNER,
+      databaseId: "db-unchanged-parent",
+      documentId: "unchanged",
+    });
+    const statements: string[] = [];
+    const unchangedEdit = () =>
+      cause.withContentBodyWriteCause({ operation: "test-unchanged" }, () =>
+        collab.mutateLiveCopy(binding.contentLiveCopy, "unchanged", {
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "Hello there" },
+          persist: async (tx, change) => {
+            expect(change.changed).toBe(false);
+            const spy: DbExec = {
+              execute(input) {
+                statements.push(
+                  (typeof input === "string" ? input : input.sql).toLowerCase(),
+                );
+                return tx.execute(input);
+              },
+            } as DbExec;
+            const locked = await persist.lockLiveCopyPage(spy, "unchanged");
+            expect(locked?.page.content).toBe("Hello there");
+          },
+        }),
+      );
+
+    await expect(unchangedEdit()).resolves.toMatchObject({
+      changed: false,
+      liveCopy: "unchanged",
+    });
+    const locks = statements
+      .filter((sql) => / for update|^\s*update /.test(sql))
+      .map(
+        (sql) =>
+          (/^\s*update "([^"]+)"/.exec(sql) ??
+            / for update of "([^"]+)"/.exec(sql) ??
+            / from "([^"]+)"/.exec(sql))?.[1],
+      );
+    expect(locks).toEqual([
+      "content_databases",
+      "content_database_items",
+      "documents",
+    ]);
+
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, "unchanged"));
+    await expect(unchangedEdit()).rejects.toMatchObject({
+      errorCode: "DOCUMENT_NOT_FOUND",
+    });
+  });
 });
 
 describe("with the gate off (SF-11)", () => {

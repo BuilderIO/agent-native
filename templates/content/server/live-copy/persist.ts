@@ -95,7 +95,7 @@ const pageColumns = {
   trashedAt: schema.documents.trashedAt,
 };
 
-type PageRow = {
+export type PageRow = {
   title: string;
   content: string;
   bodyRevision: number;
@@ -109,7 +109,7 @@ type PageRow = {
 
 type BlocksFields = Awaited<ReturnType<typeof lockPrimaryBlocksFields>>;
 
-interface LockedPage {
+export interface LockedPage {
   page: PageRow;
   blocksFields: BlocksFields;
   lockedDatabaseIds: ReadonlySet<string>;
@@ -196,6 +196,22 @@ function assertEditablePage(page: PageRow): void {
       statusCode: 404,
     });
   }
+}
+
+/**
+ * Locks a page in Content's order, as persist locks it, for a write that runs
+ * in a live-copy transaction without a body commit: mutateLiveCopy's own
+ * `persist` on an edit that changed nothing. Pass that persist's `tx`; a
+ * `getDb()` handle is another connection, outside the commit's locks.
+ * Refuses a page in Trash; undefined when the page does not exist.
+ */
+export async function lockLiveCopyPage(
+  tx: DbExec,
+  documentId: string,
+): Promise<LockedPage | undefined> {
+  const locked = await lockPageForBodyWrite(drizzleOverExec(tx), documentId);
+  if (locked) assertEditablePage(locked.page);
+  return locked;
 }
 
 /**
