@@ -148,7 +148,7 @@ export function resolveCensusTarget(
   const shape = TARGET_URL.exec(url);
   if (!shape || !URL.canParse(url)) {
     throw new CensusRefusal(
-      `${options.databaseUrlEnv} must hold postgres://[user[:password]@]host[:port][/database][?sslmode=…] with special characters percent-encoded, or a pglite: URL`,
+      `${options.databaseUrlEnv} must hold a postgres:// URL with one host, at most one @ (percent-encode special characters in the user name and password), an optional port and database, and no fragment, or a pglite: URL`,
     );
   }
   const parsed = new URL(url);

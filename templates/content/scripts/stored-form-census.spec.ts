@@ -209,14 +209,14 @@ describe("stored-form census guards (SF-09)", () => {
       // postgres.js reads the host after the first `@`, URL after the last.
       [
         local.replace("@localhost", `@${PRODUCTION_HOST},ignored@localhost`),
-        "must hold postgres://",
+        "must hold a postgres:// URL",
       ],
       [
         local.replace("@localhost", `@${PRODUCTION_HOST}@localhost`),
-        "must hold postgres://",
+        "must hold a postgres:// URL",
       ],
-      [`${local}#@${PRODUCTION_HOST}`, "must hold postgres://"],
-      [local.replace("localhost", "[::1]"), "must hold postgres://"],
+      [`${local}#@${PRODUCTION_HOST}`, "must hold a postgres:// URL"],
+      [local.replace("localhost", "[::1]"), "must hold a postgres:// URL"],
       [
         targetUrl("reader", BRANCH_HOST, `neondb?host=${PRODUCTION_HOST}`),
         "has a URL parameter other than sslmode and channel_binding",
