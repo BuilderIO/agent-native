@@ -10,11 +10,13 @@
 
 import type {
   OnboardingCapability,
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
 } from "./types.js";
 
 export type {
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
   WorkspaceServiceId,
@@ -37,6 +39,10 @@ export type WorkspaceService = WorkspaceServiceFields &
     | /** Builder.io only; there is no bring-your-own path. */ {
         kind: "builder-only";
         id: WorkspaceBuilderOnlyServiceId;
+      }
+    | /** Builder.io includes it, and a bring-your-own path is also available. */ {
+        kind: "builder-included";
+        id: WorkspaceBuilderIncludedServiceId;
       }
   );
 
@@ -227,7 +233,7 @@ export const WORKSPACE_SERVICES: readonly WorkspaceService[] = [
   },
   {
     id: "web-search",
-    kind: "builder-only",
+    kind: "builder-included",
     capabilityIds: ["web-search"],
     everyApp: true,
     capability: WEB_SEARCH_CAPABILITY,

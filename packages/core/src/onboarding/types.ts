@@ -83,19 +83,22 @@ export interface OnboardingStepStatus {
 /** Services whose provider is picked per service (`manage-service-providers`). */
 export type WorkspaceProviderServiceId = "voice" | "images" | "embeddings";
 
-/** Services only Builder.io provides. */
+/** Services Builder.io provides with no bring-your-own path. */
 export type WorkspaceBuilderOnlyServiceId =
   | "design-system-intelligence"
   | "background-agents"
-  | "browser-automation"
-  | "web-search";
+  | "browser-automation";
+
+/** Services Builder.io includes that also support bring-your-own keys. */
+export type WorkspaceBuilderIncludedServiceId = "web-search";
 
 /** A service every app in a workspace shares (`WORKSPACE_SERVICES`). */
 export type WorkspaceServiceId =
   | "model"
   | "storage"
   | WorkspaceProviderServiceId
-  | WorkspaceBuilderOnlyServiceId;
+  | WorkspaceBuilderOnlyServiceId
+  | WorkspaceBuilderIncludedServiceId;
 
 export interface OnboardingCapability {
   id: string;

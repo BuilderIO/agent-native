@@ -204,7 +204,7 @@ describe("onboarding app profiles", () => {
     },
   );
 
-  it("marks the Builder.io-only services and keeps them optional", () => {
+  it("keeps Builder-only services optional and recommends Builder-included search", () => {
     const capabilities = getOnboardingAppProfile("design").capabilities;
     const builderOnly = capabilities.filter(
       (capability) => capability.builderOnly,
@@ -214,18 +214,21 @@ describe("onboarding app profiles", () => {
       "design-system-intelligence",
       "background-agents",
       "browser-automation",
-      "web-search",
     ]);
-    expect(builderOnly.every((capability) => !capability.required)).toBe(true);
     expect(
-      builderOnly.find((capability) => capability.service === "web-search")
-        ?.suggested,
+      builderOnly.every(
+        (capability) => !capability.required && !capability.suggested,
+      ),
     ).toBe(true);
-    expect(
-      builderOnly
-        .filter((capability) => capability.service !== "web-search")
-        .every((capability) => !capability.suggested),
-    ).toBe(true);
+    const webSearch = capabilities.find(
+      (capability) => capability.service === "web-search",
+    );
+    expect(webSearch).toMatchObject({
+      required: false,
+      suggested: true,
+      builderIncluded: true,
+    });
+    expect(webSearch?.builderOnly).toBeUndefined();
   });
 
   it("uses an app's declared capability for a service without lowering its tag", () => {

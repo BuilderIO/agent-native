@@ -64,13 +64,7 @@ async function resolveBuilderSearchCredentials(
   opts: WebSearchToolOptions,
 ): Promise<BuilderWebSearchAuth | null> {
   if (!opts.resolveBuilderCredentials) return null;
-  try {
-    return await opts.resolveBuilderCredentials();
-  } catch {
-    // coercion-ok: Builder credential lookup failures are non-fatal; BYOK
-    // backends or the setup hint below can still handle the tool call.
-    return null;
-  }
+  return opts.resolveBuilderCredentials();
 }
 
 async function searchBrave(
@@ -300,7 +294,6 @@ export function createWebSearchToolEntry(
         const tavilyKey = await resolveSearchKey("TAVILY_API_KEY", opts);
         const exaKey = await resolveSearchKey("EXA_API_KEY", opts);
         const firecrawlKey = await resolveSearchKey("FIRECRAWL_API_KEY", opts);
-        const builderCredentials = await resolveBuilderSearchCredentials(opts);
 
         let results: WebSearchResult[];
         let backend: string;
@@ -319,7 +312,19 @@ export function createWebSearchToolEntry(
           } else if (firecrawlKey) {
             results = await searchFirecrawl(query, count, firecrawlKey);
             backend = "Firecrawl";
-          } else if (builderCredentials) {
+          } else {
+            const builderCredentials =
+              await resolveBuilderSearchCredentials(opts);
+            if (!builderCredentials) {
+              return [
+                "No web-search backend configured.",
+                "Connect Builder.io to use managed search with included Builder AI credits, or add an optional search provider key:",
+                "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
+                "  • TAVILY_API_KEY        — https://tavily.com/",
+                "  • EXA_API_KEY           — https://exa.ai/",
+                "  • FIRECRAWL_API_KEY     — https://firecrawl.dev/",
+              ].join("\n");
+            }
             managedText = await searchBuilderManaged(
               query,
               count,
@@ -328,15 +333,6 @@ export function createWebSearchToolEntry(
             );
             results = [];
             backend = "Builder.io";
-          } else {
-            return [
-              "No web-search backend configured.",
-              "Connect Builder.io to use managed search with included Builder AI credits, or add an optional search provider key:",
-              "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
-              "  • TAVILY_API_KEY        — https://tavily.com/",
-              "  • EXA_API_KEY           — https://exa.ai/",
-              "  • FIRECRAWL_API_KEY     — https://firecrawl.dev/",
-            ].join("\n");
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
