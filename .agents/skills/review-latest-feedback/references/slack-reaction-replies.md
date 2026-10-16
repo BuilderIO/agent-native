@@ -10,15 +10,15 @@ verified: defects meet **Fixed**, and upvoted improvements meet **Shipped**
 after delivery is verified. Add `🎫` only to distinct unfinished scope
 needing a follow-up action or owner, whether or not a ticket exists.
 
-For every eligible item this run claims, send one concise reply under the same
-parent. If work continues beyond this run, name the concrete action and owner;
-for completed work, reply after verification. State what changed, any
-meaningful scope still open, and the next action/owner/ticket if needed. For a
-beta app fix in an open PR, link it and say it should reach beta soon after
-merge. Keep publisher details in the recap; do not send a routine second reply
-just to announce merge or live beta. Correct a material change to availability
-or answer a reporter's follow-up. If the first reply is after merge, link the
-PR and say it merged. An earlier generic “looking into this” does not count.
+Before posting, inspect the full thread for an earlier disposition reply. Send
+one concise status reply per feedback item: what changed, meaningful scope
+remaining, and the next action/owner/ticket if needed. For a beta app fix, link
+the PR and say beta should follow soon after merge. If the first reply is after
+merge, say it merged and beta should follow soon; never claim it is live without
+verification. If an earlier reply already covers the disposition and beta
+timing, do not post again just to announce merge or live status. Reply again
+only for a material availability change or a reporter's follow-up. A generic
+earlier “looking into this” does not count.
 
 Identify known duplicates before claiming them. Represent duplicate non-owner
 threads by permalink and **Clustered** in one owner-thread reply. Do not react
