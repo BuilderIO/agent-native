@@ -727,6 +727,36 @@ export default {
     sameNameCheckFailed: "この指標の既存のエントリを確認できませんでした。",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "コンテンツビュー用の、ページごとの日次クリック数と表示回数。",
+      serviceAccount: "サービスアカウント",
+      copyEmail: "メールをコピー",
+      grantHint:
+        "Search Console の各プロパティで、[設定] → [ユーザーと権限] からこのメールをユーザーとして追加してください。",
+      noServiceAccount:
+        "先に Google サービスアカウントのキーを追加してください。",
+      openGoogleCloud: "Google Cloud を開く",
+      invalidServiceAccount:
+        "保存されたサービスアカウントのキーを読み取れません。",
+      properties: "プロパティ",
+      siteLabel: "プロパティ",
+      pathLabel: "パスのプレフィックス",
+      addProperty: "プロパティを追加",
+      removeProperty: "プロパティを削除",
+      save: "保存",
+      collectDaily: "毎日収集",
+      adminOnly: "組織のオーナーと管理者だけが変更できます。",
+      statusCollecting: "収集中",
+      statusNeedsAccess: "アクセスが必要",
+      statusFailed: "前回の実行は失敗",
+      runSucceeded: "{{when}} に収集",
+      runNeedsAccess: "{{when}} 時点でアクセスなし",
+      runRunning: "{{when}} から収集中",
+      runFailed: "{{when}} に失敗",
+      unavailable: "収集状況を取得できません: {{message}}",
+    },
     uploadFile: "ファイルをアップロードする",
     googleSheetsExport: "Google スプレッドシートへのエクスポート",
     googleSheetsExportDescription:

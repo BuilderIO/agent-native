@@ -735,6 +735,38 @@ export default {
       "No se pudieron comprobar las entradas existentes de esta métrica.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Clics e impresiones diarios por página para la vista de contenido.",
+      serviceAccount: "Cuenta de servicio",
+      copyEmail: "Copiar correo",
+      grantHint:
+        "Añade este correo como usuario en cada propiedad de Search Console, en Configuración → Usuarios y permisos.",
+      noServiceAccount:
+        "Primero añade una clave de cuenta de servicio de Google.",
+      openGoogleCloud: "Abrir Google Cloud",
+      invalidServiceAccount:
+        "No se puede leer la clave de cuenta de servicio guardada.",
+      properties: "Propiedades",
+      siteLabel: "Propiedad",
+      pathLabel: "Prefijo de ruta",
+      addProperty: "Añadir propiedad",
+      removeProperty: "Quitar propiedad",
+      save: "Guardar",
+      collectDaily: "Recopilar a diario",
+      adminOnly:
+        "Solo los propietarios y administradores de la organización pueden cambiar esto.",
+      statusCollecting: "Recopilando",
+      statusNeedsAccess: "Necesita acceso",
+      statusFailed: "La última ejecución falló",
+      runSucceeded: "Recopilado {{when}}",
+      runNeedsAccess: "Sin acceso a {{when}}",
+      runRunning: "Recopilando desde {{when}}",
+      runFailed: "Falló {{when}}",
+      unavailable:
+        "El estado de la recopilación no está disponible: {{message}}",
+    },
     uploadFile: "Subir archivo",
     googleSheetsExport: "Exportación a Google Sheets",
     googleSheetsExportDescription:
