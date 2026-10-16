@@ -49,7 +49,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "Delete on a canvas-selected layer removes exactly that node from the saved document",
   },
   {
-    shard: "inspector-1b",
+    shard: "inspector-1a",
     file: "inspector-styles.spec.ts",
     title: "selection hide and Appearance visibility stay in sync with opacity",
   },
@@ -457,7 +457,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "pasted SVG is an editable sized layer and image scale mode writes object-fit",
   },
   {
-    shard: "inspector-1b",
+    shard: "inspector-1a",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "closing an edited pasted SVG restores authored fill opacity through history and reload",
@@ -468,7 +468,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Cmd+D duplicates every selected screen in one undo step",
   },
   {
-    shard: "position-3",
+    shard: "position-2b",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "an open pasted SVG continues from its endpoint and closes without adding a fill",

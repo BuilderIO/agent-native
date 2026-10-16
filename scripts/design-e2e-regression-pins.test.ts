@@ -137,6 +137,11 @@ const REQUIRED_CORE_COVERAGE = [
       "Layers-first editing preserves identity in the AI-generated Orbit source",
   },
   {
+    shard: "inspector-1a",
+    file: "inspector-styles.spec.ts",
+    title: "selection hide and Appearance visibility stay in sync with opacity",
+  },
+  {
     shard: "inspector-1b",
     file: "ai-source-continuity.spec.ts",
     title:
@@ -330,13 +335,13 @@ const REQUIRED_CORE_COVERAGE = [
     title: "Cmd+D duplicates every selected screen in one undo step",
   },
   {
-    shard: "position-3",
+    shard: "position-2b",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "an open pasted SVG continues from its endpoint and closes without adding a fill",
   },
   {
-    shard: "inspector-1b",
+    shard: "inspector-1a",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "closing an edited pasted SVG restores authored fill opacity through history and reload",
