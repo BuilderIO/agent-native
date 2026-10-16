@@ -38,6 +38,7 @@ import {
 } from "@shared/suggestion-text";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import {
+  getSchema,
   isNodeEmpty,
   type Editor as CoreEditor,
   type Extensions,
@@ -57,6 +58,7 @@ import {
   Slice,
   type Node as ProseMirrorNode,
   type ResolvedPos,
+  type Schema,
 } from "@tiptap/pm/model";
 import {
   Plugin,
@@ -171,6 +173,7 @@ import {
   reportLiveBodyParity,
 } from "./live-body-parity";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
@@ -1589,6 +1592,11 @@ interface VisualEditorProps {
   ydoc?: YDoc | null;
   /** Shadow mode: compare saves with the body built from the live copy. */
   observeLiveBody?: boolean;
+  /**
+   * The stored body is on screen in this editor's place until it draws. Read
+   * when the editor mounts.
+   */
+  replacesStoredBody?: boolean;
   collabSynced?: boolean;
   awareness?: Awareness | null;
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
@@ -2748,6 +2756,17 @@ export function createVisualEditorExtensions({
   });
 }
 
+// Node views draw in the task that mounts the editor. The deadline is for one
+// that never draws, which would otherwise keep the editor hidden.
+const NODE_VIEW_DRAW_DEADLINE_MS = 1000;
+
+let contentEditorSchema: Schema | undefined;
+
+/** The editor's schema, for drawing a body before any editor exists. */
+export function getContentEditorSchema(): Schema {
+  return (contentEditorSchema ??= getSchema(createVisualEditorExtensions()));
+}
+
 interface RegistryBlockStoreEntry {
   type: string;
   rawSource: string;
@@ -3052,6 +3071,7 @@ export function VisualEditor({
   onImportFiles,
   ydoc,
   observeLiveBody = false,
+  replacesStoredBody = false,
   collabSynced = true,
   awareness,
   user,
@@ -4205,6 +4225,58 @@ export function VisualEditor({
     initialAppliedUpdatedAt: null,
   });
   guardsRef.current = collabState;
+  // A live copy nobody has opened yet is empty until the server seeds it from
+  // the stored body, a round trip after this editor mounts. The stored body
+  // stands in for it until then, so the page never shows an empty editor.
+  const awaitingInitialSeed =
+    collabState.initialSeedPending &&
+    !!editor &&
+    !!ydoc &&
+    ydoc.getXmlFragment("default").length === 0 &&
+    hasSemanticCollaborationContent(content);
+  // React node views draw a moment after the editor's own DOM. Until they do,
+  // their blocks are empty and the page is shorter, so a layout read then pulls
+  // the reader's scroll back to the top. An editor taking over from the stored
+  // body leaves it up until they have drawn.
+  const [holdsStoredBody, setHoldsStoredBody] = useState(replacesStoredBody);
+  const awaitingNodeViews = holdsStoredBody && !!editor;
+  useLayoutEffect(() => {
+    if (!editor || !awaitingNodeViews || awaitingInitialSeed) return;
+    const dom = editor.view.dom;
+    const undrawn = () =>
+      [...dom.querySelectorAll(".react-renderer")].filter((renderer) => {
+        if (renderer.parentElement?.closest(".ProseMirror") !== dom)
+          return false;
+        // Before its component renders, a view holds at most its content hole.
+        const first = renderer.firstElementChild;
+        return !first || first.hasAttribute("data-node-view-content-react");
+      });
+    const drawn = () => setHoldsStoredBody(false);
+    if (!undrawn().length) {
+      drawn();
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (undrawn().length) return;
+      observer.disconnect();
+      clearTimeout(deadline);
+      drawn();
+    });
+    observer.observe(dom, { childList: true, subtree: true });
+    const deadline = setTimeout(() => {
+      observer.disconnect();
+      console.warn(
+        "[content] node views did not draw",
+        undrawn().map((renderer) => renderer.className),
+      );
+      drawn();
+    }, NODE_VIEW_DRAW_DEADLINE_MS);
+    return () => {
+      observer.disconnect();
+      clearTimeout(deadline);
+    };
+  }, [editor, awaitingNodeViews, awaitingInitialSeed]);
+  const showStoredBody = awaitingInitialSeed || awaitingNodeViews;
 
   const localClientId = ydoc?.clientID ?? null;
   const { others } = usePresence(localAwareness, localClientId);
@@ -4284,11 +4356,20 @@ export function VisualEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
-    if (editable && !referenceDepth && !editableMarkedRef.current) {
-      editableMarkedRef.current = true;
-      markStartupMilestone(CONTENT_EDITABLE_MARK, documentId);
-    }
-  }, [editor, editable, referenceDepth, documentId]);
+  }, [editor, editable]);
+  useEffect(() => {
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      !editable ||
+      showStoredBody ||
+      referenceDepth ||
+      editableMarkedRef.current
+    )
+      return;
+    editableMarkedRef.current = true;
+    markStartupMilestone(CONTENT_EDITABLE_MARK, documentId);
+  }, [editor, editable, showStoredBody, referenceDepth, documentId]);
 
   const threadsSignature = useMemo(
     () =>
@@ -4737,7 +4818,14 @@ export function VisualEditor({
         onOpenChange={handleFileStorageSetupOpenChange}
       />
       <RegistryBlockDataProvider value={registryBlockDataValue}>
-        <EditorContent editor={editor} />
+        {showStoredBody ? (
+          <StaticDocumentBody
+            schema={editor.schema}
+            content={content}
+            documentId={referenceDepth ? undefined : documentId}
+          />
+        ) : null}
+        <EditorContent editor={editor} hidden={showStoredBody} />
       </RegistryBlockDataProvider>
       {collabState.initialSeedFailed ? (
         <div
