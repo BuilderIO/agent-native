@@ -1,10 +1,14 @@
 # Slack Reaction Replies
 
-For every Slack item this run independently marks with a workflow reaction,
-send one concise reply under the same parent with its disposition. A same-run
-fix gets its final reply after verification; continuing work gets a concrete
-progress reply. An earlier generic “taking a look” does not satisfy this
-update.
+Reply under the parent only when the reporter must act or their outcome changes:
+a question they must answer, a verified fix, a beta or package availability
+change, or a handoff they must act on. Otherwise post nothing; the reaction and
+recap carry the status. Never post "taking a look," reaction explanations, or
+ledger status. The one-time dispositions named in SKILL.md (**Skipped**,
+**Clustered**, **Abandoned - no answer in 4 days**, **In progress**) are the
+exception and still post once, for eligible items only. Person-assigned threads
+and Steve's `:mag:` items get no reply of any kind. Keep each reply to one or
+two sentences.
 
 Preserve cluster handling: identify known duplicates before claiming them;
 represent duplicate non-owner threads by permalink and **Clustered** in one
@@ -18,9 +22,9 @@ Compare each reported symptom with the evidence. State what is fixed and what
 is not. Use `✅` only for verified fixed scope. Use `🎫` for each distinct
 unfinished scope that needs a human to take ownership or act, whether or not a
 ticket exists. Link a verified ticket and name its owner/action; if no ticket
-or owner is assigned, state the exact handoff and that gap in the reply and
-ledger. Do not create or promise a ticket without authorization. Never imply a
-partial fix resolved the whole report.
+or owner is assigned, record the handoff in the recap only. Do not create or
+promise a ticket without authorization. Never imply a partial fix resolved the
+whole report.
 
 For beta app fixes, check the matching merge-triggered publisher, but keep its
 details in the recap. In the reply, link the merged PR and say it merged, then
@@ -34,5 +38,5 @@ results, workflow or publisher details, and run IDs out of reporter replies.
 For packages, link the merged PR and state availability without verification
 details.
 
-Read back the reaction and reply as the invoking identity before recording the
-item as replied.
+Read back the reaction. If you posted a reply, read it back as the invoking
+identity before recording the item as replied.

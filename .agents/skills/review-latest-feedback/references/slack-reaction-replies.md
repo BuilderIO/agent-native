@@ -6,7 +6,9 @@ change, or a handoff they must act on. Otherwise post nothing; the reaction and
 recap carry the status. Never post "taking a look," reaction explanations, or
 ledger status. The one-time dispositions named in SKILL.md (**Skipped**,
 **Clustered**, **Abandoned - no answer in 4 days**, **In progress**) are the
-exception and still post once. Keep each reply to one or two sentences.
+exception and still post once, for eligible items only. Person-assigned threads
+and Steve's `:mag:` items get no reply of any kind. Keep each reply to one or
+two sentences.
 
 Preserve cluster handling: identify known duplicates before claiming them;
 represent duplicate non-owner threads by permalink and **Clustered** in one

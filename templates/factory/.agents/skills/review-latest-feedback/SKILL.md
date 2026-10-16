@@ -21,10 +21,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Reply in-thread for every workflow reaction added this run;
-continuing work gets a concrete progress reply, and resolved work gets a final
-reply after verification. Follow
-[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
+Output is fixes. Reply in-thread only when the reporter must answer, a fix is verified, or a handoff needs their action. The one-time dispositions (**Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, **In progress**) still post once, for eligible items only; person-assigned and `:mag:` items get no reply at all. Never post other replies that only restate status. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
 
@@ -45,6 +42,13 @@ and reactions, then continue only its scope. Handoffs require the current
 owner's explicit reply naming the new task and scope. Claims never expire. Ask
 Steve if ownership is unclear; stop if another mark appears. For continuing
 work, post one status reply with task link and remaining scope.
+
+**Person-assigned threads are not ours.** Skip a thread where a person is asked to investigate, fix, or take ownership (a direct @-mention or group ping; FYI mentions don't count), or says they will or are looking into it. No `👀`, investigation, or reply, even for a clear defect, in any phase.
+
+**Only Steve's `:mag:` and `:yes-party:` count** (user `U0GCV21HC`; others' reactions change nothing). Find them with `hasmy::mag:` and `hasmy::yes-party:` searches when Steve invokes, otherwise check `slack_get_reactions`. Exhaust `next_cursor`; a truncated search is never the only opt-out check.
+
+- `:mag:`: do not take it on. No `👀`, investigation, or reply. It wins over `:yes-party:`. If it lands on an item we hold, stop and keep our `👀`.
+- `:yes-party:`: pick it up even when it is normally review-only, such as a subjective UX update. It overrides the subjective-UX and out-of-scope rules for that item, whichever identity runs the sweep. It never overrides an assignment or another task's claim; those stay skipped and the recap names them for Steve.
 
 ## Phase 0: claim what you are taking
 
@@ -73,9 +77,8 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 reported symptom separately. For partial fixes, pair `✅` for verified scope
 with `🎫` for any distinct unfinished scope that needs a human to take
 ownership or act, whether or not a ticket exists. Link a verified ticket and
-name its owner/action; without one, keep the handoff explicit in the reply and
-ledger and say that an owner or ticket still needs to be assigned. Do not
-create or promise a ticket without authorization. No `🎫` for fixed scope,
+name its owner/action; without one, record the handoff in the recap only, not in
+the thread. Do not create or promise a ticket without authorization. No `🎫` for fixed scope,
 routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
 Follow the reply reference before marking an item replied.
@@ -303,40 +306,7 @@ query.
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
-Read each issue's body, comments, author, labels, linked PRs. Treat
-prior `fixed`, `shipped`, or `merged` comments as leads; recheck the surface.
-When a fix merges, record **Fixed** and link proof in the recap. Close a GitHub
-issue only when this invocation explicitly authorizes it; otherwise record the
-pending close. Track release/runtime gaps separately.
-
-Before claiming an issue, check comments for handoffs. If someone offers a PR,
-or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
-ship, reply, or close it. A direct request overrides this.
-
-Fix root causes or ask what's blocking; triage human issues, not automated
-finding mirrors covered by QA rollups. Feature requests and
-subjective feedback need user/`:upvote:` authorization. Ask three questions max;
-re-read before posting/closing.
-
-Query both production Sentry projects - frontend/browser and backend/CLI -
-paginate unresolved issues, and record representative events, releases, and
-fingerprints. Classify each as repo-owned, external/provider,
-deployment/configuration, or unclear. Fix repo-owned failures at the boundary
-and verify locally. Use hosted runtime only when the full symptom cannot be
-reproduced locally and hosted behavior is needed. Track release gaps separately;
-don't hold a merged fix open. Record other external actions; silence or a stale
-release doesn't prove the error is gone.
-
-Query authenticated Agent-Native Analytics error issues in parallel. Use
-`list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
-occurrences, breadcrumbs, tags, and replay links. It captures client exceptions
-and server `captureError()` failures when the server Analytics key/provider is
-configured. Use it as the Sentry fallback when rate-limited. Do not query
-`error_issues` or `error_events` through
-`query-agent-native-analytics`; use that action only for bounded event/LLM
-correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
-at their boundary; record external, deployment, or unclear issues without
-inventing a fix.
+Follow [`external-feedback-sources.md`](references/external-feedback-sources.md). Close a GitHub issue only when this invocation authorizes it. Never investigate, edit, reply to, or close an issue another person has offered to handle (**Owned elsewhere**), unless the invocation directly asks.
 
 ### Chat run health
 
@@ -470,8 +440,7 @@ don't request a new link when the current one works. Follow
 `address-feedback-with-replies`. End Slack replies with
 `this was sent from a bot.`.
 
-Short replies: say the change, limits, and next step. Link merged PRs and say
-they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
+Replies are one or two sentences: the change or question, its limit, and the next step. Never explain reactions, ledgers, or tickets. Link merged PRs and say they're merged. Keep hashes, CI, and run details in recap.
 Beta fixes follow reference for timing and live status; state other availability
 plainly.
 
@@ -567,7 +536,7 @@ Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <ti
 Messages: product N · QA N · dev N (total N)
 Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
 Release lanes: N inspected · failed/stale N · target verified N
-Reaction-gated skips: N · claimed N · answered N
+Gated skips (reactions, person-assigned threads, Steve's `:mag:`): N · claimed N · answered N
 Questions asked: N · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)

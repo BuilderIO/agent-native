@@ -21,13 +21,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Reply in-thread only when the reporter's situation changes: a
-question they must answer, a verified fix, or a handoff that needs their action.
-The one-time dispositions **Skipped**, **Clustered**, **Abandoned - no answer in
-4 days**, and **In progress** still post once, as written in Phase 0, Phase 1,
-and Phase 3. Never post any other reply that only restates reactions, ledger
-status, or tickets. Follow
-[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
+Output is fixes. Reply in-thread only when the reporter must answer, a fix is verified, or a handoff needs their action. The one-time dispositions (**Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, **In progress**) still post once, for eligible items only; person-assigned and `:mag:` items get no reply at all. Never post other replies that only restate status. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
 
@@ -49,32 +43,12 @@ owner's explicit reply naming the new task and scope. Claims never expire. Ask
 Steve if ownership is unclear; stop if another mark appears. For continuing
 work, post one status reply with task link and remaining scope.
 
-**Person-assigned threads are not ours.** Skip a thread where a person is
-explicitly asked to look into it (a direct @-mention or team/group ping that asks
-them to investigate, fix, or take ownership; an FYI or context-only mention does
-not count) or says they will or are looking into it. Do not add `👀`, investigate,
-or reply, even when the item looks like a clear defect. This holds in every
-phase, including answering questions in that thread.
+**Person-assigned threads are not ours.** Skip a thread where a person is asked to investigate, fix, or take ownership (a direct @-mention or group ping; FYI mentions don't count), or says they will or are looking into it. No `👀`, investigation, or reply, even for a clear defect, in any phase.
 
-**Only Steve's `:mag:` and `:yes-party:` count.** Other people's reactions of
-these kinds change nothing. Find Steve's (user `U0GCV21HC`, `steve@builder.io`)
-with `slack_search: hasmy::mag: in:<#CHANNEL>` and
-`hasmy::yes-party: in:<#CHANNEL>` when Steve is the invoking identity, or check
-`slack_get_reactions` users otherwise. Sort by timestamp and follow
-`next_cursor` until exhausted, since search can truncate. Before claiming any
-item, check its reactions with `slack_get_reactions`; a truncated search is
-never the only opt-out check.
+**Only Steve's `:mag:` and `:yes-party:` count** (user `U0GCV21HC`; others' reactions change nothing). Find them with `hasmy::mag:` and `hasmy::yes-party:` searches when Steve invokes, otherwise check `slack_get_reactions`. Exhaust `next_cursor`; a truncated search is never the only opt-out check.
 
-- `:mag:` means do not take it on. Skip it: no `👀`, no investigation, no reply.
-  It wins over `:yes-party:`. If it appears on an item we already hold, stop,
-  keep our `👀` (reactions are never removed), and post nothing more.
-- `:yes-party:` means pick it up and do it, even when it is the kind of change
-  this workflow would normally route to review, such as a subjective UX update.
-  It authorizes the item whichever identity runs the sweep; the `hasmy:` search
-  is only a shortcut when Steve is invoking. It overrides the subjective-UX and
-  out-of-scope rules for that item. It does not
-  override the person-assigned skip or another task's claim: those stay skipped,
-  and the recap names the item for Steve.
+- `:mag:`: do not take it on. No `👀`, investigation, or reply. It wins over `:yes-party:`. If it lands on an item we hold, stop and keep our `👀`.
+- `:yes-party:`: pick it up even when it is normally review-only, such as a subjective UX update. It overrides the subjective-UX and out-of-scope rules for that item, whichever identity runs the sweep. It never overrides an assignment or another task's claim; those stay skipped and the recap names them for Steve.
 
 ## Phase 0: claim what you are taking
 
@@ -343,40 +317,7 @@ active through target proof; track source-fix disposition separately.
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
-Read each issue's body, comments, author, labels, linked PRs. Treat
-prior `fixed`, `shipped`, or `merged` comments as leads; recheck the surface.
-When a fix merges, record **Fixed** and link proof in the recap. Close a GitHub
-issue only when this invocation explicitly authorizes it; otherwise record the
-pending close. Track release/runtime gaps separately.
-
-Before claiming an issue, check comments for handoffs. If someone offers a PR,
-or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
-ship, reply, or close it. A direct request overrides this.
-
-Fix root causes or ask what's blocking; triage human issues, not automated
-finding mirrors covered by QA rollups. Feature requests and
-subjective feedback need user/`:upvote:` authorization. Ask three questions max;
-re-read before posting/closing.
-
-Query both production Sentry projects - frontend/browser and backend/CLI -
-paginate unresolved issues, and record representative events, releases, and
-fingerprints. Classify each as repo-owned, external/provider,
-deployment/configuration, or unclear. Fix repo-owned failures at the boundary
-and verify locally. Use hosted runtime only when the full symptom cannot be
-reproduced locally and hosted behavior is needed. Track release gaps separately;
-don't hold a merged fix open. Record other external actions; silence or a stale
-release doesn't prove the error is gone.
-
-Query authenticated Agent-Native Analytics error issues in parallel. Use
-`list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
-occurrences, breadcrumbs, tags, and replay links. It captures client exceptions
-and server `captureError()` failures when the server Analytics key/provider is
-configured. Use it as the Sentry fallback when rate-limited. Do not query
-`error_issues` or `error_events` through
-`query-agent-native-analytics`; use that action only for bounded event/LLM
-correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
-at their boundary; record external, deployment, or unclear issues without
-inventing a fix.
+Follow [`external-feedback-sources.md`](references/external-feedback-sources.md). Close a GitHub issue only when this invocation authorizes it. Never investigate, edit, reply to, or close an issue another person has offered to handle (**Owned elsewhere**), unless the invocation directly asks.
 
 ### Chat run health
 
@@ -510,10 +451,7 @@ don't request a new link when the current one works. Follow
 `address-feedback-with-replies`. End Slack replies with
 `this was sent from a bot.`.
 
-Replies are succinct: one or two sentences with the change or question, its
-limit, and the next step. Never explain reactions, ledgers, or ticket status to
-the reporter. Link merged PRs and say they're merged. Keep hashes, branches, CI,
-publisher, and run details in recap.
+Replies are one or two sentences: the change or question, its limit, and the next step. Never explain reactions, ledgers, or tickets. Link merged PRs and say they're merged. Keep hashes, CI, and run details in recap.
 Beta fixes follow reference for timing and live status; state other availability
 plainly.
 
