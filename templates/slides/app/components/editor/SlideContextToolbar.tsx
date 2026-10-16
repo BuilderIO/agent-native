@@ -728,18 +728,6 @@ export function SlideContextToolbar({
               {opacityControl}
               {radiusControl}
             </div>
-            <VisualScrubInput
-              label={t("styleInspector.line")}
-              icon={IconArrowAutofitHeight}
-              prefix="icon"
-              value={snapshot.lineHeight}
-              min={0.8}
-              max={3}
-              step={0.05}
-              onChange={(lineHeight) =>
-                onChange({ lineHeight: formatValue(lineHeight) })
-              }
-            />
             <VisualControlRow label={t("styleInspector.fill")}>
               <VisualColorPicker
                 label={t("styleInspector.fill")}
