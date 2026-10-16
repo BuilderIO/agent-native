@@ -121,6 +121,19 @@ beforeAll(async () => {
   ({ processContentTrashPurge } =
     await import("../server/lib/content-trash-purge.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
+  // Content's migrations don't create core's organization tables.
+  await getDb().execute(
+    sql.raw(`CREATE TABLE IF NOT EXISTS organizations (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+      identity_authority TEXT, identity_id TEXT
+    )`),
+  );
+  await getDb().execute(
+    sql.raw(`CREATE TABLE IF NOT EXISTS org_members (
+      id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+      federation_removal_pending_at BIGINT
+    )`),
+  );
   await getDb()
     .insert(schema.contentSpaces)
     .values({
@@ -997,6 +1010,95 @@ async function seedPurgeUnits() {
     { label: "high row page", kind: "page", id: ids.highRow },
   ];
   return { ids, rows, operationId };
+}
+
+/** Trashed pages a sharer owns, each shared to OWNER as an admin. */
+async function seedSharedOrgTrash(
+  key: string,
+  pages: Array<{ id: string; parentId?: string; trashRootId: string }>,
+) {
+  const sharer = "synthetic-lock-order-sharer@example.test";
+  const orgId = `${key}_org`;
+  const spaceId = `${key}_space`;
+  // Purging someone else's pages needs an organization space.
+  await getDb().execute(
+    sql`INSERT INTO organizations (id, name, created_by, created_at) VALUES (${orgId}, 'Lock order', ${sharer}, ${Date.now()})`,
+  );
+  await getDb().execute(
+    sql`INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (${`${orgId}_member`}, ${orgId}, ${OWNER}, 'admin', ${Date.now()})`,
+  );
+  await getDb()
+    .insert(schema.contentSpaces)
+    .values({
+      id: spaceId,
+      name: "Lock order org",
+      kind: "organization",
+      ownerEmail: sharer,
+      orgId,
+      filesDatabaseId: `${key}_files`,
+      createdBy: sharer,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+  await getDb()
+    .insert(schema.documents)
+    .values(
+      pages.map(({ id, parentId, trashRootId }) =>
+        pageValues(id, parentId ?? null, id, {
+          ownerEmail: sharer,
+          createdBy: sharer,
+          orgId,
+          spaceId,
+          trashedAt: STAMP,
+          trashRootId,
+        }),
+      ),
+    );
+  await getDb()
+    .insert(schema.documentShares)
+    .values(
+      pages.map(({ id }) => ({
+        id: `${id}_share`,
+        resourceId: id,
+        principalType: "user",
+        principalId: OWNER,
+        role: "admin",
+        createdBy: sharer,
+      })),
+    );
+  const asMember = <T>(run: () => Promise<T>) =>
+    runWithRequestContext({ userEmail: OWNER, orgId }, run);
+  return { sharer, orgId, spaceId, asMember };
+}
+
+async function queuePurge(key: string, orgId: string, documentIds: string[]) {
+  const plan = await runWithRequestContext({ userEmail: OWNER, orgId }, () =>
+    planContentTrashPurge.run({ mode: "selection", documentIds }),
+  );
+  expect(plan.blockedCount).toBe(0);
+  const operationId = `${key}_purge`;
+  await getDb().insert(schema.contentTrashPurgeOperations).values({
+    id: operationId,
+    planId: plan.planId,
+    actorEmail: OWNER,
+    orgId,
+    idempotencyKey: operationId,
+    status: "queued",
+    eligibleCount: plan.eligibleCount,
+  });
+  return { planId: plan.planId, operationId };
+}
+
+async function readPurgeOperation(operationId: string) {
+  const [operation] = await getDb()
+    .select({
+      status: schema.contentTrashPurgeOperations.status,
+      deletedCount: schema.contentTrashPurgeOperations.deletedCount,
+      blockedCount: schema.contentTrashPurgeOperations.blockedCount,
+    })
+    .from(schema.contentTrashPurgeOperations)
+    .where(eq(schema.contentTrashPurgeOperations.id, operationId));
+  return operation;
 }
 
 async function readPage(id: string) {
@@ -2407,6 +2509,52 @@ parentId: "${seed.ids.moved}"
       ).toEqual([]);
     });
 
+    it("refuses a move to another space whose mover loses access to the page while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const mover = "synthetic-lock-order-mover@example.test";
+      await getDb()
+        .update(schema.contentSpaces)
+        .set({ ownerEmail: mover, createdBy: mover })
+        .where(eq(schema.contentSpaces.id, seed.ids.toSpace));
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({ ownerEmail: mover })
+        .where(eq(schema.contentDatabases.id, seed.ids.toFiles));
+      const shareOf = (page: string) => `${page}_mover_share`;
+      await getDb()
+        .insert(schema.documentShares)
+        .values(
+          [seed.ids.moved, seed.ids.child].map((page) => ({
+            id: shareOf(page),
+            resourceId: page,
+            principalType: "user",
+            principalId: mover,
+            role: "editor",
+            createdBy: OWNER,
+            createdAt: STAMP,
+          })),
+        );
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.moved]);
+          await tx
+            .delete(schema.documentShares)
+            .where(eq(schema.documentShares.id, shareOf(seed.ids.moved)));
+        },
+        () =>
+          runWithRequestContext({ userEmail: mover }, () =>
+            moveDocument.run({ id: seed.ids.moved, spaceId: seed.ids.toSpace }),
+          ),
+      );
+      await expect(moved).rejects.toMatchObject({ statusCode: 403 });
+      for (const page of [seed.ids.moved, seed.ids.child]) {
+        expect(await readPage(page)).toMatchObject({
+          ownerEmail: OWNER,
+          spaceId: seed.ids.fromSpace,
+        });
+      }
+    });
+
     it("skips an imported layout update for a page that moves to Trash while it waits", async () => {
       const seed = await seedSpaceMove();
       const file = (position: number) => ({
@@ -2717,83 +2865,22 @@ position: 7
 
     it("checks access to each purge unit in that unit's transaction", async () => {
       const key = fixtureKey();
-      const sharer = "synthetic-lock-order-sharer@example.test";
-      const orgId = `${key}_org`;
-      const spaceId = `${key}_space`;
       const pages = [`${key}_p1`, `${key}_p2`];
-      const shares = pages.map((id) => `${id}_share`);
-      const asMember = <T>(run: () => Promise<T>) =>
-        runWithRequestContext({ userEmail: OWNER, orgId }, run);
-      // Purging someone else's pages needs an organization space.
-      await getDb().execute(
-        sql`INSERT INTO organizations (id, name, created_by, created_at) VALUES (${orgId}, 'Lock order', ${sharer}, ${Date.now()})`,
+      const { orgId, asMember } = await seedSharedOrgTrash(
+        key,
+        pages.map((id) => ({ id, trashRootId: id })),
       );
-      await getDb().execute(
-        sql`INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (${`${orgId}_member`}, ${orgId}, ${OWNER}, 'admin', ${Date.now()})`,
-      );
-      await getDb()
-        .insert(schema.contentSpaces)
-        .values({
-          id: spaceId,
-          name: "Lock order org",
-          kind: "organization",
-          ownerEmail: sharer,
-          orgId,
-          filesDatabaseId: `${key}_files`,
-          createdBy: sharer,
-          createdAt: STAMP,
-          updatedAt: STAMP,
-        });
-      await getDb()
-        .insert(schema.documents)
-        .values(
-          pages.map((id) =>
-            pageValues(id, null, id, {
-              ownerEmail: sharer,
-              createdBy: sharer,
-              orgId,
-              spaceId,
-              trashedAt: STAMP,
-              trashRootId: id,
-            }),
-          ),
-        );
-      await getDb()
-        .insert(schema.documentShares)
-        .values(
-          pages.map((id, index) => ({
-            id: shares[index],
-            resourceId: id,
-            principalType: "user",
-            principalId: OWNER,
-            role: "admin",
-            createdBy: sharer,
-          })),
-        );
-      const plan = await asMember(() =>
-        planContentTrashPurge.run({ mode: "selection", documentIds: pages }),
-      );
-      expect(plan.eligibleCount).toBe(2);
-      const operationId = `${key}_purge`;
-      await getDb().insert(schema.contentTrashPurgeOperations).values({
-        id: operationId,
-        planId: plan.planId,
-        actorEmail: OWNER,
-        orgId,
-        idempotencyKey: operationId,
-        status: "queued",
-        eligibleCount: plan.eligibleCount,
-      });
+      const { planId, operationId } = await queuePurge(key, orgId, pages);
       // The sharer revokes both shares as the first unit's deletion commits.
       const revoke = `${key}_revoke`;
       await getDb().execute(
         sql.raw(
-          `CREATE FUNCTION ${revoke}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN DELETE FROM document_shares WHERE id IN ('${shares[0]}', '${shares[1]}'); RETURN NEW; END $$`,
+          `CREATE FUNCTION ${revoke}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN DELETE FROM document_shares WHERE id IN ('${pages[0]}_share', '${pages[1]}_share'); RETURN NEW; END $$`,
         ),
       );
       await getDb().execute(
         sql.raw(
-          `CREATE TRIGGER ${revoke} AFTER UPDATE OF outcome ON content_trash_purge_plan_items FOR EACH ROW WHEN (NEW.outcome = 'deleted' AND NEW.plan_id = '${plan.planId}') EXECUTE FUNCTION ${revoke}()`,
+          `CREATE TRIGGER ${revoke} AFTER UPDATE OF outcome ON content_trash_purge_plan_items FOR EACH ROW WHEN (NEW.outcome = 'deleted' AND NEW.plan_id = '${planId}') EXECUTE FUNCTION ${revoke}()`,
         ),
       );
       try {
@@ -2804,15 +2891,7 @@ position: 7
         );
         await getDb().execute(sql.raw(`DROP FUNCTION ${revoke}()`));
       }
-      const [operation] = await getDb()
-        .select({
-          status: schema.contentTrashPurgeOperations.status,
-          deletedCount: schema.contentTrashPurgeOperations.deletedCount,
-          blockedCount: schema.contentTrashPurgeOperations.blockedCount,
-        })
-        .from(schema.contentTrashPurgeOperations)
-        .where(eq(schema.contentTrashPurgeOperations.id, operationId));
-      expect(operation).toEqual({
+      expect(await readPurgeOperation(operationId)).toEqual({
         status: "partially_completed",
         deletedCount: 1,
         blockedCount: 1,
@@ -2822,6 +2901,59 @@ position: 7
         .from(schema.documents)
         .where(inArray(schema.documents.id, pages));
       expect(remaining).toHaveLength(1);
+    });
+
+    it("blocks the collection owner of a page in a purge unit that loses access", async () => {
+      const key = fixtureKey();
+      const ids = {
+        root: `${key}_p1`,
+        member: `${key}_p2`,
+        owner: `${key}_p3`,
+        collection: `${key}_c1`,
+        membership: `${key}_m1`,
+      };
+      const { sharer, orgId, spaceId, asMember } = await seedSharedOrgTrash(
+        key,
+        [
+          { id: ids.root, trashRootId: ids.root },
+          { id: ids.member, parentId: ids.root, trashRootId: ids.root },
+          { id: ids.owner, trashRootId: ids.owner },
+        ],
+      );
+      await getDb().insert(schema.contentDatabases).values({
+        id: ids.collection,
+        ownerEmail: sharer,
+        spaceId,
+        documentId: ids.owner,
+        title: "Owner collection",
+        createdAt: STAMP,
+        updatedAt: STAMP,
+      });
+      await getDb()
+        .insert(schema.contentDatabaseItems)
+        .values({
+          ...itemValues(ids.membership, ids.collection, ids.member, 0),
+          ownerEmail: sharer,
+        });
+      const { operationId } = await queuePurge(key, orgId, [
+        ids.root,
+        ids.owner,
+      ]);
+      // The member keeps its own share, so only the root page loses access.
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, `${ids.root}_share`));
+      await asMember(() => processContentTrashPurge(operationId));
+      expect(await readPurgeOperation(operationId)).toMatchObject({
+        deletedCount: 0,
+        blockedCount: 3,
+      });
+      const remaining = await getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, [ids.root, ids.member, ids.owner]));
+      expect(remaining).toHaveLength(3);
+      expect(await readCollection(ids.collection)).toBeDefined();
     });
 
     it.each([

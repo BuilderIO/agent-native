@@ -200,12 +200,26 @@ export async function processContentTrashPurge(operationId: string) {
           );
           const blockedUnits = new Set<string>();
           for (const item of allPending) {
-            if (authorizedIds.has(item.documentId)) continue;
-            blockedUnits.add(item.unitId);
-            for (const ancestor of JSON.parse(
-              item.ancestorUnitIdsJson,
-            ) as string[]) {
-              blockedUnits.add(ancestor);
+            if (!authorizedIds.has(item.documentId))
+              blockedUnits.add(item.unitId);
+          }
+          // Through every item of a blocked unit, to a fixed point, as the
+          // planner propagates: the item that lost access may not be the one
+          // whose collection another unit owns.
+          const dependencies = allPending.map((item) => ({
+            unitId: item.unitId,
+            ancestorUnitIds: JSON.parse(item.ancestorUnitIdsJson) as string[],
+          }));
+          let propagated = blockedUnits.size > 0;
+          while (propagated) {
+            propagated = false;
+            for (const { unitId, ancestorUnitIds } of dependencies) {
+              if (!blockedUnits.has(unitId)) continue;
+              for (const ancestor of ancestorUnitIds) {
+                if (blockedUnits.has(ancestor)) continue;
+                blockedUnits.add(ancestor);
+                propagated = true;
+              }
             }
           }
 
