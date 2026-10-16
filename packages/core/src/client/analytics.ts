@@ -52,6 +52,7 @@ import {
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { agentNativePath } from "./api-path.js";
+import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
 import { clientFailureContext } from "./failure-report.js";
@@ -922,6 +923,9 @@ function readLocalFirstTouch(): FirstTouchAttribution | null {
  */
 function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
   if (isSameFirstTouch(readServerFirstTouch(), firstTouch)) return;
+  // An embed that must not call our API (the Builder shell canvas) keeps only
+  // the browser's copies.
+  if (agentNativeApiDisabledReason()) return;
   if (_firstTouchSyncsLeft <= 0 || typeof fetch !== "function") return;
   _firstTouchSyncsLeft -= 1;
   void fetch(agentNativePath(FIRST_TOUCH_SERVER_PATH), {

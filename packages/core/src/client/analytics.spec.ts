@@ -823,6 +823,30 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("keeps first touch in the browser alone when the app's API is disabled", async () => {
+    const { localStorage } = installBrowser(
+      "https://design.agent-native.com/?utm_source=youtube",
+    );
+    const { fetchMock } = installFetch();
+    vi.resetModules();
+    const { setAgentNativeApiDisabled } = await import("./api-surface.js");
+    setAgentNativeApiDisabled("builder shell canvas");
+    const { captureAttribution } = await import("./analytics.js");
+
+    captureAttribution();
+    await tick();
+
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+    setAgentNativeApiDisabled(null);
+  });
+
   it("restores first touch from the server's cookie when the browser's copies are gone", async () => {
     const { cookieJson, localStorage } = installBrowser(
       "https://clips.agent-native.com/",
