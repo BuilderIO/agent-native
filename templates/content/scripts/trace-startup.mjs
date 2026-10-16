@@ -122,6 +122,7 @@ const blockCount = Number(args.get("blocks") ?? D4.blocks);
 const runsPerBlock = Number(args.get("runs-per-block") ?? D4.runsPerBlock);
 const settleMs = Number(args.get("settle-ms") ?? D4.settleMs);
 const timeoutMs = Number(args.get("timeout-ms") ?? 30000);
+const headed = args.get("headed") === "true";
 const outPath = args.get("out");
 const stability = args.get("stability") === "true";
 const maxShift = Number(args.get("max-shift") ?? 2);
@@ -169,6 +170,7 @@ const d4Deviations = [
   ["settle-ms", settleMs, D4.settleMs],
   ["latency-ms", latencyMs, 0],
   ["jitter-ms", jitterMs, 0],
+  ["headed", headed, false],
 ]
   .filter(([, actual, expected]) => actual !== expected)
   .map(([name, actual, expected]) => `${name} ${actual} (D4: ${expected})`);
@@ -820,7 +822,7 @@ async function runSingle() {
     "--cookie",
   );
   const browser = await chromium.launch({
-    headless: args.get("headed") !== "true",
+    headless: !headed,
   });
   const results = await measureBlock({
     browser,
@@ -901,7 +903,7 @@ async function runCompare() {
       ),
     };
     browser = await chromium.launch({
-      headless: args.get("headed") !== "true",
+      headless: !headed,
     });
     for (let i = 0; i < blockCount; i += 1) {
       const side = i % 2 === 0 ? "main" : "lane";
