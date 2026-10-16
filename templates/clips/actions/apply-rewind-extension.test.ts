@@ -32,6 +32,11 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     recordings: { id: "recordings.id", visibility: "recordings.visibility" },
     recordingTranscripts: { recordingId: "transcripts.recordingId" },
+    recordingTranscriptVersions: {
+      id: "versions.id",
+      recordingId: "versions.recordingId",
+      segmentsJson: "versions.segmentsJson",
+    },
     recordingComments: { recordingId: "comments.recordingId" },
     recordingReactions: { recordingId: "reactions.recordingId" },
   },
@@ -90,7 +95,6 @@ describe("apply-rewind-extension hosted media binding", () => {
     mocks.selectRows = [
       [recording("recording-1", "hosted")],
       [recording("pre-roll-1", null)],
-      [],
     ];
     mocks.readAppState.mockResolvedValue(request);
     mocks.writeAppState.mockResolvedValue(undefined);
@@ -115,4 +119,95 @@ describe("apply-rewind-extension hosted media binding", () => {
       expect(mocks.writeAppState).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("apply-rewind-extension transcript timeline", () => {
+  function fakeTx(rows: { transcript: unknown[]; versions: unknown[] }) {
+    const updates: Array<{
+      table: unknown;
+      values: Record<string, unknown>;
+      where: unknown;
+    }> = [];
+    const locks: unknown[] = [];
+    const tx = {
+      update: (table: unknown) => ({
+        set: (values: Record<string, unknown>) => ({
+          where: async (where: unknown) => {
+            updates.push({ table, values, where });
+          },
+        }),
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            for: async (mode: unknown) => {
+              locks.push(mode);
+              return rows.transcript;
+            },
+            limit: async () => rows.versions,
+          }),
+        }),
+      }),
+    };
+    return { tx, updates, locks };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.selectRows = [
+      [recording("recording-1", "own")],
+      [recording("pre-roll-1", null)],
+    ];
+    mocks.readAppState.mockResolvedValue(request);
+    mocks.writeAppState.mockResolvedValue(undefined);
+    mocks.isBound.mockResolvedValue(true);
+  });
+
+  it("shifts the locked transcript and its saved versions by the prepended range", async () => {
+    const { tx, updates, locks } = fakeTx({
+      transcript: [
+        {
+          segmentsJson: JSON.stringify([
+            { startMs: 0, endMs: 4000, text: "Current words." },
+          ]),
+        },
+      ],
+      versions: [
+        {
+          id: "version-1",
+          segmentsJson: JSON.stringify([
+            {
+              startMs: 1000,
+              endMs: 5000,
+              text: "Earlier words.",
+              speaker: "Sample Speaker",
+            },
+          ]),
+        },
+      ],
+    });
+    mocks.transaction.mockImplementation(
+      async (runTx: (t: unknown) => unknown) => runTx(tx),
+    );
+
+    await run();
+
+    const writeWhere = (column: string) =>
+      updates.find((u) => Array.isArray(u.where) && u.where[0] === column);
+    expect(locks).toEqual(["update"]);
+    const transcriptWrite = writeWhere("transcripts.recordingId");
+    expect(JSON.parse(String(transcriptWrite?.values.segmentsJson))).toEqual([
+      { startMs: 30_000, endMs: 34_000, text: "Current words." },
+    ]);
+    const versionWrite = writeWhere("versions.id");
+    expect(versionWrite?.where).toEqual(["versions.id", "version-1"]);
+    expect(JSON.parse(String(versionWrite?.values.segmentsJson))).toEqual([
+      {
+        startMs: 31_000,
+        endMs: 35_000,
+        text: "Earlier words.",
+        speaker: "Sample Speaker",
+      },
+    ]);
+  });
 });

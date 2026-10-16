@@ -15,6 +15,7 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
+import { TRANSCRIPT_VERSION_LIMIT } from "../server/lib/transcript-versions.js";
 import { parseTranscriptSegments } from "../shared/transcript-segments.js";
 import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 import {
@@ -142,19 +143,6 @@ export default defineAction({
     }));
     edits.rewindOriginalStartMs = args.addedMs;
     edits.mediaStorageLayout = "external";
-    const [transcript] = await db
-      .select()
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-    const shiftedTranscript = transcript
-      ? JSON.stringify(
-          parseTranscriptSegments(transcript.segmentsJson).map((segment) => ({
-            ...segment,
-            startMs: segment.startMs + args.addedMs,
-            endMs: segment.endMs + args.addedMs,
-          })),
-        )
-      : null;
     const now = new Date().toISOString();
 
     await db.transaction(async (tx) => {
@@ -175,11 +163,48 @@ export default defineAction({
           updatedAt: now,
         })
         .where(eq(schema.recordings.id, args.recordingId));
-      if (transcript && shiftedTranscript) {
+      // Locked, so a replace or restore can't swap the transcript or its
+      // versions between this read and the shifted writes below.
+      const [transcript] = await tx
+        .select()
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+        .for("update");
+      if (transcript) {
         await tx
           .update(schema.recordingTranscripts)
-          .set({ segmentsJson: shiftedTranscript, updatedAt: now })
+          .set({
+            segmentsJson: JSON.stringify(
+              parseTranscriptSegments(transcript.segmentsJson).map(
+                (segment) => ({
+                  ...segment,
+                  startMs: segment.startMs + args.addedMs,
+                  endMs: segment.endMs + args.addedMs,
+                }),
+              ),
+            ),
+            updatedAt: now,
+          })
           .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
+      }
+      // Saved transcripts move with the video too, so one restored after the
+      // extension lines up with the longer timeline.
+      const versions = schema.recordingTranscriptVersions;
+      const saved = await tx
+        .select({ id: versions.id, segmentsJson: versions.segmentsJson })
+        .from(versions)
+        .where(eq(versions.recordingId, args.recordingId))
+        .limit(TRANSCRIPT_VERSION_LIMIT);
+      for (const version of saved) {
+        await tx
+          .update(versions)
+          .set({
+            segmentsJson: shiftedJsonArray(version.segmentsJson, args.addedMs, [
+              "startMs",
+              "endMs",
+            ]),
+          })
+          .where(eq(versions.id, version.id));
       }
       await tx
         .update(schema.recordingComments)
