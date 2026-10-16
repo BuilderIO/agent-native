@@ -84,14 +84,30 @@ async function filenames(app: App, designId: string) {
   return (await app.savedRecord(designId)).files.map((file) => file.filename);
 }
 
-async function selectedScreenIds(page: Page): Promise<string[]> {
+/** This tab's selection: parallel workers share one user, so the global key is anyone's. */
+async function selectionState(page: Page) {
+  const tabId = await page.evaluate(() =>
+    sessionStorage.getItem("agent-native:browser-tab-id"),
+  );
+  expect(tabId).toBeTruthy();
   const response = await page.request.get(
-    appPath("/_agent-native/application-state/design-selection"),
+    appPath(
+      `/_agent-native/application-state/${encodeURIComponent(`design-selection:${tabId}`)}`,
+    ),
   );
   expect(response.ok()).toBe(true);
-  // 204: the editor has not written a selection yet.
-  if (response.status() === 204) return [];
-  return ((await response.json()).selectedScreenIds ?? []) as string[];
+  // An empty body: the editor has not written a selection yet.
+  const body = await response.text();
+  return body
+    ? (JSON.parse(body) as {
+        selectedScreenIds?: string[];
+        selectedElement?: { sourceId?: string } | null;
+      })
+    : null;
+}
+
+async function selectedScreenIds(page: Page): Promise<string[]> {
+  return (await selectionState(page))?.selectedScreenIds ?? [];
 }
 
 async function setFrames(
@@ -645,15 +661,7 @@ test("dragging Bio above Skills in the Layers panel reorders the saved children 
 
 /** The selected Layers row's name and the Screen row it is listed under. */
 async function selectedSourceId(page: Page) {
-  const response = await page.request.get(
-    appPath("/_agent-native/application-state/design-selection"),
-  );
-  expect(response.ok()).toBe(true);
-  if (response.status() === 204) return null;
-  const state = (await response.json()) as {
-    selectedElement?: { sourceId?: string } | null;
-  };
-  return state.selectedElement?.sourceId ?? null;
+  return (await selectionState(page))?.selectedElement?.sourceId ?? null;
 }
 
 function selectedRowPlace(page: Page) {
