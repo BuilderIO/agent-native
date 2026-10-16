@@ -486,8 +486,13 @@ function MultiSelectFilter({
     refocusSaveAsGroupRef.current = false;
     saveAsGroupRef.current?.focus();
   }, [naming]);
-  // A save unmounts the name form, so focus goes to the group it made.
-  const focusPresetLabelRef = useRef<string | null>(null);
+  // A save unmounts the name form, and a rejected save then unmounts the group
+  // it showed. Until the dropdown closes, focus that falls to the page goes to
+  // the saved group, or back to Save as group once that group is gone.
+  const savedPresetLabelRef = useRef<string | null>(null);
+  const focusIfLost = (button: HTMLButtonElement | null) => {
+    if (button && document.activeElement === document.body) button.focus();
+  };
   const seenOptionValues = new Set<string>();
   const options = (filter.options ?? []).filter((option) => {
     if (seenOptionValues.has(option.value)) return false;
@@ -569,7 +574,7 @@ function MultiSelectFilter({
   };
   const saveGroup = () => {
     if (!onSavePreset || !trimmedGroupName || groupNameTaken) return;
-    focusPresetLabelRef.current = trimmedGroupName;
+    savedPresetLabelRef.current = trimmedGroupName;
     onSavePreset({
       label: trimmedGroupName,
       values: options
@@ -589,7 +594,7 @@ function MultiSelectFilter({
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
           if (nextOpen) return;
-          focusPresetLabelRef.current = null;
+          savedPresetLabelRef.current = null;
           setQuery("");
           stopNaming();
         }}
@@ -657,10 +662,9 @@ function MultiSelectFilter({
                     <Button
                       key={preset.label}
                       ref={(button) => {
-                        if (focusPresetLabelRef.current !== preset.label)
-                          return;
-                        focusPresetLabelRef.current = null;
-                        button?.focus();
+                        if (savedPresetLabelRef.current === preset.label) {
+                          focusIfLost(button);
+                        }
                       }}
                       type="button"
                       variant="ghost"
@@ -764,7 +768,12 @@ function MultiSelectFilter({
                 </form>
               ) : (
                 <Button
-                  ref={saveAsGroupRef}
+                  ref={(button) => {
+                    saveAsGroupRef.current = button;
+                    if (savedPresetLabelRef.current !== null) {
+                      focusIfLost(button);
+                    }
+                  }}
                   type="button"
                   variant="ghost"
                   size="sm"

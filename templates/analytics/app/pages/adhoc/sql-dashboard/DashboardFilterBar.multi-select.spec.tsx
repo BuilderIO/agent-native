@@ -512,6 +512,29 @@ describe("multi-select dashboard filter", () => {
       expect(document.activeElement).toBe(popoverButton("Mixed"));
     });
 
+    it("returns focus to Save as group when the dashboard rejects the save", () => {
+      const url = "/dashboards/test?f_plan=enterprise,free";
+      const onSavePreset = vi.fn((_filterId: string, preset: FilterPreset) =>
+        render(
+          url,
+          [{ ...withPreset[0], presets: [...withPreset[0].presets!, preset] }],
+          { onSavePreset },
+        ),
+      );
+      render(url, withPreset, { onSavePreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Mixed");
+      act(() => popoverButton("Save").click());
+      expect(document.activeElement).toBe(popoverButton("Mixed"));
+
+      // The refetch after a failed save drops the preset the page added.
+      render(url, withPreset, { onSavePreset });
+
+      expect(() => popoverButton("Mixed")).toThrow("not rendered");
+      expect(document.activeElement).toBe(popoverButton("Save as group…"));
+    });
+
     it("says Save for everyone on a shared dashboard and refuses a name already in use", () => {
       const onSavePreset = vi.fn();
       render("/dashboards/test?f_plan=enterprise,free", withPreset, {
