@@ -860,6 +860,19 @@ export function cleanupNavigationSessionRequestKeys(identity: {
   return keys;
 }
 
+export function cleanupNavigationSessionCorrelation(
+  identity: {
+    kind: "poll" | "heartbeat";
+    sessionId: string;
+  } | null,
+) {
+  return {
+    requestSessionId:
+      identity?.kind === "heartbeat" ? identity.sessionId : null,
+    retiredSessionId: identity?.sessionId ?? null,
+  };
+}
+
 export function recordCleanupNavigationSessionCompetitor(
   request: object,
   identity: {
@@ -3389,68 +3402,37 @@ export async function runAuthoringFuzz(
         requestStartedAt === undefined
           ? Number.POSITIVE_INFINITY
           : Date.now() - requestStartedAt;
-      if (watchedRequestDetailsAtStart && requestStartedAt !== undefined) {
-        const statusProbeNavigation = readOnlyStatusProbeNavigationEvidence(
-          requestStartedAt,
-          watchedRequestDetailsAtStart,
-          failedAt,
-          navigationCandidate?.requestWasPendingAtNavigation ??
-            requestPendingAtReloadNavigation,
-        );
-        if (
-          isExpectedReadOnlyStatusProbeAbort(
-            request.method(),
-            pathname,
-            errorText,
-            activePhase,
-            requestUrl.origin === authoringPageOrigin,
-            probeAgeMs,
-            statusProbeNavigation,
-          )
-        ) {
-          recentExpectedStatusProbeAborts.push({
-            url,
-            pathname,
-            method: request.method(),
-            ageMs: probeAgeMs,
-            sameOrigin: requestUrl.origin === authoringPageOrigin,
-            observedAt: failedAt,
-            navigation: statusProbeNavigation,
-          });
-        }
-      }
-      if (
-        !isExpectedReadOnlyStatusProbeAbort(
-          request.method(),
+      const statusProbeNavigation =
+        watchedRequestDetailsAtStart && requestStartedAt !== undefined
+          ? readOnlyStatusProbeNavigationEvidence(
+              requestStartedAt,
+              watchedRequestDetailsAtStart,
+              failedAt,
+              navigationCandidate?.requestWasPendingAtNavigation ??
+                requestPendingAtReloadNavigation,
+            )
+          : null;
+      const expectedStatusProbeAbort = isExpectedReadOnlyStatusProbeAbort(
+        request.method(),
+        pathname,
+        errorText,
+        activePhase,
+        requestUrl.origin === authoringPageOrigin,
+        probeAgeMs,
+        statusProbeNavigation,
+      );
+      if (expectedStatusProbeAbort && statusProbeNavigation) {
+        recentExpectedStatusProbeAborts.push({
+          url,
           pathname,
-          errorText,
-          activePhase,
-          requestUrl.origin === authoringPageOrigin,
-          probeAgeMs,
-          watchedRequestDetailsAtStart && requestStartedAt !== undefined
-            ? {
-                requestStartedAt,
-                requestSourceIsMainFrame:
-                  watchedRequestDetailsAtStart.requestSourceIsMainFrame,
-                requestFrameUrl: watchedRequestDetailsAtStart.requestFrameUrl,
-                reloadNavigationStartedAt:
-                  navigationCandidate?.reloadNavigationStartedAt ??
-                  watchedRequestDetailsAtStart.reloadNavigationStartedAt,
-                outgoingDocumentUrl:
-                  navigationCandidate?.outgoingDocumentUrl ??
-                  watchedRequestDetailsAtStart.outgoingDocumentUrl,
-                requestWasPendingAtReloadNavigation:
-                  navigationCandidate?.requestWasPendingAtNavigation === true,
-                mainFrameNavigationStartedAt,
-                mainFrameNavigationUrl,
-                mainFrameNavigationCommittedAtAtRequest:
-                  watchedRequestDetailsAtStart.mainFrameNavigationCommittedAt,
-                mainFrameNavigationCommittedAt,
-                failedAt,
-              }
-            : null,
-        )
-      ) {
+          method: request.method(),
+          ageMs: probeAgeMs,
+          sameOrigin: requestUrl.origin === authoringPageOrigin,
+          observedAt: failedAt,
+          navigation: statusProbeNavigation,
+        });
+      }
+      if (!expectedStatusProbeAbort) {
         pageErrors.push(
           redactBrowserSessionSensitiveText(
             `watched request failed: ${request.method()} ${url} (${errorText})`,

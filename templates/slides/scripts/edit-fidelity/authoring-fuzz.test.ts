@@ -19,6 +19,7 @@ import {
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   cleanupNavigationSessionRequestKeys,
+  cleanupNavigationSessionCorrelation,
   hasActiveCleanupNavigationSessionCompetitor,
   recordCleanupNavigationSessionCompetitor,
   removeCleanupNavigationSessionCompetitor,
@@ -3027,6 +3028,31 @@ it("correlates cleanup registrations by endpoint and session", () => {
       keys("heartbeat", "new-session", heartbeatPath("new-session")),
     ),
   ).toBe(false);
+});
+
+it("captures the retired session from each cleanup candidate", () => {
+  expect(
+    cleanupNavigationSessionCorrelation({
+      kind: "heartbeat",
+      sessionId: "pending-registration-session",
+    }),
+  ).toEqual({
+    requestSessionId: "pending-registration-session",
+    retiredSessionId: "pending-registration-session",
+  });
+  expect(
+    cleanupNavigationSessionCorrelation({
+      kind: "poll",
+      sessionId: "current-poll-session",
+    }),
+  ).toEqual({
+    requestSessionId: null,
+    retiredSessionId: "current-poll-session",
+  });
+  expect(cleanupNavigationSessionCorrelation(null)).toEqual({
+    requestSessionId: null,
+    retiredSessionId: null,
+  });
 });
 
 it("counts only active cleanup registrations as competitors", () => {

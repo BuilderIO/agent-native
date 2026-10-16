@@ -28,6 +28,7 @@ import {
   authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  cleanupNavigationSessionCorrelation,
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   browserSessionNavigationRequestIdentity,
@@ -5613,12 +5614,7 @@ async function runAuthoringFuzzQa(
       Map<string, number>
     >();
     const cleanupPendingClaimRequestsByPage = new Map<Page, Set<any>>();
-    const cleanupSessionIdsByPage = new Map<Page, Set<string>>();
     const cleanupMainFrameNavigationStartsByPage = new Map<Page, number[]>();
-    const cleanupNavigationRetiredSessionIdByPage = new Map<
-      Page,
-      string | null
-    >();
     const failedCleanupBrowserSessionClaims: Array<{
       page: Page;
       url: string;
@@ -5747,9 +5743,6 @@ async function runAuthoringFuzzQa(
             cleanupPendingClaimRequestsByPage.get(target) ?? new Set();
           pendingClaims.add(request);
           cleanupPendingClaimRequestsByPage.set(target, pendingClaims);
-          const sessionIds = cleanupSessionIdsByPage.get(target) ?? new Set();
-          sessionIds.add(sessionIdentity.sessionId);
-          cleanupSessionIdsByPage.set(target, sessionIds);
         }
         if (
           isCleanupNavigationCompetitionPage(
@@ -6056,6 +6049,7 @@ async function runAuthoringFuzzQa(
         requestSourceIsMainFrame: boolean;
         requestFrameUrl: string | null;
         outgoingDocumentUrl: string | null;
+        retiredSessionId: string | null;
         requestWasPendingAtNavigation: true;
       }> = [];
       let recoveryPage: Page | null = stableCleanupPage;
@@ -6086,6 +6080,8 @@ async function runAuthoringFuzzQa(
         return cleanupNavigationCandidates.map(
           ({ request, startedAt, sessionIdentity, ...candidate }) => {
             const finishedAt = cleanupRequestFinishedAt.get(request);
+            const sessionCorrelation =
+              cleanupNavigationSessionCorrelation(sessionIdentity);
             const competingSessionRequestStarted = sessionIdentity
               ? hasActiveCleanupNavigationSessionCompetitor(
                   sessionIdentity,
@@ -6113,15 +6109,7 @@ async function runAuthoringFuzzQa(
               competingRegistrationStartedAfterNavigation:
                 sessionIdentity?.kind === "heartbeat" &&
                 competingSessionRequestStarted,
-              requestSessionId:
-                sessionIdentity?.kind === "heartbeat"
-                  ? sessionIdentity.sessionId
-                  : null,
-              retiredSessionId: cleanupNavigationPage
-                ? (cleanupNavigationRetiredSessionIdByPage.get(
-                    cleanupNavigationPage,
-                  ) ?? null)
-                : null,
+              ...sessionCorrelation,
               competingSameTypeRequest:
                 sessionIdentity?.kind === "heartbeat"
                   ? competingSessionRequestStarted
@@ -6394,13 +6382,6 @@ async function runAuthoringFuzzQa(
           try {
             const cleanupPage = await getCleanupPage();
             const cleanupUrl = new URL(cleanupPage.url());
-            const pageSessionIds = cleanupSessionIdsByPage.get(cleanupPage);
-            cleanupNavigationRetiredSessionIdByPage.set(
-              cleanupPage,
-              pageSessionIds?.size === 1
-                ? (pageSessionIds.values().next().value ?? null)
-                : null,
-            );
             cleanupNavigationCandidates = [
               ...cleanupRequestStartTimes.entries(),
             ]
@@ -6419,6 +6400,7 @@ async function runAuthoringFuzzQa(
                   requestSourceIsMainFrame: tracked.requestSourceIsMainFrame,
                   requestFrameUrl: tracked.requestFrameUrl,
                   outgoingDocumentUrl: tracked.outgoingDocumentUrl,
+                  retiredSessionId: tracked.sessionIdentity?.sessionId ?? null,
                   requestWasPendingAtNavigation: true as const,
                 };
               });
