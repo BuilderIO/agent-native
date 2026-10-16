@@ -3,9 +3,13 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
+import type { ClipsActionError } from "../lib/clips-action";
 import { withMeetingActionTimeout } from "../lib/meeting-action-timeout";
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
-import { stopMeetingBeforeTranscriptFlush } from "../lib/meeting-stop";
+import {
+  isTerminalMeetingStopError,
+  stopMeetingBeforeTranscriptFlush,
+} from "../lib/meeting-stop";
 import { subscribeAutoStop } from "../lib/silence-events";
 import {
   appendFinalTranscript,
@@ -41,6 +45,15 @@ interface MeetingTranscriptionSession {
   stopping: boolean;
   stopPending: boolean;
   pendingStopReason: string | null;
+  stopRecovery:
+    | {
+        status: "terminal";
+        source: "stop";
+        error: ClipsActionError;
+        transcriptError?: unknown;
+      }
+    | { status: "terminal"; source: "transcript"; error: unknown }
+    | null;
   paused: boolean;
   engine: TranscriptionEngine;
   audioTransitionInFlight: Promise<void> | null;
@@ -219,7 +232,7 @@ export function useMeetingTranscription({
         await invoke("silence_detector_stop").catch(() => {});
         try {
           let stopConfirmed = false;
-          await stopMeetingBeforeTranscriptFlush({
+          const result = await stopMeetingBeforeTranscriptFlush({
             stopRecording: async () => {
               const result = await withMeetingActionTimeout(
                 (signal) =>
@@ -245,13 +258,70 @@ export function useMeetingTranscription({
             flushTranscript: async () => {
               await flushTranscript();
             },
+            terminalStopError:
+              session.stopRecovery?.source === "stop"
+                ? session.stopRecovery.error
+                : undefined,
+            onTerminalStopError: (error) => {
+              session.stopRecovery = {
+                status: "terminal",
+                source: "stop",
+                error,
+              };
+            },
           });
+          if (result.status === "terminal") {
+            session.stopRecovery = {
+              status: "terminal",
+              source: "stop",
+              error: result.error,
+            };
+            throw result.error;
+          }
+          session.stopRecovery = null;
         } catch (err) {
           if (sessionRef.current === session) {
             session.stopPending = true;
             session.pendingStopReason = stopReason;
             session.stopping = false;
-            scheduleRecoveryRetry();
+            const terminalRecovery =
+              session.stopRecovery ??
+              (isTerminalMeetingStopError(err)
+                ? {
+                    status: "terminal" as const,
+                    source: "transcript" as const,
+                    error: err,
+                  }
+                : null);
+            if (terminalRecovery) {
+              session.stopRecovery = terminalRecovery;
+              if (
+                terminalRecovery.source === "stop" &&
+                err !== terminalRecovery.error
+              ) {
+                terminalRecovery.transcriptError = err;
+              }
+              if (!isTerminalMeetingStopError(err)) {
+                scheduleRecoveryRetry();
+              } else if (recoveryRetryTimerRef.current) {
+                window.clearTimeout(recoveryRetryTimerRef.current);
+                recoveryRetryTimerRef.current = null;
+              }
+              const visibleError =
+                terminalRecovery.source === "stop"
+                  ? (terminalRecovery.transcriptError ?? terminalRecovery.error)
+                  : terminalRecovery.error;
+              emit("meetings:transcription-error", {
+                meetingId: session.meetingId,
+                error:
+                  visibleError instanceof Error
+                    ? visibleError.message
+                    : undefined,
+                terminal: true,
+              }).catch(() => {});
+            } else {
+              scheduleRecoveryRetry();
+            }
           }
           console.warn(
             "[clips-popover] meeting stop is incomplete; preserving session for retry:",
@@ -363,7 +433,7 @@ export function useMeetingTranscription({
           await stopTranscription("replaced");
         } catch (error) {
           pendingStartRef.current = payload;
-          scheduleRecoveryRetry();
+          if (!sessionRef.current?.stopRecovery) scheduleRecoveryRetry();
           console.warn(
             "[clips-popover] replacement meeting queued until the previous recording is safely stopped:",
             error,
@@ -443,6 +513,7 @@ export function useMeetingTranscription({
           stopping: false,
           stopPending: false,
           pendingStopReason: null,
+          stopRecovery: null,
           paused: false,
           engine: "whisper",
           audioTransitionInFlight: null,
@@ -1085,6 +1156,7 @@ export function useMeetingTranscription({
         return;
       }
       if (session.stopPending) {
+        if (session.stopRecovery) return;
         stopTranscription(session.pendingStopReason ?? "manual").catch(
           () => {},
         );

@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  foundMeeting: null as { id: string } | null,
+  foundMeeting: null as {
+    id: string;
+    actualEnd: string | null;
+    summaryMd: string;
+  } | null,
   updateSets: [] as Array<Record<string, unknown>>,
 }));
+const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
@@ -18,15 +23,16 @@ vi.mock("../db/index.js", () => {
       recordingId: "meetings.recordingId",
       ownerEmail: "meetings.ownerEmail",
       actualEnd: "meetings.actualEnd",
+      summaryMd: "meetings.summaryMd",
       trashedAt: "meetings.trashedAt",
     },
   };
   const db = {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: async () => (state.foundMeeting ? [state.foundMeeting] : []),
-        })),
+        where: vi.fn(async () =>
+          state.foundMeeting ? [state.foundMeeting] : [],
+        ),
       })),
     })),
     update: vi.fn(() => ({
@@ -39,6 +45,11 @@ vi.mock("../db/index.js", () => {
   return { getDb: () => db, schema };
 });
 
+vi.mock("./post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: (...args: unknown[]) =>
+    mockDispatchPostFinalizeJob(...args),
+}));
+
 import { reconcileMeetingOnRecordingReady } from "./reconcile-meeting-on-finalize";
 
 describe("reconcileMeetingOnRecordingReady", () => {
@@ -49,7 +60,7 @@ describe("reconcileMeetingOnRecordingReady", () => {
   });
 
   it("stamps actualEnd on the still-live linked meeting", async () => {
-    state.foundMeeting = { id: "meeting_1" };
+    state.foundMeeting = { id: "meeting_1", actualEnd: null, summaryMd: "" };
 
     await reconcileMeetingOnRecordingReady({
       recordingId: "rec_1",
@@ -60,6 +71,47 @@ describe("reconcileMeetingOnRecordingReady", () => {
     expect(state.updateSets).toEqual([
       expect.objectContaining({ actualEnd: "2026-07-06T08:45:00.000Z" }),
     ]);
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    });
+  });
+
+  it("re-dispatches finalization for a meeting that ended before the recording became ready", async () => {
+    state.foundMeeting = {
+      id: "meeting_1",
+      actualEnd: "2026-07-06T08:40:00.000Z",
+      summaryMd: "",
+    };
+
+    await reconcileMeetingOnRecordingReady({
+      recordingId: "rec_1",
+      ownerEmail: "owner@example.com",
+      endedAtIso: "2026-07-06T08:45:00.000Z",
+    });
+
+    expect(state.updateSets).toEqual([]);
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    });
+  });
+
+  it("surfaces a rejected durable finalization dispatch", async () => {
+    state.foundMeeting = { id: "meeting_1", actualEnd: null, summaryMd: "" };
+    mockDispatchPostFinalizeJob.mockRejectedValueOnce(
+      new Error("worker dispatch unavailable"),
+    );
+
+    await expect(
+      reconcileMeetingOnRecordingReady({
+        recordingId: "rec_1",
+        ownerEmail: "owner@example.com",
+        endedAtIso: "2026-07-06T08:45:00.000Z",
+      }),
+    ).rejects.toThrow("worker dispatch unavailable");
   });
 
   it("does nothing when the recording has no still-live linked meeting", async () => {
@@ -72,5 +124,6 @@ describe("reconcileMeetingOnRecordingReady", () => {
     });
 
     expect(state.updateSets).toEqual([]);
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
   });
 });

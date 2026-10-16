@@ -20,10 +20,12 @@ export function QuitRecoveryDialog() {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<PendingAction>(null);
   const [error, setError] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
     let unlisten: (() => void) | null = null;
+    let unlistenTranscriptionError: (() => void) | null = null;
     listen("meetings:quit-recovery-required", () => {
       if (!mounted) return;
       setError(false);
@@ -40,9 +42,28 @@ export function QuitRecoveryDialog() {
           registrationError,
         );
       });
+    listen<{ error?: string; terminal?: boolean }>(
+      "meetings:transcription-error",
+      (event) => {
+        if (event.payload.terminal) {
+          setTerminalError(event.payload.error ?? "");
+        }
+      },
+    )
+      .then((dispose) => {
+        if (mounted) unlistenTranscriptionError = dispose;
+        else dispose();
+      })
+      .catch((registrationError) => {
+        console.warn(
+          "[clips-popover] quit recovery error listener registration failed:",
+          registrationError,
+        );
+      });
     return () => {
       mounted = false;
       unlisten?.();
+      unlistenTranscriptionError?.();
     };
   }, []);
 
@@ -53,6 +74,7 @@ export function QuitRecoveryDialog() {
     try {
       await invoke("quit_teardown_cancel");
       setOpen(false);
+      setTerminalError(null);
     } catch (actionError) {
       console.warn("[clips-popover] could not keep Clips open:", actionError);
       setError(true);
@@ -91,6 +113,11 @@ export function QuitRecoveryDialog() {
             {t("quitRecovery.body")}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {terminalError !== null ? (
+          <p className="text-sm text-destructive" role="alert">
+            {terminalError || t("quitRecovery.actionFailed")}
+          </p>
+        ) : null}
         {error ? (
           <p className="text-sm text-destructive" role="alert">
             {t("quitRecovery.actionFailed")}

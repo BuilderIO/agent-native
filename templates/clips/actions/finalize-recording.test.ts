@@ -34,6 +34,7 @@ const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
+const mockReconcileMeetingOnRecordingReady = vi.hoisted(() => vi.fn());
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockMarkSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() =>
@@ -210,7 +211,8 @@ vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
 }));
 
 vi.mock("../server/lib/reconcile-meeting-on-finalize.js", () => ({
-  reconcileMeetingOnRecordingReady: vi.fn(async () => undefined),
+  reconcileMeetingOnRecordingReady: (...args: unknown[]) =>
+    mockReconcileMeetingOnRecordingReady(...args),
 }));
 
 vi.mock("../server/lib/faststart.js", () => ({
@@ -1677,6 +1679,38 @@ describe("finalize-recording media serve verification", () => {
       }),
     );
     mockTrack.mockReset();
+  });
+
+  it("surfaces a rejected ready-time meeting dispatch after publishing the recording", async () => {
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockReconcileMeetingOnRecordingReady.mockRejectedValueOnce(
+      new Error("meeting worker dispatch unavailable"),
+    );
+
+    await expect(
+      finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" }),
+    ).rejects.toThrow("meeting worker dispatch unavailable");
+
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-upload-rec_1",
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
+  it("retries meeting dispatch when finalization is requested for an already-ready recording", async () => {
+    mockState.existingRecording.status = "ready";
+    mockState.existingRecording.videoUrl = "/api/uploads/rec_1/blob";
+    mockReconcileMeetingOnRecordingReady.mockRejectedValueOnce(
+      new Error("meeting worker dispatch unavailable"),
+    );
+
+    await expect(finalizeRecording.run({ id: "rec_1" })).rejects.toThrow(
+      "meeting worker dispatch unavailable",
+    );
+    expect(mockReconcileMeetingOnRecordingReady).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1" }),
+    );
   });
 
   it("skips verification for app-relative dev media URLs", async () => {

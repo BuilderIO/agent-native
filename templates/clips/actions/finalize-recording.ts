@@ -1001,11 +1001,6 @@ async function markRecordingReady(params: {
         recordingId: id,
         ownerEmail,
         endedAtIso: now,
-      }).catch((err: unknown) => {
-        console.error("[finalize] meeting reconcile failed", {
-          id,
-          error: err instanceof Error ? err.message : String(err),
-        });
       });
     }
     const aborted =
@@ -1084,11 +1079,6 @@ async function markRecordingReady(params: {
     recordingId: id,
     ownerEmail,
     endedAtIso: now,
-  }).catch((err: unknown) => {
-    console.error("[finalize] meeting reconcile failed", {
-      id,
-      error: err instanceof Error ? err.message : String(err),
-    });
   });
 
   const [existingTranscript] = await db
@@ -1643,6 +1633,11 @@ export default defineAction({
         );
         await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
         const readyState = await readAppState(`recording-upload-${id}`);
+        await reconcileMeetingOnRecordingReady({
+          recordingId: id,
+          ownerEmail,
+          endedAtIso: new Date().toISOString(),
+        });
         return {
           id,
           status: "ready" as const,

@@ -39,6 +39,26 @@ const mockDb = vi.hoisted(() => ({
   })),
 }));
 
+function mockRecordingWithStatus(status: string) {
+  mockDb.select.mockImplementationOnce(() => {
+    const builder = {
+      from: vi.fn(() => builder),
+      where: vi.fn(() => builder),
+      limit: vi.fn(async () => [
+        {
+          id: "rec-1",
+          ownerEmail: "owner@example.test",
+          orgId: "org-1",
+          status,
+          uploadAttemptId: null,
+          uploadGenerationId: null,
+        },
+      ]),
+    };
+    return builder;
+  });
+}
+
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   readBody: (...args: unknown[]) => mockReadBody(...args),
@@ -132,6 +152,8 @@ describe("post-finalize worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    mockFinalizeEndedMeetingsForRecording.mockReset();
+    mockFinalizeEndedMeetingsForRecording.mockResolvedValue(undefined);
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",
       kind: "media-ready",
@@ -319,23 +341,7 @@ describe("post-finalize worker", () => {
       kind: "meeting-finalize",
       token: "valid-token",
     });
-    mockDb.select.mockImplementationOnce(() => {
-      const builder = {
-        from: vi.fn(() => builder),
-        where: vi.fn(() => builder),
-        limit: vi.fn(async () => [
-          {
-            id: "rec-1",
-            ownerEmail: "owner@example.test",
-            orgId: "org-1",
-            status: "ready",
-            uploadAttemptId: null,
-            uploadGenerationId: null,
-          },
-        ]),
-      };
-      return builder;
-    });
+    mockRecordingWithStatus("ready");
     mockFinalizeEndedMeetingsForRecording.mockResolvedValue(undefined);
 
     await expect(handler({} as any)).resolves.toMatchObject({
@@ -351,10 +357,11 @@ describe("post-finalize worker", () => {
     expect(mockFinalizeEndedMeetingsForRecording).toHaveBeenCalledWith(
       mockDb,
       "rec-1",
+      { throwOnFailure: true },
     );
   });
 
-  it("skips meeting finalization unless the recording is ready", async () => {
+  it("durably retries meeting finalization while the recording is processing", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",
       kind: "meeting-finalize",
@@ -365,12 +372,229 @@ describe("post-finalize worker", () => {
       ok: true,
       recordingId: "rec-1",
       kind: "meeting-finalize",
-      skipped: true,
+      retryScheduled: true,
+      retryAttempt: 1,
       reason: "recording-processing",
     });
 
     expect(mockRunWithRequestContext).not.toHaveBeenCalled();
     expect(mockFinalizeEndedMeetingsForRecording).not.toHaveBeenCalled();
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
+    });
+  });
+
+  it("keeps ready-transition retries active beyond a long upload", async () => {
+    const delays: number[] = [];
+
+    for (let retryAttempt = 0; retryAttempt < 7; retryAttempt += 1) {
+      mockReadBody.mockResolvedValue({
+        recordingId: "rec-1",
+        kind: "meeting-finalize",
+        token: "valid-token",
+        ...(retryAttempt > 0 ? { retryAttempt } : {}),
+      });
+      mockRecordingWithStatus("processing");
+
+      await expect(handler({} as any)).resolves.toMatchObject({
+        ok: true,
+        kind: "meeting-finalize",
+        retryScheduled: true,
+        retryAttempt: retryAttempt + 1,
+      });
+      const retry = mockDispatchPostFinalizeJob.mock.calls.at(-1)?.[0] as {
+        delayMs: number;
+      };
+      delays.push(retry.delayMs);
+    }
+
+    expect(delays.reduce((sum, delay) => sum + delay, 0)).toBeGreaterThan(
+      95_000,
+    );
+
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+      retryAttempt: 7,
+    });
+    mockRecordingWithStatus("processing");
+    await expect(handler({} as any)).rejects.toThrow(
+      "Meeting finalization retries exhausted while recording rec-1 remained processing",
+    );
+  });
+
+  it("keeps stale pending meeting retries alive beyond the two-minute lease", async () => {
+    const delays: number[] = [];
+
+    for (let retryAttempt = 0; retryAttempt < 7; retryAttempt += 1) {
+      mockReadBody.mockResolvedValue({
+        recordingId: "rec-1",
+        kind: "meeting-finalize",
+        token: "valid-token",
+        ...(retryAttempt > 0 ? { retryAttempt } : {}),
+      });
+      mockRecordingWithStatus("ready");
+      mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+        new AggregateError(
+          [new Error("already in progress")],
+          "Meeting finalization was skipped: already-in-progress",
+        ),
+      );
+
+      await expect(handler({} as any)).resolves.toMatchObject({
+        ok: true,
+        kind: "meeting-finalize",
+        retryScheduled: true,
+        retryAttempt: retryAttempt + 1,
+      });
+      const retry = mockDispatchPostFinalizeJob.mock.calls.at(-1)?.[0] as {
+        delayMs: number;
+      };
+      delays.push(retry.delayMs);
+    }
+
+    expect(delays).toEqual([
+      5_000, 10_000, 20_000, 30_000, 30_000, 30_000, 30_000,
+    ]);
+    expect(delays.reduce((sum, delay) => sum + delay, 0)).toBeGreaterThan(
+      2 * 60 * 1_000,
+    );
+  });
+
+  it("re-dispatches delayed meeting finalization while still processing", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+      delayMs: 1_000,
+      retryAttempt: 2,
+    });
+
+    const pending = handler({} as any);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      retryAttempt: 2,
+      dispatchedAfterMs: 1_000,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      retryAttempt: 2,
+      regenerate: undefined,
+      replaceImportId: undefined,
+      requireAccepted: true,
+    });
+  });
+
+  it("schedules a durable retry when meeting summary finalization fails", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("ready");
+    mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+      new Error("summary provider unavailable"),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "meeting-finalize",
+      retryScheduled: true,
+      retryAttempt: 1,
+      error: "summary provider unavailable",
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
+    });
+  });
+
+  it("propagates meeting summary failures after durable retries are exhausted", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+      retryAttempt: 7,
+    });
+    mockRecordingWithStatus("ready");
+    mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+      new Error("summary provider unavailable"),
+    );
+
+    await expect(handler({} as any)).rejects.toThrow(
+      "summary provider unavailable",
+    );
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("retries failed recordings when meeting transcript finalization is not ready", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("failed");
+    mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+      new AggregateError(
+        [new Error("no transcript")],
+        "Meeting finalization was skipped: no-transcript",
+      ),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      retryScheduled: true,
+      retryAttempt: 1,
+    });
+
+    expect(mockFinalizeEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+      { throwOnFailure: true },
+    );
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
+    });
+  });
+
+  it("finalizes a failed recording when its transcript is saved", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("failed");
+    mockFinalizeEndedMeetingsForRecording.mockResolvedValue(undefined);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+    });
+    expect(mockFinalizeEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+      { throwOnFailure: true },
+    );
   });
 
   it("passes captured attempt and generation identities to finalization", async () => {
