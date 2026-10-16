@@ -73,6 +73,100 @@ describe("ChatHistoryList", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows the search empty state instead of section empty labels when every section has no matches", () => {
+    act(() =>
+      root.render(
+        <ChatHistoryList
+          sections={[
+            {
+              id: "mine",
+              label: "My chats",
+              items: [],
+              emptyLabel: "No chats yet",
+            },
+            {
+              id: "shared",
+              label: "Shared with you",
+              items: [],
+              emptyLabel: "No shared chats",
+            },
+          ]}
+          searchValue="missing"
+          onSelect={() => {}}
+        />,
+      ),
+    );
+    expect(container.textContent).toBe("No matching chats");
+    expect(
+      container.querySelectorAll(".an-chat-history__section-label"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps matching sections and their headings without empty labels in the other section", () => {
+    act(() =>
+      root.render(
+        <ChatHistoryList
+          sections={[
+            { id: "mine", label: "My chats", items: [item({ id: "match" })] },
+            {
+              id: "shared",
+              label: "Shared with you",
+              items: [],
+              emptyLabel: "No shared chats",
+            },
+          ]}
+          searchValue="match"
+          onSelect={() => {}}
+        />,
+      ),
+    );
+    expect(container.textContent).toBe("My chatsmatch");
+    expect(
+      container.querySelectorAll(".an-chat-history__section-label"),
+    ).toHaveLength(1);
+  });
+
+  it.each(["loading", "error", "footer"] as const)(
+    "preserves a search section's %s state and heading",
+    (state) => {
+      act(() =>
+        root.render(
+          <ChatHistoryList
+            sections={[
+              {
+                id: "shared",
+                label: "Shared",
+                items: [],
+                emptyLabel: "No shared chats",
+                loading: state === "loading",
+                error: state === "error" ? "Search failed" : undefined,
+                footer:
+                  state === "footer" ? <button>Load more</button> : undefined,
+              },
+            ]}
+            searchValue="missing"
+            onSelect={() => {}}
+          />,
+        ),
+      );
+      expect(
+        container.querySelector(".an-chat-history__section-label")?.textContent,
+      ).toBe("Shared");
+      expect(container.textContent).not.toContain("No shared chats");
+      expect(container.textContent).not.toContain("No matching chats");
+      if (state === "loading")
+        expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+      if (state === "error")
+        expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+          "Search failed",
+        );
+      if (state === "footer")
+        expect(container.querySelector("button")?.textContent).toBe(
+          "Load more",
+        );
+    },
+  );
+
   it("renders a flat item list and calls onSelect when a row is clicked", () => {
     const onSelect = vi.fn();
     const items: ChatHistoryItem[] = [

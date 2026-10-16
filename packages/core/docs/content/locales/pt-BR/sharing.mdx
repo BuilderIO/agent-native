@@ -158,6 +158,8 @@ As listas de histórico e a pesquisa aceitam um filtro `ownership`:
 
 O servidor aplica `ownership` antes da paginação, então `limit`, `offset` e `hasMore` descrevem a lista filtrada. A pesquisa aceita o mesmo filtro. Um valor desconhecido é rejeitado com um 400 em vez de voltar para `all`. As regras de acesso não mudam e a listagem nunca carrega transcrições.
 
+Migração: chamadas personalizadas à lista do histórico e à pesquisa devem enviar um inteiro positivo em `limit` e um inteiro não negativo em `offset`, ou omiti-los para usar os valores padrão. Valores malformados agora retornam HTTP 400 em vez de serem convertidos automaticamente. Limites válidos acima de 200 são reduzidos para 200.
+
 No código do cliente, `useChatThreadList()` de `@agent-native/core/client` pagina uma lista por vez:
 
 ```tsx

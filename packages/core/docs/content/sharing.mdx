@@ -179,6 +179,8 @@ History lists and search take an `ownership` filter:
 
 The server applies `ownership` before pagination, so `limit`, `offset`, and `hasMore` describe the filtered list. Search takes the same filter. An unknown value is rejected with a 400 instead of falling back to `all`. Access rules do not change, and listing never loads transcripts.
 
+Migration: custom history list and search callers must send a positive integer `limit` and a non-negative integer `offset`, or omit them to use the defaults. Malformed values now return HTTP 400 instead of being coerced. Valid limits above 200 are capped at 200.
+
 In client code, `useChatThreadList()` from `@agent-native/core/client` pages one list at a time:
 
 ```tsx

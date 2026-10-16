@@ -124,7 +124,12 @@ describe("useShareDialogController", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await act(async () => {
+      for (const [variables, callbacks] of mocks.visibility.mutate.mock.calls) {
+        callbacks?.onSuccess?.({ visibility: variables.visibility });
+      }
+    });
     act(() => root.unmount());
     container.remove();
     queryClient.clear();
@@ -329,17 +334,23 @@ describe("useShareDialogController", () => {
       { enabled: false },
     );
 
-    await render(options);
+    const opened = await render(options);
     const fetched = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
     expect(fetched.filter((url) => url.includes("/org/members"))).toHaveLength(
       1,
     );
-    expect(fetched.filter((url) => url.endsWith("/org/me"))).toHaveLength(1);
+    expect(fetched.filter((url) => url.endsWith("/org/me"))).toHaveLength(0);
     expect(useActionQuery).toHaveBeenLastCalledWith(
       "list-resource-shares",
       expect.anything(),
       { enabled: true },
     );
+    await act(async () => opened.visibility.set("org"));
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([url]) => String(url).endsWith("/org/me")),
+    ).toHaveLength(1);
   });
 
   it("resets tab state when opened and delegates close transitions", async () => {

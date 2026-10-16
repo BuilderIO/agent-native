@@ -158,6 +158,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 
 伺服器在分頁之前套用 `ownership`，因此 `limit`、`offset` 和 `hasMore` 描述的是篩選後的清單。搜尋接受相同的篩選器。未知值會被 400 拒絕，而不是回退到 `all`。存取規則不變，列出時從不載入對話紀錄。
 
+遷移說明：自訂歷史清單與搜尋呼叫必須為 `limit` 傳入正整數，為 `offset` 傳入非負整數，或省略它們以使用預設值。格式錯誤的值現在會傳回 HTTP 400，而不會自動轉換。大於 200 的有效 `limit` 會限制為 200。
+
 在用戶端程式碼中，`@agent-native/core/client` 的 `useChatThreadList()` 一次對一個清單分頁：
 
 ```tsx
