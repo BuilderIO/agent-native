@@ -6,6 +6,7 @@ import {
   groupPanelEvents,
   isIsoCalendarDate,
   isValidPanelEvent,
+  isValidTimeZone,
   panelEventInstant,
   panelEventProblem,
   resolvePanelEvents,
@@ -205,6 +206,16 @@ describe("event time of day", () => {
     expect(instant("2026-10-25", "02:30", "Europe/Berlin")).toBe(
       "2026-10-25T00:30:00.000Z",
     );
+  });
+
+  it("reads a zone written in any letter case as that zone", () => {
+    const instant = (timeZone: string) =>
+      new Date(
+        panelEventInstant({ date: "2026-11-01", time: "01:30", timeZone }),
+      ).toISOString();
+    expect(instant("america/new_york")).toBe("2026-11-01T05:30:00.000Z");
+    expect(instant("AMERICA/NEW_YORK")).toBe(instant("America/New_York"));
+    expect(isValidTimeZone("europe/berlin")).toBe(true);
   });
 
   it("puts both launch moments on the same day of a daily axis", () => {
