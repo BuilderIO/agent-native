@@ -30,8 +30,10 @@ import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
   type ContentHistoryEntry,
+  type ContentHistoryChange,
   type ContentHistorySelectionAfterMap,
   stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
   type YjsUndoSelectionSnapshot,
@@ -297,6 +299,7 @@ export interface FrameSelectionArgs {
   canEditDesign: boolean;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   overviewSelectedScreenIds: string[];
@@ -316,6 +319,7 @@ export function runFrameSelection({
   canEditDesign,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
+  localContentUndoStackRef,
   files,
   getFreshActiveContent,
   overviewSelectedScreenIds,
@@ -425,6 +429,10 @@ export function runFrameSelection({
   const contentUndoStackTopBeforeFrame = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
+  const localContentUndoStackTopBeforeFrame =
+    localContentUndoStackRef.current[
+      localContentUndoStackRef.current.length - 1
+    ];
   const initialWrapperNode = wrapperNode;
   const submittedProjection = buildCodeLayerProjection(nextContent, { source });
   const submittedWrapper = initialWrapperNode
@@ -468,6 +476,14 @@ export function runFrameSelection({
         overviewSelectedScreenIds,
         selectedLayerIds: [wrapperNode.id],
         activeFileId: activeFile.id,
+      },
+    );
+    stampLocalContentHistorySelectionAfter(
+      localContentUndoStackRef.current,
+      localContentUndoStackTopBeforeFrame,
+      {
+        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+        selectedLayerIds: [wrapperNode.id],
       },
     );
   }

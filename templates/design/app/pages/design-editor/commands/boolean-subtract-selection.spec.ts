@@ -7,8 +7,10 @@ import * as Y from "yjs";
 import {
   readYjsRedoSelection,
   readYjsUndoSelection,
+  type ContentHistoryChange,
   type ContentHistoryEntry,
   type GeometryHistorySelection,
+  type YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 
@@ -55,6 +57,7 @@ describe("runBooleanSubtractSelection", () => {
       canEditDesign: true,
       contentHistorySelectionAfterRef: { current: new WeakMap() },
       contentUndoStackRef: { current: [] },
+      localContentUndoStackRef: { current: [] },
       files: [designFile()],
       getFreshActiveContent: () => CONTENT,
       overviewSelectedScreenIds: [],
@@ -126,6 +129,7 @@ describe("runBooleanSubtractSelection", () => {
       canEditDesign: true,
       contentHistorySelectionAfterRef,
       contentUndoStackRef,
+      localContentUndoStackRef: { current: [] },
       files: [designFile()],
       getFreshActiveContent: () => CONTENT,
       overviewSelectedScreenIds: ["screen-1"],
@@ -164,6 +168,62 @@ describe("runBooleanSubtractSelection", () => {
     doc.destroy();
   });
 
+  it("stamps the Boolean result for redo on the local fallback stack", () => {
+    const localContentUndoStackRef = {
+      current: [] as ContentHistoryChange[],
+    };
+    const applyLocalContentUpdate = vi.fn(
+      (
+        after: string,
+        options?: { selectionBefore?: YjsUndoSelectionSnapshot },
+      ) => {
+        const before = CONTENT;
+        const publication = prepareCanonicalSourceContent(after, {
+          fileId: "screen-1",
+          fileType: "html",
+        });
+        localContentUndoStackRef.current.push({
+          fileId: "screen-1",
+          before,
+          after: publication.content,
+          selectionBefore: options?.selectionBefore,
+        });
+        return { status: "accepted" as const, ...publication };
+      },
+    );
+
+    runBooleanSubtractSelection({
+      activeFile: designFile(),
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      contentHistorySelectionAfterRef: { current: new WeakMap() },
+      contentUndoStackRef: { current: [] },
+      localContentUndoStackRef,
+      files: [designFile()],
+      getFreshActiveContent: () => CONTENT,
+      overviewSelectedScreenIds: [],
+      selectedLayerIdsState: ["base", "cutter"],
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key) => key,
+      undoManagerRef: { current: null },
+    });
+
+    const entry = localContentUndoStackRef.current[0]!;
+    const wrapper = buildCodeLayerProjection(entry.after, {
+      source: { kind: "design-file", fileId: entry.fileId },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-an-primitive"] === "boolean",
+    );
+    expect(wrapper).toBeDefined();
+    expect(entry.selectionAfter).toEqual({
+      selectedElement: expect.objectContaining({
+        sourceId: wrapper!.dataAttributes["data-agent-native-node-id"],
+      }),
+      selectedLayerIds: [wrapper!.id],
+    });
+  });
+
   it("reports unsupported selections without writing source", () => {
     const applyLocalContentUpdate = vi.fn();
     const setSelectedElement = vi.fn();
@@ -180,6 +240,7 @@ describe("runBooleanSubtractSelection", () => {
       canEditDesign: true,
       contentHistorySelectionAfterRef: { current: new WeakMap() },
       contentUndoStackRef: { current: [] },
+      localContentUndoStackRef: { current: [] },
       files: [activeFile],
       getFreshActiveContent: () => unsupportedContent,
       overviewSelectedScreenIds: [],
@@ -216,6 +277,7 @@ describe("runBooleanSubtractSelection", () => {
       canEditDesign: true,
       contentHistorySelectionAfterRef: { current: new WeakMap() },
       contentUndoStackRef: { current: [] },
+      localContentUndoStackRef: { current: [] },
       files: [activeFile, otherFile],
       getFreshActiveContent: () => CONTENT,
       overviewSelectedScreenIds: [],

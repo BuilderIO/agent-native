@@ -779,6 +779,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onActiveToolChange,
     onCreatePrimitive,
     onPrimitiveCreated,
+    onPrimitivesCreated,
     onUpdatePenPath,
     onPrimitiveReparent,
     onCreateScreenFrame,
@@ -6801,19 +6802,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const selectedPersisted = selectedDraftIds
       .map((id) => persistedByDraftId.get(id))
       .filter((entry): entry is PersistedDraftPrimitive => Boolean(entry));
-    const persistedEntries =
-      selectedPersisted.length > 0
-        ? selectedPersisted
-        : Array.from(persistedByDraftId.values());
-    const lastPersisted = persistedEntries[persistedEntries.length - 1];
+    const persistedEntries = Array.from(persistedByDraftId.values());
+    const lastPersisted =
+      selectedPersisted[selectedPersisted.length - 1] ??
+      persistedEntries[persistedEntries.length - 1];
     if (lastPersisted && lastPersisted.frameId !== "__board__") {
-      onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId, {
-        preserveActiveTool: true,
-      });
+      const created = persistedEntries.map(({ frameId, nodeId }) => ({
+        screenId: frameId,
+        nodeId,
+      }));
+      const selected = {
+        screenId: lastPersisted.frameId,
+        nodeId: lastPersisted.nodeId,
+      };
+      if (onPrimitivesCreated) {
+        onPrimitivesCreated(created, selected, { preserveActiveTool: true });
+      } else {
+        onPrimitiveCreated?.(selected.screenId, selected.nodeId, {
+          preserveActiveTool: true,
+        });
+      }
     }
   }, [
     onCreatePrimitive,
     onPrimitiveCreated,
+    onPrimitivesCreated,
     persistDraftPrimitive,
     updateDraftPrimitives,
     updateSelectedDraftIds,
@@ -7901,10 +7914,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   lastPersisted.frameId !== boardFileId &&
                   lastPersisted.frameId !== "__board__"
                 ) {
-                  onPrimitiveCreated?.(
-                    lastPersisted.frameId,
-                    lastPersisted.nodeId,
-                  );
+                  const created = persisted.map(({ frameId, nodeId }) => ({
+                    screenId: frameId,
+                    nodeId,
+                  }));
+                  const selected = {
+                    screenId: lastPersisted.frameId,
+                    nodeId: lastPersisted.nodeId,
+                  };
+                  if (onPrimitivesCreated) {
+                    onPrimitivesCreated(created, selected);
+                  } else {
+                    onPrimitiveCreated?.(selected.screenId, selected.nodeId);
+                  }
                 }
               }
             }
@@ -7949,10 +7971,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   lastPersisted.frameId !== boardFileId &&
                   lastPersisted.frameId !== "__board__"
                 ) {
-                  onPrimitiveCreated?.(
-                    lastPersisted.frameId,
-                    lastPersisted.nodeId,
-                  );
+                  const created = persisted.map(({ frameId, nodeId }) => ({
+                    screenId: frameId,
+                    nodeId,
+                  }));
+                  const selected = {
+                    screenId: lastPersisted.frameId,
+                    nodeId: lastPersisted.nodeId,
+                  };
+                  if (onPrimitivesCreated) {
+                    onPrimitivesCreated(created, selected);
+                  } else {
+                    onPrimitiveCreated?.(selected.screenId, selected.nodeId);
+                  }
                 }
               }
             }
@@ -7971,6 +8002,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       boardFileId,
       onPrimitiveCreated,
+      onPrimitivesCreated,
       persistDraftPrimitive,
       updateDraftPrimitives,
       updateDraftPrimitivesRefOnly,

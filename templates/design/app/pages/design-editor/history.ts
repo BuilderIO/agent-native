@@ -640,11 +640,11 @@ export function captureContentUndoStackTop(
 
 export function stampLocalContentHistorySelectionAfter(
   stack: ContentHistoryChange[],
-  _previousTop: ContentHistoryChange | undefined,
+  previousTop: ContentHistoryChange | undefined,
   snapshot: YjsUndoSelectionSnapshot,
 ): void {
   const top = stack[stack.length - 1];
-  if (!top) return;
+  if (!top || top === previousTop) return;
   top.selectionAfter = snapshot;
 }
 
@@ -654,7 +654,7 @@ export function stampLocalContentHistorySelectionBefore(
   snapshot: YjsUndoSelectionSnapshot,
 ): void {
   const top = stack[stack.length - 1];
-  if (!top || top === previousTop) return;
+  if (!top || top === previousTop || top.selectionBefore) return;
   top.selectionBefore = snapshot;
 }
 
@@ -666,12 +666,20 @@ export function stampContentHistorySelectionAfter(
 ): void {
   const top = stack[stack.length - 1];
   if (!top || top === previousTop) return;
+  stampContentHistorySelectionAfterEntry(afterMap, top, after);
+}
+
+export function stampContentHistorySelectionAfterEntry(
+  afterMap: ContentHistorySelectionAfterMap,
+  entry: ContentHistoryEntry,
+  after: GeometryHistorySelection,
+): void {
   afterMap.set(
-    top,
+    entry,
     captureHistorySelectionSources(after, {
       ...after.sourceContentByFileId,
       ...Object.fromEntries(
-        getContentHistoryChanges(top).map((change) => [
+        getContentHistoryChanges(entry).map((change) => [
           change.fileId,
           change.after,
         ]),

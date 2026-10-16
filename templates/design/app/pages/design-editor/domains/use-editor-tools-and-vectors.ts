@@ -77,6 +77,7 @@ import {
   captureContentUndoStackTop,
   captureYjsUndoHistoryUpdate,
   captureYjsUndoStackTop,
+  stampContentHistorySelectionAfterEntry,
   type ContentUndoStackTop,
 } from "../history";
 import { getScreenFrameOriginCanvas } from "../overview-camera";
@@ -277,7 +278,7 @@ export function useEditorToolsAndVectors({
     useState<CodeWorkbenchActiveFile | null>(null);
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
   const overviewPrimitiveHistoryByScreenRef = useRef(
-    new Map<string, { nodeId: string; topBefore: ContentUndoStackTop }>(),
+    new Map<string, Map<string, { entry?: ContentUndoStackTop }>>(),
   );
   const pendingEmptyTextEditRef = useRef<{
     screenId: string | null;
@@ -658,15 +659,71 @@ export function useEditorToolsAndVectors({
               ? result.nodeId
               : primitive.nodeId;
         if (nodeId) {
-          overviewPrimitiveHistoryByScreenRef.current.set(screenId, {
-            nodeId,
-            topBefore,
+          const topAfter = captureContentUndoStackTop(
+            contentUndoStackRef.current,
+          );
+          const byNodeId =
+            overviewPrimitiveHistoryByScreenRef.current.get(screenId) ??
+            new Map<string, { entry?: ContentUndoStackTop }>();
+          byNodeId.set(nodeId, {
+            entry: topAfter !== topBefore ? topAfter : undefined,
           });
+          overviewPrimitiveHistoryByScreenRef.current.set(screenId, byNodeId);
         }
       }
       return result;
     },
     [boardFileId, contentUndoStackRef, handleCreatePrimitive],
+  );
+
+  const handleOverviewPrimitivesCreated = useCallback(
+    (
+      created: ReadonlyArray<{ screenId: string; nodeId: string }>,
+      selected?: { screenId: string; nodeId: string },
+      options?: {
+        nextTool?: "move" | "pen";
+        preserveActiveTool?: boolean;
+      },
+    ) => {
+      const pendingEntries = created.flatMap(({ screenId, nodeId }) => {
+        const byNodeId =
+          overviewPrimitiveHistoryByScreenRef.current.get(screenId);
+        const pending = byNodeId?.get(nodeId);
+        byNodeId?.delete(nodeId);
+        if (byNodeId?.size === 0) {
+          overviewPrimitiveHistoryByScreenRef.current.delete(screenId);
+        }
+        return pending?.entry
+          ? [{ screenId, nodeId, entry: pending.entry }]
+          : [];
+      });
+      const finalSelection = selected ?? created[created.length - 1];
+      if (!finalSelection) return;
+
+      handlePrimitiveCreated(
+        finalSelection.screenId,
+        finalSelection.nodeId,
+        options,
+      );
+      const finalSnapshot = captureCurrentSelection();
+      for (const { screenId, nodeId, entry } of pendingEntries) {
+        stampContentHistorySelectionAfterEntry(
+          contentHistorySelectionAfterRef.current,
+          entry,
+          {
+            ...finalSnapshot,
+            activeFileId: screenId,
+            overviewSelectedScreenIds: [],
+            selectedLayerIds: [nodeId],
+          },
+        );
+      }
+    },
+    [
+      captureCurrentSelection,
+      contentHistorySelectionAfterRef,
+      handlePrimitiveCreated,
+    ],
   );
 
   const handleOverviewPrimitiveCreated = useCallback(
@@ -678,25 +735,13 @@ export function useEditorToolsAndVectors({
         preserveActiveTool?: boolean;
       },
     ) => {
-      const pending = overviewPrimitiveHistoryByScreenRef.current.get(screenId);
-      overviewPrimitiveHistoryByScreenRef.current.delete(screenId);
-      const historySelection =
-        pending?.nodeId === nodeId
-          ? {
-              contentUndoStackRef,
-              contentHistorySelectionAfterRef,
-              contentUndoStackTopBefore: pending.topBefore,
-              captureCurrentSelection,
-            }
-          : undefined;
-      handlePrimitiveCreated(screenId, nodeId, options, historySelection);
+      handleOverviewPrimitivesCreated(
+        [{ screenId, nodeId }],
+        { screenId, nodeId },
+        options,
+      );
     },
-    [
-      captureCurrentSelection,
-      contentHistorySelectionAfterRef,
-      contentUndoStackRef,
-      handlePrimitiveCreated,
-    ],
+    [handleOverviewPrimitivesCreated],
   );
 
   useEffect(() => {
@@ -1712,6 +1757,7 @@ export function useEditorToolsAndVectors({
     handlePrimitiveCreated,
     handleOverviewCreatePrimitive,
     handleOverviewPrimitiveCreated,
+    handleOverviewPrimitivesCreated,
     handleBoardDrawPrimitive,
     handleSingleScreenCreatePrimitive,
     handleUpdatePenPath,

@@ -9,7 +9,9 @@ import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-s
 import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
+  type ContentHistoryChange,
   stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
   type ContentHistoryEntry,
@@ -37,6 +39,7 @@ export interface BooleanSubtractSelectionArgs {
   canEditDesign: boolean;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   overviewSelectedScreenIds: string[];
@@ -53,6 +56,7 @@ export function runBooleanSubtractSelection({
   canEditDesign,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
+  localContentUndoStackRef,
   files,
   getFreshActiveContent,
   overviewSelectedScreenIds,
@@ -115,6 +119,10 @@ export function runBooleanSubtractSelection({
   const contentUndoStackTopBeforeBoolean = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
+  const localContentUndoStackTopBeforeBoolean =
+    localContentUndoStackRef.current[
+      localContentUndoStackRef.current.length - 1
+    ];
   const publication = applyLocalContentUpdate(patch.content, {
     forcePreviewFullDocument: true,
     selectionBefore: selectionBeforeBoolean,
@@ -161,6 +169,14 @@ export function runBooleanSubtractSelection({
       overviewSelectedScreenIds,
       selectedLayerIds: [acceptedWrapper.id],
       activeFileId: activeFile.id,
+    },
+  );
+  stampLocalContentHistorySelectionAfter(
+    localContentUndoStackRef.current,
+    localContentUndoStackTopBeforeBoolean,
+    {
+      selectedElement: wrapperInfo,
+      selectedLayerIds: [acceptedWrapper.id],
     },
   );
 }

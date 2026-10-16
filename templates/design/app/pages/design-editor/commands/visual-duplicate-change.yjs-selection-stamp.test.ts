@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 import {
+  type ContentHistoryChange,
   readYjsRedoSelection,
   readYjsUndoSelection,
   YJS_UNDO_SELECTION_META_KEY,
+  type YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
 
 import { runVisualDuplicateChange } from "./visual-duplicate-change";
@@ -15,8 +17,9 @@ const CONTENT = `<!doctype html><html><body><div id="rect" data-agent-native-nod
 const SOURCE = { kind: "design-file" as const, fileId: "file-1" };
 
 function baseArgs(overrides: {
-  undoManagerRef: { current: { undoStack: any[] } };
+  undoManagerRef: { current: { undoStack: any[] } | null };
   applyLocalContentUpdate: ReturnType<typeof vi.fn>;
+  localContentUndoStackRef?: { current: ContentHistoryChange[] };
 }) {
   const staleCopySelection = {
     selector: '[data-agent-native-node-id="rect-copy"]',
@@ -28,6 +31,9 @@ function baseArgs(overrides: {
       applyLocalContentUpdate: overrides.applyLocalContentUpdate,
       canEditDesign: true,
       getFreshActiveContent: () => CONTENT,
+      localContentUndoStackRef: overrides.localContentUndoStackRef ?? {
+        current: [],
+      },
       selectedElement: staleCopySelection,
       selectedLayerIdsState: ["rect-copy"],
       setSelectedElement: vi.fn(),
@@ -171,6 +177,66 @@ describe("runVisualDuplicateChange — stamps the pre-duplicate (original) selec
     expect(readYjsRedoSelection(priorItem)).toEqual({
       selectedElement,
       selectedLayerIds,
+    });
+  });
+
+  it("stamps the clone selection onto the local fallback redo entry", () => {
+    const localContentUndoStackRef = {
+      current: [] as ContentHistoryChange[],
+    };
+    const applyLocalContentUpdate = vi.fn(
+      (
+        after: string,
+        options?: { selectionBefore?: YjsUndoSelectionSnapshot },
+      ) => {
+        const publication = {
+          status: "accepted" as const,
+          content: after,
+          nodeIdMap: new Map<string, string>(),
+        };
+        localContentUndoStackRef.current.push({
+          fileId: "file-1",
+          before: CONTENT,
+          after,
+          selectionBefore: options?.selectionBefore,
+        });
+        return publication;
+      },
+    );
+    const { args } = baseArgs({
+      undoManagerRef: { current: null },
+      applyLocalContentUpdate,
+      localContentUndoStackRef,
+    });
+
+    runVisualDuplicateChange(
+      args,
+      '[data-agent-native-node-id="rect"]',
+      '<div id="rect-copy" data-agent-native-node-id="rect-copy">copy</div>',
+      {
+        tagName: "DIV",
+        id: "rect-copy",
+        sourceId: "rect-copy",
+        selector: '[data-agent-native-node-id="rect-copy"]',
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+        textContent: "copy",
+      } as any,
+      { sourceId: "rect" },
+    );
+
+    const entry = localContentUndoStackRef.current[0]!;
+    const copyNode = buildCodeLayerProjection(entry.after, {
+      source: SOURCE,
+    }).nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "rect-copy",
+    );
+    expect(copyNode).toBeDefined();
+    expect(entry.selectionAfter).toMatchObject({
+      selectedElement: { sourceId: "rect-copy" },
+      selectedLayerIds: [copyNode!.id],
     });
   });
 });

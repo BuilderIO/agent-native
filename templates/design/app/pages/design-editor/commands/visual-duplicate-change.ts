@@ -2,7 +2,7 @@ import {
   buildCodeLayerProjection,
   type CodeLayerProjection,
 } from "@shared/code-layer";
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import type * as Y from "yjs";
 
@@ -23,8 +23,11 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import {
   captureYjsUndoStackTop,
+  stampLocalContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionBefore,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
+  type ContentHistoryChange,
   type YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
 import type { GeometryHistorySelection } from "@/pages/design-editor/history";
@@ -56,6 +59,7 @@ export interface VisualDuplicateChangeArgs {
   canEditDesign: boolean;
   canEditLiveScreen?: boolean;
   getFreshActiveContent: () => string;
+  localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   remapMotionTracksForClone?: (
     nodeIdMap: Map<string, string>,
     targetFileId: string,
@@ -94,6 +98,7 @@ export function runVisualDuplicateChange(
     canEditDesign,
     canEditLiveScreen,
     getFreshActiveContent,
+    localContentUndoStackRef,
     remapMotionTracksForClone,
     selectionBefore,
     selectedElement,
@@ -223,6 +228,10 @@ export function runVisualDuplicateChange(
   const undoStackTopBeforeDuplicate = captureYjsUndoStackTop(
     undoManagerRef.current,
   );
+  const localContentUndoStackTopBeforeDuplicate =
+    localContentUndoStackRef.current[
+      localContentUndoStackRef.current.length - 1
+    ];
   const publication = applyLocalContentUpdate(nextContent, {
     refreshPreview: false,
     forcePreviewFullDocument: true,
@@ -263,5 +272,17 @@ export function runVisualDuplicateChange(
       publication.yjsHistoryRecorded === true,
     selectionAfterDuplicate,
   );
+  if (publication.status === "accepted") {
+    stampLocalContentHistorySelectionBefore(
+      localContentUndoStackRef.current,
+      localContentUndoStackTopBeforeDuplicate,
+      selectionBeforeDuplicate,
+    );
+    stampLocalContentHistorySelectionAfter(
+      localContentUndoStackRef.current,
+      localContentUndoStackTopBeforeDuplicate,
+      selectionAfterDuplicate,
+    );
+  }
   return true;
 }
