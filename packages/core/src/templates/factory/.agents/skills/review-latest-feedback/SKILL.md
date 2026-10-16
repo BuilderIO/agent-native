@@ -15,11 +15,12 @@ metadata:
 
 Read this source skill from the current task checkout; generated workspace
 skills are sync outputs. A Slack `👀` is owned work, not a completion mark.
-Before ending a run, reply in every owned root with exact fixed and open scopes,
-evidence, and the next owner. React `✅` only for post-change verified scopes;
-keep your `👀` while any scope remains open, then remove it when all scopes
-close. Add `🎫` only after a different named human accepts a specific action in
-that thread. Read back each reply and reaction after writing it.
+Before ending a run, reply in every owned root with the exact fixed and open
+scopes, evidence, and next action. Name a human owner only when one is assigned
+and has accepted that action. React `✅` only for post-change verified scopes;
+keep your `👀` while any scope remains open, then remove only your own eye when
+all scopes close. Add `🎫` only after a different named human accepts a specific
+action in that thread. Read back each reply and reaction after writing it.
 
 Four phases. Phase 0 comes before investigation.
 
@@ -60,9 +61,10 @@ actor's eye or duplicate a reply under another identity.
 ## Phase 0: claim what you are taking
 
 Resolve known duplicate clusters before claiming. For an eligible item, add
-`👀` before investigation and never remove it. Do not resume items excluded by
-the Slack ownership gate. Post **In progress** only when work continues beyond
-this run.
+`👀` before investigation. Keep your eye while any report scope or follow-up
+remains open; remove only your eye after all scopes close and you have read back
+the final status and reactions. Do not resume items excluded by the Slack
+ownership gate. Post **In progress** only when work continues beyond this run.
 
 **Fix defects or ask for the reporter-only fact/action that unblocks the next
 step.** Explain why it gates progress; never substitute **Open**, a symptom
@@ -112,16 +114,10 @@ exclude boundary rows.
   scope; otherwise use an active or waiting disposition. `Fixed` means no
   report scope remains unfinished.
 
-- Apply `✅` only after Phase 2 proof for each fixed scope, including partial
-  fixes and open PRs. State proof and merge/live status; retain `👀` for any
-  active, waiting, or unverified scope.
-- `🎫` marks only the accepted human handoff above; reporter answers, URLs, and
-  access requests alone stay at `👀`.
-- A claim, merge, or shipment alone never earns `✅`.
-
-Never remove another actor's reaction or any eye. Remove only your stale `✅` or
-`🎫` when supported; otherwise record it and leave the item unreconciled. Read
-back every write and verify its actor. Framework sweeps must pass
+Never remove another actor's reaction. Remove your own `👀` only after all
+report scopes close. Remove your own stale `✅` or `🎫` when current evidence
+shows it no longer applies; otherwise record it and leave the item
+unreconciled. Read back every write and verify its actor. Framework sweeps must pass
 `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json`; failure means
 unreconciled. See
 [`channel-inventory.md`](references/channel-inventory.md).
