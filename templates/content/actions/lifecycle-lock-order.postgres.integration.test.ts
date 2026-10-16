@@ -1844,32 +1844,54 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
-    it("refuses a move under a parent that moves to Trash while the move commits", async () => {
-      const seed = await seedPageTree();
-      const trashedAt = new Date().toISOString();
-      const { action: move } = await raceAgainst(
-        async (tx) => {
-          await lockDocumentRows(tx, [seed.ids.otherParent]);
-          await tx
-            .update(schema.documents)
-            .set({ trashedAt, trashRootId: seed.ids.otherParent })
-            .where(eq(schema.documents.id, seed.ids.otherParent));
+    it.each([
+      {
+        change: "moves to Trash",
+        update: (ids: { otherParent: string; moved: string }) => ({
+          trashedAt: new Date().toISOString(),
+          trashRootId: ids.otherParent,
+        }),
+        refusal: { errorCode: "DOCUMENT_NOT_FOUND", statusCode: 404 },
+      },
+      {
+        change: "moves to another section",
+        update: () => ({ orgId: "another-org" }),
+        refusal: { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+      },
+      {
+        change: "moves under the page",
+        update: (ids: { otherParent: string; moved: string }) => ({
+          parentId: ids.moved,
+        }),
+        refusal: {
+          message: "A document cannot be moved under one of its children",
         },
-        () =>
-          asOwner(() =>
-            moveDocument.run({
-              id: seed.ids.moved,
-              parentId: seed.ids.otherParent,
-            }),
-          ),
-      );
-      await expect(move).rejects.toMatchObject({
-        errorCode: "DOCUMENT_NOT_FOUND",
-        statusCode: 404,
-      });
-      expect(await readPage(seed.ids.moved)).toMatchObject({
-        parentId: seed.ids.parent,
-      });
-    });
+      },
+    ])(
+      "refuses a move under a parent that $change while the move commits",
+      async ({ update, refusal }) => {
+        const seed = await seedPageTree();
+        const { action: move } = await raceAgainst(
+          async (tx) => {
+            await lockDocumentRows(tx, [seed.ids.otherParent]);
+            await tx
+              .update(schema.documents)
+              .set(update(seed.ids))
+              .where(eq(schema.documents.id, seed.ids.otherParent));
+          },
+          () =>
+            asOwner(() =>
+              moveDocument.run({
+                id: seed.ids.moved,
+                parentId: seed.ids.otherParent,
+              }),
+            ),
+        );
+        await expect(move).rejects.toMatchObject(refusal);
+        expect(await readPage(seed.ids.moved)).toMatchObject({
+          parentId: seed.ids.parent,
+        });
+      },
+    );
   },
 );

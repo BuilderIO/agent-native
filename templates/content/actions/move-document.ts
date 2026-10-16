@@ -350,7 +350,12 @@ export default defineAction({
           }
           if (args.parentId) {
             const [parent] = await tx
-              .select({ trashedAt: schema.documents.trashedAt })
+              .select({
+                trashedAt: schema.documents.trashedAt,
+                spaceId: schema.documents.spaceId,
+                visibility: schema.documents.visibility,
+                orgId: schema.documents.orgId,
+              })
               .from(schema.documents)
               .where(
                 and(
@@ -364,6 +369,21 @@ export default defineAction({
                 statusCode: 404,
               });
             }
+            if (
+              parent.spaceId !== existing.spaceId ||
+              !sameRootSection(parent, existing)
+            ) {
+              throw new ActionContractError(
+                "The document's move scope changed. Read it again and retry.",
+                { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+              );
+            }
+            await assertParentIsNotDescendant({
+              db: tx,
+              ownerEmail,
+              id,
+              parentId: args.parentId,
+            });
           }
           await assertDocumentMetadataDatabaseScope({
             db: tx,
