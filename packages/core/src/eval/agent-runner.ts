@@ -584,8 +584,9 @@ function failedProductionPathOutput(
   error: string,
   durationMs: number,
 ): AgentRunOutput {
-  const cause = output.error ? `${error} Cause: ${output.error}` : error;
-  return { ...output, ok: false, error: cause, durationMs };
+  // Provider errors can contain request and customer details. Keep this
+  // report-facing failure bounded to the known safe message.
+  return { ...output, ok: false, error, durationMs };
 }
 
 function validateProductionContext(
