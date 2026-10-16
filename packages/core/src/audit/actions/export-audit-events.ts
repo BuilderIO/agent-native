@@ -35,10 +35,11 @@ const CSV_COLUMNS: Array<[key: keyof AuditEvent, header: string]> = [
 function csvField(value: unknown): string {
   if (value === null || value === undefined) return "";
   const raw = String(value);
-  if (/[",\n\r]/.test(raw)) {
-    return `"${raw.replace(/"/g, '""')}"`;
+  const safe = /^[\s\x00-\x1f\x7f-\x9f]*[=+\-@]/u.test(raw) ? `'${raw}` : raw;
+  if (/[",\n\r]/.test(safe)) {
+    return `"${safe.replace(/"/g, '""')}"`;
   }
-  return raw;
+  return safe;
 }
 
 function toCsv(events: AuditEvent[]): string {

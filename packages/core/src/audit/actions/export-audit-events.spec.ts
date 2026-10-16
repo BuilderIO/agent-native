@@ -52,6 +52,8 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
     errorCode: over.errorCode ?? null,
     ownerEmail: over.ownerEmail ?? "alice@x.com",
     visibility: over.visibility ?? "private",
+    reportedClientName: over.reportedClientName ?? null,
+    reportedClientVersion: over.reportedClientVersion ?? null,
   };
 }
 
@@ -91,6 +93,31 @@ describe("export-audit-events", () => {
     expect(result.content).toContain(
       '"has ""quotes"", a comma, and\na newline"',
     );
+  });
+
+  it("neutralizes spreadsheet formulas in self-reported client fields", async () => {
+    const formulaValues = ["=1+1", " +1+1", "\t-1+1", "\u00a0@SUM(1+1)"];
+    for (const [index, reportedClientName] of formulaValues.entries()) {
+      await insertAuditEvent(
+        makeEvent({ id: `formula-${index}`, reportedClientName }),
+      );
+    }
+    await insertAuditEvent(
+      makeEvent({
+        id: "formula-version",
+        reportedClientVersion: "\t@SUM(1+1)",
+      }),
+    );
+
+    const result = await exportAuditEvents.run(
+      { format: "csv" },
+      { userEmail: "alice@x.com" },
+    );
+
+    for (const formulaValue of formulaValues) {
+      expect(result.content).toContain(`,'${formulaValue},`);
+    }
+    expect(result.content).toContain(",'\t@SUM(1+1),");
   });
 
   it("exports NDJSON that parses line-by-line", async () => {
