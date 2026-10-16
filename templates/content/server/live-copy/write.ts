@@ -1,4 +1,6 @@
+import { ActionContractError } from "@agent-native/core";
 import {
+  LiveCopyError,
   mutateLiveCopy,
   type LiveCopyCallChange,
   type LiveCopyMutationResult,
@@ -38,6 +40,54 @@ function replaceBodyInput(
   // The worker gets a structured clone, which drops a getter's or a
   // non-enumerable property's value, so send the values checked here.
   return { content, expected };
+}
+
+/**
+ * True when a server write found its page off its live copy before anything
+ * committed, so the writer can take its legacy path. A released or replaced
+ * binding (`binding_inactive`) refuses every write through its handle, so it
+ * is no reason to change path.
+ */
+export function liveCopyWriteLeftPath(error: unknown): boolean {
+  if (error instanceof LiveCopyError) {
+    return (
+      error.code === "not_live_copy" && error.reason !== "binding_inactive"
+    );
+  }
+  return (
+    error instanceof ActionContractError &&
+    error.errorCode === "LIVE_BODY_WRITE_PATH_CHANGED"
+  );
+}
+
+/** A replace refused because the page's body changed since `expected`. */
+export function liveCopyBaseChanged(error: unknown): boolean {
+  return (
+    error instanceof LiveCopyError &&
+    error.code === "build_refused" &&
+    error.reason === "base_changed"
+  );
+}
+
+/**
+ * The typed refusal for a body the page's schema can't hold in full; the
+ * live copy refuses it rather than keep part of it.
+ */
+export function unrepresentableBodyError(
+  error: unknown,
+): ActionContractError | undefined {
+  if (!(error instanceof LiveCopyError) || error.code !== "build_refused")
+    return undefined;
+  if (error.reason !== "lossy" && error.reason !== "unrepresentable")
+    return undefined;
+  return new ActionContractError(
+    `The edited body can't be stored on this page in full (${error.reason}). Read the page with get-document and write the change in its Markdown.`,
+    {
+      errorCode: "DOCUMENT_BODY_UNREPRESENTABLE",
+      statusCode: 422,
+      details: { reason: error.reason },
+    },
+  );
 }
 
 /**
