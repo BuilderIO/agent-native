@@ -871,6 +871,16 @@ mod macos {
         }
     }
 
+    fn session_start_error(active: SessionOwner, requested: SessionOwner) -> Option<&'static str> {
+        match (active, requested) {
+            (SessionOwner::Meeting, SessionOwner::Dictation) => Some("speech-engine-busy-meeting"),
+            (SessionOwner::Dictation, SessionOwner::Meeting) => {
+                Some("speech-engine-busy-dictation")
+            }
+            _ => None,
+        }
+    }
+
     fn should_use_combined_sck_capture(
         owner: SessionOwner,
         microphone_capture_supported: bool,
@@ -945,6 +955,21 @@ mod macos {
         cancelled_run_ids: HashSet<u64>,
     }
 
+    fn active_run_owner_conflict(
+        authority: &RunAuthority,
+        owner: SessionOwner,
+        run_id: u64,
+    ) -> Option<SessionOwner> {
+        let active_run_id = authority.latest_run_id?;
+        if active_run_id > run_id || authority.cancelled_run_ids.contains(&active_run_id) {
+            return None;
+        }
+
+        authority
+            .latest_owner
+            .filter(|active_owner| *active_owner != owner)
+    }
+
     fn begin_run_authority(authority: &mut RunAuthority, owner: SessionOwner, run_id: u64) -> bool {
         if authority
             .latest_run_id
@@ -952,6 +977,7 @@ mod macos {
             || (authority.latest_run_id == Some(run_id)
                 && (authority.latest_owner != Some(owner)
                     || authority.cancelled_run_ids.contains(&run_id)))
+            || active_run_owner_conflict(authority, owner, run_id).is_some()
         {
             return false;
         }
@@ -986,14 +1012,18 @@ mod macos {
         true
     }
 
-    fn begin_run(owner: SessionOwner, run_id: Option<u64>) -> bool {
+    fn begin_run(owner: SessionOwner, run_id: Option<u64>) -> Result<bool, &'static str> {
         let Some(run_id) = run_id else {
-            return true;
+            return Ok(true);
         };
         let mut latest = latest_run_id_slot()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        begin_run_authority(&mut latest, owner, run_id)
+        if let Some(active_owner) = active_run_owner_conflict(&latest, owner, run_id) {
+            return Err(session_start_error(active_owner, owner)
+                .expect("different session owners always conflict"));
+        }
+        Ok(begin_run_authority(&mut latest, owner, run_id))
     }
 
     fn run_is_current(authority: &RunAuthority, owner: SessionOwner, run_id: u64) -> bool {
@@ -1026,16 +1056,16 @@ mod macos {
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
             if let Some(prev) = slot.as_ref() {
-                if prev.owner == SessionOwner::Meeting && owner == SessionOwner::Dictation {
-                    return Err("speech-engine-busy-meeting".into());
+                if let Some(error) = session_start_error(prev.owner, owner) {
+                    return Err(error.into());
                 }
             }
         }
-        if !begin_run(owner, run_id) {
+        if !begin_run(owner, run_id).map_err(str::to_owned)? {
             return Ok(());
         }
 
-        stop(&app, None, run_id, true);
+        stop(&app, Some(owner), run_id, true);
 
         ensure_model(&app).await.map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
@@ -1308,6 +1338,26 @@ mod macos {
                 return Err(error.to_string());
             }
         };
+        if let Some(error) = slot
+            .as_ref()
+            .and_then(|current| session_start_error(current.owner, owner))
+        {
+            drop(slot);
+            drop(run_authority);
+            drop(shared_audio);
+            release_temporary_audio(&app, temporary_audio);
+            mic_stream.stop();
+            if let Some(sys_stream) = &sys_stream {
+                sys_stream.stop();
+            }
+            if let Some(mic_cap) = mic_cap {
+                mic_cap.stop();
+            }
+            if let Some(sys_cap) = sys_cap {
+                sys_cap.stop();
+            }
+            return Err(error.into());
+        }
         *slot = Some(Session {
             app: app.clone(),
             mic_cap,
@@ -1462,12 +1512,49 @@ mod macos {
         use std::time::{Duration, Instant};
 
         use super::{
-            begin_run_authority, buffer_start_after_drain, cancel_run_authority, clean_transcript,
-            partial_inference_due, partial_inference_timestamp, resample_to_16k, run_is_current,
+            active_run_owner_conflict, begin_run_authority, buffer_start_after_drain,
+            cancel_run_authority, clean_transcript, partial_inference_due,
+            partial_inference_timestamp, resample_to_16k, run_is_current, session_start_error,
             should_use_combined_sck_capture, split_mic_capture_options, timeline_start_for_offset,
             utterance_finalize_due, IncrementalResample, RunAuthority, SessionOwner,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
+
+        #[test]
+        fn active_dictation_cannot_be_replaced_by_meeting_audio() {
+            let mut authority = RunAuthority::default();
+            assert!(begin_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                10
+            ));
+
+            assert_eq!(
+                active_run_owner_conflict(&authority, SessionOwner::Meeting, 11),
+                Some(SessionOwner::Dictation)
+            );
+            assert!(!begin_run_authority(
+                &mut authority,
+                SessionOwner::Meeting,
+                11
+            ));
+            assert!(run_is_current(&authority, SessionOwner::Dictation, 10));
+            assert_eq!(
+                session_start_error(SessionOwner::Dictation, SessionOwner::Meeting),
+                Some("speech-engine-busy-dictation")
+            );
+
+            assert!(cancel_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                10
+            ));
+            assert!(begin_run_authority(
+                &mut authority,
+                SessionOwner::Meeting,
+                11
+            ));
+        }
 
         #[test]
         fn cancelled_run_cannot_be_restarted_after_stop_wins() {

@@ -183,7 +183,7 @@ const readStoredRunId = (): StoredRunIdResult => {
 };
 
 const storedRunId = readStoredRunId();
-let runIdStorageUnavailable = storedRunId.status === "unavailable";
+let runIdStorageWritable = storedRunId.status === "available";
 let lastRunId = Math.max(
   Date.now() * 1_024,
   storedRunId.status === "available" ? storedRunId.value : 0,
@@ -193,27 +193,25 @@ let lastRunId = Math.max(
 );
 
 export function allocateVoiceRunId(): number {
-  if (runIdStorageUnavailable) {
-    throw new Error("Dictation run ID storage is unavailable.");
-  }
   const nextRunId = Math.max(lastRunId + 1, Date.now() * 1_024);
   if (!Number.isSafeInteger(nextRunId)) {
     throw new Error("Dictation run ID exceeded the safe integer range.");
   }
-  if (storedRunId.status === "available") {
+
+  lastRunId = nextRunId;
+  runIdRegistry.__clipsVoiceDictationLastRunId = nextRunId;
+
+  if (runIdStorageWritable) {
     try {
       window.sessionStorage.setItem(runIdStorageKey, String(nextRunId));
     } catch (error) {
-      runIdStorageUnavailable = true;
-      console.error(
-        "[voice-dictation] run ID storage could not be updated:",
+      runIdStorageWritable = false;
+      console.warn(
+        "[voice-dictation] run ID persistence is unavailable; continuing with an in-memory sequence:",
         error,
       );
-      throw new Error("Dictation run ID storage is unavailable.");
     }
   }
-  lastRunId = nextRunId;
-  runIdRegistry.__clipsVoiceDictationLastRunId = nextRunId;
   return nextRunId;
 }
 

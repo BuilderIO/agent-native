@@ -54,7 +54,7 @@ describe("voice dictation lifecycle", () => {
     expect(secondRunId).toBeGreaterThan(firstRunId);
   });
 
-  it("fails closed when run ID storage cannot be read", async () => {
+  it("keeps allocating monotonic run ids when storage cannot be read", async () => {
     const originalDescriptor = Object.getOwnPropertyDescriptor(
       window,
       "sessionStorage",
@@ -69,9 +69,14 @@ describe("voice dictation lifecycle", () => {
       vi.resetModules();
       const lifecycleModule = await import("./voice-dictation-lifecycle");
 
-      expect(() =>
-        lifecycleModule.createVoiceDictationLifecycle().begin(),
-      ).toThrow("Dictation run ID storage is unavailable.");
+      const firstRunId = lifecycleModule
+        .createVoiceDictationLifecycle()
+        .begin()!;
+      const secondRunId = lifecycleModule
+        .createVoiceDictationLifecycle()
+        .begin()!;
+
+      expect(secondRunId).toBeGreaterThan(firstRunId);
     } finally {
       if (originalDescriptor) {
         Object.defineProperty(window, "sessionStorage", originalDescriptor);

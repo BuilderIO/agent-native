@@ -223,6 +223,16 @@ pub(crate) mod macos {
         }
     }
 
+    fn session_start_error(active: SessionOwner, requested: SessionOwner) -> Option<&'static str> {
+        match (active, requested) {
+            (SessionOwner::Meeting, SessionOwner::Dictation) => Some("speech-engine-busy-meeting"),
+            (SessionOwner::Dictation, SessionOwner::Meeting) => {
+                Some("speech-engine-busy-dictation")
+            }
+            _ => None,
+        }
+    }
+
     fn native_speech_voice_processing_mode(owner: SessionOwner) -> MicVoiceProcessingMode {
         match owner {
             SessionOwner::Meeting => MicVoiceProcessingMode::Bypassed,
@@ -316,6 +326,42 @@ pub(crate) mod macos {
     struct SessionRegistry<T> {
         active: Option<T>,
         finishing: Vec<T>,
+        starting: Option<PendingSpeechStart>,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct PendingSpeechStart {
+        owner: SessionOwner,
+        generation: u64,
+    }
+
+    fn session_registry_start_error<T>(
+        registry: &SessionRegistry<T>,
+        requested: SessionOwner,
+        owner: impl Fn(&T) -> SessionOwner,
+    ) -> Option<&'static str> {
+        registry
+            .active
+            .as_ref()
+            .and_then(|active| session_start_error(owner(active), requested))
+            .or_else(|| {
+                registry
+                    .starting
+                    .and_then(|starting| session_start_error(starting.owner, requested))
+            })
+    }
+
+    struct PendingSpeechStartGuard(PendingSpeechStart);
+
+    impl Drop for PendingSpeechStartGuard {
+        fn drop(&mut self) {
+            let mut registry = session_slot()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if registry.starting == Some(self.0) {
+                registry.starting = None;
+            }
+        }
     }
 
     #[derive(Default)]
@@ -347,6 +393,17 @@ pub(crate) mod macos {
             .cancelled_run_ids
             .retain(|cancelled| *cancelled >= run_id);
         !authority.cancelled_run_ids.contains(&run_id)
+    }
+
+    fn register_dictation_stop(authority: &mut DictationRunAuthority, run_id: u64) -> bool {
+        if authority
+            .latest_run_id
+            .is_some_and(|latest| latest > run_id)
+        {
+            return false;
+        }
+        authority.latest_run_id = Some(run_id);
+        true
     }
 
     fn dictation_run_is_current(authority: &DictationRunAuthority, run_id: Option<u64>) -> bool {
@@ -415,6 +472,7 @@ pub(crate) mod macos {
             Self {
                 active: None,
                 finishing: Vec::new(),
+                starting: None,
             }
         }
     }
@@ -1567,6 +1625,7 @@ pub(crate) mod macos {
                 return Ok(());
             }
         }
+
         let start_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
@@ -1579,10 +1638,9 @@ pub(crate) mod macos {
                     return Ok(());
                 }
             }
-            if let Some(prev) = slot.active.as_ref() {
-                if prev.owner == SessionOwner::Meeting && owner == SessionOwner::Dictation {
-                    return Err("speech-engine-busy-meeting".into());
-                }
+            if let Some(error) = session_registry_start_error(&slot, owner, |session| session.owner)
+            {
+                return Err(error.into());
             }
         }
 
@@ -1594,7 +1652,7 @@ pub(crate) mod macos {
         }
         ensure_authorized()?;
 
-        let (my_gen, my_stop_gen) = {
+        let (my_gen, my_stop_gen, pending_start) = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             if let Some(guard) = restart_guard {
                 if !restart_guard_is_current(
@@ -1608,6 +1666,10 @@ pub(crate) mod macos {
             let current_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
             if stop_generation_changed(start_stop_generation, current_stop_generation) {
                 return Ok(());
+            }
+            if let Some(error) = session_registry_start_error(&slot, owner, |session| session.owner)
+            {
+                return Err(error.into());
             }
             let generation = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
             if let Some(prev) = slot.active.take() {
@@ -1626,8 +1688,11 @@ pub(crate) mod macos {
                     unsafe { prev.task.cancel() };
                 }
             }
-            (generation, current_stop_generation)
+            let pending_start = PendingSpeechStart { owner, generation };
+            slot.starting = Some(pending_start);
+            (generation, current_stop_generation, pending_start)
         };
+        let _pending_start = PendingSpeechStartGuard(pending_start);
         if let Some(reserved_generation) = &restart_reserved_generation {
             reserved_generation.store(my_gen, Ordering::SeqCst);
         }
@@ -1863,18 +1928,30 @@ pub(crate) mod macos {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             let current_generation = session_generation().load(Ordering::SeqCst);
-            if ((owner != SessionOwner::Dictation || dictation_run_is_current(&authority, run_id))
-                && (owner != SessionOwner::Meeting
-                    || meeting_run_is_current(&meeting_authority, run_id)))
+            let owns_pending_start = slot.starting == Some(pending_start);
+            let active_owner_conflict = slot
+                .active
+                .as_ref()
+                .and_then(|active| session_start_error(active.owner, owner));
+            if owns_pending_start
+                && active_owner_conflict.is_none()
+                && ((owner != SessionOwner::Dictation
+                    || dictation_run_is_current(&authority, run_id))
+                    && (owner != SessionOwner::Meeting
+                        || meeting_run_is_current(&meeting_authority, run_id)))
                 && owner_stop_generation(owner).load(Ordering::SeqCst) == my_stop_gen
             {
-                put_session_if_current_generation(
+                let result = put_session_if_current_generation(
                     &mut slot.active,
                     session,
                     current_generation,
                     |session| session.generation,
                     |session| session.completion_started.load(Ordering::SeqCst),
-                )
+                );
+                if result.is_ok() {
+                    slot.starting = None;
+                }
+                result
             } else {
                 Err(session)
             }
@@ -2192,10 +2269,9 @@ pub(crate) mod macos {
         };
         if let Some(authority) = authority.as_mut() {
             let id = run_id.expect("the authority lock requires a run id");
-            if authority.latest_run_id.is_some_and(|latest| latest > id) {
+            if !register_dictation_stop(authority, id) {
                 return Ok(());
             }
-            authority.latest_run_id = Some(id);
         }
         if let Some(authority) = meeting_authority.as_mut() {
             let id = run_id.expect("the meeting authority lock requires a run id");
@@ -2295,6 +2371,7 @@ pub(crate) mod macos {
         let sessions = match session_slot().lock() {
             Ok(mut slot) => {
                 invalidate_restart(None);
+                slot.starting = None;
                 let mut sessions = slot.active.take().into_iter().collect::<Vec<_>>();
                 sessions.append(&mut slot.finishing);
                 sessions
@@ -2302,6 +2379,7 @@ pub(crate) mod macos {
             Err(poisoned) => {
                 let mut slot = poisoned.into_inner();
                 invalidate_restart(None);
+                slot.starting = None;
                 let mut sessions = slot.active.take().into_iter().collect::<Vec<_>>();
                 sessions.append(&mut slot.finishing);
                 sessions
@@ -2321,12 +2399,63 @@ pub(crate) mod macos {
         use super::{
             begin_meeting_run, cancel_meeting_run, meeting_run_is_current,
             native_speech_voice_processing_mode, put_session_if_current_generation,
-            restart_guard_is_current, restart_setup_is_current, restore_stopped_session,
-            retain_session_until_callback, stop_generation_changed, superseded_start_result,
-            take_sessions_if_generation_matches, MeetingRunAuthority, MicVoiceProcessingMode,
-            RestartGuard, SessionOwner, SessionRegistry, StoppedSessionDisposition,
+            register_dictation_stop, restart_guard_is_current, restart_setup_is_current,
+            restore_stopped_session, retain_session_until_callback, session_registry_start_error,
+            session_start_error, stop_generation_changed, superseded_start_result,
+            take_sessions_if_generation_matches, DictationRunAuthority, MeetingRunAuthority,
+            MicVoiceProcessingMode, PendingSpeechStart, RestartGuard, SessionOwner,
+            SessionRegistry, StoppedSessionDisposition,
         };
         use std::sync::Arc;
+
+        #[test]
+        fn active_engine_owner_cannot_be_preempted_by_another_owner() {
+            assert_eq!(
+                session_start_error(SessionOwner::Dictation, SessionOwner::Meeting),
+                Some("speech-engine-busy-dictation")
+            );
+            assert_eq!(
+                session_start_error(SessionOwner::Meeting, SessionOwner::Dictation),
+                Some("speech-engine-busy-meeting")
+            );
+            assert_eq!(
+                session_start_error(SessionOwner::Meeting, SessionOwner::Meeting),
+                None
+            );
+        }
+
+        #[test]
+        fn pending_engine_start_reserves_its_owner() {
+            let mut registry = SessionRegistry::<()>::default();
+            registry.starting = Some(PendingSpeechStart {
+                owner: SessionOwner::Dictation,
+                generation: 5,
+            });
+
+            assert_eq!(
+                session_registry_start_error(&registry, SessionOwner::Meeting, |_| {
+                    SessionOwner::Dictation
+                }),
+                Some("speech-engine-busy-dictation")
+            );
+            assert_eq!(
+                session_registry_start_error(&registry, SessionOwner::Dictation, |_| {
+                    SessionOwner::Dictation
+                }),
+                None
+            );
+        }
+
+        #[test]
+        fn stale_dictation_stop_cannot_invalidate_a_newer_run() {
+            let mut authority = DictationRunAuthority {
+                latest_run_id: Some(12),
+                cancelled_run_ids: Default::default(),
+            };
+
+            assert!(!register_dictation_stop(&mut authority, 11));
+            assert_eq!(authority.latest_run_id, Some(12));
+        }
 
         #[derive(Debug)]
         struct TestResource;
@@ -2355,6 +2484,7 @@ pub(crate) mod macos {
             let mut registry = SessionRegistry {
                 active: Some(test_session(2)),
                 finishing: Vec::new(),
+                starting: None,
             };
 
             let removed =
@@ -2373,6 +2503,7 @@ pub(crate) mod macos {
             let mut registry = SessionRegistry {
                 active: Some(test_session(2)),
                 finishing: Vec::new(),
+                starting: None,
             };
             let old_session = test_session(1);
             let old_resource = Arc::downgrade(&old_session.resource);
