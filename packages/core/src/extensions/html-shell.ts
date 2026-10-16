@@ -69,8 +69,10 @@ export const EXTENSION_IFRAME_DISPLAY_SOURCES_PATH =
 
 export const EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE =
   "agent-native-extension.hello-link-channel";
-export const EXTENSION_LINK_CHANNEL_RESEED_MESSAGE_TYPE =
-  "agent-native-extension.reseed-link-channel";
+export const EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE =
+  "agent-native-extension.host-bridge-port";
+export const EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE =
+  "agent-native-extension.link-channel-ready-ack";
 export const EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE =
   "agent-native-extension.link-channel-ready";
 export const EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE =
@@ -180,6 +182,13 @@ export function buildExtensionExternalLinkTargetBootstrap(
       var parentWindow = window.parent;
       var parentPostMessage = parentWindow.postMessage.bind(parentWindow);
       var bootstrapScript = document.currentScript;
+      var pendingPorts = [];
+      var handshakeTimer = null;
+      var handshakeRetryTimer = null;
+      var handshakePendingPort = null;
+      var activeChildPort = null;
+      var activeHostPort = null;
+      var handshakeAttempts = 0;
       var linkNonce = bootstrapScript && bootstrapScript.getAttribute('data-link-nonce');
       if (!linkNonce && window.location.hash.length > 1) {
         linkNonce = window.location.hash.slice(1);
@@ -193,27 +202,44 @@ export function buildExtensionExternalLinkTargetBootstrap(
       if (bootstrapScript) bootstrapScript.remove();
 
       function sendLinkChannelRequest() {
-        if (!linkNonce) {
-          parentPostMessage({
-            type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_RESEED_MESSAGE_TYPE)}
-          }, '*');
-          return;
-        }
+        if (!linkNonce || sendExternalLink || handshakePendingPort || handshakeAttempts >= 20) return;
 
         pendingPorts.forEach(function(port) {
           port.close();
         });
         pendingPorts = [];
+        handshakeAttempts += 1;
         var channel = new MessageChannel();
         var childPort = channel.port1;
+        handshakePendingPort = childPort;
         childPort.addEventListener('message', function(event) {
+          if (
+            event.data &&
+            event.data.type === ${JSON.stringify(EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE)} &&
+            event.ports.length === 1
+          ) {
+            if (activeHostPort) activeHostPort.close();
+            activeHostPort = event.ports[0];
+            window.__agentNativeExtensionHostPort = activeHostPort;
+            window.dispatchEvent(new Event('agent-native-extension-host-port-ready'));
+            return;
+          }
           if (!event.data || event.data.type !== ${JSON.stringify(EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE)}) return;
+          if (handshakePendingPort !== childPort) return;
+          if (handshakeRetryTimer) clearTimeout(handshakeRetryTimer);
+          handshakeRetryTimer = null;
+          handshakePendingPort = null;
           sendExternalLink = portPostMessage.bind(childPort);
+          activeChildPort = childPort;
           if (handshakeTimer) clearInterval(handshakeTimer);
+          handshakeTimer = null;
           pendingPorts.forEach(function(port) {
             if (port !== childPort) port.close();
           });
           pendingPorts = [childPort];
+          portPostMessage.call(childPort, {
+            type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE)}
+          });
         });
         childPort.start();
         pendingPorts.push(childPort);
@@ -221,14 +247,43 @@ export function buildExtensionExternalLinkTargetBootstrap(
           type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE)},
           nonce: linkNonce
         }, '*', [channel.port2]);
+        handshakeRetryTimer = setTimeout(function() {
+          if (handshakePendingPort !== childPort) return;
+          handshakePendingPort = null;
+          pendingPorts = pendingPorts.filter(function(port) { return port !== childPort; });
+          childPort.close();
+          sendLinkChannelRequest();
+        }, 500);
       }
 
-      var pendingPorts = [];
-      var handshakeTimer = null;
-      sendLinkChannelRequest();
-      handshakeTimer = setInterval(function() {
-        if (!sendExternalLink) sendLinkChannelRequest();
-      }, 100);
+      function startLinkChannel() {
+        if (!linkNonce) return;
+        sendLinkChannelRequest();
+        handshakeTimer = setInterval(function() {
+          sendLinkChannelRequest();
+          if (handshakeAttempts >= 20 && handshakeTimer) {
+            clearInterval(handshakeTimer);
+            handshakeTimer = null;
+          }
+        }, 100);
+      }
+      if (document.readyState === 'complete') {
+        startLinkChannel();
+      } else {
+        window.addEventListener('load', startLinkChannel, { once: true });
+      }
+      window.addEventListener('pagehide', function() {
+        if (handshakeTimer) clearInterval(handshakeTimer);
+        if (handshakeRetryTimer) clearTimeout(handshakeRetryTimer);
+        handshakePendingPort = null;
+        pendingPorts.forEach(function(port) { port.close(); });
+        pendingPorts = [];
+        if (activeChildPort) activeChildPort.close();
+        if (activeHostPort) {
+          activeHostPort.close();
+          window.__agentNativeExtensionHostPort = null;
+        }
+      }, { once: true });
 
       document.addEventListener('click', function(event) {
         if (!event.isTrusted) return;
@@ -251,12 +306,30 @@ export function buildExtensionExternalLinkTargetBootstrap(
           destination.origin === new URL(document.baseURI).origin
         ) return;
 
-        if (!sendExternalLink) return;
         event.preventDefault();
+        if (!sendExternalLink) return;
         sendExternalLink({
           type: ${JSON.stringify(EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE)},
           href: destination.href
         });
+      }, true);
+
+      document.addEventListener('submit', function(event) {
+        var form = event.target;
+        if (!form || form.tagName !== 'FORM') return;
+        var submitter = event.submitter;
+        var action = submitter && submitter.hasAttribute('formaction')
+          ? submitter.formAction
+          : form.action;
+        try {
+          var destination = new URL(action, document.baseURI);
+          if (
+            (destination.protocol === 'http:' || destination.protocol === 'https:') &&
+            destination.origin !== new URL(document.baseURI).origin
+          ) event.preventDefault();
+        } catch (_) {
+          event.preventDefault();
+        }
       }, true);
     })();
   </script>`;
@@ -270,6 +343,7 @@ export function buildExtensionHtml(
   binding?: ExtensionRenderBinding,
   metaCsp: string = EXTENSION_IFRAME_META_CSP,
   linkNonce?: string,
+  enableExternalLinkBridge = true,
 ): string {
   const extensionIdJson = JSON.stringify(extensionId ?? "");
   const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
@@ -351,7 +425,7 @@ export function buildExtensionHtml(
       _collectError(msg, stack);
     });
   </script>
-  ${buildExtensionExternalLinkTargetBootstrap(linkNonce)}
+  ${enableExternalLinkBridge ? buildExtensionExternalLinkTargetBootstrap(linkNonce) : ""}
   <!--
     SECURITY: pinned to exact patch versions + SRI integrity hashes. A
     malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would

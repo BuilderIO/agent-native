@@ -242,11 +242,31 @@ describe("ExtensionViewer MCP embeds", () => {
       url: "https://example.com/",
       token,
     });
+    const channel = new MessageChannel();
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-extension.hello-link-channel",
+            nonce: "extension-link-nonce",
+          },
+          origin: "null",
+          source: frameWindow,
+          ports: [channel.port2],
+        }),
+      );
+      channel.port1.postMessage({
+        type: "agent-native-extension.open-external-link",
+        href: "https://example.com/",
+      });
+    });
 
     expect(replies).not.toContainEqual({
       type: "agent-native-extension-open-url-ready",
     });
     expect(open).not.toHaveBeenCalled();
+    channel.port1.close();
+    channel.port2.close();
   });
 
   it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {
@@ -260,6 +280,7 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(iframe.getAttribute("srcdoc")).toContain(
       "agent-native-extension-binding",
     );
+    expect(iframe.getAttribute("srcdoc")).not.toContain("hello-link-channel");
     expect(iframe.getAttribute("sandbox")).toBe(
       "allow-scripts allow-forms allow-downloads",
     );

@@ -539,6 +539,16 @@ export function buildAgentNativeExtensionHtml({
       var slotContext = ${slotContextJson};
       var requestSeq = 0;
       var pending = {};
+      var hostPort = null;
+      var queuedHostMessages = [];
+
+      function postToHost(message) {
+        if (hostPort) {
+          hostPort.postMessage(message);
+        } else {
+          queuedHostMessages.push(message);
+        }
+      }
 
       function nextRequestId(prefix) {
         requestSeq += 1;
@@ -563,12 +573,11 @@ export function buildAgentNativeExtensionHtml({
             reject: reject,
             timer: timer,
           };
-          window.parent.postMessage(Object.assign({}, message, { requestId: requestId }), '*');
+          postToHost(Object.assign({}, message, { requestId: requestId }));
         });
       }
 
-      window.addEventListener('message', function(event) {
-        if (event.source !== window.parent) return;
+      function handleHostMessage(event) {
         var message = event.data || {};
 
         if (message.type === messageTypes.host.INIT) {
@@ -596,7 +605,27 @@ export function buildAgentNativeExtensionHtml({
         } else {
           entry.resolve(message);
         }
-      });
+      }
+
+      function attachHostPort() {
+        var nextPort = window.__agentNativeExtensionHostPort;
+        if (!nextPort || hostPort === nextPort) return;
+        if (hostPort) hostPort.removeEventListener('message', handleHostMessage);
+        hostPort = nextPort;
+        hostPort.addEventListener('message', handleHostMessage);
+        hostPort.start();
+        queuedHostMessages.forEach(function(message) {
+          hostPort.postMessage(message);
+        });
+        queuedHostMessages = [];
+      }
+
+      window.addEventListener('agent-native-extension-host-port-ready', attachHostPort);
+      attachHostPort();
+      window.addEventListener('pagehide', function() {
+        queuedHostMessages = [];
+        if (hostPort) hostPort.removeEventListener('message', handleHostMessage);
+      }, { once: true });
 
       function hostContext() {
         return requestParent(
@@ -926,12 +955,12 @@ export function buildAgentNativeExtensionHtml({
       var postHeight = function(height) {
         if (height === lastReportedHeight) return;
         lastReportedHeight = height;
-        window.parent.postMessage({
+        postToHost({
           type: messageTypes.extension.RESIZE,
           extensionId: extensionId,
           slotId: slotId,
           height: height,
-        }, '*');
+        });
       };
       var measurePositionedContent = function(body, bodyTop) {
         var bottom = 0;
@@ -1017,10 +1046,10 @@ export function buildAgentNativeExtensionHtml({
       };
       if (typeof document.getAnimations === 'function') scheduleAnimationProbe();
 
-      window.parent.postMessage({
+      postToHost({
         type: messageTypes.host.READY,
         requestId: nextRequestId('ready'),
-      }, '*');
+      });
     })();
   </script>
 ${buildSessionReplayIframeBootstrap()}

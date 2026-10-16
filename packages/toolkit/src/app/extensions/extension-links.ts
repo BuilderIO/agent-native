@@ -1,28 +1,58 @@
 import {
+  EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+  EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
-  EXTENSION_LINK_CHANNEL_RESEED_MESSAGE_TYPE,
   EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
 } from "@agent-native/core/extensions/html-shell";
-import { useEffect, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+
+const useLinkEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+export interface ExternalExtensionLinkOptions {
+  enabled?: boolean;
+  onReady?: () => void;
+  onHostPortReady?: (port: MessagePort) => void;
+}
 
 export function useExternalExtensionLinks(
   iframeRef: RefObject<HTMLIFrameElement | null>,
   frameIdentity: unknown,
-  onReady?: () => void,
+  options: ExternalExtensionLinkOptions = {},
 ): string | null {
+  const { enabled = true, onReady, onHostPortReady } = options;
   const [nonce, setNonce] = useState<string | null>(null);
+  const recoveryAttemptedRef = useRef(false);
 
   useEffect(() => {
-    setNonce(createExternalExtensionLinkNonce());
-  }, []);
+    recoveryAttemptedRef.current = false;
+    setNonce(enabled ? createExternalExtensionLinkNonce() : null);
+  }, [enabled]);
 
-  useEffect(() => {
-    if (!nonce) return;
-    return connectExternalExtensionLinks(iframeRef, nonce, setNonce, onReady);
-  }, [iframeRef, frameIdentity, nonce, onReady]);
+  useLinkEffect(() => {
+    if (!enabled || !nonce) return;
+    return connectExternalExtensionLinks(
+      iframeRef,
+      nonce,
+      onReady,
+      onHostPortReady,
+      recoveryAttemptedRef,
+      () => {
+        if (recoveryAttemptedRef.current) return;
+        recoveryAttemptedRef.current = true;
+        setNonce(createExternalExtensionLinkNonce());
+      },
+    );
+  }, [enabled, frameIdentity, iframeRef, nonce, onHostPortReady, onReady]);
 
-  return nonce;
+  return enabled ? nonce : null;
 }
 
 export function createExternalExtensionLinkNonce(): string {
@@ -44,18 +74,32 @@ export function extensionFrameUrlWithLinkNonce(
 function connectExternalExtensionLinks(
   iframeRef: RefObject<HTMLIFrameElement | null>,
   nonce: string,
-  onReseed: (nonce: string) => void,
-  onReady?: () => void,
+  onReady: (() => void) | undefined,
+  onHostPortReady: ((port: MessagePort) => void) | undefined,
+  recoveryAttemptedRef: { current: boolean },
+  recover: () => void,
 ): () => void {
   if (typeof MessageChannel === "undefined") {
     return () => {};
   }
 
-  let activePort: MessagePort | null = null;
+  let activeLinkPort: MessagePort | null = null;
+  let activeHostBridgePort: MessagePort | null = null;
   let activePortWindow: MessageEventSource | null = null;
+  let handshakeBeforeFrameLoad = false;
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  let readyReported = false;
+
   const onPortMessage = (event: MessageEvent) => {
     if (activePortWindow !== iframeRef.current?.contentWindow) return;
     const message = event.data;
+    if (message?.type === EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE) {
+      if (!readyReported) {
+        readyReported = true;
+        onReady?.();
+      }
+      return;
+    }
     if (
       typeof message !== "object" ||
       message === null ||
@@ -64,6 +108,27 @@ function connectExternalExtensionLinks(
       return;
     }
     openExternalExtensionLink(message.href);
+  };
+
+  const onFrameLoad = (event: Event) => {
+    const iframe = iframeRef.current;
+    if (!iframe || event.target !== iframe) return;
+    iframe.removeAttribute("data-link-channel-ready");
+    if (handshakeBeforeFrameLoad) {
+      handshakeBeforeFrameLoad = false;
+      return;
+    }
+
+    activeLinkPort?.close();
+    activeHostBridgePort?.close();
+    activeLinkPort = null;
+    activeHostBridgePort = null;
+    activePortWindow = null;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      recover();
+    }, 2500);
   };
 
   const onWindowMessage = (event: MessageEvent) => {
@@ -77,11 +142,6 @@ function connectExternalExtensionLinks(
     }
 
     const message = event.data as { type?: unknown; nonce?: unknown };
-    if (message.type === EXTENSION_LINK_CHANNEL_RESEED_MESSAGE_TYPE) {
-      if (event.ports.length === 0)
-        onReseed(createExternalExtensionLinkNonce());
-      return;
-    }
 
     if (
       message.type !== EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE ||
@@ -92,21 +152,44 @@ function connectExternalExtensionLinks(
       return;
     }
 
-    activePort?.close();
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+      recoveryTimer = null;
+    } else {
+      handshakeBeforeFrameLoad = true;
+    }
+    recoveryAttemptedRef.current = false;
+    activeLinkPort?.close();
+    activeHostBridgePort?.close();
     activePortWindow = event.source;
-    activePort = event.ports[0];
-    activePort.addEventListener("message", onPortMessage);
-    activePort.start();
-    activePort.postMessage({
+    activeLinkPort = event.ports[0];
+    readyReported = false;
+    activeLinkPort.addEventListener("message", onPortMessage);
+    activeLinkPort.start();
+
+    if (onHostPortReady) {
+      const channel = new MessageChannel();
+      activeHostBridgePort = channel.port1;
+      onHostPortReady(channel.port1);
+      activeLinkPort.postMessage(
+        { type: EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE },
+        [channel.port2],
+      );
+    }
+
+    activeLinkPort.postMessage({
       type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
     });
-    onReady?.();
   };
 
   window.addEventListener("message", onWindowMessage);
+  document.addEventListener("load", onFrameLoad, true);
   return () => {
     window.removeEventListener("message", onWindowMessage);
-    activePort?.close();
+    document.removeEventListener("load", onFrameLoad, true);
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    activeLinkPort?.close();
+    activeHostBridgePort?.close();
     activePortWindow = null;
   };
 }

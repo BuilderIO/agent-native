@@ -241,6 +241,8 @@ export type AgentNativeHostBridgeEvent =
 
 export interface AgentNativeHostBridgeOptions {
   targetWindow?: Window | null;
+  targetPort?: MessagePort | null;
+  allowWindowMessages?: boolean;
   agentOrigin?: string;
   session?: string | Partial<AgentNativeHostSession>;
   getContext?: AgentNativeHostContextGetter;
@@ -255,6 +257,7 @@ export interface AgentNativeHostBridge {
   start(): AgentNativeHostBridge;
   stop(): void;
   setTargetWindow(targetWindow: Window | null): void;
+  setTargetPort(targetPort: MessagePort | null): void;
   post(message: Record<string, unknown>): boolean;
   sendInit(requestId?: string): Promise<boolean>;
   sendContext(requestId?: string): Promise<boolean>;
@@ -677,7 +680,9 @@ export function createAgentNativeHostBridge(
   options: AgentNativeHostBridgeOptions,
 ): AgentNativeHostBridge {
   let targetWindow = options.targetWindow ?? null;
+  let targetPort = options.targetPort ?? null;
   let started = false;
+  const allowWindowMessages = options.allowWindowMessages ?? true;
   const allowedOrigin = normalizeOrigin(options.agentOrigin);
   const targetOrigin =
     allowedOrigin && allowedOrigin !== "*" ? allowedOrigin : "*";
@@ -704,8 +709,23 @@ export function createAgentNativeHostBridge(
   }
 
   function post(message: Record<string, unknown>): boolean {
+    if (targetPort) {
+      try {
+        targetPort.postMessage(message);
+        return true;
+      } catch {
+        // coercion-ok: false reports an undeliverable post through the boolean contract.
+        return false;
+      }
+    }
+    if (!allowWindowMessages) return false;
     if (!targetWindow) return false;
-    targetWindow.postMessage(message, targetOrigin);
+    try {
+      targetWindow.postMessage(message, targetOrigin);
+    } catch {
+      // coercion-ok: false reports an undeliverable post through the boolean contract.
+      return false;
+    }
     return true;
   }
 
@@ -1078,10 +1098,23 @@ export function createAgentNativeHostBridge(
   function onMessage(event: MessageEvent) {
     const message = event.data;
     if (!isIncomingHostMessage(message)) return;
+    if (!allowWindowMessages) return;
     if (!trusted(event)) return;
 
+    handleIncoming(message, event);
+  }
+
+  function onPortMessage(event: MessageEvent) {
+    const message = event.data;
+    if (!isIncomingHostMessage(message)) return;
+    handleIncoming(message, event);
+  }
+
+  function handleIncoming(message: IncomingHostMessage, event: MessageEvent) {
     const sourceWindow = getWindowFromSource(event.source);
-    if (!targetWindow && sourceWindow) targetWindow = sourceWindow;
+    if (allowWindowMessages && !targetPort && !targetWindow && sourceWindow) {
+      targetWindow = sourceWindow;
+    }
 
     if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.READY) {
       emit({
@@ -1114,17 +1147,29 @@ export function createAgentNativeHostBridge(
   const bridge: AgentNativeHostBridge = {
     start() {
       if (started || typeof window === "undefined") return bridge;
-      window.addEventListener("message", onMessage);
+      if (allowWindowMessages) window.addEventListener("message", onMessage);
+      targetPort?.addEventListener("message", onPortMessage);
+      targetPort?.start();
       started = true;
       return bridge;
     },
     stop() {
       if (!started || typeof window === "undefined") return;
-      window.removeEventListener("message", onMessage);
+      if (allowWindowMessages) window.removeEventListener("message", onMessage);
+      targetPort?.removeEventListener("message", onPortMessage);
       started = false;
     },
     setTargetWindow(nextTargetWindow) {
       targetWindow = nextTargetWindow;
+    },
+    setTargetPort(nextTargetPort) {
+      if (targetPort === nextTargetPort) return;
+      if (started) targetPort?.removeEventListener("message", onPortMessage);
+      targetPort = nextTargetPort;
+      if (started && targetPort) {
+        targetPort.addEventListener("message", onPortMessage);
+        targetPort.start();
+      }
     },
     post,
     sendInit,

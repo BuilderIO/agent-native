@@ -434,6 +434,57 @@ describe("createAgentNativeHostBridge", () => {
     expect(target.sent).toHaveLength(0);
     bridge.stop();
   });
+
+  it("uses a private MessagePort when window messages are disabled", async () => {
+    const target = targetWindow();
+    const run = vi.fn(({ value }: { value: number }) => ({
+      doubled: value * 2,
+    }));
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      allowWindowMessages: false,
+      actions: [{ name: "double", description: "Double", run }],
+    }).start();
+    const channel = new MessageChannel();
+    bridge.setTargetPort(channel.port1);
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION,
+      requestId: "forged-action",
+      name: "double",
+      args: { value: 99 },
+    });
+    await nextTick();
+
+    expect(run).not.toHaveBeenCalled();
+    expect(target.sent).toHaveLength(0);
+
+    const response = new Promise((resolve) => {
+      channel.port2.addEventListener(
+        "message",
+        (event) => resolve(event.data),
+        { once: true },
+      );
+      channel.port2.start();
+    });
+    channel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION,
+      requestId: "private-action",
+      name: "double",
+      args: { value: 3 },
+    });
+
+    await expect(response).resolves.toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
+      ok: true,
+      requestId: "private-action",
+      result: { doubled: 6 },
+    });
+    expect(run).toHaveBeenCalledOnce();
+    bridge.stop();
+    channel.port1.close();
+    channel.port2.close();
+  });
 });
 
 describe("iframe-side host helpers", () => {

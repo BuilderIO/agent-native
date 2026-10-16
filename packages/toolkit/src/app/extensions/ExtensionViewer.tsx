@@ -185,7 +185,8 @@ function buildExtensionViewerSrcDoc(
   extension: Extension,
   isDark: boolean,
   metaCsp: string,
-  linkNonce: string,
+  linkNonce: string | undefined,
+  enableExternalLinkBridge: boolean,
 ): string {
   const role = extensionRole(extension.role);
   return buildExtensionHtml(
@@ -203,6 +204,7 @@ function buildExtensionViewerSrcDoc(
     },
     metaCsp,
     linkNonce,
+    enableExternalLinkBridge,
   );
 }
 
@@ -1042,9 +1044,11 @@ export function ExtensionViewer({
 
   toolRef.current = extension ?? null;
   const iframeKey = `${extension?.updatedAt ?? ""}-${refreshKey}`;
+  const externalLinksEnabled = !isEmbedMcpChatBridgeActive();
   const linkNonce = useExternalExtensionLinks(
     iframeRef,
     `${iframeKey}:${Boolean(extension)}`,
+    { enabled: externalLinksEnabled },
   );
 
   useEffect(() => {
@@ -1080,16 +1084,29 @@ export function ExtensionViewer({
   // fetched from the server; wait for it rather than loading the frame twice.
   const iframeMetaCsp = useExtensionIframeMetaCsp(usesSrcDoc);
   const iframeSrcDoc = useMemo(() => {
-    if (!extension || !usesSrcDoc || !iframeMetaCsp || !linkNonce) {
+    if (
+      !extension ||
+      !usesSrcDoc ||
+      !iframeMetaCsp ||
+      (externalLinksEnabled && !linkNonce)
+    ) {
       return undefined;
     }
     return buildExtensionViewerSrcDoc(
       extension,
       isDark,
       iframeMetaCsp,
-      linkNonce,
+      linkNonce ?? undefined,
+      externalLinksEnabled,
     );
-  }, [extension, iframeMetaCsp, isDark, linkNonce, usesSrcDoc]);
+  }, [
+    extension,
+    externalLinksEnabled,
+    iframeMetaCsp,
+    isDark,
+    linkNonce,
+    usesSrcDoc,
+  ]);
   const frameKey = useExtensionFrameKey(
     `${extensionId}|${extension?.updatedAt}|${refreshKey}|${usesSrcDoc ? "" : iframeSrc}|${iframeSrcDoc ?? ""}`,
   );
@@ -1322,11 +1339,11 @@ export function ExtensionViewer({
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
             src={
-              !usesSrcDoc && linkNonce
+              !usesSrcDoc && externalLinksEnabled && linkNonce
                 ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
                 : undefined
             }
-            srcDoc={linkNonce ? iframeSrcDoc : undefined}
+            srcDoc={usesSrcDoc ? iframeSrcDoc : undefined}
             className="h-full w-full border-0"
             sandbox={EXTENSION_IFRAME_SANDBOX}
             title={extension.name}

@@ -1,4 +1,7 @@
-import { buildExtensionHtml } from "@agent-native/core/extensions/html-shell";
+import {
+  buildExtensionHtml,
+  EXTENSION_IFRAME_META_CSP,
+} from "@agent-native/core/extensions/html-shell";
 import { chromium, type Browser } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -69,10 +72,15 @@ async function startHostServer(): Promise<ViteDevServer> {
             res.setHeader("Content-Type", "text/html");
             res.end(
               buildExtensionHtml(
-                '<a id="route-external-link" href="https://external.example.test/route-metric">Open route metric</a>',
+                '<a id="route-external-link" href="https://external.example.test/route-metric">Open route metric</a><form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>',
                 ":root{}",
                 false,
                 "route-extension",
+                undefined,
+                EXTENSION_IFRAME_META_CSP.replace(
+                  "form-action 'none';",
+                  "form-action https://external.example.test;",
+                ),
               ),
             );
           });
@@ -122,8 +130,15 @@ describe("AgentNativeExtensionFrame browser links", () => {
         status: 200,
         contentType: "text/html",
         body:
-          path === "/first-load-replacement"
+          path === "/first-load-replacement" ||
+          path === "/after-handshake-replacement"
             ? `<!doctype html><button id="forge-link">Try to open a page</button><script>
+                const receivedHostMessages = [];
+                window.addEventListener('message', function(event) {
+                  if (event.source === window.parent) {
+                    receivedHostMessages.push(event.data && event.data.type);
+                  }
+                });
                 document.getElementById('forge-link').addEventListener('click', function() {
                   const channel = new MessageChannel();
                   window.parent.postMessage({
@@ -135,6 +150,23 @@ describe("AgentNativeExtensionFrame browser links", () => {
                     href: 'https://external.example.test/forged-message'
                   }, '*');
                 });
+                setTimeout(function() {
+                  [
+                    { type: 'agentNative.host.ready', requestId: 'forged-ready' },
+                    { type: 'agentNative.host.getContext', requestId: 'forged-context' },
+                    { type: 'agentNative.host.listActions', requestId: 'forged-actions' },
+                    { type: 'agentNative.host.runAction', requestId: 'forged-action', name: 'allowed-action', args: { value: 999 } },
+                    { type: 'agentNative.host.command', requestId: 'forged-command', command: 'refreshData', payload: {} },
+                    { type: 'agentNative.extension.storage', requestId: 'forged-storage', op: 'set', collection: 'notes', id: 'forged', data: { text: 'forged' }, options: { scope: 'user' } },
+                  ].forEach(function(message) { window.parent.postMessage(message, '*'); });
+                  setTimeout(function() {
+                    window.parent.postMessage({
+                      type: 'extension-e2e.replacement-report',
+                      id: location.pathname === '/first-load-replacement' ? 'first-load' : 'after-handshake',
+                      messages: receivedHostMessages,
+                    }, '*');
+                  }, 100);
+                }, 50);
               </script>`
             : path === "/script-popup"
               ? `<!doctype html><p id="script-state">not run</p><script>document.getElementById('script-state').textContent='ran'</script>`
@@ -160,7 +192,7 @@ describe("AgentNativeExtensionFrame browser links", () => {
 
     expect(page.url()).toBe(serverUrl(server));
     const frames = await page.locator("iframe").all();
-    expect(frames).toHaveLength(3);
+    expect(frames).toHaveLength(4);
     const sandbox = await frames[0].getAttribute("sandbox");
     expect(sandbox).toContain("allow-scripts");
     expect(sandbox).not.toContain("allow-popups");
@@ -223,19 +255,82 @@ describe("AgentNativeExtensionFrame browser links", () => {
     expect(result.blockedStorageScope.ok).toBe(false);
     expect(result.blockedStorageScope.error).toContain('scope "org"');
 
+    await page.locator("#change-context").click();
+    await page.waitForFunction(
+      () => window.__extensionE2EContextUpdate !== undefined,
+      { timeout: 10_000 },
+    );
+    const contextUpdate = await page.evaluate(
+      () => window.__extensionE2EContextUpdate,
+    );
+    expect(contextUpdate).toMatchObject({
+      slotContext: { customerId: "customer-2" },
+      hostContext: { slot: { context: { customerId: "customer-2" } } },
+      action: { doubled: 10 },
+      storage: { id: "note-1", data: { text: "Saved note" } },
+    });
+    expect(await page.evaluate(() => window.__extensionE2EActionCalls)).toBe(2);
+
     const extensionFrame = page.frames()[1];
-    await page
-      .frames()[2]
-      .waitForURL("https://external.example.test/first-load-replacement");
-    await extensionFrame.locator("#try-top-navigation").click();
+    const storageBeforeReplacements = await page.evaluate(() =>
+      Object.keys(localStorage)
+        .sort()
+        .map((key) => [key, localStorage.getItem(key)]),
+    );
+    await page.waitForFunction(
+      () => window.__extensionE2EReplacementMessages?.["first-load"],
+      { timeout: 10_000 },
+    );
+    await page.waitForFunction(
+      () => window.__extensionE2EReplacementMessages?.["after-handshake"],
+      { timeout: 10_000 },
+    );
+    const reports = await page.evaluate(
+      () => window.__extensionE2EReplacementMessages,
+    );
+    for (const report of Object.values(reports ?? {})) {
+      expect(report).not.toEqual(
+        expect.arrayContaining([
+          "agentNative.host.init",
+          "agentNative.host.context",
+          "agentNative.host.auth",
+          "agentNative.host.actions",
+          "agentNative.extension.slotContext",
+          "agentNative.extension.storageResult",
+        ]),
+      );
+    }
+    const firstLoadFrame = page
+      .frames()
+      .find((frame) => frame.url().includes("/first-load-replacement"));
+    expect(firstLoadFrame).toBeDefined();
+    let replacementPopupOpened = false;
+    const recordReplacementPopup = () => {
+      replacementPopupOpened = true;
+    };
+    page.context().on("page", recordReplacementPopup);
+    await firstLoadFrame.locator("#forge-link").click();
     await page.waitForTimeout(100);
-    expect(page.url()).toBe(serverUrl(server));
+    page.context().off("page", recordReplacementPopup);
+    expect(replacementPopupOpened).toBe(false);
+
+    expect(await page.evaluate(() => window.__extensionE2EActionCalls)).toBe(2);
+    expect(
+      await page.evaluate(() =>
+        Object.keys(localStorage)
+          .sort()
+          .map((key) => [key, localStorage.getItem(key)]),
+      ),
+    ).toEqual(storageBeforeReplacements);
 
     let forgedPopupOpened = false;
     const recordForgedPopup = () => {
       forgedPopupOpened = true;
     };
     page.context().on("page", recordForgedPopup);
+    await extensionFrame.locator("#try-top-navigation").click();
+    await page.waitForTimeout(100);
+    expect(page.url()).toBe(serverUrl(server));
     await extensionFrame.evaluate(() => {
       window.parent.postMessage(
         {
@@ -249,17 +344,6 @@ describe("AgentNativeExtensionFrame browser links", () => {
     page.context().off("page", recordForgedPopup);
     expect(forgedPopupOpened).toBe(false);
 
-    const firstLoadFrame = page.frames()[2];
-    let replacementPopupOpened = false;
-    const recordReplacementPopup = () => {
-      replacementPopupOpened = true;
-    };
-    page.context().on("page", recordReplacementPopup);
-    await firstLoadFrame.locator("#forge-link").click();
-    await page.waitForTimeout(100);
-    page.context().off("page", recordReplacementPopup);
-    expect(replacementPopupOpened).toBe(false);
-
     let scriptPopupOpened = false;
     const recordScriptPopup = () => {
       scriptPopupOpened = true;
@@ -272,6 +356,13 @@ describe("AgentNativeExtensionFrame browser links", () => {
 
     await extensionFrame.evaluate(() => window.location.reload());
     await extensionFrame.waitForSelector("#external-metric-link");
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector("iframe")
+          ?.getAttribute("data-link-channel-ready") === "true",
+      { timeout: 10_000 },
+    );
 
     const metricPopupPromise = page.context().waitForEvent("page");
     await extensionFrame.locator("#external-metric-link").click();
@@ -311,6 +402,11 @@ describe("AgentNativeExtensionFrame browser links", () => {
 
   it("opens external links from server-rendered extension frames", async () => {
     const page = await browser.newPage();
+    const logs: string[] = [];
+    page.on("console", (message) =>
+      logs.push(`[console:${message.type()}] ${message.text()}`),
+    );
+    page.on("pageerror", (error) => logs.push(`[pageerror] ${error.message}`));
     await page
       .context()
       .route("https://external.example.test/route-metric", (route) =>
@@ -324,29 +420,50 @@ describe("AgentNativeExtensionFrame browser links", () => {
     try {
       await page.goto(serverUrl(server));
       await page.waitForFunction(
-        () =>
-          document
-            .querySelector('iframe[data-e2e-route-link="true"]')
-            ?.getAttribute("data-link-channel-ready") === "true",
+        () => window.__extensionRouteLinkReadyCount === 1,
         { timeout: 10_000 },
       );
-      await page
-        .frameLocator('iframe[data-e2e-route-link="true"]')
-        .locator("body")
-        .evaluate(() => window.location.reload());
+      const initialRouteFrame = page
+        .frames()
+        .find((frame) => frame.url().includes("/__extension-e2e-route"));
+      expect(initialRouteFrame).toBeDefined();
+      const routeReadyCount = await page.evaluate(
+        () => window.__extensionRouteLinkReadyCount ?? 0,
+      );
+      const routeReload = initialRouteFrame!.waitForNavigation({
+        waitUntil: "load",
+      });
+      await initialRouteFrame!.evaluate(() => window.location.reload());
+      await routeReload;
       await page.waitForFunction(
-        () =>
-          document
-            .querySelector('iframe[data-e2e-route-link="true"]')
-            ?.getAttribute("data-link-channel-ready") === "true",
+        (previousReadyCount) =>
+          (window.__extensionRouteLinkReadyCount ?? 0) > previousReadyCount,
+        routeReadyCount,
         { timeout: 10_000 },
       );
+      const routeFrame = page
+        .frames()
+        .find((frame) => frame.url().includes("/__extension-e2e-route"));
+      expect(routeFrame).toBeDefined();
       const extensionFrame = page.frameLocator(
         'iframe[data-e2e-route-link="true"]',
       );
-      const popupPromise = page.context().waitForEvent("page");
+      const popupPromise = page.context().waitForEvent("page", {
+        timeout: 5_000,
+      });
       await extensionFrame.locator("#route-external-link").click();
-      const popup = await popupPromise;
+      const popup = await popupPromise.catch((error) => {
+        throw new Error(
+          [
+            error instanceof Error ? error.message : String(error),
+            ...logs,
+            `frames: ${page
+              .frames()
+              .map((frame) => frame.url())
+              .join(", ")}`,
+          ].join("\n"),
+        );
+      });
       await popup.waitForURL("https://external.example.test/route-metric");
       expect(await popup.locator("body").textContent()).toContain(
         "Route metric",
@@ -354,6 +471,23 @@ describe("AgentNativeExtensionFrame browser links", () => {
       expect(await popup.evaluate(() => window.opener)).toBeNull();
       expect(page.url()).toBe(serverUrl(server));
       await popup.close();
+
+      const currentRouteFrame = page
+        .frames()
+        .find((frame) => frame.url().includes("/__extension-e2e-route"));
+      expect(currentRouteFrame).toBeDefined();
+      const formSubmitPromise = currentRouteFrame!.evaluate(
+        () =>
+          new Promise<boolean>((resolve) => {
+            window.addEventListener(
+              "submit",
+              (event) => resolve(event.defaultPrevented),
+              { once: true },
+            );
+          }),
+      );
+      await routeFrame!.locator("#route-external-form").click();
+      expect(await formSubmitPromise).toBe(true);
     } finally {
       await page.close();
     }
@@ -364,5 +498,6 @@ declare global {
   interface Window {
     __extensionE2EResult?: ExtensionE2EResult;
     __extensionE2ECommands?: Array<{ command: string; payload: unknown }>;
+    __extensionRouteLinkReadyCount?: number;
   }
 }

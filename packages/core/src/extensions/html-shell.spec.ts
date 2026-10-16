@@ -86,8 +86,11 @@ describe("buildExtensionHtml", () => {
       "destination.origin === new URL(document.baseURI).origin",
     );
     expect(html).toContain("agent-native-extension.hello-link-channel");
-    expect(html).toContain("agent-native-extension.reseed-link-channel");
+    expect(html).not.toContain("agent-native-extension.reseed-link-channel");
     expect(html).toContain("agent-native-extension.open-external-link");
+    expect(html).toContain("history.replaceState(history.state");
+    expect(html).not.toContain("__agentNativeExtensionLinkNonce");
+    expect(html).toContain("document.addEventListener('submit'");
     expect(html).not.toContain("link.setAttribute('target'");
     expect(html).not.toContain("location.assign");
     expect(html).toContain("document.addEventListener('click'");

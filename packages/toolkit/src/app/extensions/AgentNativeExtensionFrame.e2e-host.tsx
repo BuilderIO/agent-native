@@ -1,6 +1,6 @@
 import { defineClientAction } from "@agent-native/core/client/host";
 import React from "react";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { AgentNativeExtensionSlot } from "./AgentNativeExtensionFrame.js";
@@ -19,6 +19,10 @@ const extensionContent = `
 <pre id="results"></pre>
 <script>
   document.getElementById('try-top-navigation').addEventListener('click', function() {
+    window.__agentNativeExtensionHostPort.postMessage({
+      type: 'agent-native-extension.open-external-link',
+      href: 'https://external.example.test/forged-host-port'
+    });
     window.top.location.assign('https://external.example.test/forged');
   });
   document.getElementById('open-script-popup').addEventListener('click', function() {
@@ -36,6 +40,28 @@ const extensionContent = `
         };
       }
     }
+
+    window.addEventListener('agentNative:slot-context', async function(event) {
+      const nextContext = event.detail || {};
+      if (nextContext.customerId !== 'customer-2') return;
+      const update = { slotContext: nextContext };
+      try {
+        update.hostContext = await agentNative.context();
+      } catch (error) {
+        update.hostContext = { error: error && error.message ? error.message : String(error) };
+      }
+      try {
+        update.action = await appAction('allowed-action', { value: 5 });
+      } catch (error) {
+        update.action = { error: error && error.message ? error.message : String(error) };
+      }
+      try {
+        update.storage = await extensionData.get('notes', 'note-1', { scope: 'user' });
+      } catch (error) {
+        update.storage = { error: error && error.message ? error.message : String(error) };
+      }
+      window.parent.postMessage({ type: 'extension-e2e.context-updated', update }, '*');
+    });
 
     await capture('context', () => agentNative.context());
     await capture('actions', () => agentNative.listActions());
@@ -66,6 +92,10 @@ const extensionContent = `
 interface ExtensionE2EWindow {
   __extensionE2EResult?: unknown;
   __extensionE2ECommands?: Array<{ command: string; payload: unknown }>;
+  __extensionE2EActionCalls?: number;
+  __extensionE2EReplacementMessages?: Record<string, string[]>;
+  __extensionE2EContextUpdate?: Record<string, unknown>;
+  __extensionRouteLinkReadyCount?: number;
 }
 
 const hostWindow = window as Window & ExtensionE2EWindow;
@@ -73,13 +103,16 @@ const hostWindow = window as Window & ExtensionE2EWindow;
 function RouteLinkFrame() {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const setLinkChannelReady = useCallback(() => {
-    iframeRef.current?.setAttribute("data-link-channel-ready", "true");
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    iframe.setAttribute("data-link-channel-ready", "true");
+    const readyCount = (hostWindow.__extensionRouteLinkReadyCount ?? 0) + 1;
+    hostWindow.__extensionRouteLinkReadyCount = readyCount;
+    iframe.dataset.linkChannelReadyCount = String(readyCount);
   }, []);
-  const linkNonce = useExternalExtensionLinks(
-    iframeRef,
-    "route-link-fixture",
-    setLinkChannelReady,
-  );
+  const linkNonce = useExternalExtensionLinks(iframeRef, "route-link-fixture", {
+    onReady: setLinkChannelReady,
+  });
 
   return (
     <iframe
@@ -91,7 +124,7 @@ function RouteLinkFrame() {
           : undefined
       }
       title="Route external link fixture"
-      sandbox="allow-scripts"
+      sandbox="allow-scripts allow-forms"
       data-e2e-route-link="true"
     />
   );
@@ -127,13 +160,38 @@ const firstLoadNavigationExtension = {
   manifest: { slots: ["e2e.first-load-navigation"] },
 };
 
+const postHandshakeNavigationExtension = {
+  id: "post-handshake-navigation-extension",
+  name: "Post-handshake navigation extension",
+  content: `
+<script>
+  window.addEventListener('agent-native-extension-host-port-ready', function() {
+    setTimeout(function() {
+      window.location.replace("https://external.example.test/after-handshake-replacement");
+    }, 250);
+  }, { once: true });
+</script>
+`,
+  manifest: { slots: ["e2e.first-load-navigation"] },
+};
+
 hostWindow.__extensionE2ECommands = [];
 window.addEventListener("message", (event) => {
-  if (event.data?.type !== "extension-e2e.done") return;
-  hostWindow.__extensionE2EResult = event.data.result;
-  const results = document.getElementById("host-results");
-  if (results) results.textContent = JSON.stringify(event.data.result);
+  if (event.data?.type === "extension-e2e.done") {
+    hostWindow.__extensionE2EResult = event.data.result;
+    const results = document.getElementById("host-results");
+    if (results) results.textContent = JSON.stringify(event.data.result);
+  }
+  if (event.data?.type === "extension-e2e.replacement-report") {
+    const reports = hostWindow.__extensionE2EReplacementMessages ?? {};
+    reports[event.data.id] = event.data.messages;
+    hostWindow.__extensionE2EReplacementMessages = reports;
+  }
+  if (event.data?.type === "extension-e2e.context-updated") {
+    hostWindow.__extensionE2EContextUpdate = event.data.update;
+  }
 });
+hostWindow.__extensionE2EActionCalls = 0;
 
 const actions = [
   defineClientAction<{ value: number }, { doubled: number }>({
@@ -144,7 +202,11 @@ const actions = [
       properties: { value: { type: "number" } },
       required: ["value"],
     },
-    run: async (args) => ({ doubled: args.value * 2 }),
+    run: async (args) => {
+      hostWindow.__extensionE2EActionCalls =
+        (hostWindow.__extensionE2EActionCalls ?? 0) + 1;
+      return { doubled: args.value * 2 };
+    },
   }),
   defineClientAction<Record<string, never>, { shouldNotRun: true }>({
     name: "blocked-action",
@@ -155,14 +217,22 @@ const actions = [
 ];
 
 function Host() {
+  const [context, setContext] = useState({ customerId: "customer-1" });
+
   return (
     <main>
       <div id="command-count">{hostWindow.__extensionE2ECommands?.length}</div>
       <div id="host-results"></div>
+      <button
+        id="change-context"
+        onClick={() => setContext({ customerId: "customer-2" })}
+      >
+        Change customer context
+      </button>
       <AgentNativeExtensionSlot
         id="crm.customer.sidebar"
         extensions={[extension, wrongSlotExtension]}
-        context={{ customerId: "customer-1" }}
+        context={context}
         actions={actions}
         getContext={() => ({
           resource: { type: "customer", id: "customer-1", name: "Ada Co" },
@@ -185,7 +255,10 @@ function Host() {
       />
       <AgentNativeExtensionSlot
         id="e2e.first-load-navigation"
-        extensions={[firstLoadNavigationExtension]}
+        extensions={[
+          firstLoadNavigationExtension,
+          postHandshakeNavigationExtension,
+        ]}
         context={{}}
         getContext={() => ({})}
       />
