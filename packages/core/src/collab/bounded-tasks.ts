@@ -247,8 +247,8 @@ export function createBoundedTaskRunner(
     10_000,
     "startupTimeoutMs",
   );
-  const maxWorkers = positive(options.maxWorkers, 1, "maxWorkers");
-  const maxQueue = nonNegative(options.maxQueue, 8, "maxQueue");
+  const maxWorkers = count(options.maxWorkers, 1, 1, "maxWorkers");
+  const maxQueue = count(options.maxQueue, 8, 0, "maxQueue");
   const queueTimeoutMs = positive(
     options.queueTimeoutMs,
     deadlineMs,
@@ -621,15 +621,16 @@ function positive(
   return value;
 }
 
-function nonNegative(
+function count(
   value: number | undefined,
   fallback: number,
+  min: 0 | 1,
   name: string,
 ): number {
   if (value === undefined) return fallback;
-  if (!Number.isFinite(value) || value < 0) {
+  if (!Number.isSafeInteger(value) || value < min) {
     throw new RangeError(
-      `Bounded task option ${name} must be zero or a positive number`,
+      `Bounded task option ${name} must be an integer of at least ${min}`,
     );
   }
   return value;
