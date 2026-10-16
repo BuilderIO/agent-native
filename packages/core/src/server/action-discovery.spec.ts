@@ -569,19 +569,21 @@ describe("action discovery", () => {
   );
 
   it(
-    "merges invite-org-member as an approval-gated agent and MCP tool",
+    "merges invite-organization-member as an approval-gated agent and MCP tool",
     async () => {
       const registry: Record<string, any> = {};
       await mergeCoreSharingActions(registry);
 
-      const invite = registry["invite-org-member"];
+      const invite = registry["invite-organization-member"];
       expect(invite).toBeDefined();
       expect(invite.needsApproval).toBe(true);
       expect(invite.allowPersistentApproval).toBe(false);
       expect(invite.toolCallable).toBe(false);
       expect(invite.agentTool).not.toBe(false);
       expect(invite.mcpTool).not.toBe(false);
-      expect(registry["list-org-members"].http).toEqual({ method: "GET" });
+      expect(registry["list-organization-members"].http).toEqual({
+        method: "GET",
+      });
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );

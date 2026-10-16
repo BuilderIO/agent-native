@@ -647,7 +647,7 @@ describe("org handlers", () => {
 
     expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledTimes(2);
     expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith({
-      action: "invite-org-member",
+      action: "invite-organization-member",
       targetType: "org-invitation",
       targetId: "first@example.test",
       summary: "Invited first@example.test as member",

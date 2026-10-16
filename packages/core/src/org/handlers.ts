@@ -912,7 +912,7 @@ function auditInvitation(
   invite: SingleInviteResult,
 ): Promise<void> {
   return recordOrgAdminAuditEvent({
-    action: "invite-org-member",
+    action: "invite-organization-member",
     targetType: "org-invitation",
     targetId: invite.email,
     summary: `Invited ${invite.email} as ${invite.role}`,

@@ -119,8 +119,8 @@ Enabling it revokes current Better Auth and legacy sessions; password signup,
 password login, and non-Google social sessions are rejected for that org.
 
 Agents manage membership through two core actions in the `orgAdministration`
-tool group. `list-org-members` reads members, and pending invitations for
-owners and admins. `invite-org-member` sends one member invitation through the
+tool group. `list-organization-members` reads members, and pending invitations for
+owners and admins. `invite-organization-member` sends one member invitation through the
 same path as Settings > Members. It emails a real person, so it sets
 `needsApproval: true` with `allowPersistentApproval: false`: every call asks the
 user, and "always allow" is not offered. It cannot grant admin; owners invite

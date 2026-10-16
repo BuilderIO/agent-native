@@ -15,7 +15,7 @@ vi.mock("../actions.js", () => ({
   requireOrgMember: (...args: unknown[]) => mockRequireOrgMember(...args),
 }));
 
-import inviteOrgMember from "./invite-org-member.js";
+import inviteOrganizationMember from "./invite-organization-member.js";
 
 const ctx = {
   caller: "tool" as const,
@@ -23,7 +23,7 @@ const ctx = {
   orgId: "org-1",
 };
 
-describe("invite-org-member", () => {
+describe("invite-organization-member", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireOrgMember.mockResolvedValue({
@@ -42,13 +42,13 @@ describe("invite-org-member", () => {
   });
 
   it("asks for approval on every call", () => {
-    expect(inviteOrgMember.needsApproval).toBe(true);
-    expect(inviteOrgMember.allowPersistentApproval).toBe(false);
+    expect(inviteOrganizationMember.needsApproval).toBe(true);
+    expect(inviteOrganizationMember.allowPersistentApproval).toBe(false);
   });
 
   it("invites through the shared invitation path as a member", async () => {
     await expect(
-      inviteOrgMember.run({ email: "new@example.test" }, ctx),
+      inviteOrganizationMember.run({ email: "new@example.test" }, ctx),
     ).resolves.toMatchObject({ email: "new@example.test", role: "member" });
 
     expect(mockRequireOrgMember).toHaveBeenCalledWith(ctx, true);
@@ -65,13 +65,13 @@ describe("invite-org-member", () => {
     );
 
     await expect(
-      inviteOrgMember.run({ email: "new@example.test" }, ctx),
+      inviteOrganizationMember.run({ email: "new@example.test" }, ctx),
     ).rejects.toThrow("Organization admin role required.");
     expect(mockInviteOne).not.toHaveBeenCalled();
   });
 
   it("has no role argument an agent could use to grant admin", () => {
-    const parsed = inviteOrgMember.schema!["~standard"].validate({
+    const parsed = inviteOrganizationMember.schema!["~standard"].validate({
       email: "new@example.test",
       role: "admin",
     });
