@@ -108,6 +108,20 @@ function credentialRefCandidates(
   ctx: CredentialContext,
 ): SecretRef[] {
   const scope = refScope(ref);
+  if (ctx.credentialScope === "org") {
+    if (!ctx.orgId || scope === "user") return [];
+    if (scope === "org") {
+      return [{ key: ref.key, scope: "org", scopeId: ctx.orgId }];
+    }
+    if (scope === "workspace") {
+      return [{ key: ref.key, scope: "workspace", scopeId: ctx.orgId }];
+    }
+    return [
+      { key: ref.key, scope: "org", scopeId: ctx.orgId },
+      { key: ref.key, scope: "workspace", scopeId: ctx.orgId },
+    ];
+  }
+
   const candidates: SecretRef[] = [];
 
   if (scope === "user") {
@@ -139,6 +153,14 @@ function registeredSecretCandidates(
   key: string,
   ctx: CredentialContext,
 ): SecretRef[] {
+  if (ctx.credentialScope === "org") {
+    if (!ctx.orgId) return [];
+    return [
+      { key, scope: "org", scopeId: ctx.orgId },
+      { key, scope: "workspace", scopeId: ctx.orgId },
+    ];
+  }
+
   const candidates: SecretRef[] = [
     { key, scope: "user", scopeId: ctx.userEmail },
   ];
@@ -494,7 +516,12 @@ async function resolveSourceCredentialDetailed(
     options.key,
     options.ctx,
   );
-  if (localCredential) {
+  const localCredentialMatchesScope =
+    options.ctx.credentialScope !== "org" ||
+    (!!options.ctx.orgId &&
+      localCredential?.scope !== "user" &&
+      localCredential?.scopeId === options.ctx.orgId);
+  if (localCredential && localCredentialMatchesScope) {
     checked.push({
       source: "brain_local",
       key: options.key,

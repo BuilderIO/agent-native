@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   grants: [] as Array<Record<string, unknown>>,
   secrets: new Map<string, string>(),
   localCredential: undefined as string | undefined,
+  localCredentialScope: "user" as "user" | "org" | "workspace",
+  localCredentialScopeId: undefined as string | undefined,
   currentUserEmail: "owner@example.test",
 }));
 
@@ -138,8 +140,8 @@ vi.mock("@agent-native/core/credentials", () => ({
       mocks.localCredential
         ? {
             value: mocks.localCredential,
-            scope: "user",
-            scopeId: ctx.userEmail,
+            scope: mocks.localCredentialScope,
+            scopeId: mocks.localCredentialScopeId ?? ctx.userEmail,
           }
         : undefined,
   ),
@@ -158,6 +160,8 @@ describe("resolveSourceCredential", () => {
     mocks.grants = [];
     mocks.secrets.clear();
     mocks.localCredential = undefined;
+    mocks.localCredentialScope = "user";
+    mocks.localCredentialScopeId = undefined;
     mocks.currentUserEmail = "owner@example.test";
   });
 
@@ -265,6 +269,150 @@ describe("resolveSourceCredential", () => {
         source: "registered_secret",
         scope: "org",
         scopeId: "org-1",
+      },
+    });
+  });
+
+  it("resolves organization-scoped local and registered secrets in org-only mode", async () => {
+    const ctx = {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      credentialScope: "org" as const,
+    };
+    mocks.localCredential = "test-org-local-key";
+    mocks.localCredentialScope = "org";
+    mocks.localCredentialScopeId = "org-1";
+
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "gong",
+        key: "GONG_ACCESS_KEY",
+        ctx,
+      }),
+    ).resolves.toMatchObject({
+      value: "test-org-local-key",
+      provenance: {
+        source: "brain_local",
+        scope: "org",
+        scopeId: "org-1",
+      },
+    });
+
+    mocks.localCredential = undefined;
+    mocks.localCredentialScope = "user";
+    mocks.localCredentialScopeId = undefined;
+    mocks.secrets.set("org:org-1:GONG_ACCESS_KEY", "test-org-key");
+
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "gong",
+        key: "GONG_ACCESS_KEY",
+        ctx,
+      }),
+    ).resolves.toMatchObject({
+      value: "test-org-key",
+      provenance: {
+        source: "registered_secret",
+        scope: "org",
+        scopeId: "org-1",
+      },
+    });
+  });
+
+  it("does not resolve user-scoped credentials in org-only mode", async () => {
+    mocks.localCredential = "test-personal-key";
+    mocks.secrets.set(
+      "user:owner@example.test:GONG_ACCESS_KEY",
+      "test-user-key",
+    );
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "gong",
+      key: "GONG_ACCESS_KEY",
+      ctx: {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+    });
+
+    expect(availability).toMatchObject({
+      available: false,
+      provenance: null,
+    });
+    expect(availability.checked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "brain_local",
+          status: "missing",
+        }),
+        expect.objectContaining({
+          source: "registered_secret",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
+  it("does not resolve user-scoped workspace connection refs in org-only mode", async () => {
+    mocks.connections = [
+      {
+        id: "personal-gong",
+        label: "Personal Gong",
+        provider: "gong",
+        status: "connected",
+        allowedApps: [],
+        credentialRefs: [{ key: "GONG_ACCESS_KEY", scope: "user" }],
+      },
+    ];
+    mocks.secrets.set(
+      "user:owner@example.test:GONG_ACCESS_KEY",
+      "test-user-key",
+    );
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "gong",
+      key: "GONG_ACCESS_KEY",
+      workspaceConnectionId: "personal-gong",
+      ctx: {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+    });
+
+    expect(availability).toMatchObject({
+      available: false,
+      provenance: null,
+    });
+    expect(availability.checked).toEqual([
+      expect.objectContaining({
+        source: "workspace_connection",
+        status: "missing",
+        connectionId: "personal-gong",
+      }),
+    ]);
+  });
+
+  it("keeps user-first registered-secret lookup without org-only scope", async () => {
+    mocks.secrets.set(
+      "user:owner@example.test:GONG_ACCESS_KEY",
+      "test-user-key",
+    );
+    mocks.secrets.set("org:org-1:GONG_ACCESS_KEY", "test-org-key");
+
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "gong",
+        key: "GONG_ACCESS_KEY",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "test-user-key",
+      provenance: {
+        source: "registered_secret",
+        scope: "user",
+        scopeId: "owner@example.test",
       },
     });
   });
