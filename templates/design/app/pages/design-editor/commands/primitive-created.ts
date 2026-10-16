@@ -1,5 +1,6 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { flushSync } from "react-dom";
+import type * as Y from "yjs";
 
 import {
   armPendingTextCapture,
@@ -13,9 +14,13 @@ import { PENDING_TEXT_EDIT_TIMEOUT_MS } from "@/components/design/design-canvas/
 import type { ElementInfo } from "@/components/design/types";
 import {
   stampContentHistorySelectionAfter,
+  stampYjsUndoSelection,
+  stampYjsUndoSelectionAfter,
   type ContentHistoryEntry,
   type ContentHistorySelectionAfterMap,
   type GeometryHistorySelection,
+  type YjsUndoSelectionSnapshot,
+  type YjsUndoStackTop,
 } from "@/pages/design-editor/history";
 import {
   isTextEditSessionOutcome,
@@ -64,6 +69,11 @@ export interface PrimitiveCreatedHistorySelectionArgs {
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackTopBefore: ContentHistoryEntry | undefined;
   captureCurrentSelection: () => GeometryHistorySelection;
+  yjsUndoSelection?: {
+    undoManagerRef: RefObject<Y.UndoManager | null>;
+    undoStackTopBefore: YjsUndoStackTop;
+    selectionBefore: YjsUndoSelectionSnapshot;
+  };
 }
 
 export function runPrimitiveCreated(
@@ -123,6 +133,19 @@ export function runPrimitiveCreated(
   });
 
   if (historySelection) {
+    if (historySelection.yjsUndoSelection) {
+      const { undoManagerRef, undoStackTopBefore, selectionBefore } =
+        historySelection.yjsUndoSelection;
+      stampYjsUndoSelection(
+        undoManagerRef.current,
+        undoStackTopBefore,
+        selectionBefore,
+      );
+      stampYjsUndoSelectionAfter(undoManagerRef.current, undoStackTopBefore, {
+        selectedElement: null,
+        selectedLayerIds: [nodeId],
+      });
+    }
     stampContentHistorySelectionAfter(
       historySelection.contentUndoStackRef.current,
       historySelection.contentHistorySelectionAfterRef.current,

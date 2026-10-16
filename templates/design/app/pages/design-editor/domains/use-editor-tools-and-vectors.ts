@@ -75,6 +75,7 @@ import { runPublishAgentSelectionContext } from "../effects/publish-agent-select
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
 import {
   captureContentUndoStackTop,
+  captureYjsUndoStackTop,
   type ContentUndoStackTop,
 } from "../history";
 import { getScreenFrameOriginCanvas } from "../overview-camera";
@@ -174,6 +175,7 @@ export function useEditorToolsAndVectors({
     prepareTextCreationFinalization,
     captureCurrentSelection,
     contentUndoStackRef,
+    undoManagerRef,
   } = editorHistory;
   const {
     persistedSelectionStateRef,
@@ -763,6 +765,13 @@ export function useEditorToolsAndVectors({
       const nodeId = uniqueLayerId(spec.tool === "pen" ? "path" : spec.tool);
       const primitive = createPrimitiveInsertFromSpec(spec, nodeId);
       if (!primitive) return false;
+      const yjsUndoStackTopBefore = captureYjsUndoStackTop(
+        undoManagerRef.current,
+      );
+      const yjsSelectionBefore = {
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+      };
       const contentUndoStackTopBefore = captureContentUndoStackTop(
         contentUndoStackRef.current,
       );
@@ -785,6 +794,11 @@ export function useEditorToolsAndVectors({
           contentHistorySelectionAfterRef,
           contentUndoStackTopBefore,
           captureCurrentSelection,
+          yjsUndoSelection: {
+            undoManagerRef,
+            undoStackTopBefore: yjsUndoStackTopBefore,
+            selectionBefore: yjsSelectionBefore,
+          },
         },
       );
       return resultNodeId;
@@ -797,6 +811,9 @@ export function useEditorToolsAndVectors({
       contentUndoStackRef,
       handleCreatePrimitive,
       handlePrimitiveCreated,
+      selectedElement,
+      selectedLayerIdsState,
+      undoManagerRef,
     ],
   );
 

@@ -5,13 +5,17 @@ import type {
   ContentHistorySelectionAfterMap,
   GeometryHistorySelection,
 } from "@/pages/design-editor/history";
+import {
+  readYjsRedoSelection,
+  readYjsUndoSelection,
+} from "@/pages/design-editor/history";
 
 import {
   runPrimitiveCreated,
   type PrimitiveCreatedArgs,
 } from "./primitive-created";
 
-it("stamps the selection established by primitive creation as the content redo selection", () => {
+it("stamps the selection established by primitive creation into content and Yjs redo history", () => {
   const previousEntry: ContentHistoryEntry = {
     fileId: "board",
     before: "<main />",
@@ -32,18 +36,38 @@ it("stamps the selection established by primitive creation as the content redo s
     activeFileId: "board",
   };
   const captureCurrentSelection = vi.fn(() => selectionAfter);
+  const previousYjsItem = { meta: new Map() };
+  const createdYjsItem = { meta: new Map() };
+  const undoManagerRef = {
+    current: { undoStack: [previousYjsItem, createdYjsItem] } as any,
+  };
+  const selectionBefore = {
+    selectedElement: null,
+    selectedLayerIds: ["old-layer"],
+  };
 
   runPrimitiveCreated(primitiveCreatedArgs(), "board", "frame", undefined, {
     contentUndoStackRef,
     contentHistorySelectionAfterRef,
     contentUndoStackTopBefore: previousEntry,
     captureCurrentSelection,
+    yjsUndoSelection: {
+      undoManagerRef,
+      undoStackTopBefore: previousYjsItem,
+      selectionBefore,
+    },
   });
 
   expect(captureCurrentSelection).toHaveBeenCalledOnce();
   expect(
     contentHistorySelectionAfterRef.current.get(createdEntry),
   ).toMatchObject(selectionAfter);
+  expect(readYjsUndoSelection(createdYjsItem)).toEqual(selectionBefore);
+  expect(readYjsRedoSelection(createdYjsItem)).toEqual({
+    selectedElement: null,
+    selectedLayerIds: ["frame"],
+  });
+  expect(readYjsUndoSelection(previousYjsItem)).toBeUndefined();
 });
 
 function primitiveCreatedArgs(): PrimitiveCreatedArgs {
