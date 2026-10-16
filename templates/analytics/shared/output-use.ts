@@ -152,9 +152,10 @@ export interface SessionOutput {
 export interface SessionRecordingOutputs {
   /**
    * By recording id, for each requested recording the viewer can read: its
-   * outputs, [] when it made none since coverage began, or null when it was
-   * shared from another tenant, whose events a share does not grant. Ids the
-   * viewer cannot read are absent.
+   * outputs, [] when it made none since coverage began, or null when they
+   * are unknown: it was shared from another tenant, whose events a share does
+   * not grant, or its tenant has not started output tracking. Ids the viewer
+   * cannot read are absent.
    */
   outputs: Record<string, SessionOutput[] | null>;
   /**

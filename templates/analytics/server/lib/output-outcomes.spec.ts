@@ -620,6 +620,21 @@ describe("output outcomes on Postgres", () => {
     });
   });
 
+  it("reads a recording as unknown until its own tenant tracks outputs", async () => {
+    // The org tenant has started tracking; the viewer's personal one has not.
+    await ingest([made("s1", "deck-1")]);
+    await addRecording("r-org", "s-made-nothing");
+    await addRecording("r-personal", "s-personal", { orgId: null });
+
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r-org", "r-personal"],
+      AFTER_WINDOW,
+    );
+    expect(result.outputs).toEqual({ "r-org": [], "r-personal": null });
+    expect(result.coverageStartedAt).toBe("2026-09-30T00:00:00.000Z");
+  });
+
   it("never reads a shared recording's tenant outputs", async () => {
     const other = { ownerEmail: "other@example.com", orgId: "org_2" };
     await ingest([made("s-other", "deck-other", MADE, other)]);
@@ -657,7 +672,7 @@ describe("output outcomes on Postgres", () => {
     expect(
       await getSessionRecordingOutputs(SCOPE, ["r1"], AFTER_WINDOW),
     ).toEqual({
-      outputs: { r1: [] },
+      outputs: { r1: null },
       omittedOutputs: {},
       coverageStartedAt: null,
     });

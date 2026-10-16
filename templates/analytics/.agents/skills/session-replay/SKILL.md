@@ -354,8 +354,9 @@ agent answers about browser recordings in the Analytics template.
   `/<app>` workspace mount when the recording ran under one, and the rule's
   `outputPath`. The app checks access when it opens.
 - `getSessionRecordingOutputs` is the one reader. Per readable recording it
-  gives `[]` for none, null for a recording from another tenant (a share grants
-  the recording, not its events), and at most `MAX_OUTPUTS_PER_RECORDING`
+  gives `[]` for none, null when they are unknown (a recording from another
+  tenant, since a share grants the recording, not its events, or one whose
+  tenant has not started output tracking), and at most `MAX_OUTPUTS_PER_RECORDING`
   outputs, ranked unused first in SQL so a matched row always lists what it
   matched on; `omittedOutputs` counts the rest. Ids the viewer cannot read are
   absent. `list-session-outputs` returns that shape and rejects a failed read.

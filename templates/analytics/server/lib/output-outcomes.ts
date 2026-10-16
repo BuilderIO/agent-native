@@ -389,25 +389,22 @@ export async function unusedOutputConditions(
   return [viewerReadsRecordingEventsSql(r, scope), match];
 }
 
-/**
- * The latest output coverage start among the viewer's tenants. Each output
- * is judged against its own tenant's start, so only the latest holds for all.
- */
-export async function getOutputCoverageStart(
+/** Each of the viewer's tenants that has started output tracking, with its start. */
+async function viewerOutputCoverage(
+  db: any,
   scope: SessionEventScope,
-): Promise<string | null> {
-  const db = getDb() as any;
-  if (!(await outputOutcomesReady(db))) return null;
+): Promise<Map<string, string>> {
+  if (!(await outputOutcomesReady(db))) return new Map();
   const coverage = schema.analyticsOutputOutcomeCoverage;
-  const rows = await db
-    .select({ startedAt: coverage.startedAt })
+  const rows: Array<{ tenantKey: string; startedAt: string | null }> = await db
+    .select({ tenantKey: coverage.tenantKey, startedAt: coverage.startedAt })
     .from(coverage)
     .where(inArray(coverage.tenantKey, viewerTenantKeys(scope)));
-  const starts = rows
-    .map((row: { startedAt: string }) => row.startedAt)
-    .filter(Boolean)
-    .sort();
-  return starts.at(-1) ?? null;
+  return new Map(
+    rows.flatMap((row) =>
+      row.startedAt ? [[row.tenantKey, row.startedAt] as const] : [],
+    ),
+  );
 }
 
 interface StoredOutput {
@@ -435,7 +432,9 @@ function outputStatus(
 /**
  * The outputs each recording's sessions made, for recordings the viewer can
  * read, such as one list page's rows. A share grants the recording, not its
- * tenant's events, so a recording shared from another tenant reads as null.
+ * tenant's events, so a recording shared from another tenant reads as null,
+ * as does one whose tenant has not started output tracking: nothing says
+ * whether either made anything.
  * Each recording lists at most `MAX_OUTPUTS_PER_RECORDING`, unused ones
  * first, so a row the unused filter matched always lists the output it
  * matched on; the rest are counted in `omittedOutputs`.
@@ -447,12 +446,14 @@ export async function getSessionRecordingOutputs(
 ): Promise<SessionRecordingOutputs> {
   const ids = [...new Set(recordingIds)];
   const db = getDb() as any;
-  const coverageStartedAt = await getOutputCoverageStart(scope);
+  const coveredTenants = await viewerOutputCoverage(db, scope);
+  // Each output is judged against its own tenant's start, so only the latest
+  // holds for all.
+  const coverageStartedAt = [...coveredTenants.values()].sort().pop() ?? null;
   const outputs: Record<string, SessionOutput[] | null> = {};
   const omittedOutputs: Record<string, number> = {};
   if (!ids.length) return { outputs, omittedOutputs, coverageStartedAt };
   const r = schema.sessionRecordings;
-  const viewerTenants = new Set(viewerTenantKeys(scope));
   const readable: Array<{
     id: string;
     sessionId: string;
@@ -480,13 +481,13 @@ export async function getSessionRecordingOutputs(
     .limit(ids.length);
   const recordings: typeof readable = [];
   for (const recording of readable) {
-    const own = viewerTenants.has(
+    const tracked = coveredTenants.has(
       sessionEventTenantKey(recording.ownerEmail, recording.orgId),
     );
-    outputs[recording.id] = own ? [] : null;
-    if (own) recordings.push(recording);
+    outputs[recording.id] = tracked ? [] : null;
+    if (tracked) recordings.push(recording);
   }
-  if (!recordings.length || coverageStartedAt === null) {
+  if (!recordings.length) {
     return { outputs, omittedOutputs, coverageStartedAt };
   }
 
