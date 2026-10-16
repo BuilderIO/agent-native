@@ -22,15 +22,13 @@ timing, keep later publisher checks in the recap; do not post just to announce
 success. Correct a material change to availability or answer a reporter's
 follow-up. A generic earlier “looking into this” does not count.
 
-Identify known duplicates before claiming them. Represent duplicate non-owner
-threads by permalink and **Clustered** in one owner-thread reply. Do not react
-or reply in a non-owner thread unless a distinct question or update needs its
-own disposition. If a duplicate is discovered after this run adds `👀` but
-before its disposition reply, keep the eye and use that reply to say
-**Clustered** with the owner permalink. If found after the owner reply,
-preserve reactions and post one concise **Clustered** reply in the duplicate
-thread with the owner permalink; do not post a second owner-thread update
-unless its status changed.
+Resolve duplicates before claiming. For known non-owner duplicates, list the
+permalink and **Clustered** once in the owner reply; do not react or reply
+separately. If this task already added `👀` to a duplicate, keep it and post
+one concise **Clustered** reply in that thread with the owner permalink. This
+is the duplicate's terminal disposition, including when the owner reply was
+already sent; do not post a second owner-thread update for it. If another task
+owns its `👀`, preserve it, record the source in the ledger, and stop.
 
 For an open package PR, say publication follows merge without an ETA. If the
 first reply is after merge, link the PR and state verified package availability;
