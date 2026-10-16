@@ -35,7 +35,7 @@ interface HistoryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
-  anchorRef?: RefObject<HTMLButtonElement | null>;
+  anchorRef?: RefObject<HTMLElement | null>;
 }
 
 type Translate = ReturnType<typeof useT>;

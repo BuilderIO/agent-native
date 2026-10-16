@@ -47,6 +47,7 @@ import {
   IconGripVertical,
   IconHistory,
   IconInfoCircle,
+  IconCopy,
   IconLock,
   IconMail,
   IconPencil,
@@ -101,6 +102,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -589,6 +591,12 @@ function SqlDashboardPageContent({
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
     null,
   );
+  const [builtinDashboard, setBuiltinDashboard] = useState<{
+    id: string;
+    version: string;
+  } | null>(null);
+  // A copy made from a built-in opens ready to edit.
+  const openInEditModeRef = useRef<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
@@ -683,6 +691,20 @@ function SqlDashboardPageContent({
   );
   const { mutateAsync: archiveDashboardAction } =
     useActionMutation("archive-dashboard");
+  const { mutate: duplicateDashboard, isPending: duplicatePending } =
+    useActionMutation("duplicate-dashboard", {
+      onSuccess: (copy: { id: string }) => {
+        openInEditModeRef.current = copy.id;
+        void navigate(`/dashboards/${encodeURIComponent(copy.id)}`);
+      },
+      onError: (error: unknown) => {
+        toast.error(
+          error instanceof Error && error.message
+            ? error.message
+            : t("sqlDashboard.duplicateFailed"),
+        );
+      },
+    });
   const {
     mutateAsync: certifyDashboardAction,
     isPending: certificationPending,
@@ -925,7 +947,8 @@ function SqlDashboardPageContent({
   const [draftsOwnerShown, setDraftsOwnerShown] = useState(draftsOwner);
   if (draftsOwnerShown !== draftsOwner) {
     setDraftsOwnerShown(draftsOwner);
-    setEditMode(false);
+    setEditMode(!!dashboardId && openInEditModeRef.current === dashboardId);
+    openInEditModeRef.current = null;
     setEditingName(false);
     setEditingDescription(false);
     setActiveDropSlot(null);
@@ -954,6 +977,7 @@ function SqlDashboardPageContent({
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
+    setBuiltinDashboard(null);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
@@ -1014,7 +1038,17 @@ function SqlDashboardPageContent({
           }
         : null,
     );
+    setBuiltinDashboard(fetched?.builtin ?? null);
     setLoaded(true);
+    if (fetched?.builtin && fetched.builtin.id !== dashboardId) {
+      // An old copy that became the built-in: show the built-in's own URL.
+      const search = searchParams.toString();
+      void navigate(
+        `/dashboards/${encodeURIComponent(fetched.builtin.id)}${search ? `?${search}` : ""}`,
+        { replace: true },
+      );
+      return;
+    }
     if (
       fetched &&
       !reportScreenshot &&
@@ -2164,7 +2198,37 @@ function SqlDashboardPageContent({
           agentActive={agentActive}
           currentUserEmail={session?.email}
         />
-        {canEdit ? (
+        {builtinDashboard ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                disabled={duplicatePending}
+                onClick={() => {
+                  if (!dashboardId) return;
+                  duplicateDashboard({ id: dashboardId });
+                  trackEvent("dashboard_duplicated", {
+                    app_name: "analytics",
+                    template_name: "analytics",
+                    builtin_id: builtinDashboard.id,
+                  });
+                }}
+              >
+                {duplicatePending ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  <IconCopy className="h-3.5 w-3.5" />
+                )}
+                {t("sqlDashboard.duplicateToCustomize")}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("sqlDashboard.duplicateToCustomizeHint")}
+            </TooltipContent>
+          </Tooltip>
+        ) : canEdit ? (
           <ToggleGroup
             type="single"
             value={editing ? "edit" : "view"}
@@ -2212,7 +2276,7 @@ function SqlDashboardPageContent({
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
         {annotationEditing.menu}
-        {dashboardId ? (
+        {dashboardId && !builtinDashboard ? (
           <ShareButton
             resourceType="dashboard"
             resourceId={dashboardId}

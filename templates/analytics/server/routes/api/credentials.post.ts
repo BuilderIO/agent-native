@@ -1,6 +1,7 @@
 import { readBody } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
+import { installBuiltinDashboardOnce } from "../../lib/builtin-dashboards";
 import {
   credentialKeys,
   optionalCredentialKeys,
@@ -12,19 +13,13 @@ import {
   saveCredential,
   getCredentialContextFromEvent,
 } from "../../lib/credentials";
-import { loadDashboardSeed } from "../../lib/dashboard-seeds";
-import {
-  getScopedSettingRecord,
-  putScopedSettingRecord,
-  resolveSettingsScope,
-} from "../../lib/scoped-settings";
+import { resolveSettingsScope } from "../../lib/scoped-settings";
 
 const GA4_CREDENTIAL_KEYS = new Set([
   "GA4_PROPERTY_ID",
   "GOOGLE_APPLICATION_CREDENTIALS_JSON",
 ]);
 const GA_DASHBOARD_ID = "google-analytics";
-const SQL_DASHBOARD_KEY = `sql-dashboard-${GA_DASHBOARD_ID}`;
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
@@ -119,13 +114,7 @@ export default defineEventHandler(async (event) => {
   if (savedGaCred) {
     try {
       const scope = await resolveSettingsScope(event);
-      const existing = await getScopedSettingRecord(scope, SQL_DASHBOARD_KEY);
-      if (!existing) {
-        const seed = loadDashboardSeed(GA_DASHBOARD_ID);
-        if (seed) {
-          await putScopedSettingRecord(scope, SQL_DASHBOARD_KEY, seed);
-        }
-      }
+      await installBuiltinDashboardOnce(scope, GA_DASHBOARD_ID);
     } catch (err: any) {
       console.warn(
         "[credentials] failed to seed google-analytics dashboard:",

@@ -5,19 +5,37 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-15
 
+### Added
+
+- Add key dates and data notes from the dashboard's new Annotations menu or a chart's menu, show or hide key-date sets per dashboard, and mark a note fixed or hide it on one chart from its hover card.
+- Data notes shade the days a chart's numbers were affected by an incident or a tracking problem, on the dashboard and in scheduled email reports.
+- Each dashboard save you make pops up with Undo, says whether everyone sees it, and shows how many others have the dashboard open.
+- In Edit mode, check two or more values in a multi-select filter and save them as a named group that everyone can pick in one click.
+
 ### Improved
 
+- Dashboard history now says what each save changed, and the save toast names the change
+- The agent now sees which key dates and data notes a dashboard's charts draw, and confirms which charts a new key date or data note shows on.
 - Collapsed navigation has clearer spacing between its icons
 
 ## 2026-10-14
 
 ### Added
 
+- Dashboard charts can mark key dates, like a launch, with a hoverable badge on the x-axis.
+- Funnel charts can split each stage into completed, skipped, moved on and left the app, so a skipped optional step no longer reads as drop-off.
+- Key-date sets: add launches and product changes once and they show on every time chart of every dashboard and in emailed reports; a dashboard can hide a set.
 - Multi-select dashboard filters can offer presets, named groups of values you pick in one click without changing the other filters.
 - Preview Sigma workbooks in Analytics; SQL import stays blocked until the BigQuery project mapping can be verified.
 
 ### Improved
 
+- Changed dashboard filters now say only you see them, and coming back to a dashboard without a default view reopens the saved view you had open.
+- Dashboard charts stay visible while they refresh or while new filters load, marked as updating, instead of blanking to a skeleton
+- Dashboards open in View mode, so looking around never changes them for everyone; switch to Edit to rearrange, rename, or resize for everyone, and column widths you drag while viewing stay just for you.
+- Dashboards show a Reset filters button whenever a filter differs from the saved view you have open, or from the defaults when no view is open, and it puts every filter back in one click.
+- Key-date markers on charts now show every event of the day in one hover card, accept a time of day and time zone, and appear on combo charts in emailed reports.
+- Dashboard charts below the fold no longer re-run their queries when filters change until you scroll to them, and scrolling a loaded chart away and back never re-runs it
 - Dashboards show a Reset filters button whenever a filter differs from the defaults, and it returns every filter to them in one click.
 - Gong questions use Gong's own search and answer in seconds instead of paging through every call.
 - Start Sigma workbook imports from the dashboard menu, use an Analytics-only connection with direct credentials, or choose a Sigma connection already granted through Dispatch.

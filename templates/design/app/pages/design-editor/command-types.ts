@@ -7,6 +7,7 @@ import type {
 } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
+import type { RelativePositionOffset } from "@/lib/design-import";
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
 
@@ -74,6 +75,7 @@ export interface CanvasLayerClipboardEntry {
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
+  sourceRelativeOffset?: RelativePositionOffset | null;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
