@@ -403,13 +403,13 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
   requestSameOrigin = false,
-  requestPendingDuringMainFrameNavigation = false,
+  requestLinkedToReloadNavigation = false,
 ) {
   const pendingAtNavigation =
     requestWasPendingAtReloadNavigation ||
     (pathname === "/_agent-native/actions/get-deck-access-status" &&
       method === "GET" &&
-      requestPendingDuringMainFrameNavigation);
+      requestLinkedToReloadNavigation);
 
   return (
     activePhase === "save/reload" &&
@@ -2067,7 +2067,7 @@ export async function runAuthoringFuzz(
     outgoingNavigationAbort: boolean;
   };
   const reloadNavigationRequests = new Map<any, ReloadNavigationRequest>();
-  const watchedRequestsPendingDuringMainFrameNavigation = new WeakSet<any>();
+  const watchedRequestsLinkedToReloadNavigation = new WeakSet<any>();
   const pendingOutgoingAbortTimers = new Set<ReturnType<typeof setTimeout>>();
   let reloadNavigationStartedAt: number | null = null;
   // Keep the latest start after openSlide returns to correlate late poll errors.
@@ -2411,15 +2411,15 @@ export async function runAuthoringFuzz(
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const navigationCandidate = reloadNavigationRequests.get(request);
-    const requestPendingDuringMainFrameNavigation =
-      watchedRequestsPendingDuringMainFrameNavigation.has(request);
+    const requestLinkedToReloadNavigation =
+      watchedRequestsLinkedToReloadNavigation.has(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
     const competingClaimStartedAfterNavigation =
       hasCompetingClaimStartedAfterNavigation(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    watchedRequestsPendingDuringMainFrameNavigation.delete(request);
+    watchedRequestsLinkedToReloadNavigation.delete(request);
     inFlightBrowserSessionClaims.delete(request);
     const url = request.url();
     const requestUrl = new URL(url);
@@ -2469,7 +2469,7 @@ export async function runAuthoringFuzz(
         navigationCandidate?.requestStartedDuringNavigation === true,
         competingClaimStartedAfterNavigation,
         requestUrl.origin === authoringPageOrigin,
-        requestPendingDuringMainFrameNavigation,
+        requestLinkedToReloadNavigation,
       )
     ) {
       const candidate = navigationCandidate;
@@ -2512,7 +2512,7 @@ export async function runAuthoringFuzz(
           watchedRequest.serviceWorker() === null &&
           watchedRequest.frame() === page.mainFrame()
         ) {
-          watchedRequestsPendingDuringMainFrameNavigation.add(watchedRequest);
+          watchedRequestsLinkedToReloadNavigation.add(watchedRequest);
         }
       }
       mainFrameNavigationStartedAt = startedAt;
@@ -2540,18 +2540,19 @@ export async function runAuthoringFuzz(
     ) {
       watchedRequests.set(request, startedAt);
     }
-    // The outgoing document can issue this read after navigation starts but before commit.
+    // Navigation can cancel this read even when the document issues it after the reload starts.
     if (
       activePhase === "save/reload" &&
       reloadNavigationStartedAt !== null &&
-      mainFrameNavigationStartedAt !== null &&
-      mainFrameNavigationCommittedAt === null &&
       requestSourceIsMainFrame &&
       request.method() === "GET" &&
       requestUrl.pathname === "/_agent-native/actions/get-deck-access-status" &&
-      requestUrl.origin === authoringPageOrigin
+      requestUrl.origin === authoringPageOrigin &&
+      startedAt >= reloadNavigationStartedAt &&
+      startedAt - reloadNavigationStartedAt <
+        reloadNavigationAbortMaxRequestAgeMs
     ) {
-      watchedRequestsPendingDuringMainFrameNavigation.add(request);
+      watchedRequestsLinkedToReloadNavigation.add(request);
     }
     const requestStartedDuringNavigation =
       activePhase === "save/reload" &&
@@ -2632,7 +2633,7 @@ export async function runAuthoringFuzz(
   const onRequestSettled = (request: any) => {
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    watchedRequestsPendingDuringMainFrameNavigation.delete(request);
+    watchedRequestsLinkedToReloadNavigation.delete(request);
     const settledAt = Date.now();
     const claim = inFlightBrowserSessionClaims.get(request);
     if (claim) {
