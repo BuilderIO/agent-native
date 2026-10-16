@@ -16,6 +16,7 @@ let db: ReturnType<typeof drizzle>;
 let queries: string[];
 const mocks = vi.hoisted(() => ({
   appState: new Map<string, unknown>(),
+  writeAppState: vi.fn(),
   isBound: vi.fn(),
 }));
 
@@ -28,9 +29,7 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: async (key: string) => mocks.appState.get(key) ?? null,
-  writeAppState: async (key: string, value: unknown) => {
-    mocks.appState.set(key, value);
-  },
+  writeAppState: mocks.writeAppState,
 }));
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: vi.fn(async () => undefined),
@@ -97,6 +96,10 @@ beforeEach(async () => {
     `INSERT INTO recording_reactions (id, recording_id, video_timestamp_ms) VALUES ('r_1', 'rec_1', 6000)`,
   );
   mocks.appState.clear();
+  mocks.writeAppState.mockReset().mockImplementation(async (key, value) => {
+    mocks.appState.set(key, value);
+  });
+  mocks.isBound.mockReset().mockResolvedValue(true);
   mocks.appState.set(rewindExtensionKey("rec_1"), {
     requestId: "req_1",
     recordingId: "rec_1",
@@ -112,8 +115,51 @@ afterEach(async () => {
   await client.close();
 });
 
+function apply(videoUrl: string) {
+  return action.run({
+    recordingId: "rec_1",
+    requestId: "req_1",
+    preRollRecordingId: "pre_1",
+    videoUrl,
+    durationMs: 40_000,
+    addedMs: 30_000,
+  });
+}
+
+async function expectShiftedOnce() {
+  expect(
+    await value(
+      `SELECT video_timestamp_ms FROM recording_comments WHERE id = 'c_1'`,
+    ),
+  ).toBe(35_000);
+  expect(
+    await value(
+      `SELECT video_timestamp_ms FROM recording_reactions WHERE id = 'r_1'`,
+    ),
+  ).toBe(36_000);
+  expect(
+    JSON.parse(
+      String(
+        await value(
+          `SELECT segments_json FROM recording_transcripts WHERE recording_id = 'rec_1'`,
+        ),
+      ),
+    ),
+  ).toMatchObject([{ startMs: 31_000, endMs: 34_000 }]);
+  expect(
+    JSON.parse(
+      String(
+        await value(`SELECT chapters_json FROM recordings WHERE id = 'rec_1'`),
+      ),
+    ),
+  ).toMatchObject([{ startMs: 32_000 }]);
+  expect(
+    await value(`SELECT duration_ms FROM recordings WHERE id = 'rec_1'`),
+  ).toBe(40_000);
+}
+
 describe("apply-rewind-extension", () => {
-  it("shifts the timeline once when two applies of one extension race", async () => {
+  it("shifts the timeline once when two applies of one request race", async () => {
     // Both applies pass every check before either one's transaction starts.
     let arrived = 0;
     let release!: () => void;
@@ -123,17 +169,11 @@ describe("apply-rewind-extension", () => {
       await bothChecked;
       return true;
     });
-    const apply = () =>
-      action.run({
-        recordingId: "rec_1",
-        requestId: "req_1",
-        preRollRecordingId: "pre_1",
-        videoUrl: "https://storage.example/rec_1/rewind.mp4",
-        durationMs: 40_000,
-        addedMs: 30_000,
-      });
 
-    const results = await Promise.all([apply(), apply()]);
+    const results = await Promise.all([
+      apply("https://storage.example/rec_1/rewind.mp4"),
+      apply("https://storage.example/rec_1/rewind-again.mp4"),
+    ]);
 
     expect(results.map((result) => result.request.status)).toEqual([
       "applied",
@@ -144,36 +184,29 @@ describe("apply-rewind-extension", () => {
     expect(
       queries.filter((query) => /from "recordings" .*for update/i.test(query)),
     ).toHaveLength(2);
+    await expectShiftedOnce();
+  });
+
+  it("finishes a retry after an apply that committed but wasn't marked applied", async () => {
+    mocks.writeAppState.mockRejectedValueOnce(new Error("state store down"));
+    await expect(
+      apply("https://storage.example/rec_1/rewind.mp4"),
+    ).rejects.toThrow("state store down");
+    expect(mocks.appState.get(rewindExtensionKey("rec_1"))).toMatchObject({
+      status: "ready",
+    });
+
+    const result = await apply(
+      "https://storage.example/rec_1/rewind-again.mp4",
+    );
+
+    expect(result.request.status).toBe("applied");
+    expect(mocks.appState.get(rewindExtensionKey("rec_1"))).toMatchObject({
+      status: "applied",
+    });
+    await expectShiftedOnce();
     expect(
-      await value(
-        `SELECT video_timestamp_ms FROM recording_comments WHERE id = 'c_1'`,
-      ),
-    ).toBe(35_000);
-    expect(
-      await value(
-        `SELECT video_timestamp_ms FROM recording_reactions WHERE id = 'r_1'`,
-      ),
-    ).toBe(36_000);
-    expect(
-      JSON.parse(
-        String(
-          await value(
-            `SELECT segments_json FROM recording_transcripts WHERE recording_id = 'rec_1'`,
-          ),
-        ),
-      ),
-    ).toMatchObject([{ startMs: 31_000, endMs: 34_000 }]);
-    expect(
-      JSON.parse(
-        String(
-          await value(
-            `SELECT chapters_json FROM recordings WHERE id = 'rec_1'`,
-          ),
-        ),
-      ),
-    ).toMatchObject([{ startMs: 32_000 }]);
-    expect(
-      await value(`SELECT duration_ms FROM recordings WHERE id = 'rec_1'`),
-    ).toBe(40_000);
+      await value(`SELECT video_url FROM recordings WHERE id = 'rec_1'`),
+    ).toBe("https://storage.example/rec_1/rewind.mp4");
   });
 });

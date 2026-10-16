@@ -112,6 +112,29 @@ export default defineAction({
     ) {
       throw new Error("The Rewind pre-roll request is not ready to apply.");
     }
+    const now = new Date().toISOString();
+    const finish = async () => {
+      const applied: RewindExtensionRequest = {
+        ...request,
+        status: "applied",
+        actualDurationMs: args.addedMs,
+        updatedAt: now,
+      };
+      await writeAppState(key, applied);
+      await dispatchPostFinalizeJob({
+        recordingId: args.recordingId,
+        kind: "thumbnail",
+        requireAccepted: true,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return { recordingId: args.recordingId, request: applied };
+    };
+    // The shift records its request in the edits, so a retry after it
+    // committed (say, when marking the request applied failed) only finishes
+    // up. The duration check below would refuse it.
+    if (parseEdits(recording.editsJson).rewindRequestId === args.requestId) {
+      return finish();
+    }
     const expectedDuration = recording.durationMs + args.addedMs;
     if (Math.abs(args.durationMs - expectedDuration) > 2_000) {
       throw new Error("The combined Clip duration does not match its sources.");
@@ -142,6 +165,7 @@ export default defineAction({
     }));
     edits.rewindOriginalStartMs = args.addedMs;
     edits.mediaStorageLayout = "external";
+    edits.rewindRequestId = args.requestId;
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)
@@ -155,18 +179,19 @@ export default defineAction({
           })),
         )
       : null;
-    const now = new Date().toISOString();
 
     await db.transaction(async (tx) => {
-      // Two applies of the same extension can both pass the checks above.
-      // Locked, the second waits for the first and then finds the combined
-      // video already in place, so it shifts nothing a second time.
+      // Two applies of one request can both pass the checks above. Locked,
+      // the second waits for the first and then finds the request in the
+      // edits, so it shifts nothing a second time.
       const [locked] = await tx
-        .select({ videoUrl: schema.recordings.videoUrl })
+        .select({ editsJson: schema.recordings.editsJson })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId))
         .for("update");
-      if (locked?.videoUrl === args.videoUrl) return;
+      if (parseEdits(locked?.editsJson).rewindRequestId === args.requestId) {
+        return;
+      }
       await tx
         .update(schema.recordings)
         .set({
@@ -209,19 +234,6 @@ export default defineAction({
         .where(eq(schema.recordings.id, args.preRollRecordingId));
     });
 
-    const applied: RewindExtensionRequest = {
-      ...request,
-      status: "applied",
-      actualDurationMs: args.addedMs,
-      updatedAt: now,
-    };
-    await writeAppState(key, applied);
-    await dispatchPostFinalizeJob({
-      recordingId: args.recordingId,
-      kind: "thumbnail",
-      requireAccepted: true,
-    });
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    return { recordingId: args.recordingId, request: applied };
+    return finish();
   },
 });
