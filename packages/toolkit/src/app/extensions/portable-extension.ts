@@ -1,7 +1,7 @@
 import { buildSessionReplayIframeBootstrap } from "@agent-native/core/client/host";
 import { AGENT_NATIVE_HOST_MESSAGE_TYPES } from "@agent-native/core/client/host";
 import {
-  buildExtensionExternalLinkBootstrap,
+  buildExtensionExternalLinkTargetBootstrap,
   EXTENSION_IFRAME_META_CSP,
 } from "@agent-native/core/extensions/html-shell";
 
@@ -109,7 +109,6 @@ export interface CreateHttpAgentNativeExtensionStorageOptions {
 export interface BuildAgentNativeExtensionHtmlOptions {
   extensionId: string;
   content: string;
-  externalLinkBridgeNonce?: string;
   title?: string;
   slotId?: string;
   slotContext?: Record<string, unknown> | null;
@@ -441,7 +440,10 @@ export function normalizeAgentNativeExtensionSandbox(
   sandbox: string | undefined,
 ): string {
   const tokens = new Set(
-    (sandbox ?? "allow-scripts allow-forms allow-popups allow-downloads")
+    (
+      sandbox ??
+      "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+    )
       .split(/\s+/)
       .filter(Boolean),
   );
@@ -454,7 +456,6 @@ export function normalizeAgentNativeExtensionSandbox(
 export function buildAgentNativeExtensionHtml({
   extensionId,
   content,
-  externalLinkBridgeNonce,
   title,
   slotId,
   slotContext,
@@ -477,7 +478,7 @@ export function buildAgentNativeExtensionHtml({
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttribute(EXTENSION_IFRAME_META_CSP)}" />
   <title>${escapeHtmlAttribute(titleText)}</title>
-  ${buildExtensionExternalLinkBootstrap(externalLinkBridgeNonce)}
+  ${buildExtensionExternalLinkTargetBootstrap()}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />

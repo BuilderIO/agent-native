@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_EXTENSION_DISPLAY_SOURCES,
@@ -12,14 +12,11 @@ import {
 } from "../app-config/index.js";
 import {
   buildExtensionHtml,
-  EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
   EXTENSION_FRAME_ANCESTORS,
   EXTENSION_IFRAME_CSP,
   EXTENSION_IFRAME_META_CSP,
   extensionIframeCspBase,
   extensionIframeMetaCspFromDisplaySources,
-  navigateExtensionExternalLink,
-  parseExtensionExternalLinkRequest,
 } from "./html-shell.js";
 import {
   buildExtensionIframeCsp,
@@ -68,7 +65,7 @@ describe("buildExtensionHtml", () => {
     );
   });
 
-  it("routes clicked external extension links through the host page", () => {
+  it("opens clicked external extension links in a new popup", () => {
     const html = buildExtensionHtml(
       '<a href="https://docs.example.com/metric">Metric docs</a>',
       ":root{}",
@@ -77,105 +74,17 @@ describe("buildExtensionHtml", () => {
     );
 
     expect(html).toContain("if (!event.isTrusted");
-    expect(html).toContain("event.preventDefault()");
-    expect(html).toContain("bridgePort.postMessage({");
-    expect(html).toContain("readyExternalLinkBridge");
+    expect(html).toContain("link.getAttribute('href')");
+    expect(html).toContain("link.setAttribute('target', '_blank')");
+    expect(html).toContain("rel.add('noopener')");
+    expect(html).toContain("rel.add('noreferrer')");
     expect(html).toContain(
-      "new URLSearchParams(window.location.hash.slice(1))",
+      "destination.origin === new URL(document.baseURI).origin",
     );
-    expect(html).toContain(
-      "destination.origin !== new URL(document.baseURI).origin",
-    );
-    expect(html).toContain(`type: '${EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE}'`);
-    expect(html).not.toContain("link.setAttribute('target', '_top')");
+    expect(html).not.toContain("MessageChannel");
+    expect(html).not.toContain("agentNative.extension.openExternalLink");
+    expect(html).not.toContain("location.assign");
     expect(html).toContain("document.addEventListener('click'");
-  });
-
-  it("embeds a host-selected bridge nonce in srcDoc HTML", () => {
-    const html = buildExtensionHtml(
-      '<a href="https://docs.example.com/metric">Metric docs</a>',
-      ":root{}",
-      false,
-      "extension-1",
-      undefined,
-      undefined,
-      "bridge-nonce",
-    );
-
-    expect(html).toContain('var bridgeNonce = "bridge-nonce";');
-  });
-
-  it("accepts only external HTTP(S) link handoffs", () => {
-    expect(
-      parseExtensionExternalLinkRequest(
-        {
-          type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
-          href: "https://docs.example.com/metric",
-          target: "_self",
-        },
-        "https://app.example.com",
-      ),
-    ).toEqual({ href: "https://docs.example.com/metric", target: "_self" });
-
-    for (const href of [
-      "javascript:alert(1)",
-      "data:text/html,unsafe",
-      "https://app.example.com/inside",
-      "not a url",
-    ]) {
-      expect(
-        parseExtensionExternalLinkRequest(
-          {
-            type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
-            href,
-            target: "_self",
-          },
-          "https://app.example.com",
-        ),
-      ).toBeNull();
-    }
-
-    expect(
-      parseExtensionExternalLinkRequest(
-        {
-          type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
-          href: "https://docs.example.com/metric",
-          target: "_top",
-        },
-        "https://app.example.com",
-      ),
-    ).toBeNull();
-  });
-
-  it("requires transient host user activation before navigating", () => {
-    const request = {
-      type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
-      href: "https://docs.example.com/metric",
-      target: "_self",
-    };
-    const inactiveAssign = vi.fn();
-    const inactiveHost = {
-      location: { origin: "https://app.example.com", assign: inactiveAssign },
-      navigator: { userActivation: { isActive: false } },
-    } as unknown as Window;
-
-    expect(navigateExtensionExternalLink(request, inactiveHost)).toBe(
-      "ignored",
-    );
-    expect(inactiveAssign).not.toHaveBeenCalled();
-
-    const activeAssign = vi.fn();
-    const activeHost = {
-      location: { origin: "https://app.example.com", assign: activeAssign },
-      navigator: { userActivation: { isActive: true } },
-    } as unknown as Window;
-
-    expect(navigateExtensionExternalLink(request, activeHost)).toBe(
-      "navigated",
-    );
-    expect(activeAssign).toHaveBeenCalledWith(
-      "https://docs.example.com/metric",
-    );
   });
 
   it("keeps frame-ancestors in the HTTP header CSP only", () => {

@@ -2,18 +2,10 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
-import {
-  buildExtensionHtml,
-  connectExtensionExternalLinkBridge,
-} from "@agent-native/core/extensions/html-shell";
+import { buildExtensionHtml } from "@agent-native/core/extensions/html-shell";
 import { getThemeVars } from "@agent-native/core/extensions/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  useExtensionExternalLinkBridge,
-  useExtensionExternalLinkBridgeNonce,
-  withExtensionExternalLinkBridgeNonce,
-} from "./external-link-bridge.js";
 import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
@@ -310,7 +302,6 @@ function buildTransientSrcDoc(
   extension: InlineExtensionDefinition,
   isDark: boolean,
   metaCsp: string,
-  externalLinkBridgeNonce: string,
 ): string {
   return buildExtensionHtml(
     extension.content ?? "",
@@ -324,7 +315,6 @@ function buildTransientSrcDoc(
       role: "owner",
     },
     metaCsp,
-    externalLinkBridgeNonce,
   );
 }
 
@@ -338,8 +328,6 @@ export function InlineExtensionFrame({
 }: InlineExtensionFrameProps) {
   const providedId = providedExtension?.id ?? extensionId ?? "";
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
-  const externalLinkBridgeNonce = useExtensionExternalLinkBridgeNonce();
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(() =>
     typeof document === "undefined"
@@ -356,14 +344,6 @@ export function InlineExtensionFrame({
   const [isLoading, setIsLoading] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const hasSubmittedRef = useRef(false);
-
-  useEffect(
-    () => () => {
-      externalLinkBridgeCleanupRef.current?.();
-      externalLinkBridgeCleanupRef.current = null;
-    },
-    [],
-  );
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -413,48 +393,26 @@ export function InlineExtensionFrame({
 
   const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
-    if (!resolvedId || isTransient || !externalLinkBridgeNonce)
-      return undefined;
+    if (!resolvedId || isTransient) return undefined;
     const v = encodeURIComponent(extension?.updatedAt ?? "");
-    return withExtensionExternalLinkBridgeNonce(
-      agentNativePath(
-        `/_agent-native/extensions/${resolvedId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
-      ),
-      externalLinkBridgeNonce,
+    return agentNativePath(
+      `/_agent-native/extensions/${resolvedId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
     );
-  }, [
-    externalLinkBridgeNonce,
-    extension?.updatedAt,
-    isTransient,
-    resolvedId,
-    slotId,
-  ]);
+  }, [extension?.updatedAt, isTransient, resolvedId, slotId]);
 
   // Transient frames are built here, so they fetch the deployment's configured
   // img-src / media-src from the server and wait for it before rendering.
   const iframeMetaCsp = useExtensionIframeMetaCsp(!!extension && isTransient);
   const srcDoc = useMemo(() => {
-    if (
-      !extension ||
-      !isTransient ||
-      !iframeMetaCsp ||
-      !externalLinkBridgeNonce
-    ) {
+    if (!extension || !isTransient || !iframeMetaCsp) {
       return undefined;
     }
     return buildTransientSrcDoc(
       extension,
       initialDarkRef.current,
       iframeMetaCsp,
-      externalLinkBridgeNonce,
     );
-  }, [extension, externalLinkBridgeNonce, iframeMetaCsp, isTransient]);
-  useExtensionExternalLinkBridge(
-    iframeRef,
-    externalLinkBridgeCleanupRef,
-    srcDoc ?? iframeSrc,
-    externalLinkBridgeNonce,
-  );
+  }, [extension, iframeMetaCsp, isTransient]);
 
   useEffect(() => {
     bridgeContextRef.current = isTransient
@@ -732,16 +690,6 @@ export function InlineExtensionFrame({
           pointerEvents: isTransient && hasSubmitted ? "none" : undefined,
         }}
         onLoad={() => {
-          const documentKey = srcDoc ?? iframeSrc;
-          if (iframeRef.current && documentKey && externalLinkBridgeNonce) {
-            externalLinkBridgeCleanupRef.current =
-              connectExtensionExternalLinkBridge(
-                iframeRef.current,
-                window,
-                documentKey,
-                externalLinkBridgeNonce,
-              );
-          }
           sendThemeToIframe();
           sendContextToIframe();
         }}

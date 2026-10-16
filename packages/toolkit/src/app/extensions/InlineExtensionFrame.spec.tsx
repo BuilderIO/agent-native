@@ -11,7 +11,6 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/extensions/html-shell", () => ({
-  connectExtensionExternalLinkBridge: () => null,
   buildExtensionHtml: (
     content: string,
     _themeVars: string,
@@ -64,7 +63,7 @@ describe("InlineExtensionFrame", () => {
 
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-forms allow-popups allow-downloads",
+      "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads",
     );
     expect(iframe?.getAttribute("srcdoc")).toContain("Send choice");
     expect(iframe?.getAttribute("srcdoc")).toContain(

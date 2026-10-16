@@ -1,25 +1,19 @@
 import { defineClientAction } from "@agent-native/core/client/host";
 import React from "react";
-import { useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
 import { AgentNativeExtensionSlot } from "./AgentNativeExtensionFrame.js";
-import {
-  useExtensionExternalLinkBridge,
-  useExtensionExternalLinkBridgeNonce,
-  withExtensionExternalLinkBridgeNonce,
-} from "./external-link-bridge.js";
 
 const extensionContent = `
 <a id="external-metric-link" href="https://external.example.test/metric">Open metric</a>
+<svg width="120" height="32"><a id="svg-metric-link" href="https://external.example.test/svg"><text x="0" y="20">SVG docs</text></a></svg>
+<button id="try-top-navigation">Try top navigation</button>
 <div id="status">pending</div>
 <pre id="results"></pre>
 <script>
-  window.parent.postMessage({
-    type: 'agentNative.extension.openExternalLink',
-    href: 'https://external.example.test/forged',
-    target: '_self'
-  }, '*');
+  document.getElementById('try-top-navigation').addEventListener('click', function() {
+    window.top.location.assign('https://external.example.test/forged');
+  });
   (async function() {
     const result = {};
     async function capture(name, fn) {
@@ -62,31 +56,17 @@ const extensionContent = `
 interface ExtensionE2EWindow {
   __extensionE2EResult?: unknown;
   __extensionE2ECommands?: Array<{ command: string; payload: unknown }>;
-  __extensionReplacementPortReceived?: boolean;
 }
 
 const hostWindow = window as Window & ExtensionE2EWindow;
 
-function RouteBridgeFrame() {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
-  const nonce = useExtensionExternalLinkBridgeNonce();
-  const src = useMemo(
-    () =>
-      nonce
-        ? withExtensionExternalLinkBridgeNonce("/__extension-e2e-route", nonce)
-        : undefined,
-    [nonce],
-  );
-  useExtensionExternalLinkBridge(iframeRef, cleanupRef, src, nonce);
-
+function RouteLinkFrame() {
   return (
     <iframe
-      ref={iframeRef}
-      src={src}
-      title="Route bridge fixture"
-      sandbox="allow-scripts"
-      data-e2e-route-bridge="true"
+      src="/__extension-e2e-route"
+      title="Route external link fixture"
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      data-e2e-route-link="true"
     />
   );
 }
@@ -123,10 +103,6 @@ const firstLoadNavigationExtension = {
 
 hostWindow.__extensionE2ECommands = [];
 window.addEventListener("message", (event) => {
-  if (event.data?.type === "extension-e2e.replacement-port-received") {
-    hostWindow.__extensionReplacementPortReceived = true;
-    return;
-  }
   if (event.data?.type !== "extension-e2e.done") return;
   hostWindow.__extensionE2EResult = event.data.result;
   const results = document.getElementById("host-results");
@@ -187,7 +163,7 @@ function Host() {
         context={{}}
         getContext={() => ({})}
       />
-      <RouteBridgeFrame />
+      <RouteLinkFrame />
     </main>
   );
 }

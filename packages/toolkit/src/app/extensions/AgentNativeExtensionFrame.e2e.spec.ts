@@ -90,7 +90,7 @@ function serverUrl(server: ViteDevServer): string {
   return new URL("/__extension-e2e", url).toString();
 }
 
-describe("AgentNativeExtensionFrame browser bridge", () => {
+describe("AgentNativeExtensionFrame browser links", () => {
   let server: ViteDevServer;
   let browser: Browser;
 
@@ -103,7 +103,7 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
     await Promise.allSettled([browser?.close(), server?.close()]);
   }, 60_000);
 
-  it("runs a sandboxed extension through real iframe postMessage boundaries", async () => {
+  it("keeps extension code sandboxed and opens external links in isolated tabs", async () => {
     const page = await browser.newPage();
     const logs: string[] = [];
     page.on("console", (message) =>
@@ -115,27 +115,18 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
       route.abort(),
     );
     await page.route("https://fonts.gstatic.com/**", (route) => route.abort());
-    await page.route(
-      "https://external.example.test/first-load-replacement",
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "text/html",
-          body: `<!doctype html>
-<script>
-  window.addEventListener('message', function(event) {
-    if (!event.ports || event.ports.length !== 1) return;
-    window.parent.postMessage({ type: 'extension-e2e.replacement-port-received' }, '*');
-  });
-  window.parent.postMessage({
-    type: 'agentNative.extension.readyExternalLinkBridge',
-    nonce: 'forged',
-    generation: 'replacement'
-  }, '*');
-</script>
-<p>First-load replacement document</p>`,
-        }),
-    );
+    await page.context().route("https://external.example.test/**", (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const title = path.slice(1).replaceAll("-", " ");
+      return route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body:
+          path === "/first-load-replacement"
+            ? `<!doctype html><p>First-load replacement document</p>`
+            : `<!doctype html><p>${title}</p><script>localStorage.setItem('external-page-loaded', 'yes')</script>`,
+      });
+    });
 
     await page.goto(serverUrl(server));
     try {
@@ -158,6 +149,7 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
     expect(frames).toHaveLength(3);
     const sandbox = await frames[0].getAttribute("sandbox");
     expect(sandbox).toContain("allow-scripts");
+    expect(sandbox).toContain("allow-popups-to-escape-sandbox");
     expect(sandbox).not.toContain("allow-same-origin");
     expect(sandbox).not.toContain("allow-top-navigation-by-user-activation");
 
@@ -216,94 +208,67 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
     expect(result.blockedStorageScope.ok).toBe(false);
     expect(result.blockedStorageScope.error).toContain('scope "org"');
 
+    const extensionFrame = page.frames()[1];
     await page
       .frames()[2]
       .waitForURL("https://external.example.test/first-load-replacement");
+    await extensionFrame.locator("#try-top-navigation").click();
     await page.waitForTimeout(100);
-    expect(
-      await page.evaluate(
-        () => window.__extensionReplacementPortReceived ?? false,
-      ),
-    ).toBe(false);
     expect(page.url()).toBe(serverUrl(server));
 
-    await page.route("https://external.example.test/replacement", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "text/html",
-        body: `<!doctype html>
-<script>
-  window.addEventListener('message', function(event) {
-    if (!event.ports || event.ports.length !== 1) return;
-    window.parent.postMessage({ type: 'extension-e2e.replacement-port-received' }, '*');
-    event.ports[0].postMessage({
-      type: 'agentNative.extension.openExternalLink',
-      href: 'https://attacker.example.test/redirect',
-      target: '_self'
-    });
-  });
-</script>
-<p>Replacement document</p>`,
-      }),
-    );
-    const replacementFrame = page.frames()[1];
-    await replacementFrame.evaluate(() => {
-      window.location.assign("https://external.example.test/replacement");
-    });
-    await replacementFrame.waitForURL(
-      "https://external.example.test/replacement",
-    );
-    await page.waitForTimeout(100);
-    expect(
-      await page.evaluate(
-        () => window.__extensionReplacementPortReceived ?? false,
-      ),
-    ).toBe(false);
-    expect(page.url()).toBe(serverUrl(server));
-
-    await page.reload();
-    await page.waitForFunction(() => window.__extensionE2EResult?.done, {
-      timeout: 30_000,
-    });
-
-    const extensionFrame = page.frames()[1];
     await extensionFrame.evaluate(() => window.location.reload());
     await extensionFrame.waitForSelector("#external-metric-link");
 
-    await page.route("https://external.example.test/metric", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "text/html",
-        body: "<!doctype html><title>Metric target</title><p>Metric target</p>",
-      }),
-    );
+    const metricPopupPromise = page.context().waitForEvent("page");
     await extensionFrame.locator("#external-metric-link").click();
-    await page.waitForURL("https://external.example.test/metric");
-    expect(await page.locator("body").textContent()).toContain("Metric target");
+    const metricPopup = await metricPopupPromise;
+    await metricPopup.waitForURL("https://external.example.test/metric");
+    expect(await metricPopup.locator("body").textContent()).toContain("metric");
+    expect(
+      await metricPopup.evaluate(() =>
+        localStorage.getItem("external-page-loaded"),
+      ),
+    ).toBe("yes");
+    expect(page.url()).toBe(serverUrl(server));
+    await metricPopup.close();
+
+    const svgPopupPromise = page.context().waitForEvent("page");
+    await extensionFrame.locator("#svg-metric-link").click();
+    const svgPopup = await svgPopupPromise;
+    await svgPopup.waitForURL("https://external.example.test/svg");
+    expect(await svgPopup.locator("body").textContent()).toContain("svg");
+    expect(page.url()).toBe(serverUrl(server));
+    await svgPopup.close();
 
     await page.close();
   }, 60_000);
 
-  it("routes external links from server-rendered extension frames through the host", async () => {
+  it("opens external links from server-rendered extension frames", async () => {
     const page = await browser.newPage();
-    await page.route("https://external.example.test/route-metric", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "text/html",
-        body: "<!doctype html><title>Route metric</title><p>Route metric</p>",
-      }),
-    );
+    await page
+      .context()
+      .route("https://external.example.test/route-metric", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><title>Route metric</title><p>Route metric</p>",
+        }),
+      );
 
     try {
       await page.goto(serverUrl(server));
       const extensionFrame = page.frameLocator(
-        'iframe[data-e2e-route-bridge="true"]',
+        'iframe[data-e2e-route-link="true"]',
       );
+      const popupPromise = page.context().waitForEvent("page");
       await extensionFrame.locator("#route-external-link").click();
-      await page.waitForURL("https://external.example.test/route-metric");
-      expect(await page.locator("body").textContent()).toContain(
+      const popup = await popupPromise;
+      await popup.waitForURL("https://external.example.test/route-metric");
+      expect(await popup.locator("body").textContent()).toContain(
         "Route metric",
       );
+      expect(page.url()).toBe(serverUrl(server));
+      await popup.close();
     } finally {
       await page.close();
     }
@@ -314,6 +279,5 @@ declare global {
   interface Window {
     __extensionE2EResult?: ExtensionE2EResult;
     __extensionE2ECommands?: Array<{ command: string; payload: unknown }>;
-    __extensionReplacementPortReceived?: boolean;
   }
 }

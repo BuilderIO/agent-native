@@ -12,7 +12,6 @@ import {
   type AgentNativeHostContextGetter,
   type AgentNativeHostSession,
 } from "@agent-native/core/client/host";
-import { connectExtensionExternalLinkBridge } from "@agent-native/core/extensions/html-shell";
 import React, {
   forwardRef,
   useCallback,
@@ -24,10 +23,6 @@ import React, {
   type IframeHTMLAttributes,
 } from "react";
 
-import {
-  useExtensionExternalLinkBridge,
-  useExtensionExternalLinkBridgeNonce,
-} from "./external-link-bridge.js";
 import {
   AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   buildAgentNativeExtensionHtml,
@@ -350,10 +345,8 @@ export const AgentNativeExtensionFrame = forwardRef<
   forwardedRef,
 ) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
   const bridgeRef = useRef<AgentNativeHostBridge | null>(null);
   const [height, setHeight] = useState(initialHeight);
-  const externalLinkBridgeNonce = useExtensionExternalLinkBridgeNonce();
   const localStorageAdapter = useMemo(
     () => createLocalStorageAgentNativeExtensionStorage(storageNamespace),
     [storageNamespace],
@@ -409,26 +402,16 @@ export const AgentNativeExtensionFrame = forwardRef<
     [commands, commandAllowlist],
   );
 
-  useEffect(
-    () => () => {
-      externalLinkBridgeCleanupRef.current?.();
-      externalLinkBridgeCleanupRef.current = null;
-    },
-    [],
-  );
-
   const getMergedContext = useCallback(async () => {
     const base = getContext ? await getContext() : {};
     return mergeExtensionContext(base, extension, slotId, context);
   }, [contextJson, extension, getContext, slotId]);
 
   const srcDoc = useMemo(() => {
-    if (!externalLinkBridgeNonce) return undefined;
     return buildAgentNativeExtensionHtml({
       extensionId: extension.id,
       title: title ?? extension.name,
       content: extension.content,
-      externalLinkBridgeNonce,
       slotId,
       slotContext: context,
       themeCss,
@@ -436,7 +419,6 @@ export const AgentNativeExtensionFrame = forwardRef<
     });
   }, [
     contextJson,
-    externalLinkBridgeNonce,
     extension.content,
     extension.id,
     extension.name,
@@ -445,12 +427,6 @@ export const AgentNativeExtensionFrame = forwardRef<
     themeCss,
     title,
   ]);
-  useExtensionExternalLinkBridge(
-    iframeRef,
-    externalLinkBridgeCleanupRef,
-    srcDoc,
-    externalLinkBridgeNonce,
-  );
 
   const postSlotContext = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -636,15 +612,6 @@ export const AgentNativeExtensionFrame = forwardRef<
         ...style,
       }}
       onLoad={(event) => {
-        if (srcDoc && externalLinkBridgeNonce) {
-          externalLinkBridgeCleanupRef.current =
-            connectExtensionExternalLinkBridge(
-              event.currentTarget,
-              window,
-              srcDoc,
-              externalLinkBridgeNonce,
-            );
-        }
         bridgeRef.current?.setTargetWindow(
           event.currentTarget.contentWindow ?? null,
         );

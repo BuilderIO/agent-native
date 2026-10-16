@@ -4,7 +4,6 @@ import { useAppearance } from "@agent-native/core/client/appearance";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { connectExtensionExternalLinkBridge } from "@agent-native/core/extensions/html-shell";
 import { extensionPath } from "@agent-native/core/extensions/path";
 import { THEME_VAR_NAMES } from "@agent-native/core/extensions/theme";
 import {
@@ -37,11 +36,6 @@ import {
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
-import {
-  useExtensionExternalLinkBridge,
-  useExtensionExternalLinkBridgeNonce,
-  withExtensionExternalLinkBridgeNonce,
-} from "./external-link-bridge.js";
 import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
@@ -122,8 +116,6 @@ export function EmbeddedExtension({
   onUnavailable,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const externalLinkBridgeCleanupRef = useRef<(() => void) | null>(null);
-  const externalLinkBridgeNonce = useExtensionExternalLinkBridgeNonce();
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const readyFiredRef = useRef(false);
@@ -144,14 +136,6 @@ export function EmbeddedExtension({
   });
   const bindingLatchedRef = useRef(false);
   const extensionRef = useRef(null as null | Extension);
-
-  useEffect(
-    () => () => {
-      externalLinkBridgeCleanupRef.current?.();
-      externalLinkBridgeCleanupRef.current = null;
-    },
-    [],
-  );
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -208,21 +192,11 @@ export function EmbeddedExtension({
 
   const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
-    if (!externalLinkBridgeNonce) return undefined;
     const v = encodeURIComponent(extension?.updatedAt ?? "");
-    return withExtensionExternalLinkBridgeNonce(
-      agentNativePath(
-        `/_agent-native/extensions/${extensionId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
-      ),
-      externalLinkBridgeNonce,
+    return agentNativePath(
+      `/_agent-native/extensions/${extensionId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
     );
-  }, [externalLinkBridgeNonce, extensionId, slotId, extension?.updatedAt]);
-  useExtensionExternalLinkBridge(
-    iframeRef,
-    externalLinkBridgeCleanupRef,
-    iframeSrc,
-    externalLinkBridgeNonce,
-  );
+  }, [extensionId, slotId, extension?.updatedAt]);
 
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
@@ -481,15 +455,6 @@ export function EmbeddedExtension({
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
-          if (iframeRef.current && iframeSrc && externalLinkBridgeNonce) {
-            externalLinkBridgeCleanupRef.current =
-              connectExtensionExternalLinkBridge(
-                iframeRef.current,
-                window,
-                iframeSrc,
-                externalLinkBridgeNonce,
-              );
-          }
           iframeRef.current?.contentWindow?.postMessage(
             {
               type: "agent-native-slot-context",

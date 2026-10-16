@@ -15,7 +15,7 @@ describe("portable extension runtime", () => {
     localStorage.clear();
   });
 
-  it("builds sandbox iframe HTML with host bridge helpers", () => {
+  it("builds sandbox iframe HTML with isolated external links", () => {
     const html = buildAgentNativeExtensionHtml({
       extensionId: "ext-1",
       slotId: "crm.sidebar",
@@ -30,8 +30,9 @@ describe("portable extension runtime", () => {
     expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
     expect(html).toContain("recordCrossOriginIframes: true");
     expect(html).toContain("agentNative.host.ready");
-    expect(html).toContain("agentNative.extension.openExternalLink");
-    expect(html).toContain("externalLinkPort.postMessage({");
+    expect(html).toContain("link.getAttribute('href')");
+    expect(html).toContain("link.setAttribute('target', '_blank')");
+    expect(html).toContain("rel.add('noopener')");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
     expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
@@ -107,7 +108,7 @@ describe("portable extension runtime", () => {
       "allow-scripts",
     );
     expect(normalizeAgentNativeExtensionSandbox(undefined)).toBe(
-      "allow-scripts allow-forms allow-popups allow-downloads",
+      "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads",
     );
     expect(
       normalizeAgentNativeExtensionSandbox(

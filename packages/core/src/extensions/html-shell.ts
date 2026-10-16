@@ -101,7 +101,7 @@ export function extensionIframeMetaCspFromDisplaySources(
  *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
  *      `EmbeddedExtension.tsx`) normalizes the sandbox through
  *      `normalizeAgentNativeExtensionSandbox()`, which permits scripts, forms,
- *      popups, and downloads. External links use the validated host bridge;
+ *      popups, and downloads. External anchors open sandbox-escaping popups;
  *      extensions never receive top-level navigation permission. Adding
  *      `allow-same-origin` would give the extension full DOM access to the
  *      parent window via cross-frame script.
@@ -158,201 +158,33 @@ export interface ExtensionRenderBinding {
   };
 }
 
-export const EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE =
-  "agentNative.extension.openExternalLink";
-export const EXTENSION_EXTERNAL_LINK_BRIDGE_READY_TYPE =
-  "agentNative.extension.readyExternalLinkBridge";
-export const EXTENSION_EXTERNAL_LINK_BRIDGE_ACK_TYPE =
-  "agentNative.extension.externalLinkBridgeReady";
-export const EXTENSION_EXTERNAL_LINK_BRIDGE_HASH_KEY =
-  "__agentNativeExternalLinkBridge";
-
-export interface ExtensionExternalLinkRequest {
-  href: string;
-  target: "_self";
-}
-
-interface ExtensionExternalLinkBridgeRegistration {
-  documentKey: string;
-  nonce: string;
-  cleanup: () => void;
-}
-
-const extensionExternalLinkBridges = new WeakMap<
-  HTMLIFrameElement,
-  ExtensionExternalLinkBridgeRegistration
->();
-
-export function parseExtensionExternalLinkRequest(
-  message: unknown,
-  currentOrigin: string,
-): ExtensionExternalLinkRequest | null {
-  if (!message || typeof message !== "object") return null;
-  const value = message as Record<string, unknown>;
-  if (
-    value.type !== EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE ||
-    typeof value.href !== "string" ||
-    value.target !== "_self"
-  ) {
-    return null;
-  }
-
-  try {
-    const destination = new URL(value.href);
-    if (
-      (destination.protocol !== "http:" && destination.protocol !== "https:") ||
-      destination.origin === currentOrigin
-    ) {
-      return null;
-    }
-    return { href: destination.href, target: "_self" };
-  } catch (error) {
-    if (error instanceof TypeError) return null;
-    throw error;
-  }
-}
-
-export function navigateExtensionExternalLink(
-  message: unknown,
-  hostWindow: Window,
-): "ignored" | "navigated" {
-  if (!hostWindow.navigator.userActivation?.isActive) return "ignored";
-
-  const request = parseExtensionExternalLinkRequest(
-    message,
-    hostWindow.location.origin,
-  );
-  if (!request) return "ignored";
-  hostWindow.location.assign(request.href);
-  return "navigated";
-}
-
-export function connectExtensionExternalLinkBridge(
-  iframe: HTMLIFrameElement,
-  hostWindow: Window,
-  documentKey: string,
-  nonce: string,
-): (() => void) | null {
-  const existingBridge = extensionExternalLinkBridges.get(iframe);
-  if (
-    existingBridge?.documentKey === documentKey &&
-    existingBridge.nonce === nonce
-  ) {
-    return existingBridge.cleanup;
-  }
-  existingBridge?.cleanup();
-
-  const frameWindow = iframe.contentWindow;
-  if (!frameWindow || typeof MessageChannel === "undefined") return null;
-
-  const ports = new Set<MessagePort>();
-  let activeGeneration: string | null = null;
-  const onReady = (event: MessageEvent) => {
-    const message = event.data;
-    if (
-      event.source !== frameWindow ||
-      event.origin !== "null" ||
-      !message ||
-      typeof message !== "object" ||
-      message.type !== EXTENSION_EXTERNAL_LINK_BRIDGE_READY_TYPE ||
-      message.nonce !== nonce ||
-      typeof message.generation !== "string" ||
-      event.ports.length !== 1
-    ) {
-      return;
-    }
-
-    if (activeGeneration !== message.generation) {
-      for (const port of ports) port.close();
-      ports.clear();
-      activeGeneration = message.generation;
-    }
-
-    const port = event.ports[0];
-    if (!port) return;
-    port.addEventListener("message", (portEvent) => {
-      navigateExtensionExternalLink(portEvent.data, hostWindow);
-    });
-    port.start();
-    ports.add(port);
-    port.postMessage({ type: EXTENSION_EXTERNAL_LINK_BRIDGE_ACK_TYPE });
-  };
-  hostWindow.addEventListener("message", onReady);
-
-  let bridge: ExtensionExternalLinkBridgeRegistration;
-  const cleanup = () => {
-    hostWindow.removeEventListener("message", onReady);
-    for (const port of ports) port.close();
-    ports.clear();
-    if (extensionExternalLinkBridges.get(iframe) === bridge) {
-      extensionExternalLinkBridges.delete(iframe);
-    }
-  };
-  bridge = { documentKey, nonce, cleanup };
-  extensionExternalLinkBridges.set(iframe, bridge);
-  return cleanup;
-}
-
-export function buildExtensionExternalLinkBootstrap(nonce?: string): string {
-  const nonceExpression =
-    nonce === undefined
-      ? `new URLSearchParams(window.location.hash.slice(1)).get('${EXTENSION_EXTERNAL_LINK_BRIDGE_HASH_KEY}') || ''`
-      : JSON.stringify(nonce);
-
+export function buildExtensionExternalLinkTargetBootstrap(): string {
   return `<script>
     (function() {
-      var bridgeNonce = ${nonceExpression};
-      var bridgePort = null;
-      var generation = window.crypto && typeof window.crypto.randomUUID === 'function'
-        ? window.crypto.randomUUID()
-        : Date.now().toString(36) + Math.random().toString(36).slice(2);
-
-      function requestBridge() {
-        if (!bridgeNonce || window.parent === window || typeof MessageChannel === 'undefined') return;
-        var channel = new MessageChannel();
-        var retryTimer = setTimeout(function() {
-          if (bridgePort) return;
-          channel.port1.close();
-          requestBridge();
-        }, 1000);
-        channel.port1.addEventListener('message', function(event) {
-          if (!event.data || event.data.type !== '${EXTENSION_EXTERNAL_LINK_BRIDGE_ACK_TYPE}') return;
-          clearTimeout(retryTimer);
-          bridgePort = channel.port1;
-        });
-        channel.port1.start();
-        window.parent.postMessage({
-          type: '${EXTENSION_EXTERNAL_LINK_BRIDGE_READY_TYPE}',
-          nonce: bridgeNonce,
-          generation: generation
-        }, '*', [channel.port2]);
-      }
-
-      requestBridge();
-
       document.addEventListener('click', function(event) {
-        if (!event.isTrusted || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        if (window.parent === window) return;
+        if (!event.isTrusted) return;
         var target = event.target;
         if (!target || typeof target.closest !== 'function') return;
         var link = target.closest('a[href]');
         if (!link || link.hasAttribute('download')) return;
-        var linkTarget = (link.getAttribute('target') || '').trim().toLowerCase();
-        if (linkTarget && linkTarget !== '_self') return;
-
-        var destination = new URL(link.href, document.baseURI);
-        if (
-          (destination.protocol === 'http:' || destination.protocol === 'https:') &&
-          destination.origin !== new URL(document.baseURI).origin
-        ) {
-          event.preventDefault();
-          if (!bridgePort) return;
-          bridgePort.postMessage({
-            type: '${EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE}',
-            href: destination.href,
-            target: '_self'
-          });
+        var href = link.getAttribute('href');
+        if (!href) return;
+        var destination;
+        try {
+          destination = new URL(href, document.baseURI);
+        } catch (_) {
+          return;
         }
+        if (
+          (destination.protocol !== 'http:' && destination.protocol !== 'https:') ||
+          destination.origin === new URL(document.baseURI).origin
+        ) return;
+
+        link.setAttribute('target', '_blank');
+        var rel = new Set((link.getAttribute('rel') || '').split(/\\s+/).filter(Boolean));
+        rel.add('noopener');
+        rel.add('noreferrer');
+        link.setAttribute('rel', Array.from(rel).join(' '));
       }, true);
     })();
   </script>`;
@@ -365,7 +197,6 @@ export function buildExtensionHtml(
   extensionId?: string,
   binding?: ExtensionRenderBinding,
   metaCsp: string = EXTENSION_IFRAME_META_CSP,
-  externalLinkBridgeNonce?: string,
 ): string {
   const extensionIdJson = JSON.stringify(extensionId ?? "");
   const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
@@ -447,7 +278,7 @@ export function buildExtensionHtml(
       _collectError(msg, stack);
     });
   </script>
-  ${buildExtensionExternalLinkBootstrap(externalLinkBridgeNonce)}
+  ${buildExtensionExternalLinkTargetBootstrap()}
   <!--
     SECURITY: pinned to exact patch versions + SRI integrity hashes. A
     malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would

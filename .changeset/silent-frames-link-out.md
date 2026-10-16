@@ -3,4 +3,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Let user-clicked external links in sandboxed extension frames open in the app's top-level page.
+Open clicked external links from sandboxed extension frames in a separate browser tab.
