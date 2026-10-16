@@ -1092,7 +1092,7 @@ export const CanvasContextMenu = forwardRef<
           </>
         ) : (
           <>
-            {/* The empty canvas menu leads with agent and sharing, then paste and visibility controls. */}
+            {/* The empty canvas menu leads with the agent, then paste and visibility controls. */}
             <ContextMenuGroup>
               <CanvasMenuItem
                 hidden={isHiddenAction("explore-with-agent")}
@@ -1100,13 +1100,6 @@ export const CanvasContextMenu = forwardRef<
                 label={labels.exploreWithAgent}
                 shortcut={shortcuts.exploreWithAgent}
                 onSelect={(event) => runAction("explore-with-agent", event)}
-              />
-              <CanvasMenuItem
-                hidden={isHiddenAction("copy-link")}
-                disabled={!canRun("copy-link", true)}
-                label={labels.copyLink}
-                shortcut={shortcuts.copyLink}
-                onSelect={(event) => runAction("copy-link", event)}
               />
             </ContextMenuGroup>
 

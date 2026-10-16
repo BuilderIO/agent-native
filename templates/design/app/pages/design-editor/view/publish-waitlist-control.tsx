@@ -172,7 +172,7 @@ export function renderPublishWaitlistControl({
               (!activeScreenPreviewUrl && !activeContent.trim())
             }
           >
-            {t("designEditor.designPreview")}
+            {t("designEditor.preview")}
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
@@ -180,7 +180,7 @@ export function renderPublishWaitlistControl({
               setPublishWaitlistPopoverView("waitlist");
             }}
           >
-            {"Publish app" /* i18n-ignore */}
+            {t("designEditor.publish")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
