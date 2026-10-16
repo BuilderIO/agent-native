@@ -56,6 +56,10 @@ async function mapPool<T, R>(
   return results;
 }
 
+function sentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
 function describeEstimate(estimate: QueryCostEstimate): string {
   if (
     estimate.status === "not_bigquery" ||
@@ -183,7 +187,7 @@ export default defineAction({
         ...estimate,
         pricing,
         caveats: QUERY_COST_CAVEATS,
-        summary: `Estimate: ${describeEstimate(estimate)}.`,
+        summary: sentence(`Estimate: ${describeEstimate(estimate)}`),
       };
     }
 
@@ -265,6 +269,9 @@ export default defineAction({
         (panel.overPerRunThreshold || panel.overPerMonthThreshold),
     );
     const failed = panels.filter((panel) => panel.status === "failed").length;
+    const priced = panels.filter(
+      (panel) => panel.status === "estimated",
+    ).length;
     const monthly =
       total.usdPerMonth === null
         ? "no scheduled runs"
@@ -292,7 +299,9 @@ export default defineAction({
       pricing,
       caveats: QUERY_COST_CAVEATS,
       summary:
-        `${panels.length} panel${panels.length === 1 ? "" : "s"}: ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} per full refresh, ${monthly}.` +
+        (priced === 0
+          ? `${panels.length} panel${panels.length === 1 ? "" : "s"}: none read BigQuery, so nothing was priced.`
+          : `${panels.length} panel${panels.length === 1 ? "" : "s"} (${priced} priced): ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} per full refresh, ${monthly}.`) +
         (flagged.length
           ? ` Over threshold: ${flagged.map((panel) => `"${panel.title}" (${describeEstimate(panel)})`).join("; ")}.`
           : "") +

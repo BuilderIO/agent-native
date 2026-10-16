@@ -202,6 +202,7 @@ describe("estimate-query-cost action", () => {
     expect(result.runsPerMonthBasis).toBe("2 enabled daily email reports");
     expect(result.panels).toHaveLength(2);
     expect(result.total.estimatedBytes).toBe(191 * GIB);
+    expect(result.summary).toContain("2 panels (2 priced)");
     expect(result.summary).toContain('"Big"');
     expect(result.summary).not.toContain('"Small"');
   });
