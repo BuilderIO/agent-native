@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   buildHitMask,
   hitMaskContains,
-  HIT_MASK_CELL_PX,
+  hitMaskCellSize,
   type HitMask,
   type HitRect,
   hitMaskGrid,
@@ -130,7 +130,13 @@ export function Bubble() {
 
   // Samples the displayed cut-out onto a grid over the whole window.
   const computeHitMask = (cutoutCanvas: HTMLCanvasElement): HitMask | null => {
-    const { cols, rows } = hitMaskGrid(window.innerWidth, window.innerHeight);
+    const grid = hitMaskGrid(window.innerWidth, window.innerHeight);
+    const { cols, rows } = grid;
+    const { cellWidth, cellHeight } = hitMaskCellSize(
+      window.innerWidth,
+      window.innerHeight,
+      grid,
+    );
     const probe = (hitProbeRef.current ??= document.createElement("canvas"));
     if (probe.width !== cols) probe.width = cols;
     if (probe.height !== rows) probe.height = rows;
@@ -141,14 +147,15 @@ export function Bubble() {
     const box = cutoutCanvas.getBoundingClientRect();
     const transform = getComputedStyle(cutoutCanvas).transform;
     const mirrored = transform !== "none" && new DOMMatrix(transform).a < 0;
-    const scale = 1 / HIT_MASK_CELL_PX;
+    const sx = 1 / cellWidth;
+    const sy = 1 / cellHeight;
     ctx.setTransform(
-      mirrored ? -scale : scale,
+      mirrored ? -sx : sx,
       0,
       0,
-      scale,
-      (mirrored ? box.right : box.left) * scale,
-      box.top * scale,
+      sy,
+      (mirrored ? box.right : box.left) * sx,
+      box.top * sy,
     );
     // Only the part inside the bubble circle is visible, so only it counts.
     ctx.save();
@@ -172,6 +179,8 @@ export function Bubble() {
       rgba,
       rects,
       emptyFallback: toHitRect(cutoutCanvas),
+      cellWidth,
+      cellHeight,
     });
   };
 

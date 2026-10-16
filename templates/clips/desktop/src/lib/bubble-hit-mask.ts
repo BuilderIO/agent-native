@@ -35,6 +35,23 @@ export function hitMaskGrid(
 }
 
 /**
+ * Cell size in CSS pixels for a grid spread evenly over the window. The
+ * lookup maps window fractions to cells, so the mask must be sampled with
+ * these sizes rather than `HIT_MASK_CELL_PX`, which would leave the last
+ * row and column short when the window is not a multiple of it.
+ */
+export function hitMaskCellSize(
+  width: number,
+  height: number,
+  grid: { cols: number; rows: number },
+): { cellWidth: number; cellHeight: number } {
+  return {
+    cellWidth: Math.max(width, 1) / grid.cols,
+    cellHeight: Math.max(height, 1) / grid.rows,
+  };
+}
+
+/**
  * Builds the packed mask (row-major, LSB first) from RGBA samples of the
  * cut-out drawn at grid resolution plus always-interactive rectangles.
  * Opaque cells are dilated by one cell so the edge of the person, where the
@@ -49,6 +66,8 @@ export function buildHitMask({
   rects = [],
   emptyFallback,
   cellPx = HIT_MASK_CELL_PX,
+  cellWidth = cellPx,
+  cellHeight = cellPx,
   threshold = HIT_MASK_ALPHA_THRESHOLD,
 }: {
   cols: number;
@@ -57,6 +76,9 @@ export function buildHitMask({
   rects?: HitRect[];
   emptyFallback?: HitRect;
   cellPx?: number;
+  /** Cell size per axis; pass `hitMaskCellSize` so cells match the lookup. */
+  cellWidth?: number;
+  cellHeight?: number;
   threshold?: number;
 }): HitMask {
   const solid = new Uint8Array(cols * rows);
@@ -89,10 +111,10 @@ export function buildHitMask({
   const interactive =
     solidCount === 0 && emptyFallback ? [...rects, emptyFallback] : rects;
   for (const rect of interactive) {
-    const x0 = Math.max(0, Math.floor(rect.left / cellPx));
-    const y0 = Math.max(0, Math.floor(rect.top / cellPx));
-    const x1 = Math.min(cols, Math.ceil(rect.right / cellPx));
-    const y1 = Math.min(rows, Math.ceil(rect.bottom / cellPx));
+    const x0 = Math.max(0, Math.floor(rect.left / cellWidth));
+    const y0 = Math.max(0, Math.floor(rect.top / cellHeight));
+    const x1 = Math.min(cols, Math.ceil(rect.right / cellWidth));
+    const y1 = Math.min(rows, Math.ceil(rect.bottom / cellHeight));
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) hit[y * cols + x] = 1;
     }

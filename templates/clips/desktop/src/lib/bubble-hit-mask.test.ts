@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildHitMask,
+  hitMaskCellSize,
   hitMaskContains,
   hitMaskGrid,
   sameHitMask,
@@ -129,5 +130,26 @@ describe("hitMaskContains", () => {
     expect(hitMaskContains(mask, 0.5, 0.9)).toBe(false);
     expect(hitMaskContains(mask, 1, 0.1)).toBe(false);
     expect(hitMaskContains(mask, -0.01, 0.1)).toBe(false);
+  });
+});
+
+describe("hitMaskCellSize", () => {
+  it("spreads the grid evenly so rects land where the lookup reads them", () => {
+    // 100px is not a multiple of 6: 17 cells of 100/17px, not 6px.
+    const grid = hitMaskGrid(100, 60);
+    expect(grid).toEqual({ cols: 17, rows: 10 });
+    const { cellWidth, cellHeight } = hitMaskCellSize(100, 60, grid);
+    expect(cellWidth).toBeCloseTo(100 / 17);
+    expect(cellHeight).toBe(6);
+    // A control at the right edge (x 95-100) must be hit at fraction 0.97.
+    const mask = buildHitMask({
+      ...grid,
+      rgba: null,
+      rects: [{ left: 95, top: 0, right: 100, bottom: 6 }],
+      cellWidth,
+      cellHeight,
+    });
+    expect(hitMaskContains(mask, 0.97, 0.05)).toBe(true);
+    expect(hitMaskContains(mask, 0.9, 0.05)).toBe(false);
   });
 });

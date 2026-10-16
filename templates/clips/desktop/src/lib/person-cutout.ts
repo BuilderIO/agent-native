@@ -453,6 +453,11 @@ function createCanvas2dCompositor(canvas: HTMLCanvasElement): Compositor {
   }
   const maskImage = maskCtx.createImageData(SEG_SIZE, SEG_SIZE);
   const span = MASK_HIGH - MASK_LOW;
+  // The frame the current mask belongs to, kept so a resize-only redraw
+  // does not pair a newer camera frame with an older mask.
+  const frameCanvas = document.createElement("canvas");
+  const frameCtx = frameCanvas.getContext("2d");
+  let haveFrame = false;
 
   return {
     draw(
@@ -463,6 +468,7 @@ function createCanvas2dCompositor(canvas: HTMLCanvasElement): Compositor {
       size,
       maskFrame,
       maskChanged,
+      newFrame,
     ) {
       if (maskChanged) {
         const rgba = maskImage.data;
@@ -479,17 +485,39 @@ function createCanvas2dCompositor(canvas: HTMLCanvasElement): Compositor {
       if (canvas.height !== size) canvas.height = size;
       ctx.globalCompositeOperation = "source-over";
       ctx.clearRect(0, 0, size, size);
-      ctx.drawImage(
-        source,
-        crop.x,
-        crop.y,
-        crop.size,
-        crop.size,
-        0,
-        0,
-        size,
-        size,
-      );
+      if (frameCtx && (newFrame || !haveFrame)) {
+        const side = Math.max(1, Math.round(crop.size));
+        if (frameCanvas.width !== side) frameCanvas.width = side;
+        if (frameCanvas.height !== side) frameCanvas.height = side;
+        frameCtx.clearRect(0, 0, side, side);
+        frameCtx.drawImage(
+          source,
+          crop.x,
+          crop.y,
+          crop.size,
+          crop.size,
+          0,
+          0,
+          side,
+          side,
+        );
+        haveFrame = true;
+      }
+      if (frameCtx) {
+        ctx.drawImage(frameCanvas, 0, 0, size, size);
+      } else {
+        ctx.drawImage(
+          source,
+          crop.x,
+          crop.y,
+          crop.size,
+          crop.size,
+          0,
+          0,
+          size,
+          size,
+        );
+      }
       ctx.globalCompositeOperation = "destination-in";
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
