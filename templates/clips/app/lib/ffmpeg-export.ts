@@ -33,6 +33,15 @@ export interface ConcatExportResult {
 
 export const LONG_EXPORT_THRESHOLD_MS = 10 * 60 * 1000;
 
+function makeAggregateError(errors: Iterable<unknown>, message: string): Error {
+  const NativeAggregateError = (
+    globalThis as unknown as {
+      AggregateError: new (errors: Iterable<unknown>, message: string) => Error;
+    }
+  ).AggregateError;
+  return new NativeAggregateError(errors, message);
+}
+
 let ffmpegInstancePromise: Promise<any> | null = null;
 let ffmpegLogListeners: Array<(msg: string) => void> = [];
 
@@ -232,7 +241,7 @@ export async function exportMp4(
     ffmpeg.off("progress", handleProgress);
     removeFfmpegLogListener(onLog);
     if (cleanupErrors.length > 0) {
-      const cleanupError = new AggregateError(
+      const cleanupError = makeAggregateError(
         cleanupErrors,
         "Failed to clean up ffmpeg export files",
       );
