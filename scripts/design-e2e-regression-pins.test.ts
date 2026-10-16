@@ -1026,6 +1026,117 @@ test("top-level helpers called by tests attach skip and fixme suppressions witho
   );
 });
 
+test("TestInfo const aliases resolve lexically without leaking through shadows", () => {
+  const source = [
+    'test("aliased runtime skip", (_fixtures, testInfo) => {',
+    "  const info = testInfo;",
+    "  const alias = info;",
+    '  alias.skip(true, "aliased metadata");',
+    "});",
+    'test("shadowed alias stays active", (_fixtures, testInfo) => {',
+    "  const info = testInfo;",
+    "  function unrelatedShadow() {",
+    "    const info = {};",
+    '    info.skip(true, "unrelated shadow");',
+    "  }",
+    "});",
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(source);
+
+  assert.deepEqual(
+    registrations.map(({ title, suppressionKind }) => [title, suppressionKind]),
+    [
+      ["aliased runtime skip", "runtime"],
+      ["shadowed alias stays active", null],
+    ],
+  );
+});
+
+test("awaited Promise and test.step callbacks keep runtime skips on the test", () => {
+  const cases = [
+    [
+      "then",
+      'await Promise.resolve().then(() => testInfo.skip(true, "async metadata"));',
+      "await Promise.resolve().then(unresolvedHandler);",
+    ],
+    [
+      "then rejection",
+      'await Promise.reject(new Error("expected")).then(undefined, () => testInfo.skip(true, "async metadata"));',
+      "await Promise.resolve().then(undefined, unresolvedHandler);",
+    ],
+    [
+      "catch",
+      'await Promise.reject(new Error("expected")).catch(() => testInfo.skip(true, "async metadata"));',
+      'await Promise.reject(new Error("expected")).catch(unresolvedHandler);',
+    ],
+    [
+      "finally",
+      'await Promise.resolve().finally(() => testInfo.skip(true, "async metadata"));',
+      "await Promise.resolve().finally(unresolvedHandler);",
+    ],
+    [
+      "step",
+      'await test.step("child", () => testInfo.skip(true, "async metadata"));',
+      'await test.step("child", unresolvedHandler);',
+    ],
+  ] as const;
+
+  for (const [kind, callbackStatement, unresolvedStatement] of cases) {
+    const title = `awaited ${kind} callback skip`;
+    const source = [
+      `test(${JSON.stringify(title)}, async (_fixtures, testInfo) => {`,
+      `  ${callbackStatement}`,
+      "});",
+    ].join("\n");
+    const registrations = findDesignE2ETestRegistrations(source);
+
+    assert.equal(registrations.length, 1, kind);
+    assert.equal(registrations[0]?.suppressionKind, "runtime", kind);
+    assert.throws(
+      () => findDesignE2ETestLine(source, title),
+      /must run without/,
+    );
+
+    const unresolvedSource = [
+      `test(${JSON.stringify(title)}, async (_fixtures, testInfo) => {`,
+      `  ${unresolvedStatement}`,
+      "});",
+    ].join("\n");
+    assert.throws(
+      () => findDesignE2ETestRegistrations(unresolvedSource),
+      /Unable to inspect awaited callback body/,
+      kind,
+    );
+  }
+});
+
+test("called helper registrations are counted once per call site", () => {
+  const helper =
+    'function registerBehavior() { test("helper behavior", () => {}); }';
+  const once = [helper, "registerBehavior();"].join("\n");
+  const twice = [helper, "registerBehavior();", "registerBehavior();"].join(
+    "\n",
+  );
+
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(once).map(({ title, suppressionKind }) => [
+      title,
+      suppressionKind,
+    ]),
+    [["helper behavior", null]],
+  );
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(twice).map(({ title, suppressionKind }) => [
+      title,
+      suppressionKind,
+    ]),
+    [
+      ["helper behavior", null],
+      ["helper behavior", null],
+    ],
+  );
+});
+
 test("simple test aliases resolve through chains for direct and runtime fixme calls", () => {
   const directAlias = [
     "const firstTest = test;",

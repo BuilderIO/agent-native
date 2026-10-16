@@ -569,6 +569,109 @@ test("unchanged quarantine receipts persist after merge and expire only while ac
   );
 });
 
+test("an active historical receipt must be retained or validly renewed", () => {
+  const activeBase = { file: baseFixme.file, title: baseFixme.title };
+  const receipt = {
+    action: "add",
+    file: baseFixme.file,
+    title: baseFixme.title,
+    reason: "The browser regression remains reproducible.",
+    evidence: "issue-901",
+    owner: "design-e2e",
+    expires: "2026-10-17",
+  };
+  const renewal = {
+    action: "add",
+    file: baseFixme.file,
+    title: baseFixme.title,
+    reason: "The browser regression still reproduces after investigation.",
+    evidence: "issue-902",
+    owner: "design-e2e",
+    expires: "2026-11-17",
+  };
+
+  assert.deepEqual(
+    compareQuarantineSnapshots(
+      [baseFixme],
+      [baseFixme],
+      [receipt],
+      "2026-10-16",
+      [receipt],
+    ),
+    [],
+    "retaining a valid historical receipt passes",
+  );
+  assert.match(
+    compareQuarantineSnapshots([baseFixme], [baseFixme], [], "2026-10-16", [
+      receipt,
+    ]).join("\n"),
+    /active quarantine exception must be retained or renewed with a new valid add receipt/,
+    "deleting a still-valid receipt cannot bypass future expiry enforcement",
+  );
+  assert.match(
+    compareQuarantineSnapshots([baseFixme], [baseFixme], [], "2026-10-18", [
+      receipt,
+    ]).join("\n"),
+    /active quarantine exception needs a non-empty owner and a future YYYY-MM-DD expiry/,
+    "deleting an expired receipt cannot bypass expiry enforcement",
+  );
+  assert.match(
+    compareQuarantineSnapshots(
+      [baseFixme],
+      [baseFixme],
+      [receipt],
+      "2026-10-18",
+      [receipt],
+    ).join("\n"),
+    /active quarantine exception needs a non-empty owner and a future YYYY-MM-DD expiry/,
+    "retaining an expired historical receipt still fails",
+  );
+  assert.deepEqual(
+    compareQuarantineSnapshots([baseFixme], [activeBase], [], "2026-10-18", [
+      receipt,
+    ]),
+    [],
+    "an expired receipt does not block a reactivated test",
+  );
+  assert.deepEqual(
+    compareQuarantineSnapshots(
+      [baseFixme],
+      [baseFixme],
+      [renewal],
+      "2026-10-18",
+      [receipt],
+    ),
+    [],
+    "a new valid receipt renews a deleted expired receipt",
+  );
+  assert.deepEqual(
+    compareQuarantineSnapshots(
+      [baseFixme],
+      [baseFixme],
+      [receipt, renewal],
+      "2026-10-18",
+      [receipt],
+    ),
+    [],
+    "a valid new receipt can renew an expired receipt retained in history",
+  );
+
+  const changedBase = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isMobile, "unsupported"); });',
+  );
+  const changedHead = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isTablet, "unsupported"); });',
+  );
+  const changedReceipt = { ...receipt, file: changedBase.file };
+  assert.match(
+    compareQuarantineSnapshots([changedBase], [changedHead], [], "2026-10-18", [
+      changedReceipt,
+    ]).join("\n"),
+    /new test suppression needs an explicit exception/,
+    "a changed suppression still needs its own fresh receipt",
+  );
+});
+
 test("unchanged removal and rename receipts persist without authorizing new changes", () => {
   const removal = {
     action: "remove",

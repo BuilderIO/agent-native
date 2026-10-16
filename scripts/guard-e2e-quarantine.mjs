@@ -290,6 +290,60 @@ export function compareQuarantineSnapshots(
     return matches[0];
   };
 
+  const hasValidRenewal = (exception) => {
+    const current = headByKey.get(key(exception.file, exception.title)) ?? [];
+    if (
+      current.length !== 1 ||
+      !isSuppressed(current[0]) ||
+      (current[0].modifier !== "fixme" &&
+        current[0].modifier !== "skip" &&
+        current[0].suppressionKind !== "runtime")
+    ) {
+      return false;
+    }
+    return exceptions.some(
+      (renewal, index) =>
+        !historicalIndexes.has(index) &&
+        renewal?.action === "add" &&
+        renewal.file === exception.file &&
+        renewal.title === exception.title &&
+        exceptionFieldsValid(renewal, "add") &&
+        typeof renewal.owner === "string" &&
+        Boolean(renewal.owner.trim()) &&
+        validExpiry(renewal.expires, today),
+    );
+  };
+
+  const deletedHistoricalCounts = new Map(historicalCounts);
+  for (const exception of baseExceptions) {
+    const id = stableJson(exception);
+    const remaining = deletedHistoricalCounts.get(id) ?? 0;
+    if (remaining === 0) continue;
+    deletedHistoricalCounts.set(id, remaining - 1);
+    if (exception?.action !== "add") continue;
+
+    const current = headByKey.get(key(exception.file, exception.title)) ?? [];
+    if (
+      current.length === 1 &&
+      isSuppressed(current[0]) &&
+      !hasValidRenewal(exception)
+    ) {
+      if (
+        typeof exception.owner !== "string" ||
+        !exception.owner.trim() ||
+        !validExpiry(exception.expires, today)
+      ) {
+        violations.push(
+          `active quarantine exception needs a non-empty owner and a future YYYY-MM-DD expiry: ${describe(current[0])}`,
+        );
+      } else {
+        violations.push(
+          `active quarantine exception must be retained or renewed with a new valid add receipt: ${describe(current[0])}`,
+        );
+      }
+    }
+  }
+
   const newSuppressions = new Map();
   for (const item of baseSuppressed) {
     const id = key(item.file, item.title);
@@ -504,6 +558,7 @@ export function compareQuarantineSnapshots(
         if (
           current.length === 1 &&
           isSuppressed(current[0]) &&
+          !hasValidRenewal(exception) &&
           (typeof exception.owner !== "string" ||
             !exception.owner.trim() ||
             !validExpiry(exception.expires, today))

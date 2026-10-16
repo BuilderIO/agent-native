@@ -6,9 +6,26 @@ import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
   getUserLabEnabled: vi.fn(),
+  getSetting: vi.fn(),
+  getUserSetting: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  mutateSetting: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
+  listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
+}));
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting: mocks.getSetting,
+  mutateSetting: mocks.mutateSetting,
+}));
+vi.mock("../settings/user-settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
+  getUserSetting: mocks.getUserSetting,
+}));
 
 import {
   getChatGPTSubscriptionAccess,
@@ -29,9 +46,20 @@ const NONCE = "fresh-test-nonce";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getUserLabEnabled.mockResolvedValue(false);
+  mocks.getSetting.mockResolvedValue(null);
+  mocks.getUserSetting.mockResolvedValue(null);
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+  mocks.mutateSetting.mockResolvedValue({});
   _resetLabRegistryForTests();
   registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
+
+function expectEmptyStorageFixtureUsed(): void {
+  expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
+  expect(mocks.getUserSetting).toHaveBeenCalled();
+  expect(mocks.getSetting).not.toHaveBeenCalled();
+  expect(mocks.mutateSetting).not.toHaveBeenCalled();
+}
 
 describe("ChatGPT subscription OAuth contract", () => {
   it("keeps ChatGPT credentials unavailable until the lab is enabled", async () => {
@@ -97,6 +125,7 @@ describe("ChatGPT subscription OAuth contract", () => {
           localLoopback: false,
           supportReason: "requires_local_loopback",
         });
+        expectEmptyStorageFixtureUsed();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");
@@ -165,6 +194,7 @@ describe("ChatGPT subscription OAuth contract", () => {
           localLoopback: false,
           supportReason: "requires_local_loopback",
         });
+        expectEmptyStorageFixtureUsed();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");

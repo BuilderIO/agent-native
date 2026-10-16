@@ -691,7 +691,7 @@ type SuiteSuppression = {
 type RegistrationWalkContext = {
   suiteSuppressions: SuiteSuppression[];
   currentTest?: MutableRegistration;
-  testInfoNames: Set<string>;
+  testInfoBindings: Set<TypeScript.Node>;
   suiteRuntimeScopes: SuppressionFingerprintEvent[][];
   suiteRuntimeReasons: string[][];
   unknownExecutionContext: boolean;
@@ -1141,7 +1141,8 @@ function normalizedTestPath(
 function testCallKind(
   call: TypeScript.CallExpression,
   aliases: TestAliasResolver,
-  testInfoNames: Set<string>,
+  testInfoAliases: TestInfoAliasResolver,
+  testInfoBindings: ReadonlySet<TypeScript.Node>,
   ts: typeof TypeScript,
 ):
   | { kind: "test" | "describe" | "runtime" | "hook"; modifier?: string }
@@ -1186,12 +1187,30 @@ function testCallKind(
   }
   if (
     segments.length === 2 &&
-    testInfoNames.has(segments[0]!) &&
+    rootIdentifier(expression, ts) &&
+    testInfoAliases.isTestInfo(
+      rootIdentifier(expression, ts)!,
+      testInfoBindings,
+    ) &&
     TEST_MODIFIERS.has(segments[1]!)
   ) {
     return { kind: "runtime", modifier: segments[1] };
   }
   return undefined;
+}
+
+function rootIdentifier(
+  expression: TypeScript.Expression,
+  ts: typeof TypeScript,
+): TypeScript.Identifier | undefined {
+  let candidate = unwrapExpression(expression, ts);
+  while (
+    ts.isPropertyAccessExpression(candidate) ||
+    ts.isElementAccessExpression(candidate)
+  ) {
+    candidate = candidate.expression;
+  }
+  return ts.isIdentifier(candidate) ? candidate : undefined;
 }
 
 function isCallback(
@@ -1223,6 +1242,68 @@ function isTestCallbackArgument(
     ts.isElementAccessExpression(candidate) ||
     ts.isConditionalExpression(candidate)
   );
+}
+
+function isAwaitedCall(
+  call: TypeScript.CallExpression,
+  ts: typeof TypeScript,
+): boolean {
+  let current: TypeScript.Node = call;
+  let parent = current.parent;
+  while (parent) {
+    if (ts.isAwaitExpression(parent) && parent.expression === current) {
+      return true;
+    }
+    if (
+      (ts.isParenthesizedExpression(parent) ||
+        ts.isAsExpression(parent) ||
+        ts.isSatisfiesExpression(parent) ||
+        ts.isTypeAssertionExpression(parent) ||
+        ts.isNonNullExpression(parent)) &&
+      parent.expression === current
+    ) {
+      current = parent;
+      parent = parent.parent;
+      continue;
+    }
+    if (
+      (ts.isPropertyAccessExpression(parent) ||
+        ts.isElementAccessExpression(parent)) &&
+      parent.expression === current
+    ) {
+      current = parent;
+      parent = parent.parent;
+      continue;
+    }
+    if (ts.isCallExpression(parent) && parent.expression === current) {
+      current = parent;
+      parent = parent.parent;
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
+function awaitedCallbackArgumentIndices(
+  call: TypeScript.CallExpression,
+  aliases: TestAliasResolver,
+  ts: typeof TypeScript,
+): number[] {
+  if (!isAwaitedCall(call, ts)) return [];
+  const callee = unwrapExpression(call.expression, ts);
+  const method =
+    ts.isPropertyAccessExpression(callee) && callee.name.text
+      ? callee.name.text
+      : ts.isElementAccessExpression(callee) &&
+          callee.argumentExpression &&
+          (ts.isStringLiteral(callee.argumentExpression) ||
+            ts.isNoSubstitutionTemplateLiteral(callee.argumentExpression))
+        ? callee.argumentExpression.text
+        : undefined;
+  if (method === "then") return [0, 1];
+  if (method === "catch" || method === "finally") return [0];
+  return aliases.resolve(call.expression).join(".") === "test.step" ? [1] : [];
 }
 
 function modifierSuppression(
@@ -1304,6 +1385,146 @@ function namedTestCallbacks(
 type LocalTestHelperResolver = {
   resolve(name: string, at: TypeScript.Node): TestCallback | undefined;
 };
+
+type TestInfoBinding = {
+  node: TypeScript.Identifier;
+  alias?: TypeScript.Identifier;
+};
+
+type TestInfoAliasResolver = {
+  isTestInfo(
+    identifier: TypeScript.Identifier,
+    knownBindings: ReadonlySet<TypeScript.Node>,
+    resolving?: Set<TypeScript.Node>,
+  ): boolean;
+};
+
+function testInfoAliases(
+  sourceFile: TypeScript.SourceFile,
+  ts: typeof TypeScript,
+): TestInfoAliasResolver {
+  const scopes = new WeakMap<
+    TypeScript.Node,
+    Map<string, TestInfoBinding | undefined>
+  >();
+  const declarationCounts = new WeakMap<TypeScript.Node, Map<string, number>>();
+
+  const bind = (
+    scope: TypeScript.Node,
+    identifier: TypeScript.Identifier,
+    alias?: TypeScript.Identifier,
+  ) => {
+    let bindings = scopes.get(scope);
+    if (!bindings) {
+      bindings = new Map();
+      scopes.set(scope, bindings);
+    }
+    const counts = declarationCounts.get(scope) ?? new Map<string, number>();
+    const count = (counts.get(identifier.text) ?? 0) + 1;
+    counts.set(identifier.text, count);
+    declarationCounts.set(scope, counts);
+    if (count === 1) bindings.set(identifier.text, { node: identifier, alias });
+    else bindings.set(identifier.text, undefined);
+  };
+
+  const bindName = (name: TypeScript.BindingName, scope: TypeScript.Node) => {
+    if (ts.isIdentifier(name)) {
+      bind(scope, name);
+      return;
+    }
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) bindName(element.name, scope);
+    }
+  };
+
+  const collect = (node: TypeScript.Node) => {
+    if (ts.isVariableDeclaration(node)) {
+      const isVar =
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & ts.NodeFlags.BlockScoped) === 0;
+      const scope = nearestScope(node, ts, isVar);
+      if (
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & ts.NodeFlags.Const) !== 0
+      ) {
+        const initializer = unwrapExpression(node.initializer, ts);
+        bind(
+          scope,
+          node.name,
+          ts.isIdentifier(initializer) ? initializer : undefined,
+        );
+      } else {
+        bindName(node.name, scope);
+      }
+    } else if (
+      isFunctionLikeNode(node, ts) &&
+      "parameters" in node &&
+      Array.isArray(node.parameters)
+    ) {
+      const parameterScope = nearestScope(node, ts);
+      for (const parameter of node.parameters)
+        bindName(parameter.name, parameterScope);
+      if (
+        (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) &&
+        node.name
+      ) {
+        bind(
+          ts.isFunctionDeclaration(node)
+            ? nearestScope(node.parent, ts)
+            : parameterScope,
+          node.name,
+        );
+      }
+    } else if (
+      (ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) &&
+      node.name
+    ) {
+      bind(nearestScope(node.parent, ts), node.name);
+    } else if (ts.isImportDeclaration(node) && node.importClause) {
+      const clause = node.importClause;
+      if (clause.name) bind(sourceFile, clause.name);
+      const namedBindings = clause.namedBindings;
+      if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+        bind(sourceFile, namedBindings.name);
+      } else if (namedBindings && ts.isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements)
+          bind(sourceFile, element.name);
+      }
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(sourceFile);
+
+  const lookup = (name: string, at: TypeScript.Node) => {
+    let scope: TypeScript.Node | undefined = at;
+    while (scope) {
+      const bindings = scopes.get(scope);
+      if (bindings?.has(name)) {
+        return { found: true as const, binding: bindings.get(name) };
+      }
+      scope = scope.parent;
+    }
+    return { found: false as const, binding: undefined };
+  };
+
+  const isTestInfo: TestInfoAliasResolver["isTestInfo"] = (
+    identifier,
+    knownBindings,
+    resolving = new Set(),
+  ) => {
+    const result = lookup(identifier.text, identifier);
+    if (!result.found) return identifier.text === "testInfo";
+    const binding = result.binding;
+    if (!binding || resolving.has(binding.node)) return false;
+    if (knownBindings.has(binding.node)) return true;
+    if (!binding.alias) return false;
+    resolving.add(binding.node);
+    return isTestInfo(binding.alias, knownBindings, resolving);
+  };
+  return { isTestInfo };
+}
 
 function localTestHelpers(
   sourceFile: TypeScript.SourceFile,
@@ -1479,6 +1700,7 @@ export function findDesignE2ETestRegistrations(
   }
 
   const aliases = testImports(sourceFile, ts);
+  const testInfoAliasResolver = testInfoAliases(sourceFile, ts);
   const printer = ts.createPrinter({ removeComments: true });
   const namedCallbacks = namedTestCallbacks(sourceFile, ts);
   const localHelpers = localTestHelpers(sourceFile, ts);
@@ -1488,7 +1710,8 @@ export function findDesignE2ETestRegistrations(
       const classification = testCallKind(
         node,
         aliases,
-        new Set(["testInfo"]),
+        testInfoAliasResolver,
+        new Set(),
         ts,
       );
       if (
@@ -1502,10 +1725,93 @@ export function findDesignE2ETestRegistrations(
           : undefined;
         if (callback) resolvedCallbacks.add(callback);
       }
+      for (const index of awaitedCallbackArgumentIndices(node, aliases, ts)) {
+        const argument = node.arguments[index];
+        if (argument) {
+          if (
+            argument.kind === ts.SyntaxKind.NullKeyword ||
+            (ts.isIdentifier(argument) && argument.text === "undefined") ||
+            !isTestCallbackArgument(argument, ts)
+          ) {
+            continue;
+          }
+          const callback = resolveTestCallback(argument, namedCallbacks, ts);
+          if (callback) resolvedCallbacks.add(callback);
+        }
+      }
     }
     ts.forEachChild(node, collectResolvedCallbacks);
   };
   collectResolvedCallbacks(sourceFile);
+  const reachableHelpers = new Set<TypeScript.Node>();
+  const expandedHelpers = new Set<TypeScript.Node>();
+  const scanKnownExecution = (root: TypeScript.Node) => {
+    const scanFunctionBody = (callback: TestCallback) => {
+      if (ts.isFunctionDeclaration(callback)) {
+        if (callback.body) scan(callback.body);
+      } else {
+        scan(callback.body);
+      }
+    };
+    const scan = (node: TypeScript.Node): void => {
+      if (isFunctionLikeNode(node, ts)) return;
+      if (ts.isCallExpression(node)) {
+        for (const index of awaitedCallbackArgumentIndices(node, aliases, ts)) {
+          const argument = node.arguments[index];
+          if (argument) {
+            if (
+              argument.kind === ts.SyntaxKind.NullKeyword ||
+              (ts.isIdentifier(argument) && argument.text === "undefined") ||
+              !isTestCallbackArgument(argument, ts)
+            ) {
+              continue;
+            }
+            const callback = resolveTestCallback(argument, namedCallbacks, ts);
+            if (callback) scanFunctionBody(callback);
+          }
+        }
+
+        const classification = testCallKind(
+          node,
+          aliases,
+          testInfoAliasResolver,
+          new Set(),
+          ts,
+        );
+        if (
+          classification?.kind === "test" ||
+          classification?.kind === "describe" ||
+          classification?.kind === "hook"
+        ) {
+          const callbackArgument = node.arguments.at(-1);
+          const callback = callbackArgument
+            ? resolveTestCallback(callbackArgument, namedCallbacks, ts)
+            : undefined;
+          if (callback) scanFunctionBody(callback);
+          for (const argument of node.arguments) {
+            if (argument !== callbackArgument) scan(argument);
+          }
+          return;
+        }
+
+        const callee = unwrapExpression(node.expression, ts);
+        if (!classification && ts.isIdentifier(callee)) {
+          const helper = localHelpers.resolve(callee.text, node);
+          if (helper) {
+            reachableHelpers.add(helper);
+            if (!expandedHelpers.has(helper)) {
+              expandedHelpers.add(helper);
+              scanFunctionBody(helper);
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, scan);
+    };
+    if (isFunctionLikeNode(root, ts)) scanFunctionBody(root as TestCallback);
+    else scan(root);
+  };
+  scanKnownExecution(sourceFile);
   const registrations: MutableRegistration[] = [];
   const fileSuppressions: SuppressionFingerprintEvent[] = [];
   const fileSuppressionReasons: string[] = [];
@@ -1562,7 +1868,7 @@ export function findDesignE2ETestRegistrations(
         ts.isGetAccessorDeclaration(node) ||
         ts.isSetAccessorDeclaration(node))
     ) {
-      if (resolvedCallbacks.has(node)) return;
+      if (resolvedCallbacks.has(node) || reachableHelpers.has(node)) return;
       visit(
         node,
         {
@@ -1712,10 +2018,48 @@ export function findDesignE2ETestRegistrations(
     }
 
     if (ts.isCallExpression(node)) {
+      const awaitedCallbackIndices = awaitedCallbackArgumentIndices(
+        node,
+        aliases,
+        ts,
+      );
+      if (awaitedCallbackIndices.length > 0) {
+        const callbackArguments = new Set<TypeScript.Expression>();
+        for (const index of awaitedCallbackIndices) {
+          const argument = node.arguments[index];
+          if (!argument) continue;
+          if (
+            argument.kind === ts.SyntaxKind.NullKeyword ||
+            (ts.isIdentifier(argument) && argument.text === "undefined") ||
+            !isTestCallbackArgument(argument, ts)
+          ) {
+            continue;
+          }
+          const callback = resolveTestCallback(argument, namedCallbacks, ts);
+          if (!callback) {
+            const line =
+              sourceFile.getLineAndCharacterOfPosition(
+                node.getStart(sourceFile),
+              ).line + 1;
+            throw new PinInspectionUnavailableError(
+              `${file || "Design E2E source"}:${line}: Unable to inspect awaited callback body`,
+            );
+          }
+          callbackArguments.add(argument);
+          visit(callback, context, true);
+        }
+        visit(node.expression, context);
+        for (const argument of node.arguments) {
+          if (!callbackArguments.has(argument)) visit(argument, context);
+        }
+        return;
+      }
+
       const classification = testCallKind(
         node,
         aliases,
-        context.testInfoNames,
+        testInfoAliasResolver,
+        context.testInfoBindings,
         ts,
       );
       if (classification?.kind === "describe") {
@@ -1785,16 +2129,16 @@ export function findDesignE2ETestRegistrations(
             `${file || "Design E2E source"}:${line}: Unable to inspect the ${stableNodeText(node.expression, sourceFile, printer, ts)} callback body`,
           );
         }
-        const testInfoNames = new Set(context.testInfoNames);
+        const testInfoBindings = new Set(context.testInfoBindings);
         const testInfoParameter = callback.parameters[1]?.name;
         if (testInfoParameter && ts.isIdentifier(testInfoParameter)) {
-          testInfoNames.add(testInfoParameter.text);
+          testInfoBindings.add(testInfoParameter);
         }
         for (const argument of node.arguments) {
           if (argument === callbackArgument) {
             visit(
               callback,
-              { ...context, currentTest: undefined, testInfoNames },
+              { ...context, currentTest: undefined, testInfoBindings },
               true,
             );
           } else {
@@ -1938,10 +2282,10 @@ export function findDesignE2ETestRegistrations(
           }
           registrations.push(item);
 
-          const testInfoNames = new Set(context.testInfoNames);
+          const testInfoBindings = new Set(context.testInfoBindings);
           const testInfoParameter = callback?.parameters[1]?.name;
           if (testInfoParameter && ts.isIdentifier(testInfoParameter)) {
-            testInfoNames.add(testInfoParameter.text);
+            testInfoBindings.add(testInfoParameter);
           }
           for (const argument of node.arguments) {
             if (argument === callbackArgument && callback) {
@@ -1950,7 +2294,7 @@ export function findDesignE2ETestRegistrations(
                 {
                   ...context,
                   currentTest: item,
-                  testInfoNames,
+                  testInfoBindings,
                 },
                 true,
               );
@@ -2016,22 +2360,25 @@ export function findDesignE2ETestRegistrations(
         if (helper && !context.activeHelpers.has(helper)) {
           const activeHelpers = new Set(context.activeHelpers);
           activeHelpers.add(helper);
-          const testInfoNames = new Set(context.testInfoNames);
+          const testInfoBindings = new Set(context.testInfoBindings);
           helper.parameters.forEach((parameter, index) => {
             const argument = node.arguments[index];
             if (
               ts.isIdentifier(parameter.name) &&
               argument &&
               ((ts.isIdentifier(argument) &&
-                context.testInfoNames.has(argument.text)) ||
+                testInfoAliasResolver.isTestInfo(
+                  argument,
+                  context.testInfoBindings,
+                )) ||
                 (ts.isCallExpression(argument) &&
                   aliases.resolve(argument.expression).join(".") ===
                     "test.info"))
             ) {
-              testInfoNames.add(parameter.name.text);
+              testInfoBindings.add(parameter.name);
             }
           });
-          visit(helper, { ...context, activeHelpers, testInfoNames }, true);
+          visit(helper, { ...context, activeHelpers, testInfoBindings }, true);
         }
       }
     }
@@ -2039,7 +2386,7 @@ export function findDesignE2ETestRegistrations(
   };
   visit(sourceFile, {
     suiteSuppressions: [],
-    testInfoNames: new Set(["testInfo"]),
+    testInfoBindings: new Set(),
     suiteRuntimeScopes: [],
     suiteRuntimeReasons: [],
     unknownExecutionContext: false,
