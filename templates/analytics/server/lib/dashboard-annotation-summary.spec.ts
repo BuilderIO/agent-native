@@ -47,6 +47,14 @@ const setupFunnel = {
   sql: "SELECT step, count(*) FROM events WHERE event_name = 'builder_connect_failed' AND ('{{timeRange}}' = '30d' AND day >= CURRENT_DATE - 30 OR '{{timeRange}}' = '90d' AND day >= CURRENT_DATE - 90) GROUP BY step",
 };
 
+const rangedFailures = {
+  ...panels[0],
+  id: "failures-ranged",
+  sql: setupFunnel.sql
+    .replace("SELECT step", "SELECT day")
+    .replace("GROUP BY step", "GROUP BY day"),
+};
+
 const timeRangeFilter = (defaultRange: string) => ({
   id: "timeRange",
   label: "Time range",
@@ -377,6 +385,25 @@ describe("summarizeDashboardAnnotations", () => {
       ["failures", "setup-funnel"],
     ]);
   });
+
+  it("counts a time chart that reads the time range only when the note falls in it", () => {
+    const panelIds = (searchParams?: Record<string, string>) =>
+      summarizeDashboardAnnotations(
+        "dash",
+        {
+          panels: [panels[0], rangedFailures],
+          filters: [timeRangeFilter("30d")],
+        },
+        [],
+        [SETUP_INCIDENT],
+        { now: DEC_1, searchParams },
+      ).dataNotes.map((note) => note.panelIds);
+
+    expect(panelIds()).toEqual([["failures"]]);
+    expect(panelIds({ f_timeRange: "90d" })).toEqual([
+      ["failures", "failures-ranged"],
+    ]);
+  });
 });
 
 describe("dataNotePlacement", () => {
@@ -444,6 +471,23 @@ describe("dataNotePlacement", () => {
       dashboardId: "dash",
       shownOn: [{ panelId: "setup-funnel", title: "Setup funnel" }],
     });
+    const outside = placement("30d");
+    expect(outside.shownOn).toEqual([]);
+    expect(outside.hint).toContain("overlap their time range");
+  });
+
+  it("leaves out a time chart whose time range misses the note, and says how to show it", () => {
+    const placement = (defaultRange: string) =>
+      dataNotePlacement(
+        SETUP_INCIDENT,
+        "dash",
+        { panels: [rangedFailures], filters: [timeRangeFilter(defaultRange)] },
+        DEC_1,
+      );
+
+    expect(placement("90d").shownOn).toEqual([
+      { panelId: "failures-ranged", title: "Setup failures per day" },
+    ]);
     const outside = placement("30d");
     expect(outside.shownOn).toEqual([]);
     expect(outside.hint).toContain("overlap their time range");

@@ -108,10 +108,12 @@ function panelsWithNote(
 }
 
 /**
- * As `SqlChartCard` does: time charts shade a note over its dates, other
- * charts list it only when its dates overlap their time range. The chart type
- * stands in for the x-axis, which the server never sees. `vars` are undefined
- * when the dashboard's filters can't be read, so no chart's range can be.
+ * As `SqlChartCard` does: a chart shows a note only when its dates overlap
+ * the chart's time range. Without one, a time chart shades the note over
+ * whatever dates its query returns, and another chart lists it while it is
+ * recent. The chart type stands in for the x-axis, which the server never
+ * sees. `vars` are undefined when the dashboard's filters can't be read, so no
+ * chart's range can be.
  */
 function panelsShowingNote(
   note: PlacedNote,
@@ -121,10 +123,12 @@ function panelsShowingNote(
   now: number,
 ): SqlPanel[] {
   return panelsWithNote(note, dashboardId, panels).filter((panel) => {
-    if (isKeyDateChartType(panel.chartType)) return true;
     const range: PanelTimeRange = vars
       ? panelTimeRange(panel, vars, now)
       : { kind: "unreadable" };
+    if (isKeyDateChartType(panel.chartType) && range.kind !== "days") {
+      return true;
+    }
     return dataNoteInRange(note, range, now);
   });
 }
@@ -237,7 +241,7 @@ export function dataNotePlacement(
     hiddenOn.length > 0 &&
       "This dashboard hides the note on the charts that would draw it (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own.",
     belongs.length > reached.length &&
-      `Its charts here other than line, area, bar or combo list a note only when its dates overlap their time range (the dashboard's default here), so a range that covers them shows it; one without a time range lists it only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`,
+      `Its charts here show a note only when its dates overlap their time range (the dashboard's default here), so a range that covers them shows it; a chart other than line, area, bar or combo whose SQL has no time range lists it only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`,
   ].filter((reason): reason is string => typeof reason === "string");
   const hint =
     shownOn.length > 0
