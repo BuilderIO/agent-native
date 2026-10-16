@@ -13,6 +13,7 @@ import {
   restartTranscriptionEngine,
   startTranscriptionEngine,
   transcriptFullText,
+  transcriptLineFromSegment,
   transcriptSegments,
   type TranscriptLine,
 } from "./transcription-engine";
@@ -280,6 +281,31 @@ describe("transcript echo suppression", () => {
 });
 
 describe("transcriptSegments", () => {
+  it("keeps Rewind's earlier-audio mark on the segments it saves", () => {
+    const lines: TranscriptLine[] = [
+      transcriptLineFromSegment({
+        startMs: 0,
+        endMs: 2_000,
+        text: "Before notes started",
+        source: "system",
+        earlier: true,
+      }),
+    ];
+    appendFinalTranscript(
+      {
+        text: "Live now",
+        source: "mic",
+        segments: [{ startMs: 300_000, endMs: 301_000, text: "Live now" }],
+      },
+      lines,
+    );
+
+    expect(transcriptSegments(lines).map((s) => s.earlier)).toEqual([
+      true,
+      undefined,
+    ]);
+  });
+
   it("keeps a source-tagged fallback segment for a line with no verbatim timings", () => {
     const lines: TranscriptLine[] = [
       { source: "mic", startMs: 1_000, text: "Hello there", segments: [] },

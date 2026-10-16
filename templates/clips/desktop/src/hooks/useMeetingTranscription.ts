@@ -137,13 +137,17 @@ export function useMeetingTranscription({
             : {}),
         },
       );
-      // Removed from the meeting page while notes run: the server already
-      // dropped it, so stop sending it.
+      // Removed from the meeting page while notes run. A removal that lands
+      // mid-save skips the whole save, so send the rest again.
       if (saved?.earlierAudioRemoved) {
         session.earlierAudioMs = null;
-        session.lines = session.lines.filter(
+        const kept = session.lines.filter(
           (line) => !line.segments.some((segment) => segment.earlier),
         );
+        if (kept.length !== session.lines.length) {
+          session.lines = kept;
+          session.dirtySeq = Math.max(session.dirtySeq, seq + 1);
+        }
       }
       emit("clips:meeting-saved", {
         meetingId: session.meetingId,
