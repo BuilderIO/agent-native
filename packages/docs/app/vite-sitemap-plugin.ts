@@ -29,7 +29,6 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../lib/docs-source";
-import { campaignHref } from "./components/campaign/public-content";
 import { communityApps } from "./components/community-apps";
 import {
   DOCS_LOCALES,
@@ -272,20 +271,7 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
       markdownPath: `${ARTICLES_BASE}/${article.slug}.md`,
     })),
   ];
-  return DOCS_LOCALES.flatMap((locale) =>
-    pages.map((page) => ({
-      ...page,
-      path: sitePathForLocale(page.path, locale),
-      markdownPath: page.markdownPath
-        ? `${sitePathForLocale(ARTICLES_BASE, locale)}${page.markdownPath.slice(ARTICLES_BASE.length + 1)}`
-        : undefined,
-      markdown: page.markdown?.replace(
-        /(\]\()(\/[^)\s]+)(\))/g,
-        (_match, open: string, href: string, close: string) =>
-          `${open}${campaignHref(href, locale)}${close}`,
-      ),
-    })),
-  );
+  return pages;
 }
 
 type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };

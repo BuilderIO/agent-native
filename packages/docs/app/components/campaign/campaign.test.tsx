@@ -32,7 +32,6 @@ import * as localizedCampaignRoute5 from "../../routes/$locale.articles.page.$pa
 import * as localizedTopicRoute from "../../routes/$locale.articles.topic.$topic";
 import * as localizedCampaignRoute1 from "../../routes/$locale.use-cases.$slug";
 import * as localizedCampaignRoute0 from "../../routes/$locale.use-cases._index";
-import * as campaignRoute3 from "../../routes/articles.$slug";
 import {
   loader as articleLoader,
   meta as articleMeta,
@@ -826,13 +825,11 @@ describe("public campaign frontend", () => {
     (locale) => {
       for (const category of [...categories, "content", "unknown"]) {
         const params = { category, ...(locale ? { locale } : {}) };
-        for (const loader of [categoryLoader, localizedCampaignRoute4.loader]) {
-          const response = loader(args(params));
-          expect(response.status).toBe(301);
-          expect(response.headers.get("Location")).toBe(
-            sitePathForLocale(ARTICLES_BASE, locale),
-          );
-        }
+        const response = categoryLoader(args(params));
+        expect(response.status).toBe(301);
+        expect(response.headers.get("Location")).toBe(
+          sitePathForLocale(ARTICLES_BASE, locale),
+        );
       }
       expect(Object.keys(campaignRoute4)).toEqual(["loader"]);
       expect(Object.keys(localizedCampaignRoute4)).toEqual(["loader"]);
@@ -2378,14 +2375,12 @@ describe("public campaign frontend", () => {
       for (const locale of DOCS_LOCALES) {
         currentLocale.locale = locale;
         const params = { locale: locale.toLowerCase() };
-        for (const loader of [articleLoader, localizedCampaignRoute3.loader]) {
-          expect(() => loader(args({ ...params, slug: oldSlug }))).toThrow(
-            expect.objectContaining({ status: 404 }),
-          );
-          const data = loader(args({ ...params, slug }));
-          expect(data.article.title).toBe(title);
-          expect(data.useCase?.slug).toBe(useCaseSlug);
-        }
+        expect(() => articleLoader(args({ ...params, slug: oldSlug }))).toThrow(
+          expect.objectContaining({ status: 404 }),
+        );
+        const articleData = articleLoader(args({ ...params, slug }));
+        expect(articleData.article.title).toBe(title);
+        expect(articleData.useCase?.slug).toBe(useCaseSlug);
         const data = useCaseLoader(args({ ...params, slug: useCaseSlug }));
         expect(data.articles.map((item) => item.slug)).toEqual([slug]);
         const document = dom(markup(<UseCasePage {...data} />));
@@ -2607,19 +2602,97 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("reexports the existing public route contracts for all six locale aliases", () => {
-    for (const [route, localized] of [
-      [campaignRoute0, localizedCampaignRoute0],
-      [campaignRoute1, localizedCampaignRoute1],
-      [campaignRoute2, localizedCampaignRoute2],
-      [campaignRoute3, localizedCampaignRoute3],
-      [topicRoute, localizedTopicRoute],
-      [campaignRoute5, localizedCampaignRoute5],
-    ]) {
-      expect(localized.default).toBe(route.default);
-      expect(localized.loader).toBe(route.loader);
-      expect(localized.meta).toBe(route.meta);
+  it("redirects localized campaign aliases to their English canonical pages", () => {
+    const articles = Array.from({ length: 13 }, (_, index) => ({
+      ...article,
+      slug: `test-article-${index}`,
+    }));
+    vi.mocked(loadCampaignContent).mockReturnValue({
+      useCases: [useCase],
+      articles,
+    });
+
+    const aliases = [
+      [localizedCampaignRoute0.loader, { locale: "fr-fr" }, "/use-cases/"],
+      [
+        localizedCampaignRoute1.loader,
+        { locale: "fr-fr", slug: useCase.slug },
+        `${USE_CASES_BASE}/${useCase.slug}/`,
+      ],
+      [localizedCampaignRoute2.loader, { locale: "fr-fr" }, "/articles/"],
+      [
+        localizedCampaignRoute3.loader,
+        { locale: "fr-fr", slug: articles[0]!.slug },
+        `${ARTICLES_BASE}/${articles[0]!.slug}/`,
+      ],
+      [
+        localizedCampaignRoute4.loader,
+        { locale: "fr-fr", category: "clips" },
+        "/articles/",
+      ],
+      [
+        localizedCampaignRoute5.loader,
+        { locale: "fr-fr", page: "1" },
+        "/articles/",
+      ],
+      [
+        localizedCampaignRoute5.loader,
+        { locale: "fr-fr", page: "2" },
+        "/articles/page/2/",
+      ],
+      [
+        localizedTopicRoute.loader,
+        { locale: "fr-fr", topic: article.topic },
+        `${ARTICLES_BASE}/topic/${article.topic}/`,
+      ],
+    ] as const;
+
+    for (const [loader, params, pathname] of aliases) {
+      const response = loader(args(params)) as Response;
+      expect(response.status).toBe(301);
+      expect(response.headers.get("Location")).toBe(
+        `${pathname}?utm_source=test`,
+      );
     }
+    for (const alias of [
+      localizedCampaignRoute0,
+      localizedCampaignRoute1,
+      localizedCampaignRoute2,
+      localizedCampaignRoute3,
+      localizedCampaignRoute4,
+      localizedCampaignRoute5,
+      localizedTopicRoute,
+    ]) {
+      expect(Object.keys(alias)).toEqual(["loader"]);
+    }
+  });
+
+  it("returns 404 for invalid localized campaign routes or locale tags", () => {
+    vi.mocked(loadCampaignContent).mockReturnValue({
+      useCases: [useCase],
+      articles: [article],
+    });
+    const cases = [
+      () =>
+        localizedCampaignRoute1.loader(
+          args({ locale: "fr-fr", slug: "missing-use-case" }),
+        ),
+      () =>
+        localizedCampaignRoute3.loader(
+          args({ locale: "fr-fr", slug: "missing-article" }),
+        ),
+      () =>
+        localizedTopicRoute.loader(
+          args({ locale: "fr-fr", topic: "missing-topic" }),
+        ),
+      () =>
+        localizedCampaignRoute5.loader(args({ locale: "fr-fr", page: "0" })),
+      () =>
+        localizedCampaignRoute5.loader(args({ locale: "fr-fr", page: "2" })),
+      () => localizedCampaignRoute0.loader(args({ locale: "xx-xx" })),
+    ];
+    for (const load of cases)
+      expect(load).toThrow(expect.objectContaining({ status: 404 }));
   });
 
   it("uses locale-aware canonicals on indexes, use cases, topics and pagination, with existing unknown-locale fallback", () => {

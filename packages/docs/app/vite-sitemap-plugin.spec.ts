@@ -75,7 +75,7 @@ describe("docs agent web generation", () => {
     AGENT_WEB_GENERATION_TIMEOUT_MS,
   );
 
-  it("generates all six campaign path shapes and distinct markdown mirrors for every docs locale", () => {
+  it("generates campaign pages and markdown mirrors only at English canonical paths", () => {
     const content = loadCampaignContentFromDisk(rootDir);
     const article = content.articles[0];
     const useCase = content.useCases[0];
@@ -87,60 +87,44 @@ describe("docs agent web generation", () => {
       })),
     });
     const paths = campaignPages.map((page) => page.path);
-    for (const locale of DOCS_LOCALES) {
-      for (const path of [
-        USE_CASES_BASE,
-        `${USE_CASES_BASE}/${useCase.slug}`,
-        ARTICLES_BASE,
-        `${ARTICLES_BASE}/test-0`,
-        `${ARTICLES_BASE}/topic/${article.topic}`,
-        `${ARTICLES_BASE}/page/2`,
-      ]) {
-        expect(paths).toContain(sitePathForLocale(path, locale));
-      }
-      const index = campaignPages.find(
-        (page) => page.path === sitePathForLocale(ARTICLES_BASE, locale),
-      )!;
-      expect(index.markdown).toContain(
-        `](${sitePathForLocale(`${ARTICLES_BASE}/test-0`, locale)})`,
-      );
-      const detail = campaignPages.find(
-        (page) =>
-          page.path === sitePathForLocale(`${ARTICLES_BASE}/test-0`, locale),
-      )!;
-      expect(detail.title).toBe(article.title);
-      expect(detail.markdownPath).toBe(
-        `${sitePathForLocale(ARTICLES_BASE, locale)}test-0.md`,
-      );
+    for (const path of [
+      `${USE_CASES_BASE}/`,
+      `${USE_CASES_BASE}/${useCase.slug}/`,
+      `${ARTICLES_BASE}/`,
+      `${ARTICLES_BASE}/test-0/`,
+      `${ARTICLES_BASE}/topic/${article.topic}/`,
+      `${ARTICLES_BASE}/page/2/`,
+    ]) {
+      expect(paths).toContain(path);
+      for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
+        expect(paths).not.toContain(sitePathForLocale(path, locale));
     }
+    const index = campaignPages.find((page) => page.path === `${ARTICLES_BASE}/`)!;
+    expect(index.markdown).toContain(`](${ARTICLES_BASE}/test-0/)`);
+    const detail = campaignPages.find(
+      (page) => page.path === `${ARTICLES_BASE}/test-0/`,
+    )!;
+    expect(detail.title).toBe(article.title);
+    expect(detail.markdownPath).toBe(`${ARTICLES_BASE}/test-0.md`);
     expect(paths.some((path) => path.includes("/category/"))).toBe(false);
     expect(paths.some((path) => /\/topic\/[^/]+\/page\//.test(path))).toBe(
       false,
     );
-    for (const locale of DOCS_LOCALES) {
-      const topic = campaignPages.find(
-        (page) =>
-          page.path ===
-          sitePathForLocale(`${ARTICLES_BASE}/topic/${article.topic}`, locale),
-      )!;
-      expect(topic.title).toBe(ARTICLE_TOPICS[article.topic].name);
-      expect(topic.description).toBe(ARTICLE_TOPICS[article.topic].description);
-      expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(
-        ARTICLES_PAGE_SIZE + 1,
-      );
-      expect(topic.markdown).toContain(
-        `](${sitePathForLocale(`${ARTICLES_BASE}/test-${ARTICLES_PAGE_SIZE}`, locale)})`,
-      );
-      expect(topic.lastmod).toEqual(
-        new Date(`${article.updated ?? article.published}T00:00:00Z`),
-      );
-      for (const slug of Object.keys(ARTICLE_TOPICS).filter(
-        (slug) => slug !== article.topic,
-      )) {
-        expect(paths).not.toContain(
-          sitePathForLocale(`${ARTICLES_BASE}/topic/${slug}`, locale),
-        );
-      }
+    const topic = campaignPages.find(
+      (page) => page.path === `${ARTICLES_BASE}/topic/${article.topic}/`,
+    )!;
+    expect(topic.title).toBe(ARTICLE_TOPICS[article.topic].name);
+    expect(topic.description).toBe(ARTICLE_TOPICS[article.topic].description);
+    expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(
+      ARTICLES_PAGE_SIZE + 1,
+    );
+    expect(topic.markdown).toContain(
+      `](${ARTICLES_BASE}/test-${ARTICLES_PAGE_SIZE}/)`,
+    );
+    for (const slug of Object.keys(ARTICLE_TOPICS).filter(
+      (slug) => slug !== article.topic,
+    )) {
+      expect(paths).not.toContain(`${ARTICLES_BASE}/topic/${slug}/`);
     }
     expect(new Set(paths).size).toBe(paths.length);
     const mirrors = campaignPages.flatMap((page) =>
@@ -195,15 +179,13 @@ describe("docs agent web generation", () => {
     );
   });
 
-  it("omits all configured topic pages when no articles are present", () => {
+  it("omits configured topic pages when no articles are present", () => {
     const pages = buildCampaignPages({ useCases: [], articles: [] });
     expect(pages.some((page) => /\/(topic|category)\//.test(page.path))).toBe(
       false,
     );
-    for (const locale of DOCS_LOCALES)
-      expect(pages.map((page) => page.path)).toContain(
-        sitePathForLocale(ARTICLES_BASE, locale),
-      );
+    expect(pages.map((page) => page.path)).toContain(`${ARTICLES_BASE}/`);
+    expect(pages.some((page) => page.path.startsWith("/fr-fr/"))).toBe(false);
   });
 
   it("uses the latest updated-or-published date for topic and article sitemap entries in every locale", () => {
@@ -246,7 +228,7 @@ describe("docs agent web generation", () => {
   });
 
   it(
-    "prerenders every published localized campaign sitemap page",
+    "prerenders every published canonical campaign sitemap page",
     () => {
       const prerenderPaths = new Set(buildPrerenderPaths());
       const campaignPages = buildCampaignPages(
@@ -337,32 +319,34 @@ describe("docs agent web generation", () => {
       ).toEqual(locales.map((locale) => `sitemap-${locale}.xml`).sort());
     });
 
-    it("makes the new use case and articles discoverable in every locale sitemap", () => {
-      const newPaths = [
-        `${USE_CASES_BASE}/ask-your-database-in-plain-english`,
-        `${ARTICLES_BASE}/what-is-an-agent-native-app`,
-        `${ARTICLES_BASE}/can-people-and-an-ai-agent-edit-the-same-document`,
-        `${ARTICLES_BASE}/how-do-you-add-skills-to-claude-code-and-codex`,
-        `${ARTICLES_BASE}/topic/agentic-apps`,
+    it("makes the campaign pages discoverable only in the English sitemap", () => {
+      const paths = [
+        `${USE_CASES_BASE}/ask-your-database-in-plain-english/`,
+        `${ARTICLES_BASE}/what-is-an-agent-native-app/`,
+        `${ARTICLES_BASE}/can-people-and-an-ai-agent-edit-the-same-document/`,
+        `${ARTICLES_BASE}/how-do-you-add-skills-to-claude-code-and-codex/`,
+        `${ARTICLES_BASE}/topic/agentic-apps/`,
       ];
-      for (const locale of DOCS_LOCALES) {
+      const englishUrls = locsIn(
+        fs.readFileSync(path.join(clientDir, "sitemap-en-us.xml"), "utf8"),
+      );
+      for (const path of paths) {
+        expect(englishUrls).toContain(`${SITE_URL}${path}`);
+        expect(pages.find((page) => page.path === path)?.markdown).toBeTruthy();
+      }
+      for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US")) {
         const urls = locsIn(
           fs.readFileSync(
             path.join(clientDir, `sitemap-${locale.toLowerCase()}.xml`),
             "utf8",
           ),
         );
-        for (const path of newPaths) {
-          const localizedPath = sitePathForLocale(path, locale);
-          expect(urls).toContain(`${SITE_URL}${localizedPath}`);
-          expect(
-            pages.find((page) => page.path === localizedPath)?.markdown,
-          ).toBeTruthy();
-        }
+        for (const path of paths)
+          expect(urls).not.toContain(`${SITE_URL}${sitePathForLocale(path, locale)}`);
       }
     });
 
-    it("publishes replacement article sitemap entries and Markdown twins without deleted slugs", () => {
+    it("publishes replacement article sitemap entries and English Markdown twins without deleted slugs", () => {
       const replacements = [
         {
           slug: "how-to-use-ai-to-take-meeting-notes",
@@ -383,47 +367,50 @@ describe("docs agent web generation", () => {
           topic: "presentations",
         },
       ];
-      for (const locale of DOCS_LOCALES) {
-        const sitemap = fs.readFileSync(
+      const sitemap = fs.readFileSync(
+        path.join(clientDir, "sitemap-en-us.xml"),
+        "utf8",
+      );
+      const urls = locsIn(sitemap);
+      const base = `${ARTICLES_BASE}/`;
+      const index = pages.find((page) => page.path === base)!;
+      expect(index.markdown?.match(/^- \[/gm)).toHaveLength(11);
+      for (const { slug, oldSlug, title, topic } of replacements) {
+        const detailPath = `${ARTICLES_BASE}/${slug}/`;
+        const markdownPath = `${base}${slug}.md`;
+        const detail = pages.find((page) => page.path === detailPath)!;
+        expect(urls).toContain(`${SITE_URL}${detailPath}`);
+        expect(detail).toMatchObject({ title, markdownPath });
+        const markdown = fs.readFileSync(
+          path.join(clientDir, markdownPath),
+          "utf8",
+        );
+        expect(markdown).toBe(detail.markdown);
+        expect(markdown.startsWith(`# ${title}\n`)).toBe(true);
+        expect(markdown).not.toMatch(/audience:|internal:|target_terms:/);
+        const link = `- [${title}](${detailPath})`;
+        expect(index.markdown).toContain(link);
+        const topicPage = pages.find(
+          (page) => page.path === `${ARTICLES_BASE}/topic/${topic}/`,
+        )!;
+        expect(topicPage.markdown).toContain(link);
+        expect(sitemap).not.toContain(oldSlug);
+        expect(pages.some((page) => page.path.includes(oldSlug))).toBe(false);
+        expect(
+          fs.existsSync(path.join(clientDir, `${base}${oldSlug}.md`)),
+        ).toBe(false);
+        for (const page of pages.filter((page) => page.path.startsWith(base)))
+          expect(page.markdown, page.path).not.toContain(oldSlug);
+      }
+      for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US")) {
+        const localizedSitemap = fs.readFileSync(
           path.join(clientDir, `sitemap-${locale.toLowerCase()}.xml`),
           "utf8",
         );
-        const urls = locsIn(sitemap);
-        const base = sitePathForLocale(ARTICLES_BASE, locale);
-        const index = pages.find((page) => page.path === base)!;
-        expect(index.markdown?.match(/^- \[/gm)).toHaveLength(11);
-        for (const { slug, oldSlug, title, topic } of replacements) {
-          const detailPath = sitePathForLocale(
-            `${ARTICLES_BASE}/${slug}`,
-            locale,
+        for (const { slug } of replacements)
+          expect(localizedSitemap).not.toContain(
+            `${SITE_URL}${sitePathForLocale(`${ARTICLES_BASE}/${slug}`, locale)}`,
           );
-          const markdownPath = `${base}${slug}.md`;
-          const detail = pages.find((page) => page.path === detailPath)!;
-          expect(urls).toContain(`${SITE_URL}${detailPath}`);
-          expect(detail).toMatchObject({ title, markdownPath });
-          const markdown = fs.readFileSync(
-            path.join(clientDir, markdownPath),
-            "utf8",
-          );
-          expect(markdown).toBe(detail.markdown);
-          expect(markdown.startsWith(`# ${title}\n`)).toBe(true);
-          expect(markdown).not.toMatch(/audience:|internal:|target_terms:/);
-          const link = `- [${title}](${detailPath})`;
-          expect(index.markdown).toContain(link);
-          const topicPage = pages.find(
-            (page) =>
-              page.path ===
-              sitePathForLocale(`${ARTICLES_BASE}/topic/${topic}`, locale),
-          )!;
-          expect(topicPage.markdown).toContain(link);
-          expect(sitemap).not.toContain(oldSlug);
-          expect(pages.some((page) => page.path.includes(oldSlug))).toBe(false);
-          expect(
-            fs.existsSync(path.join(clientDir, `${base}${oldSlug}.md`)),
-          ).toBe(false);
-          for (const page of pages.filter((page) => page.path.startsWith(base)))
-            expect(page.markdown, page.path).not.toContain(oldSlug);
-        }
       }
     });
 
