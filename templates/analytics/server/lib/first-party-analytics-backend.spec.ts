@@ -1,6 +1,10 @@
 import { lexAgentSql, readAgentSqlQuery } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate.js";
+import firstPartyDashboard from "../../seeds/dashboards/agent-native-templates-first-party.json";
+import * as pushdown from "./first-party-analytics-pushdown.js";
+
 const getScopedSettingRecord = vi.hoisted(() => vi.fn());
 const getOrgSetting = vi.hoisted(() => vi.fn());
 const putScopedSettingRecord = vi.hoisted(() => vi.fn());
@@ -116,6 +120,70 @@ describe("event predicate pushdown", () => {
   };
   const source =
     "(SELECT * FROM analytics_events WHERE org_id = 'org' AND event_date <= DATE '2026-10-09') AS e";
+  describe.each([
+    ["total-signups", 0],
+    ["wau-over-time", 6],
+  ] as const)("seed panel %s", (panelId, lookbackDays) => {
+    it.each(["", "all", "7d", "30d", "90d", "180d", "365d", "custom"])(
+      "pushes the rendered %s time range without changing the outer SQL",
+      (timeRange) => {
+        const panel = firstPartyDashboard.panels.find(
+          (panel) => panel.id === panelId,
+        )!;
+        const sql = interpolate(panel.sql, {
+          timeRange,
+          timeRangeStart: "2026-09-01",
+          timeRangeEnd: "2026-09-30",
+          emailFilter: "all",
+          appFilter: "all",
+        }).replace(/FROM analytics_events/g, `FROM ${source}`);
+        const spy = vi
+          .spyOn(pushdown, "firstPartyEventPushdownPredicates")
+          .mockReturnValue([]);
+        let baseline: string;
+        try {
+          baseline = renderFirstPartyAnalyticsBigQuerySql(sql, [], table);
+        } finally {
+          spy.mockRestore();
+        }
+        const rendered = renderFirstPartyAnalyticsBigQuerySql(sql, [], table);
+        const dedupe =
+          " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1";
+        const baselineSplit = baseline.indexOf(dedupe);
+        const renderedSplit = rendered.indexOf(dedupe);
+        expect(baselineSplit).toBeGreaterThan(0);
+        expect(renderedSplit).toBeGreaterThan(baselineSplit);
+        expect(rendered.slice(renderedSplit)).toBe(
+          baseline.slice(baselineSplit),
+        );
+        expect(rendered.slice(0, baselineSplit)).toBe(
+          baseline.slice(0, baselineSplit),
+        );
+        const added = rendered.slice(baselineSplit, renderedSplit);
+        expect(added).toContain(
+          "AND (event_date <= CAST ( CURRENT_DATE ( ) AS DATE ))",
+        );
+        if (timeRange === "custom") {
+          expect(added).toContain(
+            lookbackDays
+              ? "AND (event_date >= CAST ( DATE_SUB ( CAST ( '2026-09-01' AS DATE ) , INTERVAL 6 DAY ) AS DATE ))"
+              : "AND (event_date >= DATE '2026-09-01')",
+          );
+          expect(added).toContain("AND (event_date <= DATE '2026-09-30')");
+        } else if (timeRange === "" || timeRange === "all") {
+          expect(added).not.toContain("event_date >=");
+        } else {
+          const days = Number(timeRange.slice(0, -1)) + lookbackDays;
+          expect(added).toContain(
+            `AND (event_date >= CAST ( DATE_SUB ( CURRENT_DATE ( ) , INTERVAL ${days} DAY ) AS DATE ))`,
+          );
+        }
+        expect(added).not.toMatch(/\b(?:OR|TRUE|FALSE)\b/);
+        expect(runQuery).not.toHaveBeenCalled();
+        expect(fetchGoogleWithRetry).not.toHaveBeenCalled();
+      },
+    );
+  });
   it.each([
     "event_date >= DATE '2026-10-08' AND event_name = 'http.response'",
     "e.event_date BETWEEN DATE '2026-10-08' AND DATE '2026-10-09' AND e.event_name IN ('agent_run_terminal', 'http.response')",
