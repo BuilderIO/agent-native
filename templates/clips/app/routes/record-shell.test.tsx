@@ -40,6 +40,7 @@ describe("record route lifecycle shell", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -425,6 +426,99 @@ describe("record route lifecycle shell", () => {
 
     act(() => retry?.click());
     expect(onTryAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps generic app-frame camera denials on device recovery", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Camera access is blocked by the browser, macOS, or this app frame."
+          mode="camera"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Clips could not start the camera. Allow camera access, then try again.",
+    );
+    expect(container.textContent).toContain(
+      "Allow Camera for this site first.",
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const cameraSettings = buttons.find(
+      (button) => button.textContent?.trim() === "Camera",
+    );
+    expect(cameraSettings).toBeDefined();
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(false);
+
+    act(() => cameraSettings?.click());
+    expect(open).toHaveBeenCalledWith(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    open.mockRestore();
+  });
+
+  it("reserves the tab recovery path for explicit Permissions-Policy errors", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Camera access is blocked by Permissions-Policy."
+          mode="camera"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Browser site permissions are not the blocker here.",
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(true);
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Camera"),
+    ).toBe(false);
   });
 
   it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {
