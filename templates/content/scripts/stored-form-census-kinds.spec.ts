@@ -347,14 +347,17 @@ describe("parser limits", () => {
     expect(
       withinParserLimits(L("```", "  ```", nested("```", "</details>", "```"))),
     ).toBe(false);
-    // Containers closed before a mismatched close stay closed.
+    // A mismatched close ends nothing, so the containers closed before and
+    // after it stay closed.
+    const closed = Array<string>(150).fill(L("<details>", "x", "</details>"));
     expect(
       withinParserLimits(
         L(
-          ...Array<string>(150).fill(L("<details>", "x", "</details>")),
+          ...closed,
           "<callout>",
           "</details>",
           "</callout>",
+          ...closed,
           ...Array<string>(3000).fill("filler"),
         ),
       ),
