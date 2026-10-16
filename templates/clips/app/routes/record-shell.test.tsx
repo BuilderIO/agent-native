@@ -835,6 +835,37 @@ describe("record route lifecycle shell", () => {
     }
   });
 
+  it("requests current-frame fallback when a settings toast popup is blocked", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const openRecoveryUrl = vi.fn(() => false);
+    const onPopupBlocked = vi.fn();
+    const options = buildRecordingErrorToastOptions(
+      "Camera permission denied.",
+      { mode: "camera", micDeviceId: null },
+      (key) => key,
+      openRecoveryUrl,
+      onPopupBlocked,
+    );
+
+    expect(options.action?.label).toBe("recordRoute.openSettings");
+    options.action?.onClick();
+
+    expect(openRecoveryUrl).toHaveBeenCalledWith(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+      true,
+    );
+    expect(onPopupBlocked).not.toHaveBeenCalled();
+  });
+
   it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/routes/record.tsx"),
