@@ -11,8 +11,6 @@ const calls = vi.hoisted(() => ({
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
   resolveStorage: vi.fn(),
-  releaseHosted: vi.fn(async () => {}),
-  requestContext: null as { authUserId?: string } | null,
   track: vi.fn(),
 }));
 
@@ -27,7 +25,7 @@ vi.mock("@agent-native/core/server", () => ({
   captureError: (...args: unknown[]) => calls.captureError(...args),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestContext: () => calls.requestContext,
+  getRequestContext: () => null,
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
@@ -78,8 +76,7 @@ vi.mock("../server/lib/video-storage.js", () => ({
   allowsSqlRecordingChunkScratch: () => calls.bufferedFallbackAvailable,
   resolveClipsVideoStorage: (...args: unknown[]) =>
     calls.resolveStorage(...args),
-  releaseHostedClipRecording: (...args: unknown[]) =>
-    calls.releaseHosted(...args),
+  releaseHostedClipRecording: vi.fn(),
   STORAGE_SETUP_REQUIRED_REASON: "Storage setup required",
   HOSTED_STORAGE_UNAVAILABLE_REASON:
     "Clips hosted storage is temporarily unavailable. Try again later.",
@@ -101,7 +98,6 @@ describe("create-recording policy", () => {
     calls.snapshot.mockResolvedValue(false);
     calls.bufferedFallbackAvailable = true;
     calls.streamingEnabled = false;
-    calls.requestContext = null;
     calls.resolveStorage.mockImplementation(async () => {
       const provider = await calls.uploadProvider();
       return {
@@ -144,17 +140,12 @@ describe("create-recording policy", () => {
     ).resolves.toMatchObject({ maxClipDurationMs: 10 * 60 * 1000 });
   });
 
-  it("refuses a file over its storage's limit before creating the recording", async () => {
-    calls.requestContext = { authUserId: "user-1" };
-    calls.resolveStorage.mockResolvedValueOnce({
-      mode: "hosted",
-      provider: null,
-      hostedRemaining: 2,
-      hostedLimit: 3,
-      maxClipBytes: 250 * 1024 * 1024,
-      maxClipDurationMs: 10 * 60 * 1000,
-      reservationCreated: true,
+  it("hands a known file size to storage resolution and creates nothing when it is refused", async () => {
+    const refusal = Object.assign(new Error("This video is 300 MB"), {
+      statusCode: 413,
+      errorCode: "upload_too_large",
     });
+    calls.resolveStorage.mockRejectedValueOnce(refusal);
     const action = createRecording as unknown as {
       run: (
         args: Record<string, unknown>,
@@ -167,76 +158,16 @@ describe("create-recording policy", () => {
         { id: "rec-1", sizeBytes: 300 * 1024 * 1024 },
         { userEmail: "owner@example.com" },
       ),
-    ).rejects.toMatchObject({
-      statusCode: 413,
-      errorCode: "upload_too_large",
-      message: expect.stringMatching(
-        /300 MB.*free hosted storage takes clips up to 250 MB.*up to 2 GB/,
-      ),
-      details: {
+    ).rejects.toBe(refusal);
+    expect(calls.resolveStorage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: "new",
+        recordingId: "rec-1",
         sizeBytes: 300 * 1024 * 1024,
-        maxUploadBytes: 250 * 1024 * 1024,
-        storageMode: "hosted",
-      },
-    });
+      }),
+    );
     expect(calls.insert).not.toHaveBeenCalled();
     expect(calls.writeState).not.toHaveBeenCalled();
-    expect(calls.releaseHosted).toHaveBeenCalledWith({
-      recordingId: "rec-1",
-      userId: "user-1",
-    });
-
-    // The same size fits connected storage.
-    await expect(
-      action.run(
-        { id: "rec-2", sizeBytes: 300 * 1024 * 1024 },
-        { userEmail: "owner@example.com" },
-      ),
-    ).resolves.toMatchObject({ id: "rec-2", status: "uploading" });
-    expect(calls.insert).toHaveBeenCalledOnce();
-  });
-
-  it("still refuses an oversized file when its hosted reservation cannot be released", async () => {
-    calls.requestContext = { authUserId: "user-1" };
-    calls.releaseHosted.mockRejectedValueOnce(
-      new Error("allowance store down"),
-    );
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    calls.resolveStorage.mockResolvedValueOnce({
-      mode: "hosted",
-      provider: null,
-      hostedRemaining: 2,
-      hostedLimit: 3,
-      maxClipBytes: 250 * 1024 * 1024,
-      maxClipDurationMs: 10 * 60 * 1000,
-      reservationCreated: true,
-    });
-    const action = createRecording as unknown as {
-      run: (
-        args: Record<string, unknown>,
-        context: { userEmail: string },
-      ) => Promise<unknown>;
-    };
-
-    await expect(
-      action.run(
-        { id: "rec-1", sizeBytes: 250 * 1024 * 1024 + 1 },
-        { userEmail: "owner@example.com" },
-      ),
-    ).rejects.toMatchObject({
-      statusCode: 413,
-      errorCode: "upload_too_large",
-      // One byte over still reads as over, not as the limit itself.
-      message: expect.stringMatching(/250\.1 MB.*up to 250 MB/),
-    });
-    expect(calls.insert).not.toHaveBeenCalled();
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("remains reserved after a size refusal"),
-      { recordingId: "rec-1", error: "allowance store down" },
-    );
-    consoleError.mockRestore();
   });
 
   it("saves the new recording's policy before initializing its upload", async () => {
