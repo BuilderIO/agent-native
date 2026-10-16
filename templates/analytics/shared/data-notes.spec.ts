@@ -290,6 +290,24 @@ describe("resolveDataNoteBands", () => {
     ]);
   });
 
+  it("reads a week_ending column's dates as the last day of each week", () => {
+    const weeks = ["2026-09-27", "2026-10-04", "2026-10-11", "2026-10-18"];
+    expect(resolveDataNoteBands(SETUP_INCIDENT, weeks, "week_ending")).toEqual([
+      { startIndex: 2, endIndex: 3, startEdge: true, endEdge: true },
+    ]);
+    // Labeled by the start of each week, the same dates cover Oct 4–17.
+    expect(resolveDataNoteBands(SETUP_INCIDENT, weeks, "week")).toEqual([
+      { startIndex: 1, endIndex: 2, startEdge: true, endEdge: true },
+    ]);
+  });
+
+  it("reads a month_end column's dates as the months they close", () => {
+    const months = ["2026-08-31", "2026-09-30", "2026-10-31"];
+    expect(resolveDataNoteBands(SETUP_INCIDENT, months, "month_end")).toEqual([
+      { startIndex: 2, endIndex: 2, startEdge: true, endEdge: true },
+    ]);
+  });
+
   it("covers the same weekly buckets when rows are newest first", () => {
     const weeks = ["2026-10-19", "2026-10-12", "2026-10-05", "2026-09-28"];
     expect(resolveDataNoteBands(SETUP_INCIDENT, weeks)).toEqual([

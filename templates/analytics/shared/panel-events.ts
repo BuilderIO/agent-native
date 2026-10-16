@@ -291,6 +291,14 @@ const GRAIN_CADENCE: Record<XGrain, XCadence> = {
 
 const GRAIN_WORDS = new Set<string>(Object.keys(GRAIN_CADENCE));
 
+function xColumnWords(xKey: string): string[] {
+  return xKey
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .map((word) => word.replace(/s$/, ""));
+}
+
 /**
  * The grain an x column's name gives: "day", "signup_week", "monthStart".
  * Null when it names none, or more than one. A column named `date` names
@@ -298,14 +306,14 @@ const GRAIN_WORDS = new Set<string>(Object.keys(GRAIN_CADENCE));
  */
 export function xColumnGrain(xKey: string): XGrain | null {
   const grains = new Set(
-    xKey
-      .replace(/([a-z])([A-Z])/g, "$1 $2")
-      .toLowerCase()
-      .split(/[^a-z]+/)
-      .map((word) => word.replace(/s$/, ""))
-      .filter((word) => GRAIN_WORDS.has(word)),
+    xColumnWords(xKey).filter((word) => GRAIN_WORDS.has(word)),
   );
   return grains.size === 1 ? ([...grains][0] as XGrain) : null;
+}
+
+/** Whether an x column's name, like "week_ending" or "monthEnd", dates each bucket by its last day. */
+export function xColumnDatesBucketEnds(xKey: string): boolean {
+  return xColumnWords(xKey).some((word) => word === "end" || word === "ending");
 }
 
 /**
@@ -348,6 +356,23 @@ export function xCadence(
   const weekday = dates[0].getUTCDay();
   const weekly = dates.every((date) => date.getUTCDay() === weekday);
   return { unit: "days", count: weekly ? 7 : 1 };
+}
+
+/** The bucket whose last day is `day`: that many days up to it, or its months. */
+export function xBucketEndingOn(
+  cadence: Exclude<XCadence, { unit: "time" }>,
+  day: number,
+): { start: number; end: number } {
+  if (cadence.unit === "days") {
+    const end = day + DAY_MS;
+    return { start: end - cadence.count * DAY_MS, end };
+  }
+  const date = new Date(day);
+  const next = date.getUTCMonth() + 1;
+  return {
+    start: Date.UTC(date.getUTCFullYear(), next - cadence.count, 1),
+    end: Date.UTC(date.getUTCFullYear(), next, 1),
+  };
 }
 
 /** Where the bucket starting at `start` ends, exclusive. */
