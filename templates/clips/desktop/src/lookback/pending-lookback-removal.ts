@@ -141,23 +141,38 @@ export async function retryPendingLookbackRemovals(input: {
       continue;
     }
 
-    const remaining = ids.filter((id) => id !== itemId);
-    try {
-      writeIds(input.storage, key, remaining);
-      ids = remaining;
-    } catch {
+    const current = readIds(input.storage, key);
+    if (!current.ok) {
       return {
         status: "unreadable",
         pendingIds: new Set(ids),
         failed: true,
       };
     }
+    const remaining = current.ids.filter((id) => id !== itemId);
+    try {
+      writeIds(input.storage, key, remaining);
+      ids = remaining;
+    } catch {
+      return {
+        status: "unreadable",
+        pendingIds: new Set(current.ids),
+        failed: true,
+      };
+    }
   }
+
+  const latest = readPendingLookbackRemovals(
+    input.storage,
+    input.serverUrl,
+    input.account,
+  );
+  if (latest.status === "unreadable") return latest;
 
   return {
     status: "ready",
-    pendingIds: new Set(ids),
-    failed: failed || ids.length > 0,
+    pendingIds: latest.pendingIds,
+    failed: failed || latest.pendingIds.size > 0,
   };
 }
 

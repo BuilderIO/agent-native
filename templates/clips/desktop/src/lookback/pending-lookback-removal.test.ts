@@ -143,6 +143,45 @@ describe("pending lookback removal storage", () => {
     });
   });
 
+  it("preserves a new cleanup ID saved while another removal is in flight", async () => {
+    const storage = memoryStorage();
+    const serverUrl = "https://clips.example.test";
+    const account = "person@example.test";
+    const key = pendingLookbackRemovalStorageKey(serverUrl, account);
+    if (!key) throw new Error("Expected a scoped storage key.");
+    persistPendingLookbackRemoval(storage, serverUrl, account, "context-1");
+
+    let finishRemoval!: () => void;
+    const removalInFlight = new Promise<void>((resolve) => {
+      finishRemoval = resolve;
+    });
+    const retry = retryPendingLookbackRemovals({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      removeItem: vi.fn(() => removalInFlight),
+    });
+
+    persistPendingLookbackRemoval(storage, serverUrl, account, "context-2");
+    finishRemoval();
+    const state = await retry;
+
+    expect(storage.getItem(key)).toBe(JSON.stringify(["context-2"]));
+    expect(state.pendingIds).toEqual(new Set(["context-2"]));
+
+    const nextState = await retryPendingLookbackRemovals({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      removeItem: vi.fn(async () => undefined),
+    });
+
+    expect(storage.getItem(key)).toBeNull();
+    expect(nextState.pendingIds.size).toBe(0);
+  });
+
   it("retains failed IDs, restores the warning, and gates only their worker items", async () => {
     const storage = memoryStorage();
     const serverUrl = "https://clips.example.test";
