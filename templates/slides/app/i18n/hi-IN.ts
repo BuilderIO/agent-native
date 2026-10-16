@@ -625,6 +625,8 @@ const messages = {
     addTransition: "ट्रांज़िशन जोड़ें",
     effect: "प्रभाव",
     onClick: "क्लिक पर",
+    withPrevious: "पिछले के साथ",
+    trigger: "शुरुआत",
     byParagraph: "पैराग्राफ़ के अनुसार",
     expand: "ट्रांज़िशन फैलाएं",
     collapse: "ट्रांज़िशन समेटें",

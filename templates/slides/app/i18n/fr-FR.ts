@@ -645,6 +645,8 @@ const messages = {
     addTransition: "Ajouter une transition",
     effect: "Effet",
     onClick: "Au clic",
+    withPrevious: "Avec la précédente",
+    trigger: "Début",
     byParagraph: "Par paragraphe",
     expand: "Développer la transition",
     collapse: "Réduire la transition",

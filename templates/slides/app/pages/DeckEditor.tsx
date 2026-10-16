@@ -192,7 +192,10 @@ import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
 } from "@/lib/pending-deck-changes";
-import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
+import {
+  NO_ANIMATION_TARGETS,
+  type SelectedAnimationTarget,
+} from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardNativeMarker,
   hasClipboardPayloadBeyondSlideMarker,
@@ -955,8 +958,8 @@ export default function DeckEditor() {
   const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
-  const [animationTarget, setAnimationTarget] =
-    useState<SelectedAnimationTarget | null>(null);
+  const [animationTargets, setAnimationTargets] =
+    useState<SelectedAnimationTarget[]>(NO_ANIMATION_TARGETS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [transitionPreviewOpen, setTransitionPreviewOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
@@ -970,7 +973,7 @@ export default function DeckEditor() {
     useState(0);
 
   const openAnimationsForTarget = useCallback(
-    (target: SelectedAnimationTarget) => {
+    (targets: SelectedAnimationTarget[]) => {
       if (!animationsOpen) {
         trackEvent("slide_panel_opened", {
           app_name: "slides",
@@ -979,7 +982,7 @@ export default function DeckEditor() {
         });
       }
       setLayersOpen(false);
-      setAnimationTarget(target);
+      setAnimationTargets(targets);
       setAnimationsOpen(true);
     },
     [animationsOpen],
@@ -993,7 +996,7 @@ export default function DeckEditor() {
       });
     }
     setLayersOpen(false);
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
     setAnimationsOpen((open) => !open);
   }, [animationsOpen]);
 
@@ -1006,7 +1009,7 @@ export default function DeckEditor() {
       });
     }
     setAnimationsOpen(false);
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
     setLayersOpen((open) => !open);
   }, [layersOpen]);
 
@@ -1175,7 +1178,7 @@ export default function DeckEditor() {
     : null;
 
   useEffect(() => {
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
   }, [activeSlideId]);
 
   useEffect(() => {
@@ -5779,7 +5782,7 @@ export default function DeckEditor() {
             layersOpen={layersOpen}
             onCloseLayers={() => setLayersOpen(false)}
             onOpenAnimations={openAnimationsForTarget}
-            onSelectedAnimationTargetChange={setAnimationTarget}
+            onSelectedAnimationTargetsChange={setAnimationTargets}
             slideId={currentSlide.id}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
@@ -5824,7 +5827,7 @@ export default function DeckEditor() {
         {animationsOpen && currentSlide && (
           <AnimationsPanel
             slide={currentSlide}
-            selectedTarget={animationTarget}
+            selectedTargets={animationTargets}
             onUpdateSlide={(updates) =>
               updateSlide(id, currentSlide.id, updates)
             }

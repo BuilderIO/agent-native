@@ -35,6 +35,7 @@ import { normalizeSlideTransition } from "../../../shared/slide-transitions";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
 import {
   annotateBuildSteps,
+  buildClickCount,
   findBuildStepElements,
   getBuildSteps,
   hasBuildSteps,
@@ -176,7 +177,7 @@ export default function PresentationView({
   }, [allBuildSteps, safeSlides]);
   const layout = useMemo<SlideNavigationLayout>(
     () => ({
-      stepCounts: allBuildSteps.map((build) => build.steps.length),
+      stepCounts: allBuildSteps.map((build) => buildClickCount(build.steps)),
       transitions: safeSlides.map((slide) =>
         normalizeSlideTransition(slide.transition),
       ),
@@ -379,7 +380,11 @@ export default function PresentationView({
   // The outgoing layer of a transition shows the slide fully built.
   const outgoingSlide = useMemo(
     () =>
-      annotateBuildSteps(currentSlide, currentSteps, currentSteps?.length ?? 0),
+      annotateBuildSteps(
+        currentSlide,
+        currentSteps,
+        buildClickCount(currentSteps),
+      ),
     [currentSlide, currentSteps],
   );
 

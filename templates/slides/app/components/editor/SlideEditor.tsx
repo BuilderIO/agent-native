@@ -99,6 +99,7 @@ import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
   storedPathOfRenderedElement,
+  NO_ANIMATION_TARGETS,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
 import {
@@ -1215,11 +1216,11 @@ interface SlideEditorProps {
   layersOpen?: boolean;
   /** Close the document layers panel. */
   onCloseLayers?: () => void;
-  /** Open transitions for the currently selected canvas element. */
-  onOpenAnimations?: (target: SelectedAnimationTarget) => void;
+  /** Open transitions for the currently selected canvas elements. */
+  onOpenAnimations?: (targets: SelectedAnimationTarget[]) => void;
   /** Keep the parent in sync with the current canvas selection. */
-  onSelectedAnimationTargetChange?: (
-    target: SelectedAnimationTarget | null,
+  onSelectedAnimationTargetsChange?: (
+    targets: SelectedAnimationTarget[],
   ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
@@ -1804,7 +1805,7 @@ export default function SlideEditor({
   layersOpen = false,
   onCloseLayers,
   onOpenAnimations,
-  onSelectedAnimationTargetChange,
+  onSelectedAnimationTargetsChange,
   slideId,
   comments = [],
   onSelectCommentThread,
@@ -3036,24 +3037,45 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml],
   );
 
-  const getSelectedAnimationTarget =
-    useCallback((): SelectedAnimationTarget | null => {
-      const element = selectedImg ?? resolveSelectedElement();
-      const scope = element?.closest<HTMLElement>("[data-slide-content-scope]");
+  // One target per selected object, in selection order, so the first one picked
+  // is the one that waits for the click.
+  const getSelectedAnimationTargets =
+    useCallback((): SelectedAnimationTarget[] => {
+      const slideContent = getSlideContent();
+      const elements =
+        multiSelection.size > 0
+          ? Array.from(multiSelection).flatMap((id) => {
+              const element = slideContent?.querySelector<HTMLElement>(
+                `[data-builder-id="${id}"]`,
+              );
+              return element ? [element] : [];
+            })
+          : [selectedImg ?? resolveSelectedElement()].filter(
+              (element) => element !== null,
+            );
+      // Every selected object is on the same slide, so one stored source serves all.
+      const scope = elements[0]?.closest<HTMLElement>(
+        "[data-slide-content-scope]",
+      );
       const stored = scope ? getRenderedSlideSource(scope)?.stored : undefined;
-      if (!element || stored === undefined) return null;
-      // The path is taken from the stored HTML, the one playback resolves
-      // against. The rendered DOM drops svg and similar elements, so its
-      // indices would point at the wrong object at runtime.
-      const elementPath = storedPathOfRenderedElement(stored, element);
-      if (!elementPath) return null;
-      const elementIndex = elementPath[elementPath.length - 1] ?? 0;
-      return {
-        elementIndex,
-        elementPath,
-        preview: getElementPreview(element, `Element ${elementIndex + 1}`),
-      };
-    }, [resolveSelectedElement, selectedImg]);
+      if (stored === undefined) return NO_ANIMATION_TARGETS;
+      const targets = elements.flatMap((element) => {
+        // The path is taken from the stored HTML, the one playback resolves
+        // against. The rendered DOM drops svg and similar elements, so its
+        // indices would point at the wrong object at runtime.
+        const elementPath = storedPathOfRenderedElement(stored, element);
+        if (!elementPath) return [];
+        const elementIndex = elementPath[elementPath.length - 1] ?? 0;
+        return [
+          {
+            elementIndex,
+            elementPath,
+            preview: getElementPreview(element, `Element ${elementIndex + 1}`),
+          },
+        ];
+      });
+      return targets.length > 0 ? targets : NO_ANIMATION_TARGETS;
+    }, [getSlideContent, multiSelection, resolveSelectedElement, selectedImg]);
 
   const commentOnSelectedElement = useCallback(() => {
     const target = selectedImg ?? resolveSelectedElement();
@@ -3077,8 +3099,8 @@ export default function SlideEditor({
   }, [ensureCommentObjectId, onComment, resolveSelectedElement, selectedImg]);
 
   useEffect(() => {
-    onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
-  }, [getSelectedAnimationTarget, onSelectedAnimationTargetChange]);
+    onSelectedAnimationTargetsChange?.(getSelectedAnimationTargets());
+  }, [getSelectedAnimationTargets, onSelectedAnimationTargetsChange]);
 
   const buildSelectionState = useCallback(
     (
@@ -10514,8 +10536,8 @@ export default function SlideEditor({
     onComment: commentOnSelectedElement,
     onOpenAnimations: onOpenAnimations
       ? () => {
-          const target = getSelectedAnimationTarget();
-          if (target) onOpenAnimations(target);
+          const targets = getSelectedAnimationTargets();
+          if (targets.length > 0) onOpenAnimations(targets);
         }
       : undefined,
     onChange: applySelectedStylePatch,

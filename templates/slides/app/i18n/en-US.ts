@@ -628,6 +628,8 @@ const messages = {
     addTransition: "Add transition",
     effect: "Effect",
     onClick: "On click",
+    withPrevious: "With previous",
+    trigger: "Start",
     byParagraph: "By paragraph",
     expand: "Expand transition",
     collapse: "Collapse transition",

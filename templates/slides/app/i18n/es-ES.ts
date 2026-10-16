@@ -640,6 +640,8 @@ const messages = {
     addTransition: "Añadir transición",
     effect: "Efecto",
     onClick: "Al hacer clic",
+    withPrevious: "Con la anterior",
+    trigger: "Inicio",
     byParagraph: "Por párrafo",
     expand: "Expandir transición",
     collapse: "Contraer transición",
