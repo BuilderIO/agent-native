@@ -708,6 +708,11 @@ export default {
       unavailable: "无法获取收集状态：{{message}}",
       keyUnreadable:
         "无法读取已保存的服务账号密钥。请在 Google Cloud 下重新保存。",
+      propertyBareDomain: "网域资源请使用 {{suggestion}}。",
+      propertyInvalidDomain: "sc-domain: 后面只填写域名，例如 {{suggestion}}。",
+      propertyMissingSlash: "网址前缀资源以 / 结尾。请使用 {{suggestion}}。",
+      propertyUnrecognized:
+        "请使用 sc-domain:example.com，或以 / 结尾的网址前缀资源。",
     },
     uploadFile: "上传文件",
     googleSheetsExport: "Google Sheets 导出",

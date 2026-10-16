@@ -775,6 +775,14 @@ export default {
       unavailable: "État de la collecte indisponible : {{message}}",
       keyUnreadable:
         "Impossible de lire la clé de compte de service enregistrée. Enregistrez-la de nouveau sous Google Cloud.",
+      propertyBareDomain:
+        "Pour une propriété de domaine, utilisez {{suggestion}}.",
+      propertyInvalidDomain:
+        "Après sc-domain:, indiquez uniquement le domaine, comme dans {{suggestion}}.",
+      propertyMissingSlash:
+        "Les propriétés de préfixe d'URL se terminent par /. Utilisez {{suggestion}}.",
+      propertyUnrecognized:
+        "Utilisez sc-domain:example.com ou une propriété de préfixe d'URL se terminant par /.",
     },
     uploadFile: "Télécharger le fichier",
     googleSheetsExport: "Export Google Sheets",
