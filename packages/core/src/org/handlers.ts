@@ -163,7 +163,7 @@ function normalizeWorkspaceAppDefaultVisibility(
   );
 }
 
-function getInviteAppUrl(event: H3Event): string {
+function getInviteAppUrl(event?: H3Event): string {
   return getAppProductionUrl(event);
 }
 
@@ -689,7 +689,7 @@ function assertCanInviteRole(
   }
 }
 
-interface SingleInviteResult {
+export interface SingleInviteResult {
   id: string;
   email: string;
   role: "member" | "admin";
@@ -703,11 +703,11 @@ interface SingleInviteFailure {
   error: string;
 }
 
-async function inviteOne(
+export async function inviteOne(
   ctx: { orgId: string; orgName: string | null; email: string },
   rawEmail: string,
   role: "member" | "admin",
-  event: H3Event,
+  event?: H3Event,
   appId?: string,
   appRoles?: string[],
 ): Promise<SingleInviteResult> {
@@ -875,6 +875,7 @@ export const createInvitationHandler = defineEventHandler(
             inv.appRoles,
           );
           succeeded.push(result);
+          await auditInvitation(ctx, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           failed.push({ email: lower, error: message });
@@ -898,9 +899,25 @@ export const createInvitationHandler = defineEventHandler(
       body?.appId,
       body?.appRoles,
     );
+    await auditInvitation(ctx, result);
     return result;
   },
 );
+
+function auditInvitation(
+  ctx: { orgId: string | null; email: string },
+  invite: SingleInviteResult,
+): Promise<void> {
+  return recordOrgAdminAuditEvent({
+    action: "invite-org-member",
+    targetType: "org-invitation",
+    targetId: invite.email,
+    summary: `Invited ${invite.email} as ${invite.role}`,
+    userEmail: ctx.email,
+    orgId: ctx.orgId,
+    args: { email: invite.email, role: invite.role },
+  });
+}
 
 export const listInvitationsHandler = defineEventHandler(
   async (event: H3Event) => {

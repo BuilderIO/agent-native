@@ -534,6 +534,8 @@ export async function mergeCoreSharingActions(
     ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
+    ["list-org-members", () => import("../org/actions/list-org-members.js")],
+    ["invite-org-member", () => import("../org/actions/invite-org-member.js")],
     [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
