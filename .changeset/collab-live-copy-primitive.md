@@ -6,4 +6,4 @@ Add live copies to `@agent-native/core/collab`: a collab document whose Yjs stat
 
 A live copy's Yjs merge, derive, seed and edits run only in `createBoundedTaskRunner`: worker threads with a terminable deadline, a heap limit, input and output size limits, and a bounded queue. Where worker threads do not exist, runs fail with `unavailable` instead of running inline. The runner's module exports `defineLiveCopyTasks(...)` from `@agent-native/core/collab/live-copy-tasks`; import it as `./tasks.ts?bounded-task` to bundle it at build time.
 
-Passing `onContentSync` to `createCollabPlugin` now throws at startup. The option was declared but never called; use a `liveCopy` binding to derive a document's text instead. `createCollabPlugin` takes that binding and maps live-copy failures to HTTP 409, 413, 422 or 503.
+Passing `onContentSync` to `createCollabPlugin` now throws at startup. The option was declared but never called; use a `liveCopy` binding to derive a document's text instead. `createCollabPlugin` takes that binding and maps live-copy failures to HTTP 409, 413, 422, 500 or 503.
