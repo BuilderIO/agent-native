@@ -2802,9 +2802,22 @@ export async function runAuthoringFuzz(
     const requestUrl = new URL(url);
     const pathname = requestUrl.pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
-    if (traceEnabled || isBrowserSessionPath(pathname)) {
+    const reportSaveReloadAccessAbort =
+      activePhase === "save/reload" &&
+      pathname === "/_agent-native/actions/get-deck-access-status" &&
+      navigationAbortErrors.includes(errorText);
+    if (
+      traceEnabled ||
+      isBrowserSessionPath(pathname) ||
+      reportSaveReloadAccessAbort
+    ) {
+      const requestAgeMs =
+        requestStartedAt === undefined ? null : Date.now() - requestStartedAt;
+      const navigationFacts = reportSaveReloadAccessAbort
+        ? ` pendingAtReload=${requestPendingAtReloadNavigation} requestStartedDuringNavigation=${navigationCandidate?.requestStartedDuringNavigation ?? "unknown"} sameOrigin=${requestUrl.origin === authoringPageOrigin} mainFrameNavigationStarted=${mainFrameNavigationStartedAt !== null}`
+        : "";
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestAgeMs ?? "unknown"} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}${navigationFacts}`,
       );
     }
     if (
