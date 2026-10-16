@@ -297,6 +297,7 @@ const messages = {
     elementAnimations: "Animações de elementos",
     layers: "Camadas",
     closeLayers: "Fechar painel de camadas",
+    searchLayers: "Pesquisar camadas",
     expandLayer: "Expandir camada",
     collapseLayer: "Recolher camada",
     tweaks: "Ajustes",

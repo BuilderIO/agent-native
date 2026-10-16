@@ -302,6 +302,7 @@ const messages = {
     elementAnimations: "Animaciones de elementos",
     layers: "Capas",
     closeLayers: "Cerrar panel de capas",
+    searchLayers: "Buscar capas",
     expandLayer: "Expandir capa",
     collapseLayer: "Contraer capa",
     tweaks: "Ajustes finos",

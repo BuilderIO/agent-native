@@ -297,6 +297,7 @@ const messages = {
     elementAnimations: "要素アニメーション",
     layers: "レイヤー",
     closeLayers: "レイヤーパネルを閉じる",
+    searchLayers: "レイヤーを検索",
     expandLayer: "レイヤーを展開",
     collapseLayer: "レイヤーを折りたたむ",
     tweaks: "調整",

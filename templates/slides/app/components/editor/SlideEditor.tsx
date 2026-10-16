@@ -10542,6 +10542,7 @@ export default function SlideEditor({
       labels={{
         title: t("editorToolbar.layers"),
         close: t("editorToolbar.closeLayers"),
+        search: t("editorToolbar.searchLayers"),
         expand: t("editorToolbar.expandLayer"),
         collapse: t("editorToolbar.collapseLayer"),
       }}

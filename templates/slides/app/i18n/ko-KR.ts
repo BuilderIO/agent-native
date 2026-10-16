@@ -296,6 +296,7 @@ const messages = {
     elementAnimations: "요소 애니메이션",
     layers: "레이어",
     closeLayers: "레이어 패널 닫기",
+    searchLayers: "레이어 검색",
     expandLayer: "레이어 펼치기",
     collapseLayer: "레이어 접기",
     tweaks: "조정",

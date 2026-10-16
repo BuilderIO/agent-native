@@ -5,6 +5,7 @@ import {
   IconHash,
   IconLetterCase,
   IconPhoto,
+  IconSearch,
   IconSquare,
   IconVectorBezier2,
   IconVideo,
@@ -17,6 +18,7 @@ import {
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { Input } from "@/components/ui/input";
 
 export type SlidesLayerKind =
   | "code"
@@ -39,6 +41,7 @@ export type SlidesLayerPlacement = "before" | "after" | "inside";
 export interface SlidesLayersPanelLabels {
   title: string;
   close: string;
+  search: string;
   expand: string;
   collapse: string;
 }
@@ -59,6 +62,17 @@ export interface SlidesLayersPanelProps {
   ) => void;
   onClose: () => void;
   labels: SlidesLayersPanelLabels;
+}
+
+function filterLayers(
+  nodes: SlidesLayerNode[],
+  query: string,
+): SlidesLayerNode[] {
+  return nodes.flatMap((node) => {
+    if (node.label.toLowerCase().includes(query)) return [node];
+    const children = filterLayers(node.children ?? [], query);
+    return children.length ? [{ ...node, children }] : [];
+  });
 }
 
 function dropPlacement(event: DragEvent<HTMLElement>): SlidesLayerPlacement {
@@ -147,7 +161,7 @@ function LayerRow({
       data-layer-depth={depth}
       style={{ paddingLeft: 16 + depth * 24 }}
       data-layer-selection={selected ? "primary" : undefined}
-      className={`group flex h-8 w-full items-center gap-2 pr-12 text-[11px] font-[450] leading-4 tracking-[0.055px] text-foreground transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
+      className={`group flex h-8 w-full items-center gap-2 pr-12 text-[11px] font-[450] leading-4 tracking-[0.055px] text-foreground ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
       onMouseEnter={() => onHoverLayer?.(node.id)}
       onMouseLeave={() => onLeaveLayer?.(node.id)}
       onDragOver={(event) => event.preventDefault()}
@@ -262,6 +276,11 @@ export function SlidesLayersPanel({
   onClose,
   labels,
 }: SlidesLayersPanelProps) {
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const needle = searching ? query.trim().toLowerCase() : "";
+  const visibleLayers = needle ? filterLayers(layers, needle) : layers;
+
   return (
     <aside
       className="flex h-full w-full min-w-0 flex-col bg-background"
@@ -271,18 +290,44 @@ export function SlidesLayersPanel({
         <h2 className="text-[11px] font-[550] leading-4 tracking-[0.055px] text-foreground">
           {labels.title}
         </h2>
-        <button
-          type="button"
-          className="flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={onClose}
-          aria-label={labels.close}
-        >
-          <IconX className="size-3" />
-        </button>
+        <div className="flex items-center">
+          <button
+            type="button"
+            className={`flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground ${searching ? "bg-accent text-foreground" : ""}`}
+            onClick={() => {
+              setSearching((value) => !value);
+              setQuery("");
+            }}
+            aria-label={labels.search}
+            aria-pressed={searching}
+          >
+            <IconSearch className="size-3" />
+          </button>
+          <button
+            type="button"
+            className="flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={onClose}
+            aria-label={labels.close}
+          >
+            <IconX className="size-3" />
+          </button>
+        </div>
       </header>
+      {searching ? (
+        <div className="shrink-0 px-2 pb-2">
+          <Input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={labels.search}
+            aria-label={labels.search}
+            className="h-7 text-[11px]"
+          />
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="w-full" role="tree" aria-label={labels.title}>
-          {[...layers].reverse().map((node) => (
+          {[...visibleLayers].reverse().map((node) => (
             <LayerRow
               key={node.id}
               node={node}

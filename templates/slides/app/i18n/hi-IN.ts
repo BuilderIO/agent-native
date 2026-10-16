@@ -294,6 +294,7 @@ const messages = {
     elementAnimations: "एलिमेंट एनिमेशन",
     layers: "लेयर्स",
     closeLayers: "लेयर्स पैनल बंद करें",
+    searchLayers: "लेयर्स खोजें",
     expandLayer: "लेयर विस्तृत करें",
     collapseLayer: "लेयर संक्षिप्त करें",
     tweaks: "ट्वीक्स",

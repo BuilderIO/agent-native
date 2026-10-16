@@ -306,6 +306,7 @@ const messages = {
     elementAnimations: "Animations d’éléments",
     layers: "Calques",
     closeLayers: "Fermer le panneau des calques",
+    searchLayers: "Rechercher des calques",
     expandLayer: "Développer le calque",
     collapseLayer: "Réduire le calque",
     tweaks: "Réglages",

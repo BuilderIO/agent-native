@@ -301,6 +301,7 @@ const messages = {
     elementAnimations: "Elementanimationen",
     layers: "Ebenen",
     closeLayers: "Ebenen-Panel schließen",
+    searchLayers: "Ebenen durchsuchen",
     expandLayer: "Ebene erweitern",
     collapseLayer: "Ebene reduzieren",
     tweaks: "Feinabstimmung",

@@ -286,6 +286,7 @@ const messages = {
     elementAnimations: "元素動畫",
     layers: "圖層",
     closeLayers: "關閉圖層面板",
+    searchLayers: "搜尋圖層",
     expandLayer: "展開圖層",
     collapseLayer: "收合圖層",
     tweaks: "微調",

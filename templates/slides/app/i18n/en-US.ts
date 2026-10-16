@@ -296,6 +296,7 @@ const messages = {
     elementAnimations: "Element animations",
     layers: "Layers",
     closeLayers: "Close layers panel",
+    searchLayers: "Search layers",
     expandLayer: "Expand layer",
     collapseLayer: "Collapse layer",
     tweaks: "Tweaks",

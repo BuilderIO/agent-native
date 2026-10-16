@@ -297,6 +297,7 @@ const messages = {
     elementAnimations: "حركات العناصر",
     layers: "الطبقات",
     closeLayers: "إغلاق لوحة الطبقات",
+    searchLayers: "البحث في الطبقات",
     expandLayer: "توسيع الطبقة",
     collapseLayer: "طي الطبقة",
     tweaks: "تعديلات",
