@@ -2,7 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import { z } from "zod";
 
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
@@ -252,7 +255,10 @@ export default defineAction({
       undefined,
       {
         mode: "threads",
-        threadFormat: "metadata",
+        threadFormat:
+          !compact || searchQueryNeedsAttachmentMetadata(args.q)
+            ? "full"
+            : "metadata",
         threadCandidateLimit: Math.min(500, Math.max(40, limit + 1)),
         ...(accountFilter && { accountEmails: [accountFilter] }),
       },

@@ -133,6 +133,34 @@ describe("search-emails query cost", () => {
     );
   });
 
+  it("loads full thread details for non-compact results", async () => {
+    mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
+
+    await action.run({ q: "invoice", compact: false });
+
+    expect(mocks.listGmailMessages).toHaveBeenCalledWith(
+      "invoice",
+      25,
+      OWNER,
+      undefined,
+      expect.objectContaining({ threadFormat: "full" }),
+    );
+  });
+
+  it("loads full thread details for attachment-metadata searches", async () => {
+    mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
+
+    await action.run({ q: "has:attachment" });
+
+    expect(mocks.listGmailMessages).toHaveBeenCalledWith(
+      "has:attachment",
+      25,
+      OWNER,
+      undefined,
+      expect.objectContaining({ threadFormat: "full" }),
+    );
+  });
+
   it("keeps larger requested result limits within the candidate window", async () => {
     mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
 
