@@ -394,8 +394,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  // fixme: product bug: Add auto layout stretches the creator text from its 30px hug width to the wrapper's 117px. The wrapper is saved without align-items, so
-  test.fixme("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
+  test("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
     app,
     page,
   }) => {
@@ -405,6 +404,8 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     const before = await app.savedNodes(id);
     const title = await app.designRect("title");
     const creator = await app.designRect("creator");
+    expect(title.width).toBeGreaterThan(creator.width);
+    expect(creator.width).toBeGreaterThan(0);
 
     await clickCenter(app, "title");
     await clickCenter(app, "creator", ["Shift"]);
@@ -442,6 +443,10 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       x: creator.x,
       y: creator.y,
     });
+    expect(
+      wrappedCreator.width,
+      "the creator keeps its hug width when wrapped",
+    ).toBe(creator.width);
 
     const gap = page.locator('input[aria-label="Gap" i]').first();
     await gap.fill("4");
@@ -459,6 +464,35 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       await app.designRect("creator"),
       "the creator sits 4px under the title and keeps its own hug width",
     ).toEqual({ ...creator, y: title.y + title.height + 4 });
+
+    await app.open(id);
+    await app.settled();
+
+    const reloaded = await app.savedNodes(id);
+    expectOnlyChanged(end, reloaded, []);
+    expect(styleOf(reloaded.get(wrapperId))).toMatchObject({
+      gap: "4px",
+      "align-items": "flex-start",
+    });
+    const reloadedTitle = await app.designRect("title");
+    const reloadedCreator = await app.designRect("creator");
+    expect(reloadedTitle).toEqual(title);
+    expect(
+      reloadedTitle.width,
+      "the title keeps its original hug width after reload",
+    ).toBe(title.width);
+    expect(
+      reloadedCreator.width,
+      "the creator keeps its original hug width after reload",
+    ).toBe(creator.width);
+    expect(reloadedCreator).toEqual({
+      ...creator,
+      y: title.y + title.height + 4,
+    });
+    expect(
+      reloadedCreator.y - (reloadedTitle.y + reloadedTitle.height),
+      "the reloaded vertical layout keeps a 4px rendered gap",
+    ).toBe(4);
   });
 
   // fixme: product bug: The Min width inspector field clips its value: it holds '200px' but shows '200p:' (scrollWidth > clientWidth). The card's Gap field also

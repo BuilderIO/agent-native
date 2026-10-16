@@ -51,6 +51,41 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.209.2
+
+### Patch Changes
+
+- f99e655: Add the recorder: every app keeps a short, redacted, in-memory record of its recent actions, `application_state` writes, route changes, errors, and error toasts, and can turn it into a report. Import `recorder` and `configureRecorder` from `@agent-native/core/client/recorder` to add events, watch values, send reports to a destination, or turn it off. Apps with browser Sentry get the recent events as breadcrumbs and a `recorder.json` attachment on each error.
+- 579d66c: Starter apps (chat and the default scaffold) now apply their own `server/plugins/db.ts` migrations in `migrate:production` through the new `runAppReleaseMigrations()`. A release-owned deploy skips that plugin at boot, so before this the app's tables were never created in production. Projects with a Drizzle config keep applying their tables with `db:migrate`.
+- d2587cf: Send a `useActionQuery` query's first fetch as its own request, and batch only its refetches of data already in the cache, so a fresh page load no longer waits behind unrelated reads queued on one serverless database connection. Queries whose UI waits for a fresh read can pass `batchRefetches: false`. GETs made through `callAction`, including custom `useQuery` functions built on it, are no longer batched.
+- 29928da: Stop live transcription with an incomplete reason after repeated network errors.
+- 61089ee: Add server-only configuration for Clips hosted recording storage and its trial limits.
+- ce4eca0: Reject model-default requests when organization scope cannot be resolved.
+- ce4eca0: Harden local ChatGPT plan access and require approval before deleting Design screens with locked layers.
+- 8fbccb3: Send the Builder connect popup and its OAuth callback to the app's declared public origin (`APP_URL` and friends) when a proxy rewrites `Host` to a platform hostname such as `*.netlify.app`, so Builder Cloud-hosted apps no longer open the connect flow on their blocked Netlify URL.
+- ce4eca0: Preserve queued personal integration scope across retries and run Google Docs polling as its configured owner.
+- 61089ee: Include canonical user IDs when resolving legacy framework sessions.
+- ce4eca0: Allow local development ChatGPT sessions through chat send readiness and preserve trusted request context in nested readiness checks.
+- 69ad141: Render Tabler icons in workspace directory cards and configure the shared runtime database URL for Community deployments.
+- ce4eca0: Continue foreground chat after approved actions and keep approval events scoped to the resumed run.
+- 6ed8f2b: Apply job and automation edits with a compare-and-swap so a run that records its outcome while an edit is in flight keeps its state. On a conflict the edit is re-applied to the latest job file instead of overwriting it with the snapshot it read; a file that keeps changing fails loudly (`409` for automations, an error for `manage-jobs`) instead of silently reverting a completed run.
+- ce4eca0: Enable ChatGPT plan chat for connected local development sessions.
+- 29928da: Ignore delayed transcription events from recognizers replaced by a new session.
+- Release all public npm packages with a patch version bump.
+- a25c2a1: Onboarding role analytics now include the typed "Other" answer as `role_text` on `onboarding.role_selected` and `onboarding_first_run_adopted`, capped at 80 characters with emails, links, handles and phone-like numbers replaced by placeholders. `onboarding_first_run_adopted` now reports `role` as the listed category instead of the raw answer.
+- 36fc751: First-run onboarding step events carry `optional`, true when the screen offers a skip, so Analytics funnels can tell a skip from drop-off. First-run extensions declare it with `optional: true`.
+- ce4eca0: Require confirmed personal scope before using local ChatGPT subscription credentials.
+- bc7309d: Align org-directory A2A token audiences with Dispatch's public origin.
+- 9d86528: Keep no-op history entries intact, skip conflicting history steps with feedback, merge disjoint remote slide content changes, and preserve clear selection boundaries between object edits.
+- f99e655: Add Report a problem to the bottom of the app sidebar, the agent panel menu, and the command menu. It previews what the recorder captured, stores the full report as a private blob only after the user confirms, and sends the agent a summary of at most 8 KB that includes the report's ref; apps without agent chat copy the summary instead. If storage fails, the dialog says the report was not attached. The new read-only `read-problem-report` action lets the agent, or an MCP client, read slices of the report by event type and time. Only the reporting user, in the same organization, can open it.
+- d094432: Stop a development server connected to a remote database from making stored secrets unreadable for the deployments that share it. It now refuses to write a secret unless the secrets already stored in that scope use its preferred encryption key, and it no longer re-encrypts secrets on read. Reads also log a warning naming the secret when it cannot be decrypted, instead of silently treating it as missing.
+- 4e79d4e: `callAction` and `callActionBlob` accept `uiOnly: true` for actions declared `uiOnly`, minting the browser UI capability before the request so the first call is authorized instead of being refused with 403 `ui_capability_required` and retried.
+- 38a66a8: Upgrade known-outdated saved model ids (for example `claude-sonnet-5` on Anthropic or `gpt-5.6-luna` on OpenAI endpoints) to the current model on every engine, while keeping ids the provider still supports and genuinely custom ids unchanged.
+- bf66cdc: Resolve retired Videos directory manifests to the current Clips production host.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.2
+  - @agent-native/recap-cli@0.5.74
+
 ## 0.209.1
 
 ### Patch Changes
@@ -4103,11 +4138,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - d3210d7: Make documented `AGENT_NATIVE_CONFIG_*` environment aliases override typed and JSON public configuration defaults.
-
-## 0.167.4
-
-### Patch Changes
-
-- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

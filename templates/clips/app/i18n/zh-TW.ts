@@ -2058,6 +2058,7 @@ const messages = {
     viewsCount: "{{count}} 次觀看",
     recordingMenu: "錄製選單",
     moveToFolder: "移動到資料夾",
+    moveHere: "移到此處",
     unarchive: "取消封存",
     shareNamedMeeting: "分享“{{title}}”",
     shareMeeting: "分享會議",
