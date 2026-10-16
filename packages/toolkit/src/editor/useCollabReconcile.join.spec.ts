@@ -185,7 +185,15 @@ function makeTabs({
     B: ReturnType<typeof useCollabReconcile> | null;
     C: ReturnType<typeof useCollabReconcile> | null;
   } = { B: null, C: null };
-  function Tab({ name, snapshot }: { name: "B" | "C"; snapshot: Snapshot }) {
+  function Tab({
+    name,
+    snapshot,
+    joins = joinsOnPeers,
+  }: {
+    name: "B" | "C";
+    snapshot: Snapshot;
+    joins?: boolean;
+  }) {
     // Wired as Content's editor wires them.
     const editor = useEditor({
       extensions: createRichMarkdownExtensions({
@@ -209,7 +217,7 @@ function makeTabs({
       contentRevision: snapshot.revision,
       contentUpdatedAt: snapshot.updatedAt,
       compareContentRevisions: compareRevisions,
-      ...(joinsOnPeers
+      ...(joins
         ? {
             discoverCollabPeers: discover[name],
             flushCollabUpdates: flush[name],
@@ -228,17 +236,23 @@ function makeTabs({
     snapshot,
     snapshotC = snapshot,
     withC,
+    joinsC,
   }: {
     snapshot: Snapshot;
     snapshotC?: Snapshot;
     withC: boolean;
+    joinsC?: boolean;
   }) {
     return React.createElement(
       React.Fragment,
       null,
       React.createElement(Tab, { name: "B", snapshot }),
       withC
-        ? React.createElement(Tab, { name: "C", snapshot: snapshotC })
+        ? React.createElement(Tab, {
+            name: "C",
+            snapshot: snapshotC,
+            joins: joinsC,
+          })
         : null,
     );
   }
@@ -359,6 +373,28 @@ async function openCWhileASaves(
     ),
   );
   await act(async () => vi.advanceTimersByTimeAsync(settleMs));
+}
+
+/** B holds the stored body; C opens with an agent edit only SQL has. */
+async function openCOnAgentEdit(tabs: Tabs): Promise<void> {
+  act(() =>
+    root.render(
+      React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+    ),
+  );
+  await act(async () => vi.advanceTimersByTimeAsync(3_000));
+  tabs.syncC();
+  act(() =>
+    root.render(
+      React.createElement(tabs.Tabs, {
+        snapshot: STORED,
+        snapshotC: AGENT_EDIT,
+        withC: true,
+      }),
+    ),
+  );
+  await act(async () => vi.advanceTimersByTimeAsync(200));
+  await act(async () => tabs.discoverPeers());
 }
 
 describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
@@ -741,6 +777,166 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       expect(tabs.results.C!.isJoinPending()).toBe(true);
     } finally {
       tabs.dispose();
+    }
+  });
+
+  it("holds from its seed when it opts in before the seed runs", async () => {
+    const tabs = makeTabs({ ids: { A: 2, B: 3, C: 1 } });
+    vi.useFakeTimers();
+    try {
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      act(() => tabs.typeAsA());
+      tabs.syncC();
+      for (const joinsC of [false, true])
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              withC: true,
+              joinsC,
+            }),
+          ),
+        );
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("neither edits nor saves until it applies a stored body no collaborator holds", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCOnAgentEdit(tabs);
+      // The lead applies once its collaborators settle.
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.markdown("C")).toBe(ORIGINAL);
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(
+        tabs.results.C!.shouldIgnoreUpdate(
+          tabs.editors
+            .C!.state.tr.insertText("typed ", 1)
+            .setMeta("uiEvent", "input"),
+        ),
+      ).toBe(true);
+
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(occurrences(tabs.markdown("C"), CHARLIE)).toBe(1);
+      expect(tabs.results.C!.isJoinPending()).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("waits for the lead to apply a stored body no collaborator holds", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCOnAgentEdit(tabs);
+      // Past the time it gives the lead, it still does not apply as one.
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.markdown("C")).toBe(ORIGINAL);
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(tabs.joinFailed("C")).toBe(false);
+
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: AGENT_EDIT, withC: true }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(occurrences(tabs.markdown("C"), CHARLIE)).toBe(1);
+      expect(tabs.results.C!.isJoinPending()).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("reports a stored body no collaborator holds that never reaches the doc", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCOnAgentEdit(tabs);
+      await act(async () => vi.advanceTimersByTimeAsync(21_000));
+      expect(tabs.joinFailed("C")).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(tabs.markdown("C")).toBe(ORIGINAL);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("The stored body did not reach this document"),
+        expect.any(Error),
+      );
+
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: AGENT_EDIT, withC: true }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(occurrences(tabs.markdown("C"), CHARLIE)).toBe(1);
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("lets go of an editor that outlives it", async () => {
+    const doc = new Y.Doc();
+    const author = new CoreEditor({
+      extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc: doc }),
+    });
+    author.commands.setContent(SAVED);
+    author.destroy();
+    const awareness = new Awareness(doc);
+    awareness.setLocalState(peer("C"));
+    const editor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc: doc }),
+    }) as Editor;
+    function Host() {
+      useCollabReconcile({
+        editor,
+        ydoc: doc,
+        awareness,
+        collabSynced: true,
+        value: STORED.value,
+        contentRevision: STORED.revision,
+        contentUpdatedAt: STORED.updatedAt,
+        compareContentRevisions: compareRevisions,
+        discoverCollabPeers: () => new Promise(() => {}),
+        flushCollabUpdates: async () => true,
+        requestCollabSync: async () => ({ status: "synced" as const }),
+        initialAppliedUpdatedAt: null,
+        editable: true,
+      });
+      return null;
+    }
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(Host)));
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      expect(editor.isEditable).toBe(false);
+      act(() => root.render(null));
+      expect(editor.isEditable).toBe(true);
+    } finally {
+      editor.destroy();
+      awareness.destroy();
+      doc.destroy();
     }
   });
 

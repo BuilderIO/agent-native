@@ -105,7 +105,16 @@ describe("a joining editor's saves", () => {
     });
   }
 
-  async function mount(join: "pending" | "failed", live = LIVE) {
+  const discovery = {
+    pending: () => new Promise<never>(() => {}),
+    ready: async () => ({ status: "ready" as const }),
+    failed: async () => ({
+      status: "failed" as const,
+      error: new Error("presence failed"),
+    }),
+  };
+
+  async function mount(join: keyof typeof discovery, live = LIVE) {
     prosemirrorJSONToYXmlFragment(
       getSchema(createVisualEditorExtensions()),
       nfmToDoc(live),
@@ -136,13 +145,7 @@ describe("a joining editor's saves", () => {
                 awareness,
                 collabSynced: true,
                 editable: true,
-                discoverCollabPeers: () =>
-                  join === "pending"
-                    ? new Promise<never>(() => {})
-                    : Promise.resolve({
-                        status: "failed" as const,
-                        error: new Error("presence failed"),
-                      }),
+                discoverCollabPeers: discovery[join],
                 requestCollabSync: async () => ({ status: "synced" as const }),
                 flushCollabUpdates: async () => true,
               }),
@@ -214,6 +217,34 @@ describe("a joining editor's saves", () => {
     expect(onSaveContent).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
     expect(editableInGap).toBe(false);
+  });
+
+  it("saves nothing typed before it applies a stored body no collaborator holds", async () => {
+    vi.useFakeTimers();
+    // It leads, and applies once the other open tab settles.
+    ydoc.clientID = 1;
+    awareness.setLocalState({ user: { name: "C" } });
+    awareness.getStates().set(42, { user: { name: "Peer" } });
+    const { onSaveContent, onChange } = await mount("ready");
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    const editor = captured.editor!;
+    expect(editor.getText()).not.toContain("agent");
+    const editableBeforeApply = editor.isEditable;
+    act(() =>
+      editor.view.dispatch(
+        editor.state.tr
+          .insertText(" mine", editor.state.doc.content.size - 1)
+          .setMeta("uiEvent", "input"),
+      ),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    expect(onSaveContent).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(editableBeforeApply).toBe(false);
+
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(editor.getText()).toContain("agent");
+    expect(editor.isEditable).toBe(true);
   });
 
   it.each(["pending", "failed"] as const)(
