@@ -109,6 +109,14 @@ jobs:
         working-directory: ${{ env.TAURI_APP_PATH }}
         run: pnpm run build
 
+      - name: Prepare macOS ffmpeg sidecars
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        run: |
+          CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
+          CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
+
       - name: Build Tauri app (no signing, no publish)
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash

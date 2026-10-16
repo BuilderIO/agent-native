@@ -32,8 +32,8 @@
  * experiment). It is checked the same way, including the nonfree refusal.
  */
 
-import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -113,10 +113,8 @@ function fail(message) {
 }
 
 /** Rust target triple for the binary being staged, which is what Tauri expects
- *  in the filename. Honours an explicit `--target` in the tauri build. */
-function targetTriple() {
-  const explicit = process.env.CLIPS_FFMPEG_TARGET_TRIPLE?.trim();
-  if (explicit) return explicit;
+ *  in the filename. Cross-builds set CLIPS_FFMPEG_TARGET_TRIPLE explicitly. */
+function hostTargetTriple() {
   const fromRustc = spawnSync("rustc", ["-vV"], { encoding: "utf8" });
   if (fromRustc.status === 0) {
     const host = fromRustc.stdout
@@ -130,6 +128,20 @@ function targetTriple() {
   return `${arch}-apple-darwin`;
 }
 
+function targetTriple() {
+  return process.env.CLIPS_FFMPEG_TARGET_TRIPLE?.trim() || hostTargetTriple();
+}
+
+function targetArchitecture(triple) {
+  if (triple === "aarch64-apple-darwin") {
+    return { configure: "aarch64", macho: "arm64" };
+  }
+  if (triple === "x86_64-apple-darwin") {
+    return { configure: "x86_64", macho: "x86_64" };
+  }
+  fail(`unsupported macOS target triple: ${triple}`);
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     stdio: options.quiet ? "pipe" : "inherit",
@@ -140,7 +152,9 @@ function run(command, args, options = {}) {
     const detail = options.quiet
       ? `\n${result.stdout ?? ""}${result.stderr ?? ""}`.slice(-4000)
       : "";
-    fail(`${command} ${args.join(" ")} failed (exit ${result.status})${detail}`);
+    fail(
+      `${command} ${args.join(" ")} failed (exit ${result.status})${detail}`,
+    );
   }
   return result.stdout ?? "";
 }
@@ -159,9 +173,38 @@ function probe(binary, flag) {
  * `CLIPS_FFMPEG_SIDECAR`, because the whole point is that the DMG cannot
  * quietly acquire an unshippable or half-capable ffmpeg.
  */
-function verifyBinary(binary) {
+function verifyBinary(binary, triple) {
+  const { macho } = targetArchitecture(triple);
+  const fileInfo = run("file", [binary], { quiet: true });
+  if (!fileInfo.includes(macho)) {
+    fail(`${binary} is not a ${macho} macOS executable: ${fileInfo.trim()}`);
+  }
+
   const version = probe(binary, "-version");
-  if (!version) fail(`${binary} does not run on this machine`);
+  if (!version) {
+    if (triple === hostTargetTriple()) {
+      fail(`${binary} does not run on this machine`);
+    }
+
+    const strings = run("strings", [binary], { quiet: true });
+    const missing = [
+      ...REQUIRED_FILTERS,
+      ...REQUIRED_ENCODERS,
+      ...REQUIRED_MUXERS,
+    ].filter((name) => !strings.includes(name));
+    if (missing.length > 0) {
+      fail(`${binary} is missing required features: ${missing.join(", ")}`);
+    }
+
+    if (strings.includes("--enable-nonfree")) {
+      fail(
+        `${binary} was configured --enable-nonfree, which may not be redistributed`,
+      );
+    }
+
+    log(`verified cross-built ${macho} binary`);
+    return;
+  }
 
   if (/--enable-nonfree/.test(version)) {
     fail(
@@ -205,21 +248,24 @@ function sha256(file) {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-/** Cache key covers the tag AND the configure line, so editing the args above
- *  rebuilds instead of reusing a binary built from the old ones. */
-function cacheKey() {
+/** Cache key covers the tag, configure line, and target architecture, so a
+ *  change to any of them cannot reuse a stale sidecar. */
+function cacheKey(triple) {
   const hash = createHash("sha256")
     .update(FFMPEG_TAG)
     .update(CONFIGURE_ARGS.join(" "))
+    .update(triple)
+    .update("-mmacosx-version-min=13.0")
     .digest("hex")
     .slice(0, 12);
   return `${FFMPEG_TAG}-${hash}`;
 }
 
 function buildFromSource(triple) {
-  const key = cacheKey();
+  const key = cacheKey(triple);
   const cached = path.join(CACHE_DIR, key, "ffmpeg");
-  if (fs.existsSync(cached) && probe(cached, "-version")) {
+  if (fs.existsSync(cached)) {
+    verifyBinary(cached, triple);
     log(`using cached build ${key}`);
     return cached;
   }
@@ -241,8 +287,19 @@ function buildFromSource(triple) {
   const srcDir = path.join(work, `FFmpeg-${FFMPEG_TAG}`);
   if (!fs.existsSync(srcDir)) fail(`extracted source not found at ${srcDir}`);
 
+  const { configure, macho } = targetArchitecture(triple);
+  const configureArgs = [
+    ...CONFIGURE_ARGS,
+    "--target-os=darwin",
+    `--arch=${configure}`,
+    "--cc=clang",
+    `--extra-cflags=-arch ${macho} -mmacosx-version-min=13.0`,
+    `--extra-ldflags=-arch ${macho} -mmacosx-version-min=13.0`,
+    ...(triple === hostTargetTriple() ? [] : ["--enable-cross-compile"]),
+  ];
+
   log(`configuring (LGPL, no libx264) for ${triple}`);
-  run("./configure", CONFIGURE_ARGS, { cwd: srcDir, quiet: true });
+  run("./configure", configureArgs, { cwd: srcDir, quiet: true });
 
   log(`building with ${os.cpus().length} jobs — this takes a few minutes`);
   run("make", ["-j", String(os.cpus().length)], { cwd: srcDir, quiet: true });
@@ -269,8 +326,8 @@ function main() {
   const triple = targetTriple();
   const destination = path.join(BIN_DIR, `ffmpeg-${triple}`);
 
-  if (fs.existsSync(destination) && probe(destination, "-version")) {
-    verifyBinary(destination);
+  if (fs.existsSync(destination)) {
+    verifyBinary(destination, triple);
     log(`already staged at ${path.relative(SRC_TAURI, destination)}`);
     return;
   }
@@ -280,7 +337,7 @@ function main() {
   if (supplied) log(`staging supplied binary ${supplied}`);
   if (!fs.existsSync(source)) fail(`no ffmpeg at ${source}`);
 
-  verifyBinary(source);
+  verifyBinary(source, triple);
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
   fs.copyFileSync(source, destination);

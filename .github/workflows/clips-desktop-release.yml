@@ -329,6 +329,14 @@ jobs:
           fs.writeFileSync(cargoPath, updatedCargo);
           NODE
 
+      - name: Prepare macOS ffmpeg sidecars
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        run: |
+          CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
+          CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
+
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
