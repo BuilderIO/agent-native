@@ -2129,6 +2129,18 @@ export default function DeckEditor() {
     };
     const getGenerationFailurePrompt = (context: unknown) =>
       getOriginalGenerationPrompt(context, generationRetryPrompt);
+    const pauseSettlementForQuestionOrRun = (pendingQuestionCheck = false) => {
+      if (
+        !pendingQuestionCheck &&
+        !generationLifecyclePauseRef.current.waitingOnQuestions &&
+        !generationLifecyclePauseRef.current.generating
+      ) {
+        return false;
+      }
+      pausedForQuestionOrRun = true;
+      generationSettlingAttemptRef.current = null;
+      return true;
+    };
     const persistUnresolvedGuidedQuestionCheck = async (
       refreshedSlides: readonly Slide[] | null,
     ) => {
@@ -2223,21 +2235,19 @@ export default function DeckEditor() {
         ) {
           return;
         }
+        if (
+          pauseSettlementForQuestionOrRun(
+            pendingQuestionCheck.status === "pending",
+          )
+        ) {
+          return;
+        }
         if (pendingQuestionCheck.status === "error") {
           await persistUnresolvedGuidedQuestionCheck(
             initialOutcomeRefreshResult.status === "ready"
               ? initialOutcomeRefreshResult.deck.slides
               : null,
           );
-          return;
-        }
-        if (
-          pendingQuestionCheck.status === "pending" ||
-          generationLifecyclePauseRef.current.waitingOnQuestions ||
-          generationLifecyclePauseRef.current.generating
-        ) {
-          pausedForQuestionOrRun = true;
-          generationSettlingAttemptRef.current = null;
           return;
         }
         const outcomeRefreshResult = await refreshDeckForGenerationOutcome(
@@ -2250,18 +2260,18 @@ export default function DeckEditor() {
         ) {
           return;
         }
-        if (
-          generationLifecyclePauseRef.current.waitingOnQuestions ||
-          generationLifecyclePauseRef.current.generating
-        ) {
-          pausedForQuestionOrRun = true;
-          generationSettlingAttemptRef.current = null;
-          return;
-        }
+        if (pauseSettlementForQuestionOrRun()) return;
         const finalPendingQuestionCheck = await refetchPendingQuestionStatus();
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        if (
+          pauseSettlementForQuestionOrRun(
+            finalPendingQuestionCheck.status === "pending",
+          )
         ) {
           return;
         }
@@ -2271,15 +2281,6 @@ export default function DeckEditor() {
               ? outcomeRefreshResult.deck.slides
               : null,
           );
-          return;
-        }
-        if (
-          finalPendingQuestionCheck.status === "pending" ||
-          generationLifecyclePauseRef.current.waitingOnQuestions ||
-          generationLifecyclePauseRef.current.generating
-        ) {
-          pausedForQuestionOrRun = true;
-          generationSettlingAttemptRef.current = null;
           return;
         }
         const generationEndedAt = Date.now();

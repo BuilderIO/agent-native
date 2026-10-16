@@ -1442,6 +1442,66 @@ describe("DeckEditor generation signal wiring", () => {
     );
   });
 
+  it("pauses an errored question check when generation resumes while it is pending", async () => {
+    let resolveQuestionCheck!: (result: unknown) => void;
+    const questionCheckPromise = new Promise<unknown>((resolve) => {
+      resolveQuestionCheck = resolve;
+    });
+    mocks.guidedQuestionRefetchPending.mockImplementationOnce(
+      () => questionCheckPromise,
+    );
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(1),
+    );
+    act(() => {
+      mocks.attemptGenerating = true;
+      publishAgentGeneratingChange();
+    });
+    await act(async () => {
+      resolveQuestionCheck({
+        status: "error",
+        error: new Error("question check failed"),
+      });
+      await questionCheckPromise;
+    });
+
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_outcome_unresolved",
+      expect.anything(),
+    );
+    expect(mocks.flushDeckSave).not.toHaveBeenCalled();
+    expect(mocks.clearStartedGenerationAttempt).not.toHaveBeenCalled();
+  });
+
   it("rechecks guided questions after the final deck refresh", async () => {
     let resolveOutcomeRefresh!: (deck: typeof mocks.deck) => void;
     const outcomeRefreshPromise = new Promise<typeof mocks.deck>((resolve) => {
@@ -2321,6 +2381,34 @@ describe("DeckEditor generation signal wiring", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+
+  it("clears an unknown unresolved marker from an older generation attempt", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "Completed slide" }];
+    mocks.deck.generationContext = {
+      generationAttemptId: "attempt-2",
+      generationStartedAt: Date.now(),
+      generationMode: undefined,
+      originalPrompt: "Make a new deck",
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+        generationFailureSlidesFingerprint: null,
+      }),
+    );
+    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
   });
 
   it("recovers a rejected retry after its rollback save fails and the editor reloads", async () => {

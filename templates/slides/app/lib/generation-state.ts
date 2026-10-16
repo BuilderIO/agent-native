@@ -97,13 +97,15 @@ export function shouldClearPartialGenerationFailure({
   waitingOnQuestions: boolean;
   retryPending: boolean;
 }): boolean {
-  const unresolvedSnapshotUnknown =
-    failureCode === "outcome_unresolved" && failureSlidesFingerprint === null;
+  const unresolvedSnapshotUnknownForCurrentAttempt =
+    failureCode === "outcome_unresolved" &&
+    failureSlidesFingerprint === null &&
+    failureAttemptId === attemptId;
   return (
     slideCount > 0 &&
     typeof failureCode === "string" &&
     failureCode !== "incomplete_output" &&
-    !unresolvedSnapshotUnknown &&
+    !unresolvedSnapshotUnknownForCurrentAttempt &&
     (failureAttemptId !== attemptId ||
       typeof failureSlidesFingerprint !== "string" ||
       failureSlidesFingerprint !== currentSlidesFingerprint) &&
