@@ -1,10 +1,9 @@
-import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
-  LiveCopyError,
-  loadYDocVersion,
-  mutateLiveCopy,
-  type LiveCopyBinding,
-} from "@agent-native/core/collab";
+  fail,
+  isActionContractError,
+  type ActionRunContext,
+} from "@agent-native/core/action";
+import { LiveCopyError } from "@agent-native/core/collab";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import {
   getSuggestion,
@@ -26,48 +25,28 @@ import {
   type ApplySuggestionRefusalReason,
   type ApplySuggestionStep,
 } from "../live-copy/apply-suggestion-edit.js";
+import {
+  persistedContentBodyCommit,
+  type PersistedContentBodyCommit,
+} from "../live-copy/persist.js";
+import { editContentLiveCopy } from "../live-copy/write.js";
 
 // On a Page whose body is its live copy, accepting is one live-copy edit that
 // places exactly the accepted suggestions, and the decision commits in that
 // edit's transaction. A decision never commits without its edit, nor the
 // edit without its decision.
 
-/** What the Page's body persist wrote in one commit attempt. */
-export type LiveCopyBodyCommit = {
-  before: string;
-  after: string;
-  bodyRevision: number;
-  updatedAt: string;
-};
-
-export type LiveCopyAcceptCause = {
-  ctx: ActionRunContext | undefined;
-  operation: "accept-suggestion";
-  origin: "suggestion";
-};
-
-export type LiveCopyAccept = {
-  binding: LiveCopyBinding;
-  /**
-   * What the body persist of the attempt running in `tx` wrote, or undefined
-   * when it derived nothing.
-   */
-  bodyCommit(tx: DbExec): LiveCopyBodyCommit | undefined;
-  /** Locks the Page in `tx` in the order a body persist locks it. */
-  lockPage(tx: DbExec, documentId: string): Promise<unknown>;
-  /** Runs `run` with the History cause of its commits. */
-  withWriteCause<T>(
-    cause: LiveCopyAcceptCause,
-    run: () => Promise<T>,
-  ): Promise<T>;
-};
-
 /**
- * The Page went back to its legacy writer before the edit committed, so the
- * accept must run there instead. Nothing was decided or written.
+ * The Page stopped taking writes through its live copy before the edit
+ * committed. Nothing was decided or written; read the gate again to choose
+ * the writer.
  */
 export class LiveCopyAcceptUnavailable extends Error {
-  constructor(readonly documentId: string) {
+  constructor(
+    readonly documentId: string,
+    /** The writer's own refusal, for a caller that stops retrying. */
+    readonly refusal: unknown,
+  ) {
     super(`Page ${documentId} is no longer written through its live copy`);
     this.name = "LiveCopyAcceptUnavailable";
   }
@@ -79,7 +58,7 @@ export type LiveCopyDecision =
       liveCopy: "committed" | "unchanged";
       steps: ReadonlyMap<string, ApplySuggestionStep>;
       /** Absent when the edit changed nothing. */
-      commit?: LiveCopyBodyCommit;
+      commit?: PersistedContentBodyCommit;
       /** The body after each step `apply` has accepted so far. */
       text: string | null;
       applied: string[];
@@ -212,8 +191,8 @@ function isApplySuggestionRefusal(
  * Accepts the decided suggestions on a Page whose body is its live copy. The
  * decision runs inside the edit's commit, where `apply` checks the edit and
  * writes nothing to the body: the body persist already has. Throws
- * LiveCopyAcceptUnavailable, having decided nothing, when the Page went back
- * to its legacy writer.
+ * LiveCopyAcceptUnavailable, having decided nothing, when the Page stopped
+ * taking writes through its live copy.
  */
 export async function acceptOnLiveCopy<T>(
   context: SuggestionDecisionContext,
@@ -221,7 +200,7 @@ export async function acceptOnLiveCopy<T>(
     coordination?: unknown,
     options?: SuggestionDecisionRunOptions,
   ) => Promise<T>,
-  liveCopy: LiveCopyAccept,
+  page: { ownerEmail: string },
   requestSource: "agent" | undefined,
 ): Promise<T> {
   const steps = await acceptSteps(await decidedMembers(context));
@@ -237,60 +216,57 @@ export async function acceptOnLiveCopy<T>(
   let sync = await prepareTransactionalChange(syncEvent);
   let decided: { result: T } | undefined;
   try {
-    await liveCopy.withWriteCause(
-      {
+    await editContentLiveCopy(context.resourceId, {
+      cause: {
         ctx: context.ctx as ActionRunContext | undefined,
         operation: "accept-suggestion",
         origin: "suggestion",
-      },
-      () =>
-        mutateLiveCopy(liveCopy.binding, context.resourceId, {
-          edit: APPLY_SUGGESTION_EDIT,
-          input: { steps: [...steps.values()] } satisfies ApplySuggestionInput,
-          ...(requestSource ? { requestSource } : {}),
-          persist: async (tx, change) => {
-            decided = undefined;
-            const commit = change.changed ? liveCopy.bodyCommit(tx) : undefined;
-            if (change.changed && !commit)
-              throw new LiveCopyAcceptUnavailable(context.resourceId);
-            if (!change.changed) {
-              // An edit that changed nothing commits no body, so nothing has
-              // locked the Page yet, and the decision locks it after rows a
-              // body write locks first.
-              await liveCopy.lockPage(tx, context.resourceId);
-              // A peer that committed since the edit read the copy wrote the
-              // rows just locked. Deciding nothing lets core redo the edit on
-              // the peer's state.
-              if (
-                (await loadYDocVersion(context.resourceId)) !== change.version
-              )
-                return;
-            }
-            const coordination: LiveCopyDecision = {
-              liveCopy: change.changed ? "committed" : "unchanged",
-              steps,
-              ...(commit ? { commit } : {}),
-              text: null,
-              applied: [],
-            };
-            const result = await run(coordination, { transaction: tx });
-            // A replayed decision returns without applying, and its edit must
-            // not commit.
-            if (coordination.applied.length !== steps.size)
-              throw new DecisionReplayed();
-            // An event persists once, and an earlier attempt's rolled back.
-            if (sync.isPersisted())
-              sync = await prepareTransactionalChange(syncEvent);
-            await sync.persist(tx);
-            decided = { result };
+        // A stale save across the accept merges only past a recorded intent.
+        intent: {
+          intent: {
+            writerId: `suggestion:${page.ownerEmail}`,
+            operationId: context.suggestion.id,
           },
-        }),
-    );
+        },
+      },
+      edit: APPLY_SUGGESTION_EDIT,
+      input: { steps: [...steps.values()] } satisfies ApplySuggestionInput,
+      ...(requestSource ? { requestSource } : {}),
+      persist: async (tx, change) => {
+        decided = undefined;
+        const commit = change.changed
+          ? persistedContentBodyCommit(tx)
+          : undefined;
+        if (change.changed && !commit)
+          throw new Error("The accepted suggestion's edit wrote no body");
+        const coordination: LiveCopyDecision = {
+          liveCopy: change.changed ? "committed" : "unchanged",
+          steps,
+          ...(commit ? { commit } : {}),
+          text: null,
+          applied: [],
+        };
+        const result = await run(coordination, { transaction: tx });
+        // A replayed decision returns without applying, and its edit must
+        // not commit.
+        if (coordination.applied.length !== steps.size)
+          throw new DecisionReplayed();
+        // An event persists once, and an earlier attempt's rolled back.
+        if (sync.isPersisted())
+          sync = await prepareTransactionalChange(syncEvent);
+        await sync.persist(tx);
+        decided = { result };
+      },
+    });
   } catch (error) {
     if (error instanceof DecisionReplayed)
       return run({ liveCopy: "replaying" } satisfies LiveCopyDecision);
-    if (error instanceof LiveCopyError && error.code === "not_live_copy")
-      throw new LiveCopyAcceptUnavailable(context.resourceId);
+    if (
+      (error instanceof LiveCopyError && error.code === "not_live_copy") ||
+      (isActionContractError(error) &&
+        error.errorCode === "LIVE_BODY_WRITE_PATH_CHANGED")
+    )
+      throw new LiveCopyAcceptUnavailable(context.resourceId, error);
     if (
       error instanceof LiveCopyError &&
       error.code === "build_refused" &&

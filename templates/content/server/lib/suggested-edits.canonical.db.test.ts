@@ -27,6 +27,7 @@ let adapterKind: string;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let createSuggestion: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion").default;
 let createProposal: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal").default;
+let switchPageToLiveCopy: typeof import("../live-copy/switch.js").switchPageToLiveCopy;
 const previousSyncEventsEnabled =
   process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
 
@@ -78,6 +79,8 @@ beforeAll(async () => {
   const { CONTENT_FEATURE_FLAGS } =
     await import("../../shared/feature-flags.js");
   registerFeatureFlags(CONTENT_FEATURE_FLAGS);
+  switchPageToLiveCopy = (await import("../live-copy/switch.js"))
+    .switchPageToLiveCopy;
 }, 60_000);
 
 beforeEach(async () => {
@@ -97,18 +100,19 @@ async function seedPage(page: { switched: boolean }) {
   sequence += 1;
   const id = `canonical-page-${sequence}`;
   const now = new Date().toISOString();
-  await getDb()
-    .insert(schema.documents)
-    .values({
-      id,
-      title: "Agent page",
-      content: storedBody,
-      ownerEmail,
-      bodyRevision: 4,
-      collabBodyRevision: 4,
-      liveBodySwitchedAt: page.switched ? now : null,
-      createdAt: now,
-      updatedAt: now,
+  await getDb().insert(schema.documents).values({
+    id,
+    title: "Agent page",
+    content: storedBody,
+    ownerEmail,
+    bodyRevision: 4,
+    collabBodyRevision: 4,
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (page.switched)
+    await expect(switchPageToLiveCopy(id)).resolves.toEqual({
+      writePath: "live_copy",
     });
   return id;
 }
@@ -164,8 +168,8 @@ describe("suggestion matching on a page written through its live copy", () => {
   );
 
   ownerIt("keeps the exact comparison while the flags are off", async () => {
-    await setLiveBodyFlags(false);
     const documentId = await seedPage({ switched: true });
+    await setLiveBodyFlags(false);
     await expect(
       suggestOnAgentText(documentId, "today", "now"),
     ).rejects.toMatchObject({ errorCode: "suggestion_conflict" });

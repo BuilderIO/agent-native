@@ -49,18 +49,11 @@ import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
-import { contentLiveCopy } from "../live-copy/binding.js";
-import {
-  lockLiveCopyPage,
-  persistedContentBodyCommit,
-} from "../live-copy/persist.js";
-import { withContentBodyWriteCause } from "../live-copy/write-cause.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
 import {
-  liveBodyWriterGate,
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
 } from "./live-body-writer.js";
@@ -70,7 +63,6 @@ import {
   acceptOnLiveCopy,
   isLiveCopyDecision,
   LiveCopyAcceptUnavailable,
-  type LiveCopyAccept,
   type LiveCopyDecision,
 } from "./suggestion-live-accept.js";
 
@@ -78,12 +70,20 @@ export { applyMarkdownSuggestionOperation } from "../../shared/suggestion-apply.
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
-const contentLiveCopyAccept: LiveCopyAccept = {
-  binding: contentLiveCopy,
-  bodyCommit: persistedContentBodyCommit,
-  lockPage: lockLiveCopyPage,
-  withWriteCause: withContentBodyWriteCause,
-};
+const LIVE_COPY_ACCEPT_ATTEMPTS = 3;
+
+/** The Page, when its body is written through its live copy. */
+async function liveCopyPage(documentId: string) {
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+  const [page] = await drizzleTransactionForExec(getDbExec())
+    .select(liveBodyWriterPageColumns)
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId))
+    .limit(1);
+  return (await liveBodyWriterGateForRow(page)).writePath === "live_copy"
+    ? page
+    : undefined;
+}
 
 function validateOperations(
   operations: SuggestionOperation[],
@@ -705,18 +705,22 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
-    if (
-      (await liveBodyWriterGate(context.resourceId)).writePath === "live_copy"
-    ) {
+    // A Page can leave its live copy between reading the gate and writing, and
+    // a peer's commit in that gap reads the same way, so the gate is read
+    // again to choose the writer.
+    for (let attempt = 1; ; attempt += 1) {
+      const page = await liveCopyPage(context.resourceId);
+      if (!page) break;
       try {
         return await acceptOnLiveCopy(
           context,
           run,
-          contentLiveCopyAccept,
+          page,
           acceptedSuggestionRequestSource(context.ctx?.requestSource),
         );
       } catch (error) {
         if (!(error instanceof LiveCopyAcceptUnavailable)) throw error;
+        if (attempt === LIVE_COPY_ACCEPT_ATTEMPTS) throw error.refusal;
       }
     }
     const sync = await prepareTransactionalChange({

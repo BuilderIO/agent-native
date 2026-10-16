@@ -29,6 +29,7 @@ export function editContentLiveCopy(
     cause: ContentBodyWriteCause;
     edit: string;
     input: unknown;
+    requestSource?: string;
     persist?: (tx: DbExec, change: LiveCopyCallChange) => Promise<void>;
   },
 ): Promise<LiveCopyMutationResult> {
@@ -36,6 +37,9 @@ export function editContentLiveCopy(
     mutateLiveCopy(contentLiveCopy, documentId, {
       edit: options.edit,
       input: options.input,
+      ...(options.requestSource
+        ? { requestSource: options.requestSource }
+        : {}),
       persist: async (tx, change) => {
         if (!change.changed) {
           await persistUnchangedContentBodyEdit(

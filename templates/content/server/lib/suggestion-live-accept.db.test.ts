@@ -6,12 +6,19 @@ import type { ResourceSuggestion } from "@agent-native/core/review";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { commentAnchorText } from "../../shared/comment-reanchor.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "../../shared/suggestion-diff.js";
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -28,6 +35,7 @@ let binding: import("@agent-native/core/collab").LiveCopyBinding;
 let switchPageToLiveCopy: typeof import("../live-copy/switch.js").switchPageToLiveCopy;
 let adapterKind: string;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
+let editDocumentAction: typeof import("../../actions/edit-document.js").default;
 let createSuggestion: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion").default;
 let createProposal: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal").default;
 let decideSuggestion: typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
@@ -60,6 +68,7 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   getDocumentAction = (await import("../../actions/get-document.js")).default;
+  editDocumentAction = (await import("../../actions/edit-document.js")).default;
   createSuggestion = (
     await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
   ).default;
@@ -213,6 +222,35 @@ function ownerIt(name: string, run: () => Promise<void>) {
 }
 
 describe("accepting a suggestion on a Page written through its live copy", () => {
+  ownerIt(
+    "lets an agent's save from before the accept merge with it",
+    async () => {
+      const documentId = await seedPage(page);
+      const suggestion = await suggest(documentId, "sets the scene", "opens");
+      const base = (await getDocumentAction.run({ id: documentId }, ctx))
+        .revision;
+      await decide(suggestion, "accepted");
+
+      await editDocumentAction.run(
+        {
+          id: documentId,
+          baseRevision: base,
+          idempotencyKey: `stale-save-${documentId}`,
+          find: "A closing paragraph",
+          replace: "A final paragraph",
+        },
+        ctx,
+      );
+      expect((await stored(documentId)).content).toBe(
+        canonicalizeNfm(
+          page
+            .replace("sets the scene", "opens")
+            .replace("A closing paragraph", "A final paragraph"),
+        ),
+      );
+    },
+  );
+
   ownerIt(
     "applies exactly its change once, and every block keeps its element",
     async () => {
@@ -455,6 +493,33 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
 });
 
 describe("accepting a suggestion on a Page its legacy writer still writes", () => {
+  ownerIt(
+    "accepts through the legacy writer when the Page leaves its live copy mid-accept",
+    async () => {
+      const documentId = await seedPage(page);
+      const suggestion = await suggest(documentId, "sets the scene", "opens");
+      const run = binding.runner.run.bind(binding.runner);
+      const spy = vi
+        .spyOn(binding.runner, "run")
+        .mockImplementation(async (...args) => {
+          const result = await run(...args);
+          await setFlags(false);
+          return result;
+        });
+      try {
+        expect((await decide(suggestion, "accepted")).suggestion.status).toBe(
+          "accepted",
+        );
+      } finally {
+        spy.mockRestore();
+        await setFlags(true);
+      }
+      const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
+      expect((await stored(documentId)).content).toBe(expected);
+      expect((await liveCopy(documentId)).text).toBe(expected);
+    },
+  );
+
   ownerIt(
     "accepts on a Page never switched, and leaves it unswitched",
     async () => {
