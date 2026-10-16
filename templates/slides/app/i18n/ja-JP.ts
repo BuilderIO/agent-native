@@ -637,6 +637,8 @@ const messages = {
     addTransition: "トランジションを追加",
     effect: "効果",
     onClick: "クリック時",
+    withPrevious: "直前と同時",
+    trigger: "開始",
     byParagraph: "段落ごと",
     expand: "トランジションを展開",
     collapse: "トランジションを折りたたむ",

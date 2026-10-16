@@ -637,6 +637,8 @@ const messages = {
     addTransition: "Adicionar transição",
     effect: "Efeito",
     onClick: "Ao clicar",
+    withPrevious: "Com a anterior",
+    trigger: "Início",
     byParagraph: "Por parágrafo",
     expand: "Expandir transição",
     collapse: "Recolher transição",

@@ -619,6 +619,8 @@ const messages = {
     addTransition: "添加过渡",
     effect: "效果",
     onClick: "点击时",
+    withPrevious: "与上一个同时",
+    trigger: "开始",
     byParagraph: "按段落",
     expand: "展开过渡",
     collapse: "收起过渡",

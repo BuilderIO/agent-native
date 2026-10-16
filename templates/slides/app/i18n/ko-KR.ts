@@ -632,6 +632,8 @@ const messages = {
     addTransition: "전환 추가",
     effect: "효과",
     onClick: "클릭 시",
+    withPrevious: "이전과 함께",
+    trigger: "시작",
     byParagraph: "단락별",
     expand: "전환 펼치기",
     collapse: "전환 접기",
