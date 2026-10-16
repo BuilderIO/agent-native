@@ -60,20 +60,15 @@ export type TranscriptImportResult =
     }
   | { ok: false; format: TranscriptImportFormat; error: TranscriptImportError };
 
-const CLOCK = String.raw`(?:\d+:)?\d{1,2}:\d{2}`;
-const TIME = String.raw`${CLOCK}(?:[.,]\d{1,3})?`;
+const TIME = String.raw`(?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?`;
+// Only settings can follow the end time: WebVTT's, such as align:start, or
+// SRT's X1:100 coordinates. Prose there makes a timing this parser can't
+// read, which fails on its line instead of becoming cue text.
 const CUE_TIMING = new RegExp(
-  String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+.*)?$`,
+  String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+[^\s:]+:\S+)*\s*$`,
 );
-const CUE_SETTING = String.raw`(?:vertical|line|position|size|align|region):\S+`;
-// A cue timing line holds a start time, an arrow, one end time and nothing
-// after it but WebVTT cue settings, so prose after the end time, as in
-// "0:05 --> 0:10 is the range" or "0:05 --> 0:10 https://…", stays
-// timestamped text. The end is any one word, so a cue with an unreadable end
-// time ("00:00:01 --> soon") is still a cue and gets its line-specific error.
-const CUE_TIMING_LINE = new RegExp(
-  String.raw`^\s*${TIME}\s*-->\s*\S*(?:\s+${CUE_SETTING})*\s*$`,
-);
+// In a cue file, a line that starts with a time and an arrow is a timing.
+const CUE_TIMING_START = new RegExp(String.raw`^\s*${TIME}\s*-->`);
 // Text can follow a closing bracket or bold marker directly, as in
 // "[0:21]The chart."; a bare time needs a space after it, so "3:45pm" in
 // prose isn't read as a start time. A separator dash can't start an arrow,
@@ -103,13 +98,16 @@ const SPOKEN_DURATION =
   /^\d+\s+(?:hours?|minutes?|seconds?)(?:,?\s+\d+\s+(?:hours?|minutes?|seconds?))*$/i;
 
 export function detectTranscriptFormat(text: string): TranscriptImportFormat {
-  const body = stripBom(text);
-  const firstLine = body.trimStart().split(/\r?\n/, 1)[0] ?? "";
-  if (/^WEBVTT(?:\s|$)/.test(firstLine)) return "vtt";
-  if (splitLines(body).some((line) => CUE_TIMING_LINE.test(line))) {
-    return "srt";
-  }
-  return "text";
+  const [first = "", second = ""] = splitLines(stripBom(text))
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (/^WEBVTT(?:\s|$)/.test(first)) return "vtt";
+  // A cue file opens with its first timing, or with an SRT index and then the
+  // timing. Judging by the opening alone keeps an arrow line further down a
+  // timestamped text file, such as "0:05 --> 0:10 is the range", from
+  // turning the whole file into cues.
+  const opening = /^\d+$/.test(first) ? second : first;
+  return CUE_TIMING_START.test(opening) ? "srt" : "text";
 }
 
 export function parseTranscriptImport(
@@ -455,8 +453,9 @@ function decodeEntities(text: string): string {
 
 // Like WebVTT's own parser, a timing line starts a new cue even without a
 // blank line before it, so the next cue is not read as this one's text. A
-// timing with an unreadable end time splits too, so it gets its line-specific
-// error. An SRT index right above that line moves with it.
+// line that only starts like one splits too, so a bad end time or prose after
+// it gets its line-specific error. An SRT index right above that line moves
+// with it.
 function splitAtCueTimings(
   block: Array<{ text: string; number: number }>,
 ): Array<Array<{ text: string; number: number }>> {
@@ -464,7 +463,7 @@ function splitAtCueTimings(
   let start = 0;
   let seenTiming = false;
   for (const [index, line] of block.entries()) {
-    if (!CUE_TIMING_LINE.test(line.text)) continue;
+    if (!CUE_TIMING_START.test(line.text)) continue;
     // A part's own timing is its first line, or its second after an
     // identifier; one further down starts the next cue, even after a NOTE.
     if (seenTiming || index - start > 1) {

@@ -60,6 +60,8 @@ describe("detectTranscriptFormat", () => {
       "--> 0:10.000 is the range we trim.",
     ],
     ["0:05 --> 0:10 https://example.com/a", "--> 0:10 https://example.com/a"],
+    ["0:05 --> Intro", "--> Intro"],
+    ["0:05 --> 0:10 align:start", "--> 0:10 align:start"],
   ])(
     "keeps the timestamped line %j, which starts with an arrow, as text",
     (line, kept) => {
@@ -86,6 +88,16 @@ describe("detectTranscriptFormat", () => {
         { startMs: 5000, endMs: 10_000, text: "Hello" },
         { startMs: 10_000, endMs: 12_000, text: "World" },
       ],
+    });
+  });
+
+  it("reads SRT timings followed by X1:100-style coordinates", () => {
+    const text =
+      "1\n00:00:01,000 --> 00:00:04,000 X1:100 X2:500 Y1:20 Y2:80\nHello";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [{ startMs: 1000, endMs: 4000, text: "Hello" }],
     });
   });
 
@@ -241,6 +253,18 @@ describe("parseTranscriptImport", () => {
       "1\n00:00:01,000 --> 00:00:02,000\nHello\n00:00:02,000 --> later\nWorld",
       "bad-timing",
       4,
+    ],
+    [
+      "prose after a timing right under the previous cue",
+      "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n00:00:03.000 --> 00:00:04.000 foo\nWorld",
+      "bad-timing",
+      5,
+    ],
+    [
+      "prose after a timing inside a cue's text",
+      "WEBVTT\n\n00:01.000 --> 00:04.000\nThe range\n0:05 --> 0:10 is what we trim.",
+      "bad-timing",
+      5,
     ],
     [
       "a cue that ends before it starts",
@@ -466,22 +490,6 @@ describe("parseTranscriptImport", () => {
       segments: [
         { startMs: 1000, endMs: 2000, text: "Hello" },
         { startMs: 2000, endMs: 3000, text: "World" },
-      ],
-    });
-  });
-
-  it("keeps a line that only looks like a timing as the cue's text", () => {
-    const result = parseTranscriptImport(
-      "WEBVTT\n\n00:01.000 --> 00:04.000\nThe range\n0:05 --> 0:10 is what we trim.",
-    );
-    expect(result).toMatchObject({
-      ok: true,
-      segments: [
-        {
-          startMs: 1000,
-          endMs: 4000,
-          text: "The range 0:05 --> 0:10 is what we trim.",
-        },
       ],
     });
   });
