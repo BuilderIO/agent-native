@@ -2,33 +2,11 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putOrgSetting, putSetting } from "@agent-native/core/settings";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-
-const flagRead = vi.hoisted(() => ({ fail: false }));
-
-vi.mock("@agent-native/core/feature-flags", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@agent-native/core/feature-flags")>();
-  return {
-    ...actual,
-    getFeatureFlagRules: (
-      ...args: Parameters<typeof actual.getFeatureFlagRules>
-    ) =>
-      flagRead.fail
-        ? Promise.reject(new Error("settings store unavailable"))
-        : actual.getFeatureFlagRules(...args),
-  };
-});
+import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -107,7 +85,6 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
-  flagRead.fail = false;
   await getDb().delete(schema.documents);
   await setFlags({});
 });
@@ -212,21 +189,54 @@ describe("live-body writer gate", () => {
     });
   });
 
-  it("fails loudly when it cannot read the flags for a switched page", async () => {
+  it("fails loudly on malformed flag state for a switched page instead of reading it as off", async () => {
     await setFlags({
       shadow: { emails: [OWNER] },
       writer: { emails: [OWNER] },
     });
     await insertPage("switched");
     await insertPage("unswitched", { switched: false });
-    flagRead.fail = true;
+    await putSetting(WRITER, { version: 1, mode: "onn" });
 
-    await expect(gate.liveBodyWriterGate("switched")).rejects.toThrow(
-      "settings store unavailable",
-    );
+    await expect(gate.liveBodyWriterGate("switched")).rejects.toMatchObject({
+      name: "FeatureFlagRulesError",
+      code: "malformed",
+    });
     await expect(gate.liveBodyWriterGate("unswitched")).resolves.toEqual({
       writePath: "legacy",
       reason: "not_switched",
+    });
+  });
+
+  it("reads the flags in the caller's transaction rather than the request's settings snapshot", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("switched");
+
+    await runWithRequestContext({ userEmail: COLLABORATOR }, async () => {
+      await expect(gate.liveBodyWriterGate("switched")).resolves.toEqual({
+        writePath: "live_copy",
+      });
+      await runWithRequestContext({}, () =>
+        setFlags({ shadow: { emails: [OWNER] } }),
+      );
+      // Precondition: this request still holds the flags it read first.
+      await expect(gate.liveBodyWriterGate("switched")).resolves.toEqual({
+        writePath: "live_copy",
+      });
+
+      await getDb().transaction(async (tx) => {
+        const [row] = await tx
+          .select(gate.liveBodyWriterPageColumns)
+          .from(schema.documents)
+          .where(eq(schema.documents.id, "switched"))
+          .for("update");
+        await expect(
+          gate.liveBodyWriterGateForRow(row, { transaction: getDbExec() }),
+        ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
+      });
     });
   });
 });

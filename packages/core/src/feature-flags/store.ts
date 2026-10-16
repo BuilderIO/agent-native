@@ -168,21 +168,84 @@ export function normalizeFeatureFlagRules(value: unknown): FeatureFlagRules {
   };
 }
 
+async function readStoredFeatureFlagRules(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<Record<string, unknown> | null> {
+  const orgId = scope.orgId?.trim();
+  if (!orgId)
+    return getSetting(settingKey(key), { transaction: scope.transaction });
+  const [orgStored, globalStored] = await Promise.all([
+    getOrgSetting(orgId, settingKey(key), { transaction: scope.transaction }),
+    getSetting(settingKey(key), { transaction: scope.transaction }),
+  ]);
+  return orgStored ?? globalStored;
+}
+
 export async function getFeatureFlagRules(
   key: string,
   scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
 ): Promise<FeatureFlagRules> {
   if (!getFeatureFlagDefinition(key)) return defaultFeatureFlagRules();
-  const orgId = scope.orgId?.trim();
-  if (!orgId)
-    return normalizeFeatureFlagRules(
-      await getSetting(settingKey(key), { transaction: scope.transaction }),
-    );
-  const [orgStored, globalStored] = await Promise.all([
-    getOrgSetting(orgId, settingKey(key), { transaction: scope.transaction }),
-    getSetting(settingKey(key), { transaction: scope.transaction }),
-  ]);
-  return normalizeFeatureFlagRules(orgStored ?? globalStored);
+  return normalizeFeatureFlagRules(
+    await readStoredFeatureFlagRules(key, scope),
+  );
+}
+
+export class FeatureFlagRulesError extends Error {
+  constructor(
+    readonly code: "unregistered" | "malformed",
+    readonly key: string,
+    detail: string,
+  ) {
+    super(`Feature flag ${key}: ${detail}`);
+    this.name = "FeatureFlagRulesError";
+  }
+}
+
+function storedRulesProblem(value: Record<string, unknown>): string | null {
+  if (Array.isArray(value)) return "stored rules are a list, not an object";
+  if (value.mode !== "off" && value.mode !== "on" && value.mode !== "rules")
+    return `stored mode ${JSON.stringify(value.mode)} is not off, on, or rules`;
+  for (const field of ["emails", "orgIds"] as const) {
+    const list = value[field];
+    if (
+      list !== undefined &&
+      !(Array.isArray(list) && list.every((item) => typeof item === "string"))
+    )
+      return `stored ${field} is not a list of strings`;
+  }
+  const percentage = value.percentage;
+  if (
+    percentage !== undefined &&
+    !(
+      typeof percentage === "number" &&
+      Number.isFinite(percentage) &&
+      percentage >= 0 &&
+      percentage <= 100
+    )
+  )
+    return "stored percentage is not a number from 0 to 100";
+  return null;
+}
+
+/**
+ * Reads a flag's rules for callers that route data on it. Unconfigured reads
+ * as off, like `getFeatureFlagRules`, but an unregistered key or malformed
+ * stored rules throw `FeatureFlagRulesError` instead of normalizing to off:
+ * for a routing flag, "off" and "unreadable" choose different write paths.
+ */
+export async function getFeatureFlagRulesStrict(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<FeatureFlagRules> {
+  if (!getFeatureFlagDefinition(key))
+    throw new FeatureFlagRulesError("unregistered", key, "not registered");
+  const stored = await readStoredFeatureFlagRules(key, scope);
+  if (stored == null) return defaultFeatureFlagRules();
+  const problem = storedRulesProblem(stored);
+  if (problem) throw new FeatureFlagRulesError("malformed", key, problem);
+  return normalizeFeatureFlagRules(stored);
 }
 
 export async function getFeatureFlagRulesForKeys(
