@@ -96,6 +96,7 @@ import {
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
+import { boundedTaskSourcePlugin } from "../vite/bounded-task-plugin.js";
 import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
 import {
   cloneServerBundleForFunction,
@@ -6161,6 +6162,7 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        boundedTaskSourcePlugin(),
         ...sentryServerSourceMapPlugins,
         ...(enterpriseAuthAdaptersEnabled
           ? []

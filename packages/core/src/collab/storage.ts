@@ -61,6 +61,82 @@ export async function loadYDocRecordWithClient(
   };
 }
 
+export type CollabStateMalformedReason = "base64" | "version" | "yjs";
+
+/** A stored `_collab_docs` row that cannot be read. Never treat it as empty. */
+export class CollabStateMalformedError extends Error {
+  readonly code = "collab_state_malformed";
+  readonly docId: string;
+  readonly reason: CollabStateMalformedReason;
+
+  constructor(
+    docId: string,
+    reason: CollabStateMalformedReason,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "CollabStateMalformedError";
+    this.docId = docId;
+    this.reason = reason;
+  }
+}
+
+/**
+ * Absent means no row. A row whose `yjs_state` is `''` is present with a
+ * zero-byte state; callers that seed must update it at its version rather
+ * than insert.
+ */
+export type StrictYDocRecord =
+  | { kind: "absent" }
+  | { kind: "present"; state: Uint8Array; version: number };
+
+const STRICT_BASE64 =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+/** Decodes canonical base64, or returns null; `Buffer` silently skips junk. */
+export function strictBase64ToUint8Array(value: string): Uint8Array | null {
+  if (!STRICT_BASE64.test(value)) return null;
+  return base64ToUint8Array(value);
+}
+
+export async function loadYDocRecordStrict(
+  client: DbExec,
+  docId: string,
+  options: { forUpdate?: boolean } = {},
+): Promise<StrictYDocRecord> {
+  const { rows } = await client.execute({
+    sql: `SELECT yjs_state, version FROM _collab_docs WHERE doc_id = ?${options.forUpdate ? " FOR UPDATE" : ""}`,
+    args: [docId],
+  });
+  if (rows.length === 0) return { kind: "absent" };
+  const stored = rows[0].yjs_state;
+  if (typeof stored !== "string") {
+    throw new CollabStateMalformedError(
+      docId,
+      "base64",
+      `_collab_docs.yjs_state for ${docId} is not text`,
+    );
+  }
+  const state = strictBase64ToUint8Array(stored);
+  if (!state) {
+    throw new CollabStateMalformedError(
+      docId,
+      "base64",
+      `_collab_docs.yjs_state for ${docId} is not valid base64`,
+    );
+  }
+  const version = Number(rows[0].version);
+  if (!Number.isSafeInteger(version) || version < 0) {
+    throw new CollabStateMalformedError(
+      docId,
+      "version",
+      `_collab_docs.version for ${docId} is unreadable: ${String(rows[0].version)}`,
+    );
+  }
+  return { kind: "present", state, version };
+}
+
 export async function loadYDocVersion(docId: string): Promise<number | null> {
   await ensureTable();
   const client = getDbExec();
