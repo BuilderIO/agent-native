@@ -1,6 +1,7 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { IconDownload } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import type { ChartDatum } from "@/components/dashboard/SqlChart";
@@ -91,11 +92,17 @@ export function PanelDrilldownDialog({
   const scopeId = dashboardId || panel.id;
   const aggregateSql = serializePanelSql(resolvedSql ?? panel.sql);
 
-  const drilldownQuery = useActionQuery(
-    "get-panel-drilldown",
-    { panelId: panel.id, panelSource: panel.source, panelSql: panel.sql },
-    { enabled: open, staleTime: 5 * 60 * 1000 },
-  );
+  const drilldownQuery = useQuery({
+    queryKey: ["panel-drilldown-template", panel.id, panel.source, panel.sql],
+    queryFn: ({ signal }) =>
+      callAction(
+        "get-panel-drilldown",
+        { panelId: panel.id, panelSource: panel.source, panelSql: panel.sql },
+        { method: "POST", signal },
+      ),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
   const drilldownData = drilldownQuery.data;
   const drilldownSql = drilldownData?.drilldown?.sql ?? null;
   const hasDrilldownResult =

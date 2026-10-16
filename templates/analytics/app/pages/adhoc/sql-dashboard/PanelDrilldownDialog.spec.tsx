@@ -12,12 +12,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   actionQuery: {} as Record<string, unknown>,
+  callAction: vi.fn(),
+  drilldownQueryOptions: [] as Array<Record<string, unknown>>,
   sqlQueries: [] as Array<{ enabled: boolean; key: unknown; sql: string }>,
   sqlRows: [{ record: "aggregate fallback" }] as Record<string, unknown>[],
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => mocks.actionQuery,
+  callAction: mocks.callAction,
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: (options: Record<string, unknown>) => {
+    mocks.drilldownQueryOptions.push(options);
+    return mocks.actionQuery;
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -133,6 +142,8 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mocks.sqlQueries.length = 0;
+    mocks.drilldownQueryOptions.length = 0;
+    mocks.callAction.mockReset();
     mocks.sqlRows = [{ record: "aggregate fallback" }];
   });
 
@@ -142,10 +153,10 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render() {
+  async function render(panel = PANEL) {
     await act(async () => {
       root.render(
-        <PanelDrilldownDialog panel={PANEL} datum={DATUM} onClose={vi.fn()} />,
+        <PanelDrilldownDialog panel={panel} datum={DATUM} onClose={vi.fn()} />,
       );
     });
   }
@@ -227,5 +238,32 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(click).toHaveBeenCalledTimes(1);
     createObjectURL.mockRestore();
     click.mockRestore();
+  });
+
+  it("posts long panel SQL in the request body", async () => {
+    const sql = `SELECT ${"column_name, ".repeat(2_140)} value`;
+    const panel = { ...PANEL, sql };
+    const signal = new AbortController().signal;
+    mocks.actionQuery = {
+      data: { drilldown: null },
+      isError: false,
+      isLoading: false,
+      isSuccess: true,
+    };
+
+    await render(panel);
+
+    const queryFn = mocks.drilldownQueryOptions[0]?.queryFn as
+      | ((context: { signal: AbortSignal }) => Promise<unknown>)
+      | undefined;
+    expect(queryFn).toBeDefined();
+    await queryFn!({ signal });
+
+    expect(sql.length).toBeGreaterThan(27_000);
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-panel-drilldown",
+      { panelId: panel.id, panelSource: panel.source, panelSql: sql },
+      { method: "POST", signal },
+    );
   });
 });
