@@ -75,26 +75,39 @@ End every new or edited Slack reply with the exact sentence
 `this was sent from a bot.`. A connector-added `Sent using ChatGPT` footer is
 not a substitute.
 
-Keep `👀` as permanent claim history, including after a fix; verified fixed
-scope shows `👀` beside `✅`. Reconcile each report as one unit: send or verify
-its current same-thread status reply, then immediately add and read back the
-applicable reactions before advancing to the next report. Add `✅` as soon as
-any reported scope is verified **Fixed** under the Phase 2 bar, including a
-partial fix; use **Partially fixed** for the overall disposition when another
-scope remains, and describe both scopes separately in the reply. Do not wait
-for an entire multi-symptom report to be resolved before checking off its
-verified scope. An open PR can earn `✅` only after the relevant
+Use reactions as current status, not permanent claim history. At the root,
+`👀` marks this workflow's open claim, `✅` marks a verified fixed scope, and
+`🎫` marks an accepted handoff to a named human. A partial fix can show both
+`👀` and `✅`. For every `👀` this workflow owns, post a current status in that
+root's thread; unclaimed items and another actor's eyes are not ours to reply
+to. Reconcile each report as one unit: send or verify its current same-thread
+status reply, then immediately update and read back the applicable reactions
+before advancing to the next report. Add `✅` as soon as any reported scope is
+verified **Fixed** under the Phase 2 bar, including a partial fix; use
+**Partially fixed** for the overall disposition when another scope remains,
+and describe both scopes separately in the reply. Do not wait for an entire
+multi-symptom report to be resolved before checking off its verified scope.
+Keep your own `👀` while any report scope or follow-up remains open. After all
+scopes and follow-ups close, post the final status, remove only your own eye,
+and read back the final reply and reactions. An eye is not kept as claim
+history after work closes. If the connector cannot remove it, use Slack UI; if
+that is also unavailable, record the exact blocker and leave the reaction
+unreconciled. An open PR can earn `✅` only after the relevant
 `verifying-changes` proof bar passes. For UI or other user-visible behavior,
 drive the running app or preview through the reported flow and confirm the
 symptom is gone; a focused source test alone does not qualify. For non-UI
 scopes, use the area-specific action, query, or test proof. Say that merge or
 rollout is still pending; the checkmark records the verified scope and does not
 claim the change is shipped or live.
-Add `🎫` only for each distinct unfinished scope that needs a human to take
-ownership or act; name the owner and action, and link a real ticket when one
-exists. A partial fix with a separate human handoff can have both `✅` and
-`🎫`. Work that remains with this workflow is active, not a human handoff. An
-unanswered reporter request stays at `👀` without `🎫`.
+Add `🎫` only after a different named human accepts the exact unfinished action
+in the source thread. Record their Slack ID, accepting reply, and action; a role
+assignment, request for help, or unaccepted handoff is not acceptance. A
+partial fix with a separately accepted handoff can have both `✅` and `🎫`.
+Work that remains with this workflow is active, not a human handoff. An
+unanswered reporter request stays at `👀` without `🎫`. Link a ticket only if
+one already exists; do not create or promise one without authorization. If a
+human later refuses the accepted action, remove only your stale `🎫`, keep
+`👀`, and report the blocker.
 
 Use the same connected Slack identity for reactions, replies, and read-back.
 Compare exact actor IDs returned for the reaction and reply; do not describe a
@@ -105,32 +118,34 @@ reactions. If the eye owner differs from the connected actor, or an actor ID
 cannot be verified, record the mismatch and leave the item visibly
 unreconciled for its owner. Do not claim that eye or create a duplicate reply
 under another actor.
-Never remove an eye or another person's reaction. If this workflow's own `✅`
-or `🎫` is no longer justified, remove only that reaction if the connector
-supports it and read back the corrected state. Otherwise record the exact
-stale reaction and leave the report unreconciled.
+Never remove another person's reaction. Remove only this workflow's own `👀`,
+`✅`, or `🎫`, and only when its status rule no longer applies; read back the
+corrected state. If the connector cannot remove an own reaction, use Slack UI;
+if that is also unavailable, record the exact blocker and leave the report
+unreconciled.
 
 An unanswered request for a reporter-provided URL, access grant, or evidence is
 **Asked** or **Clarification needed**, not a separate human handoff. Keep `👀`
 and state the exact question; do not add `🎫` solely for that wait. Use `🎫`
-when another person must take a distinct review, ownership, or decision action
-that this workflow cannot complete.
+only after a named person accepts that distinct action in the source thread. A
+role or requested handoff without acceptance does not qualify.
 
 Preserve cluster handling: identify known duplicates before claiming them;
 represent duplicate non-owner threads by permalink and **Clustered** in one
 owner-thread status. Do not react or reply in a non-owner thread unless a
 distinct question or update needs its own disposition; if it does, react and
-reply there as a separate item. If a duplicate is discovered only after this
-run added `👀`, keep it and post a concise **Clustered** reply with the owner
-permalink; never remove the reaction.
+reply there as a separate item. If a duplicate is discovered after this run
+added `👀`, record its permalink in the owner's **Clustered** status. Remove
+only your own eye from the duplicate after its scope and follow-ups close; keep
+it while a distinct question or update remains open.
 
 Compare each reported symptom with the evidence. State what is fixed and what
-is not. Use `✅` only for verified fixed scope. Use `🎫` for each distinct
-unfinished scope that needs a human to take ownership or act, whether or not a
-ticket exists. Link a verified ticket and name its owner/action; if no ticket
-or owner is assigned, state the exact handoff and that gap in the reply and
-ledger. Do not create or promise a ticket without authorization. Never imply a
-partial fix resolved the whole report.
+is not. Use `✅` only for verified fixed scope. Use `🎫` only for each distinct
+unfinished scope accepted by a named human; link an existing ticket if there is
+one, and record the person's Slack ID, exact acceptance, and action. If nobody
+has accepted, keep `👀` and state who still needs to act or what reporter input
+is needed, with no `🎫`. Do not create or promise a ticket without
+authorization. Never imply a partial fix resolved the whole report.
 
 For beta app fixes, check the matching merge-triggered publisher, but keep its
 details in the recap. In the reply, link the merged PR and say it merged, then

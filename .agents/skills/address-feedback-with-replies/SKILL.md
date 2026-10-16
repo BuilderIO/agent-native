@@ -40,15 +40,18 @@ For each distinct defect, ask one direct question when reporter input changes
 reproduction or unblocks a safe fix. There is no per-run question cap; keep one
 pending question per thread.
 
-If this workflow eyed an out-of-scope item, keep the eye and post one concise
-**Skipped** reply if needed. Apply `review-latest-feedback`'s Reaction gate
-before `🎫`. Correct any mistaken reply to **Skipped**.
+If this workflow eyed an out-of-scope item, post one concise **Skipped** reply
+if needed, then read back its final status and reactions. Remove only this
+workflow's own `👀` when no scope or follow-up remains open. Apply
+`review-latest-feedback`'s reaction rules before `✅` or `🎫`.
 New messages must pass the clear-bug gate before any external write.
 
-Follow `review-latest-feedback` for status reactions; never remove reactions.
+Never remove another person's reaction. Follow `review-latest-feedback` for
+the lifecycle of this workflow's own reactions.
 
-Follow `review-latest-feedback` for ownership and cluster status; a claimed
-report keeps its `👀`, and an unresolved eye cannot be taken over.
+Follow `review-latest-feedback` for ownership and cluster status. Keep this
+workflow's `👀` while a report scope or follow-up remains open; remove it after
+all scopes and follow-ups close. Never take over another actor's eye.
 
 ## Prerequisites
 
@@ -122,19 +125,13 @@ During triage, follow the single-owner rule. After merge, follow
 `review-latest-feedback`: reply once in every affected source thread, including
 clusters.
 
-A tracked clear bug or authorized upvoted improvement receives at most one
-disposition per run. **Verified locally**, **Built - live unverified**,
-**Deployed - live unverified**, **Not reproducible - attempted**, and **In
-progress** retain `👀` after the report has been claimed.
-**Asked**, **Clarification needed**, and **Blocked on reporter** retain `👀`
-after the report has been claimed.
-Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
-**Open - no question**, **Resolved elsewhere**, **Skipped**, **Clustered**, and
-**Abandoned - no answer in 4 days**, each with required evidence and `👀`. Follow
-`review-latest-feedback` for `✅`/`🎫`. An already-eyed skipped item gets one
-concise **Skipped** reply if absent.
-**Fixed** closes the issue after a verified
-source fix merges; publication, beta, and live verification follow separately.
+A tracked bug or authorized upvoted improvement gets one disposition per run.
+Keep `👀` while any scope or follow-up remains open; clear it after closure and
+final read-back. Dispositions do not determine reaction state: use
+`review-latest-feedback` for the `👀`/`✅`/`🎫` rules. If a claimed item is
+skipped, reply once and clear your eye after read-back when closed.
+**Fixed** closes a defect scope after Phase 2 verification, even before merge.
+Report rollout separately; keep `👀` for unfinished scopes or follow-ups.
 **In progress** is an open ownership state. Do not send an interim progress
 reply for work fixed in the same run. If work continues beyond this run, follow
 `review-latest-feedback` and post one concrete status before the next sweep.
@@ -143,8 +140,9 @@ use a vague update or replace verification. The next run must revisit this
 state and resolve it to **Fixed**, **Clarification needed**, or evidence-backed
 **Open - no question** when no safe fix or reproduction remains. `Blocked`,
 `not fixed yet`, `still needs a fix`, and similar phrases are internal notes,
-never a complete Slack reply. **Open - no question** is terminal with our eye
-retained and no checkmark. A reply must state a verified resolution, concrete
+never a complete Slack reply. **Open - no question** is ledger-only: name its
+owner and next action, and keep `👀` while that action remains; never send this
+label as a Slack reply. A reply must state a verified resolution, concrete
 active work, a needed question, or one terminal disposition with its reason;
 never send a vague status alone. These are ledger states, not mandatory
 headings: keep the reporter-facing wording natural instead of opening with the
@@ -161,8 +159,9 @@ closure; keep the eye while waiting. The next
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
-After four days, keep `👀` and post **Abandoned - no answer in 4 days** once.
-Apply `review-latest-feedback`'s Reaction gate; carry active bugs forward.
+After four days, post **Abandoned - no answer in 4 days** once. Apply
+`review-latest-feedback`'s reaction rules: keep `👀` only while a remaining
+defect or follow-up stays open, and remove it after all work closes.
 
 **In progress** is also an open state. It records that the thread already has
 real ownership or an active fix, so the invoking identity must not ask the
@@ -332,8 +331,9 @@ identity:
 - Before finishing the sweep, search every reply authored in that sweep for
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Unclaimed subjective/product/policy items get no reply. If
-  an item was claimed before being skipped, preserve its eye and ensure one
-  concise **Skipped** status reply. Follow `review-latest-feedback` for
+  an item was claimed before being skipped, ensure one concise **Skipped**
+  status reply, then remove only this workflow's eye after the final read-back
+  if no scope or follow-up remains open. Follow `review-latest-feedback` for
   `✅`/`🎫`.
 
 A useful reply shape is:

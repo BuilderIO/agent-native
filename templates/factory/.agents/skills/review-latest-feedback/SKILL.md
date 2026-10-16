@@ -119,7 +119,7 @@ exclude boundary rows.
 Never remove another actor's reaction. Remove your own `👀` only after all
 report scopes and follow-ups close. Remove your own stale `✅` or `🎫` when current evidence
 shows it no longer applies; otherwise record it and leave the item
-unreconciled. Read back every write and verify its actor. Framework sweeps must pass
+unreconciled. Read back every write and verify its actor. Sweeps must pass
 `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json`; failure means
 unreconciled. See
 [`channel-inventory.md`](references/channel-inventory.md).
@@ -138,8 +138,8 @@ model requests, and errors. Dispatch status or an empty failed-run list is not
 an exact trace. Try both sources before recording the lookup error. Never ask
 for supplied IDs, logs, or tool details, and do not infer the run is absent.
 
-Use **Skipped** only for non-defects. **Open - no question** is ledger-only:
-name the internal next action and owner; never send it as a Slack reply.
+Use **Skipped** for non-defects. **Open - no question** is ledger-only: name
+its owner and next action; never send it as a Slack reply.
 
 ### Authoritative disposition vocabulary
 
@@ -147,10 +147,10 @@ Record one disposition and evidence per eligible source row. For a cluster,
 reply once in the owner thread with duplicate permalinks and **Clustered**;
 handle a distinct question as its own row.
 
-- **Terminal (keep this workflow's eye):** **Fixed**, **Partially fixed**, **Shipped**, **Live
+- **Disposition labels:** **Fixed**, **Partially fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
-  **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
-  gate above.
+  **Clustered**, or **Abandoned - no answer in 4 days**. Record evidence;
+  labels do not determine marks, so follow the reaction gate.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
@@ -165,13 +165,14 @@ handle a distinct question as its own row.
 
 Phase 2 proof can make a scope **Fixed** before merge. **Partially fixed** needs
 a verified fix and a distinct unfinished scope. Rollout never warrants `🎫`;
-**Clustered** closes a duplicate row but retains it. Follow
+**Clustered** closes duplicate rows; retain the ledger entry. Follow
 [the inventory procedure](references/channel-inventory.md) to resolve reply
 rows to roots; recheck fixed scopes' eyes and new replies without restarting
 the fix.
 
 Claiming is not investigation. Read back new claims; don't claim out-of-scope
-items. If a new claim proves out of scope, keep `👀` and post **Skipped** once.
+items. For a claimed out-of-scope item, reply **Skipped** and clear your eye
+after read-back if closed.
 Evidence or upvotes don't override ownership. Report gated skips in aggregate
 and cluster fresh repeats for Phase 2.
 
@@ -205,8 +206,8 @@ queries and cursor details.
   else. If the person says it is resolved elsewhere, record that source and
   close only that scope as **Resolved elsewhere**.
 - **No answer, under four days:** wait without posting again.
-- **No answer, four days or more:** keep `👀`, mark **Abandoned - no answer in 4
-  days**, and carry any remaining defect as internal work; do not re-ask.
+- **No answer after four days:** mark **Abandoned - no answer in 4 days**;
+  keep `👀` only for remaining internal work. Do not re-ask.
 
 For legacy replies without a bot disclosure or eye, search once per connected
 identity and inspect the author and full thread. End every new or edited Slack
@@ -240,7 +241,8 @@ is a product proposal, not a defect. Check overflow, keyboard, Cmd+K, and
 contextual surfaces first. Recap the ask, findings, options, recommendation,
 and tradeoff; mark **Skipped**. A report or `:upvote:` never authorizes automatic
 implementation; only a user-directed task may implement an approved approach.
-If claimed, keep 👀, post **Skipped** once, and don't ask the reporter to choose.
+If claimed, reply **Skipped** once; clear your eye after read-back if closed.
+Don't ask the reporter to choose.
 
 Auto-fix objective defects only: broken behavior/results, misalignment,
 overlap/clipping, illegibility, unusable focus/targets, jank, jitter,
