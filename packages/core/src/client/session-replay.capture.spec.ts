@@ -229,8 +229,8 @@ describe("session replay console/network capture", () => {
     expect(events[3]).toMatchObject({ level: "debug" });
   });
 
-  it("waits for analytics consent in the consent region, and stops on a reject", async () => {
-    const { windowStub } = installBrowser();
+  it("waits for analytics consent in the consent region, and stops on a reject without uploading", async () => {
+    const { fetchMock, windowStub } = installBrowser();
     recordMock.mockReturnValue(vi.fn());
     windowStub.sessionStorage = {
       getItem: vi.fn((key: string) =>
@@ -260,9 +260,24 @@ describe("session replay console/network capture", () => {
     const { setConsentChoice } = await import("./consent.js");
     setConsentChoice({ performance: true, targeting: false });
     await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+    const { emit } = recordMock.mock.calls[0]![0] as {
+      emit: (event: Record<string, unknown>) => void;
+    };
+    const uploads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).startsWith(START_OPTIONS.endpoint),
+      ).length;
+    emit({ type: 4, timestamp: Date.now(), data: { href: "x" } });
+    emit({ type: 2, timestamp: Date.now(), data: { node: {} } });
+    await vi.waitFor(() => expect(uploads()).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const uploadedBeforeReject = uploads();
+    emit({ type: 3, timestamp: Date.now(), data: { source: 2 } });
 
     setConsentChoice({ performance: false, targeting: false });
     await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(false));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(uploads()).toBe(uploadedBeforeReject);
   });
 
   it("still invokes the original console method first", async () => {

@@ -49,7 +49,8 @@ describe("docs document entry", () => {
     expect(response.headers.get("content-type")).toBe("text/html");
     expect(count(html, "gtm.js?id=")).toBe(1);
     expect(html).toContain('"GTM-UNITTEST123"');
-    expect(count(html, "data-agent-native-consent")).toBe(1);
+    expect(count(html, "data-agent-native-consent>")).toBe(1);
+    expect(count(html, "data-agent-native-consent-mode>")).toBe(1);
     expect(html).not.toContain("googletagmanager.com/ns.html");
     expect(count(html, "gtag/js?id=G-UNITTEST123")).toBe(1);
     expect(html).toContain(

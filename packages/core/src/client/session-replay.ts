@@ -1868,7 +1868,6 @@ function isFinalFlushReason(reason: string): boolean {
     "url-blocked",
     "max-duration",
     "max-chunks",
-    "consent-revoked",
   ].includes(reason);
 }
 
@@ -3969,6 +3968,15 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
     // best-effort cleanup
   }
   state.broadcastChannel = null;
+  if (reason === "consent-revoked") {
+    // A reject withdraws what is still buffered, so it is never uploaded.
+    state.queue = [];
+    state.queuedBytes = 0;
+    state.retryBatches = [];
+    state.pendingFlushReason = null;
+    if (state.replayId) removeStoredReplaySession(state.replayId);
+    return;
+  }
   const sequenceBeforeFinalFlush = state.sequence;
   try {
     await flushSessionReplay(reason);

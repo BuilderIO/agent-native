@@ -437,12 +437,17 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
+  // The banner reads the app's locale, so it sits inside the same provider.
   const localizedChildren =
     i18n === false ? (
-      children
+      <>
+        {children}
+        {ownsDocument ? <ConsentBanner /> : null}
+      </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
+        {ownsDocument ? <ConsentBanner /> : null}
       </AgentNativeI18nProvider>
     );
 
@@ -463,7 +468,6 @@ function ProvidersInner({
       {showEnvironmentBadge ? (
         <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
       ) : null}
-      {ownsDocument ? <ConsentBanner /> : null}
       {toaster}
     </TooltipProvider>
   );
