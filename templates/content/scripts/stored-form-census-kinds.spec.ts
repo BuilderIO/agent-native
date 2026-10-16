@@ -175,6 +175,19 @@ describe("body classification", () => {
         "alpha [x](https://example.com/beta)",
       ),
     ).toContain("gfm-text-dropped");
+    // Nor can an atom's serialized settings or a raw block's tag.
+    for (const block of [
+      '<bookmark url="https://example.com/beta">Site</bookmark>',
+      '<ContentReference sourcePath="../symbols/beta.builder.mdx" title="Docs Tip" />',
+    ]) {
+      expect(
+        canonicalizationLosses(
+          L("alpha beta", "", block),
+          L("alpha", "", block),
+        ),
+        block,
+      ).toContain("gfm-text-dropped");
+    }
   });
 
   it("classifies a line of list or quote markers in linear time", () => {
@@ -202,6 +215,13 @@ describe("body classification", () => {
       "Inline math $E = mc^2$ and a [link](https://example.com)",
       '<page url="https://www.notion.so/abc">Child Page</page>',
       "<table_of_contents/>",
+      '<bookmark url="https://example.com/beta">Site</bookmark>',
+      // Kept as raw source, formatting included.
+      L(
+        '<Callout type="tip">',
+        "Some **bold** words and a [link](https://example.com/x)",
+        "</Callout>",
+      ),
       L(
         '<synced_block url="https://www.notion.so/s">',
         "\tShared",

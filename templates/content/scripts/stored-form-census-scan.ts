@@ -14,12 +14,6 @@ type CensusQuery = (
   args?: unknown[],
 ) => Promise<Record<string, unknown>[]>;
 
-const PAGE_BATCH = 100;
-const ITEM_BATCH = 200;
-// Each suggestion's payloads are loaded with its batch, so the batch is small
-// and a row over the byte cap is counted without being loaded.
-const SUGGESTION_BATCH = 25;
-const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
 const ORPHAN_BATCH = 1000;
 // Larger bodies and live copies are counted without being parsed. Parsing has
 // no deadline: Content's parser is quadratic in the length of a line that
@@ -32,7 +26,17 @@ const MAX_BODY_BYTES = 256 * 1024;
 const MAX_LINE_CHARS = 32 * 1024;
 const MAX_NESTING = 100;
 const CONTAINER_MARKER = /[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))/y;
+const PAST_PARSER_LIMITS = `over ${MAX_BODY_BYTES} characters, or with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels`;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
+const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
+// What one query may return, which bounds the census's memory however large
+// the rows it meets: a batch holds as many rows as fit at their byte cap, and
+// a row over its cap is counted without being loaded.
+const QUERY_BYTES = 32 * 1024 * 1024;
+const PAGE_BATCH = QUERY_BYTES / MAX_BODY_BYTES;
+const LIVE_COPY_BATCH = QUERY_BYTES / MAX_LIVE_COPY_BASE64_BYTES;
+const COMMENT_BATCH = QUERY_BYTES / MAX_BODY_BYTES;
+const SUGGESTION_BATCH = QUERY_BYTES / MAX_SUGGESTION_PAYLOAD_BYTES;
 const KEEPALIVE_AFTER_MS = 10_000;
 const SUGGESTION_ADAPTER = "content.document-markdown";
 // The checks validateOperations in server/lib/suggested-edits.ts makes before
@@ -62,7 +66,7 @@ export const CENSUS_STATEMENTS = {
   suggestions:
     "SELECT id, resource_id FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id, id) >= (?, ?) ORDER BY resource_id, id LIMIT ?",
   suggestionOperations:
-    "SELECT o.suggestion_id, o.operation_kind, o.target_id, o.schema_version, p.payload_bytes, CASE WHEN p.payload_bytes <= ? THEN o.before_json END AS before_json, CASE WHEN p.payload_bytes <= ? THEN o.after_json END AS after_json, CASE WHEN p.payload_bytes <= ? THEN o.anchor_json END AS anchor_json FROM agent_review_suggestion_operations o CROSS JOIN LATERAL (SELECT COALESCE(octet_length(o.before_json), 0) + COALESCE(octet_length(o.after_json), 0) + COALESCE(octet_length(o.anchor_json), 0) AS payload_bytes) p WHERE o.suggestion_id = ANY(?) ORDER BY o.suggestion_id, o.ordinal",
+    "SELECT o.suggestion_id, o.operation_kind, o.target_id, o.schema_version, p.payload_bytes, CASE WHEN p.payload_bytes <= ? THEN o.before_json END AS before_json, CASE WHEN p.payload_bytes <= ? THEN o.after_json END AS after_json, CASE WHEN p.payload_bytes <= ? THEN o.anchor_json END AS anchor_json FROM agent_review_suggestion_operations o CROSS JOIN LATERAL (SELECT COALESCE(octet_length(o.before_json), 0) + COALESCE(octet_length(o.after_json), 0) + COALESCE(octet_length(o.anchor_json), 0) AS payload_bytes) p WHERE o.suggestion_id = ANY(?) AND NOT EXISTS (SELECT 1 FROM agent_review_suggestion_operations x WHERE x.suggestion_id = o.suggestion_id AND x.id <> o.id) ORDER BY o.suggestion_id",
   comments:
     "SELECT id, document_id, CASE WHEN octet_length(quoted_text) <= ? THEN quoted_text END AS quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id, id) >= (?, ?) ORDER BY document_id, id LIMIT ?",
   drafts:
@@ -325,7 +329,12 @@ function appliesTo(markdown: string, operation: SuggestionOperation) {
 function suggestionOutcome(
   operations: Record<string, unknown>[],
   page: AgentFormPage,
-): AnchorOutcome | "notAcceptable" | "unreadable" | "tooLarge" {
+):
+  | AnchorOutcome
+  | "notAcceptable"
+  | "unreadable"
+  | "tooLarge"
+  | "pastParserLimits" {
   if (operations.length !== 1) return "notAcceptable";
   const [row] = operations;
   if (Number(row.payload_bytes) > MAX_SUGGESTION_PAYLOAD_BYTES)
@@ -351,6 +360,8 @@ function suggestionOutcome(
   ) {
     return "notAcceptable";
   }
+  // Placing the anchor parses the text the suggestion was made against.
+  if (!withinParserLimits(before.value.markdown)) return "pastParserLimits";
   const operation = {
     kind: String(row.operation_kind),
     targetId: "body",
@@ -436,7 +447,7 @@ export async function runStoredFormCensusScan(
     canonical: new PageBucket(0),
     nonCanonical: pageBucket(),
     canonicalizeFailed: pageBucket(),
-    unclassified: pageBucket(),
+    readerFailed: pageBucket(),
     unreadable: pageBucket(),
     tooLarge: pageBucket(),
     pastParserLimits: pageBucket(),
@@ -499,8 +510,8 @@ export async function runStoredFormCensusScan(
         bodies.canonicalizeFailed.add(page);
         continue;
       }
-      if (result.status === "unclassified") {
-        bodies.unclassified.add(page);
+      if (result.status === "readerFailed") {
+        bodies.readerFailed.add(page);
         continue;
       }
       if (result.losses.length > 0) bodies.lossy.add(page);
@@ -524,33 +535,39 @@ export async function runStoredFormCensusScan(
         body: row.content,
         canonical: result.canonical,
       });
+      // An `unclassified` kind is a difference no normalizer names. The body
+      // was still judged for losses, so it leaves the report complete.
       for (const kind of result.kinds) bodies.byKind.get(kind).add(page);
       if (result.idempotence === "changes") bodies.notIdempotent.add(page);
       if (result.idempotence === "throws") bodies.idempotenceThrows.add(page);
     }
 
     if (hasCollab) {
-      const copies = new Map(
-        (
-          await read(CENSUS_STATEMENTS.liveCopies, [
-            MAX_LIVE_COPY_BASE64_BYTES,
-            [...batchPages.keys()],
-          ])
-        ).map((row) => [String(row.doc_id), row.yjs_state]),
-      );
-      for (const page of batchPages.values()) {
-        const body = batchBodies.get(page.id);
-        const state = copies.get(page.id);
-        let outcome: LiveCopyOutcome;
-        if (!copies.has(page.id)) outcome = "missing";
-        else if (state == null) outcome = "tooLarge";
-        else if (body === undefined) outcome = "bodyNotRead";
-        else if (typeof state !== "string") outcome = "unreadable";
-        else {
-          outcome = liveCopyOutcome(state, body);
-          await keepAlive();
+      const batch = [...batchPages.values()];
+      for (let start = 0; start < batch.length; start += LIVE_COPY_BATCH) {
+        const chunk = batch.slice(start, start + LIVE_COPY_BATCH);
+        const copies = new Map(
+          (
+            await read(CENSUS_STATEMENTS.liveCopies, [
+              MAX_LIVE_COPY_BASE64_BYTES,
+              chunk.map((page) => page.id),
+            ])
+          ).map((row) => [String(row.doc_id), row.yjs_state]),
+        );
+        for (const page of chunk) {
+          const body = batchBodies.get(page.id);
+          const state = copies.get(page.id);
+          let outcome: LiveCopyOutcome;
+          if (!copies.has(page.id)) outcome = "missing";
+          else if (state == null) outcome = "tooLarge";
+          else if (body === undefined) outcome = "bodyNotRead";
+          else if (typeof state !== "string") outcome = "unreadable";
+          else {
+            outcome = liveCopyOutcome(state, body);
+            await keepAlive();
+          }
+          liveCopies.byOutcome.get(outcome).add(page);
         }
-        liveCopies.byOutcome.get(outcome).add(page);
       }
     }
 
@@ -571,6 +588,9 @@ export async function runStoredFormCensusScan(
         2,
         SUGGESTION_BATCH,
       )) {
+        // Content accepts a suggestion only with exactly one operation, so the
+        // query loads no others: a malformed suggestion may have any number,
+        // and one that loads none is not acceptable.
         const operations = new Map<string, Record<string, unknown>[]>(
           suggestions.map((row) => [String(row.id), []]),
         );
@@ -620,7 +640,7 @@ export async function runStoredFormCensusScan(
           ]),
         (row) => [String(row.document_id), String(row.id)],
         2,
-        ITEM_BATCH,
+        COMMENT_BATCH,
       )) {
         for (const row of comments) {
           const page = pages.get(String(row.document_id))!;
@@ -683,14 +703,14 @@ export async function runStoredFormCensusScan(
       bodies.pastParserLimits.pages,
     ],
     ["bodies canonicalizeNfm threw on", bodies.canonicalizeFailed.pages],
-    ["bodies the census could not classify", bodies.unclassified.pages],
+    ["bodies the census's own readers failed on", bodies.readerFailed.pages],
     ["unreadable live copies", liveCopies.byOutcome.pagesIn("unreadable")],
     [
       `live copies over ${MAX_LIVE_COPY_BASE64_BYTES} bytes, not compared`,
       liveCopies.byOutcome.pagesIn("tooLarge"),
     ],
     [
-      `live copies over ${MAX_BODY_BYTES} characters, or with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels, not compared`,
+      `live copies ${PAST_PARSER_LIMITS}, not compared`,
       liveCopies.byOutcome.pagesIn("pastParserLimits"),
     ],
     [
@@ -700,6 +720,10 @@ export async function runStoredFormCensusScan(
     [
       `pages with suggestions over ${MAX_SUGGESTION_PAYLOAD_BYTES} bytes, not judged`,
       agentForm.suggestions.pagesIn("tooLarge"),
+    ],
+    [
+      `pages with suggestions made against text ${PAST_PARSER_LIMITS}, not judged`,
+      agentForm.suggestions.pagesIn("pastParserLimits"),
     ],
     [
       "pages with comments whose anchors could not be checked",
@@ -736,7 +760,7 @@ export async function runStoredFormCensusScan(
       lossByKind: bodies.lossByKind,
       canonicalButMisread: bodies.canonicalButMisread,
       canonicalizeFailed: bodies.canonicalizeFailed,
-      unclassified: bodies.unclassified,
+      readerFailed: bodies.readerFailed,
       notIdempotent: bodies.notIdempotent,
       idempotenceThrows: bodies.idempotenceThrows,
       unreadable: bodies.unreadable,

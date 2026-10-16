@@ -906,6 +906,7 @@ describe("stored-form census against a local database", () => {
       ["suggestion-whole", body, "note"],
       ["suggestion-older", "older text", "newer text"],
       ["suggestion-huge", "x".repeat(5 * 1024 * 1024), "y"],
+      ["suggestion-long-line", "word ".repeat(7_000).trim(), "y"],
     ]) {
       await db.execute({
         sql: "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, actor_kind, base_revision, summary, created_at, updated_at) VALUES (?, 'document', 'page-repeat', 'content.document-markdown', 1, 't2', 'agent', 'r0', 'Edit', 'now', 'now')",
@@ -921,6 +922,12 @@ describe("stored-form census against a local database", () => {
         ],
       });
     }
+    await db.execute(
+      "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, actor_kind, base_revision, summary, created_at, updated_at) VALUES ('suggestion-many', 'document', 'page-repeat', 'content.document-markdown', 1, 't2', 'agent', 'r0', 'Edit', 'now', 'now')",
+    );
+    await db.execute(
+      `INSERT INTO agent_review_suggestion_operations (id, suggestion_id, ordinal, operation_kind, target_id, before_json, after_json, schema_version) SELECT 'suggestion-many-' || i, 'suggestion-many', i, 'replace_text', 'body', '{"markdown":"a"}', '{"markdown":"b"}', 1 FROM generate_series(0, 2) AS i`,
+    );
     for (const [id, quote] of [
       ["comment-repeat", "note"],
       ["comment-code", "a``b"],
@@ -947,6 +954,11 @@ describe("stored-form census against a local database", () => {
       items: 1,
       pageIds: ["page-repeat"],
     });
+    expect(suggestions.pastParserLimits).toMatchObject({
+      items: 1,
+      pageIds: ["page-repeat"],
+    });
+    expect(suggestions.notAcceptable.pageIds).toContain("page-repeat");
     const comments = report.agentFormPages.commentAnchors;
     expect(comments.ambiguous).toMatchObject({
       items: 1,
@@ -955,6 +967,7 @@ describe("stored-form census against a local database", () => {
     expect(comments.strandedByCanonicalize.pageIds).toContain("page-repeat");
     expect(report.incompleteReasons).toEqual([
       "pages with suggestions over 4194304 bytes, not judged: 1",
+      "pages with suggestions made against text over 262144 characters, or with a line over 32768 characters or nested over 100 levels, not judged: 1",
       "pages with comments whose repeated quote may land elsewhere: 1",
     ]);
   });

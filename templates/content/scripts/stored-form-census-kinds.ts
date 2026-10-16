@@ -13,7 +13,7 @@ import { canonicalizeNfm, nfmToDoc, type PMNode } from "../shared/nfm.js";
 export type BodyClassification =
   | { status: "canonical"; losses: string[] }
   | { status: "failed" }
-  | { status: "unclassified" }
+  | { status: "readerFailed" }
   | {
       status: "non-canonical";
       canonical: string;
@@ -316,7 +316,9 @@ const NFM_MARK: Record<string, (typeof MARKS)[number]> = {
 };
 
 const TOKEN = /[\p{L}\p{N}]+/gu;
-const URL_ATTRIBUTES = new Set(["href", "src", "url"]);
+// The attributes that hold text a reader sees: a toggle's summary, an atom's
+// label (an equation's LaTeX, a bookmark's title) and a video's caption.
+const TEXT_ATTRIBUTES = ["label", "summary", "title"] as const;
 
 function emptyProfile(): ReadProfile {
   return {
@@ -334,6 +336,29 @@ function emptyProfile(): ReadProfile {
     blockquotes: 0,
     images: 0,
   };
+}
+
+const PROFILE_COUNTS = [
+  "backslashes",
+  "listItems",
+  "nestedListItems",
+  "headings",
+  "tables",
+  "codeBlocks",
+  "blockquotes",
+  "images",
+] as const;
+
+/** Adds what `part` read, as text that follows `profile`'s so far. */
+function appendProfile(profile: ReadProfile, part: ReadProfile) {
+  const offset = profile.letters.length;
+  for (const letter of part.letters) profile.letters.push(letter);
+  for (const mark of MARKS)
+    for (const index of part.marks[mark])
+      profile.marks[mark].push(index + offset);
+  for (const [token, count] of part.tokens)
+    profile.tokens.set(token, (profile.tokens.get(token) ?? 0) + count);
+  for (const key of PROFILE_COUNTS) profile[key] += part[key];
 }
 
 function addTokens(profile: ReadProfile, text: string) {
@@ -573,17 +598,24 @@ function gfmProfile(body: string): ReadProfile {
 }
 
 /**
- * What Content's own reader keeps of a body. Words held in attributes, such
- * as a toggle's summary or an equation's LaTeX, count as kept; a link's or
- * image's address does not, since nobody reads it and its words could stand
- * in for dropped ones.
+ * What Content's own reader keeps of a body. Words in an attribute a reader
+ * sees count as kept; addresses, colors and other serialized settings do
+ * not, since their words could stand in for dropped ones.
  */
 function nfmProfile(document: PMNode): ReadProfile {
   const profile = emptyProfile();
-  const addAttributeWords = (attrs: Record<string, unknown> | undefined) => {
-    for (const [name, value] of Object.entries(attrs ?? {}))
-      if (typeof value === "string" && !URL_ATTRIBUTES.has(name))
-        addTokens(profile, value);
+  const addAttributeText = (attrs: Record<string, unknown> | undefined) => {
+    // Content writes a raw block back as it read it, so it keeps everything a
+    // GFM reader sees in that source, formatting included; the block's other
+    // attributes repeat parts of it.
+    if (typeof attrs?.__raw === "string") {
+      appendProfile(profile, gfmProfile(attrs.__raw));
+      return;
+    }
+    for (const name of TEXT_ATTRIBUTES) {
+      const value = attrs?.[name];
+      if (typeof value === "string") addTokens(profile, value);
+    }
   };
   const walk = (node: PMNode, listDepth: number) => {
     if (typeof node.text === "string") {
@@ -594,8 +626,7 @@ function nfmProfile(document: PMNode): ReadProfile {
         node.text,
       );
     }
-    addAttributeWords(node.attrs);
-    for (const mark of node.marks ?? []) addAttributeWords(mark.attrs);
+    addAttributeText(node.attrs);
     switch (node.type) {
       case "heading":
         profile.headings += 1;
@@ -707,7 +738,7 @@ export function classifyBody(body: string): BodyClassification {
     losses = canonicalizationLosses(body, canonical);
     kinds = canonical === body ? [] : differenceKinds(body, canonical);
   } catch {
-    return { status: "unclassified" };
+    return { status: "readerFailed" };
   }
   if (canonical === body) return { status: "canonical", losses };
   let idempotence: "idempotent" | "changes" | "throws";
