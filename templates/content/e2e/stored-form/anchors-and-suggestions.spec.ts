@@ -725,6 +725,8 @@ test.describe(
     ].join("\n");
 
     const PRICE = { find: "costs $60", replace: "costs $75" };
+    // A find/replace suggestion paints only the characters that change.
+    const PRICE_MARKS = { deleted: "60", inserted: "75" };
 
     const AGENT_FORM_LOSS =
       "A pending suggestion on an agent-form page with an escaped underscore before it and a pipe table after it never renders in the editor, and once the first browser save rewrites the page in the stored form, accepting it fails with suggestion_stale.";
@@ -802,12 +804,11 @@ test.describe(
           // and accept checks after it report.
           await expect.soft
             .poll(() => suggestionMarks(tab, price), {
-              message: `${label}: the suggestion paints "${PRICE.find}" → "${PRICE.replace}" in the Charlie paragraph`,
+              message: `${label}: the suggestion paints "${PRICE_MARKS.deleted}" → "${PRICE_MARKS.inserted}" in the Charlie paragraph`,
               timeout: 30_000,
             })
             .toEqual({
-              deleted: PRICE.find,
-              inserted: PRICE.replace,
+              ...PRICE_MARKS,
               blocks: [expect.stringMatching(/^Charlie paragraph/)],
             });
         };
