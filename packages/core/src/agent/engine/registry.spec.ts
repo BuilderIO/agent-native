@@ -105,6 +105,7 @@ describe("AgentEngine registry", () => {
     vi.mocked(builderOAuth.resolveBuilderOAuthRequestAccess).mockResolvedValue(
       null,
     );
+    vi.doUnmock("../../settings/index.js");
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../settings/user-settings.js");
     vi.doUnmock("../../server/credential-provider.js");
@@ -655,24 +656,31 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "owner@example.com",
         getRequestOrgId: () => undefined,
       }));
+      vi.doMock("../../settings/index.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/index.js")>()),
+        getUserSetting,
+      }));
       vi.doMock("../../settings/user-settings.js", () => ({
         getUserSetting,
       }));
       vi.doMock("../../settings/store.js", async (importOriginal) => ({
         ...(await importOriginal<typeof import("../../settings/store.js")>()),
-        getSetting: vi.fn(async (key: string) => {
-          return { engine: "builder", model: "claude-sonnet-5" };
-        }),
+        getSetting: vi.fn(async (key: string) =>
+          key === "agent-engine"
+            ? { engine: "builder", model: "claude-sonnet-5" }
+            : null,
+        ),
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
 
-      expect(
-        await getStoredModelForEngine("builder", { appId: "analytics" }),
-      ).toBe("gemini-3-1-pro");
+      const model = await getStoredModelForEngine("builder", {
+        appId: "analytics",
+      });
       expect(getUserSetting).toHaveBeenCalledWith(
         "owner@example.com",
         "agent-app-model-default:analytics",
       );
+      expect(model).toBe("gemini-3-1-pro");
     });
   });
 
