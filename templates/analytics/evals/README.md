@@ -41,6 +41,18 @@ accuracy improvement. The generated index now includes the missing membership
 grains; rerun the same cases after the index is imported to measure the
 accuracy gain. No production index or data rows were written for this eval.
 
+## Latest synthetic question wave
+
+The [synthetic query-path report](./synthetic-query-path/README.md) and
+[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v2.csv)
+compare the previous PR head with the candidate on ten synthetic questions.
+The candidate passes 20/20 guidance and production-path contract checks versus
+18/20 on the baseline. The two baseline misses are the related-metric guidance
+check for a Content API request count versus Visual Views. The deterministic
+engine scripts the tool sequence, query, and final response, so this score does
+not measure model choice or independent answer accuracy. See the report for the
+scope and limits of the comparison.
+
 ## Synthetic source and grain cases
 
 ### Historical production-path comparison v24 (superseded)
