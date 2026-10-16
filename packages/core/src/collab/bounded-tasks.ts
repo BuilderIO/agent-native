@@ -1,22 +1,12 @@
 import type { Worker as NodeWorker } from "node:worker_threads";
 
 import { getWorkerThreads } from "../shared/optional-node-builtins.js";
+import {
+  BOUNDED_TASK_GLOBAL,
+  type BoundedTaskSource,
+} from "./bounded-task-source.js";
 
-/**
- * Identifier the bundled task module is assigned to. `bundleBoundedTaskSource`
- * emits an IIFE with this global name; the worker host reads it back.
- */
-export const BOUNDED_TASK_GLOBAL = "__agentNativeBoundedTasks";
-
-/**
- * A self-contained task module, bundled to one script. Produce it with
- * `bundleBoundedTaskSource` (Node, esbuild); never hand-write `code`.
- */
-export interface BoundedTaskSource {
-  readonly kind: "bounded-task-source";
-  readonly name: string;
-  readonly code: string;
-}
+export { BOUNDED_TASK_GLOBAL, type BoundedTaskSource };
 
 export type BoundedTaskErrorCode =
   | "unavailable"
