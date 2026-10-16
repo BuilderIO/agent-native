@@ -112,4 +112,48 @@ describe("rebaseBodyEdit", () => {
       "One\nTwo B",
     );
   });
+
+  describe("with the ranges of base the edit replaced", () => {
+    const base = "Alpha\nBravo\nCharlie\nDelta\nEcho";
+    // Replacing "Alpha\nBravo\nCharlie" with "Bravo\nCharlie\nNew", which
+    // the diff reads as keeping Bravo and Charlie.
+    const candidate = "Bravo\nCharlie\nNew\nDelta\nEcho";
+    const replaced = [{ start: 0, end: "Alpha\nBravo\nCharlie".length }];
+
+    it("refuses an edit whose replaced text another writer changed, though the diff reads it as kept", () => {
+      const current = "Alpha\nBravo peer\nCharlie\nDelta\nEcho";
+      expect(rebaseBodyEdit(base, candidate, current, replaced)).toBeNull();
+      expect(rebaseBodyEdit(base, candidate, current)).toBe(
+        "Bravo peer\nCharlie\nNew\nDelta\nEcho",
+      );
+    });
+
+    it("applies an edit when another writer changed a block outside its replaced text", () => {
+      expect(
+        rebaseBodyEdit(
+          base,
+          candidate,
+          "Alpha\nBravo\nCharlie\nDelta\nEcho peer",
+          replaced,
+        ),
+      ).toBe("Bravo\nCharlie\nNew\nDelta\nEcho peer");
+    });
+  });
+
+  it("adds a new block both writers added in different places twice", () => {
+    expect(
+      rebaseBodyEdit("A\nB\nC\nD", "A\nNew\nB\nC\nD", "A\nB\nC\nNew\nD"),
+    ).toBe("A\nNew\nB\nC\nNew\nD");
+    // An agent's blank paragraph while a tab presses Enter elsewhere.
+    expect(
+      rebaseBodyEdit(
+        "A\nB\nC\nD",
+        "A\n<empty-block/>\nB\nC\nD",
+        "A\nB\nC\n<empty-block/>\nD",
+      ),
+    ).toBe("A\n<empty-block/>\nB\nC\n<empty-block/>\nD");
+    expect(rebaseBodyEdit("A\nB\nC\nD", "A\nDone\nC\nD", "A\nB\nC\nDone")).toBe(
+      "A\nDone\nC\nDone",
+    );
+  });
 });

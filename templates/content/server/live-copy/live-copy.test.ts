@@ -1281,6 +1281,37 @@ describe("edit-document on a switched page", () => {
     expect(await collabVersion("find-changed")).toBe(version);
   });
 
+  it("refuses an edit whose find covered a paragraph a tab changed, though the edit kept that paragraph", async () => {
+    await switchedPage(
+      "find-kept",
+      "Alpha\n\nBravo\n\nCharlie\n\nDelta\n\nEcho",
+    );
+    const loaded = await page("find-kept");
+    await typeInTab(
+      "find-kept",
+      "Alpha\n\nBravo typed\n\nCharlie\n\nDelta\n\nEcho",
+    );
+    const typed = (await page("find-kept")).content;
+    const version = await collabVersion("find-kept");
+    const body = loaded.content;
+    const find = body.slice(0, body.indexOf("Charlie") + "Charlie".length);
+    const kept = find.slice(find.indexOf("Bravo"));
+    const separator = body.slice(
+      body.indexOf("Bravo") + 5,
+      body.indexOf("Charlie"),
+    );
+
+    // The diff reads the replace as deleting Alpha and adding New.
+    await expect(
+      agentEdit("find-kept", loaded, [
+        { find, replace: `${kept}${separator}New` },
+      ]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("find-kept")).content).toBe(typed);
+    expect(await collabVersion("find-kept")).toBe(version);
+  });
+
   it("applies an edit beside a paragraph a tab added since its base", async () => {
     await switchedPage("added-beside", "First\n\nSecond");
     const loaded = await page("added-beside");
@@ -1568,6 +1599,27 @@ describe("a server rewrite of a switched page's body", () => {
     const after = await page("alt-text-peer");
     expect(after.content).toContain("Intro typed");
     expect(after.content).toContain(`![A cat](${IMAGE})`);
+  });
+
+  it("writes alt text to the image it read, though a tab added one with the same URL before it", async () => {
+    await switchedPage(
+      "alt-text-same-url",
+      `Original\n\n![original](${IMAGE})`,
+    );
+    const spy = peerCommitsAfterBuild(
+      "alt-text-same-url",
+      `Inserted\n\n![peer](${IMAGE})\n\nOriginal\n\n![original](${IMAGE})`,
+    );
+    try {
+      await setAltText("alt-text-same-url", "A cat");
+    } finally {
+      spy.mockRestore();
+    }
+
+    const after = await page("alt-text-same-url");
+    expect(after.content).toContain(`![peer](${IMAGE})`);
+    expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
+    expect(after.content).not.toContain("![original]");
   });
 
   it("writes alt text through update-document with the flags off, as on main", async () => {

@@ -17,6 +17,16 @@ import {
   type ContentBodyWriteCause,
 } from "./write-cause.js";
 
+type ContentLiveCopyBodyEdit = {
+  base: string;
+  candidate: string;
+  /**
+   * The ranges of `base` the writer replaced, such as edit-document's finds;
+   * a tab's change to a block they touch refuses the rebase.
+   */
+  authored?: ReadonlyArray<{ start: number; end: number }>;
+};
+
 /**
  * A server writer's replace names the body it was built from. Core retries
  * an edit a peer's commit overtook, and a replace without `expected` would
@@ -24,10 +34,8 @@ import {
  * its edit was made on, or, with `earlier`, the recorded bodies after and
  * before a base History no longer holds.
  */
-export type ContentLiveCopyRebaseInput = {
-  base: string;
-  candidate: string;
-  earlier?: { base: string; candidate: string };
+export type ContentLiveCopyRebaseInput = ContentLiveCopyBodyEdit & {
+  earlier?: ContentLiveCopyBodyEdit;
 };
 
 type ContentLiveCopyEditInput<Edit extends string> =
@@ -55,23 +63,29 @@ function replaceBodyInput(
   return { content, expected };
 }
 
-function rebaseBodyInput(input: unknown): {
-  base: unknown;
-  candidate: unknown;
-  earlier?: { base: unknown; candidate: unknown };
-} {
-  const { base, candidate, earlier } = (input ?? {}) as {
-    base?: unknown;
-    candidate?: unknown;
-    earlier?: { base?: unknown; candidate?: unknown };
+function bodyEditInput(input: unknown): Record<string, unknown> {
+  const { base, candidate, authored } = (input ?? {}) as Record<
+    string,
+    unknown
+  >;
+  if (authored === undefined) return { base, candidate };
+  return {
+    base,
+    candidate,
+    authored: Array.isArray(authored)
+      ? authored.map((range) => {
+          const { start, end } = (range ?? {}) as Record<string, unknown>;
+          return { start, end };
+        })
+      : authored,
   };
+}
+
+function rebaseBodyInput(input: unknown): Record<string, unknown> {
+  const { earlier } = (input ?? {}) as Record<string, unknown>;
   return earlier === undefined
-    ? { base, candidate }
-    : {
-        base,
-        candidate,
-        earlier: { base: earlier?.base, candidate: earlier?.candidate },
-      };
+    ? bodyEditInput(input)
+    : { ...bodyEditInput(input), earlier: bodyEditInput(earlier) };
 }
 
 /**
@@ -180,18 +194,16 @@ export async function editContentLiveCopy<Edit extends string>(
   );
 }
 
-// A commit between a rewrite's read and its write refuses the replace;
-// each attempt reads the body again.
-const REWRITE_ATTEMPTS = 3;
-
 /**
  * Writes `rewrite(body)` to a switched page for a server writer that derives
  * its change from the page's current body, such as alt text or a
- * transcript. The replace names the body it was built from, so a tab's
- * commit since the read runs the rewrite again on the newer body rather
- * than overwrite it; `rewrite` returns null when its target is gone from
- * that body. False when the page is not on its live copy, or left it before
- * anything committed, so the writer takes its legacy path.
+ * transcript. The change is rebased onto any tab's commit since the read,
+ * as an agent's edit is: the rewrite's target is the block it changed, not
+ * whatever a selector such as "the first image with this URL" would pick in
+ * the newer body. A change whose place that commit leaves ambiguous, or a
+ * target `rewrite` (null) doesn't find, is refused as
+ * DOCUMENT_REVISION_CONFLICT. False when the page is not on its live copy,
+ * or left it before anything committed, so the writer takes its legacy path.
  */
 export async function rewriteContentLiveCopyBody(
   documentId: string,
@@ -200,36 +212,35 @@ export async function rewriteContentLiveCopyBody(
     rewrite: (body: string) => string | null;
   },
 ): Promise<boolean> {
-  for (let attempt = 0; attempt < REWRITE_ATTEMPTS; attempt += 1) {
-    if (!(await isLiveBodyWriterPage(documentId))) return false;
-    // guard:allow-unscoped — callers assert editor access to the page first.
-    const [row] = await getDb()
-      .select({ content: schema.documents.content })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId));
-    const body = row?.content ?? "";
-    const content = options.rewrite(body);
-    if (content === null) {
+  if (!(await isLiveBodyWriterPage(documentId))) return false;
+  // guard:allow-unscoped — callers assert editor access to the page first.
+  const [row] = await getDb()
+    .select({ content: schema.documents.content })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  const body = row?.content ?? "";
+  const content = options.rewrite(body);
+  if (content === null) {
+    throw new ActionContractError(
+      "The document changed, and this change no longer applies to it. Read it again and retry.",
+      { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
+    );
+  }
+  try {
+    await editContentLiveCopy(documentId, {
+      cause: options.cause,
+      edit: CONTENT_LIVE_COPY_EDITS.rebaseBody,
+      input: { base: body, candidate: content },
+    });
+    return true;
+  } catch (error) {
+    if (liveCopyWriteLeftPath(error)) return false;
+    if (liveCopyRebaseConflict(error)) {
       throw new ActionContractError(
-        "The document changed, and this change no longer applies to it. Read it again and retry.",
+        "The document changed where this change applies. Read it again and retry.",
         { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
       );
     }
-    try {
-      await editContentLiveCopy(documentId, {
-        cause: options.cause,
-        edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
-        input: { content, expected: body },
-      });
-      return true;
-    } catch (error) {
-      if (liveCopyBaseChanged(error)) continue;
-      if (liveCopyWriteLeftPath(error)) return false;
-      throw unrepresentableBodyError(error) ?? error;
-    }
+    throw unrepresentableBodyError(error) ?? error;
   }
-  throw new ActionContractError(
-    "The document kept changing while this change was being written. Retry it.",
-    { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
-  );
 }

@@ -22,7 +22,7 @@ import {
   applySuggestionEdit,
   type ApplySuggestionInput,
 } from "./apply-suggestion-edit.js";
-import { rebaseBodyEdit } from "./rebase.js";
+import { rebaseBodyEdit, type BodyTextRange } from "./rebase.js";
 import { CONTENT_HOLDS_BODY_TASK, type HoldsBodyResult } from "./task-names.js";
 
 // The worker half of Content's live copy: every handler here runs in the
@@ -128,28 +128,56 @@ function replaceBodyInput(
   return expected === undefined ? { content } : { content, expected };
 }
 
-type BodyEdit = { base: string; candidate: string };
+type BodyEdit = {
+  base: string;
+  candidate: string;
+  authored: BodyTextRange[];
+};
+
+function isTextRange(value: unknown, length: number): value is BodyTextRange {
+  const { start, end } = (value ?? {}) as Record<string, unknown>;
+  return (
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    0 <= (start as number) &&
+    (start as number) <= (end as number) &&
+    (end as number) <= length
+  );
+}
 
 function bodyEdit(value: unknown): BodyEdit | undefined {
-  const { base, candidate } = (value ?? {}) as Record<string, unknown>;
-  return typeof base === "string" && typeof candidate === "string"
-    ? { base, candidate }
-    : undefined;
+  const { base, candidate, authored } = (value ?? {}) as Record<
+    string,
+    unknown
+  >;
+  if (typeof base !== "string" || typeof candidate !== "string") {
+    return undefined;
+  }
+  if (authored === undefined) return { base, candidate, authored: [] };
+  if (
+    !Array.isArray(authored) ||
+    !authored.every((range) => isTextRange(range, base.length))
+  ) {
+    return undefined;
+  }
+  return {
+    base,
+    candidate,
+    authored: authored.map(({ start, end }) => ({ start, end })),
+  };
 }
+
+const BODY_EDIT_SHAPE =
+  "{ base, candidate } as strings, with authored? as ranges of base";
 
 function rebaseBodyInput(input: unknown): BodyEdit[] | LiveCopyTaskRefusal {
   const edit = bodyEdit(input);
-  if (!edit) {
-    return refused("invalid_input", "expected { base, candidate } as strings");
-  }
+  if (!edit) return refused("invalid_input", `expected ${BODY_EDIT_SHAPE}`);
   const { earlier } = (input ?? {}) as Record<string, unknown>;
   if (earlier === undefined) return [edit];
   const earlierEdit = bodyEdit(earlier);
   if (!earlierEdit) {
-    return refused(
-      "invalid_input",
-      "expected earlier as { base, candidate } strings",
-    );
+    return refused("invalid_input", `expected earlier as ${BODY_EDIT_SHAPE}`);
   }
   return [edit, earlierEdit];
 }
@@ -245,8 +273,9 @@ const liveCopyTasks = defineLiveCopyTasks({
      * Applies the blocks `candidate` changed from `base` to the current body
      * (`rebaseBodyEdit`), so a writer's edit keeps what tabs typed since its
      * base. Refuses `conflict` when the edit's place in the current body is
-     * ambiguous. A peer's commit that overtakes it runs it again on the
-     * peer's body.
+     * ambiguous, or when a tab changed a block the edit's `authored` ranges
+     * of `base` touch. A peer's commit that overtakes it runs it again on
+     * the peer's body.
      *
      * With `earlier`, `base` and `earlier.base` are the recorded bodies
      * after and before a base no longer known, each with the edit made on
@@ -265,7 +294,7 @@ const liveCopyTasks = defineLiveCopyTasks({
       const [content, ...others] = edits.map((edit) =>
         current === edit.base
           ? edit.candidate
-          : rebaseBodyEdit(edit.base, edit.candidate, current),
+          : rebaseBodyEdit(edit.base, edit.candidate, current, edit.authored),
       );
       if (content === null) return refused("conflict");
       // A candidate that needed no rebase is still in the writer's form.
