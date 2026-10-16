@@ -14,6 +14,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 
 import {
+  buildRecordingErrorToastOptions,
   isStorageStatusUnavailable,
   localizedRecordingErrorMessage,
   recordingErrorToastRecoveryAction,
@@ -696,6 +697,29 @@ describe("record route lifecycle shell", () => {
       labelKey: "recordRoute.openRecorderInTab",
       url: directUrl,
     });
+  });
+
+  it("wires toast tab recovery to the selected recorder URL", () => {
+    const originalUrl = window.location.href;
+    try {
+      window.history.replaceState({}, "", "/record?spaceId=space-1");
+      const expectedUrl = new URL(window.location.href);
+      expectedUrl.searchParams.set("mode", "screen");
+      expectedUrl.searchParams.set("surface", "window");
+      const openRecoveryUrl = vi.fn();
+      const options = buildRecordingErrorToastOptions(
+        "Screen capture blocked by Permissions-Policy.",
+        { mode: "screen", displaySurface: "window", micDeviceId: null },
+        (key) => key,
+        openRecoveryUrl,
+      );
+
+      expect(options.action?.label).toBe("recordRoute.openRecorderInTab");
+      options.action?.onClick();
+      expect(openRecoveryUrl).toHaveBeenCalledWith(expectedUrl.toString());
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
   });
 
   it("preserves the failed mode and surface in card tab recovery", () => {

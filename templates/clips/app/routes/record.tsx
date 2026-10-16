@@ -586,6 +586,46 @@ export function recordingErrorToastRecoveryAction(
   return url ? { labelKey: "recordRoute.openSettings", url } : null;
 }
 
+export function buildRecordingErrorToastOptions(
+  message: string,
+  pendingOpts: {
+    mode?: RecordingMode;
+    displaySurface?: DisplaySurface;
+    micDeviceId?: string | null;
+  } | null,
+  t: (
+    key: "recordRoute.openRecorderInTab" | "recordRoute.openSettings",
+  ) => string,
+  openRecoveryUrl: (url: string) => void,
+): {
+  description: string;
+  duration: number;
+  action?: { label: string; onClick: () => void };
+} {
+  const uploadFailure = isUploadFailureError(message);
+  const embeddedCapturePolicyUnknownError =
+    isEmbeddedCapturePolicyUnknownError(message);
+  const guidance =
+    uploadFailure || embeddedCapturePolicyUnknownError
+      ? null
+      : permissionGuidance(message, pendingOpts ?? undefined);
+  const recoveryAction = recordingErrorToastRecoveryAction(
+    message,
+    pendingOpts?.mode,
+    directRecorderUrl(pendingOpts ?? undefined),
+  );
+  return {
+    description: guidance ?? friendlyRecordingErrorMessage(message),
+    duration: guidance ? 20_000 : 10_000,
+    action: recoveryAction
+      ? {
+          label: t(recoveryAction.labelKey),
+          onClick: () => openRecoveryUrl(recoveryAction.url),
+        }
+      : undefined,
+  };
+}
+
 function isDismissedCapturePicker(err: unknown, message: string): boolean {
   const name = err instanceof Error ? err.name : "";
   return (
@@ -1601,30 +1641,12 @@ export default function RecordRoute() {
     (message: string) => {
       const pendingOpts = pendingStartOptsRef.current;
       const uploadFailure = isUploadFailureError(message);
-      const embeddedCapturePolicyUnknownError =
-        isEmbeddedCapturePolicyUnknownError(message);
-      const guidance =
-        uploadFailure || embeddedCapturePolicyUnknownError
-          ? null
-          : permissionGuidance(message, pendingOpts ?? undefined);
-      const recoveryAction = recordingErrorToastRecoveryAction(
+      const options = buildRecordingErrorToastOptions(
         message,
-        pendingOpts?.mode,
-        directRecorderUrl(pendingOpts ?? undefined),
+        pendingOpts,
+        t,
+        openUrlFromUserGesture,
       );
-      const friendlyMessage = friendlyRecordingErrorMessage(message);
-      const options = {
-        description: guidance ?? friendlyMessage,
-        duration: guidance ? 20_000 : 10_000,
-        action: recoveryAction
-          ? {
-              label: t(recoveryAction.labelKey),
-              onClick: () => {
-                openUrlFromUserGesture(recoveryAction.url);
-              },
-            }
-          : undefined,
-      };
       if (uploadFailure) {
         failUploadToast(t("recordRoute.uploadFailed"), options);
       } else {
