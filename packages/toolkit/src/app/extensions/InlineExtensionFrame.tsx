@@ -56,8 +56,10 @@ const THEME_CSS_VARS = [
   "--sidebar-ring",
 ];
 
-const EXTENSION_IFRAME_SANDBOX =
-  normalizeAgentNativeExtensionSandbox(undefined);
+const EXTENSION_IFRAME_SANDBOX = normalizeAgentNativeExtensionSandbox(
+  undefined,
+  { mode: "nonce" },
+);
 
 interface InlineExtensionSource {
   mode?: "database" | "local-files";

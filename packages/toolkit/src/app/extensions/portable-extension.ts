@@ -440,16 +440,23 @@ export function createHttpAgentNativeExtensionStorage({
 
 export function normalizeAgentNativeExtensionSandbox(
   sandbox: string | undefined,
+  options: { mode?: "legacy" | "nonce" } = {},
 ): string {
+  const mode = options.mode ?? "legacy";
   const tokens = new Set(
-    (sandbox ?? "allow-scripts allow-forms allow-downloads")
+    (
+      sandbox ??
+      (mode === "legacy"
+        ? "allow-scripts allow-forms allow-popups allow-downloads"
+        : "allow-scripts allow-forms allow-downloads")
+    )
       .split(/\s+/)
       .filter(Boolean)
       .map((token) => token.toLowerCase()),
   );
   tokens.delete("allow-same-origin");
-  tokens.delete("allow-popups");
   tokens.delete("allow-popups-to-escape-sandbox");
+  if (mode === "nonce") tokens.delete("allow-popups");
   tokens.add("allow-scripts");
   tokens.add("allow-downloads");
   return Array.from(tokens).join(" ");
@@ -481,7 +488,7 @@ export function buildAgentNativeExtensionHtml({
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttribute(EXTENSION_IFRAME_META_CSP)}" />
   <title>${escapeHtmlAttribute(titleText)}</title>
-  ${buildExtensionExternalLinkTargetBootstrap(linkNonce)}
+  ${linkNonce ? buildExtensionExternalLinkTargetBootstrap(linkNonce) : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
@@ -542,10 +549,14 @@ export function buildAgentNativeExtensionHtml({
       var pending = {};
       var hostPort = null;
       var queuedHostMessages = [];
+      var legacyWindowBridge = ${linkNonce ? "false" : "true"};
+      var parentWindow = window.parent;
 
       function postToHost(message) {
         if (hostPort) {
           hostPort.postMessage(message);
+        } else if (legacyWindowBridge) {
+          parentWindow.postMessage(message, '*');
         } else {
           queuedHostMessages.push(message);
         }
@@ -608,6 +619,11 @@ export function buildAgentNativeExtensionHtml({
         }
       }
 
+      function handleLegacyHostMessage(event) {
+        if (event.source !== parentWindow) return;
+        handleHostMessage(event);
+      }
+
       function attachHostPort() {
         var nextPort = window.__agentNativeExtensionHostPort;
         if (!nextPort || hostPort === nextPort) return;
@@ -621,10 +637,18 @@ export function buildAgentNativeExtensionHtml({
         queuedHostMessages = [];
       }
 
-      window.addEventListener('agent-native-extension-host-port-ready', attachHostPort);
-      attachHostPort();
+      if (legacyWindowBridge) {
+        window.addEventListener('message', handleLegacyHostMessage);
+      } else {
+        window.addEventListener('agent-native-extension-host-port-ready', attachHostPort);
+        attachHostPort();
+      }
       window.addEventListener('pagehide', function() {
         queuedHostMessages = [];
+        if (legacyWindowBridge) {
+          window.removeEventListener('message', handleLegacyHostMessage);
+        }
+        window.removeEventListener('agent-native-extension-host-port-ready', attachHostPort);
         if (hostPort) hostPort.removeEventListener('message', handleHostMessage);
       }, { once: true });
 

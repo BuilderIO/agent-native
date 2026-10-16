@@ -67,8 +67,10 @@ interface Extension {
   };
 }
 
-const EXTENSION_IFRAME_SANDBOX =
-  normalizeAgentNativeExtensionSandbox(undefined);
+const EXTENSION_IFRAME_SANDBOX = normalizeAgentNativeExtensionSandbox(
+  undefined,
+  { mode: "nonce" },
+);
 
 function readHostThemeVars(): Record<string, string> {
   if (typeof document === "undefined") return {};

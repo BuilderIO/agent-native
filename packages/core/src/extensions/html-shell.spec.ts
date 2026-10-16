@@ -80,7 +80,7 @@ describe("buildExtensionHtml", () => {
     );
     expect(html).toContain("bootstrapScript.remove()");
     expect(html).toContain("window.location.hash.slice(1)");
-    expect(html).toContain("sendExternalLink({");
+    expect(html).toContain("sendExternalLink(request)");
     expect(html).toContain("event.preventDefault()");
     expect(html).toContain(
       "destination.origin === new URL(document.baseURI).origin",
@@ -88,7 +88,7 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("agent-native-extension.hello-link-channel");
     expect(html).not.toContain("agent-native-extension.reseed-link-channel");
     expect(html).toContain("agent-native-extension.open-external-link");
-    expect(html).toContain("history.replaceState(history.state");
+    expect(html).toMatch(/history\.replaceState\(\s*history\.state,/);
     expect(html).not.toContain("__agentNativeExtensionLinkNonce");
     expect(html).toContain("document.addEventListener('submit'");
     expect(html).not.toContain("link.setAttribute('target'");
@@ -622,8 +622,8 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
         "sandbox={EXTENSION_IFRAME_SANDBOX}",
       );
       if (usesNormalizedSandbox) {
-        expect(text).toContain(
-          "normalizeAgentNativeExtensionSandbox(undefined)",
+        expect(text).toMatch(
+          /normalizeAgentNativeExtensionSandbox\(\s*undefined,\s*\{\s*mode:\s*"nonce"\s*\},?\s*\)/,
         );
       } else {
         expect(sandboxMatches.length).toBeGreaterThan(0);

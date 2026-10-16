@@ -408,7 +408,7 @@ export const AgentNativeExtensionFrame = forwardRef<
   );
   const storageAdapter = storage === undefined ? localStorageAdapter : storage;
   const sandboxValue = useMemo(
-    () => normalizeAgentNativeExtensionSandbox(sandbox),
+    () => normalizeAgentNativeExtensionSandbox(sandbox, { mode: "nonce" }),
     [sandbox],
   );
   const sessionValue =

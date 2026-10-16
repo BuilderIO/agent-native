@@ -32,27 +32,31 @@ export function useExternalExtensionLinks(
   const { enabled = true, onReady, onHostPortReady } = options;
   const [nonce, setNonce] = useState<string | null>(null);
   const recoveryAttemptedRef = useRef(false);
+  const acceptedNonceRef = useRef<string | null>(null);
+  const callbacksRef = useRef({ onReady, onHostPortReady });
+  callbacksRef.current = { onReady, onHostPortReady };
 
   useEffect(() => {
     recoveryAttemptedRef.current = false;
     setNonce(enabled ? createExternalExtensionLinkNonce() : null);
-  }, [enabled]);
+  }, [enabled, frameIdentity]);
 
   useLinkEffect(() => {
     if (!enabled || !nonce) return;
     return connectExternalExtensionLinks(
       iframeRef,
       nonce,
-      onReady,
-      onHostPortReady,
+      () => callbacksRef.current.onReady?.(),
+      () => callbacksRef.current.onHostPortReady,
       recoveryAttemptedRef,
+      acceptedNonceRef,
       () => {
         if (recoveryAttemptedRef.current) return;
         recoveryAttemptedRef.current = true;
         setNonce(createExternalExtensionLinkNonce());
       },
     );
-  }, [enabled, frameIdentity, iframeRef, nonce, onHostPortReady, onReady]);
+  }, [enabled, frameIdentity, iframeRef, nonce]);
 
   return enabled ? nonce : null;
 }
@@ -69,7 +73,8 @@ export function extensionFrameUrlWithLinkNonce(
   nonce: string,
 ): string {
   const url = new URL(source, window.location.href);
-  url.hash = nonce;
+  const appFragment = url.hash.slice(1);
+  url.hash = `__agent_native_link_nonce=${encodeURIComponent(nonce)}&__agent_native_app_fragment=${encodeURIComponent(appFragment)}`;
   return url.toString();
 }
 
@@ -77,8 +82,11 @@ function connectExternalExtensionLinks(
   iframeRef: RefObject<HTMLIFrameElement | null>,
   nonce: string,
   onReady: (() => void) | undefined,
-  onHostPortReady: ((port: MessagePort) => void) | undefined,
+  getOnHostPortReady:
+    | (() => ((port: MessagePort) => void) | undefined)
+    | undefined,
   recoveryAttemptedRef: { current: boolean },
+  acceptedNonceRef: { current: string | null },
   recover: () => void,
 ): () => void {
   if (typeof MessageChannel === "undefined") {
@@ -109,7 +117,7 @@ function connectExternalExtensionLinks(
     ) {
       return;
     }
-    openExternalExtensionLink(message.href);
+    openExternalExtensionLink(message.href, message.openInNewContext === true);
   };
 
   const onFrameLoad = (event: Event) => {
@@ -148,12 +156,14 @@ function connectExternalExtensionLinks(
     if (
       message.type !== EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE ||
       message.nonce !== nonce ||
-      event.ports.length !== 1
+      event.ports.length !== 1 ||
+      acceptedNonceRef.current === nonce
     ) {
       for (const port of event.ports) port.close();
       return;
     }
 
+    acceptedNonceRef.current = nonce;
     if (recoveryTimer) {
       clearTimeout(recoveryTimer);
       recoveryTimer = null;
@@ -169,6 +179,7 @@ function connectExternalExtensionLinks(
     activeLinkPort.addEventListener("message", onPortMessage);
     activeLinkPort.start();
 
+    const onHostPortReady = getOnHostPortReady?.();
     if (onHostPortReady) {
       const channel = new MessageChannel();
       activeHostBridgePort = channel.port1;
@@ -196,7 +207,10 @@ function connectExternalExtensionLinks(
   };
 }
 
-function openExternalExtensionLink(value: unknown): boolean {
+function openExternalExtensionLink(
+  value: unknown,
+  openInNewContext = false,
+): boolean {
   if (typeof value !== "string") return false;
 
   if (!URL.canParse(value)) return false;
@@ -204,7 +218,7 @@ function openExternalExtensionLink(value: unknown): boolean {
 
   if (
     (destination.protocol !== "http:" && destination.protocol !== "https:") ||
-    destination.origin === window.location.origin ||
+    (destination.origin === window.location.origin && !openInNewContext) ||
     destination.username !== "" ||
     destination.password !== ""
   ) {
@@ -219,10 +233,80 @@ function openExternalExtensionLink(value: unknown): boolean {
   }
 
   if (isEmbedMcpChatBridgeActive()) {
-    void openMcpAppHostLink(destination.href);
+    let hostRequest: Promise<boolean> | false;
+    try {
+      hostRequest = openMcpAppHostLink(destination.href);
+    } catch {
+      hostRequest = false;
+    }
+
+    if (hostRequest === false) {
+      window.open(destination.href, "_blank", "noopener,noreferrer");
+      return true;
+    }
+
+    const fallbackWindow = reserveExternalLinkFallbackWindow();
+    void Promise.resolve(hostRequest).then(
+      (openedByHost) => {
+        if (openedByHost) closeExternalLinkFallbackWindow(fallbackWindow);
+        else openExternalLinkFallback(destination.href, fallbackWindow);
+      },
+      () => openExternalLinkFallback(destination.href, fallbackWindow),
+    );
     return true;
   }
 
   window.open(destination.href, "_blank", "noopener,noreferrer");
   return true;
+}
+
+function reserveExternalLinkFallbackWindow(): Window | null {
+  let fallbackWindow: Window | null;
+  try {
+    fallbackWindow = window.open("about:blank", "_blank");
+  } catch {
+    // coercion-ok: a blocked popup returns an unavailable sentinel to the caller.
+    return null;
+  }
+  if (!fallbackWindow) return null;
+
+  try {
+    fallbackWindow.opener = null;
+    return fallbackWindow;
+  } catch {
+    try {
+      fallbackWindow.close();
+    } catch {
+      // coercion-ok: best-effort cleanup after opener isolation failed.
+      // The popup may already have been closed by the browser.
+    }
+    return null;
+  }
+}
+
+function closeExternalLinkFallbackWindow(fallbackWindow: Window | null): void {
+  if (!fallbackWindow) return;
+  try {
+    if (!fallbackWindow.closed) fallbackWindow.close();
+  } catch {
+    // coercion-ok: host acceptance is complete; this is cleanup only.
+    // The popup may already have been closed by the browser.
+  }
+}
+
+function openExternalLinkFallback(
+  url: string,
+  fallbackWindow: Window | null,
+): void {
+  if (fallbackWindow) {
+    try {
+      if (!fallbackWindow.closed) {
+        fallbackWindow.location.replace(url);
+        return;
+      }
+    } catch {
+      closeExternalLinkFallbackWindow(fallbackWindow);
+    }
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }

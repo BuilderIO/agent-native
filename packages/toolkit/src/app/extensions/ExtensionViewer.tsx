@@ -108,8 +108,10 @@ const THEME_CSS_VARS = [
   "--sidebar-ring",
 ];
 
-const EXTENSION_IFRAME_SANDBOX =
-  normalizeAgentNativeExtensionSandbox(undefined);
+const EXTENSION_IFRAME_SANDBOX = normalizeAgentNativeExtensionSandbox(
+  undefined,
+  { mode: "nonce" },
+);
 
 function getParentThemeVars(): Record<string, string> {
   const computed = getComputedStyle(document.documentElement);

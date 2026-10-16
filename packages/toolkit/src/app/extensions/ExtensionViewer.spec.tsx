@@ -217,12 +217,23 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(open).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
   });
 
-  it("routes extension links through the MCP host without opening a popup", async () => {
+  it("routes extension links through MCP and closes the reserved popup on success", async () => {
     embedState.active = true;
     document.body.appendChild(container);
     const iframe = await renderViewer();
     const frameWindow = iframe.contentWindow as Window;
-    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const fallbackState = { closed: false };
+    const fallbackWindow = {
+      get closed() {
+        return fallbackState.closed;
+      },
+      close: vi.fn(() => {
+        fallbackState.closed = true;
+      }),
+      location: { replace: vi.fn() },
+    } as unknown as Window;
+    chatMocks.openMcpAppHostLink.mockResolvedValue(true);
+    const open = vi.spyOn(window, "open").mockReturnValue(fallbackWindow);
     vi.stubGlobal("navigator", {
       ...navigator,
       userActivation: { isActive: true },
@@ -273,7 +284,13 @@ describe("ExtensionViewer MCP embeds", () => {
         "https://example.com/",
       );
     });
-    expect(open).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(fallbackWindow.close).toHaveBeenCalledOnce();
+    });
+    expect(fallbackWindow.closed).toBe(true);
+    expect(fallbackWindow.location.replace).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
     channel.port1.close();
     channel.port2.close();
   });

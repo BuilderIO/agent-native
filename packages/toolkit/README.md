@@ -172,9 +172,15 @@ product needs a deeper local visual or interaction change.
 
 ## Sandboxed extension links
 
-`buildAgentNativeExtensionHtml` remains usable without link routing. To route
-external links from a sandboxed extension through a private host channel, pass
-the nonce returned by `useExternalExtensionLinks`:
+When `linkNonce` is omitted, `buildAgentNativeExtensionHtml` keeps the
+source-checked window-message host bridge used by older callers. Its links keep
+their native behavior. `normalizeAgentNativeExtensionSandbox(sandbox)` keeps
+the legacy `allow-popups` behavior for `target="_blank"`; it still removes
+`allow-same-origin` and `allow-popups-to-escape-sandbox`.
+
+To route external links through a private host channel, pass the nonce returned
+by `useExternalExtensionLinks`. Nonce mode uses only its private MessagePort
+for host traffic and keeps popups disabled:
 
 ```tsx
 import {

@@ -190,10 +190,17 @@ export function buildExtensionExternalLinkTargetBootstrap(
       var activeHostPort = null;
       var handshakeAttempts = 0;
       var linkNonce = bootstrapScript && bootstrapScript.getAttribute('data-link-nonce');
-      if (!linkNonce && window.location.hash.length > 1) {
-        linkNonce = window.location.hash.slice(1);
+      // Route URLs carry the nonce separately from the extension's app fragment.
+      var routeHashMatch = /^__agent_native_link_nonce=([0-9a-f]{48})&__agent_native_app_fragment=([^&=]*)$/.exec(window.location.hash.slice(1));
+      if (!linkNonce && routeHashMatch) {
         try {
-          history.replaceState(history.state, '', window.location.pathname + window.location.search);
+          var appFragment = decodeURIComponent(routeHashMatch[2]);
+          history.replaceState(
+            history.state,
+            '',
+            window.location.pathname + window.location.search + (appFragment ? '#' + appFragment : '')
+          );
+          linkNonce = routeHashMatch[1];
         } catch (_) {
           linkNonce = '';
         }
@@ -303,33 +310,66 @@ export function buildExtensionExternalLinkTargetBootstrap(
         return null;
       }
 
-      document.addEventListener('click', function(event) {
+      function linkTarget(link) {
+        if (link.hasAttribute('target')) return link.getAttribute('target') || '';
+        var base = document.querySelector('base[target]');
+        return base ? base.getAttribute('target') || '' : '';
+      }
+
+      function opensNewContext(event, link) {
+        if (event.type === 'auxclick') return event.button === 1;
+        return event.type === 'click' && event.button === 0 && !event.altKey &&
+          (event.metaKey || event.ctrlKey || event.shiftKey || /^_blank$/i.test(linkTarget(link)));
+      }
+
+      function routeExternalLink(event) {
         if (!event.isTrusted) return;
         if (!linkNonce) return;
+        if (event.defaultPrevented) return;
+        if (event.type === 'click' && event.button !== 0) return;
+        if (event.type === 'auxclick' && event.button !== 1) return;
+        if (event.type !== 'click' && event.type !== 'auxclick') return;
         var link = linkFromEvent(event);
         if (!link) return;
-        var href = link.getAttribute('href') ||
-          link.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
-          link.getAttribute('xlink:href');
-        if (!href) return;
+        var href = link.getAttribute('href');
+        if (href === null) href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        if (href === null) href = link.getAttribute('xlink:href');
+        if (href === null) return;
         var destination;
         try {
           destination = new URL(href, document.baseURI);
         } catch (_) {
           return;
         }
-        if (
-          (destination.protocol !== 'http:' && destination.protocol !== 'https:') ||
-          destination.origin === new URL(document.baseURI).origin
-        ) return;
+        if (destination.protocol !== 'http:' && destination.protocol !== 'https:') return;
+        var sameOrigin = destination.origin === new URL(document.baseURI).origin;
+        var openInNewContext = opensNewContext(event, link);
+        if (sameOrigin && !openInNewContext) return;
 
         event.preventDefault();
         if (!sendExternalLink) return;
-        sendExternalLink({
+        var request = {
           type: ${JSON.stringify(EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE)},
           href: destination.href
-        });
-      }, true);
+        };
+        if (openInNewContext) request.openInNewContext = true;
+        sendExternalLink(request);
+      }
+
+      if (linkNonce && typeof Element !== 'undefined' && Element.prototype.attachShadow) {
+        var nativeAttachShadow = Element.prototype.attachShadow;
+        Element.prototype.attachShadow = function(init) {
+          var root = nativeAttachShadow.apply(this, arguments);
+          if (init && init.mode === 'closed') {
+            root.addEventListener('click', routeExternalLink);
+            root.addEventListener('auxclick', routeExternalLink);
+          }
+          return root;
+        };
+      }
+
+      document.addEventListener('click', routeExternalLink);
+      document.addEventListener('auxclick', routeExternalLink);
 
       document.addEventListener('submit', function(event) {
         if (!linkNonce) return;
