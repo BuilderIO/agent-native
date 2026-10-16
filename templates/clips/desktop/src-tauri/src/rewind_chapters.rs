@@ -9,7 +9,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-const CHAPTERS_FILE: &str = "chapters.json";
+pub(crate) const CHAPTERS_FILE: &str = "chapters.json";
 const HARD_GAP_MS: i64 = 1_500;
 const SCENE_SLICE_MS: i64 = 30_000;
 const MAX_CHAPTER_SPAN_MS: i64 = 60 * 60 * 1_000;

@@ -37,6 +37,16 @@ const EXCLUSION_MARKERS_IN_FLIGHT_MASK: u64 = 0xFFFF << 1;
 const CAPTURE_START_GATE_GENERATION_INCREMENT: u64 = 1 << 17;
 const CAPTURE_START_GATE_GENERATION_MASK: u64 = !(CAPTURE_START_GATE_GENERATION_INCREMENT - 1);
 const SCREEN_MEMORY_MCP_NAME: &str = "clips-screen-memory";
+const RETENTION_SWEEP_INTERVAL: Duration = Duration::from_secs(10 * 60);
+// Each bundle keeps Rewind history in its own data folder, and a bundle nobody opens again
+// never prunes it. Every sweep also clears what the other bundles left past the longest
+// retention any of them allows. The Nightly identifier is set by clips-desktop-release.yml,
+// not by a tauri config file.
+const REWIND_BUNDLE_IDENTIFIERS: [&str; 3] = [
+    "com.clips.tray",
+    "com.clips.tray.nightly",
+    "com.clips.tray.alpha",
+];
 
 static SEGMENT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -45,6 +55,9 @@ pub struct ScreenMemoryState {
     inner: Mutex<ScreenMemoryRuntime>,
     indexing: Mutex<()>,
     transition: Mutex<()>,
+    // Pruning rewrites the event log through a temporary file, so an append that lands
+    // between its read and its rename would be lost.
+    event_log: Mutex<()>,
     // Exclusion markers increment before locking `inner`; the reservation CAS
     // orders replacement starts against those immediate markers.
     capture_start_gate: Arc<AtomicU64>,
@@ -2219,6 +2232,8 @@ fn append_event(app: &AppHandle, event: ScreenMemoryEvent) {
 
 fn append_event_inner(app: &AppHandle, event: &ScreenMemoryEvent) -> Result<(), String> {
     let path = screen_memory_events_path(app)?;
+    let state = app.state::<ScreenMemoryState>();
+    let _event_log = state.event_log.lock().map_err(|error| error.to_string())?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -3926,10 +3941,61 @@ fn export_recent(app: &AppHandle, minutes: u64) -> Result<ScreenMemoryExportResu
     })
 }
 
+pub fn spawn_retention_sweeper(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        if let Err(err) = sweep_expired_history(&app) {
+            eprintln!("[clips-tray] Rewind retention sweep failed: {err}");
+        }
+        std::thread::sleep(RETENTION_SWEEP_INTERVAL);
+    });
+}
+
+fn sweep_expired_history(app: &AppHandle) -> Result<(), String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data directory unavailable: {e}"))?;
+    if let Some(bundles_dir) = data_dir.parent() {
+        let cutoff = std::time::SystemTime::now()
+            - Duration::from_secs(u64::from(MAX_RETENTION_HOURS) * 60 * 60);
+        for identifier in REWIND_BUNDLE_IDENTIFIERS {
+            if identifier == app.config().identifier {
+                continue;
+            }
+            let dir = bundles_dir.join(identifier).join(SCREEN_MEMORY_DIR);
+            if !dir.is_dir() {
+                continue;
+            }
+            if let Err(err) = remove_stale_history(&dir, cutoff) {
+                eprintln!("[clips-tray] Rewind retention sweep of {identifier} failed: {err}");
+            }
+        }
+    }
+
+    if !holds_history(&data_dir.join(SCREEN_MEMORY_DIR))? {
+        return Ok(());
+    }
+    let state = app.state::<ScreenMemoryState>();
+    let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    // A running producer prunes on every segment rotation.
+    let capturing = state
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())?
+        .active
+        .is_some();
+    if capturing {
+        return Ok(());
+    }
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    prune_segments(app, &config)
+}
+
 fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let segments = recent_segments(app, None)?;
     let cutoff = Utc::now() - ChronoDuration::hours(config.retention_hours as i64);
     let mut kept_bytes = 0_u64;
+    let mut live_segment_ids = in_flight_segment_ids(app)?;
     for segment in segments {
         let ended_at = DateTime::parse_from_rfc3339(&segment.ended_at)
             .map(|value| value.with_timezone(&Utc))
@@ -3938,11 +4004,101 @@ fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
         kept_bytes = kept_bytes.saturating_add(segment.bytes);
         if (expired || kept_bytes > config.max_bytes) && !segment_is_pinned(app, &segment.id) {
             delete_segment(app, &segment.id)?;
+        } else {
+            live_segment_ids.insert(sanitize_segment_id(&segment.id));
         }
     }
+    remove_orphaned_segment_files(&screen_memory_dir(app)?, cutoff.into(), &live_segment_ids)?;
     prune_events(app, cutoff)?;
     refresh_rewind_chapters(app)?;
     Ok(())
+}
+
+fn in_flight_segment_ids(app: &AppHandle) -> Result<BTreeSet<String>, String> {
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    Ok(runtime
+        .active
+        .iter()
+        .chain(
+            runtime
+                .suspended_active
+                .iter()
+                .map(|suspended| &suspended.active),
+        )
+        .map(|active| sanitize_segment_id(&active.id))
+        .collect())
+}
+
+// Files whose metadata is missing or unreadable (a segment cut off by a quit or crash, or one
+// written by an older build) are invisible to the metadata pass, so they age out by their
+// last write. Only segment files match: the event log, chapters, egress log and agent
+// handoffs keep their own lifecycles.
+fn remove_orphaned_segment_files(
+    dir: &Path,
+    cutoff: std::time::SystemTime,
+    live_segment_ids: &BTreeSet<String>,
+) -> Result<(), String> {
+    for entry in std::fs::read_dir(dir)
+        .map_err(|e| format!("screen memory directory read failed: {e}"))?
+        .flatten()
+    {
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        let segment_id = file_name.split('.').next().unwrap_or(file_name);
+        if !segment_id.starts_with("segment-") || live_segment_ids.contains(segment_id) {
+            continue;
+        }
+        if last_written_before(&entry, cutoff) {
+            remove_file_if_exists(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+// Another bundle may be running with its own retention and pins, so only what is past the
+// longest retention any build allows goes, and the event log and chapters only once nothing
+// has written to them since.
+fn remove_stale_history(dir: &Path, cutoff: std::time::SystemTime) -> Result<(), String> {
+    remove_orphaned_segment_files(dir, cutoff, &BTreeSet::new())?;
+    for entry in std::fs::read_dir(dir)
+        .map_err(|e| format!("screen memory directory read failed: {e}"))?
+        .flatten()
+    {
+        let file_name = entry.file_name();
+        let derived_index = file_name == SCREEN_MEMORY_EVENTS_JSONL
+            || file_name == crate::rewind_chapters::CHAPTERS_FILE;
+        if derived_index && last_written_before(&entry, cutoff) {
+            remove_file_if_exists(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn holds_history(dir: &Path) -> Result<bool, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(format!("screen memory directory read failed: {err}")),
+    };
+    Ok(entries.flatten().any(|entry| {
+        let file_name = entry.file_name();
+        file_name == SCREEN_MEMORY_EVENTS_JSONL
+            || file_name
+                .to_str()
+                .is_some_and(|name| name.starts_with("segment-"))
+    }))
+}
+
+fn last_written_before(entry: &std::fs::DirEntry, cutoff: std::time::SystemTime) -> bool {
+    entry
+        .metadata()
+        .ok()
+        .filter(|metadata| metadata.is_file())
+        .and_then(|metadata| metadata.modified().ok())
+        .is_some_and(|modified| modified < cutoff)
 }
 
 fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
@@ -3950,12 +4106,6 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
-    let file = File::open(&path).map_err(|e| format!("screen memory events open failed: {e}"))?;
-    let retained = BufReader::new(file)
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<ScreenMemoryEvent>(&line).ok())
-        .collect::<Vec<_>>();
     let mut coverage = recent_segments(app, None)?
         .into_iter()
         .filter_map(|segment| {
@@ -3984,6 +4134,14 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
     {
         coverage.push((active.with_timezone(&Utc), Utc::now()));
     }
+    let state = app.state::<ScreenMemoryState>();
+    let _event_log = state.event_log.lock().map_err(|error| error.to_string())?;
+    let file = File::open(&path).map_err(|e| format!("screen memory events open failed: {e}"))?;
+    let retained = BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<ScreenMemoryEvent>(&line).ok())
+        .collect::<Vec<_>>();
     let retained = retain_events_with_media_coverage(retained, cutoff, &coverage);
     let temporary_path = path.with_extension("jsonl.tmp");
     let mut file = File::create(&temporary_path)
@@ -4605,6 +4763,112 @@ command = "keep"
         remove_discarded_sidecars(&paths).unwrap();
 
         assert!(paths.iter().all(|path| !path.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn retention_fixture_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "clips-retention-{label}-{}-{}",
+            std::process::id(),
+            SEGMENT_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_aged(path: &Path, age: Duration) {
+        std::fs::write(path, b"history").unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - age)
+            .unwrap();
+    }
+
+    const HOUR: Duration = Duration::from_secs(60 * 60);
+
+    #[test]
+    fn orphaned_segment_files_age_out_while_live_and_unrelated_files_stay() {
+        let dir = retention_fixture_dir("orphans");
+        let handoffs = dir.join("agent-handoffs");
+        std::fs::create_dir_all(&handoffs).unwrap();
+        let expired = [
+            "segment-1-0.mov",
+            "segment-1-0.system.wav",
+            "segment-1-0.microphone.wav",
+            "segment-1-0.json",
+            "segment-1-0.ocr.jsonl",
+            "segment-1-0.transcript.jsonl",
+        ];
+        let kept = [
+            "segment-2-0.mov",
+            "segment-3-0.mov",
+            "segment-3-0.json",
+            "events.jsonl",
+            "chapters.json",
+            "egress.jsonl",
+        ];
+        for name in expired {
+            write_aged(&dir.join(name), 9 * HOUR);
+        }
+        write_aged(&dir.join("segment-2-0.mov"), HOUR / 2);
+        for name in &kept[1..] {
+            write_aged(&dir.join(name), 9 * HOUR);
+        }
+        write_aged(&handoffs.join("request.mp4"), 9 * HOUR);
+        let live = BTreeSet::from(["segment-3-0".to_string()]);
+
+        remove_orphaned_segment_files(&dir, std::time::SystemTime::now() - 8 * HOUR, &live)
+            .unwrap();
+
+        assert!(expired.iter().all(|name| !dir.join(name).exists()));
+        assert!(kept.iter().all(|name| dir.join(name).exists()));
+        assert!(handoffs.join("request.mp4").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn another_bundles_history_goes_only_past_the_longest_retention() {
+        let dir = retention_fixture_dir("other-bundle");
+        for name in ["segment-1-0.mov", "segment-1-0.json", "events.jsonl"] {
+            write_aged(&dir.join(name), 25 * HOUR);
+        }
+        for name in ["segment-2-0.mov", "segment-2-0.json", "chapters.json"] {
+            write_aged(&dir.join(name), 23 * HOUR);
+        }
+        write_aged(&dir.join("egress.jsonl"), 25 * HOUR);
+
+        remove_stale_history(
+            &dir,
+            std::time::SystemTime::now()
+                - Duration::from_secs(u64::from(MAX_RETENTION_HOURS) * 60 * 60),
+        )
+        .unwrap();
+
+        for name in ["segment-1-0.mov", "segment-1-0.json", "events.jsonl"] {
+            assert!(!dir.join(name).exists(), "{name} should be deleted");
+        }
+        for name in [
+            "segment-2-0.mov",
+            "segment-2-0.json",
+            "chapters.json",
+            "egress.jsonl",
+        ] {
+            assert!(dir.join(name).exists(), "{name} should be kept");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn retention_sweep_skips_folders_without_history() {
+        let dir = retention_fixture_dir("no-history");
+        assert!(!holds_history(&dir).unwrap());
+        assert!(!holds_history(&dir.join("missing")).unwrap());
+        std::fs::write(dir.join("egress.jsonl"), b"{}").unwrap();
+        assert!(!holds_history(&dir).unwrap());
+        std::fs::write(dir.join("segment-1-0.mov"), b"history").unwrap();
+        assert!(holds_history(&dir).unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
