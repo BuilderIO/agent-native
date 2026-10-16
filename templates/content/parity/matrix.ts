@@ -53,8 +53,9 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: "Bound local-file sidebar inventory",
     coverageRefs: [
-      "actions/content-navigation-bounds.test.ts",
       "actions/query-content-database-items.navigation.db.test.ts",
+      "actions/get-content-database.favorites-order.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "app/hooks/use-content-database.test.ts",
     ],
   },
