@@ -1,12 +1,17 @@
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import {
+  OAUTH_TOKEN_MIGRATIONS,
+  OAUTH_TOKEN_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
 function serializeTokens(tokens: Record<string, unknown>): string {
   return encryptSecretValue(JSON.stringify(tokens));
@@ -102,6 +107,11 @@ export const oauthTokensStore = defineStore({
         await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], exec);
       },
     },
+    ...fromMigrationEntries(
+      OAUTH_TOKEN_MIGRATIONS_TABLE,
+      OAUTH_TOKEN_MIGRATIONS,
+      { data: [4, 6] },
+    ),
   ],
 });
 

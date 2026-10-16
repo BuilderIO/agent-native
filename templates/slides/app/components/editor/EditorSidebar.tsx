@@ -918,7 +918,7 @@ export default function EditorSidebar({
   }, [activeSlideId, navigateToSlide]);
 
   return (
-    <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
+    <div className="flex h-full min-h-0 w-full flex-shrink-0 flex-col bg-background">
       <div className="flex h-7 flex-shrink-0 items-center justify-between px-2">
         <h2 className="text-[11px] font-semibold leading-none">
           {t("editorSidebar.slidesHeading")}

@@ -251,7 +251,7 @@ describe("full-width filmstrip", () => {
       />,
     );
 
-    expect(container.firstElementChild?.className).toContain("w-48");
+    expect(container.firstElementChild?.className).toContain("w-full");
     expect(
       container.querySelector(
         '[data-slide-thumbnail-id="slide-2"] [data-slide-thumbnail-frame]',

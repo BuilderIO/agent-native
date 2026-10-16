@@ -10,6 +10,7 @@ import type {
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
+import { useContext } from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -37,6 +38,7 @@ import {
   resetActionFailureCircuits,
 } from "./action-failure-circuit.js";
 import { fetchActionGet } from "./action-get-batch.js";
+import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
 import {
   ACTION_RESOURCES_META_KEY,
   actionQueryAffectedByResources,
@@ -1245,12 +1247,24 @@ export function useActionQuery<
   const {
     refetchInterval,
     retry: callerRetry,
+    enabled: callerEnabled,
     queryKeyScope,
     resources,
     batchRefetches,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
+  const trustedBindingPending = useContext(
+    trustedActionQueryCacheBindingPendingContext,
+  );
+  const queryClient = useQueryClient();
+  const existingQuery = trustedBindingPending
+    ? queryClient.getQueryCache().find({ queryKey, exact: true })
+    : undefined;
+  const deferFetchUntilBound =
+    trustedBindingPending &&
+    existingQuery?.state.fetchStatus !== "fetching" &&
+    existingQuery?.state.data === undefined;
   const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
     queryKey,
@@ -1324,6 +1338,12 @@ export function useActionQuery<
     },
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
+    enabled: (query) => {
+      if (deferFetchUntilBound) return false;
+      return typeof callerEnabled === "function"
+        ? callerEnabled(query)
+        : callerEnabled !== false;
+    },
     ...(resources || batchRefetches === false
       ? {
           meta: {
