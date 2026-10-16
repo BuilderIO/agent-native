@@ -11,27 +11,24 @@ const MIN_WORDS_BEFORE_PUNCTUATION_BREAK = 3;
 const ESTIMATED_MS_PER_WORD = 420;
 const MIN_CAPTION_MS = 900;
 
-export function parseTranscriptSegments(
-  raw: string | null | undefined,
-): TranscriptSegment[] {
-  return readTranscriptSegments(raw) ?? [];
-}
-
 /**
- * The segments in stored JSON, or null when it isn't a JSON array, for a
- * writer that must not turn unreadable cues into none.
+ * The entries of stored segments JSON as written, or null when it isn't a
+ * JSON array, for a writer that must not turn unreadable cues into none.
  */
-export function readTranscriptSegments(
-  raw: string | null | undefined,
-): TranscriptSegment[] | null {
+export function readSegmentEntries(raw: string | null | undefined) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw ?? "");
   } catch {
     return null; // coercion-ok: null is "unreadable", and callers tell it from []
   }
-  if (!Array.isArray(parsed)) return null;
-  return parsed
+  return Array.isArray(parsed) ? parsed : null;
+}
+
+export function parseTranscriptSegments(
+  raw: string | null | undefined,
+): TranscriptSegment[] {
+  return (readSegmentEntries(raw) ?? [])
     .map((segment) => ({
       startMs: Number(segment?.startMs),
       endMs: Number(segment?.endMs),

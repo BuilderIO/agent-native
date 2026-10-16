@@ -172,6 +172,9 @@ describe("apply-rewind-extension transcript timeline", () => {
         {
           segmentsJson: JSON.stringify([
             { startMs: 0, endMs: 4000, text: "Current words." },
+            // Browser transcription stores entries like this one as written;
+            // the extension moves them, it doesn't clean them up.
+            { startMs: 4000, endMs: 4000, text: "", source: "mic" },
           ]),
         },
       ],
@@ -208,6 +211,7 @@ describe("apply-rewind-extension transcript timeline", () => {
     );
     expect(JSON.parse(String(transcriptWrite?.values.segmentsJson))).toEqual([
       { startMs: 30_000, endMs: 34_000, text: "Current words." },
+      { startMs: 34_000, endMs: 34_000, text: "", source: "mic" },
     ]);
     const versionWrites = updates
       .filter((u) => Array.isArray(u.where) && u.where[0] === "versions.id")
@@ -246,8 +250,22 @@ describe("apply-rewind-extension transcript timeline", () => {
         versions: [{ id: "version-1", segmentsJson: "{not json" }],
       },
     ],
+    [
+      "one cue's times",
+      {
+        transcript: [
+          {
+            segmentsJson: JSON.stringify([
+              { startMs: 0, endMs: 4000, text: "Readable words." },
+              { text: "No times." },
+            ]),
+          },
+        ],
+        versions: [],
+      },
+    ],
   ])(
-    "fails instead of emptying or stranding %s with unreadable segments",
+    "fails without writing anything when %s can't be read",
     async (_, rows) => {
       const { tx, updates } = fakeTx(rows);
       mocks.transaction.mockImplementation(

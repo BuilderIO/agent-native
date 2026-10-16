@@ -16,7 +16,7 @@ import {
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
 import { TRANSCRIPT_VERSION_LIMIT } from "../server/lib/transcript-versions.js";
-import { readTranscriptSegments } from "../shared/transcript-segments.js";
+import { readSegmentEntries } from "../shared/transcript-segments.js";
 import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 import {
   rewindExtensionKey,
@@ -49,25 +49,26 @@ function shiftedJsonArray(
 }
 
 /**
- * Transcript cues moved onto the extended timeline, read the way the player
- * reads them. Cues it can't read fail the extension: written back unshifted
- * or empty, they would be lost on the new timeline.
+ * Stored cues moved onto the extended timeline, every entry and field kept as
+ * stored and its times read the way the player reads them. A cue whose times
+ * can't be read fails the extension: dropped, or left on the old timeline, it
+ * would be lost quietly.
  */
 function shiftedSegments(raw: string, addedMs: number, owner: string): string {
-  const segments = readTranscriptSegments(raw);
-  if (segments === null) {
+  const shifted = readSegmentEntries(raw)?.map((entry) => {
+    const startMs = Number(entry?.startMs);
+    const endMs = Number(entry?.endMs);
+    return Number.isFinite(startMs) && Number.isFinite(endMs)
+      ? { ...entry, startMs: startMs + addedMs, endMs: endMs + addedMs }
+      : null;
+  });
+  if (!shifted || shifted.includes(null)) {
     fail(
       `${owner} has unreadable segments, so it can't move with the video. Nothing was changed.`,
       { errorCode: "transcript_segments_unreadable", statusCode: 500 },
     );
   }
-  return JSON.stringify(
-    segments.map((segment) => ({
-      ...segment,
-      startMs: segment.startMs + addedMs,
-      endMs: segment.endMs + addedMs,
-    })),
-  );
+  return JSON.stringify(shifted);
 }
 
 export default defineAction({

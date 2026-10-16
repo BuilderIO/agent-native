@@ -13,7 +13,7 @@ import {
 } from "../server/lib/transcript-versions.js";
 import {
   parseTranscriptSegments,
-  readTranscriptSegments,
+  readSegmentEntries,
 } from "../shared/transcript-segments.js";
 
 export default defineAction({
@@ -65,7 +65,7 @@ export default defineAction({
       if (!version) return null;
       // Restored anyway, it would be a ready transcript with no captions,
       // and the version would be spent on it.
-      if (readTranscriptSegments(version.segmentsJson) === null) {
+      if (readSegmentEntries(version.segmentsJson) === null) {
         fail(
           `Saved transcript ${version.id} has unreadable segments, so it can't be restored. Both transcripts were left as they were.`,
           { errorCode: "transcript_segments_unreadable", statusCode: 500 },
