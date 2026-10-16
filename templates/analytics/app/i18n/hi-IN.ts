@@ -1387,6 +1387,8 @@ export default {
     rowBreakdownFromCache: "कैश से। कुछ भी पढ़ा नहीं गया।",
     rowBreakdownAlreadyLoaded: "पहले से लोड है। कुछ भी पढ़ा नहीं गया।",
     rowBreakdownBytesRead: "{{bytes}} पढ़ा गया",
+    rowBreakdownOverByteCap:
+      "यह विभाजन {{gib}} GiB से ज़्यादा पढ़ेगा, इसलिए यह नहीं चला। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
     deleteSectionTitle: "अनुभाग हटाएं?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "पैनल हटाएं?",

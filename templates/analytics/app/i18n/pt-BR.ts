@@ -1446,6 +1446,8 @@ export default {
     rowBreakdownFromCache: "Do cache. Nada foi lido.",
     rowBreakdownAlreadyLoaded: "Já carregado. Nada foi lido.",
     rowBreakdownBytesRead: "{{bytes}} lidos",
+    rowBreakdownOverByteCap:
+      "Este detalhamento leria mais de {{gib}} GiB, então não foi executado. Restrinja os filtros ou o período do painel e tente de novo.",
     deleteSectionTitle: "Excluir seção?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Excluir painel?",

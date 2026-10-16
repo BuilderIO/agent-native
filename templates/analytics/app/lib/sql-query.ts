@@ -141,6 +141,17 @@ async function acquireSqlQuerySlot(
   });
 }
 
+/** A query the panel action refused, with its typed reason in `code`. */
+export class SqlQueryError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "SqlQueryError";
+    this.code = code;
+  }
+}
+
 type DashboardPanelQueryResponse = SqlQueryResult & {
   bytesProcessed?: number;
   message?: string;
@@ -185,14 +196,16 @@ export async function executeSqlQuery(
   }
 
   if (typeof data?.error === "string") {
-    throw new Error(
+    throw new SqlQueryError(
+      data.error,
       typeof data.message === "string" && data.message
         ? data.message
         : data.error,
     );
   }
 
-  if (data.bytesProcessed) {
+  // A cache hit carries the bytes its first run billed; this read billed none.
+  if (data.bytesProcessed && data.cached !== true) {
     addBytesProcessed(data.bytesProcessed);
   }
 

@@ -2607,6 +2607,8 @@ function TableRenderer({
                         onRowClick(row, sortedRows);
                       },
                       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+                        // Keys on a link or button inside the row are theirs.
+                        if (event.target !== event.currentTarget) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           onRowClick(row, sortedRows);

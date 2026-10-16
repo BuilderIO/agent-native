@@ -4,11 +4,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
-import {
-  breakdownRowKey,
-  isValidPanelBreakdowns,
-  sameCell,
-} from "@shared/row-breakdown";
+import { isValidPanelBreakdowns } from "@shared/row-breakdown";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -230,12 +226,6 @@ export function SqlChartCard({
       : null;
   const [breakdownSelection, setBreakdownSelection] =
     useState<RowBreakdownSelection | null>(null);
-  // New filters change every number in the open row, so close it rather than
-  // show a split of rows that are no longer on screen.
-  useEffect(() => setBreakdownSelection(null), [resolvedSql]);
-  const breakdownRowKeyName = breakdownSelection
-    ? breakdownRowKey(panel.config?.columns, breakdownSelection.row)
-    : null;
   const breakdownRowProps = breakdowns
     ? {
         onTableRowClick: (
@@ -243,12 +233,7 @@ export function SqlChartCard({
           rows: Record<string, unknown>[],
         ) => setBreakdownSelection({ row, rows, openedAt: Date.now() }),
         isTableRowActive: (row: Record<string, unknown>) =>
-          breakdownSelection !== null &&
-          breakdownRowKeyName !== null &&
-          sameCell(
-            row[breakdownRowKeyName],
-            breakdownSelection.row[breakdownRowKeyName],
-          ),
+          row === breakdownSelection?.row,
       }
     : {};
 
@@ -303,6 +288,9 @@ export function SqlChartCard({
   const shouldLoadData =
     visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
+  // New filters or a refresh change every number in the open row, so close it
+  // rather than show a split of rows that are no longer on screen.
+  useEffect(() => setBreakdownSelection(null), [resolvedSql, refreshToken]);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;

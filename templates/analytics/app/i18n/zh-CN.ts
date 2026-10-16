@@ -1348,6 +1348,8 @@ export default {
     rowBreakdownFromCache: "来自缓存，未读取任何数据。",
     rowBreakdownAlreadyLoaded: "已加载，未读取任何数据。",
     rowBreakdownBytesRead: "已读取 {{bytes}}",
+    rowBreakdownOverByteCap:
+      "此细分将读取超过 {{gib}} GiB 的数据，因此未运行。请缩小仪表板的筛选条件或日期范围后重试。",
     deleteSectionTitle: "删除部分？",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "删除面板？",

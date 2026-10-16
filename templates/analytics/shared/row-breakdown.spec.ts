@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { interpolateDashboardPanelSql } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import {
-  breakdownRowKey,
+  breakdownRowDimensions,
   buildBreakdownTable,
   isValidPanelBreakdowns,
   planBreakdown,
@@ -96,22 +96,45 @@ describe("isValidPanelBreakdowns", () => {
   });
 });
 
-describe("breakdownRowKey", () => {
-  it("names a row by its first shown text column", () => {
+describe("breakdownRowDimensions", () => {
+  it("names a row by every non-numeric column but the breakdown's", () => {
     expect(
-      breakdownRowKey(
+      breakdownRowDimensions(
         [
           { key: "people", format: "number" },
           { key: "role" },
           { key: "rate", format: "percent" },
         ],
-        { role: "Engineer", people: 40, rate: 0.5 },
+        {
+          role: "Engineer",
+          team: "Core",
+          app: "Builder",
+          people: 40,
+          rate: 0.5,
+        },
+        "app",
       ),
-    ).toBe("role");
+    ).toEqual(["role", "team"]);
   });
 
-  it("falls back to the first non-numeric value", () => {
-    expect(breakdownRowKey(undefined, { people: 40, role: "PM" })).toBe("role");
+  it("treats unformatted numbers, including numeric strings, as measures", () => {
+    expect(
+      breakdownRowDimensions(undefined, { role: "PM", people: "40" }, "app"),
+    ).toEqual(["role"]);
+  });
+
+  it("keeps rows that share one value apart by the others", () => {
+    const rows = [
+      { role: "Engineer", team: "Core", app: "Builder", people: 30 },
+      { role: "Engineer", team: "Growth", app: "Builder", people: 20 },
+    ];
+    expect(
+      rowsForBreakdown(rows, ["role", "team"], {
+        role: "Engineer",
+        team: "Growth",
+        people: 20,
+      }),
+    ).toEqual([rows[1]]);
   });
 });
 
@@ -123,8 +146,8 @@ describe("buildBreakdownTable", () => {
       { role: "Engineer", app: "Mail", people: 3 },
       { role: "Designer", app: "Builder", people: 50 },
     ],
-    "role",
-    "Engineer",
+    ["role"],
+    { role: "Engineer", people: 80 },
   );
 
   it("orders groups, mutes small ones, and folds tiny ones into Other", () => {

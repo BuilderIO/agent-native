@@ -1456,6 +1456,8 @@ export default {
     rowBreakdownFromCache: "Issu du cache. Rien n'a été lu.",
     rowBreakdownAlreadyLoaded: "Déjà chargé. Rien n'a été lu.",
     rowBreakdownBytesRead: "{{bytes}} lus",
+    rowBreakdownOverByteCap:
+      "Cette ventilation lirait plus de {{gib}} Gio, elle n'a donc pas été exécutée. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
     deleteSectionTitle: "Supprimer la rubrique ?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Supprimer le panneau ?",

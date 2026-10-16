@@ -1404,6 +1404,8 @@ export default {
     rowBreakdownFromCache: "캐시에서 가져왔습니다. 읽은 데이터가 없습니다.",
     rowBreakdownAlreadyLoaded: "이미 불러왔습니다. 읽은 데이터가 없습니다.",
     rowBreakdownBytesRead: "{{bytes}} 읽음",
+    rowBreakdownOverByteCap:
+      "이 분석은 {{gib}}GiB를 넘게 읽게 되어 실행하지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
     deleteSectionTitle: "섹션을 삭제하시겠습니까?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "패널을 삭제하시겠습니까?",

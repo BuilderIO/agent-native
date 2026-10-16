@@ -1427,6 +1427,8 @@ export default {
     rowBreakdownFromCache: "キャッシュから表示。読み取りはありません。",
     rowBreakdownAlreadyLoaded: "読み込み済み。読み取りはありません。",
     rowBreakdownBytesRead: "{{bytes}} を読み取りました",
+    rowBreakdownOverByteCap:
+      "この内訳は {{gib}} GiB を超えて読み込むため、実行しませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
     deleteSectionTitle: "セクションを削除しますか?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "パネルを削除しますか?",

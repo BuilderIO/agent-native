@@ -93,33 +93,40 @@ export function sameCell(a: unknown, b: unknown): boolean {
 
 const NUMERIC_FORMATS = new Set(["number", "currency", "percent", "delta"]);
 
+function isMeasure(format: string | undefined, value: unknown): boolean {
+  if (format) return NUMERIC_FORMATS.has(format);
+  return numberOrNull(value) !== null;
+}
+
 /**
- * The column that names a row, and so matches it to its breakdown rows: the
- * first shown non-numeric column, else the first non-numeric value.
+ * The columns that name a row, and so match it to its breakdown rows: every
+ * non-numeric column but the one being broken down by. Matching on all of
+ * them, not just the first, keeps a table with repeated values (two rows for
+ * Engineer, one per team) from mixing their splits.
  */
-export function breakdownRowKey(
-  columns:
-    | readonly { key: string; format?: string; hidden?: boolean }[]
-    | undefined,
+export function breakdownRowDimensions(
+  columns: readonly { key: string; format?: string }[] | undefined,
   row: Record<string, unknown> | undefined,
-): string | null {
-  if (!row) return null;
-  for (const column of columns ?? []) {
-    if (column.hidden || !Object.prototype.hasOwnProperty.call(row, column.key))
-      continue;
-    if (!column.format || !NUMERIC_FORMATS.has(column.format))
-      return column.key;
-  }
-  return Object.keys(row).find((key) => typeof row[key] !== "number") ?? null;
+  breakdownColumn: string,
+): string[] {
+  if (!row) return [];
+  const formats = new Map(
+    (columns ?? []).map((column) => [column.key, column.format]),
+  );
+  return Object.keys(row).filter(
+    (key) => key !== breakdownColumn && !isMeasure(formats.get(key), row[key]),
+  );
 }
 
 /** The rows of a breakdown result that belong to the clicked row. */
 export function rowsForBreakdown(
   rows: readonly Record<string, unknown>[],
-  rowKey: string,
-  rowValue: unknown,
+  dimensions: readonly string[],
+  row: Record<string, unknown>,
 ): Record<string, unknown>[] {
-  return rows.filter((row) => sameCell(row[rowKey], rowValue));
+  return rows.filter((candidate) =>
+    dimensions.every((key) => sameCell(candidate[key], row[key])),
+  );
 }
 
 export interface BreakdownGroup {

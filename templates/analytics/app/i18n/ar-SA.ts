@@ -1397,6 +1397,8 @@ export default {
     rowBreakdownFromCache: "من ذاكرة التخزين المؤقت. لم تتم قراءة أي شيء.",
     rowBreakdownAlreadyLoaded: "تم التحميل مسبقًا. لم تتم قراءة أي شيء.",
     rowBreakdownBytesRead: "تمت قراءة {{bytes}}",
+    rowBreakdownOverByteCap:
+      "قد يقرأ هذا التفصيل أكثر من {{gib}} غيغابايت، لذلك لم يُشغَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
     deleteSectionTitle: "هل تريد حذف القسم؟",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "هل تريد حذف اللوحة؟",

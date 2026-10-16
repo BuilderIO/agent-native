@@ -56,6 +56,7 @@ describe("executeSqlQuery", () => {
         { name: "date", type: "string" },
         { name: "signups", type: "number" },
       ],
+      bytesProcessed: 128,
     });
 
     expect(mocks.callAction).toHaveBeenCalledWith(
@@ -103,6 +104,36 @@ describe("executeSqlQuery", () => {
         "first-party",
       ),
     ).rejects.toThrow(/date_trunc\('month', \.\.\.\)/);
+  });
+
+  it("keeps a refused query's typed reason on the error", async () => {
+    mocks.callAction.mockResolvedValue({
+      error: "breakdown_over_byte_cap",
+      message: "This breakdown would read more than 50 GiB.",
+    });
+
+    await expect(
+      executeSqlQuery("SELECT 1", "bigquery", undefined, {
+        purpose: "row-breakdown",
+      }),
+    ).rejects.toMatchObject({
+      code: "breakdown_over_byte_cap",
+      message: "This breakdown would read more than 50 GiB.",
+    });
+  });
+
+  it("does not count a cache hit's bytes as read again", async () => {
+    mocks.callAction.mockResolvedValue({
+      rows: [],
+      schema: [],
+      bytesProcessed: 4096,
+      cached: true,
+    });
+
+    await expect(
+      executeSqlQuery("SELECT 1", "bigquery"),
+    ).resolves.toMatchObject({ bytesProcessed: 4096, cached: true });
+    expect(mocks.addBytesProcessed).not.toHaveBeenCalled();
   });
 
   it("gives report panel actions their own timeout above the query timeout", async () => {

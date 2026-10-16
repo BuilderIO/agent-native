@@ -1046,6 +1046,8 @@ export default {
     rowBreakdownFromCache: "From cache. Nothing was read.",
     rowBreakdownAlreadyLoaded: "Already loaded. Nothing was read.",
     rowBreakdownBytesRead: "Read {{bytes}}",
+    rowBreakdownOverByteCap:
+      "This breakdown would read more than {{gib}} GiB, so it didn't run. Narrow the dashboard's filters or date range and try again.",
     deleteSectionTitle: "Delete section?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Delete panel?",

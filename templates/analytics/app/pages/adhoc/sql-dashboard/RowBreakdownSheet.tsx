@@ -1,12 +1,13 @@
 import { setClientAppState } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  BREAKDOWN_OVER_BYTE_CAP_ERROR,
   BREAKDOWN_SMALL_GROUP,
-  breakdownRowKey,
+  breakdownRowDimensions,
   buildBreakdownTable,
   planBreakdown,
+  ROW_BREAKDOWN_MAX_BYTES_BILLED,
   rowsForBreakdown,
-  sameCell,
   type PanelBreakdown,
 } from "@shared/row-breakdown";
 import {
@@ -36,7 +37,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatBytes } from "@/lib/cost-tracker";
-import { useSqlQuery } from "@/lib/sql-query";
+import { SqlQueryError, useSqlQuery } from "@/lib/sql-query";
 import { cn } from "@/lib/utils";
 
 import { interpolateDashboardPanelSql } from "./interpolate";
@@ -93,10 +94,14 @@ export function RowBreakdownSheet({
     () => (row ? shownColumns(panel, row) : []),
     [panel, row],
   );
-  const rowKey = breakdownRowKey(panel.config?.columns, row);
+  const dimensions = useMemo(
+    () => breakdownRowDimensions(panel.config?.columns, row, activeColumn),
+    [panel.config?.columns, row, activeColumn],
+  );
   const sizeKey =
-    columns.find((item) => item.key !== rowKey && item.format === "number")
-      ?.key ?? null;
+    columns.find(
+      (item) => !dimensions.includes(item.key) && item.format === "number",
+    )?.key ?? null;
   const panelSql = serializePanelSql(panel.sql);
   const plan = planBreakdown({
     column: activeColumn,
@@ -124,17 +129,21 @@ export function RowBreakdownSheet({
   const sourceRows =
     plan.kind === "reuse" ? panelRows : (query.data?.rows ?? null);
   const table = useMemo(() => {
-    if (!sourceRows || !row || !rowKey) return null;
+    if (!sourceRows || !row) return null;
     return buildBreakdownTable({
-      rows: rowsForBreakdown(sourceRows, rowKey, row[rowKey]),
+      rows: rowsForBreakdown(sourceRows, dimensions, row),
       column: activeColumn,
       sizeKey,
       // A reused row is one (row, column) pair, not the whole row it names.
       parentSize: sizeKey && plan.kind === "query" ? row[sizeKey] : null,
     });
-  }, [sourceRows, row, rowKey, activeColumn, sizeKey, plan.kind]);
+  }, [sourceRows, row, dimensions, activeColumn, sizeKey, plan.kind]);
 
-  const rowValue = row && rowKey ? row[rowKey] : null;
+  const rowName = row
+    ? JSON.stringify(
+        Object.fromEntries(dimensions.map((key) => [key, row[key]])),
+      )
+    : null;
   const published = useRef(false);
   const open = selection !== null;
   useEffect(() => {
@@ -147,7 +156,7 @@ export function RowBreakdownSheet({
           dashboardId: dashboardId ?? null,
           panelId: panel.id,
           panelTitle: panel.title,
-          row: rowKey ? { [rowKey]: rowValue } : null,
+          row: rowName ? JSON.parse(rowName) : null,
           breakdownColumn: activeColumn,
         }
       : null;
@@ -157,18 +166,24 @@ export function RowBreakdownSheet({
         error,
       );
     });
-  }, [
-    open,
-    dashboardId,
-    panel.id,
-    panel.title,
-    rowKey,
-    rowValue,
-    activeColumn,
-  ]);
+  }, [open, dashboardId, panel.id, panel.title, rowName, activeColumn]);
+  // A sheet that unmounts open (the dashboard closed, the panel was removed)
+  // must not leave its row behind for view-screen to report elsewhere.
+  useEffect(
+    () => () => {
+      if (!published.current) return;
+      setClientAppState(ROW_BREAKDOWN_STATE_KEY, null).catch((error) => {
+        console.warn(
+          "[row-breakdown] Could not clear the open breakdown",
+          error,
+        );
+      });
+    },
+    [],
+  );
 
   const valueColumns = columns.filter(
-    (item) => item.key !== rowKey && item.key !== activeColumn,
+    (item) => !dimensions.includes(item.key) && item.key !== activeColumn,
   );
   const groupLabel = (value: unknown) =>
     value == null || value === ""
@@ -176,10 +191,8 @@ export function RowBreakdownSheet({
       : formatCell(value, undefined);
 
   const moveSelection = (offset: number) => {
-    if (!selection || !rowKey) return;
-    const index = panelRows.findIndex((item) =>
-      sameCell(item[rowKey], selection.row[rowKey]),
-    );
+    if (!selection) return;
+    const index = panelRows.indexOf(selection.row);
     const next = panelRows[index + offset];
     if (index >= 0 && next) {
       onSelectionChange({ row: next, rows: panelRows, openedAt: Date.now() });
@@ -229,7 +242,7 @@ export function RowBreakdownSheet({
         side="right"
         showOverlay={false}
         data-no-panel-chat-select
-        className="flex w-[440px] flex-col gap-4 p-5 focus:outline-none sm:max-w-[440px]"
+        className="flex w-full flex-col gap-4 p-5 focus:outline-none sm:w-[440px] sm:max-w-[440px]"
         onKeyDown={handleKeyDown}
         // Focus stays on the clicked row, whose arrow keys move the panel; the
         // column picker would otherwise take them.
@@ -247,7 +260,12 @@ export function RowBreakdownSheet({
         }}
       >
         <SheetTitle className="truncate pe-8 text-base">
-          {groupLabel(rowValue)}
+          {row
+            ? dimensions
+                .filter((key) => columns.some((item) => item.key === key))
+                .map((key) => groupLabel(row[key]))
+                .join(" · ")
+            : null}
         </SheetTitle>
         {breakdowns.length > 1 ? (
           <Select value={activeColumn} onValueChange={setColumn}>
@@ -275,9 +293,14 @@ export function RowBreakdownSheet({
             </p>
           ) : query.error && plan.kind === "query" ? (
             <p className="text-sm text-destructive">
-              {query.error instanceof Error
-                ? query.error.message
-                : String(query.error)}
+              {query.error instanceof SqlQueryError &&
+              query.error.code === BREAKDOWN_OVER_BYTE_CAP_ERROR
+                ? t("sqlDashboard.rowBreakdownOverByteCap", {
+                    gib: ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3,
+                  })
+                : query.error instanceof Error
+                  ? query.error.message
+                  : String(query.error)}
             </p>
           ) : !table ? (
             <div className="space-y-2">
