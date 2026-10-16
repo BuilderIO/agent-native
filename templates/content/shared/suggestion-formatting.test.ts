@@ -511,6 +511,15 @@ describe("stored spellings the L7 bridge maps", () => {
     ).toEqual(marked);
   });
 
+  it.fails("maps a page whose last line is the editor's trailing empty paragraph", () => {
+    const source = "Intro **b** text\n# H\n<empty-block/>";
+    const alignment = suggestionSourceAlignment(source);
+    expect(alignment?.canonical).toBe("Intro **b** text\n# H");
+    const text = source.indexOf("text");
+    expect(alignment?.map(text, "stored")).toBe(text);
+    expect(alignment?.map(source.length, "stored")).toBeNull();
+  });
+
   it.fails("maps a place after delimiters the stored source reopens", () => {
     const source = "**a****b**";
     const b = source.indexOf("b");

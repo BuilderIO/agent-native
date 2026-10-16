@@ -1049,7 +1049,6 @@ export function pushAll<T>(target: T[], items: readonly T[]) {
 }
 
 let activeSerializeContext: NfmSerializeContext | null = null;
-let suppressTerminalFillerTrim = false;
 
 /** Text nodes the writer spelled differently because of their neighbors. */
 export interface NfmContextualSpellings {
@@ -1109,7 +1108,6 @@ function isEmptyParagraphNode(node: PMNode | undefined): boolean {
 }
 
 function trimEditorTerminalFiller(blocks: PMNode[]): PMNode[] {
-  if (suppressTerminalFillerTrim) return blocks;
   if (blocks.length < 2) return blocks;
   const last = blocks[blocks.length - 1];
   const previous = blocks[blocks.length - 2];
@@ -2988,18 +2986,17 @@ function parseLeafTag(
 }
 
 export function canonicalizeNfm(nfm: string | null | undefined): string {
-  return canonicalNfmFromDoc(nfmToDoc(nfm ?? ""));
+  return docToNfm(nfmToDoc(nfm ?? ""));
 }
 
-/** The canonical Markdown of a parsed or editor document. */
-export function canonicalNfmFromDoc(doc: PMDoc | PMNode): string {
-  const previous = suppressTerminalFillerTrim;
-  suppressTerminalFillerTrim = true;
-  try {
-    return docToNfm(doc);
-  } finally {
-    suppressTerminalFillerTrim = previous;
-  }
+/**
+ * The document canonical Markdown writes. A trailing empty paragraph after
+ * another kind of block is where the editor lets you type, and its save drops
+ * it.
+ */
+export function canonicalNfmDoc(doc: PMDoc): PMDoc {
+  const content = trimEditorTerminalFiller(doc.content);
+  return content === doc.content ? doc : { ...doc, content };
 }
 
 function countLocalMdxNodes(

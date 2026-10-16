@@ -4,7 +4,8 @@ import { prosemirrorJSONToYDoc } from "@tiptap/y-tiptap";
 import { createContentEditorStructuralSchema } from "./content-editor-structural-schema.js";
 import { LIVE_BODY_FIELD, materializeLiveBody } from "./live-body.js";
 import {
-  canonicalNfmFromDoc,
+  canonicalNfmDoc,
+  docToNfm,
   nfmToDoc,
   parseNfmWithLosses,
   type NfmParseLossKind,
@@ -127,13 +128,11 @@ export function canonicalizeNfmWithFidelity(
   try {
     const parsed = parseNfmWithLosses(source);
     for (const loss of parsed.losses) losses.add(loss.kind, loss.sample);
-    const markdown = canonicalNfmFromDoc(parsed.doc);
+    const markdown = docToNfm(parsed.doc);
 
     try {
       const root = schema().nodeFromJSON(parsed.doc);
       root.check();
-      // What the live copy saves, which drops the editor's own trailing empty
-      // paragraph; canonical Markdown keeps a stored one.
       const live = materializeLiveBody(
         prosemirrorJSONToYDoc(schema(), root.toJSON(), LIVE_BODY_FIELD),
       );
@@ -148,13 +147,14 @@ export function canonicalizeNfmWithFidelity(
       losses.add("invalid-structure", errorMessage(error));
     }
 
+    const kept = canonicalNfmDoc(parsed.doc);
     const reparsed = nfmToDoc(markdown);
-    if (stableJson(reparsed) !== stableJson(parsed.doc))
-      losses.add("reparse-mismatch", firstDifferentBlock(parsed.doc, reparsed));
-    else if (canonicalNfmFromDoc(reparsed) !== markdown)
+    if (stableJson(reparsed) !== stableJson(kept))
+      losses.add("reparse-mismatch", firstDifferentBlock(kept, reparsed));
+    else if (docToNfm(reparsed) !== markdown)
       losses.add(
         "reparse-mismatch",
-        firstDifferentLine(markdown, canonicalNfmFromDoc(reparsed)),
+        firstDifferentLine(markdown, docToNfm(reparsed)),
       );
 
     return {

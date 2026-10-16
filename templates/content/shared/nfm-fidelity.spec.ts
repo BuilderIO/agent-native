@@ -20,6 +20,7 @@ import {
 } from "./nfm-fidelity.js";
 import {
   canonicalizeNfm,
+  canonicalNfmDoc,
   docToNfm,
   nfmToDoc,
   parseNfmWithLosses,
@@ -278,7 +279,8 @@ describe("canonical form properties over agent-shaped Markdown", () => {
       if (parseNfmWithLosses(markdown).losses.length > 0)
         failures.push(`writes what it drops: ${JSON.stringify(source)}`);
       const sameDocument =
-        documentKey(nfmToDoc(markdown)) === documentKey(nfmToDoc(source));
+        documentKey(nfmToDoc(markdown)) ===
+        documentKey(canonicalNfmDoc(nfmToDoc(source)));
       if (
         !sameDocument &&
         !losses.some((loss) => loss.kind === "reparse-mismatch")

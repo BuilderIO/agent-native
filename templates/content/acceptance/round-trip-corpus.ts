@@ -568,9 +568,15 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     id: "trailing-empty-block-after-heading",
     origin: "agent",
     markdown: "# H\n<empty-block/>",
-    unrepresentable:
-      "Canonical form keeps a stored trailing empty block, but the editor's live copy saves the page without it.",
-    losses: ["editor-mismatch"],
+    canonical: "# H",
+    note: "The editor adds an empty paragraph after a last block of another kind, and its save drops it.",
+  },
+  {
+    id: "refuse-colored-trailing-empty-block",
+    origin: "agent",
+    markdown: '# H\n{color="red"}',
+    unrepresentable: "The writer keeps no color on an empty block.",
+    losses: ["reparse-mismatch"],
   },
   {
     id: "refuse-formatted-math",
