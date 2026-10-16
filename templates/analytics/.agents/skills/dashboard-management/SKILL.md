@@ -595,7 +595,7 @@ The complete typed API (`dashboard.*`, panel selections, `PanelPatch`,
 `panels`, `panelsMatching`, `section`, `insertPanel`. Selection methods:
 `moveToTop`, `moveToBottom`, `moveBefore`, `moveAfter`, `moveToIndex`,
 `moveNextTo`, `moveToRow`, `remove`, `set`, `setTitle`, `setSql`, `setWidth`,
-`setHeight`, `setConfig`, `setConfigPath`, `duplicate`. Inserted and duplicated panels take
+`setHeight`, `clearHeight`, `setConfig`, `setConfigPath`, `duplicate`. Inserted and duplicated panels take
 one chained placement: `atTop`, `atBottom`, `before`, `after`, `atIndex`,
 `nextTo`, `atRow`, `atRowStart`, `atRowEnd`. Panel `config` holds renderer
 options (`xKey`, `yKey`, `columns`, formatters); `sql`, `chartType`, `source`,
@@ -621,6 +621,7 @@ dashboard.panel("retention").set({
 });
 dashboard.panelsMatching({ source: "first-party" }).setWidth(2);
 dashboard.panel("retention").setHeight(2);
+dashboard.panel("retention").clearHeight(); // return to content-based height
 dashboard
   .panelsMatching({ titleIncludes: "Revenue" })
   .setConfigPath("yAxis.format", "currency");

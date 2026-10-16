@@ -211,4 +211,37 @@ describe("dashboard save queue", () => {
     );
     expect(save).toHaveBeenCalledTimes(1);
   });
+
+  it("does not save a diverged config after an earlier queued save succeeds", async () => {
+    const firstSave = deferred();
+    const { save, queue } = queueOf(firstSave);
+    const base = { panels: ["saved"] };
+    const firstUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "first"],
+    });
+    const firstConfig = firstUpdate(base);
+    const adoptedConfig = { panels: ["saved", "first", "remote"] };
+    const laterUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "later"],
+    });
+
+    const first = queue.enqueue(firstConfig, "v0", firstUpdate, base);
+    const second = queue.enqueue(
+      laterUpdate(adoptedConfig),
+      "v0",
+      laterUpdate,
+      adoptedConfig,
+    );
+
+    firstSave.resolve({ changed: true, updatedAt: "v1" });
+    await expect(first).resolves.toMatchObject({
+      isLatest: false,
+      config: firstConfig,
+    });
+    expect(queue.confirmed()).toEqual(firstConfig);
+    await expect(second).rejects.toBeInstanceOf(
+      DashboardSaveQueueConflictError,
+    );
+    expect(save).toHaveBeenCalledTimes(1);
+  });
 });

@@ -112,12 +112,13 @@ type PanelSelection = {
   setSql(sql: string): void;
   setWidth(width: number): void;
   setHeight(height: number): void;
+  clearHeight(): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yFormatter" or "config.yFormatter"
   duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
-type SectionSelection = Omit<PanelSelection, "setHeight"> & {
+type SectionSelection = Omit<PanelSelection, "setHeight" | "clearHeight"> & {
   append(panelIds: string[]): void;
 };
 
@@ -147,6 +148,7 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
   'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
   'dashboard.panel("retention").setHeight(2);',
+  'dashboard.panel("retention").clearHeight();',
   'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
   `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter}"}).atTop();`,
@@ -179,6 +181,10 @@ export type DashboardMutationOperation =
       op: "updatePanel";
       panelId: string;
       patch: Record<string, unknown>;
+    }
+  | {
+      op: "clearPanelHeight";
+      panelId: string;
     }
   | {
       op: "updatePanelPath";
@@ -281,6 +287,7 @@ const PANEL_METHODS = [
   "setSql",
   "setWidth",
   "setHeight",
+  "clearHeight",
   "setConfig",
   "setConfigPath",
   "duplicate",
@@ -1031,6 +1038,27 @@ export function applyDashboardMutationOperations(
           );
           break;
         }
+        case "clearPanelHeight": {
+          const panel = requirePanel(panelsFromConfig(config), op.panelId);
+          if (panel.chartType === "section") {
+            fail("clearHeight is not supported on section panels", {
+              errorCode: "invalid_dashboard_mutation",
+              statusCode: 422,
+            });
+          }
+          const hadHeight = Object.prototype.hasOwnProperty.call(
+            panel,
+            "height",
+          );
+          if (hadHeight) {
+            delete panel.height;
+            changedPanelIds.add(op.panelId);
+          }
+          commandLog.push(
+            `clearPanelHeight(${op.panelId}${hadHeight ? "" : ": no height"})`,
+          );
+          break;
+        }
         case "updatePanelPath": {
           const panel = requirePanel(panelsFromConfig(config), op.panelId);
           const result = setConfigPath(panel, op.path, op.value);
@@ -1387,13 +1415,13 @@ function operationFromPanelCommand(
   command: ParsedCall,
 ): DashboardMutationOperation[] {
   if (
-    command.name === "setHeight" &&
+    (command.name === "setHeight" || command.name === "clearHeight") &&
     panelsFromConfig(config).some(
       (panel) =>
         panelIds.includes(panelId(panel)) && panel.chartType === "section",
     )
   ) {
-    fail("setHeight is not supported on section panels", {
+    fail(`${command.name} is not supported on section panels`, {
       errorCode: "invalid_dashboard_mutation",
       statusCode: 422,
     });
@@ -1461,6 +1489,15 @@ function operationFromPanelCommand(
         panelId,
         patch: { height },
       }));
+    }
+    case "clearHeight": {
+      if (command.args.length !== 0) {
+        fail("clearHeight does not accept arguments", {
+          errorCode: "invalid_dashboard_mutation",
+          statusCode: 422,
+        });
+      }
+      return panelIds.map((panelId) => ({ op: "clearPanelHeight", panelId }));
     }
     case "setConfig": {
       const configPatch = assertObject(command.args[0], "config patch");

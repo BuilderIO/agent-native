@@ -140,6 +140,10 @@ const mutationOperationSchema = z.discriminatedUnion("op", [
     patch: freeFormObject(),
   }),
   z.object({
+    op: z.literal("clearPanelHeight"),
+    panelId: z.string(),
+  }),
+  z.object({
     op: z.literal("updatePanelPath"),
     panelId: z.string(),
     path: z.string(),
@@ -217,11 +221,11 @@ function nonEmptyOperations(
 
 const apiHelp =
   "Compact script form of `operations`: JSON-literal calls on `dashboard` only (quote object keys; no variables, loops, or imports). Use it for short layout or config edits; call with only `returnTypes: true` to list every method. " +
-  `Examples: ${[0, 2, 3, 4, 7].map((index) => DASHBOARD_MUTATION_EXAMPLES[index]).join(" ")}`;
+  `Examples: ${[0, 2, 3, 4, 7, 8].map((index) => DASHBOARD_MUTATION_EXAMPLES[index]).join(" ")}`;
 
 const operationsHelp =
   "Edits applied atomically in one save, by panel id. " +
-  'Examples: {"op":"updatePanel","panelId":"top-referrers","patch":{"title":"Top Referrers by Domain","width":2,"config":{"yFormatter":"percent"}}} {"op":"movePanels","panelIds":["dau","wau"],"position":"top"} {"op":"setFilterDefault","filterId":"emailFilter","value":"exclude_builder"}';
+  'Examples: {"op":"updatePanel","panelId":"top-referrers","patch":{"title":"Top Referrers by Domain","width":2,"config":{"yFormatter":"percent"}}} {"op":"clearPanelHeight","panelId":"top-referrers"} {"op":"movePanels","panelIds":["dau","wau"],"position":"top"} {"op":"setFilterDefault","filterId":"emailFilter","value":"exclude_builder"}';
 
 const dryRunHelp = "Validate and verify without saving.";
 const allowEmptyResultHelp =
@@ -451,7 +455,7 @@ function helpResult() {
 
 export default defineAction({
   description:
-    "Edit an existing SQL dashboard atomically. Typed `operations` or constrained `code` can move, insert, duplicate, remove, and update panels (title, SQL, width, height, config), dashboard fields, and filter defaults. Panel width spans 1–6 grid columns; optional height is 1–6 units of 180px, and an omitted height fits content. Place panels with nextToPanelId or rowNumber. Read existing panels with `get-sql-dashboard` first. First-party SQL must bind to a dashboard time filter; use `compose-dashboard` for catalog metrics and keep large SQL out of `code`. Changed panels are validated and checked as the page renders them. Report `verified` and per-panel results; when false, on errors, or after a report that nothing changed, call `inspect-dashboard-panel` before claiming the edit worked.",
+    "Edit an existing SQL dashboard atomically. Typed `operations` or constrained `code` can move, insert, duplicate, remove, and update panels (title, SQL, width, height, config), dashboard fields, and filter defaults. Panel width spans 1–6 grid columns; optional height is 1–6 units of 180px, and `clearHeight()` restores content-based height. Place panels with nextToPanelId or rowNumber. Read existing panels with `get-sql-dashboard` first. First-party SQL must bind to a dashboard time filter; use `compose-dashboard` for catalog metrics and keep large SQL out of `code`. Changed panels are validated and checked as the page renders them. Report `verified` and per-panel results; when false, on errors, or after a report that nothing changed, call `inspect-dashboard-panel` before claiming the edit worked.",
   schema: z.object({
     dashboardId: z.string().optional().describe("Dashboard id."),
     id: z

@@ -186,6 +186,25 @@ describe("dashboard extension panel editor values", () => {
     });
   });
 
+  it("preserves concurrent optional fields absent from the editor baseline", () => {
+    const original: SqlPanel = {
+      id: "pipeline-widget",
+      title: "Pipeline Widget",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      sql: "SELECT 1",
+    };
+    const edited = { ...original, title: "Updated title" };
+    const current = { ...original, height: 4, columns: 3 };
+
+    expect(mergeUnchangedPanelFields(edited, original, current)).toMatchObject({
+      title: "Updated title",
+      height: 4,
+      columns: 3,
+    });
+  });
+
   it("keeps a concurrent SQL edit when the editor changes only the title", () => {
     const original: SqlPanel = {
       id: "pipeline-widget",

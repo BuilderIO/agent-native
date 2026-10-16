@@ -47,9 +47,9 @@ export type DashboardSaveQueue<T> = {
  * Runs saves one at a time, each fenced to the version its config was edited
  * from. Queued updates are replayed against the latest confirmed config when
  * they belong to the same version chain, so a later edit does not carry a
- * failed earlier edit. An edit adopted from someone else after a save was
- * queued keeps its captured config; if an earlier save fails, that diverged
- * branch is rejected instead of replaying against a stale confirmed config.
+ * failed earlier edit. A queued edit adopted from another version is rejected
+ * when it reaches the save, instead of sending its captured config over a
+ * newer confirmed version.
  */
 export function createDashboardSaveQueue<T>(
   save: (
@@ -102,7 +102,7 @@ export function createDashboardSaveQueue<T>(
         let configToSave = config;
         let succeeded = false;
         try {
-          if (entry.diverged && previousSaveFailed) {
+          if (entry.diverged) {
             throw new DashboardSaveQueueConflictError();
           }
           if (

@@ -241,6 +241,44 @@ describe("dashboard mutation api", () => {
     }
   });
 
+  it("parses and applies clearHeight as a return to content-based height", () => {
+    const root = clone(config());
+    const selected = root.panels[0] as Record<string, unknown>;
+    selected.height = 3;
+
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.panel("a").clearHeight();',
+    );
+    expect(operations).toEqual([{ op: "clearPanelHeight", panelId: "a" }]);
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(selected).not.toHaveProperty("height");
+    expect(result.changedPanelIds).toEqual(["a"]);
+    expect(result.commandLog).toEqual(["clearPanelHeight(a)"]);
+  });
+
+  it("rejects clearHeight on sections and with arguments", () => {
+    for (const statement of [
+      'dashboard.section("section").clearHeight();',
+      'dashboard.panel("section").clearHeight();',
+      'dashboard.panel("a").clearHeight(2);',
+    ]) {
+      expect(() => parseDashboardMutationScript(config(), statement)).toThrow(
+        statement.includes("clearHeight(2)")
+          ? /clearHeight does not accept arguments/
+          : /clearHeight is not supported on section panels/,
+      );
+    }
+
+    expect(() =>
+      applyDashboardMutationOperations(clone(config()), [
+        { op: "clearPanelHeight", panelId: "section" },
+      ]),
+    ).toThrow(/operation 1 \(clearPanelHeight\).*clearHeight is not supported/);
+  });
+
   it("supports bulk field edits and nested config path edits", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(
@@ -546,8 +584,9 @@ describe("dashboard mutation api", () => {
 
   it("teaches only config keys the renderer honors", () => {
     expect(DASHBOARD_MUTATION_API_TYPES).toContain(
-      'type SectionSelection = Omit<PanelSelection, "setHeight"> & {',
+      'type SectionSelection = Omit<PanelSelection, "setHeight" | "clearHeight"> & {',
     );
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain("clearHeight(): void;");
     expect(DASHBOARD_MUTATION_API_TYPES).not.toContain("yAxis");
     expect(DASHBOARD_MUTATION_API_TYPES).toContain('e.g. "yFormatter"');
     expect(DASHBOARD_MUTATION_EXAMPLES).toContain(

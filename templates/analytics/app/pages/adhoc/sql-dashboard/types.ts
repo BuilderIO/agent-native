@@ -307,6 +307,7 @@ export function mergeUnchangedPanelFields(
   const keys = new Set([
     ...Object.keys(basePanel),
     ...Object.keys(editedPanel),
+    ...Object.keys(currentPanel),
   ]);
   for (const key of keys) {
     if (key === "config") continue;

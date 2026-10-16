@@ -506,6 +506,29 @@ describe("mutate-dashboard", () => {
     expect(mocks.dryRunQuery).not.toHaveBeenCalled();
   });
 
+  it("persists clearPanelHeight by removing the stored height field", async () => {
+    const existingConfig = dashboardConfig();
+    (existingConfig.panels[0] as Record<string, unknown>).height = 3;
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const args = mutateDashboard.schema.parse({
+      dashboardId: "traffic",
+      operations: [{ op: "clearPanelHeight", panelId: "a" }],
+    });
+    const result: any = await mutateDashboard.run(args);
+
+    expect(result.saved).toBe(true);
+    expect(result.changedPanelIds).toEqual(["a"]);
+    expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<Record<string, unknown>>;
+    };
+    expect(saved.panels[0]).not.toHaveProperty("height");
+  });
+
   it("returns the SQL save proof when collab sync hangs", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1147,9 +1170,10 @@ describe("mutate-dashboard", () => {
             { value: "exclude_builder", label: "Exclude @builder.io" },
           ],
         };
-        const examplePanel = (id: string, title: string) => ({
+        const examplePanel = (id: string, title: string, height?: number) => ({
           ...panel(id),
           title,
+          ...(height === undefined ? {} : { height }),
         });
         mocks.getDashboard.mockResolvedValue({
           kind: "sql",
@@ -1158,7 +1182,7 @@ describe("mutate-dashboard", () => {
             columns: 2,
             filters: [timeRange, emailFilter],
             panels: [
-              examplePanel("retention", "Retention"),
+              examplePanel("retention", "Retention", 3),
               examplePanel("top-referrers", "Top Referrers"),
               examplePanel("recurring-users-by-template", "Recurring Users"),
               examplePanel("dau-over-time", "Signed-In Daily Active Visitors"),
