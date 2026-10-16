@@ -1145,6 +1145,31 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.init).not.toHaveBeenCalled();
   });
 
+  it("starts Amplitude in the consent region only after analytics consent", async () => {
+    const { setTimeZone } = installBrowser();
+    setTimeZone("Europe/Berlin");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    trackEvent("before_consent", {});
+    await tick();
+    expect(amplitudeMock.init).not.toHaveBeenCalled();
+
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+
+    expect(amplitudeMock.init).toHaveBeenCalledWith("amp_test", {
+      autocapture: false,
+    });
+  });
+
   it("mirrors timing browser events to the OTel bridge", async () => {
     installBrowser();
     const { trackEvent } = await freshAnalytics();

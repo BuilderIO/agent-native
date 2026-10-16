@@ -1,5 +1,11 @@
 import { getAppConfig } from "../app-config/index.js";
+import {
+  CONSENT_REGION_PATH,
+  CONSENT_REGION_TIME_ZONE_LIST,
+  type ConsentCategory,
+} from "../shared/consent.js";
 import { SYNTHETIC_TRAFFIC_BETA_E2E } from "../shared/test-traffic.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 
 declare const __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: string | undefined;
 declare const __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: string | undefined;
@@ -118,11 +124,45 @@ export function getGaInlineConfigScriptBody(options?: {
   );
 }
 
+/**
+ * Queue `body` until the visitor's region and choice allow `category`; the
+ * bootstrap after it, or `client/consent.ts` once loaded, runs it.
+ */
+function consentGatedScript(category: ConsentCategory, body: string): string {
+  return `<script>(window.__AN_CONSENT_QUEUE__=window.__AN_CONSENT_QUEUE__||[]).push([${JSON.stringify(category)},function(){${body}}]);</script>`;
+}
+
+/**
+ * Runs the queued tags on pages that never load the app bundle, like the
+ * plain sign-in page, and runs them without waiting for it elsewhere: at once
+ * for a stored choice or a region already known this session, else after
+ * asking the server, with the time zone as fallback. Once
+ * `client/consent.ts` replaces the queue it owns what's left, so nothing runs
+ * twice. Keep its cookie and region rules in step with that module.
+ */
+function getConsentBootstrapScript(): string {
+  const zones = JSON.stringify(CONSENT_REGION_TIME_ZONE_LIST);
+  const regionPath = JSON.stringify(publicFrameworkPath(CONSENT_REGION_PATH));
+  return (
+    `<script data-agent-native-consent>(function(w,d){var Q="__AN_CONSENT_QUEUE__",K="an_consent_region";` +
+    `function choice(){var m=/(?:^|;\\s*)an_consent=1\\.p([01])\\.t([01])(?:;|$)/.exec(d.cookie||"");return m?{performance:m[1]==="1",targeting:m[2]==="1"}:null}` +
+    `function run(region){var q=w[Q];if(!Array.isArray(q))return;var c=choice(),keep=[];for(var i=0;i<q.length;i++){var e=q[i];if(c?c[e[0]]:region==="none"){e[1]()}else{keep.push(e)}}q.length=0;q.push.apply(q,keep)}` +
+    `function zone(){try{return ${zones}.indexOf(Intl.DateTimeFormat().resolvedOptions().timeZone)>-1?"consent":"none"}catch(e){return"consent"}}` +
+    // coercion-ok: a page without session storage asks the server again.
+    `var cached=null;try{cached=w.sessionStorage.getItem(K)}catch(e){}` +
+    `if(choice()||cached==="consent"||cached==="none"){run(cached);return}` +
+    // An unreachable server falls back to the time zone.
+    // coercion-ok: a region it can't save is asked again on the next page.
+    `fetch(${regionPath},{credentials:"same-origin"}).then(function(r){return r.ok?r.json():{}}).then(function(b){return b&&(b.region==="consent"||b.region==="none")?b.region:zone()},zone).then(function(region){try{w.sessionStorage.setItem(K,region)}catch(e){}run(region)})` +
+    `})(window,document);</script>`
+  );
+}
+
 function getGaScript(): string | null {
   const id = getGaMeasurementId();
   if (!id) return null;
   const inlineBody = getGaInlineConfigScriptBody();
-  return `<script>${inlineBody}</script>`;
+  return inlineBody ? consentGatedScript("performance", inlineBody) : null;
 }
 
 function getGtmGaFallbackScript(): string | null {
@@ -130,17 +170,18 @@ function getGtmGaFallbackScript(): string | null {
     dataLayerName: "__AGENT_NATIVE_GA_DATA_LAYER__",
     sendPageView: false,
   });
-  return inlineBody ? `<script>${inlineBody}</script>` : null;
+  return inlineBody ? consentGatedScript("performance", inlineBody) : null;
 }
 
+// The container carries the ad pixels (Meta, LinkedIn, Reddit, X, Bing,
+// Google Ads, OpenAI) and B2B identification tags alongside GA events, so it
+// all waits for targeting. Its <noscript> iframe can't wait, so there is none.
 function getGtmHeadScript(containerId: string): string {
   const jsId = JSON.stringify(containerId);
-  return `<script>if(${getSyntheticTrafficBrowserGuard()}){(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',${jsId});}</script>`;
-}
-
-function getGtmBodyFallback(containerId: string): string {
-  const src = encodeURIComponent(containerId);
-  return `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${src}" height="0" width="0" style="display:none;visibility:hidden" title="Google Tag Manager"></iframe></noscript>`;
+  return consentGatedScript(
+    "targeting",
+    `if(${getSyntheticTrafficBrowserGuard()}){(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',${jsId});}`,
+  );
 }
 
 type AnalyticsInjection = {
@@ -157,15 +198,22 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
         agentNativeAnalytics,
         getGtmHeadScript(containerId),
         getGtmGaFallbackScript(),
+        getConsentBootstrapScript(),
       ]
         .filter(Boolean)
         .join(""),
-      body: getGtmBodyFallback(containerId),
+      body: "",
     };
   }
 
   const gaScript = getGaScript();
-  const head = [agentNativeAnalytics, gaScript].filter(Boolean).join("");
+  const head = [
+    agentNativeAnalytics,
+    gaScript,
+    gaScript ? getConsentBootstrapScript() : null,
+  ]
+    .filter(Boolean)
+    .join("");
   return head ? { head, body: "" } : null;
 }
 

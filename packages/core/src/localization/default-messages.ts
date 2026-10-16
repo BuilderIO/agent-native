@@ -1,4 +1,5 @@
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
@@ -38,6 +39,7 @@ const messages = {
         "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
     },
   },
+  consentBanner: CONSENT_BANNER_MESSAGES["en-US"],
   environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",

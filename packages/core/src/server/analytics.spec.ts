@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -144,7 +146,7 @@ describe("wrapWithAnalytics", () => {
     expect(html).toContain(`gtag('config',"G-BAKED123")`);
   });
 
-  it("injects GTM at both required document positions", async () => {
+  it("injects GTM in the head, behind targeting consent", async () => {
     process.env.GTM_CONTAINER_ID = "gtm-unit123";
     process.env.GA_MEASUREMENT_ID = "G-IGNORED123";
 
@@ -161,9 +163,8 @@ describe("wrapWithAnalytics", () => {
     expect(html).toContain(
       'window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__!=="beta-e2e"',
     );
-    expect(html).toContain(
-      "https://www.googletagmanager.com/ns.html?id=GTM-UNIT123",
-    );
+    expect(html).toContain('.push(["targeting",function(){');
+    expect(html).not.toContain("<noscript>");
     expect(html).toContain(
       "https://www.googletagmanager.com/gtag/js?id=G-IGNORED123&l=__AGENT_NATIVE_GA_DATA_LAYER__",
     );
@@ -172,8 +173,9 @@ describe("wrapWithAnalytics", () => {
       "agentNativeGtag('config',\"G-IGNORED123\",{send_page_view:false});",
     );
     expect(html).not.toContain("gtag('config',\"G-IGNORED123\")");
-    expect(html.indexOf("</head>")).toBeLessThan(html.indexOf("<body>"));
-    expect(html.indexOf("<body>")).toBeLessThan(html.indexOf("<noscript>"));
+    expect(html.indexOf("data-agent-native-consent")).toBeLessThan(
+      html.indexOf("</head>"),
+    );
   });
 
   it("handles head and body tags split across SSR chunks", async () => {
@@ -190,9 +192,8 @@ describe("wrapWithAnalytics", () => {
     );
 
     expect(html.match(/googletagmanager\.com\/gtm\.js/g)).toHaveLength(1);
-    expect(html.match(/googletagmanager\.com\/ns\.html/g)).toHaveLength(1);
-    expect(html.indexOf("<noscript>")).toBeGreaterThan(html.indexOf("<body>"));
-    expect(html).toContain("<main>ok</main>");
+    expect(html.indexOf("gtm.js")).toBeLessThan(html.indexOf("</head>"));
+    expect(html).toContain("<body><main>ok</main>");
   });
 });
 
@@ -269,16 +270,120 @@ describe("injectAnalyticsIntoHtml", () => {
     );
   });
 
-  it("injects the GTM noscript fallback into auth HTML", () => {
+  it("injects no GTM noscript iframe, which couldn't wait for consent", () => {
     process.env.GTM_CONTAINER_ID = "GTM-AUTH123";
 
     const html = injectAnalyticsIntoHtml(
       "<html><head></head><body>signup</body></html>",
     );
 
-    expect(html).toContain(
-      'src="https://www.googletagmanager.com/ns.html?id=GTM-AUTH123"',
+    expect(html).not.toContain("ns.html");
+    expect(html).toContain("<body>signup</body>");
+  });
+});
+
+describe("consent bootstrap", () => {
+  /** Run the injected head scripts in a page with this visitor's state. */
+  async function loadPage({
+    region = "unknown",
+    timeZone = "America/Los_Angeles",
+    cookie = "",
+    cachedRegion,
+  }: {
+    region?: string;
+    timeZone?: string;
+    cookie?: string;
+    cachedRegion?: string;
+  }) {
+    process.env.GTM_CONTAINER_ID = "GTM-PAGE123";
+    process.env.GA_MEASUREMENT_ID = "G-PAGE123";
+    const html = injectAnalyticsIntoHtml(
+      "<html><head></head><body></body></html>",
     );
-    expect(html.indexOf("<noscript>")).toBeGreaterThan(html.indexOf("<body>"));
+    const loaded: string[] = [];
+    const fetched: string[] = [];
+    const session = new Map<string, string>(
+      cachedRegion ? [["an_consent_region", cachedRegion]] : [],
+    );
+    const script = () => ({
+      set src(value: string) {
+        loaded.push(value);
+      },
+    });
+    const head = { appendChild: (el: { src?: string }) => el };
+    const window: Record<string, unknown> = {
+      sessionStorage: {
+        getItem: (key: string) => session.get(key) ?? null,
+        setItem: (key: string, value: string) => session.set(key, value),
+      },
+    };
+    const context = {
+      window,
+      document: {
+        cookie,
+        head,
+        createElement: script,
+        getElementsByTagName: () => [{ parentNode: { insertBefore() {} } }],
+      },
+      Intl: {
+        DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone }) }),
+      },
+      fetch: async (url: string) => {
+        fetched.push(url);
+        return { ok: true, json: async () => ({ region }) };
+      },
+      sessionStorage: window.sessionStorage,
+      Date,
+    };
+    window.window = window;
+    for (const [, body] of html.matchAll(
+      /<script[^>]*>([\s\S]*?)<\/script>/g,
+    )) {
+      runInNewContext(body!, context);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const tags = loaded.map((src) =>
+      src.includes("gtm.js") ? "gtm" : src.includes("gtag/js") ? "ga" : src,
+    );
+    return { tags, fetched, session, window };
+  }
+
+  it("loads every tag outside the consent region", async () => {
+    const page = await loadPage({ region: "none" });
+
+    expect(page.tags.sort()).toEqual(["ga", "gtm"]);
+    expect(page.fetched).toEqual(["/_agent-native/auth/consent-region"]);
+    expect(page.session.get("an_consent_region")).toBe("none");
+  });
+
+  it("holds every tag in the consent region until the visitor chooses", async () => {
+    const page = await loadPage({ region: "consent" });
+
+    expect(page.tags).toEqual([]);
+    expect(page.window.__AN_CONSENT_QUEUE__).toHaveLength(2);
+  });
+
+  it("falls back to the time zone when the server can't tell", async () => {
+    expect((await loadPage({ timeZone: "Europe/Berlin" })).tags).toEqual([]);
+    expect((await loadPage({ timeZone: "Europe/London" })).tags).toHaveLength(
+      2,
+    );
+  });
+
+  it("follows a stored choice at once, without asking the server", async () => {
+    const page = await loadPage({
+      region: "consent",
+      cookie: "theme=dark; an_consent=1.p1.t0",
+    });
+
+    expect(page.tags).toEqual(["ga"]);
+    expect(page.fetched).toEqual([]);
+  });
+
+  it("reuses the region already known this session", async () => {
+    const page = await loadPage({ cachedRegion: "none", region: "consent" });
+
+    expect(page.tags).toHaveLength(2);
+    expect(page.fetched).toEqual([]);
   });
 });

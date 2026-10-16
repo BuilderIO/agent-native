@@ -1,4 +1,5 @@
 import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
+import { consentBannerMessagesForLocale } from "./consent-banner-messages.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
 import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
@@ -112,6 +113,7 @@ export async function loadCoreMessagesForLocale(
   const supplementalMessages = await supplementalLoader();
   return {
     agentResources: agentResourcePackMessagesForLocale(locale),
+    consentBanner: consentBannerMessagesForLocale(locale),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
     iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
@@ -123,6 +125,7 @@ export async function loadCoreMessagesForLocale(
 
 const englishCoreMessages = {
   agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
+  consentBanner: consentBannerMessagesForLocale(DEFAULT_LOCALE),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {
@@ -136,6 +139,7 @@ export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
     return englishCoreMessages;
   }
   return {
+    consentBanner: consentBannerMessagesForLocale(locale),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
   };
 }

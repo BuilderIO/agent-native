@@ -216,6 +216,7 @@ let _amplitudeModule: typeof amplitude | null = null;
 let _amplitudeLoadPromise: Promise<typeof amplitude | null> | null = null;
 let _amplitudeApiKey: string | null = null;
 let _pendingAmplitudeEvents: Array<[string, Record<string, unknown>]> = [];
+let _amplitudeConsent: "unasked" | "waiting" | "granted" = "unasked";
 let _sentryInitialized = false;
 let _sentryModule: typeof Sentry | null = null;
 let _sentryLoadPromise: Promise<typeof Sentry | null> | null = null;
@@ -1172,6 +1173,28 @@ function ensureAmplitude(): boolean {
     ?.VITE_AMPLITUDE_API_KEY;
   if (!key) return false;
   _amplitudeApiKey = key;
+  if (_amplitudeConsent !== "granted") {
+    if (_amplitudeConsent === "unasked") {
+      _amplitudeConsent = "waiting";
+      // Amplitude keeps a device id in the browser, so where the banner
+      // applies it waits for performance cookies.
+      whenConsentAllows(
+        "performance",
+        () => {
+          _amplitudeConsent = "granted";
+          _amplitudeModule?.setOptOut(false);
+          ensureAmplitude();
+        },
+        {
+          revoke: () => {
+            _pendingAmplitudeEvents = [];
+            _amplitudeModule?.setOptOut(true);
+          },
+        },
+      );
+    }
+    return false;
+  }
   if (_amplitudeLoadPromise) return false;
 
   _amplitudeLoadPromise = loadOptionalPeer(

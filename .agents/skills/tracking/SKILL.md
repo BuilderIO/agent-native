@@ -257,6 +257,29 @@ string copy and cannot import the module, so a one-sided edit drops the config
 silently in deployed builds. `posthog-config.spec.ts` pins the two outputs
 together.
 
+### Cookie consent
+
+Visitors in the consent region (`shared/consent.ts`, copied from builder.io's
+banner rules) see `ConsentBanner`, which `AppProviders` and the docs root
+mount, and choose two categories: `performance` (Google Analytics,
+Amplitude, Ahrefs) and `targeting` (Google Tag Manager, attribution).
+Everyone else gets no banner and every tag at once.
+
+- Every third-party browser tag goes through the gate: server-injected
+  scripts use `consentGatedScript()` in `server/analytics.ts`; client code
+  uses `whenConsentAllows(category, run)` from
+  `@agent-native/core/client/consent`. A tag in a raw `<script>` or a
+  `<noscript>` fallback runs before the visitor chooses.
+- The GTM container (`GTM_CONTAINER_ID`, shared by every app and the docs
+  site) carries the ad pixels: Meta, LinkedIn, Reddit, X, Bing UET, Google
+  Ads and OpenAI, plus HubSpot, Dreamdata, Vector, Unify, Common Room and
+  Apollo. Gating the container gates them all, which is why it sits under
+  `targeting`. Tags added inside GTM need no code change; tags added
+  anywhere else do.
+- The inline bootstrap in `server/analytics.ts` runs the queue on pages that
+  never load the app bundle. It repeats the cookie format and time-zone
+  rules of `client/consent.ts`; change both together.
+
 ## MCP Server Events
 
 The MCP server an app exposes reports its own usage. `packages/core/src/mcp/analytics.ts`

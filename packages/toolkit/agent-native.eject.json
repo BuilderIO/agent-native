@@ -1254,6 +1254,7 @@
         "@agent-native/core/client/app-config",
         "@agent-native/core/client/appearance",
         "@agent-native/core/client/changelog/use-changelog-seen",
+        "@agent-native/core/client/consent",
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/route-chunk-recovery",
         "@agent-native/core/client/sign-out",
