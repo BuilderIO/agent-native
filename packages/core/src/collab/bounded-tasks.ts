@@ -399,11 +399,15 @@ export function createBoundedTaskRunner(
     });
     worker.on("error", (error: Error & { code?: string }) => {
       const outOfMemory = error?.code === "ERR_WORKER_OUT_OF_MEMORY";
-      if (!slot.ready && !outOfMemory) {
+      // Before ready no task is running, so running out of heap means the
+      // module itself does; a respawn would too, forever.
+      if (!slot.ready) {
         killSlot(
           slot,
           "startup_failed",
-          `Bounded task module ${source.name} failed to start: ${error?.message}`,
+          outOfMemory
+            ? `Bounded task module ${source.name} exceeded its ${memoryLimitMb} MiB heap while starting`
+            : `Bounded task module ${source.name} failed to start: ${error?.message}`,
           error,
         );
         return;

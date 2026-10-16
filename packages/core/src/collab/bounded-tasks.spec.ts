@@ -449,6 +449,38 @@ ${TASKS}`,
     ]);
   });
 
+  it("fails waiting tasks once, not by respawning, when the module outgrows its heap", async () => {
+    const real = await import("node:worker_threads");
+    let started = 0;
+    class CountingWorker extends real.Worker {
+      constructor(...args: ConstructorParameters<typeof real.Worker>) {
+        super(...args);
+        started += 1;
+      }
+    }
+    vi.resetModules();
+    vi.doMock("../shared/optional-node-builtins.js", () => ({
+      getWorkerThreads: () => ({ ...real, Worker: CountingWorker }),
+    }));
+    const isolated = await import("./bounded-tasks.js");
+    const tasks = isolated.createBoundedTaskRunner({
+      source: source(
+        "var held = []; for (;;) held.push(new Array(10000).fill(Math.random()));",
+        "greedy",
+      ),
+      memoryLimitMb: 16,
+      startupTimeoutMs: 20_000,
+      queueTimeoutMs: 100,
+    });
+    runners.push(tasks);
+    const code = await tasks.run("echo", 1).then(
+      () => "ok",
+      (error: InstanceType<typeof isolated.BoundedTaskError>) => error.code,
+    );
+    expect(code).toBe("startup_failed");
+    expect(started).toBe(1);
+  });
+
   it("fails with unavailable, never inline, where worker threads do not exist", async () => {
     vi.resetModules();
     vi.doMock("../shared/optional-node-builtins.js", () => ({

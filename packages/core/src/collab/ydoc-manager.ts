@@ -9,6 +9,7 @@ import {
   initYDocWithJson,
   type PatchOp,
 } from "./json-to-yjs.js";
+import type { LiveCopyCatchUp } from "./live-copy-tasks.js";
 import {
   applyLiveCopyUpdate,
   assertLiveCopy,
@@ -449,11 +450,16 @@ const LIVE_COPY_COMMIT_ATTEMPTS = 5;
 
 // An empty Yjs update: no structs, no deletions.
 const EMPTY_STATE = new Uint8Array([0, 0]);
+const EMPTY_CATCH_UP: LiveCopyCatchUp = {
+  stateVector: new Uint8Array([0]),
+  deletions: EMPTY_STATE,
+};
 
 interface LiveCopyCacheEntry {
   /** Bytes are valid only for the binding that checked them. */
   binding: LiveCopyBinding;
   state: Uint8Array;
+  catchUp: LiveCopyCatchUp;
   /** Null when the copy was absent. */
   version: number | null;
   lastAccess: number;
@@ -466,6 +472,7 @@ function cacheLiveCopyState(
   binding: LiveCopyBinding,
   docId: string,
   state: Uint8Array,
+  catchUp: LiveCopyCatchUp,
   version: number | null,
 ): void {
   const stale = _cache.get(docId);
@@ -476,6 +483,7 @@ function cacheLiveCopyState(
   _liveCopyCache.set(docId, {
     binding,
     state,
+    catchUp,
     version,
     lastAccess: Date.now(),
   });
@@ -525,23 +533,28 @@ async function loadLiveCopyState(
 async function liveCopyStateForRead(
   binding: LiveCopyBinding,
   docId: string,
-): Promise<Uint8Array> {
+): Promise<{ state: Uint8Array; catchUp: LiveCopyCatchUp }> {
   await ensureTable();
   const version = await loadYDocVersion(docId);
   const cached = _liveCopyCache.get(docId);
   if (cached?.binding === binding && cached.version === version) {
     cached.lastAccess = Date.now();
-    return cached.state;
+    return cached;
   }
   const stored = await readStoredLiveCopy(binding, getDbExec(), docId);
   if (stored.kind === "absent") {
-    cacheLiveCopyState(binding, docId, EMPTY_STATE, null);
-    return EMPTY_STATE;
+    cacheLiveCopyState(binding, docId, EMPTY_STATE, EMPTY_CATCH_UP, null);
+    return { state: EMPTY_STATE, catchUp: EMPTY_CATCH_UP };
   }
-  await readLiveCopyState(binding, docId, stored.state, false);
+  const { catchUp } = await readLiveCopyState(
+    binding,
+    docId,
+    stored.state,
+    false,
+  );
   const state = stored.state.length > 0 ? stored.state : EMPTY_STATE;
-  cacheLiveCopyState(binding, docId, state, stored.version);
-  return state;
+  cacheLiveCopyState(binding, docId, state, catchUp, stored.version);
+  return { state, catchUp };
 }
 
 async function commitLiveCopyUpdate(
@@ -573,7 +586,7 @@ async function commitLiveCopyUpdate(
       ...(requestSource ? { requestSource } : {}),
     });
     if (!outcome) continue;
-    cacheLiveCopyState(binding, docId, result.state, version);
+    cacheLiveCopyState(binding, docId, result.state, result.catchUp, version);
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
     return outcome;
   }
@@ -745,7 +758,7 @@ export async function mutateLiveCopy(
             callPersist(tx, { changed: true, version, text: result.text })),
       );
       if (!outcome) continue;
-      cacheLiveCopyState(binding, docId, result.state, version);
+      cacheLiveCopyState(binding, docId, result.state, result.catchUp, version);
       emitCollabUpdate(
         docId,
         uint8ArrayToBase64(result.update),
@@ -840,7 +853,7 @@ export async function seedLiveCopy(
           : {}),
       });
       if (!outcome) continue;
-      cacheLiveCopyState(binding, docId, result.state, version);
+      cacheLiveCopyState(binding, docId, result.state, result.catchUp, version);
       emitCollabUpdate(
         docId,
         uint8ArrayToBase64(result.update),
@@ -1084,7 +1097,7 @@ export async function getText(
 export async function getState(docId: string): Promise<Uint8Array> {
   const target = await readTarget(docId);
   if (target.kind === "doc") return Y.encodeStateAsUpdate(target.doc);
-  return (await liveCopyStateForRead(target.binding, docId)).slice();
+  return (await liveCopyStateForRead(target.binding, docId)).state.slice();
 }
 
 export async function getIncUpdate(
@@ -1095,8 +1108,17 @@ export async function getIncUpdate(
   if (target.kind === "doc") {
     return Y.encodeStateAsUpdate(target.doc, clientStateVector);
   }
-  const state = await liveCopyStateForRead(target.binding, docId);
-  return Y.diffUpdate(state, clientStateVector);
+  const { state, catchUp } = await liveCopyStateForRead(target.binding, docId);
+  // Diffing against the client's vector would decode the copy on this
+  // thread. A client at the same vector lacks at most deletions; any other
+  // gets the whole state, which Yjs applies idempotently.
+  return sameBytes(clientStateVector, catchUp.stateVector)
+    ? catchUp.deletions.slice()
+    : state.slice();
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
 
 export async function seedFromText(
