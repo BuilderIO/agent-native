@@ -56,17 +56,21 @@ const CONTENT_FENCE = /^(`{3,})(.*)$/;
  * toggle heading's children sit a tab deeper per level and are parsed where
  * they stand, and a pipe table holds only inline cells.
  *
- * A container counts as closed only by a close of its tag at its tabs,
- * outside a code fence, while it is the innermost one open; any other close
- * is ignored. Content pairs closes by tag and indentation and skips fenced
- * lines, so it never ends a container later, and one left unclosed, which
- * Content scans to the end of its parent, keeps its depth on every line
- * after. Content's code blocks end on lines its fence scanners do not, so a
- * container line inside a fence may still open one: from there no close can
- * be trusted, and the containers still open count, along with every one
- * opened after. Content rereads a container's lines once per level around
- * them and its canonical form indents them once per level, so their total
- * depth is held to the body cap.
+ * A container counts as closed only by the close of the innermost one open,
+ * at the same tabs, outside a code fence: Content pairs closes by tag and
+ * indentation and skips fenced lines. Its code blocks end on lines its fence
+ * scanners do not, so a container line inside a fence may still open one.
+ * Once a close or a fenced container line breaks that shape, no later close
+ * can be trusted, even one that pairs: a `<details>` body pops its containers
+ * on a close at any tabs and indents each later line by how many it holds
+ * open, so after one close pairs differently, every later line can move to
+ * another container. From there the containers still open count, and so does
+ * every container opened after, which also bounds the opens left unclosed,
+ * each of which Content scans to the end of its parent. Those closed before
+ * stay closed, because up to the break every close paired as Content pairs
+ * it. Content rereads a container's lines once per level around them and its
+ * canonical form indents them once per level, so their total depth is held
+ * to the body cap.
  */
 export function withinParserLimits(text: string): boolean {
   if (text.length > MAX_BODY_BYTES) return false;
@@ -88,8 +92,9 @@ export function withinParserLimits(text: string): boolean {
       CONTAINER_CLOSE.exec(bare)?.[1] ??
       (line.trim() === "</table>" ? "table" : undefined);
     const run = CONTENT_FENCE.exec(bare);
-    const fenced = fence > 0 && !!(opens || closes);
+    let breaks = false;
     if (fence) {
+      breaks = !!(opens || closes);
       if (run && !run[2].trim() && run[1].length >= fence) fence = 0;
     } else if (run) {
       fence = run[1].length;
@@ -99,8 +104,9 @@ export function withinParserLimits(text: string): boolean {
       const top = open[open.length - 1];
       if (top.tag === closes && (closes === "table" || top.tabs === tabs))
         open.pop();
+      else breaks = true;
     }
-    if (fenced && paired) {
+    if (breaks && paired) {
       paired = false;
       opened = open.length;
     }

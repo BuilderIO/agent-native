@@ -347,21 +347,43 @@ describe("parser limits", () => {
     expect(
       withinParserLimits(L("```", "  ```", nested("```", "</details>", "```"))),
     ).toBe(false);
-    // A mismatched close ends nothing, so the containers closed before and
-    // after it stay closed.
-    const closed = Array<string>(150).fill(L("<details>", "x", "</details>"));
+    // Containers closed before a mismatched close stay closed.
     expect(
       withinParserLimits(
         L(
-          ...closed,
+          ...Array<string>(150).fill(L("<details>", "x", "</details>")),
           "<callout>",
           "</details>",
           "</callout>",
-          ...closed,
           ...Array<string>(3000).fill("filler"),
         ),
       ),
     ).toBe(true);
+    // Closes after a mismatched one are not trusted even when they pair:
+    // Content indents the inner `<details>` two tabs and the bare close one,
+    // so the inner toggle ends only at the two-tab close and holds every
+    // callout before it, 101 deep.
+    const tabbed = (tabs: number, line: string) => "\t".repeat(tabs) + line;
+    const callouts = Array.from({ length: 98 }, (_, k) =>
+      tabbed(3 + k, "<callout>"),
+    );
+    expect(
+      withinParserLimits(
+        L(
+          "<details>",
+          "<callout>",
+          "<details>",
+          tabbed(3, "</details>"),
+          "</callout>",
+          "</details>",
+          ...callouts,
+          tabbed(101, "x"),
+          ...callouts.map((line) => line.replace("<", "</")).reverse(),
+          tabbed(2, "</details>"),
+          "</details>",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("caps the emphasis runs in one paragraph, however many lines it spans", () => {
