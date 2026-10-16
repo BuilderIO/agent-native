@@ -47,6 +47,29 @@
   --sidebar-border: 0 0% 92%;
   --sidebar-ring: 0 0% 15%;
   --sidebar-muted: 0 0% 34%;
+
+  /* Block colors, keyed by the color names documents store. Each text color
+     keeps 4.5:1 contrast on the page and on its own background in both
+     themes. */
+  --block-color-gray: #525252;
+  --block-color-brown: #905a33;
+  --block-color-orange: #ca3500;
+  --block-color-yellow: #a65f00;
+  --block-color-green: #008236;
+  --block-color-blue: #1447e6;
+  --block-color-purple: #8200db;
+  --block-color-pink: #c6005c;
+  --block-color-red: #c10007;
+
+  --block-bg-gray: #73737319;
+  --block-bg-brown: #c67f4d19;
+  --block-bg-orange: #ff690019;
+  --block-bg-yellow: #f0b10019;
+  --block-bg-green: #00c95019;
+  --block-bg-blue: #2b7fff19;
+  --block-bg-purple: #ad46ff19;
+  --block-bg-pink: #f6339a19;
+  --block-bg-red: #fb2c3619;
 }
 
 @theme {
@@ -100,6 +123,26 @@
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
   --sidebar-muted: 0 0% 50%;
+
+  --block-color-gray: #a1a1a1;
+  --block-color-brown: #e0b491;
+  --block-color-orange: #ffb86a;
+  --block-color-yellow: #ffdf20;
+  --block-color-green: #7bf1a8;
+  --block-color-blue: #8ec5ff;
+  --block-color-purple: #dab2ff;
+  --block-color-pink: #fda5d5;
+  --block-color-red: #ffa2a2;
+
+  --block-bg-gray: #73737326;
+  --block-bg-brown: #c67f4d26;
+  --block-bg-orange: #ff690026;
+  --block-bg-yellow: #f0b10026;
+  --block-bg-green: #00c95026;
+  --block-bg-blue: #2b7fff26;
+  --block-bg-purple: #ad46ff26;
+  --block-bg-pink: #f6339a26;
+  --block-bg-red: #fb2c3626;
 }
 
 @layer base {
@@ -940,31 +983,31 @@
 }
 
 .notion-block-color--gray {
-  color: #787774;
+  color: var(--block-color-gray);
 }
 .notion-block-color--brown {
-  color: #976d57;
+  color: var(--block-color-brown);
 }
 .notion-block-color--orange {
-  color: #cc772f;
+  color: var(--block-color-orange);
 }
 .notion-block-color--yellow {
-  color: #c29243;
+  color: var(--block-color-yellow);
 }
 .notion-block-color--green {
-  color: #548164;
+  color: var(--block-color-green);
 }
 .notion-block-color--blue {
-  color: #487ca5;
+  color: var(--block-color-blue);
 }
 .notion-block-color--purple {
-  color: #8a67ab;
+  color: var(--block-color-purple);
 }
 .notion-block-color--pink {
-  color: #b35488;
+  color: var(--block-color-pink);
 }
 .notion-block-color--red {
-  color: #c4554d;
+  color: var(--block-color-red);
 }
 
 .notion-block-bg {
@@ -973,31 +1016,31 @@
   border-radius: 4px;
 }
 .notion-block-bg--gray {
-  background-color: #f1f1ef;
+  background-color: var(--block-bg-gray);
 }
 .notion-block-bg--brown {
-  background-color: #f4eeee;
+  background-color: var(--block-bg-brown);
 }
 .notion-block-bg--orange {
-  background-color: #fbecdd;
+  background-color: var(--block-bg-orange);
 }
 .notion-block-bg--yellow {
-  background-color: #fbf3db;
+  background-color: var(--block-bg-yellow);
 }
 .notion-block-bg--green {
-  background-color: #edf3ec;
+  background-color: var(--block-bg-green);
 }
 .notion-block-bg--blue {
-  background-color: #e7f3f8;
+  background-color: var(--block-bg-blue);
 }
 .notion-block-bg--purple {
-  background-color: #f6f3f9;
+  background-color: var(--block-bg-purple);
 }
 .notion-block-bg--pink {
-  background-color: #faf1f5;
+  background-color: var(--block-bg-pink);
 }
 .notion-block-bg--red {
-  background-color: #fdebec;
+  background-color: var(--block-bg-red);
 }
 
 .notion-synced-block {
