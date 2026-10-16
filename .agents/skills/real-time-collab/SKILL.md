@@ -292,7 +292,9 @@ Then:
   `readLiveCopy`. Do not work around either. Call these writers outside any
   transaction; they refuse a caller's. Rows that must commit with one edit
   (say, the suggestion it accepts) go in `mutateLiveCopy`'s `persist` option,
-  which runs in the edit's own transaction.
+  which runs in the edit's own transaction. Throw from it to refuse rows that
+  moved: when a peer committed first, core retries the edit on fresh state
+  instead of returning the error, so do not add a version check of your own.
 - Write the app's own rows in the binding's `persist` hook, which runs in the
   commit transaction before `_collab_docs`. Do not save derived text elsewhere.
   Return `{ derived: false, reason }` when it leaves them alone: the Yjs state

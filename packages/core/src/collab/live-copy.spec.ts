@@ -1060,6 +1060,89 @@ describe("mutateLiveCopy", () => {
     ]);
   });
 
+  it("retries a call's persist that refuses what a peer committed first", async () => {
+    let peer: (() => Promise<void>) | undefined;
+    const binding = define({
+      runner: intercepted(async (task) => {
+        if (task !== "liveCopy.edit" || !peer) return;
+        const write = peer;
+        peer = undefined;
+        await write();
+      }),
+    });
+    const seeded = await manager.seedLiveCopy(binding, "live:doc", {
+      source: "base",
+    });
+    const bases: number[] = [];
+    // Refuses a copy that moved since the attempt's read, as an app that
+    // checks its own rows against the edit refuses them.
+    const persist = async (
+      tx: DbExec,
+      change: { changed: boolean; version: number },
+    ) => {
+      const base = change.changed ? change.version - 1 : change.version;
+      bases.push(base);
+      const { rows } = await tx.execute({
+        sql: "SELECT version FROM _collab_docs WHERE doc_id = ?",
+        args: ["live:doc"],
+      });
+      if (Number(rows[0].version) !== base) throw new Error("stale");
+    };
+
+    peer = async () => {
+      const { trySaveYDocStateWithClient } = await import("./storage.js");
+      const update = clientEdit(seeded.state, appendParagraph("peer"));
+      await trySaveYDocStateWithClient(
+        exec,
+        "live:doc",
+        Y.mergeUpdates([seeded.state, update]),
+        "base\npeer",
+        0,
+      );
+    };
+    const changed = await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "mine" },
+      persist,
+    });
+    expect(changed).toMatchObject({ changed: true, version: 2, attempts: 2 });
+    expect(bases).toEqual([0, 1]);
+
+    bases.length = 0;
+    peer = async () => {
+      await pglite
+        .prepare(
+          "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
+        )
+        .run("live:doc");
+    };
+    const unchanged = await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "unchanged",
+      persist,
+    });
+    expect(unchanged).toMatchObject({
+      changed: false,
+      version: 3,
+      attempts: 2,
+    });
+    expect(bases).toEqual([2, 3]);
+
+    // With no peer, the persist's own error is the answer.
+    let calls = 0;
+    const refusal = new Error("refused");
+    await expect(
+      manager.mutateLiveCopy(binding, "live:doc", {
+        edit: "append",
+        input: { text: "never" },
+        persist: async () => {
+          calls += 1;
+          throw refusal;
+        },
+      }),
+    ).rejects.toBe(refusal);
+    expect(calls).toBe(1);
+  });
+
   it("rolls back the whole commit when the persist hook throws", async () => {
     let fail = false;
     const binding = define({
