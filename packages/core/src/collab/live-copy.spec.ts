@@ -197,6 +197,7 @@ beforeEach(async () => {
     getDbExec: () => dbScope.getStore() ?? scoped ?? exec,
     getScopedDbExec: () => dbScope.getStore() ?? scoped,
     withDbExec: <T>(db: DbExec, run: () => T) => dbScope.run(db, run),
+    insideDbTransactionCallback: () => false,
   }));
   vi.doMock("../db/ddl-guard.js", () => ({
     ensureColumnExists: vi.fn().mockResolvedValue(undefined),
