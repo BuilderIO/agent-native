@@ -2528,6 +2528,30 @@ describe("wrapNodes", () => {
     expect(patch.content).toContain("<p>After</p>");
   });
 
+  it("keeps a padded auto-margin child inside its parent when the parent becomes a column", () => {
+    const html = `<main><section data-agent-native-node-id="p" style="width:300px"><div data-agent-native-node-id="padded" style="margin:0 auto;padding:0 24px">A</div><div data-agent-native-node-id="plain" style="margin:0 auto">B</div><div data-agent-native-node-id="tall" style="margin:0 auto;padding:0 24px;height:40px">C</div></section></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "p",
+      enabled: true,
+      direction: "column",
+      gap: "8px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const style = (id: string) =>
+      buildCodeLayerProjection(patch.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === id,
+      )!.style;
+    expect(style("padded")).toMatchObject({
+      width: "100%",
+      "box-sizing": "border-box",
+    });
+    expect(style("plain").width).toBe("100%");
+    expect(style("plain")["box-sizing"]).toBeUndefined();
+    expect(style("tall")["box-sizing"]).toBeUndefined();
+  });
+
   it("adds autoLayout styles to wrapper and strips absolute positioning from wrapped children", () => {
     const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 10px; top: 20px">X</div><div data-agent-native-node-id="y" style="position: absolute; right: 5px">Y</div></main>`;
     const patch = applyVisualEdit(html, {

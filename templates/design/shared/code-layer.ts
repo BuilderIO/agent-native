@@ -10211,6 +10211,24 @@ const BLOCK_LEVEL_TAGS = new Set([
   "ul",
 ]);
 
+const HORIZONTAL_BOX_PROPERTIES = [
+  "padding",
+  "padding-left",
+  "padding-right",
+  "padding-inline",
+  "border",
+  "border-left",
+  "border-right",
+  "border-width",
+  "border-left-width",
+  "border-right-width",
+];
+
+function isNonZeroBoxValue(value: string | undefined): boolean {
+  if (!value) return false;
+  return !/^(?:0(?:px)?\s*)+$|^none$/i.test(value.trim());
+}
+
 // In block flow an auto-width child with an auto inline margin still fills the
 // line; in a flex column the auto margin shrinks it to fit-content instead.
 function keepBlockChildFillingWidth(
@@ -10232,6 +10250,17 @@ function keepBlockChildFillingWidth(
   if (marginLeft !== "auto" && marginRight !== "auto") return html;
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
   setStyleDeclaration(declarations, "width", "100%");
+  // The block's auto width left room for its own padding and border; 100% only
+  // does under border-box, which must not change a set height.
+  if (
+    !style["box-sizing"] &&
+    (!style.height || style.height === "auto") &&
+    HORIZONTAL_BOX_PROPERTIES.some((property) =>
+      isNonZeroBoxValue(style[property]),
+    )
+  ) {
+    setStyleDeclaration(declarations, "box-sizing", "border-box");
+  }
   return replaceOrInsertAttribute(
     html,
     child,

@@ -481,6 +481,37 @@ describe("portable-style source capture and rendered Chromium behavior", () => {
     });
   });
 
+  it("carries the other sides of a partly authored margin through their longhand entries", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;margin-top:4px"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            margin: "8px 10px 6px 12px",
+            marginTop: "8px",
+            marginRight: "10px",
+            marginBottom: "6px",
+            marginLeft: "12px",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const margin = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => [
+        el.style.marginTop,
+        el.style.marginRight,
+        el.style.marginBottom,
+        el.style.marginLeft,
+      ]);
+    expect(margin).toEqual(["4px", "10px", "6px", "12px"]);
+  });
+
   it("keeps auto, percent, and calc responsive to a breakpoint-driven containing block; rem is canonical px", async () => {
     const html = `<!doctype html><html><head><style>
       html { font-size: 16px; }
