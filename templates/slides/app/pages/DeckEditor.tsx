@@ -15,6 +15,7 @@ import {
 } from "@agent-native/core/client/collab";
 import {
   actionErrorMessage,
+  setClientAppState,
   signOut,
   usePollLoop,
   useSession,
@@ -40,6 +41,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from "@dnd-kit/core";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
 import { nanoid } from "nanoid";
@@ -50,6 +52,7 @@ import {
   useMemo,
   useEffect,
   useLayoutEffect,
+  type CSSProperties,
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -696,6 +699,30 @@ function retryPromptFromLocationState(state: unknown): string | null {
   return typeof prompt === "string" && prompt.trim() ? prompt : null;
 }
 
+const LAYERS_MIN_HEIGHT = 120;
+const LAYERS_MIN_RAIL_HEIGHT = 160;
+const RAIL_MIN_WIDTH = 160;
+const RAIL_MAX_WIDTH = 400;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function trackPointerDrag(
+  event: React.PointerEvent<HTMLElement>,
+  onMove: (event: PointerEvent) => void,
+) {
+  event.preventDefault();
+  const end = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -961,6 +988,8 @@ export default function DeckEditor() {
   const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
+  const [layersHeight, setLayersHeight] = useState<number | null>(null);
+  const [railWidth, setRailWidth] = useState<number | null>(null);
   const [animationTargets, setAnimationTargets] =
     useState<SelectedAnimationTarget[]>(NO_ANIMATION_TARGETS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
@@ -1003,6 +1032,10 @@ export default function DeckEditor() {
     setAnimationsOpen((open) => !open);
   }, [animationsOpen]);
 
+  useEffect(() => {
+    if (!sidebarOpen) setLayersOpen(false);
+  }, [sidebarOpen]);
+
   const toggleLayers = useCallback(() => {
     if (!layersOpen) {
       trackEvent("slide_panel_opened", {
@@ -1010,11 +1043,20 @@ export default function DeckEditor() {
         template_name: "slides",
         panel: "layers",
       });
+      setSidebarOpen(true);
     }
     setAnimationsOpen(false);
     setAnimationTargets(NO_ANIMATION_TARGETS);
     setLayersOpen((open) => !open);
   }, [layersOpen]);
+
+  useEffect(() => {
+    setClientAppState(
+      appStateKeyForBrowserTab("slides-panels", TAB_ID),
+      { layersOpen, animationsOpen },
+      { requestSource: TAB_ID },
+    ).catch(() => {});
+  }, [layersOpen, animationsOpen]);
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
@@ -5411,95 +5453,200 @@ export default function DeckEditor() {
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute z-[70] h-full min-h-0 md:relative">
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                modifiers={[verticalSlideDragModifier]}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragCancel={handleDragCancel}
-              >
-                <EditorSidebar
-                  slides={deck.slides}
-                  activeSlideId={currentSlide?.id || ""}
-                  selectedSlideIds={selectedSlideIds}
-                  deckId={id}
-                  deckTitle={deck.title}
-                  describeSlideId={describeSlideId}
-                  onCloseDescribe={() => setDescribeSlideId(null)}
-                  onAwaitAddSlidePersisted={() => flushDeckSave(id)}
-                  onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
-                  addSlideAgentSubmit={submitAddSlideAgent}
-                  onAddSlideGeneratingChange={(isGenerating, targetSlideId) => {
-                    if (isGenerating) {
-                      sawGeneratingRef.current = false;
-                      sawAddSlideAgentGeneratingRef.current = false;
-                      addSlideRequestSentRef.current = false;
+            <div
+              className="absolute z-[70] flex h-full min-h-0 w-48 flex-col sm:w-52 md:relative md:w-[var(--rail-width,13rem)]"
+              style={
+                railWidth === null
+                  ? undefined
+                  : ({ "--rail-width": `${railWidth}px` } as CSSProperties)
+              }
+            >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("editorToolbar.resizeSlideList")}
+                aria-valuenow={railWidth ?? undefined}
+                tabIndex={0}
+                className="absolute inset-y-0 -right-1 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none md:block"
+                onPointerDown={(event) => {
+                  const rail = event.currentTarget.parentElement;
+                  if (!rail) return;
+                  const startX = event.clientX;
+                  const startWidth = rail.offsetWidth;
+                  trackPointerDrag(event, (moveEvent) =>
+                    setRailWidth(
+                      clamp(
+                        startWidth + moveEvent.clientX - startX,
+                        RAIL_MIN_WIDTH,
+                        RAIL_MAX_WIDTH,
+                      ),
+                    ),
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                    return;
+                  event.preventDefault();
+                  const rail = event.currentTarget.parentElement;
+                  if (!rail) return;
+                  const delta = event.key === "ArrowRight" ? 16 : -16;
+                  setRailWidth(
+                    clamp(
+                      rail.offsetWidth + delta,
+                      RAIL_MIN_WIDTH,
+                      RAIL_MAX_WIDTH,
+                    ),
+                  );
+                }}
+              />
+              <div className="min-h-0 flex-1">
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  modifiers={[verticalSlideDragModifier]}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={handleDragCancel}
+                >
+                  <EditorSidebar
+                    slides={deck.slides}
+                    activeSlideId={currentSlide?.id || ""}
+                    selectedSlideIds={selectedSlideIds}
+                    deckId={id}
+                    deckTitle={deck.title}
+                    describeSlideId={describeSlideId}
+                    onCloseDescribe={() => setDescribeSlideId(null)}
+                    onAwaitAddSlidePersisted={() => flushDeckSave(id)}
+                    onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
+                    addSlideAgentSubmit={submitAddSlideAgent}
+                    onAddSlideGeneratingChange={(
+                      isGenerating,
+                      targetSlideId,
+                    ) => {
+                      if (isGenerating) {
+                        sawGeneratingRef.current = false;
+                        sawAddSlideAgentGeneratingRef.current = false;
+                        addSlideRequestSentRef.current = false;
+                      }
+                      setAddSlideGenerating(isGenerating);
+                      setAddSlideTargetId(isGenerating ? targetSlideId : null);
+                    }}
+                    aiGeneratingSlideId={fillingPlaceholderSlideId}
+                    onSelectSlide={handleSlideSelection}
+                    readOnly={!canEdit}
+                    slidePresence={slidePresence}
+                    recentEdits={deckRecentEdits}
+                    aspectRatio={deck.aspectRatio}
+                    designSystem={designSystem}
+                    generatingSlide={
+                      generatingSlideVisible
+                        ? {
+                            index: deck.slides.length,
+                          }
+                        : undefined
                     }
-                    setAddSlideGenerating(isGenerating);
-                    setAddSlideTargetId(isGenerating ? targetSlideId : null);
-                  }}
-                  aiGeneratingSlideId={fillingPlaceholderSlideId}
-                  onSelectSlide={handleSlideSelection}
-                  readOnly={!canEdit}
-                  slidePresence={slidePresence}
-                  recentEdits={deckRecentEdits}
-                  aspectRatio={deck.aspectRatio}
-                  designSystem={designSystem}
-                  generatingSlide={
-                    generatingSlideVisible
-                      ? {
-                          index: deck.slides.length,
-                        }
-                      : undefined
-                  }
-                  generatingSlideSelected={generatingSlideSelected}
-                  onSelectGeneratingSlide={() => {
-                    setGeneratingSlideSelected(true);
-                    if (isCompactEditorLayout()) setSidebarOpen(false);
-                  }}
-                  hasSlideClipboard={hasSlideClipboard}
-                  onCutSlide={cutSlides}
-                  onCopySlide={copySlides}
-                  onPasteSlide={pasteSlideAfter}
-                  onDeleteSlide={handleDeleteSlideFromRail}
-                  onNewSlideAfter={handleNewSlideAfter}
-                  onDuplicateSlide={handleDuplicateSlideFromRail}
-                  onReorderSlides={handleReorderSlidesFromRail}
-                  altDragSlideId={altDragState?.slideId}
-                  onToggleSkipSlide={handleToggleSkipSlide}
-                />
-                {typeof document !== "undefined"
-                  ? createPortal(
-                      <DragOverlay dropAnimation={null} zIndex={1000}>
-                        {altDragSlide ? (
-                          <div
-                            aria-hidden="true"
-                            data-slide-drag-overlay="copy"
-                            className="pointer-events-none overflow-hidden rounded-lg border border-primary/50 bg-background p-1.5 shadow-2xl"
-                            style={{ width: altDragState?.width ?? 160 }}
-                          >
+                    generatingSlideSelected={generatingSlideSelected}
+                    onSelectGeneratingSlide={() => {
+                      setGeneratingSlideSelected(true);
+                      if (isCompactEditorLayout()) setSidebarOpen(false);
+                    }}
+                    hasSlideClipboard={hasSlideClipboard}
+                    onCutSlide={cutSlides}
+                    onCopySlide={copySlides}
+                    onPasteSlide={pasteSlideAfter}
+                    onDeleteSlide={handleDeleteSlideFromRail}
+                    onNewSlideAfter={handleNewSlideAfter}
+                    onDuplicateSlide={handleDuplicateSlideFromRail}
+                    onReorderSlides={handleReorderSlidesFromRail}
+                    altDragSlideId={altDragState?.slideId}
+                    onToggleSkipSlide={handleToggleSkipSlide}
+                  />
+                  {typeof document !== "undefined"
+                    ? createPortal(
+                        <DragOverlay dropAnimation={null} zIndex={1000}>
+                          {altDragSlide ? (
                             <div
-                              className="overflow-hidden rounded border"
-                              style={{
-                                aspectRatio: `${getAspectRatioDims(deck.aspectRatio).width} / ${getAspectRatioDims(deck.aspectRatio).height}`,
-                              }}
+                              aria-hidden="true"
+                              data-slide-drag-overlay="copy"
+                              className="pointer-events-none overflow-hidden rounded-lg border border-primary/50 bg-background p-1.5 shadow-2xl"
+                              style={{ width: altDragState?.width ?? 160 }}
                             >
-                              <SlideRenderer
-                                slide={altDragSlide}
-                                aspectRatio={deck.aspectRatio}
-                                designSystem={designSystem}
-                                thumbnail
-                              />
+                              <div
+                                className="overflow-hidden rounded border"
+                                style={{
+                                  aspectRatio: `${getAspectRatioDims(deck.aspectRatio).width} / ${getAspectRatioDims(deck.aspectRatio).height}`,
+                                }}
+                              >
+                                <SlideRenderer
+                                  slide={altDragSlide}
+                                  aspectRatio={deck.aspectRatio}
+                                  designSystem={designSystem}
+                                  thumbnail
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ) : null}
-                      </DragOverlay>,
-                      document.body,
-                    )
-                  : null}
-              </DndContext>
+                          ) : null}
+                        </DragOverlay>,
+                        document.body,
+                      )
+                    : null}
+                </DndContext>
+              </div>
+              {layersOpen ? (
+                <div className="relative h-0 shrink-0">
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    aria-label={t("editorToolbar.resizeLayers")}
+                    aria-valuenow={layersHeight ?? undefined}
+                    tabIndex={0}
+                    className="absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none"
+                    onPointerDown={(event) => {
+                      const host = layersPanelSlot;
+                      if (!host) return;
+                      const startY = event.clientY;
+                      const startHeight = host.offsetHeight;
+                      const railHeight =
+                        host.parentElement?.offsetHeight ?? startHeight;
+                      trackPointerDrag(event, (moveEvent) =>
+                        setLayersHeight(
+                          clamp(
+                            startHeight + startY - moveEvent.clientY,
+                            LAYERS_MIN_HEIGHT,
+                            railHeight - LAYERS_MIN_RAIL_HEIGHT,
+                          ),
+                        ),
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+                        return;
+                      event.preventDefault();
+                      const host = layersPanelSlot;
+                      if (!host) return;
+                      const railHeight =
+                        host.parentElement?.offsetHeight ?? host.offsetHeight;
+                      const delta = event.key === "ArrowUp" ? 24 : -24;
+                      setLayersHeight(
+                        clamp(
+                          host.offsetHeight + delta,
+                          LAYERS_MIN_HEIGHT,
+                          railHeight - LAYERS_MIN_RAIL_HEIGHT,
+                        ),
+                      );
+                    }}
+                  />
+                </div>
+              ) : null}
+              <div
+                ref={setLayersPanelSlot}
+                data-layers-panel-host="true"
+                style={{
+                  height: layersHeight ?? "50%",
+                  maxHeight: `calc(100% - ${LAYERS_MIN_RAIL_HEIGHT}px)`,
+                }}
+                className="flex w-full shrink-0 flex-col overflow-hidden empty:hidden"
+              />
             </div>
           </>
         )}
@@ -5837,12 +5984,6 @@ export default function DeckEditor() {
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}
-
-        <div
-          ref={setLayersPanelSlot}
-          data-layers-panel-host="true"
-          className="flex h-full shrink-0"
-        />
 
         {commentsOpen && (
           <SlideCommentsPanel

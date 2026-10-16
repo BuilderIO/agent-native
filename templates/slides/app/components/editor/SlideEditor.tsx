@@ -10670,6 +10670,7 @@ export default function SlideEditor({
       labels={{
         title: t("editorToolbar.layers"),
         close: t("editorToolbar.closeLayers"),
+        search: t("editorToolbar.searchLayers"),
         expand: t("editorToolbar.expandLayer"),
         collapse: t("editorToolbar.collapseLayer"),
       }}
@@ -10679,7 +10680,7 @@ export default function SlideEditor({
   return (
     <div
       className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
-        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+        animationsOpen ? "rounded-r-lg" : ""
       }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
@@ -10938,10 +10939,8 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-        {layersPanel
-          ? layersPanelSlot
-            ? createPortal(layersPanel, layersPanelSlot)
-            : layersPanel
+        {layersPanel && layersPanelSlot
+          ? createPortal(layersPanel, layersPanelSlot)
           : null}
       </div>
 
