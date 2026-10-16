@@ -1,4 +1,9 @@
-import type { DashboardFilter, FilterPreset, FilterType } from "./types";
+import type {
+  DashboardFilter,
+  FilterPreset,
+  FilterPresetEdit,
+  FilterType,
+} from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -131,6 +136,30 @@ export function usableFilterPresets(
   return bounded.filter(
     (preset, index): preset is FilterPreset => issues[index] === null,
   );
+}
+
+// Edits the stored list, which the page reads unvalidated, so entries the filter
+// bar skips stay as they were. Rename and delete match every entry with the
+// label: a list a save accepts never repeats one.
+export function editFilterPresets(
+  presets: unknown,
+  edit: FilterPresetEdit,
+): FilterPreset[] {
+  const stored = (Array.isArray(presets) ? presets : []) as FilterPreset[];
+  const named = (preset: unknown, label: string) =>
+    isRecord(preset) && preset.label === label;
+  switch (edit.kind) {
+    case "add":
+      return [...stored, edit.preset];
+    case "rename":
+      return stored.map((preset) =>
+        named(preset, edit.label)
+          ? { ...preset, label: edit.newLabel }
+          : preset,
+      );
+    case "delete":
+      return stored.filter((preset) => !named(preset, edit.label));
+  }
 }
 
 export function isDateRangePresetFilter(filter: DashboardFilter): boolean {

@@ -1300,6 +1300,8 @@ export default {
     groupName: "グループ名",
     saveForEveryone: "全員向けに保存",
     groupNameTaken: "この名前のグループはすでにあります",
+    renameGroup: "グループ名を変更…",
+    deleteGroup: "グループを削除",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",

@@ -1328,6 +1328,8 @@ export default {
     groupName: "Nom du groupe",
     saveForEveryone: "Enregistrer pour tout le monde",
     groupNameTaken: "Un groupe porte déjà ce nom",
+    renameGroup: "Renommer le groupe…",
+    deleteGroup: "Supprimer le groupe",
     untitledDashboard: "Tableau de bord sans titre",
     dashboardFallback: "tableau de bord",
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",

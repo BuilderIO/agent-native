@@ -1228,6 +1228,8 @@ export default {
     groupName: "分组名称",
     saveForEveryone: "为所有人保存",
     groupNameTaken: "已存在同名分组",
+    renameGroup: "重命名分组…",
+    deleteGroup: "删除分组",
     untitledDashboard: "无标题仪表板",
     dashboardFallback: "仪表板",
     viewOnly: "您对此仪表板只有查看权限。",

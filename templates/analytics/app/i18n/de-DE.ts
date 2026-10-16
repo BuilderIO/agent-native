@@ -1332,6 +1332,8 @@ export default {
     groupName: "Gruppenname",
     saveForEveryone: "Für alle speichern",
     groupNameTaken: "Eine Gruppe mit diesem Namen gibt es bereits",
+    renameGroup: "Gruppe umbenennen…",
+    deleteGroup: "Gruppe löschen",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",

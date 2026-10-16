@@ -44,6 +44,12 @@ export interface FilterPreset {
   values: string[];
 }
 
+// A change Edit mode makes to one filter's presets.
+export type FilterPresetEdit =
+  | { kind: "add"; preset: FilterPreset }
+  | { kind: "rename"; label: string; newLabel: string }
+  | { kind: "delete"; label: string };
+
 export interface DashboardFilter {
   id: string;
   label: string;

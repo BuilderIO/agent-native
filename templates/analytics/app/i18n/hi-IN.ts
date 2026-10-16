@@ -1264,6 +1264,8 @@ export default {
     groupName: "समूह का नाम",
     saveForEveryone: "सबके लिए सहेजें",
     groupNameTaken: "इस नाम का समूह पहले से मौजूद है",
+    renameGroup: "समूह का नाम बदलें…",
+    deleteGroup: "समूह हटाएं",
     untitledDashboard: "शीर्षक रहित डैशबोर्ड",
     dashboardFallback: "डैशबोर्ड",
     viewOnly: "आपके पास इस डैशबोर्ड तक केवल देखने की पहुंच है।",

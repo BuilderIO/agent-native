@@ -1279,6 +1279,8 @@ export default {
     groupName: "그룹 이름",
     saveForEveryone: "모두에게 저장",
     groupNameTaken: "같은 이름의 그룹이 이미 있습니다",
+    renameGroup: "그룹 이름 바꾸기…",
+    deleteGroup: "그룹 삭제",
     untitledDashboard: "제목 없는 대시보드",
     dashboardFallback: "대시보드",
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",
