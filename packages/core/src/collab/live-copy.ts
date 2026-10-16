@@ -237,21 +237,34 @@ export function refuseLiveCopyWrite(
 ): Promise<void> | undefined {
   if (bindings.size === 0) return undefined;
   return liveCopyBindingFor(docId).then((binding) => {
-    if (binding) {
-      throw new LiveCopyError(
-        "write_refused",
-        docId,
-        `Document ${docId} is a live copy; ${path} would write it without deriving its text.`,
-        { reason: path },
-      );
-    }
+    if (binding) throw liveCopyWriteRefused(docId, path);
   });
+}
+
+export function liveCopyWriteRefused(
+  docId: string,
+  path: string,
+): LiveCopyError {
+  return new LiveCopyError(
+    "write_refused",
+    docId,
+    `Document ${docId} is a live copy; ${path} would write it without deriving its text.`,
+    { reason: path },
+  );
 }
 
 export async function assertLiveCopy(
   binding: LiveCopyBinding,
   docId: string,
 ): Promise<void> {
+  if (bindings.get(binding.name) !== binding) {
+    throw new LiveCopyError(
+      "not_live_copy",
+      docId,
+      `Live copy binding ${binding.name} was released or replaced; use the binding defineLiveCopy returned last.`,
+      { reason: "binding_inactive" },
+    );
+  }
   if (!(await binding.appliesTo(docId))) {
     throw new LiveCopyError(
       "not_live_copy",
