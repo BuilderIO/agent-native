@@ -1,6 +1,9 @@
+import crypto from "node:crypto";
+
 import * as jose from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CHATGPT_SUBSCRIPTION_RESOURCE } from "../agent/chatgpt-subscription-contract.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
@@ -8,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   getUserLabEnabled: vi.fn(),
   listOAuthAccountsByOwner: vi.fn(),
   getUserSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+  readOAuthCredentialState: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
@@ -18,10 +23,12 @@ vi.mock("../labs/store.js", () => mocks);
 vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
   listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
+  readOAuthCredentialState: mocks.readOAuthCredentialState,
 }));
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
   getUserSetting: mocks.getUserSetting,
+  putUserSetting: mocks.putUserSetting,
 }));
 
 import {
@@ -45,6 +52,7 @@ beforeEach(() => {
   mocks.getUserLabEnabled.mockResolvedValue(false);
   mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue(null);
+  mocks.readOAuthCredentialState.mockResolvedValue({ kind: "missing" });
   _resetLabRegistryForTests();
   registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
@@ -119,6 +127,66 @@ describe("ChatGPT subscription OAuth contract", () => {
           accounts: [],
         });
         expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow("available only from a local app");
+      },
+    );
+  });
+
+  it("reports saved accounts in an unsupported status without granting access", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+    const subject = "subject-alice";
+    const accountId = `siwc_${crypto
+      .createHash("sha256")
+      .update(JSON.stringify(["alice@example.com", CLIENT_ID, subject]))
+      .digest("hex")}`;
+    const resourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update(CHATGPT_SUBSCRIPTION_RESOURCE)
+      .digest("hex")}`;
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      { accountId: `${accountId}${resourceSuffix}` },
+    ]);
+    mocks.readOAuthCredentialState.mockResolvedValue({
+      kind: "connected",
+      credential: {
+        clientId: CLIENT_ID,
+        subject,
+        email: "alice@example.com",
+        displayName: "Alice",
+        extAgentHostId: "host-alice",
+        grantedScopes: ["chatgpt.tokens.use.direct"],
+        tokens: { refresh_token: "refresh-alice" },
+      },
+    });
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          connected: false,
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              email: "alice@example.com",
+              label: "Alice",
+              connected: true,
+            }),
+          ],
+        });
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");
