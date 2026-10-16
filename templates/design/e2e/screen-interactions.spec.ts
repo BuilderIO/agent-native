@@ -585,7 +585,35 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
   await expect(screenShell).toBeVisible();
   await openCodeFile();
   await expect.poll(() => sourceReads).toBeGreaterThan(0);
+
+  const readCodeBufferState = () =>
+    page.evaluate(() => {
+      const workbench = (window as any).__designCodeWorkbench;
+      const buffers = Object.values(
+        workbench?.api.getState().buffers ?? {},
+      ) as Array<{
+        uri: string;
+        dirty: boolean;
+        saving: boolean;
+        lastSavedAt?: number;
+      }>;
+      const buffer = buffers.find((entry) => entry.uri.endsWith("screen.html"));
+      return buffer
+        ? {
+            dirty: buffer.dirty,
+            saving: buffer.saving,
+            lastSavedAt: buffer.lastSavedAt,
+          }
+        : null;
+    });
+  // Inline HTML is formatted and saved on first open; wait for that write before tracking close behavior.
+  await expect.poll(readCodeBufferState).toMatchObject({
+    dirty: false,
+    saving: false,
+    lastSavedAt: expect.any(Number),
+  });
   const sourceReadsBeforeEdits = sourceReads;
+  const sourceEditActionsBeforeCodeCloses = sourceEditActions.length;
 
   await page.getByRole("button", { name: "Layers", exact: true }).click();
   await expect(page.getByTestId("design-code-workbench")).toBeHidden();
@@ -602,7 +630,6 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
     designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
   const initialX = await readFrameX();
   expect(initialX).toBe(0);
-  const sourceEditActionsBeforeCommits = sourceEditActions.length;
   // Retry only readiness: each key press is a non-idempotent mutation.
   for (let index = 0; index < 20; index += 1) {
     const writeResponse = page.waitForResponse((response) => {
@@ -640,7 +667,9 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
   expect(sourceReads).toBe(sourceReadsAfterCommits);
   expect(sourceEditActions).toHaveLength(sourceEditActionsAfterCommits);
   expect(sourceReads).toBe(sourceReadsBeforeEdits);
-  expect(sourceEditActions.slice(sourceEditActionsBeforeCommits)).toEqual([]);
+  expect(sourceEditActions.slice(sourceEditActionsBeforeCodeCloses)).toEqual(
+    [],
+  );
 
   await openCodeWorkbench();
   await openCodeFile();
