@@ -18,6 +18,7 @@ import {
   liveCopiesDefined,
   liveCopyBindingFor,
   LiveCopyError,
+  persistLiveCopyCall,
   readLiveCopyState,
   readStoredLiveCopy,
   refuseLiveCopyWrite,
@@ -614,6 +615,23 @@ export interface MutateLiveCopyOptions {
   input?: unknown;
   requestSource?: string;
   maxAttempts?: number;
+  /**
+   * Writes this call's own rows (say, claiming the suggestion the edit
+   * applies) in the transaction that commits the edit, after the binding's
+   * persist and before `_collab_docs`, so they commit or roll back together.
+   * When the edit changes nothing it runs in a transaction of its own. A
+   * throw reaches the caller and nothing is published. Re-run on each
+   * version-conflict attempt.
+   */
+  persist?(tx: DbExec, change: LiveCopyCallChange): Promise<void>;
+}
+
+export interface LiveCopyCallChange {
+  changed: boolean;
+  /** The version this call leaves stored. */
+  version: number;
+  /** derive(state) at that version. */
+  text: string;
 }
 
 export interface LiveCopyMutationResult extends LiveCopyOutcome {
@@ -649,6 +667,10 @@ export async function mutateLiveCopy(
       "mutateLiveCopy edit must name an edit in the runner's module",
     );
   }
+  const callPersist = options.persist;
+  if (callPersist !== undefined && typeof callPersist !== "function") {
+    throw new TypeError("mutateLiveCopy persist must be a function");
+  }
   await assertLiveCopy(binding, docId);
   assertOwnTransaction(docId, "mutateLiveCopy");
   await ensureTable();
@@ -671,6 +693,15 @@ export async function mutateLiveCopy(
         options.input,
       );
       if (result.kind === "unchanged") {
+        if (callPersist) {
+          await persistLiveCopyCall(docId, (tx) =>
+            callPersist(tx, {
+              changed: false,
+              version: stored.version,
+              text: result.text,
+            }),
+          );
+        }
         return {
           changed: false,
           liveCopy: "unchanged",
@@ -682,17 +713,23 @@ export async function mutateLiveCopy(
         };
       }
       const version = stored.version + 1;
-      const outcome = await commitLiveCopy(binding, {
-        docId,
-        origin: "mutation",
-        previousVersion: stored.version,
-        version,
-        text: result.text,
-        state: result.state,
-        ...(options.requestSource
-          ? { requestSource: options.requestSource }
-          : {}),
-      });
+      const outcome = await commitLiveCopy(
+        binding,
+        {
+          docId,
+          origin: "mutation",
+          previousVersion: stored.version,
+          version,
+          text: result.text,
+          state: result.state,
+          ...(options.requestSource
+            ? { requestSource: options.requestSource }
+            : {}),
+        },
+        callPersist &&
+          ((tx) =>
+            callPersist(tx, { changed: true, version, text: result.text })),
+      );
       if (!outcome) continue;
       cacheLiveCopyState(docId, result.state, version);
       emitCollabUpdate(
