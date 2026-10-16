@@ -146,7 +146,7 @@ useEffect(
 
 ### `recorder.onReport()` {#on-report}
 
-`recorder.onReport()` 會把報告傳送到某個目的地。它接受一個監聽器，並回傳一個用來移除它的函式。監聽器會收到所有以 `"manual"` 以外的原因產生的報告。這包括「回報問題」（`"user"`）、未捕捉的錯誤（`"error"`）和測試（`"test"`）。
+`recorder.onReport()` 會把報告傳送到某個目的地。它接受一個監聽器，並回傳一個用來移除它的函式。監聽器會收到所有以 `"manual"` 以外的原因產生的報告。這包括未捕捉的錯誤（`"error"`）和測試（`"test"`）。
 
 ```ts
 recorder.onReport((report) => posthog.capture("problem_report", report));
@@ -211,16 +211,6 @@ configureRecorder({
 
 ## 報告目的地 {#destinations}
 
-### 回報問題 {#report-a-problem}
-
-每個應用程式都有**回報問題**。它位於側邊欄底部、代理面板的選項選單，以及命令選單（⌘K）中。
-
-- 它會詢問是否附上應用程式最近兩分鐘內做過的事，並預覽數量、失敗和最初的幾個事件。每次都會詢問。
-- 使用者同意後，完整報告會存成只有該使用者能讀取的私人檔案。應用程式的代理會收到一份簡短摘要和該檔案的參照。
-- 代理透過 `read-problem-report` action 讀取報告的更多內容，可依事件類型或時間篩選。
-- 當頁面沒有代理聊天時，按鈕會改為複製摘要和參照。
-- 報告需要檔案儲存空間。沒有時，對話框會提示報告未附上，且不會傳送任何內容。
-
 ### Sentry {#sentry}
 
 當應用程式透過 Agent-Native 設定了瀏覽器端 Sentry（請參閱[錯誤報告](/docs/observability#sentry)）時，每個 Sentry 錯誤事件都會取得：
@@ -242,7 +232,7 @@ configureRecorder({
 
 ## 隱私 {#privacy}
 
-- **資料留在瀏覽器中。** 只有當某個目的地傳送報告時，報告才會離開瀏覽器：使用者同意後的「回報問題」、使用者開始的 Clips 錄影、Sentry，或開發者註冊的監聽器。
+- **資料留在瀏覽器中。** 只有當某個目的地傳送報告時，報告才會離開瀏覽器：使用者開始的 Clips 錄影、Sentry，或開發者註冊的監聽器。
 - **機密資訊會被移除。** 名稱看起來像機密資訊的欄位（`password`、`token`、`secret`、`apiKey`、`authorization`、`cookie`、`session`、`card`、`cvv`）會顯示為 `"[redacted]"`。任何值中看起來像權杖的文字，例如 JWT、Bearer 權杖和供應商 API 金鑰，也會被替換為 `[redacted]`。這些和 core 用於錯誤報告的遮蔽機制相同。
 - **值有大小上限。** 字串會在 200 個字元處截斷，每個事件在約 2 KB 處截斷。截斷處會註明捨棄了什麼。請求本文和回應本文絕不會被記錄。
 - **它會遺忘。** 它只保留時間窗口內的內容，且不超過上限。重新載入頁面和登出時都會清空。

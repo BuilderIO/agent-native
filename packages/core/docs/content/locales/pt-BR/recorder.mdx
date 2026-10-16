@@ -146,7 +146,7 @@ Uma função que lança um erro é relatada como `{ unreadable: "<message>" }` e
 
 ### `recorder.onReport()` {#on-report}
 
-`recorder.onReport()` envia relatórios para um destino. Aceita um listener e retorna uma função que o remove. O listener recebe todo relatório gerado com um motivo diferente de `"manual"`. Isso cobre o "Relatar um problema" (`"user"`), os erros não capturados (`"error"`) e os testes (`"test"`).
+`recorder.onReport()` envia relatórios para um destino. Aceita um listener e retorna uma função que o remove. O listener recebe todo relatório gerado com um motivo diferente de `"manual"`. Isso cobre os erros não capturados (`"error"`) e os testes (`"test"`).
 
 ```ts
 recorder.onReport((report) => posthog.capture("problem_report", report));
@@ -211,16 +211,6 @@ Uma janela ou um limite que não seja um número positivo lança um `RangeError`
 
 ## Destinos {#destinations}
 
-### Relatar um problema {#report-a-problem}
-
-Todo app tem **Relatar um problema**. Ele fica no fim da barra lateral, no menu de opções do painel do agente e no menu de comandos (⌘K).
-
-- Ele pergunta se deve anexar o que o app fez nos últimos dois minutos e mostra uma prévia das contagens, das falhas e dos primeiros eventos. Pergunta todas as vezes.
-- Quando o usuário concorda, o relatório completo é armazenado como um arquivo privado que só esse usuário pode ler. O agente do app recebe um resumo curto com uma referência ao arquivo.
-- O agente lê mais do relatório com a ação `read-problem-report`, filtrada por tipo de evento ou por tempo.
-- Quando a página não tem chat de agente, o botão copia o resumo e a referência.
-- O relatório precisa de armazenamento de arquivos. Sem ele, a caixa de diálogo informa que o relatório não foi anexado, e nada é enviado.
-
 ### Sentry {#sentry}
 
 Quando um app tem Sentry no navegador configurado pelo Agent-Native (veja [Relatório de erros](/docs/observability#sentry)), todo evento de erro do Sentry recebe:
@@ -242,7 +232,7 @@ Quando os logs de desenvolvedor estão ativados, a extensão do Clips lê isso n
 
 ## Privacidade {#privacy}
 
-- **Fica no navegador.** Um relatório só sai quando um destino o envia: o "Relatar um problema" depois que o usuário concorda, uma gravação do Clips que o usuário iniciou, o Sentry ou um listener que o desenvolvedor registrou.
+- **Fica no navegador.** Um relatório só sai quando um destino o envia: uma gravação do Clips que o usuário iniciou, o Sentry ou um listener que o desenvolvedor registrou.
 - **Segredos são removidos.** Um campo cujo nome parece secreto (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) aparece como `"[redacted]"`. Texto com cara de token dentro de qualquer valor, como JWTs, tokens bearer e chaves de API de provedores, também é substituído por `[redacted]`. São os mesmos filtros de ocultação que o core usa nos relatórios de erro.
 - **Os valores são limitados.** Strings são cortadas em 200 caracteres e cada evento em cerca de 2 KB. Cada corte informa o que foi descartado. Corpos de requisição e de resposta nunca são registrados.
 - **Ele esquece.** Mantém só a janela, até seus limites. É limpo ao recarregar a página e ao sair da conta.
