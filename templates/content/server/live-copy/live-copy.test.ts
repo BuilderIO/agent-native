@@ -997,16 +997,43 @@ describe("server writers through editContentLiveCopy", () => {
   it("refuses a replace that names no base body before it reaches the live copy", async () => {
     await switchedPage("no-base", "Before");
     const version = await collabVersion("no-base");
+    const edit: string = binding.CONTENT_LIVE_COPY_EDITS.replaceBody;
 
     await expect(
       writer.editContentLiveCopy("no-base", {
         cause: { operation: "test-no-base" },
-        edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-        input: { content: "After" } as never,
+        edit,
+        // @ts-expect-error An edit typed as any string still owes its base.
+        input: { content: "After" },
       }),
     ).rejects.toThrow(/must name the body it was built from/);
     expect(await collabVersion("no-base")).toBe(version);
     expect((await page("no-base")).content).toBe("Before");
+  });
+
+  it("checks the base a replace names even when a structured clone would drop it", async () => {
+    await switchedPage("hidden-base", "Same");
+    const spy = peerCommitsAfterBuild("hidden-base", "Peer");
+    const input = Object.defineProperty({ content: "Mine" }, "expected", {
+      value: "Same",
+      enumerable: false,
+    }) as { content: string; expected: string };
+    try {
+      await expect(
+        writer.editContentLiveCopy("hidden-base", {
+          cause: { operation: "test-hidden-base" },
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input,
+        }),
+      ).rejects.toMatchObject({
+        name: "LiveCopyError",
+        reason: "base_changed",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("hidden-base")).content).toBe("Peer");
   });
 
   it("takes an intent's hash and changed blocks from the commit when the writer leaves them out", async () => {
