@@ -954,6 +954,35 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
+  it("does not count an empty BigQuery result as the fallback answer", () => {
+    const emptyRead = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [], totalRows: 0 }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, emptyRead],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not count a BigQuery answer that ran before the dbt failure", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [bigQueryOk, dbtNotFound],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
   it("does not count a structured BigQuery failure as the fallback answer", () => {
     const result = realDataFinalGuard(
       guardContext({

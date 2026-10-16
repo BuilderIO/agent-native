@@ -80,7 +80,7 @@ function warehouseQueryRan(run: AgentRunOutput): boolean {
       WAREHOUSE_QUERY_TOOLS.has(call.name) &&
       call.completed === true &&
       call.isError !== true &&
-      Array.isArray(parsePayload(call.result).rows),
+      hasRows(parsePayload(call.result).rows),
   );
 }
 
@@ -100,6 +100,11 @@ function dbtQuerySucceeded(run: AgentRunOutput): boolean {
 
 // An unreadable payload is a broken run, not a non-success status, so it fails
 // the scorer loudly.
+// An empty result has no figure for the disclosure to describe.
+function hasRows(rows: unknown): boolean {
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 function parsePayload(result: unknown): Record<string, unknown> {
   if (typeof result !== "string") {
     throw new Error("tool result was not text.");

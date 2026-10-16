@@ -548,17 +548,23 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
       .trim()
       .toLowerCase()
       .replace(/[\s_]+/g, "-") === target;
-  const dbtResults = results.filter((result) =>
-    named(result.name, DBT_QUERY_TOOL),
-  );
-  const latestDbt = dbtResults[dbtResults.length - 1];
+  let latestDbtIndex = -1;
+  results.forEach((result, index) => {
+    if (named(result.name, DBT_QUERY_TOOL)) latestDbtIndex = index;
+  });
   // Only a dbt metric query that did not complete counts. A readiness status
   // alone does not show that this answer was meant to be a dbt metric.
-  if (latestDbt === undefined || !dbtQueryDidNotComplete(latestDbt)) {
+  if (
+    latestDbtIndex === -1 ||
+    !dbtQueryDidNotComplete(results[latestDbtIndex])
+  ) {
     return null;
   }
+  // The warehouse answer must come after the dbt failure: that ordering is what
+  // makes it the fallback for this metric rather than an unrelated query.
   const warehouseAnswered = results.some(
-    (result) =>
+    (result, index) =>
+      index > latestDbtIndex &&
       named(result.name, "bigquery") &&
       result.isError !== true &&
       isBigQueryRowsPayload(result.content),

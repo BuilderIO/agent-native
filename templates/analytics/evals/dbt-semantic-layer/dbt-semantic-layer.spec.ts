@@ -84,8 +84,8 @@ function warehouseRead(isError = false): ToolCallDetail {
     isError,
     // The production result: runQuery's rows and metadata, with no query_status.
     result: JSON.stringify({
-      rows: [],
-      totalRows: 0,
+      rows: [{ value: 10 }],
+      totalRows: 1,
       bytesProcessed: 0,
       cached: false,
       truncated: false,
@@ -345,6 +345,21 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
         DISCLOSED,
         ["get-dbt-connection", "bigquery"],
         [...readiness, warehouseRead(true)],
+      ),
+      // An empty result has no figure to disclose, so it is not a warehouse read.
+      transcript(
+        DISCLOSED,
+        ["get-dbt-connection", "bigquery"],
+        [
+          ...readiness,
+          {
+            name: "bigquery",
+            input: {},
+            completed: true,
+            isError: false,
+            result: JSON.stringify({ rows: [], totalRows: 0 }),
+          },
+        ],
       ),
       // A completed, non-error result without rows is not a warehouse read.
       transcript(
