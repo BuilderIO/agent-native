@@ -209,6 +209,22 @@ describe("list-agent-engines", () => {
           ? { value: "sk-ant-fake-placeholder" }
           : null,
     );
+    // The selection scope is keyless for OpenAI; endpoint ownership is covered separately.
+    vi.doMock("../../server/credential-provider.js", async (importOriginal) => {
+      const original =
+        await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >();
+      return {
+        ...original,
+        resolveSecretDetailed: vi.fn(async (key: string) => {
+          if (key === "OPENAI_API_KEY" || key === "OPENAI_BASE_URL") {
+            return { value: null, lookupFailed: false };
+          }
+          return original.resolveSecretDetailed(key);
+        }),
+      };
+    });
     userSettings.set("agent-provider-models:anthropic", {
       models: ["claude-opus-5-5"],
     });
