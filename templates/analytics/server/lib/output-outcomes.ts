@@ -471,6 +471,8 @@ export async function getSessionRecordingOutputs(
     ownerEmail: string;
     orgId: string | null;
     firstUrl: string | null;
+    lastUrl: string | null;
+    app: string | null;
     gapped?: boolean;
   }> = await db
     .select({
@@ -479,6 +481,8 @@ export async function getSessionRecordingOutputs(
       ownerEmail: r.ownerEmail,
       orgId: r.orgId,
       firstUrl: r.firstUrl,
+      lastUrl: r.lastUrl,
+      app: r.app,
       // Coverage is created after the gap table, so it is safe to read here.
       ...(coveredTenants.size
         ? {
@@ -652,7 +656,7 @@ export async function getSessionRecordingOutputs(
       status,
       usedEvent: status === "used" ? output.usedEvent : null,
       usedAt: status === "used" ? output.firstUsedAt : null,
-      url: outputUrl(output.app, output.outputId, recording.firstUrl),
+      url: outputUrl(output.app, output.outputId, recording),
     }));
   }
   return { outputs, omittedOutputs, coverageStartedAt };

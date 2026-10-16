@@ -102,6 +102,25 @@ export function outputIdOf(properties: EventProperties): string | null {
   return outputId && outputId.length <= MAX_OUTPUT_ID_LENGTH ? outputId : null;
 }
 
+/** Where a recording's session ran, as far as the recording shows. */
+export interface OutputRecordingPages {
+  firstUrl: string | null;
+  lastUrl: string | null;
+  /** The app that recorded the latest page. */
+  app: string | null;
+}
+
+function recordedPage(value: string | null): URL | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.origin === "null" ? null : url;
+    // coercion-ok: a recording without a parseable URL has no app to link to; the output id still shows.
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Where a session's output opens: the app origin the session was recorded on,
  * its mount path, and the output's page. The app checks access when it opens.
@@ -109,24 +128,27 @@ export function outputIdOf(properties: EventProperties): string | null {
 export function outputUrl(
   app: string,
   outputId: string,
-  recordingUrl: string | null | undefined,
+  recording: OutputRecordingPages,
 ): string | null {
   const rule = outputUseRule(app);
-  if (!rule || !recordingUrl) return null;
-  let url: URL;
-  try {
-    url = new URL(recordingUrl);
-    // coercion-ok: a recording without a parseable URL has no app to link to; the output id still shows.
-  } catch {
-    return null;
-  }
-  if (url.origin === "null") return null;
-  // A workspace deploy mounts each app at `/<app id>`. Reading that prefix as
-  // the mount assumes the app has no route of its own there (Slides has none).
+  if (!rule) return null;
+  const pages = [recording.firstUrl, recording.lastUrl].flatMap((value) => {
+    const page = recordedPage(value);
+    return page ? [page] : [];
+  });
+  if (!pages.length) return null;
+  // A workspace deploy mounts each app at `/<app id>` on one origin, and a
+  // tab's recording follows it from app to app. Reading that prefix as the
+  // mount assumes the app has no route of its own there (Slides has none). A
+  // session never spans origins, so when another app recorded the latest page,
+  // this origin serves several apps and is a workspace, whichever page shows.
   const mount = `/${app}`;
   const mounted =
-    url.pathname === mount || url.pathname.startsWith(`${mount}/`);
-  return `${url.origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
+    pages.some(
+      (page) =>
+        page.pathname === mount || page.pathname.startsWith(`${mount}/`),
+    ) || Boolean(recording.app && recording.app !== app);
+  return `${pages[0].origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
 }
 
 /**

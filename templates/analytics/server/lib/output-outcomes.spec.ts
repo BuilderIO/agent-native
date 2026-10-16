@@ -129,22 +129,65 @@ const exported = (
   });
 
 describe("outputUrl", () => {
+  const pages = (
+    firstUrl: string,
+    lastUrl: string | null = null,
+    app: string | null = "slides",
+  ) => ({ firstUrl, lastUrl, app });
+
   it("links a deck on the host its session was recorded on", () => {
     expect(
-      outputUrl("slides", "deck-1", "https://slides.example.com/deck/new?x=1"),
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages("https://slides.example.com/deck/new?x=1"),
+      ),
     ).toBe("https://slides.example.com/deck/deck-1");
   });
 
   it("keeps the mount path of a workspace deploy", () => {
     expect(
-      outputUrl("slides", "deck-1", "https://team.example.com/slides/home"),
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages("https://team.example.com/slides/home"),
+      ),
     ).toBe("https://team.example.com/slides/deck/deck-1");
     expect(
-      outputUrl("slides", "deck-1", "https://team.example.com/slides"),
+      outputUrl("slides", "deck-1", pages("https://team.example.com/slides")),
     ).toBe("https://team.example.com/slides/deck/deck-1");
     expect(
-      outputUrl("slides", "deck-1", "https://team.example.com/slideshow/x"),
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages("https://team.example.com/slideshow/x"),
+      ),
     ).toBe("https://team.example.com/deck/deck-1");
+  });
+
+  it("keeps the mount when the recording started in another workspace app", () => {
+    // The tab moved from Mail into Slides, then from Slides back to Mail.
+    expect(
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages(
+          "https://team.example.com/mail/inbox",
+          "https://team.example.com/slides/deck/deck-1",
+        ),
+      ),
+    ).toBe("https://team.example.com/slides/deck/deck-1");
+    expect(
+      outputUrl(
+        "slides",
+        "deck-1",
+        pages(
+          "https://team.example.com/",
+          "https://team.example.com/mail/inbox",
+          "mail",
+        ),
+      ),
+    ).toBe("https://team.example.com/slides/deck/deck-1");
   });
 });
 
@@ -244,6 +287,8 @@ describe("output outcomes on Postgres", () => {
         org_id text,
         visibility text NOT NULL DEFAULT 'private',
         first_url text,
+        last_url text,
+        app text,
         started_at text NOT NULL,
         ended_at text,
         last_ingested_at text
