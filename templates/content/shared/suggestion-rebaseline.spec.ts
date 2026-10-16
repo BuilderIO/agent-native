@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { canonicalizeNfm } from "./nfm.js";
-import { applyMarkdownSuggestionOperation } from "./suggestion-apply.js";
+import {
+  applyMarkdownSuggestionOperation,
+  markdownPayload,
+  operationAnchor,
+} from "./suggestion-apply.js";
 import { markdownSuggestionOperationsForFindReplace } from "./suggestion-diff.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 import { rebaselineSuggestions } from "./suggestion-rebaseline.js";
@@ -148,6 +152,55 @@ describe("rebaselineSuggestions", () => {
         canonicalizeNfm(stored),
       ).get("s1"),
     ).toEqual({ kind: "stale" });
+  });
+
+  describe("a suggestion saved as the whole page before and after", () => {
+    const stored = "It costs $60 today.\n\nThen the rest.";
+    const wholePage = (before: string) => ({
+      kind: "replace_text",
+      before: { markdown: before },
+      after: { markdown: before.replace("$60", "$75") },
+      anchor: null,
+    });
+
+    it("rebases onto the canonical text with the change accepting it makes", () => {
+      const canonical = canonicalizeNfm(stored);
+      const outcome = rebaselineSuggestions(
+        [{ id: "s1", group: "s1", operation: wholePage(stored) }],
+        stored,
+        canonical,
+      ).get("s1");
+      if (outcome?.kind !== "rebased")
+        throw new Error(`expected a rebase, got ${JSON.stringify(outcome)}`);
+      const { operation } = outcome;
+      const anchor = operationAnchor(operation);
+      expect(markdownPayload(operation.before, "before").markdown).toBe(
+        canonical,
+      );
+      expect(resolveMarkdownSuggestionRange(canonical, operation)).toEqual({
+        from: anchor.from,
+        to: anchor.to,
+      });
+      expect(applyMarkdownSuggestionOperation(canonical, operation)).toBe(
+        canonicalizeNfm(stored.replace("$60", "$75")),
+      );
+    });
+
+    it("is stale on a page that no longer reads as its before-state", () => {
+      expect(
+        rebaselineSuggestions(
+          [
+            {
+              id: "s1",
+              group: "s1",
+              operation: wholePage("It costs $60 now.\n\nThen the rest."),
+            },
+          ],
+          stored,
+          canonicalizeNfm(stored),
+        ).get("s1"),
+      ).toEqual({ kind: "stale" });
+    });
   });
 
   it("blocks a suggestion whose change canonicalization would erase", () => {

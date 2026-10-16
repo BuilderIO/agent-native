@@ -59,6 +59,11 @@ function commonSuffixLength(left: string, right: string, floor: number) {
   return length;
 }
 
+/** Null for a suggestion saved as the whole page before and after. */
+function anchorOf(operation: MarkdownSuggestionOperationLike) {
+  return operation.anchor == null ? null : operationAnchor(operation);
+}
+
 type Placed = {
   range: MarkdownRange;
   before: string;
@@ -72,8 +77,15 @@ function placeOnCanonical(
 ): Placed | "stale" | { blocked: "change_vanishes" | "structure_unsupported" } {
   const after = markdownPayload(operation.after, "after");
   const storedRange = resolveMarkdownSuggestionRange(stored, operation);
-  if (!storedRange) return "stale";
-  const storedAfter = `${stored.slice(0, storedRange.from)}${after.changedText ?? ""}${stored.slice(storedRange.to)}`;
+  // Accepting a suggestion with no range replaces a page that still reads as
+  // its before-state.
+  const storedAfter = storedRange
+    ? `${stored.slice(0, storedRange.from)}${after.changedText ?? ""}${stored.slice(storedRange.to)}`
+    : anchorOf(operation) === null &&
+        markdownPayload(operation.before, "before").markdown === stored
+      ? after.markdown
+      : null;
+  if (storedAfter === null) return "stale";
   const canonicalAfter = canonicalizeNfm(storedAfter);
   if (canonicalAfter === canonical) return { blocked: "change_vanishes" };
   if (
@@ -85,7 +97,7 @@ function placeOnCanonical(
   // counterpart in the canonical form, widened to every byte the change
   // touches there: canonicalizing can rewrite text next to the change.
   const mapped =
-    stored === canonical
+    !storedRange || stored === canonical
       ? storedRange
       : placeInCanonicalForm(stored, canonical, storedRange);
   const prefix = commonPrefixLength(canonical, canonicalAfter);
@@ -114,7 +126,7 @@ function siblingRangesOnCanonical<T extends MarkdownSuggestionOperationLike>(
   stored: string,
   canonical: string,
 ): MarkdownRange[] | null {
-  const listed = operationAnchor(suggestion.operation).siblingRanges ?? [];
+  const listed = anchorOf(suggestion.operation)?.siblingRanges ?? [];
   if (!listed.length) return [];
   const group = suggestions.filter(
     (other) => other.id !== suggestion.id && other.group === suggestion.group,
@@ -151,7 +163,7 @@ export function rebaselineSuggestions<
   const placed = new Map<string, Placed>();
   for (const suggestion of suggestions) {
     const before = markdownPayload(suggestion.operation.before, "before");
-    operationAnchor(suggestion.operation);
+    anchorOf(suggestion.operation);
     if (before.markdown === canonical) {
       outcomes.set(suggestion.id, { kind: "unchanged" });
       continue;
