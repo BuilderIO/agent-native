@@ -147,7 +147,10 @@ import {
   normalizeAnalyticsTimestamp,
   parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
+  queryFirstPartyAnalyticsWithBackend,
+  FirstPartyAnalyticsBackendNotPostgresError,
   FirstPartyAnalyticsQueryTimeoutError,
+  firstPartyAnalyticsTableBackends,
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
@@ -1972,6 +1975,108 @@ describe("queryFirstPartyAnalytics", () => {
         { userEmail: "alice@example.com", orgId: "org_123" },
       ),
     ).rejects.toThrow("Cross-backend joins are not supported");
+  });
+
+  describe("requireBackend: postgres", () => {
+    const scope = { userEmail: "alice@example.com", orgId: "org_123" };
+    const bigQuerySink = {
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+
+    it("fails closed before touching BigQuery when event tables route there", async () => {
+      backendMocks.get.mockResolvedValueOnce(bigQuerySink);
+
+      const query = queryFirstPartyAnalyticsWithBackend(
+        "SELECT event_date, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date",
+        scope,
+        { requireBackend: "postgres" },
+      );
+
+      await expect(query).rejects.toBeInstanceOf(
+        FirstPartyAnalyticsBackendNotPostgresError,
+      );
+      await expect(query).rejects.toMatchObject({
+        code: "first_party_backend_not_postgres",
+        bigQueryTables: ["analytics_event_daily_rollups"],
+      });
+      expect(backendMocks.table).not.toHaveBeenCalled();
+      expect(backendMocks.query).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("names the BigQuery tables instead of a cross-backend join error", async () => {
+      backendMocks.get.mockResolvedValueOnce(bigQuerySink);
+
+      await expect(
+        queryFirstPartyAnalytics(
+          "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+          scope,
+          { requireBackend: "postgres" },
+        ),
+      ).rejects.toMatchObject({
+        code: "first_party_backend_not_postgres",
+        bigQueryTables: ["analytics_events"],
+      });
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    });
+
+    it("runs on Postgres and reports it when the sink is Postgres", async () => {
+      execute.mockResolvedValue({ rows: [{ count: 1 }], rowsAffected: 0 });
+
+      await expect(
+        queryFirstPartyAnalyticsWithBackend(
+          "SELECT COUNT(*) AS count FROM analytics_events",
+          scope,
+          { requireBackend: "postgres" },
+        ),
+      ).resolves.toEqual({
+        rows: [{ count: 1 }],
+        schema: [{ name: "count", type: "number" }],
+        backend: "postgres",
+      });
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    });
+
+    it("still reads session_recordings from Postgres after the cutover", async () => {
+      backendMocks.get.mockResolvedValueOnce(bigQuerySink);
+      execute.mockResolvedValue({ rows: [{ recordings: 2 }], rowsAffected: 0 });
+
+      await expect(
+        queryFirstPartyAnalyticsWithBackend(
+          "SELECT COUNT(*) AS recordings FROM session_recordings",
+          scope,
+          { requireBackend: "postgres" },
+        ),
+      ).resolves.toMatchObject({ backend: "postgres" });
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    });
+  });
+
+  it("reports which backend served each query", async () => {
+    backendMocks.get.mockResolvedValueOnce({ sink: "bigquery", table: null });
+
+    await expect(
+      queryFirstPartyAnalyticsWithBackend(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).resolves.toMatchObject({ backend: "bigquery" });
+  });
+
+  it("maps each queryable table to the backend its sink reads", () => {
+    expect(firstPartyAnalyticsTableBackends("dual")).toEqual({
+      analytics_events: "postgres",
+      analytics_event_daily_rollups: "postgres",
+      analytics_user_days: "postgres",
+      session_recordings: "postgres",
+    });
+    expect(firstPartyAnalyticsTableBackends("bigquery")).toEqual({
+      analytics_events: "bigquery",
+      analytics_event_daily_rollups: "bigquery",
+      analytics_user_days: "bigquery",
+      session_recordings: "postgres",
+    });
   });
 
   it("rejects unapproved functions before executing SQL-store queries", async () => {

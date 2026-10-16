@@ -40,7 +40,14 @@ exception is the legacy `@app_events` table, which keeps a test identity's
 `$exception` rows marked `JSON_VALUE(data, '$.test_identity') = 'true'`;
 exclude those from any metric over it.
 
-Before a large or historical first-party query, call
+When the user rules out BigQuery, skip the health check below, which queries
+BigQuery on a BigQuery-backed scope. Call `get-first-party-analytics-backend`
+to see which tables Postgres serves, then pass `backend: "postgres"` to
+`query-agent-native-analytics`. If it fails with
+`first_party_backend_not_postgres`, this scope reads those tables only from
+BigQuery: say so and let the user decide.
+
+Otherwise, before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
 `healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
 1M+ events, repeated slow queries, or a timeout/30-second query. Treat that

@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
-  queryFirstPartyAnalytics: vi.fn(),
+  queryFirstPartyAnalyticsWithBackend: vi.fn(),
   track: vi.fn(),
+  BackendNotPostgresError: class extends Error {
+    readonly code = "first_party_backend_not_postgres";
+    readonly bigQueryTables = ["analytics_events"];
+  },
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -17,7 +21,9 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 vi.mock("../server/lib/first-party-analytics.js", () => ({
-  queryFirstPartyAnalytics: mocks.queryFirstPartyAnalytics,
+  FirstPartyAnalyticsBackendNotPostgresError: mocks.BackendNotPostgresError,
+  queryFirstPartyAnalyticsWithBackend:
+    mocks.queryFirstPartyAnalyticsWithBackend,
 }));
 
 const action = (await import("./query-agent-native-analytics")).default;
@@ -25,13 +31,14 @@ const action = (await import("./query-agent-native-analytics")).default;
 beforeEach(() => {
   mocks.getRequestOrgId.mockReset();
   mocks.getRequestUserEmail.mockReset();
-  mocks.queryFirstPartyAnalytics.mockReset();
+  mocks.queryFirstPartyAnalyticsWithBackend.mockReset();
   mocks.track.mockReset();
   mocks.getRequestOrgId.mockReturnValue("org_123");
   mocks.getRequestUserEmail.mockReturnValue("alice@example.com");
-  mocks.queryFirstPartyAnalytics.mockResolvedValue({
+  mocks.queryFirstPartyAnalyticsWithBackend.mockResolvedValue({
     rows: [{ events: 3 }],
     schema: [{ name: "events", type: "number" }],
+    backend: "postgres",
   });
 });
 
@@ -60,7 +67,7 @@ describe("query-agent-native-analytics", () => {
   it("records a safe failure event and rethrows the original query error", async () => {
     const sql = "SELECT 'sensitive query text' FROM analytics_events";
     const error = new Error("backend details with sensitive query text");
-    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+    mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(error);
 
     await expect(action.run({ sql })).rejects.toBe(error);
 
@@ -84,7 +91,7 @@ describe("query-agent-native-analytics", () => {
     const controller = new AbortController();
     controller.abort();
     const error = new DOMException("sensitive abort details", "AbortError");
-    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+    mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(error);
 
     await expect(
       action.run(
@@ -116,7 +123,7 @@ describe("query-agent-native-analytics", () => {
 
     await action.run({ sql }, { caller: "tool", signal: controller.signal });
 
-    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledWith(
+    expect(mocks.queryFirstPartyAnalyticsWithBackend).toHaveBeenCalledWith(
       sql,
       { userEmail: "alice@example.com", orgId: "org_123" },
       {
@@ -134,11 +141,48 @@ describe("query-agent-native-analytics", () => {
     await expect(action.run({ sql })).resolves.toEqual({
       rows: [{ events: 3 }],
       schema: [{ name: "events", type: "number" }],
+      backend: "postgres",
     });
-    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledWith(
+    expect(mocks.queryFirstPartyAnalyticsWithBackend).toHaveBeenCalledWith(
       sql,
       { userEmail: "alice@example.com", orgId: "org_123" },
       { cache: true, includeTestIdentities: false },
+    );
+  });
+
+  it("requires Postgres when backend is postgres and reports the backend that served it", async () => {
+    const sql = "SELECT events FROM analytics_event_daily_rollups";
+
+    await expect(action.run({ sql, backend: "postgres" })).resolves.toEqual({
+      rows: [{ events: 3 }],
+      schema: [{ name: "events", type: "number" }],
+      backend: "postgres",
+    });
+    expect(mocks.queryFirstPartyAnalyticsWithBackend).toHaveBeenCalledWith(
+      sql,
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      { cache: true, includeTestIdentities: false, requireBackend: "postgres" },
+    );
+  });
+
+  it("turns a BigQuery-routed query under backend postgres into a typed failure", async () => {
+    mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(
+      new mocks.BackendNotPostgresError("Not run: BigQuery"),
+    );
+
+    await expect(
+      action.run({
+        sql: "SELECT COUNT(*) FROM analytics_events",
+        backend: "postgres",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "first_party_backend_not_postgres",
+      message: "Not run: BigQuery",
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_failed",
+      expect.objectContaining({ failure_class: "backend_not_postgres" }),
+      undefined,
     );
   });
 
@@ -153,6 +197,7 @@ describe("query-agent-native-analytics", () => {
         columns: [{ key: "events", label: "events", align: "right" }],
         rows: [{ events: 3 }],
       },
+      backend: "postgres",
     });
   });
 
@@ -161,15 +206,16 @@ describe("query-agent-native-analytics", () => {
       rows: [{ events: 3 }],
       schema: [{ name: "events", type: "number" }],
       truncated: true,
+      backend: "bigquery",
     };
-    mocks.queryFirstPartyAnalytics.mockResolvedValueOnce(result);
+    mocks.queryFirstPartyAnalyticsWithBackend.mockResolvedValueOnce(result);
 
     await expect(
       action.run({ sql: "SELECT events FROM analytics_events" }),
     ).resolves.toEqual(result);
     expect(action.chatUI.when({}, result)).toBe(false);
 
-    mocks.queryFirstPartyAnalytics.mockResolvedValueOnce(result);
+    mocks.queryFirstPartyAnalyticsWithBackend.mockResolvedValueOnce(result);
     await expect(
       action.run({
         sql: "SELECT events FROM analytics_events",

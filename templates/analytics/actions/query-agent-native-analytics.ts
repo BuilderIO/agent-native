@@ -1,5 +1,5 @@
 import { dataTableWidgetResultSchema, defineAction } from "@agent-native/core";
-import type { ActionRunContext } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { createDataTableWidgetResult } from "@agent-native/core/data-widgets";
 import {
   getRequestOrgId,
@@ -8,7 +8,11 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { queryFirstPartyAnalytics } from "../server/lib/first-party-analytics.js";
+import {
+  FirstPartyAnalyticsBackendNotPostgresError,
+  queryFirstPartyAnalyticsWithBackend,
+  type FirstPartyAnalyticsQueryResultWithBackend,
+} from "../server/lib/first-party-analytics.js";
 import {
   ANALYTICS_ANALYSIS_RESULT_RENDERER,
   getSingleNumericAnalysisResult,
@@ -20,11 +24,7 @@ function resolveScope() {
   return { userEmail, orgId: getRequestOrgId() || null };
 }
 
-function toDataTableResult(result: {
-  rows: Record<string, unknown>[];
-  schema: { name: string; type: string }[];
-  truncated?: boolean;
-}) {
+function toDataTableResult(result: FirstPartyAnalyticsQueryResultWithBackend) {
   const numericTypes = new Set([
     "number",
     "integer",
@@ -47,6 +47,7 @@ function toDataTableResult(result: {
       rows: result.rows,
       ...(result.truncated ? { truncated: true } : {}),
     },
+    backend: result.backend,
   });
 }
 
@@ -62,8 +63,11 @@ function isQueryCancellation(
 
 function queryFailureClass(
   error: unknown,
-): "timeout" | "query_error" | "unknown" {
+): "timeout" | "backend_not_postgres" | "query_error" | "unknown" {
   if (!(error instanceof Error)) return "unknown";
+  if (error instanceof FirstPartyAnalyticsBackendNotPostgresError) {
+    return "backend_not_postgres";
+  }
   const code = (error as Error & { code?: unknown }).code;
   return [
     "FirstPartyAnalyticsQueryTimeoutError",
@@ -77,8 +81,8 @@ function queryFailureClass(
 export default defineAction({
   description:
     "Query the built-in first-party Analytics source: events recorded through this app's analytics collector endpoint (/track), compact daily rollups updated transactionally with new ingest, identifiable user-day rollups, and session replay summaries. It needs no external provider connection. Use it for app/site traffic, product events, template/app usage, conversions, session recordings, and LLM/agent observability (event_name = '$ai_generation': model cost, tokens, latency); use the BigQuery, GA4, Mixpanel, PostHog, or Amplitude actions when the user asks for those or the data lives there. " +
-    "SQL may read analytics_events, analytics_event_daily_rollups, analytics_user_days, and session_recordings; session_replay_chunks is unavailable. Reads are scoped to the current user/org and exclude test identities (QA/E2E) unless includeTestIdentities is true. Prefer analytics_event_daily_rollups for event counts and analytics_user_days for active-user or retention questions. On the Builder.io production organization after the explicit BigQuery cutover, events and rollups read from BigQuery while session_recordings stays in the SQL store; cross-backend joins are not supported. " +
-    "Before a large or historical query, call get-first-party-analytics-health. Aggregate, project only needed columns, use bounded recent drill-downs, and add a LIMIT for raw or high-cardinality reads; an explicit all-time or lifetime request remains all-time. Safe scoped results are cached for up to five minutes. " +
+    "SQL may read analytics_events, analytics_event_daily_rollups, analytics_user_days, and session_recordings; session_replay_chunks is unavailable. Reads are scoped to the current user/org and exclude test identities (QA/E2E) unless includeTestIdentities is true. Prefer analytics_event_daily_rollups for event counts and analytics_user_days for active-user or retention questions. On the Builder.io production organization after the explicit BigQuery cutover, events and rollups read from BigQuery while session_recordings stays in the SQL store; cross-backend joins are not supported. Results include `backend` (`postgres` or `bigquery`). " +
+    'When the user rules out BigQuery, pass backend: "postgres" and skip get-first-party-analytics-health, which queries BigQuery on a BigQuery-backed scope; get-first-party-analytics-backend reports the routing without querying BigQuery. Otherwise, before a large or historical query, call get-first-party-analytics-health. Aggregate, project only needed columns, use bounded recent drill-downs, and add a LIMIT for raw or high-cardinality reads; an explicit all-time or lifetime request remains all-time. Safe scoped results are cached for up to five minutes. ' +
     "Columns. analytics_events: event_name, timestamp, event_date, user_id, anonymous_id, user_key, session_id, app, template, signed_in, url, path, hostname, referrer, properties, context. analytics_event_daily_rollups: tenant_key, owner_email, org_id, event_date, event_name, app, template, event_count. analytics_user_days: tenant_key, owner_email, org_id, event_date, user_key. session_recordings: id, session_id, user_id, anonymous_id, user_key, started_at, ended_at, duration_ms, chunk_count, event_count, page_count, error_count, rage_click_count, app, template, status, first_url, last_url, path, hostname, referrer, metadata. " +
     "The data-querying skill lists the `$ai_generation` properties and backend routing.",
   schema: z.object({
@@ -99,6 +103,12 @@ export default defineAction({
       .describe(
         "Set true only when the user explicitly asks to see the query rows as a table.",
       ),
+    backend: z
+      .enum(["postgres"])
+      .optional()
+      .describe(
+        'Set "postgres" when the user rules out BigQuery. A query that would read BigQuery then fails with errorCode first_party_backend_not_postgres before anything runs; it is never rerouted.',
+      ),
   }),
   outputSchema: z.union([
     dataTableWidgetResultSchema,
@@ -106,6 +116,7 @@ export default defineAction({
       rows: z.array(z.record(z.string(), z.unknown())),
       schema: z.array(z.object({ name: z.string(), type: z.string() })),
       truncated: z.boolean().optional(),
+      backend: z.enum(["postgres", "bigquery"]),
     }),
   ]),
   chatUI: {
@@ -132,11 +143,12 @@ export default defineAction({
       },
       actionContext,
     );
-    let result: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+    let result: FirstPartyAnalyticsQueryResultWithBackend;
     try {
-      result = await queryFirstPartyAnalytics(args.sql, scope, {
+      result = await queryFirstPartyAnalyticsWithBackend(args.sql, scope, {
         cache: true,
         includeTestIdentities: args.includeTestIdentities === true,
+        ...(args.backend ? { requireBackend: args.backend } : {}),
         ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
       });
     } catch (error) {
@@ -170,6 +182,12 @@ export default defineAction({
         }
       } catch {
         // Telemetry is best-effort and must not replace the query error.
+      }
+      if (error instanceof FirstPartyAnalyticsBackendNotPostgresError) {
+        fail(error.message, {
+          errorCode: error.code,
+          details: { bigQueryTables: error.bigQueryTables },
+        });
       }
       throw error;
     }
