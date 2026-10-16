@@ -56,7 +56,7 @@ describe("editor side panels", () => {
     expect(editorSource).toContain('animationsOpen ? "rounded-r-lg" : ""');
   });
 
-  it("mounts Layers beside the Slides rail", () => {
+  it("mounts Layers below the Slides thumbnails", () => {
     expect(editorSource).toContain(
       "createPortal(layersPanel, layersPanelSlot)",
     );
@@ -73,8 +73,9 @@ describe("editor side panels", () => {
       "\n      </div>\n\n      {/* Hidden upload input */}",
       workspaceStart,
     );
+    const railStart = pageSource.indexOf("<EditorSidebar", workspaceStart);
     const canvasStart = pageSource.indexOf("<SlideEditor", workspaceStart);
-    expect(layersHost).toBeGreaterThan(workspaceStart);
+    expect(layersHost).toBeGreaterThan(railStart);
     expect(layersHost).toBeLessThan(canvasStart);
     expect(layersHost).toBeLessThan(workspaceEnd);
   });

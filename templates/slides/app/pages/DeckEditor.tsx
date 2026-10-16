@@ -5367,104 +5367,108 @@ export default function DeckEditor() {
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute z-[70] h-full min-h-0 md:relative">
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                modifiers={[verticalSlideDragModifier]}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragCancel={handleDragCancel}
-              >
-                <EditorSidebar
-                  slides={deck.slides}
-                  activeSlideId={currentSlide?.id || ""}
-                  selectedSlideIds={selectedSlideIds}
-                  deckId={id}
-                  deckTitle={deck.title}
-                  describeSlideId={describeSlideId}
-                  onCloseDescribe={() => setDescribeSlideId(null)}
-                  onAwaitAddSlidePersisted={() => flushDeckSave(id)}
-                  onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
-                  addSlideAgentSubmit={submitAddSlideAgent}
-                  onAddSlideGeneratingChange={(isGenerating, targetSlideId) => {
-                    if (isGenerating) {
-                      sawGeneratingRef.current = false;
-                      sawAddSlideAgentGeneratingRef.current = false;
-                      addSlideRequestSentRef.current = false;
+            <div className="absolute z-[70] flex h-full min-h-0 flex-col md:relative">
+              <div className="min-h-0 flex-1">
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  modifiers={[verticalSlideDragModifier]}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={handleDragCancel}
+                >
+                  <EditorSidebar
+                    slides={deck.slides}
+                    activeSlideId={currentSlide?.id || ""}
+                    selectedSlideIds={selectedSlideIds}
+                    deckId={id}
+                    deckTitle={deck.title}
+                    describeSlideId={describeSlideId}
+                    onCloseDescribe={() => setDescribeSlideId(null)}
+                    onAwaitAddSlidePersisted={() => flushDeckSave(id)}
+                    onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
+                    addSlideAgentSubmit={submitAddSlideAgent}
+                    onAddSlideGeneratingChange={(
+                      isGenerating,
+                      targetSlideId,
+                    ) => {
+                      if (isGenerating) {
+                        sawGeneratingRef.current = false;
+                        sawAddSlideAgentGeneratingRef.current = false;
+                        addSlideRequestSentRef.current = false;
+                      }
+                      setAddSlideGenerating(isGenerating);
+                      setAddSlideTargetId(isGenerating ? targetSlideId : null);
+                    }}
+                    aiGeneratingSlideId={fillingPlaceholderSlideId}
+                    onSelectSlide={handleSlideSelection}
+                    readOnly={!canEdit}
+                    slidePresence={slidePresence}
+                    recentEdits={deckRecentEdits}
+                    aspectRatio={deck.aspectRatio}
+                    designSystem={designSystem}
+                    generatingSlide={
+                      generatingSlideVisible
+                        ? {
+                            index: deck.slides.length,
+                          }
+                        : undefined
                     }
-                    setAddSlideGenerating(isGenerating);
-                    setAddSlideTargetId(isGenerating ? targetSlideId : null);
-                  }}
-                  aiGeneratingSlideId={fillingPlaceholderSlideId}
-                  onSelectSlide={handleSlideSelection}
-                  readOnly={!canEdit}
-                  slidePresence={slidePresence}
-                  recentEdits={deckRecentEdits}
-                  aspectRatio={deck.aspectRatio}
-                  designSystem={designSystem}
-                  generatingSlide={
-                    generatingSlideVisible
-                      ? {
-                          index: deck.slides.length,
-                        }
-                      : undefined
-                  }
-                  generatingSlideSelected={generatingSlideSelected}
-                  onSelectGeneratingSlide={() => {
-                    setGeneratingSlideSelected(true);
-                    if (isCompactEditorLayout()) setSidebarOpen(false);
-                  }}
-                  hasSlideClipboard={hasSlideClipboard}
-                  onCutSlide={cutSlides}
-                  onCopySlide={copySlides}
-                  onPasteSlide={pasteSlideAfter}
-                  onDeleteSlide={handleDeleteSlideFromRail}
-                  onNewSlideAfter={handleNewSlideAfter}
-                  onDuplicateSlide={handleDuplicateSlideFromRail}
-                  onReorderSlides={handleReorderSlidesFromRail}
-                  altDragSlideId={altDragState?.slideId}
-                  onToggleSkipSlide={handleToggleSkipSlide}
-                />
-                {typeof document !== "undefined"
-                  ? createPortal(
-                      <DragOverlay dropAnimation={null} zIndex={1000}>
-                        {altDragSlide ? (
-                          <div
-                            aria-hidden="true"
-                            data-slide-drag-overlay="copy"
-                            className="pointer-events-none overflow-hidden rounded-lg border border-primary/50 bg-background p-1.5 shadow-2xl"
-                            style={{ width: altDragState?.width ?? 160 }}
-                          >
+                    generatingSlideSelected={generatingSlideSelected}
+                    onSelectGeneratingSlide={() => {
+                      setGeneratingSlideSelected(true);
+                      if (isCompactEditorLayout()) setSidebarOpen(false);
+                    }}
+                    hasSlideClipboard={hasSlideClipboard}
+                    onCutSlide={cutSlides}
+                    onCopySlide={copySlides}
+                    onPasteSlide={pasteSlideAfter}
+                    onDeleteSlide={handleDeleteSlideFromRail}
+                    onNewSlideAfter={handleNewSlideAfter}
+                    onDuplicateSlide={handleDuplicateSlideFromRail}
+                    onReorderSlides={handleReorderSlidesFromRail}
+                    altDragSlideId={altDragState?.slideId}
+                    onToggleSkipSlide={handleToggleSkipSlide}
+                  />
+                  {typeof document !== "undefined"
+                    ? createPortal(
+                        <DragOverlay dropAnimation={null} zIndex={1000}>
+                          {altDragSlide ? (
                             <div
-                              className="overflow-hidden rounded border"
-                              style={{
-                                aspectRatio: `${getAspectRatioDims(deck.aspectRatio).width} / ${getAspectRatioDims(deck.aspectRatio).height}`,
-                              }}
+                              aria-hidden="true"
+                              data-slide-drag-overlay="copy"
+                              className="pointer-events-none overflow-hidden rounded-lg border border-primary/50 bg-background p-1.5 shadow-2xl"
+                              style={{ width: altDragState?.width ?? 160 }}
                             >
-                              <SlideRenderer
-                                slide={altDragSlide}
-                                aspectRatio={deck.aspectRatio}
-                                designSystem={designSystem}
-                                thumbnail
-                              />
+                              <div
+                                className="overflow-hidden rounded border"
+                                style={{
+                                  aspectRatio: `${getAspectRatioDims(deck.aspectRatio).width} / ${getAspectRatioDims(deck.aspectRatio).height}`,
+                                }}
+                              >
+                                <SlideRenderer
+                                  slide={altDragSlide}
+                                  aspectRatio={deck.aspectRatio}
+                                  designSystem={designSystem}
+                                  thumbnail
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ) : null}
-                      </DragOverlay>,
-                      document.body,
-                    )
-                  : null}
-              </DndContext>
+                          ) : null}
+                        </DragOverlay>,
+                        document.body,
+                      )
+                    : null}
+                </DndContext>
+              </div>
+              <div
+                ref={setLayersPanelSlot}
+                data-layers-panel-host="true"
+                className="flex h-1/2 shrink-0 flex-col border-t border-border empty:hidden"
+              />
             </div>
           </>
         )}
-
-        <div
-          ref={setLayersPanelSlot}
-          data-layers-panel-host="true"
-          className="flex h-full shrink-0"
-        />
 
         {generatingSlideSelected && generatingSlideVisible && (
           <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
