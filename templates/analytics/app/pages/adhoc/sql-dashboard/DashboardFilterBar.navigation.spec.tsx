@@ -6,6 +6,7 @@ import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   createMemoryRouter,
+  Outlet,
   RouterProvider,
   useBlocker,
   useLocation,
@@ -75,6 +76,25 @@ let loads: {
 let committedQueries: string[];
 let blockNavigations = false;
 let queryClient: QueryClient;
+let filterBarMounts: number;
+
+function TrackedFilterBar() {
+  useEffect(() => {
+    filterBarMounts++;
+  }, []);
+  return (
+    <DashboardFilterBar
+      filters={filters}
+      views={[
+        {
+          id: "launch",
+          filters: { f_app: "slides,design" },
+          isDefault: true,
+        },
+      ]}
+    />
+  );
+}
 
 function QueryProbe() {
   const { search } = useLocation();
@@ -89,39 +109,47 @@ function QueryProbe() {
 async function render(
   initialEntry = "/dashboards/test?tab=activity",
   initialEntries = [initialEntry],
+  keepBarMountedOnError = false,
 ) {
   loads = [];
   committedQueries = [];
+  const route = {
+    path: "/dashboards/:id",
+    loader: ({ request }: { request: Request }) =>
+      new Promise<void | Response>((resolve, reject) => {
+        loads.push({
+          search: new URL(request.url).search,
+          resolve,
+          reject,
+        });
+      }),
+    element: <QueryProbe />,
+    errorElement: <p role="alert">Navigation failed</p>,
+  };
   router = createMemoryRouter(
-    [
-      {
-        path: "/dashboards/:id",
-        loader: ({ request }) =>
-          new Promise<void | Response>((resolve, reject) => {
-            loads.push({
-              search: new URL(request.url).search,
-              resolve,
-              reject,
-            });
-          }),
-        element: (
-          <>
-            <DashboardFilterBar
-              filters={filters}
-              views={[
-                {
-                  id: "launch",
-                  filters: { f_app: "slides,design" },
-                  isDefault: true,
-                },
-              ]}
-            />
-            <QueryProbe />
-          </>
-        ),
-        errorElement: <p role="alert">Navigation failed</p>,
-      },
-    ],
+    keepBarMountedOnError
+      ? [
+          {
+            element: (
+              <>
+                <TrackedFilterBar />
+                <Outlet />
+              </>
+            ),
+            children: [route],
+          },
+        ]
+      : [
+          {
+            ...route,
+            element: (
+              <>
+                <TrackedFilterBar />
+                <QueryProbe />
+              </>
+            ),
+          },
+        ],
     { initialEntries },
   );
   await act(async () => {
@@ -214,6 +242,7 @@ async function holdResponseBody(index: number) {
 describe("dashboard filter feedback during navigation", () => {
   beforeEach(() => {
     blockNavigations = false;
+    filterBarMounts = 0;
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -378,7 +407,7 @@ describe("dashboard filter feedback during navigation", () => {
     expect(appTrigger().textContent).toBe("Chat");
   });
 
-  it("does not retain a failed navigation's selection on a recovered dashboard", async () => {
+  it("recovers a dashboard route after its error boundary unmounts the filter bar", async () => {
     await render();
     act(() => appTrigger().click());
     act(() => button("Launch apps").click());
@@ -388,12 +417,119 @@ describe("dashboard filter feedback during navigation", () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "Navigation failed",
     );
+    expect(appTrigger()).toBeNull();
     act(() => {
       void router.navigate("/dashboards/other?f_app=chat");
     });
     await settle();
     expect(appTrigger().textContent).toBe("Chat");
     expect(router.state.location.pathname).toBe("/dashboards/other");
+    expect(filterBarMounts).toBe(2);
+  });
+
+  it("keeps the same filter bar mounted at the committed failed URL and recovers through its next edit", async () => {
+    await render(undefined, undefined, true);
+    const mountedTrigger = appTrigger();
+    expect(filterBarMounts).toBe(1);
+    act(() => mountedTrigger.click());
+    act(() => button("Launch apps").click());
+    await act(async () => {
+      loads[1].reject(new Error("controlled filter loader failure"));
+    });
+    expect(router.state.navigation.state).toBe("idle");
+    expect(router.state.location.search).toBe(
+      "?tab=activity&f_app=slides%2Cdesign",
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Navigation failed",
+    );
+    expect(appTrigger()).toBe(mountedTrigger);
+    expect(filterBarMounts).toBe(1);
+    expect(appTrigger().textContent).toBe("Launch apps");
+    expect(committedQueries).toEqual(["?tab=activity"]);
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    act(() => button("Off").click());
+    expect(loads[2].search).toBe(
+      "?tab=activity&f_app=slides%2Cdesign&f_staff=true",
+    );
+    expect(button("On")).toBeDefined();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(router.state.errors).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(router.state.location.search).toBe(loads[2].search);
+    expect(appTrigger()).toBe(mountedTrigger);
+    expect(filterBarMounts).toBe(1);
+    expect(appTrigger().textContent).toBe("Launch apps");
+    expect(button("On")).toBeDefined();
+    expect(committedQueries).toEqual([
+      "?tab=activity",
+      "?tab=activity&f_app=slides%2Cdesign&f_staff=true",
+    ]);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
+  });
+
+  it("reconciles a child loader failure in the same mounted bar without reusing a superseded draft", async () => {
+    await render(undefined, undefined, true);
+    const mountedTrigger = appTrigger();
+    expect(filterBarMounts).toBe(1);
+    act(() => mountedTrigger.click());
+    act(() => option("Chat").click());
+    const closeBody = await holdResponseBody(1);
+    try {
+      let navigation!: Promise<void>;
+      act(() => {
+        navigation = router.navigate(
+          "/dashboards/test?tab=failed&f_app=slides#failed",
+        );
+      });
+      await act(async () => {
+        loads[2].reject(new Error("controlled external loader failure"));
+        await navigation;
+      });
+      expect(router.state.navigation.state).toBe("idle");
+      expect(router.state.location.search).toBe("?tab=failed&f_app=slides");
+      expect(router.state.location.hash).toBe("#failed");
+      expect(router.state.errors).not.toBeNull();
+      expect(appTrigger()).toBe(mountedTrigger);
+      expect(filterBarMounts).toBe(1);
+      expect(appTrigger().textContent).toBe("Slides");
+      expect(committedQueries).toEqual(["?tab=activity"]);
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => closeBody());
+    }
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Navigation failed",
+    );
+    expect(appTrigger()).toBe(mountedTrigger);
+    expect(filterBarMounts).toBe(1);
+    expect(appTrigger().textContent).toBe("Slides");
+    act(() => button("Off").click());
+    expect(loads[3].search).toBe("?tab=failed&f_app=slides&f_staff=true");
+    expect(router.state.navigation.state).toBe("loading");
+    expect(appTrigger().textContent).toBe("Slides");
+    expect(button("On")).toBeDefined();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(router.state.errors).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(router.state.location.search).toBe(loads[3].search);
+    expect(router.state.location.hash).toBe("#failed");
+    expect(appTrigger()).toBe(mountedTrigger);
+    expect(filterBarMounts).toBe(1);
+    expect(appTrigger().textContent).toBe("Slides");
+    expect(button("On")).toBeDefined();
+    expect(committedQueries).toEqual([
+      "?tab=activity",
+      "?tab=failed&f_app=slides&f_staff=true",
+    ]);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
   });
 
   it("rolls back a blocked navigation and composes the next edit from the actual URL", async () => {
@@ -445,7 +581,7 @@ describe("dashboard filter feedback during navigation", () => {
     expect(router.state.location.hash).toBe("#details");
   });
 
-  it("uses an external commit while an aborted response body remains pending, including for the next edit", async () => {
+  it("uses an external commit while a superseded response body remains pending, including for the next edit", async () => {
     await render();
     act(() => appTrigger().click());
     act(() => option("Chat").click());
@@ -489,7 +625,7 @@ describe("dashboard filter feedback during navigation", () => {
     expect(committedQueries).not.toContain("?tab=activity&f_app=chat");
   });
 
-  it("keeps the newer allowed draft when an aborted older response finishes first", async () => {
+  it("keeps the newer allowed draft when a superseded pending response body finishes first", async () => {
     await render();
     act(() => appTrigger().click());
     act(() => option("Chat").click());
