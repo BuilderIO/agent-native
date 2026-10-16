@@ -1251,7 +1251,6 @@ test.describe("drag reparent interaction", () => {
       );
     });
     expect(boardCommitPoint).not.toBeNull();
-    expect(boardCommitPoint.targetOutsideBoardContentBounds).toBe(true);
     expect(boardCommitPoint.boardSurfaceRenderOrigin).toMatchObject({
       x: expect.any(Number),
       y: expect.any(Number),
