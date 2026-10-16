@@ -140,23 +140,24 @@ function inStoredForm(text: string): string | undefined {
   return `${lead}${canonicalizeNfm(core)}${trail}`;
 }
 
-/** A character `text` doesn't use, so the parse shows it only where it's put. */
-function unusedCharacter(text: string) {
+/** Characters `text` doesn't use, so the parse shows each only where it's put. */
+function unusedCharacters(text: string, count: number) {
   const used = new Set(text.match(/[\uE000-\uF8FF]/g));
-  for (let code = 0xe000; code <= 0xf8ff; code += 1) {
+  const unused: string[] = [];
+  for (let code = 0xe000; code <= 0xf8ff && unused.length < count; code += 1) {
     const character = String.fromCharCode(code);
-    if (!used.has(character)) return character;
+    if (!used.has(character)) unused.push(character);
   }
-  return undefined;
+  return unused.length === count ? unused : undefined;
 }
 
-/** What follows `probe` each place the parse shows it, in text or an attribute. */
-function shownAfter(value: unknown, probe: string, after: string[] = []) {
+/** What follows each probe every place the parse shows it, in text or an attribute. */
+function shownAfter(value: unknown, after: Map<string, string[]>) {
   if (typeof value === "string")
-    for (const shown of value.split(probe).slice(1)) after.push(shown[0] ?? "");
+    for (let index = 0; index < value.length; index += 1)
+      after.get(value[index]!)?.push(value[index + 1] ?? "");
   else if (value && typeof value === "object")
-    for (const child of Object.values(value)) shownAfter(child, probe, after);
-  return after;
+    for (const child of Object.values(value)) shownAfter(child, after);
 }
 
 /**
@@ -179,26 +180,36 @@ function backslashReader() {
     return json;
   };
   /**
-   * Whether the parse shows the backslash at `at` as written; undefined when
-   * the page uses every character the question could be asked with.
+   * Whether the parse shows each backslash at `positions`, in order, as
+   * written; undefined when the page leaves too few characters to ask with.
    */
-  const kept = (text: string, at: number) => {
-    const probe = unusedCharacter(text);
-    if (probe === undefined) return undefined;
-    const after = shownAfter(
-      nfmToDoc(`${text.slice(0, at)}${probe}${text.slice(at)}`),
-      probe,
+  const kept = (text: string, positions: number[]) => {
+    const probes = unusedCharacters(text, positions.length);
+    if (probes === undefined) return undefined;
+    // A probe shows only what follows it, so all of them can be asked in one
+    // parse: one between two backslashes splits them as asking alone would.
+    let probed = "";
+    positions.forEach((at, index) => {
+      probed += `${text.slice(positions[index - 1] ?? 0, at)}${probes[index]}`;
+    });
+    const after = new Map(probes.map((probe) => [probe, [] as string[]]));
+    shownAfter(
+      nfmToDoc(`${probed}${text.slice(positions.at(-1) ?? 0)}`),
+      after,
     );
-    if (!after.length || after.some((next) => next !== "\\")) return false;
-    const shown = parse(text);
-    const without = parse(`${text.slice(0, at)}${text.slice(at + 1)}`);
-    let same = 0;
-    while (same < without.length && shown[same] === without[same]) same += 1;
-    // JSON spells a shown backslash as two.
-    return (
-      shown.slice(same, same + 2) === "\\\\" &&
-      shown.slice(same + 2) === without.slice(same)
-    );
+    return positions.map((at, index) => {
+      const next = after.get(probes[index]!)!;
+      if (!next.length || next.some((shown) => shown !== "\\")) return false;
+      const shown = parse(text);
+      const without = parse(`${text.slice(0, at)}${text.slice(at + 1)}`);
+      let same = 0;
+      while (same < without.length && shown[same] === without[same]) same += 1;
+      // JSON spells a shown backslash as two.
+      return (
+        shown.slice(same, same + 2) === "\\\\" &&
+        shown.slice(same + 2) === without.slice(same)
+      );
+    });
   };
   return {
     kept,
@@ -207,7 +218,7 @@ function backslashReader() {
       let slashes = 0;
       while (text[index - slashes - 1] === "\\") slashes += 1;
       // Taking a kept backslash for an escape only refuses the match.
-      return slashes % 2 === 1 && kept(text, index - 1) !== true;
+      return slashes % 2 === 1 && kept(text, [index - 1])?.[0] !== true;
     },
   };
 }
@@ -255,19 +266,26 @@ function resolveOnStoredForm(content: string, edit: DocumentTextEdit) {
   const newline = content.indexOf("\n", end);
   const lineEnd = newline === -1 ? content.length : newline;
   const shift = edit.replace.length - (end - start);
-  for (const [first, last, moved] of [
-    [lineStart, start, 0],
-    [end, lineEnd, shift],
+  const around: number[] = [];
+  for (const [first, last] of [
+    [lineStart, start],
+    [end, lineEnd],
   ] as const)
-    for (let at = first; at < last; at += 1) {
-      if (content[at] !== "\\") continue;
-      const before = backslashes.kept(content, at);
-      if (
-        before === undefined ||
-        before !== backslashes.kept(replaced, at + moved)
-      )
-        return missing;
-    }
+    for (let at = first; at < last; at += 1)
+      if (content[at] === "\\") around.push(at);
+  if (around.length) {
+    const before = backslashes.kept(content, around);
+    const after = backslashes.kept(
+      replaced,
+      around.map((at) => (at < start ? at : at + shift)),
+    );
+    if (
+      !before ||
+      !after ||
+      before.some((read, index) => read !== after[index])
+    )
+      return missing;
+  }
   const after = canonicalizeNfm(replaced);
   // Canonicalizing can respell text next to the replacement, so the range
   // widens to every byte the change touches.

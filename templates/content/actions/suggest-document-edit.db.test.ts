@@ -1565,6 +1565,12 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
       find: "C:\\$Recycle.Bin\\",
       replace: "C:\\$Archive.Bin\\",
     },
+    {
+      name: "a line that also escapes its marker, a price and a backslash",
+      content: "\\# Costs \\$60 and a \\\\ b here.",
+      find: "here.",
+      replace: "there.",
+    },
   ])
     it(`edits text beside a backslash in ${name}`, async () => {
       await runWithRequestContext(
