@@ -25,6 +25,9 @@ import { createPersonCutout } from "../lib/person-cutout";
 const CUTOUT_MAX_PX = 720;
 // How often the click-through mask follows the cut-out.
 const HIT_MASK_INTERVAL_MS = 100;
+// A rejected clear has no render loop to resend it, so retry a few times.
+const HIT_MASK_CLEAR_RETRY_MS = 250;
+const HIT_MASK_CLEAR_RETRIES = 3;
 
 function toHitRect(el: Element): HitRect {
   const { left, top, right, bottom } = el.getBoundingClientRect();
@@ -58,6 +61,8 @@ export function Bubble() {
   const hitProbeRef = useRef<HTMLCanvasElement | null>(null);
   const hitMaskSentRef = useRef<HitMask | null>(null);
   const hitMaskDirtyRef = useRef(true);
+  // False until Rust accepts the last sent mask, so a failed send is resent.
+  const hitMaskSyncedRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,15 +125,27 @@ export function Bubble() {
     hitMaskDirtyRef.current = true;
   }, [showControls]);
 
-  const sendHitMask = (mask: HitMask | null) => {
-    if (sameHitMask(hitMaskSentRef.current, mask)) return;
+  const sendHitMask = (
+    mask: HitMask | null,
+    retries = HIT_MASK_CLEAR_RETRIES,
+  ) => {
+    if (hitMaskSyncedRef.current && sameHitMask(hitMaskSentRef.current, mask)) {
+      return;
+    }
     hitMaskSentRef.current = mask;
+    hitMaskSyncedRef.current = true;
     invoke("set_bubble_hit_mask", { mask }).catch((err) => {
       console.warn("[bubble] set_bubble_hit_mask failed", err);
-      // Forget it so the next tick resends instead of skipping it as sent.
-      if (hitMaskSentRef.current === mask) {
-        hitMaskSentRef.current = null;
-        hitMaskDirtyRef.current = true;
+      if (hitMaskSentRef.current !== mask) return;
+      // Not applied: resend on the next tick, or retry a rejected clear.
+      hitMaskSyncedRef.current = false;
+      hitMaskDirtyRef.current = true;
+      if (mask === null && retries > 0) {
+        setTimeout(() => {
+          if (hitMaskSentRef.current === null && !hitMaskSyncedRef.current) {
+            sendHitMask(null, retries - 1);
+          }
+        }, HIT_MASK_CLEAR_RETRY_MS);
       }
     });
   };
