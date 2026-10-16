@@ -64,6 +64,7 @@ import {
   runOutcomeForCode,
   type RunAuthorityRead,
   type RunOutcomeReport,
+  type ServerRunState,
   type RunTerminalSource,
   type StreamClosedDecision,
   type TerminalDrain,
@@ -167,6 +168,8 @@ interface ProtocolRun {
   quietAuthorityReads?: number;
   subscribeFailures?: number;
   initialAuthorityRead?: RunAuthorityRead;
+  restoredPendingConnectionRequestId?: string | null;
+  restoredRunStatus?: ServerRunState["status"];
   terminalDrain?: TerminalDrain;
   readingTerminalDrain?: boolean;
   successorWaitStartedAtMs?: number;
@@ -1391,6 +1394,7 @@ export function createAgentKitProtocolAdapter(
     sessionId: string;
     runId?: string;
     turnId?: string;
+    includePendingConnectionRequest?: boolean;
   }): Promise<RunAuthorityRead> {
     if (!runAuthority) {
       throw new Error("The runtime does not provide run authority.");
@@ -1807,10 +1811,38 @@ export function createAgentKitProtocolAdapter(
     return session;
   }
 
-  async function restoreRunFromRuntime(input: {
-    threadId: string;
-    runId: string;
-  }): Promise<ProtocolRun> {
+  async function restoreRunFromRuntime(
+    input: {
+      threadId: string;
+      runId: string;
+    },
+    restoreOptions: { includePendingConnectionRequest?: boolean } = {},
+  ): Promise<ProtocolRun> {
+    const readPendingConnectionRequestState = async (
+      sessionId: string,
+      runId: string,
+    ): Promise<ServerRunState> => {
+      if (!runAuthority) {
+        throw new Error(
+          "Could not verify whether the restored connection request is still pending.",
+        );
+      }
+      const read = await readAuthoritativeRunState({
+        sessionId,
+        runId,
+        includePendingConnectionRequest: true,
+      });
+      if (
+        read.kind !== "read" ||
+        !("pendingConnectionRequestId" in read.state) ||
+        read.state.pendingConnectionRequestId === undefined
+      ) {
+        throw new Error(
+          "Could not verify whether the restored connection request is still pending.",
+        );
+      }
+      return read.state;
+    };
     if (
       capabilities.resumableRuns !== true ||
       (!runtime.resume && !runtime.subscribe)
@@ -1821,7 +1853,19 @@ export function createAgentKitProtocolAdapter(
       input.threadId,
       input.runId,
     );
-    if (initialResolution.owner) return initialResolution.owner;
+    if (initialResolution.owner) {
+      if (restoreOptions.includePendingConnectionRequest && runAuthority) {
+        const state = await readPendingConnectionRequestState(
+          initialResolution.owner.session.id,
+          initialResolution.owner.turn.runId ?? input.runId,
+        );
+        initialResolution.owner.restoredPendingConnectionRequestId =
+          state.pendingConnectionRequestId;
+        initialResolution.owner.restoredRunStatus = state.status;
+        initialResolution.owner.initialAuthorityRead = { kind: "read", state };
+      }
+      return initialResolution.owner;
+    }
     const session = await getSession(input.threadId);
     const resolution = await resolveRuntimeRunOwner(
       input.threadId,
@@ -1829,9 +1873,43 @@ export function createAgentKitProtocolAdapter(
       session.id,
       initialResolution.read,
     );
-    if (resolution.owner) return resolution.owner;
-    const state =
-      resolution.read?.kind === "read" ? resolution.read.state : undefined;
+    if (resolution.owner) {
+      if (restoreOptions.includePendingConnectionRequest && runAuthority) {
+        const state = await readPendingConnectionRequestState(
+          resolution.owner.session.id,
+          resolution.owner.turn.runId ?? input.runId,
+        );
+        resolution.owner.restoredPendingConnectionRequestId =
+          state.pendingConnectionRequestId;
+        resolution.owner.restoredRunStatus = state.status;
+        resolution.owner.initialAuthorityRead = { kind: "read", state };
+      }
+      return resolution.owner;
+    }
+    const restoreRead =
+      restoreOptions.includePendingConnectionRequest && runAuthority
+        ? await readAuthoritativeRunState({
+            sessionId: session.id,
+            runId:
+              resolution.read?.kind === "read" &&
+              resolution.read.state.status !== "missing"
+                ? resolution.read.state.runId
+                : input.runId,
+            includePendingConnectionRequest: true,
+          })
+        : resolution.read;
+    if (
+      restoreOptions.includePendingConnectionRequest &&
+      runAuthority &&
+      (restoreRead?.kind !== "read" ||
+        !("pendingConnectionRequestId" in restoreRead.state) ||
+        restoreRead.state.pendingConnectionRequestId === undefined)
+    ) {
+      throw new Error(
+        "Could not verify whether the restored connection request is still pending.",
+      );
+    }
+    const state = restoreRead?.kind === "read" ? restoreRead.state : undefined;
     const resumeInput = {
       sessionId: session.id,
       runId: input.runId,
@@ -1906,7 +1984,11 @@ export function createAgentKitProtocolAdapter(
       listeners: new Set(),
     };
     indexRun(run, turn.runId ?? input.runId);
-    if (resolution.read) run.initialAuthorityRead = resolution.read;
+    if (restoreRead) run.initialAuthorityRead = restoreRead;
+    if (state && "pendingConnectionRequestId" in state) {
+      run.restoredPendingConnectionRequestId = state.pendingConnectionRequestId;
+      run.restoredRunStatus = state.status;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -4149,7 +4231,26 @@ export function createAgentKitProtocolAdapter(
         if (runs.has(input.runId)) {
           throw new Error(`Unknown AgentKit run: ${input.runId}`);
         }
-        run = await restoreRunFromRuntime(input);
+        run = await restoreRunFromRuntime(input, {
+          includePendingConnectionRequest: input.response.status === "declined",
+        });
+        if (
+          input.response.status === "declined" &&
+          run.restoredPendingConnectionRequestId !== undefined &&
+          run.restoredPendingConnectionRequestId !== input.requestId
+        ) {
+          if (
+            typeof run.restoredPendingConnectionRequestId === "string" ||
+            (run.restoredPendingConnectionRequestId === null &&
+              run.restoredRunStatus !== undefined &&
+              run.restoredRunStatus !== "running")
+          ) {
+            return;
+          }
+          throw new Error(
+            "Could not verify whether the restored connection request is still pending.",
+          );
+        }
         if (run.pumpPromise) await run.pumpPromise;
       }
       touchRun(run);

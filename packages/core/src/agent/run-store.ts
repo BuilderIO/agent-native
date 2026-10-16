@@ -2809,6 +2809,35 @@ export async function getRunByThread(
   };
 }
 
+/** The connection request that a restored client may still need to resolve. */
+export async function getRunPendingConnectionRequestId(
+  runId: string,
+): Promise<string | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT event_data FROM agent_run_events
+          WHERE run_id = ?
+            AND event_data LIKE ?
+          ORDER BY seq DESC
+          LIMIT 1`,
+    args: [runId, '{"type":"connection_required"%'],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0] as { event_data?: unknown };
+  if (typeof row.event_data !== "string") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  const event: unknown = JSON.parse(row.event_data);
+  if (!isReadableJournalEvent(event) || event.type !== "connection_required") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  return event.requestId;
+}
+
 export interface AgentRunSummary {
   id: string;
   threadId: string;

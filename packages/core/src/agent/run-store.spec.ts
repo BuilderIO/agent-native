@@ -18,6 +18,7 @@ let latestEventRows: Array<{
   event_at?: number | null;
   event_data: string;
 }> = [];
+let connectionRequestRows: Array<{ event_data: string }> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let completedTurnRows: Array<{
@@ -67,6 +68,12 @@ const mockDb: any = {
 
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
+    }
+    if (
+      /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
+      args.includes('{"type":"connection_required"%')
+    ) {
+      return { rows: connectionRequestRows, rowsAffected: 0 };
     }
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
@@ -276,6 +283,7 @@ const {
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
   getRunEventsSince,
+  getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
   __resetNoRunningRunsProbeForTests,
@@ -338,6 +346,7 @@ describe("run store", () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     execCalls.length = 0;
     latestEventRows = [];
+    connectionRequestRows = [];
     staleSelectRows = [];
     claimSlotRows = [];
     completedTurnRows = [];
@@ -595,6 +604,33 @@ describe("run store", () => {
       result: "saved [inline image/png data omitted]",
       images: [{ label: "shot", omitted: "inline-bytes" }],
     });
+  });
+
+  it("reads a run's pending connection request from its durable event journal", async () => {
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBe("request-gong");
+    expect(execCalls.at(-1)).toMatchObject({
+      args: ["run-connection", '{"type":"connection_required"%'],
+    });
+    expect(execCalls.at(-1)?.sql).toMatch(/ORDER BY seq DESC\s+LIMIT 1/i);
+  });
+
+  it("reports no pending connection request when the run has no request event", async () => {
+    await expect(
+      getRunPendingConnectionRequestId("run-without-connection"),
+    ).resolves.toBeNull();
   });
 
   it("stores approval keys as opaque hashes and strips their inline inputs", async () => {
