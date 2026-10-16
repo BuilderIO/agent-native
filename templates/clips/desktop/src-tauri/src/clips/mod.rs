@@ -507,6 +507,14 @@ fn cursor_over_bubble_hit_mask(window: &WebviewWindow, mask: &BubbleHitMask) -> 
         .is_some_and(|(fx, fy)| mask.contains_fraction(fx, fy))
 }
 
+fn same_mask(a: Option<&Arc<BubbleHitMask>>, b: Option<&Arc<BubbleHitMask>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -533,9 +541,13 @@ fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
             if prev_interactive != Some(interactive) {
                 {
                     // Rechecked under the lock so a concurrent disable always wins.
-                    let _slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+                    let slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
                     if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
                         break;
+                    }
+                    // A newer mask replaced the snapshot; recompute against it.
+                    if !same_mask(slot.as_ref(), mask.as_ref()) {
+                        continue;
                     }
                     let _ = win.set_ignore_cursor_events(!interactive);
                 }
@@ -2634,12 +2646,28 @@ mod tests {
         bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
         clamp_popover_logical_size, commit_bubble_size_transaction, cursor_fraction_in_window,
         legacy_bubble_window_size_for_scale, migrate_legacy_bubble_position,
-        overlay_labels_to_hide, restore_bubble_position_preference_at,
+        overlay_labels_to_hide, restore_bubble_position_preference_at, same_mask,
         snapshot_bubble_position_preference_at, strip_trailing_period_for_messaging,
         text_insertion_strategy, BubbleHitMask, BubblePositionPreference, TextInsertionStrategy,
         BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
+
+    #[test]
+    fn same_mask_compares_snapshot_identity() {
+        let mask = || BubbleHitMask {
+            cols: 1,
+            rows: 1,
+            bits: vec![1],
+        };
+        let current = std::sync::Arc::new(mask());
+        let snapshot = current.clone();
+        let replacement = std::sync::Arc::new(mask());
+        assert!(same_mask(Some(&current), Some(&snapshot)));
+        assert!(!same_mask(Some(&replacement), Some(&snapshot)));
+        assert!(!same_mask(None, Some(&snapshot)));
+        assert!(same_mask(None, None));
+    }
 
     #[test]
     fn bubble_hit_mask_maps_fractions_to_packed_cells() {
