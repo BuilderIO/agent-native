@@ -3967,6 +3967,7 @@ function isAllowedProviderUrl(
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
   if (config.requireHttps && url.protocol !== "https:") return false;
+  if (config.id === "gong") return url.origin === base.origin;
   return (
     url.origin === base.origin || isAllowedProviderHost(url.hostname, config)
   );
@@ -3977,6 +3978,13 @@ function isAllowedProviderHost(
   config: ProviderApiConfig,
 ): boolean {
   const host = hostname.toLowerCase();
+  if (config.id === "gong") {
+    // Gong assigns one tenant or region label before api.gong.io.
+    return (
+      host === "api.gong.io" ||
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.api\.gong\.io$/.test(host)
+    );
+  }
   return (config.allowedHostSuffixes ?? []).some((suffix) => {
     const normalized = suffix.toLowerCase().replace(/^\./, "");
     return host === normalized || host.endsWith(`.${normalized}`);

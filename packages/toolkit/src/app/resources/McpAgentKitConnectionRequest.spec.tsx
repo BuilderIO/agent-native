@@ -171,9 +171,16 @@ describe("McpAgentKitConnectionRequestCard", () => {
     await act(async () => root.unmount());
   });
 
-  it("shows an error when a host-excluded request cannot be declined", async () => {
+  it("allows retrying a host-excluded request after decline fails", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
+    let finishRetry = () => {};
+    const onDeclined = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Request could not be declined."))
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishRetry = resolve)),
+      );
 
     await act(async () => {
       root.render(
@@ -186,9 +193,8 @@ describe("McpAgentKitConnectionRequestCard", () => {
             requestId: "request-1",
           }}
           onConnected={() => undefined}
-          onDeclined={() => {
-            throw new Error("Request could not be declined.");
-          }}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
         />,
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -197,6 +203,25 @@ describe("McpAgentKitConnectionRequestCard", () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "Connection failed",
     );
+
+    const retryButton = container.querySelector(
+      '[role="alert"] button',
+    ) as HTMLButtonElement | null;
+    expect(retryButton?.textContent).toContain("Retry");
+    await act(async () => {
+      retryButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onDeclined).toHaveBeenCalledTimes(2);
+    expect(retryButton?.disabled).toBe(true);
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    await act(async () => {
+      finishRetry();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector("[data-excluded-provider]")).not.toBeNull();
     await act(async () => root.unmount());
   });
 

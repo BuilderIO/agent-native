@@ -51,6 +51,7 @@ import {
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
   normalizeFirefoxBrowserSessionConsoleError,
+  retiredBrowserSessionPollConsoleGraceMs,
   uniquePendingBrowserSessionId,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -1801,11 +1802,47 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
   ).toBe(false);
 });
 
-it("retains correlated cleanup claim evidence while delayed page-error checks are pending", () => {
-  expect(isWithinCleanupRecoveryClaimCorrelationWindow(100, 0)).toBe(true);
-  expect(isWithinCleanupRecoveryClaimCorrelationWindow(251, 0)).toBe(false);
-  expect(shouldRetainCleanupRecoveryClaimEvidence(100, 600, [0])).toBe(true);
-  expect(shouldRetainCleanupRecoveryClaimEvidence(100, 600, [])).toBe(false);
+it("retains cleanup claim evidence through delayed page-error inspection", () => {
+  const failedAt = 100;
+  const graceMs = retiredBrowserSessionPollConsoleGraceMs;
+  const lastCorrelatedPageErrorAt = failedAt + graceMs;
+  const delayedInspectionAt = lastCorrelatedPageErrorAt + graceMs;
+  const lateInspectionAt = delayedInspectionAt + 10_000;
+
+  expect(
+    isWithinCleanupRecoveryClaimCorrelationWindow(
+      lastCorrelatedPageErrorAt,
+      failedAt,
+    ),
+  ).toBe(true);
+  expect(
+    isWithinCleanupRecoveryClaimCorrelationWindow(
+      lastCorrelatedPageErrorAt + 1,
+      failedAt,
+    ),
+  ).toBe(false);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(
+      failedAt,
+      failedAt + graceMs + 1,
+      [],
+    ),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(failedAt, lateInspectionAt, [
+      lastCorrelatedPageErrorAt,
+    ]),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(failedAt, delayedInspectionAt, []),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(
+      failedAt,
+      delayedInspectionAt + 1,
+      [],
+    ),
+  ).toBe(false);
 });
 
 it("ignores browser-session poll or heartbeat errors only for matching canceled reload requests", () => {

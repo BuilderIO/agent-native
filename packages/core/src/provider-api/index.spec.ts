@@ -154,6 +154,8 @@ describe("provider API base URL validation", () => {
   it.each([
     ["https://api.gong.io/v2", true],
     ["https://us-88601.api.gong.io/v2", true],
+    ["https://company-17.api.gong.io/v2", true],
+    ["https://nested.us-88601.api.gong.io/v2", false],
     ["http://us-88601.api.gong.io/v2", false],
     ["https://attacker.example/v2", false],
     ["https://user:secret@api.gong.io/v2", false],
@@ -3823,7 +3825,37 @@ describe("provider API runtime", () => {
     );
   });
 
-  it.each(["https://attacker.example/v2", "http://us-88601.api.gong.io/v2"])(
+  it("keeps Gong Basic Auth on the configured tenant host", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "GONG_API_BASE"
+        ? "https://company-17.api.gong.io/v2"
+        : "gong-test-value",
+    );
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "gong",
+        path: "https://company-18.api.gong.io/v2/calls",
+      }),
+    ).rejects.toThrow(/configured provider host/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(resolveCredential.mock.calls.map(([key]) => key)).toEqual([
+      "GONG_API_BASE",
+    ]);
+  });
+
+  it.each([
+    "https://attacker.example/v2",
+    "https://nested.us-88601.api.gong.io/v2",
+    "http://us-88601.api.gong.io/v2",
+  ])(
     "rejects an unsafe Gong API base URL before sending Basic Auth: %s",
     async (baseUrl) => {
       resolveCredential.mockImplementation(async (key: string) => {
@@ -3843,6 +3875,9 @@ describe("provider API runtime", () => {
         runtime.executeRequest({ provider: "gong", path: "/calls" }),
       ).rejects.toThrow(/configured provider host/);
       expect(fetchMock).not.toHaveBeenCalled();
+      expect(resolveCredential.mock.calls.map(([key]) => key)).toEqual([
+        "GONG_API_BASE",
+      ]);
     },
   );
 

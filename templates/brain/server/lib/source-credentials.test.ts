@@ -354,6 +354,31 @@ describe("resolveSourceCredential", () => {
     );
   });
 
+  it.each(["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"])(
+    "uses the organization Gong %s when a personal override also exists",
+    async (key) => {
+      mocks.secrets.set(`user:owner@example.test:${key}`, "personal-value");
+      mocks.secrets.set(`org:org-1:${key}`, "organization-value");
+
+      await expect(
+        resolveSourceCredentialWithProvenance({
+          provider: "gong",
+          key,
+          ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        }),
+      ).resolves.toMatchObject({
+        value: "organization-value",
+        provenance: {
+          source: "registered_secret",
+          provider: "gong",
+          key,
+          scope: "org",
+          scopeId: "org-1",
+        },
+      });
+    },
+  );
+
   it("does not resolve user-scoped workspace connection refs in org-only mode", async () => {
     mocks.connections = [
       {
@@ -395,16 +420,13 @@ describe("resolveSourceCredential", () => {
   });
 
   it("keeps user-first registered-secret lookup without org-only scope", async () => {
-    mocks.secrets.set(
-      "user:owner@example.test:GONG_ACCESS_KEY",
-      "test-user-key",
-    );
-    mocks.secrets.set("org:org-1:GONG_ACCESS_KEY", "test-org-key");
+    mocks.secrets.set("user:owner@example.test:GITHUB_TOKEN", "test-user-key");
+    mocks.secrets.set("org:org-1:GITHUB_TOKEN", "test-org-key");
 
     await expect(
       resolveSourceCredentialWithProvenance({
-        provider: "gong",
-        key: "GONG_ACCESS_KEY",
+        provider: "github",
+        key: "GITHUB_TOKEN",
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toMatchObject({

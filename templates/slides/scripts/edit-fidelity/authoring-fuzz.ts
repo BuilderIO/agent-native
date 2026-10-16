@@ -361,6 +361,9 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 const reloadNavigationConsoleGraceMs = 1_000;
 export const retiredBrowserSessionPollConsoleGraceMs = 250;
+// A matching page error can arrive during one grace window, then inspection takes another.
+const cleanupRecoveryClaimEvidenceRetentionMs =
+  retiredBrowserSessionPollConsoleGraceMs * 2;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
 const outgoingBrowserSessionAbortWindowMs = 1_000;
 
@@ -1261,7 +1264,7 @@ export function shouldRetainCleanupRecoveryClaimEvidence(
   pendingPageErrorAts: readonly number[],
 ) {
   return (
-    now - failedAt <= retiredBrowserSessionPollConsoleGraceMs ||
+    now - failedAt <= cleanupRecoveryClaimEvidenceRetentionMs ||
     pendingPageErrorAts.some((pageErrorAt) =>
       isWithinCleanupRecoveryClaimCorrelationWindow(failedAt, pageErrorAt),
     )

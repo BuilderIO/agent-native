@@ -20,8 +20,16 @@ import {
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
-import { IconAlertCircle } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { IconAlertCircle, IconLoader2 } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
 import {
@@ -71,6 +79,10 @@ export function McpAgentKitConnectionRequestCard({
   const onDeclinedRef = useRef(onDeclined);
   const [excludedRequestResolutionFailed, setExcludedRequestResolutionFailed] =
     useState(false);
+  const [
+    excludedRequestResolutionPending,
+    setExcludedRequestResolutionPending,
+  ] = useState(false);
   onDeclinedRef.current = onDeclined;
   const [workspaceSetupOpened, setWorkspaceSetupOpened] = useState(false);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
@@ -111,22 +123,25 @@ export function McpAgentKitConnectionRequestCard({
   useEffect(() => {
     if (status === "failed") setWorkspaceSetupOpened(false);
   }, [status]);
-  useEffect(() => {
-    if (!integrationExcluded || status !== "requested" || settledRef.current) {
-      return;
-    }
-    let active = true;
+  const resolveExcludedRequest = useCallback(() => {
+    if (settledRef.current) return;
     settledRef.current = true;
+    setExcludedRequestResolutionPending(true);
     void Promise.resolve()
       .then(() => onDeclinedRef.current())
+      .then(() => setExcludedRequestResolutionFailed(false))
       .catch(() => {
         settledRef.current = false;
-        if (active) setExcludedRequestResolutionFailed(true);
+        setExcludedRequestResolutionFailed(true);
+      })
+      .finally(() => {
+        setExcludedRequestResolutionPending(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [integrationExcluded, status]);
+  }, []);
+  useEffect(() => {
+    if (!integrationExcluded || status !== "requested") return;
+    resolveExcludedRequest();
+  }, [integrationExcluded, resolveExcludedRequest, status]);
   const settle = async (callback: () => void | Promise<void>) => {
     if (settledRef.current) return;
     settledRef.current = true;
@@ -142,6 +157,18 @@ export function McpAgentKitConnectionRequestCard({
       <div className="agentkit-command-error" role="alert">
         <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
         <span>{t("agentChat.connection.failed")}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          disabled={excludedRequestResolutionPending}
+          onClick={resolveExcludedRequest}
+        >
+          {excludedRequestResolutionPending ? (
+            <IconLoader2 aria-hidden="true" className="animate-spin" />
+          ) : null}
+          {t("agentChat.common.retry")}
+        </Button>
       </div>
     ) : (
       fallback
