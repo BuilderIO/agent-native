@@ -481,6 +481,7 @@ describe("InfrastructureSettingsPage", () => {
       "design-system-intelligence",
       "background",
       "browser-automation",
+      "web-search",
     ]) {
       expect(row(id).querySelector("[data-builder-only]")?.textContent).toBe(
         "Builder.io only",

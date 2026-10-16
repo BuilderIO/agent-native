@@ -269,7 +269,7 @@ export function createWebSearchToolEntry(
     "web-search": {
       tool: {
         description:
-          "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Builder.io (free tier available) or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY.",
+          "Search the public web to discover sources and URLs for current information, official documentation, and API references. Use this before web-request whenever you do not already have the exact URL. Returns ranked results from search providers or a grounded Builder-managed summary. Use web-request only to fetch a known URL or call a known API endpoint. Builder-managed search works with a Builder connection, uses included Builder AI credits, and needs no separate search key; provider API keys are optional.",
         parameters: {
           type: "object" as const,
           properties: {
@@ -331,7 +331,7 @@ export function createWebSearchToolEntry(
           } else {
             return [
               "No web-search backend configured.",
-              "Use Builder.io (free tier available) in Settings, or add one of the following keys via app settings or environment variables:",
+              "Connect Builder.io to use managed search with included Builder AI credits, or add an optional search provider key:",
               "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
               "  • TAVILY_API_KEY        — https://tavily.com/",
               "  • EXA_API_KEY           — https://exa.ai/",

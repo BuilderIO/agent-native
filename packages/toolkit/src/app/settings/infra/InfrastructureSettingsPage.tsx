@@ -146,6 +146,12 @@ const BUILDER_ONLY_SERVICES: Record<
     whyKey: `${K}whyBrowser`,
     icon: IconBrowser,
   },
+  "web-search": {
+    rowId: "web-search",
+    labelKey: "agentChat.settingsShell.search.webSearch",
+    whyKey: `${K}whyWebSearch`,
+    icon: IconSearch,
+  },
 };
 
 type ServiceKeyDialog =

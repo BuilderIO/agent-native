@@ -214,6 +214,7 @@ describe("onboarding app profiles", () => {
       "design-system-intelligence",
       "background-agents",
       "browser-automation",
+      "web-search",
     ]);
     expect(
       builderOnly.every(

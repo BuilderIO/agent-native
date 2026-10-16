@@ -87,7 +87,8 @@ export type WorkspaceProviderServiceId = "voice" | "images" | "embeddings";
 export type WorkspaceBuilderOnlyServiceId =
   | "design-system-intelligence"
   | "background-agents"
-  | "browser-automation";
+  | "browser-automation"
+  | "web-search";
 
 /** A service every app in a workspace shares (`WORKSPACE_SERVICES`). */
 export type WorkspaceServiceId =

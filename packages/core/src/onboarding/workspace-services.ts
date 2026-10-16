@@ -155,6 +155,19 @@ export const BROWSER_AUTOMATION_CAPABILITY: OnboardingCapability = {
   why: "Lets the agent use a browser in production.",
 };
 
+export const WEB_SEARCH_CAPABILITY: OnboardingCapability = {
+  id: "web-search",
+  label: "Web search",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Builder-managed web search",
+  labelKey: "agentChat.onboarding.capability.webSearch.label",
+  keySummaryKey: "agentChat.onboarding.capability.webSearch.keySummary",
+  whyKey: "agentChat.onboarding.capability.webSearch.why",
+  why: "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
+};
+
 export const WORKSPACE_SERVICES: readonly WorkspaceService[] = [
   {
     id: "model",
@@ -211,6 +224,13 @@ export const WORKSPACE_SERVICES: readonly WorkspaceService[] = [
     capabilityIds: ["browser-automation"],
     everyApp: true,
     capability: BROWSER_AUTOMATION_CAPABILITY,
+  },
+  {
+    id: "web-search",
+    kind: "builder-only",
+    capabilityIds: ["web-search"],
+    everyApp: true,
+    capability: WEB_SEARCH_CAPABILITY,
   },
 ];
 
