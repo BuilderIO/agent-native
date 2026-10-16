@@ -2,26 +2,34 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { updateYFragment } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
-import { materializeLiveBody } from "./live-body.js";
-import { canonicalizeNfm, docToNfm, nfmToDoc, type PMNode } from "./nfm.js";
+import { LIVE_BODY_FIELD, materializeLiveBody } from "../../shared/live-body.js";
+import {
+  canonicalizeNfm,
+  docToNfm,
+  nfmToDoc,
+  type PMNode,
+} from "../../shared/nfm.js";
 import {
   applyMarkdownSuggestionWithSiblings,
   suggestionEditorSchema,
   supportedSuggestionStructure,
   type MarkdownRange,
   type MarkdownSuggestionOperationLike,
-} from "./suggestion-apply.js";
+} from "../../shared/suggestion-apply.js";
 
-/** The bounded task that accepts one suggestion on a page's live copy. */
-export const ACCEPT_SUGGESTION_TASK = "accept-suggestion";
+// The live-copy edit that accepts one suggestion. It runs in the bounded
+// worker that hosts Content's live-copy tasks, so it must stay free of
+// database and server imports.
 
-export type AcceptSuggestionTaskInput = {
+export const APPLY_SUGGESTION_EDIT = "apply-suggestion";
+
+export type ApplySuggestionInput = {
   operation: MarkdownSuggestionOperationLike;
   /** Ranges of accepted suggestions saved from the same before-text. */
   acceptedSiblingRanges: MarkdownRange[];
 };
 
-export const ACCEPT_SUGGESTION_REFUSALS = [
+export const APPLY_SUGGESTION_REFUSALS = [
   // The text the suggestion is anchored to is no longer on the page.
   "suggestion_stale",
   // The change would alter a structure suggestions cannot review.
@@ -32,13 +40,14 @@ export const ACCEPT_SUGGESTION_REFUSALS = [
   "suggestion_unmappable",
 ] as const;
 
-export type AcceptSuggestionRefusal =
-  (typeof ACCEPT_SUGGESTION_REFUSALS)[number];
+export type ApplySuggestionRefusalReason =
+  (typeof APPLY_SUGGESTION_REFUSALS)[number];
 
-export type AcceptSuggestionTaskOutput =
-  | { kind: "update"; update: Uint8Array }
-  | { kind: "unchanged" }
-  | { kind: "refused"; reason: AcceptSuggestionRefusal; detail?: string };
+export type ApplySuggestionRefusal = {
+  kind: "refused";
+  reason: ApplySuggestionRefusalReason;
+  detail?: string;
+};
 
 type BlockSpan = { from: number; to: number };
 
@@ -83,33 +92,34 @@ function commonSuffixLength(left: string, right: string, floor: number) {
 }
 
 function refused(
-  reason: AcceptSuggestionRefusal,
+  reason: ApplySuggestionRefusalReason,
   detail?: string,
-): AcceptSuggestionTaskOutput {
+): ApplySuggestionRefusal {
   return detail
     ? { kind: "refused", reason, detail }
     : { kind: "refused", reason };
 }
 
 /**
- * Accepts one suggestion on a live copy's Yjs state. The suggestion is placed
- * on the page text the live copy derives, never on a stored copy that may lag
- * it, and only the top-level blocks whose text it changes are rewritten. Every
- * other block keeps its Yjs element untouched, so concurrent edits elsewhere
- * merge and nothing outside the change moves.
+ * Accepts one suggestion on a live copy. The suggestion is placed on the page
+ * text the live copy derives, never on a stored copy that may lag it, and only
+ * the top-level blocks whose text it changes are rewritten. Every other block
+ * keeps its Yjs element untouched, so concurrent edits elsewhere merge and
+ * nothing outside the change moves. A refusal leaves `doc` as it was.
  */
-export function acceptSuggestionOnLiveCopy(args: {
-  state: Uint8Array;
-  field: string;
-  input: AcceptSuggestionTaskInput;
-}): AcceptSuggestionTaskOutput {
-  const doc = new Y.Doc();
+export function applySuggestionEdit(
+  doc: Y.Doc,
+  field: string,
+  input: ApplySuggestionInput,
+): void | ApplySuggestionRefusal {
+  if (field !== LIVE_BODY_FIELD)
+    return refused("suggestion_unmappable", `field ${field}`);
+  // Reading the tree deletes what the schema rejects, and the edit is checked
+  // after it runs, so both happen on a copy; `doc` only takes a checked diff.
+  const scratch = new Y.Doc();
   try {
-    Y.applyUpdate(doc, args.state);
-    // materializeLiveBody reads the page's own field.
-    if (args.field !== "default")
-      return refused("suggestion_unmappable", `field ${args.field}`);
-    const live = materializeLiveBody(doc);
+    Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
+    const live = materializeLiveBody(scratch);
     if (live.kind !== "body")
       return refused("suggestion_unmappable", `live copy is ${live.kind}`);
     const current = live.markdown;
@@ -118,18 +128,18 @@ export function acceptSuggestionOnLiveCopy(args: {
 
     const next = applyMarkdownSuggestionWithSiblings(
       current,
-      args.input.operation,
-      args.input.acceptedSiblingRanges,
+      input.operation,
+      input.acceptedSiblingRanges,
     );
     if (next === null) return refused("suggestion_stale");
-    if (next === current) return { kind: "unchanged" };
+    if (next === current) return;
     if (!supportedSuggestionStructure(current, next))
       return refused("suggestion_structure_unsupported");
 
     const liveJson = live.root.toJSON() as PMNode;
     const blocks = liveJson.content ?? [];
     const spans = locateBlocks(blocks, current);
-    if (!spans) return refused("suggestion_unmappable", "block layout");
+    if (!spans?.length) return refused("suggestion_unmappable", "block layout");
 
     // The changed range of the page text, as the smallest edit between the
     // two texts: placement can return a range wider than what changes.
@@ -142,7 +152,6 @@ export function acceptSuggestionOnLiveCopy(args: {
     // neighbor on each side: blank lines and list continuations parse
     // differently without the block beside them. Rewriting an unchanged
     // neighbor is free, because its Yjs element compares equal and is kept.
-    if (!spans.length) return refused("suggestion_unmappable", "empty page");
     let first = spans.findIndex((span) => span.to >= changeFrom);
     if (first < 0) first = spans.length - 1;
     let last = first;
@@ -189,15 +198,14 @@ export function acceptSuggestionOnLiveCopy(args: {
       return refused("suggestion_unmappable", "result differs");
     }
 
-    const fragment = doc.getXmlFragment(args.field);
+    const fragment = scratch.getXmlFragment(field);
     const elementsBefore = fragment.toArray();
     const untouched = [
       ...elementsBefore.slice(0, first),
       ...elementsBefore.slice(last + 1),
     ];
     const untouchedText = untouched.map((element) => element.toString());
-    const baseVector = Y.encodeStateVector(doc);
-    updateYFragment(doc, fragment, nextRoot, {
+    updateYFragment(scratch, fragment, nextRoot, {
       mapping: new Map(),
       isOMark: new Map(),
     });
@@ -216,9 +224,11 @@ export function acceptSuggestionOnLiveCopy(args: {
     ) {
       return refused("suggestion_unmappable", "untouched block changed");
     }
-    const update = Y.encodeStateAsUpdate(doc, baseVector);
-    return { kind: "update", update };
+    Y.applyUpdate(
+      doc,
+      Y.encodeStateAsUpdate(scratch, Y.encodeStateVector(doc)),
+    );
   } finally {
-    doc.destroy();
+    scratch.destroy();
   }
 }
