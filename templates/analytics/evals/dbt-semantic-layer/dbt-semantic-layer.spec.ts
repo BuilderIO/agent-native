@@ -82,7 +82,14 @@ function warehouseRead(isError = false): ToolCallDetail {
     input: {},
     completed: true,
     isError,
-    result: JSON.stringify({ query_status: "success", rows: [] }),
+    // The production result: runQuery's rows and metadata, with no query_status.
+    result: JSON.stringify({
+      rows: [],
+      totalRows: 0,
+      bytesProcessed: 0,
+      cached: false,
+      truncated: false,
+    }),
   };
 }
 

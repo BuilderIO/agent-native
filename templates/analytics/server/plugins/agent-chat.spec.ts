@@ -850,7 +850,14 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   const bigQueryOk = {
     name: "bigquery",
     isError: false,
-    content: JSON.stringify({ query_status: "success", rows: [{ n: 10 }] }),
+    // The production result: runQuery's rows and metadata, with no query_status.
+    content: JSON.stringify({
+      rows: [{ n: 10 }],
+      totalRows: 1,
+      bytesProcessed: 0,
+      cached: false,
+      truncated: false,
+    }),
   };
   // bigquery throws on timeout, so the tool result is an error, not a rows payload.
   const bigQueryTimedOut = {
