@@ -90,6 +90,8 @@ export default defineAction({
 - **`get-audit-event`** — ID による 1 つのイベント (編集された入力ペイロードを含む)。
 - **`export-audit-events`** — `list-audit-events` を手動でページングする代わりに、トレイルを CSV または NDJSON として一括エクスポートします（オフラインのコンプライアンス取得用）。`list-audit-events` と同じフィルター（`limit` を除く）に加えて、`format`（`csv` | `ndjson`、デフォルト `csv`）と `maxRows`（デフォルト 5000、上限 10000）を受け取り、`{ content, rowCount, truncated, format }` を返します — `truncated: true` は、`maxRows` の許容数を超える行が一致したことを意味します。これ自体、`audit: { onRead: true }` によって監査される機密性の高い読み取りです。
 
+CSV エクスポートでは、スプレッドシートで数式として実行されるリスクを減らすため、すべての列で数式に見えるセル値の先頭にアポストロフィを付けます。
+
 `useActionQuery` を使用して UI から `list-audit-events` を呼び出して、アクティビティ フィードまたは「誰がこれを変更したか」行を作成します。監査テーブルへのフェッチを手動で書き込まないでください。
 
 ```tsx

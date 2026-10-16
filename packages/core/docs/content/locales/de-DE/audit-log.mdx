@@ -90,6 +90,8 @@ Drei gelesene actions stehen dem Agenten **und** dem Frontend in jeder App zur V
 - **`get-audit-event`** – ein Ereignis nach ID, einschließlich seiner redigierten Eingabenutzlast.
 - **`export-audit-events`** – exportiert die Spur gesammelt als CSV oder NDJSON statt `list-audit-events` manuell zu paginieren, für Offline-Compliance-Abzüge. Nimmt dieselben Filter wie `list-audit-events` (ohne `limit`) sowie `format` (`csv` | `ndjson`, Standard `csv`) und `maxRows` (Standard 5000, harte Obergrenze 10000) und liefert `{ content, rowCount, truncated, format }` zurück – `truncated: true` bedeutet, dass mehr Zeilen übereinstimmten, als `maxRows` erlaubte. Es ist selbst ein sensibler Lesevorgang, geprüft über `audit: { onRead: true }`.
 
+Der CSV-Export stellt Werten, die wie Formeln aussehen, in allen Spalten ein Apostroph voran, damit Tabellenkalkulationen sie möglichst nicht ausführen.
+
 Erstellen Sie einen Aktivitäts-Feed oder eine „Wer hat das geändert“-Zeile, indem Sie `list-audit-events` vom UI mit `useActionQuery` aufrufen – schreiben Sie niemals einen Abruf in die Prüftabelle von Hand:
 
 ```tsx

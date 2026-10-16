@@ -156,6 +156,8 @@ in SQL to the caller — they never leak another tenant's rows:
 - `export-audit-events` — bulk CSV/NDJSON export (same filters minus `limit`
   and `offset`, plus `format` and `maxRows`) for offline/compliance pulls;
   itself audited via `onRead`.
+  CSV output prefixes formula-like values in every column with an apostrophe
+  before escaping.
 
 - `export-audit-ocsf` — the org trail as OCSF 1.9.0 API Activity events (class
   6003) for a SIEM. Owners and admins only, through
