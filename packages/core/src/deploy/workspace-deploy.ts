@@ -1700,6 +1700,85 @@ function writeWorkspaceAppManifests(
   }
 }
 
+const WORKSPACE_DIRECTORY_ICON_PATHS: Record<string, readonly string[]> = {
+  "account-expert": [
+    "M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0",
+    "M6 21v-2a4 4 0 0 1 4 -4h1.5",
+    "M15 18a3 3 0 1 0 6 0a3 3 0 0 0 -6 0",
+    "M20.2 20.2l1.8 1.8",
+  ],
+  "account-tiering": [
+    "M3.5 5.5l1.5 1.5l2.5 -2.5",
+    "M3.5 11.5l1.5 1.5l2.5 -2.5",
+    "M3.5 17.5l1.5 1.5l2.5 -2.5",
+    "M11 6l9 0",
+    "M11 12l9 0",
+    "M11 18l9 0",
+  ],
+  "call-follow-up-drafter": [
+    "M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2",
+    "M15 6l2 2l4 -4",
+  ],
+  "churn-early-warning": [
+    "M15.04 19.745c-.942 .551 -1.964 .976 -3.04 1.255a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3a12 12 0 0 0 8.5 3a12 12 0 0 1 .195 6.015",
+    "M19 16v3",
+    "M19 22v.01",
+  ],
+  "demo-clip-library": [
+    "M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12",
+    "M8 4l0 16",
+    "M16 4l0 16",
+    "M4 8l4 0",
+    "M4 16l4 0",
+    "M4 12l16 0",
+    "M16 8l4 0",
+    "M16 16l4 0",
+  ],
+  "linkedin-icp-prospect-tracker": [
+    "M8 11v5",
+    "M8 8v.01",
+    "M12 16v-5",
+    "M16 16v-3a2 2 0 1 0 -4 0",
+    "M3 7a4 4 0 0 1 4 -4h10a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4h-10a4 4 0 0 1 -4 -4l0 -10",
+  ],
+  "linkedin-signal-watch": [
+    "M10 5a2 2 0 0 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6",
+    "M9 17v1a3 3 0 0 0 6 0v-1",
+    "M21 6.727a11.05 11.05 0 0 0 -2.794 -3.727",
+    "M3 6.727a11.05 11.05 0 0 1 2.792 -3.727",
+  ],
+  "outbound-in-your-voice": [
+    "M10 14l11 -11",
+    "M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5",
+  ],
+  "win-loss-memo": [
+    "M7 20l10 0",
+    "M6 6l6 -1l6 1",
+    "M12 3l0 17",
+    "M9 12l-3 -6l-3 6a3 3 0 0 0 6 0",
+    "M21 12l-3 -6l-3 6a3 3 0 0 0 6 0",
+  ],
+};
+
+const DEFAULT_WORKSPACE_DIRECTORY_ICON_PATHS = [
+  "M4 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4",
+  "M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4",
+  "M14 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4",
+  "M14 7l6 0",
+  "M17 4l0 6",
+];
+
+function workspaceDirectoryIconSvg(appId: string): string {
+  const paths =
+    WORKSPACE_DIRECTORY_ICON_PATHS[appId] ??
+    DEFAULT_WORKSPACE_DIRECTORY_ICON_PATHS;
+  return (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    paths.map((path) => '<path d="' + path + '" />').join("") +
+    "</svg>"
+  );
+}
+
 function writeWorkspaceDirectoryPage(
   outputDir: string,
   apps: WorkspaceAppManifestEntry[],
@@ -1718,10 +1797,10 @@ function writeWorkspaceDirectoryPage(
         app.description || "A focused workspace app for your team.",
       );
       const href = escapeWorkspaceDirectoryHtml(`${app.path}/`);
-      const initial = escapeWorkspaceDirectoryHtml(app.name.charAt(0));
+      const mark = workspaceDirectoryIconSvg(app.id);
       const accent = accents[index % accents.length];
       return `<a class="app-card" href="${href}">
-  <span class="app-card__mark" style="--accent:${accent}" aria-hidden="true"><span>${initial}</span></span>
+  <span class="app-card__mark" style="--accent:${accent}" aria-hidden="true">${mark}</span>
   <span class="app-card__body"><strong>${name}</strong><span>${description}</span></span>
   <span class="app-card__arrow" aria-hidden="true">↗</span>
 </a>`;
@@ -1754,7 +1833,8 @@ function writeWorkspaceDirectoryPage(
       .app-card { position: relative; display: flex; min-height: 254px; flex-direction: column; gap: 22px; padding: 25px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--card); text-decoration: none; transition: background .18s ease, color .18s ease; }
       .app-card:hover { background: var(--soft); }
       .app-card:focus-visible { outline: 3px solid AccentColor; outline-offset: -3px; }
-      .app-card__mark { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 12%, var(--card)); color: var(--accent); font-size: 18px; font-weight: 700; letter-spacing: -.04em; }
+      .app-card__mark { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 12%, var(--card)); color: var(--accent); }
+      .app-card__mark svg { width: 22px; height: 22px; }
       .app-card__body { display: grid; gap: 8px; }
       .app-card__body strong { font-size: 19px; font-weight: 620; letter-spacing: -.03em; }
       .app-card__body span { max-width: 255px; color: var(--muted); line-height: 1.45; }

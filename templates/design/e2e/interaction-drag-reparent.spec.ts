@@ -1920,8 +1920,7 @@ test.describe("drag reparent interaction", () => {
     );
   });
 
-  // fixme: product bug: Widget lands at Page2Target's top-left: saved style has no position/left/top (Inspector X 60 Y 60 = the target's corner) instead of the
-  test.fixme("dragging an element across the screen boundary into a second screen inserts it into that screen", async ({
+  test("dragging an element across the screen boundary into a second screen inserts it into that screen", async ({
     app,
     page,
   }) => {
@@ -2175,8 +2174,7 @@ test.describe("drag reparent interaction", () => {
     ).toEqual([40, 300, 140, 90]);
   });
 
-  // fixme: product bug: Same landing defect as :2144: the saved card style keeps the carried colours/width but has no position/left/top, so it sits at
-  test.fixme("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
+  test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
     app,
     page,
   }) => {

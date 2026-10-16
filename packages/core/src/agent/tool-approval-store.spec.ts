@@ -4,12 +4,22 @@ const dbMocks = vi.hoisted(() => ({
   execute: vi.fn(),
 }));
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: dbMocks.execute }),
-  retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
-}));
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const exec = {
+    execute: async (input: string | { sql: string }) =>
+      storeLedgerResult(typeof input === "string" ? input : input.sql) ??
+      dbMocks.execute(input),
+  };
+  return {
+    getDbExec: () => exec,
+    retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
+  };
+});
 
 const ddlMocks = vi.hoisted(() => ({
+  ensureColumnExists: vi.fn(),
   ensureIndexExists: vi.fn(),
   ensureTableExists: vi.fn(),
 }));
@@ -31,6 +41,8 @@ describe("agent tool approval store", () => {
     vi.resetModules();
     dbMocks.execute.mockReset();
     dbMocks.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    ddlMocks.ensureColumnExists.mockReset();
+    ddlMocks.ensureColumnExists.mockResolvedValue(true);
     ddlMocks.ensureIndexExists.mockReset();
     ddlMocks.ensureIndexExists.mockResolvedValue(undefined);
     ddlMocks.ensureTableExists.mockReset();
@@ -66,7 +78,7 @@ describe("agent tool approval store", () => {
     const after = Date.now();
 
     const insertArgs = dbMocks.execute.mock.calls[0]?.[0].args as unknown[];
-    const expiresAt = insertArgs[8] as number;
+    const expiresAt = insertArgs[9] as number;
     expect(expiresAt - after).toBeGreaterThanOrEqual(30 * 60_000);
     expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
   });
@@ -152,7 +164,8 @@ describe("agent tool approval store", () => {
         await import("./tool-approval-store.js");
 
       await expect(consumeAgentToolApproval(binding)).resolves.toBe(expected);
-      expect(dbMocks.execute).toHaveBeenLastCalledWith(
+      expect(dbMocks.execute).toHaveBeenNthCalledWith(
+        1,
         expect.objectContaining({
           sql: expect.stringMatching(
             /status = 'pending'[\s\S]*expires_at > \?/,
@@ -164,7 +177,7 @@ describe("agent tool approval store", () => {
           ]),
         }),
       );
-      const consumeQuery = dbMocks.execute.mock.calls.at(-1)?.[0] as {
+      const consumeQuery = dbMocks.execute.mock.calls[0]?.[0] as {
         sql: string;
         args: unknown[];
       };
@@ -184,7 +197,8 @@ describe("agent tool approval store", () => {
     await expect(
       consumeAgentToolApproval({ ...binding, approvalId }),
     ).resolves.toBe(true);
-    expect(dbMocks.execute).toHaveBeenLastCalledWith(
+    expect(dbMocks.execute).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         sql: expect.stringContaining("AND id = ?"),
         args: expect.arrayContaining([approvalId]),
@@ -243,6 +257,8 @@ describe("agent tool approval store", () => {
       binding.orgId,
       binding.orgId,
       binding.toolName,
+      null,
+      null,
     ]);
   });
 

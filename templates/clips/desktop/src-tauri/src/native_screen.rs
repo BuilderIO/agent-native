@@ -957,7 +957,7 @@ fn native_upload_retry_cancelled(recording_id: &str) -> bool {
         .unwrap_or(true)
 }
 
-fn clear_native_upload_retry_cancelled(recording_id: &str) {
+pub(crate) fn clear_native_upload_retry_cancelled(recording_id: &str) {
     if let Ok(mut cancelled) = cancelled_native_upload_retries().lock() {
         cancelled.remove(recording_id);
     }
@@ -2045,6 +2045,14 @@ fn refresh_selected_window_camera_capture(
     }
     *last_geometry = Some(geometry);
     Ok(true)
+}
+
+fn should_track_selected_window_camera_capture(
+    include_camera_overlay: bool,
+    target_window_id: Option<u32>,
+    defer_recording_output: bool,
+) -> bool {
+    include_camera_overlay && target_window_id.is_some() && !defer_recording_output
 }
 
 #[cfg(target_os = "macos")]
@@ -4257,6 +4265,28 @@ mod detached_discard_tests {
     }
 
     #[test]
+    fn selected_window_camera_tracker_skips_disposable_warm_streams() {
+        assert!(!should_track_selected_window_camera_capture(
+            true,
+            Some(12),
+            true
+        ));
+        assert!(should_track_selected_window_camera_capture(
+            true,
+            Some(12),
+            false
+        ));
+        assert!(!should_track_selected_window_camera_capture(
+            false,
+            Some(12),
+            false
+        ));
+        assert!(!should_track_selected_window_camera_capture(
+            true, None, false
+        ));
+    }
+
+    #[test]
     fn detached_discard_deletes_files_off_the_calling_thread() {
         let root = std::env::temp_dir().join(format!(
             "clips-detached-discard-test-{}-{}",
@@ -4695,7 +4725,11 @@ pub(crate) fn start_screencapturekit_backend_at(
         target_window_id.is_some()
     );
     let stream = Arc::new(Mutex::new(stream));
-    let camera_tracker_shutdown = if include_camera_overlay {
+    let camera_tracker_shutdown = if should_track_selected_window_camera_capture(
+        include_camera_overlay,
+        target_window_id,
+        defer_recording_output,
+    ) {
         target_window_id.map(|target_window_id| {
             let shutdown = Arc::new(AtomicBool::new(false));
             spawn_selected_window_camera_capture_tracker(
@@ -8006,10 +8040,11 @@ fn native_retry_interruption_payload(
 #[cfg(test)]
 mod native_retry_upload_plan_tests {
     use super::{
-        accept_native_retry_reset, is_native_upload_restart_required,
-        is_native_upload_unfenced_restart_required, native_fullscreen_recording_cancel_retry,
-        native_replay_attempt_id, native_retry_attempt_id, native_retry_conflict_delay,
-        native_retry_interruption_payload, native_upload_retry_cancelled, plan_native_retry_upload,
+        accept_native_retry_reset, clear_native_upload_retry_cancelled,
+        is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
+        native_fullscreen_recording_cancel_retry, native_replay_attempt_id,
+        native_retry_attempt_id, native_retry_conflict_delay, native_retry_interruption_payload,
+        native_upload_retry_cancelled, plan_native_retry_upload,
         preserve_native_retry_fence_during_rollback, saved_native_retry_attempt_id,
         take_native_upload_retry_cancelled, upload_url, NativeFullscreenUploadResult,
         NativeRetryUploadPlan, NativeUploadResetResponse, NativeUploadResumeResponse,
@@ -8026,6 +8061,17 @@ mod native_retry_upload_plan_tests {
             .expect("record pre-start cancellation");
         assert!(native_upload_retry_cancelled(&recording_id));
         assert!(take_native_upload_retry_cancelled(&recording_id));
+        assert!(!native_upload_retry_cancelled(&recording_id));
+    }
+
+    #[test]
+    fn clears_a_cancelled_native_upload_after_it_finishes() {
+        let recording_id = "finished-cancelled-recording".to_string();
+        native_fullscreen_recording_cancel_retry(recording_id.clone())
+            .expect("record cancellation");
+
+        clear_native_upload_retry_cancelled(&recording_id);
+
         assert!(!native_upload_retry_cancelled(&recording_id));
     }
 

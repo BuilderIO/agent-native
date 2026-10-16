@@ -6,15 +6,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),
+  recordQueryCost: vi.fn(),
   callAction: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
+  useSession: () => ({
+    session: { email: "a@example.com", userId: "user-a", orgId: "org-1" },
+    status: "authenticated",
+  }),
 }));
+
+const ACCOUNT_SCOPE = "user-a:org-1";
 
 vi.mock("./cost-tracker", () => ({
   addBytesProcessed: mocks.addBytesProcessed,
+  recordQueryCost: mocks.recordQueryCost,
 }));
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -50,6 +58,7 @@ describe("useSqlQuery refresh", () => {
       defaultOptions: { queries: { retry: false } },
     });
     mocks.addBytesProcessed.mockReset();
+    mocks.recordQueryCost.mockReset();
     mocks.callAction.mockReset();
   });
 
@@ -117,7 +126,7 @@ describe("useSqlQuery refresh", () => {
 
   it("forces a refresh when enabling a cached lazy query", async () => {
     mocks.callAction.mockResolvedValue({ rows: [{ value: 42 }], schema: [] });
-    queryClient.setQueryData(["sql", "SELECT 1"], {
+    queryClient.setQueryData(["sql", "SELECT 1", ACCOUNT_SCOPE], {
       rows: [{ value: 17 }],
       schema: [],
     });

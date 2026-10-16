@@ -150,8 +150,9 @@ export interface AgentChatPluginOptions {
    * object schemas. Every call rechecks that it runs for the caller the entry
    * was resolved for, enforces the entry's `access` policy, and validates its
    * arguments without type coercion. A durable background continuation keeps
-   * the turn's original names. Not called for anonymous requests, scheduled
-   * jobs, automations, or agent-team sub-agents.
+   * the turn's original names; other runs see the current entries. Set an
+   * entry's `revision` to bind approvals to it. Not called for anonymous
+   * requests, scheduled jobs, automations, or agent-team sub-agents.
    */
   resolveAdditionalActions?: ResolveAgentChatAdditionalActions;
   /** Surfaces besides interactive chat that receive `resolveAdditionalActions` entries. */

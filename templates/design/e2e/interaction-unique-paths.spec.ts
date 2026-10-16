@@ -341,8 +341,7 @@ test.fixme("Alt-hovering a sibling that sits inside the selection's margin shows
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
-// fixme: product bug: The visual properties transfer, but the paste also writes the source's computed text defaults onto a non-text box (color rgb(0,0,0)
-test.fixme("paste properties copies the source's fill, border, radius and opacity onto the target and keeps the target's position and size", async ({
+test("paste properties copies the source's fill, border, radius and opacity onto the target and keeps the target's position and size", async ({
   app,
   page,
 }) => {

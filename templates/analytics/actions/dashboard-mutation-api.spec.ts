@@ -188,6 +188,27 @@ describe("dashboard mutation api", () => {
     ]);
   });
 
+  it("keeps the hidden notes when a patch changes only the hidden key-date sets", () => {
+    const root: Record<string, unknown> = clone(config());
+    root.annotations = {
+      hiddenKeyDateSets: ["launches"],
+      hiddenDataNotes: [{ noteId: "connect-undercount", panelId: "funnel" }],
+    };
+
+    const result = applyDashboardMutationOperations(root, [
+      {
+        op: "setDashboard",
+        patch: { annotations: { hiddenKeyDateSets: ["product-changes"] } },
+      },
+    ]);
+
+    expect(root.annotations).toEqual({
+      hiddenKeyDateSets: ["product-changes"],
+      hiddenDataNotes: [{ noteId: "connect-undercount", panelId: "funnel" }],
+    });
+    expect(result.dashboardFieldsChanged).toEqual(["annotations"]);
+  });
+
   it("supports matching panels by metadata and appending to a section", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(

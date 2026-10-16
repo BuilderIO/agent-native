@@ -94,6 +94,7 @@ import {
 import {
   canExportPptxFromServer,
   ExportMenu,
+  ExportSubmenu,
   type ExportMenuHandle,
 } from "./ExportMenu";
 
@@ -345,20 +346,27 @@ describe("<ExportMenu>", () => {
     expect(canExportPptxFromServer(undefined)).toBe(false);
   });
 
-  it("renders export actions inline inside a parent menu", async () => {
+  it("renders export actions inside a parent menu through a headless handle", async () => {
     const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    const ref = createRef<ExportMenuHandle>();
     render(
       <QueryClientProvider client={queryClient}>
+        <ExportMenu
+          ref={ref}
+          headless
+          hasSlides
+          deckId="deck-1"
+          deckTitle="Quarterly Review"
+          onDuplicate={vi.fn()}
+          onExportPdf={vi.fn()}
+          onExportPptx={onExportPptx}
+        />
         <DropdownMenu open>
           <DropdownMenuContent>
-            <ExportMenu
-              inline
+            <ExportSubmenu
+              exportMenuRef={ref}
               hasSlides
-              deckId="deck-1"
-              deckTitle="Quarterly Review"
-              onDuplicate={vi.fn()}
-              onExportPdf={vi.fn()}
-              onExportPptx={onExportPptx}
+              showGoogleSlides={false}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -366,7 +374,9 @@ describe("<ExportMenu>", () => {
     );
 
     expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
-    const exportTrigger = screen.getByRole("menuitem", { name: "Export" });
+    const exportTrigger = screen.getByRole("menuitem", {
+      name: "appMenu.export",
+    });
     fireEvent.focus(exportTrigger);
     fireEvent.keyDown(exportTrigger, { key: "ArrowRight" });
     fireEvent.click(screen.getByText("Export as PPTX"));

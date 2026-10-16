@@ -6,7 +6,11 @@ import type {
 } from "@/components/design/types";
 
 export function styleHost(element: Element): HTMLElement | SVGElement | null {
-  return element instanceof HTMLElement || element instanceof SVGElement
+  const view = element.ownerDocument.defaultView;
+  const HTMLElementConstructor = view?.HTMLElement ?? HTMLElement;
+  const SVGElementConstructor = view?.SVGElement ?? SVGElement;
+  return element instanceof HTMLElementConstructor ||
+    element instanceof SVGElementConstructor
     ? element
     : null;
 }

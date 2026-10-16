@@ -132,7 +132,7 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
     let _ = tray.set_title(Some(if active {
         title.unwrap_or_default()
     } else {
-        String::new()
+        "Clips".to_string()
     }));
     #[cfg(not(target_os = "macos"))]
     let _ = title;
@@ -343,6 +343,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     );
     let tray = TrayIconBuilder::with_id("main")
         .tooltip("Clips")
+        .title("Clips")
         .menu(&menu)
         .icon(tray_icon)
         .icon_as_template(cfg!(target_os = "macos"))

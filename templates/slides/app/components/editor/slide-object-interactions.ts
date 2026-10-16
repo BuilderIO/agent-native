@@ -591,6 +591,15 @@ export function resolveSlideSelectionAnchor(
   return current instanceof HTMLElement ? current : null;
 }
 
+export function resolveRetainedSlideSelectionNode(
+  root: HTMLElement,
+  retainedNode: HTMLElement | null,
+): HTMLElement | null {
+  return retainedNode?.isConnected && root.contains(retainedNode)
+    ? retainedNode
+    : null;
+}
+
 function establishesSlideObjectContainingBlock(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
   const position = style.position || "static";
@@ -6282,7 +6291,7 @@ export async function writeSlideObjectClipboard(
   clipboardId: string,
   copied: CopiedSlideObjects,
   doc: Document | null = typeof document === "undefined" ? null : document,
-): Promise<"rich" | "text-only"> {
+): Promise<"rich"> {
   const html = slideObjectClipboardHtml(clipboardId, copied);
   const textDocument =
     doc ?? (typeof document === "undefined" ? null : document);
@@ -6290,34 +6299,6 @@ export async function writeSlideObjectClipboard(
   const text = slideObjectClipboardText(copied, textDocument);
   const representations = { text, html };
   if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
-
-  const clipboard =
-    typeof navigator === "undefined" ? null : (navigator.clipboard ?? null);
-  const ClipboardItemCtor =
-    typeof globalThis.ClipboardItem === "undefined"
-      ? null
-      : globalThis.ClipboardItem;
-
-  let richWriteError: unknown;
-  if (clipboard?.write && ClipboardItemCtor) {
-    try {
-      await clipboard.write([
-        new ClipboardItemCtor({
-          "text/plain": new Blob([text], { type: "text/plain" }),
-          "text/html": new Blob([html], { type: "text/html" }),
-        }),
-      ]);
-      return "rich";
-    } catch (error) {
-      richWriteError = error;
-    }
-  }
-
-  if (richWriteError) throw richWriteError;
-  if (clipboard?.writeText) {
-    await clipboard.writeText(text);
-    return "text-only";
-  }
   throw new Error("Clipboard writing is not supported");
 }
 

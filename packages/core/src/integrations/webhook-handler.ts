@@ -57,7 +57,7 @@ import {
   setThreadSourceIfMissing,
 } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
-import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
+import { getOrgA2ASecret } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -92,6 +92,10 @@ import {
   stageTaskDeliveryPayload,
   type PendingTask,
 } from "./pending-tasks-store.js";
+import {
+  integrationRequestContext,
+  resolveIntegrationRequestScope,
+} from "./request-scope.js";
 import { integrationScopeSubjectKey } from "./scope-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type {
@@ -194,6 +198,8 @@ export type IntegrationResponseDeliveryTaskPayload = {
   kind: "response-delivery";
   incoming: IncomingMessage;
   message: OutgoingMessage;
+  principalType?: "user" | "service";
+  orgScope?: "personal";
   placeholderRef?: string;
   strictTargetRef?: boolean;
   internalThreadId?: string;
@@ -430,14 +436,12 @@ async function enqueueAndDispatch(
 ): Promise<void> {
   const taskId = crypto.randomUUID();
 
-  let orgId: string | null = options.orgId ?? null;
-  if (options.orgId === undefined) {
-    try {
-      orgId = (await resolveOrgIdForEmail(options.ownerEmail)) ?? null;
-    } catch {
-      orgId = null;
-    }
-  }
+  const requestScope = await resolveIntegrationRequestScope({
+    ownerEmail: options.ownerEmail,
+    orgId: options.orgId,
+    principalType: options.principalType,
+  });
+  const orgId = requestScope.orgId;
 
   let placeholderRef: string | undefined;
   try {
@@ -456,6 +460,7 @@ async function enqueueAndDispatch(
     incoming,
     placeholderRef,
     principalType: options.principalType ?? "user",
+    ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
   });
 
   await insertPendingTask({
@@ -532,7 +537,12 @@ export async function processIntegrationTask(
     incoming: IncomingMessage;
     placeholderRef?: string;
     principalType?: "user" | "service";
+    orgScope?: "personal";
   };
+  const principalType = parsed.principalType ?? options.principalType ?? "user";
+  const orgScope =
+    parsed.orgScope ??
+    (task.orgId === null && principalType === "user" ? "personal" : undefined);
 
   if (!campaignOptions?.continuationInvocation) {
     await recordInboundIntegrationAudit(task, parsed.incoming);
@@ -542,8 +552,9 @@ export async function processIntegrationTask(
     taskId: task.id,
     attempts: task.attempts,
     placeholderRef: parsed.placeholderRef,
-    orgId: task.orgId ?? undefined,
-    principalType: parsed.principalType ?? options.principalType ?? "user",
+    orgId: task.orgId,
+    orgScope,
+    principalType,
     durableCampaign: campaignOptions?.enabled === true,
   });
 }
@@ -594,7 +605,8 @@ async function processIncomingMessage(
     taskId?: string;
     attempts?: number;
     placeholderRef?: string;
-    orgId?: string;
+    orgId?: string | null;
+    orgScope?: "personal";
     principalType?: "user" | "service";
     durableCampaign?: boolean;
   } = {},
@@ -609,6 +621,14 @@ async function processIncomingMessage(
     ownerEmail,
     engine: engineOption,
   } = options;
+  const requestScope = await resolveIntegrationRequestScope({
+    ownerEmail,
+    orgId: opts.orgId === undefined ? options.orgId : opts.orgId,
+    orgScope: opts.orgScope,
+    principalType: opts.principalType,
+  });
+  const orgId = requestScope.orgId;
+  const requestContext = integrationRequestContext(requestScope);
   let effectiveSystemPrompt = systemPrompt + buildRuntimeContextPrompt();
   const deliveryOptions = {
     placeholderRef: opts.placeholderRef,
@@ -684,7 +704,7 @@ async function processIncomingMessage(
   const budgetReservations = await reserveApplicableIntegrationBudgets({
     incoming,
     ownerEmail,
-    orgId: opts.orgId ?? null,
+    orgId,
     reservationId: opts.taskId ?? `integration:${incoming.externalThreadId}`,
   });
   if (!budgetReservations.allowed) {
@@ -695,6 +715,8 @@ async function processIncomingMessage(
       kind: "response-delivery",
       incoming,
       message: outgoing,
+      principalType: opts.principalType ?? "user",
+      ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
       ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
     };
     try {
@@ -742,10 +764,8 @@ async function processIncomingMessage(
   let thread: Awaited<ReturnType<typeof getThread>>;
   try {
     if (!mapping) {
-      const threadOrgId =
-        opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
       const createdThread = await runWithRequestContext(
-        { userEmail: ownerEmail, orgId: threadOrgId ?? undefined },
+        { userEmail: ownerEmail, ...requestContext },
         () =>
           createThread(ownerEmail, {
             title: `${adapter.label}: ${incoming.senderName || incoming.senderId || "User"}`,
@@ -867,6 +887,8 @@ async function processIncomingMessage(
         kind: "response-delivery",
         incoming,
         message: exhaustedMessage,
+        principalType: opts.principalType ?? "user",
+        ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
         ...(exhaustedProgress?.responseTargetRef
           ? {
               placeholderRef: exhaustedProgress.responseTargetRef,
@@ -1056,13 +1078,11 @@ async function processIncomingMessage(
     });
   }
 
-  let orgId: string | null | undefined;
   let artifactSecrets: string[];
   let runnableActions: Record<string, ActionEntry>;
   let tools: ReturnType<typeof actionsToEngineTools>;
   let availableTools: ReturnType<typeof actionsToEngineTools>;
   try {
-    orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
     artifactSecrets = await resolveIntegrationArtifactSecrets(orgId);
     runnableActions = attachToolSearch({ ...actions });
     availableTools = actionsToEngineTools(runnableActions);
@@ -1117,7 +1137,7 @@ async function processIncomingMessage(
         await runWithRequestContext(
           {
             userEmail: ownerEmail,
-            orgId: orgId ?? undefined,
+            ...requestContext,
             isIntegrationCaller: true,
             integration: opts.taskId
               ? {
@@ -1399,6 +1419,10 @@ async function processIncomingMessage(
               kind: "response-delivery",
               incoming,
               message: outgoing,
+              principalType: opts.principalType ?? "user",
+              ...(requestScope.orgScope
+                ? { orgScope: requestScope.orgScope }
+                : {}),
               ...(progress?.responseTargetRef
                 ? {
                     placeholderRef: progress.responseTargetRef,
@@ -1688,6 +1712,10 @@ async function processIncomingMessage(
                   kind: "response-delivery",
                   incoming,
                   message: outgoingForDelivery,
+                  principalType: opts.principalType ?? "user",
+                  ...(requestScope.orgScope
+                    ? { orgScope: requestScope.orgScope }
+                    : {}),
                   internalThreadId: threadId,
                 }),
                 ...(threadCheckpoint?.userMessageId

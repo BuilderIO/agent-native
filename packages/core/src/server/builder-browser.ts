@@ -46,7 +46,7 @@ import {
   isAllowedOAuthRedirectUri,
   isConfiguredAppOrigin,
 } from "./google-oauth.js";
-import { isLoopbackOrigin } from "./origin-allowlist.js";
+import { getAppDeclaredOrigins, isLoopbackOrigin } from "./origin-allowlist.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -1392,7 +1392,7 @@ function getBuilderConnectCallbackOrigin(
   if (isBuilderCloudRequestHost(headerHost)) {
     return getBuilderBrowserOriginForEvent(event);
   }
-  const configuredOrigin = getOrigin(event, { useForwardedHost: false });
+  const configuredOrigin = getBuilderAppOrigin(event);
   if (!isLoopbackOrigin(configuredOrigin)) return configuredOrigin;
   if (
     !isLoopbackBuilderRequestHost(headerHost) &&
@@ -1402,6 +1402,22 @@ function getBuilderConnectCallbackOrigin(
     if (previewOrigin && !isLoopbackOrigin(previewOrigin)) return previewOrigin;
   }
   return configuredOrigin;
+}
+
+/**
+ * A proxy that rewrites `Host` (Builder Cloud -> `*.netlify.app`) hands us an
+ * origin the browser never visited, and the origin lock 404s it. When the
+ * inbound origin is not one the app declared, send the browser to the first
+ * declared origin instead.
+ */
+function getBuilderAppOrigin(event: H3Event): string {
+  const inbound = getOrigin(event, { useForwardedHost: false });
+  if (process.env.NODE_ENV !== "production") return inbound;
+  const declared = getAppDeclaredOrigins().filter(
+    (origin) => !isLoopbackOrigin(origin),
+  );
+  if (declared.length === 0 || declared.includes(inbound)) return inbound;
+  return declared[0];
 }
 
 function isAllowedBuilderConnectOrigin(origin: string): boolean {
@@ -1567,7 +1583,7 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
     return getConfiguredBuilderFallbackOrigin(event) ?? "";
   }
   if (!isTrustedBuilderRequestHost(headerHost)) {
-    return getOrigin(event, { useForwardedHost: false });
+    return getBuilderAppOrigin(event);
   }
   if (isLoopbackBuilderRequestHost(headerHost)) {
     const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();

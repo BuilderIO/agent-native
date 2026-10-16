@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
+import type { ListInboxThreadsResult } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { IconLoader2, IconPin, IconX } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -37,7 +38,9 @@ import {
   type Contact,
   type InfiniteEmails,
 } from "@/hooks/use-emails";
+import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
 import { getActiveDescendantId } from "@/lib/combobox-aria";
+import { mailThreadHref } from "@/lib/mail-routes";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -76,9 +79,26 @@ export function SearchBar({
   const [saveName, setSaveName] = useState("");
   const [saveError, setSaveError] = useState("");
   const [savePending, setSavePending] = useState(false);
+  const [localCacheRevision, setLocalCacheRevision] = useState(0);
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (!("query" in event)) return;
+      const queryKey = event.query.queryKey;
+      if (
+        queryKey[0] === "emails" ||
+        (queryKey[0] === INBOX_THREADS_QUERY_KEY[0] &&
+          queryKey[1] === INBOX_THREADS_QUERY_KEY[1])
+      ) {
+        setLocalCacheRevision((revision) => revision + 1);
+      }
+    });
+    setLocalCacheRevision((revision) => revision + 1);
+    return unsubscribe;
+  }, [queryClient]);
 
   useEffect(
     () => () => {
@@ -110,26 +130,50 @@ export function SearchBar({
   const localMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q || q.length < 2) return [];
+    const cachedInbox = queryClient.getQueriesData<ListInboxThreadsResult>({
+      queryKey: INBOX_THREADS_QUERY_KEY,
+    });
     const cached = queryClient.getQueriesData<InfiniteEmails>({
       queryKey: ["emails"],
     });
     const seenThreadIds = new Set<string>();
     const messages: EmailMessage[] = [];
-    for (const [, data] of cached) {
-      for (const page of data?.pages ?? []) {
-        for (const email of page.emails) {
-          const threadKey = email.threadId || email.id;
-          if (seenThreadIds.has(threadKey)) continue;
-          const haystack =
-            `${email.subject} ${email.from.name} ${email.from.email} ${email.snippet}`.toLowerCase();
-          if (!haystack.includes(q)) continue;
-          seenThreadIds.add(threadKey);
-          messages.push(email);
-        }
+    const addMatchingEmail = (email: EmailMessage) => {
+      const threadKey = `${email.accountEmail?.toLowerCase() ?? ""}:${email.threadId || email.id}`;
+      if (seenThreadIds.has(threadKey)) return;
+      const haystack =
+        `${email.subject} ${email.from.name} ${email.from.email} ${email.snippet}`.toLowerCase();
+      if (!haystack.includes(q)) return;
+      seenThreadIds.add(threadKey);
+      messages.push(email);
+    };
+    for (const [, data] of cachedInbox) {
+      for (const email of data?.items ?? []) addMatchingEmail(email);
+      for (const emails of Object.values(data?.tabPreviews ?? {})) {
+        for (const email of emails) addMatchingEmail(email);
       }
     }
-    return groupIntoThreads(messages).slice(0, LOCAL_MATCH_LIMIT);
-  }, [query, queryClient]);
+    for (const [, data] of cached) {
+      for (const page of data?.pages ?? []) {
+        for (const email of page.emails) addMatchingEmail(email);
+      }
+    }
+    const messagesByAccount = new Map<string, EmailMessage[]>();
+    for (const email of messages) {
+      const accountEmail = email.accountEmail?.toLowerCase() ?? "";
+      const accountMessages = messagesByAccount.get(accountEmail) ?? [];
+      accountMessages.push(email);
+      messagesByAccount.set(accountEmail, accountMessages);
+    }
+    return [...messagesByAccount.values()]
+      .flatMap(groupIntoThreads)
+      .sort(
+        (a, b) =>
+          new Date(b.latestMessage.date).getTime() -
+          new Date(a.latestMessage.date).getTime(),
+      )
+      .slice(0, LOCAL_MATCH_LIMIT);
+  }, [query, queryClient, localCacheRevision]);
 
   const remoteSearchPending =
     useIsFetching({ queryKey: ["emails", "all", query.trim()] }) > 0;
@@ -163,8 +207,14 @@ export function SearchBar({
     [navigate],
   );
 
+  const cancelScheduledSearch = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = undefined;
+  }, []);
+
   const selectContact = useCallback(
     (contact: Contact) => {
+      cancelScheduledSearch();
       const q = contact.email;
       trackEvent("mail_search_result_selected", {
         app_name: "mail",
@@ -176,11 +226,13 @@ export function SearchBar({
       void navigate(`/all?q=${encodeURIComponent(q)}`);
       inputRef.current?.blur();
     },
-    [navigate],
+    [cancelScheduledSearch, navigate],
   );
 
   const selectThread = useCallback(
     (thread: ThreadSummary) => {
+      cancelScheduledSearch();
+      lastSyncedQueryRef.current = query.trim();
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
       trackEvent("mail_search_result_selected", {
@@ -189,24 +241,32 @@ export function SearchBar({
         result_type: "thread",
       });
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      void navigate(`/all/${targetThreadId}`);
+      void navigate(
+        mailThreadHref(
+          "all",
+          targetThreadId,
+          new URLSearchParams(),
+          email.accountEmail,
+        ),
+      );
       inputRef.current?.blur();
     },
-    [navigate],
+    [cancelScheduledSearch, navigate, query],
   );
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    cancelScheduledSearch();
     const q = query.trim();
     if (q.length >= MIN_REMOTE_QUERY_LENGTH) {
       debounceRef.current = setTimeout(() => {
+        debounceRef.current = undefined;
         executeSearch(q);
       }, 400);
     }
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      cancelScheduledSearch();
     };
-  }, [query, executeSearch]);
+  }, [query, cancelScheduledSearch, executeSearch]);
 
   const combinedMatchCount = matchedContacts.length + localMatches.length;
 

@@ -31,7 +31,14 @@ vi.mock("./local-export", async (importOriginal) => {
   };
 });
 
-import { startRecording, type StartParams } from "./recorder";
+import { requestRecordingContext } from "../lookback/context-api";
+import {
+  forgetRewindClipOriginIfNoRequest,
+  getRewindClipOrigin,
+  rememberRewindClipOrigin,
+  startRecording,
+  type StartParams,
+} from "./recorder";
 import { RECORDER_DISCARD_EVENT } from "./recorder-events";
 import type { TranscriptionCapture } from "./transcription-capture";
 
@@ -94,6 +101,9 @@ class TestMediaRecorder {
     this.state = "recording";
   });
   stop = vi.fn(() => {
+    if (rejectMediaRecorderStop) {
+      throw new Error("Unable to finalize the late recording");
+    }
     if (emitStopChunk) {
       this.ondataavailable?.({
         data: new Blob(["clip"], { type: "video/webm" }),
@@ -120,6 +130,7 @@ class TestMediaRecorder {
 
 const mediaRecorderStart = vi.fn();
 let emitStopChunk = false;
+let rejectMediaRecorderStop = false;
 
 function installRecordingBackupStore() {
   const stores = new Set<string>();
@@ -211,13 +222,13 @@ const params: StartParams = {
   cameraOn: false,
   micId: "webkit-selected-id",
   micLabel: "USB Microphone",
-  preAcquiredCaptureSuspension: { leaseId: null, suspendedRewind: false },
 };
 
 const handlers = new Map<string, Set<(event: { payload: unknown }) => void>>();
 const nativeCommands = new Map<string, (args?: unknown) => Promise<unknown>>();
 let getUserMedia: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
+const localStorageValues = new Map<string, string>();
 
 function calls(command: string) {
   return mocks.invoke.mock.calls.filter(([name]) => name === command);
@@ -230,7 +241,9 @@ async function flush() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
+  localStorageValues.clear();
   emitStopChunk = false;
+  rejectMediaRecorderStop = false;
   handlers.clear();
   nativeCommands.clear();
   getUserMedia = vi.fn(() => new Promise(() => {}));
@@ -245,9 +258,9 @@ beforeEach(() => {
     mediaDevices: { getUserMedia, enumerateDevices: vi.fn() },
   });
   const storage = {
-    getItem: () => null,
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
+    getItem: (key: string) => localStorageValues.get(key) ?? null,
+    setItem: (key: string, value: string) => localStorageValues.set(key, value),
+    removeItem: (key: string) => localStorageValues.delete(key),
   };
   vi.stubGlobal("localStorage", storage);
   vi.stubGlobal("window", {
@@ -274,8 +287,12 @@ beforeEach(() => {
       return { leaseId: null, suspendedRewind: false };
     }
     if (name === "show_countdown") {
+      const attemptId = (args as { attemptId?: string } | undefined)?.attemptId;
       setTimeout(() => {
-        void mocks.emit("clips:countdown-done", { cause: "timer" });
+        void mocks.emit("clips:countdown-presented", { attemptId });
+      }, 0);
+      setTimeout(() => {
+        void mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
       }, 3_600);
       return 1;
     }
@@ -330,15 +347,301 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   emitStopChunk = false;
+  rejectMediaRecorderStop = false;
 });
 
 describe("native recording startup", () => {
+  it("retains origins for more than fifty outstanding recordings", () => {
+    const now = Date.now();
+    for (let index = 0; index < 51; index++) {
+      const startedAt = new Date(now - index * 1_000).toISOString();
+      rememberRewindClipOrigin({
+        recordingId: `recording-${index}`,
+        startedAt,
+        includeMicrophone: true,
+        includeSystemAudio: false,
+        rememberedAt: startedAt,
+      });
+    }
+
+    expect(getRewindClipOrigin("recording-0")).not.toBeNull();
+    expect(getRewindClipOrigin("recording-50")).not.toBeNull();
+  });
+
+  it("forgets an origin when no earlier screen-time request is needed", () => {
+    const now = new Date().toISOString();
+    rememberRewindClipOrigin({
+      recordingId: "recording-no-request",
+      startedAt: now,
+      includeMicrophone: true,
+      includeSystemAudio: false,
+      rememberedAt: now,
+    });
+
+    forgetRewindClipOriginIfNoRequest("recording-no-request", 0);
+
+    expect(getRewindClipOrigin("recording-no-request")).toBeNull();
+  });
+
+  it("retains origins until the pending request is completed or removed", () => {
+    vi.setSystemTime(new Date("2026-10-15T12:00:00.000Z"));
+    localStorageValues.set(
+      "clips.rewindClipOrigins.v1",
+      JSON.stringify({
+        expired: {
+          recordingId: "expired",
+          startedAt: "2026-10-14T11:59:59.000Z",
+          includeMicrophone: true,
+          includeSystemAudio: false,
+          rememberedAt: "2026-10-14T11:59:59.000Z",
+        },
+      }),
+    );
+
+    expect(getRewindClipOrigin("expired")).toMatchObject({
+      recordingId: "expired",
+      rememberedAt: "2026-10-14T11:59:59.000Z",
+    });
+  });
+
+  it("keeps a new origin in memory when browser storage is unavailable", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("storage unavailable");
+      },
+      setItem: () => {
+        throw new Error("storage full");
+      },
+      removeItem: (key: string) => localStorageValues.delete(key),
+    });
+    const now = new Date().toISOString();
+    const origin = {
+      recordingId: "memory-only",
+      startedAt: now,
+      includeMicrophone: true,
+      includeSystemAudio: false,
+      rememberedAt: now,
+    };
+
+    rememberRewindClipOrigin(origin);
+
+    expect(getRewindClipOrigin("memory-only")).toEqual(origin);
+  });
+
+  it("reports unreadable browser storage instead of reporting no origin", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("access denied");
+      },
+      setItem: () => {
+        throw new Error("access denied");
+      },
+      removeItem: () => {},
+    });
+
+    expect(() => getRewindClipOrigin("unknown")).toThrow(
+      "Earlier screen-time capture details could not be read: access denied",
+    );
+  });
+
+  it("requests earlier screen time for a hosted window recording", async () => {
+    let originAtSuspension: ReturnType<typeof getRewindClipOrigin> = null;
+    let originAtWarm: ReturnType<typeof getRewindClipOrigin> = null;
+    let originAtCaptureStartRequest: ReturnType<typeof getRewindClipOrigin> =
+      null;
+    let startedAtCaptureStartRequest: string | null = null;
+    const initialTime = new Date("2026-10-15T00:00:00.000Z");
+    vi.setSystemTime(initialTime);
+    const warmStarted = deferred<void>();
+    const warm = deferred<void>();
+    let acquiredAfterCountdown = false;
+    let transcriptionStartedBeforeSuspension = false;
+    const captureStartOrder: string[] = [];
+    nativeCommands.set("rewind_capture_suspension_acquire", async () => {
+      acquiredAfterCountdown = mocks.emit.mock.calls.some(
+        ([name]) => name === "clips:countdown-done",
+      );
+      transcriptionStartedBeforeSuspension =
+        mocks.transcribe.mock.calls.length > 0;
+      captureStartOrder.push("rewind-suspended");
+      originAtSuspension = getRewindClipOrigin(createdRecordingId());
+      return { leaseId: "rewind-suspension", suspendedRewind: true };
+    });
+    nativeCommands.set("native_fullscreen_recording_warm", async () => {
+      captureStartOrder.push("screen-warm");
+      originAtWarm = getRewindClipOrigin(createdRecordingId());
+      warmStarted.resolve(undefined);
+      await warm.promise;
+    });
+    nativeCommands.set("native_fullscreen_recording_begin", async () => {
+      captureStartOrder.push("begin");
+    });
+    mocks.transcribe.mockImplementationOnce(async () => {
+      captureStartOrder.push("microphone");
+      return capture();
+    });
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      onCaptureStartRequested: (recordingId) => {
+        captureStartOrder.push("capture-start-requested");
+        startedAtCaptureStartRequest = new Date().toISOString();
+        originAtCaptureStartRequest = recordingId
+          ? getRewindClipOrigin(recordingId)
+          : null;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    await warmStarted.promise;
+    expect(originAtSuspension).toBeNull();
+    expect(originAtWarm).toBeNull();
+    vi.setSystemTime(new Date(initialTime.getTime() + 90_000));
+    warm.resolve(undefined);
+    const handle = await pending;
+    const recordingId = createdRecordingId();
+
+    expect(originAtCaptureStartRequest).toMatchObject({ recordingId });
+    expect(originAtCaptureStartRequest?.startedAt).toBe(
+      startedAtCaptureStartRequest,
+    );
+    expect(acquiredAfterCountdown).toBe(true);
+    expect(transcriptionStartedBeforeSuspension).toBe(false);
+    expect(captureStartOrder).toEqual([
+      "rewind-suspended",
+      "screen-warm",
+      "microphone",
+      "begin",
+      "capture-start-requested",
+    ]);
+    const origin = getRewindClipOrigin(recordingId);
+    if (!origin) throw new Error("recording origin was not saved");
+    expect(origin).toMatchObject({
+      recordingId,
+      includeMicrophone: true,
+      includeSystemAudio: true,
+    });
+    const commands = mocks.invoke.mock.calls.map(([command]) => command);
+    expect(commands.indexOf("rewind_capture_suspension_acquire")).toBeLessThan(
+      commands.indexOf("native_fullscreen_recording_warm"),
+    );
+    expect(commands.indexOf("native_fullscreen_recording_warm")).toBeLessThan(
+      commands.indexOf("native_fullscreen_recording_begin"),
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "context-1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await requestRecordingContext(
+      { serverUrl: params.serverUrl, authToken: "" },
+      {
+        recordingId,
+        seconds: 30,
+        endedAt: origin.startedAt,
+        deviceId: "device-1",
+      },
+    );
+    const request = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/_agent-native/actions/request-recording-context"),
+    );
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+      recordingId,
+      seconds: 30,
+      endedAt: origin.startedAt,
+      deviceId: "device-1",
+    });
+
+    await handle.cancel();
+    expect(getRewindClipOrigin(recordingId)).toBeNull();
+  });
+
+  it("forgets a recording origin when the recording is discarded for restart", async () => {
+    const pending = startRecording({ ...params, lookbackEnabled: true });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const recordingId = createdRecordingId();
+
+    expect(getRewindClipOrigin(recordingId)).not.toBeNull();
+    await handle.discardForRestart();
+    expect(getRewindClipOrigin(recordingId)).toBeNull();
+  });
+
+  it("does not remember a recording origin when earlier screen time is disabled", async () => {
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const recordingId = createdRecordingId();
+
+    expect(getRewindClipOrigin(recordingId)).toBeNull();
+
+    await handle.cancel();
+  });
+
+  it("does not remember a local-only Rewind folder as a hosted recording", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      localRecordingMode: "composed",
+      lookbackEnabled: true,
+      onCaptureStartRequested,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const [recordingId, captureIdentity] =
+      onCaptureStartRequested.mock.calls[0] ?? [];
+
+    expect(recordingId).toBeNull();
+    expect(captureIdentity).toEqual(expect.any(String));
+    expect(getRewindClipOrigin(captureIdentity)).toBeNull();
+
+    await handle.cancel();
+  });
+
+  it("does not remember a local-only native fallback folder as hosted", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "incompatible",
+      active: false,
+    }));
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      localRecordingMode: "composed",
+      lookbackEnabled: true,
+      onCaptureStartRequested,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const [recordingId, captureIdentity] =
+      onCaptureStartRequested.mock.calls[0] ?? [];
+
+    expect(recordingId).toBeNull();
+    expect(captureIdentity).toEqual(expect.any(String));
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(1);
+    expect(getRewindClipOrigin(captureIdentity)).toBeNull();
+
+    await handle.cancel();
+  });
+
   it("starts the full countdown only after a slow overlay has presented", async () => {
     const overlay = deferred<number>();
-    nativeCommands.set("show_countdown", async () => {
+    nativeCommands.set("show_countdown", async (args) => {
       const generation = await overlay.promise;
+      const attemptId = (args as { attemptId?: string } | undefined)?.attemptId;
+      await mocks.emit("clips:countdown-presented", {
+        attemptId,
+      });
       setTimeout(() => {
-        void mocks.emit("clips:countdown-done", { cause: "timer" });
+        void mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
       }, 3_600);
       return generation;
     });
@@ -348,6 +651,7 @@ describe("native recording startup", () => {
     expect(calls("show_countdown")).toHaveLength(1);
 
     await vi.advanceTimersByTimeAsync(4_500);
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
     overlay.resolve(1);
     await flush();
     await vi.advanceTimersByTimeAsync(3_600);
@@ -411,7 +715,7 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
   });
 
-  it("marks Rewind capture as requested before its start IPC resolves", async () => {
+  it("marks Rewind capture as requested after its start IPC resolves", async () => {
     const rewindStart = deferred<void>();
     nativeCommands.set("rewind_clip_status", async () => ({
       compatibility: "compatible",
@@ -429,10 +733,11 @@ describe("native recording startup", () => {
     await flush();
 
     expect(calls("rewind_clip_start")).toHaveLength(1);
-    expect(onCaptureStartRequested).toHaveBeenCalledWith(createdRecordingId());
+    expect(onCaptureStartRequested).not.toHaveBeenCalled();
 
     rewindStart.resolve();
     const handle = await pending;
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(createdRecordingId());
     await handle.cancel();
   });
 
@@ -476,12 +781,16 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
     expect(mocks.transcribe).not.toHaveBeenCalled();
 
+    const hideCallsBeforeLateResolution = calls("hide_recording_chrome").length;
     overlay.resolve(1);
     await flush();
-    expect(calls("finish_countdown_shortcuts")).toContainEqual([
-      "finish_countdown_shortcuts",
+    expect(calls("dismiss_countdown_for_generation")).toContainEqual([
+      "dismiss_countdown_for_generation",
       { generation: 1 },
     ]);
+    expect(calls("hide_recording_chrome")).toHaveLength(
+      hideCallsBeforeLateResolution,
+    );
   });
 
   it("does not prepare Rewind after its concurrent countdown fails", async () => {
@@ -622,7 +931,13 @@ describe("native recording startup", () => {
   });
 
   it("fails startup when the visible countdown never completes", async () => {
-    nativeCommands.set("show_countdown", async () => 1);
+    nativeCommands.set("show_countdown", async (args) => {
+      const attemptId = (args as { attemptId?: string } | undefined)?.attemptId;
+      setTimeout(() => {
+        void mocks.emit("clips:countdown-presented", { attemptId });
+      }, 0);
+      return 1;
+    });
 
     const pending = startRecording(params);
     const failed = expect(pending).rejects.toThrow(
@@ -642,15 +957,16 @@ describe("native recording startup", () => {
     const pending = startRecording(params);
     await flush();
     expect(fetchMock).toHaveBeenCalled();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    expect(getUserMedia).not.toHaveBeenCalled();
     expect(calls("native_fullscreen_recording_warm")[0][1]).toMatchObject({
       micDeviceId: params.micId,
       micDeviceLabel: params.micLabel,
       includeAudio: true,
     });
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(3_600);
-    const handle = await pending;
-    expect(getUserMedia).not.toHaveBeenCalled();
     expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
       micDeviceId: params.micId,
       micDeviceLabel: params.micLabel,
@@ -781,7 +1097,7 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
   });
 
-  it("marks native begin as requested before its IPC response arrives", async () => {
+  it("marks native capture as requested after its begin IPC response arrives", async () => {
     const begin = deferred<void>();
     nativeCommands.set(
       "native_fullscreen_recording_begin",
@@ -793,13 +1109,14 @@ describe("native recording startup", () => {
     await vi.advanceTimersByTimeAsync(3_600);
 
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(onCaptureStartRequested).not.toHaveBeenCalled();
+
+    begin.resolve();
+    const handle = await pending;
     expect(onCaptureStartRequested).toHaveBeenCalledWith(
       createdRecordingId(),
       createdRecordingId(),
     );
-
-    begin.resolve();
-    const handle = await pending;
     await handle.cancel();
   });
 
@@ -825,11 +1142,22 @@ describe("native recording startup", () => {
     nativeCommands.set("native_fullscreen_recording_begin", async () => {
       throw failure;
     });
-    const pending = startRecording({ ...params, micLabel: undefined });
+    const onCaptureStartFailed = vi.fn();
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      micLabel: undefined,
+      onCaptureStartFailed,
+    });
     const failed = expect(pending).rejects.toBe(failure);
     await vi.advanceTimersByTimeAsync(3_600);
     await failed;
+    await flush();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(getRewindClipOrigin(createdRecordingId())).toBeNull();
+    expect(onCaptureStartFailed).toHaveBeenCalledExactlyOnceWith(
+      createdRecordingId(),
+    );
     expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
       micDeviceId: params.micId,
       micDeviceLabel: null,
@@ -837,7 +1165,7 @@ describe("native recording startup", () => {
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("runs the countdown while native warm completes, then begins capture", async () => {
+  it("waits for countdown completion before native warm starts", async () => {
     const warm = deferred<void>();
     const startupEvents: string[] = [];
     const onCaptureIdentityAvailable = vi.fn((recordingId: string) => {
@@ -848,18 +1176,49 @@ describe("native recording startup", () => {
       startupEvents.push(`warm:${recordingId}`);
       return warm.promise;
     });
+    nativeCommands.set("show_countdown", async (_args) => {
+      setTimeout(() => {
+        void mocks.emit("clips:countdown-done", {
+          attemptId: "stale-countdown-attempt",
+          cause: "timer",
+        });
+        void mocks.emit("clips:countdown-cancel", {
+          attemptId: "stale-countdown-attempt",
+          cause: "escape",
+        });
+      }, 3_600);
+      return 1;
+    });
     const pending = startRecording({ ...params, onCaptureIdentityAvailable });
     await flush();
     const recordingId = createdRecordingId();
     expect(onCaptureIdentityAvailable).toHaveBeenCalledWith(recordingId);
+    expect(startupEvents).toEqual([`identity:${recordingId}`]);
+    expect(calls("show_countdown")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(mocks.transcribe).not.toHaveBeenCalled();
+
+    const attemptId = (calls("show_countdown")[0][1] as { attemptId: string })
+      .attemptId;
+    await mocks.emit("clips:countdown-presented", {
+      attemptId: "stale-countdown-attempt",
+    });
+    await vi.advanceTimersByTimeAsync(300);
+    await flush();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+
+    await mocks.emit("clips:countdown-presented", { attemptId });
+    await flush();
+    expect(startupEvents).toEqual([`identity:${recordingId}`]);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    await mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
+    await flush();
     expect(startupEvents).toEqual([
       `identity:${recordingId}`,
       `warm:${recordingId}`,
     ]);
-    expect(calls("show_countdown")).toHaveLength(1);
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    expect(mocks.transcribe).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(3_600);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     warm.resolve();
     await flush();
@@ -870,26 +1229,40 @@ describe("native recording startup", () => {
 
   it("propagates warm failure without beginning a fallback capture", async () => {
     const failure = new Error("Selected microphone is unavailable");
+    nativeCommands.set("rewind_capture_suspension_acquire", async () => ({
+      leaseId: "warm-failure-suspension",
+      suspendedRewind: true,
+    }));
     nativeCommands.set("native_fullscreen_recording_warm", async () => {
       throw failure;
     });
-    const pending = startRecording(params);
+    const pending = startRecording({ ...params, lookbackEnabled: true });
     const failed = expect(pending).rejects.toBe(failure);
     await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
     await failed;
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("rewind_capture_suspension_release")).toEqual([
+      [
+        "rewind_capture_suspension_release",
+        { leaseId: "warm-failure-suspension" },
+      ],
+    ]);
+    expect(getRewindClipOrigin(createdRecordingId())).toBeNull();
     expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
   });
 
-  it("runs the countdown during transcription startup and retains the capture", async () => {
+  it("starts transcription after the countdown and retains the capture", async () => {
     const transcription = deferred<TranscriptionCapture>();
     const transcript = capture();
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     const pending = startRecording(params);
     await flush();
     expect(calls("show_countdown")).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(mocks.transcribe).toHaveBeenCalledOnce();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     transcription.resolve(transcript);
     await flush();
@@ -902,6 +1275,10 @@ describe("native recording startup", () => {
 
   it("does not start transcription or begin after cancellation during warm", async () => {
     const warm = deferred<void>();
+    nativeCommands.set("rewind_capture_suspension_acquire", async () => ({
+      leaseId: "warm-cancel-suspension",
+      suspendedRewind: true,
+    }));
     nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
     const controller = new AbortController();
     const pending = startRecording({ ...params, signal: controller.signal });
@@ -910,12 +1287,21 @@ describe("native recording startup", () => {
     });
     await flush();
     expect(calls("show_countdown")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(1);
     controller.abort();
     await flush();
     warm.resolve();
     await failed;
     expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("rewind_capture_suspension_release")).toEqual([
+      [
+        "rewind_capture_suspension_release",
+        { leaseId: "warm-cancel-suspension" },
+      ],
+    ]);
     expect(calls("native_fullscreen_recording_cancel").length).toBeGreaterThan(
       0,
     );
@@ -929,6 +1315,9 @@ describe("native recording startup", () => {
     const first = startRecording({ ...params, signal: controller.signal });
     const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
     await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(mocks.transcribe).toHaveBeenCalledTimes(1);
     controller.abort();
     await failed;
     transcription.resolve(transcript);
@@ -1053,6 +1442,29 @@ describe("browser recording startup cancellation", () => {
     await flush();
     expect(playBeforeCapture).toHaveBeenCalledOnce();
   }
+
+  it("remembers a hosted camera recording as an earlier-screen-time origin", async () => {
+    useBrowserCameraCapture();
+    const pending = startRecording({
+      ...params,
+      mode: "camera",
+      cameraOn: true,
+      micOn: false,
+      systemAudioOn: true,
+      lookbackEnabled: true,
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const recordingId = createdRecordingId();
+
+    expect(getRewindClipOrigin(recordingId)).toMatchObject({
+      recordingId,
+      includeMicrophone: false,
+      includeSystemAudio: false,
+    });
+
+    await handle.cancel();
+  });
 
   it("does not start local export after cancellation during the cue", async () => {
     useBrowserCameraCapture();
@@ -1413,13 +1825,18 @@ describe("browser recording startup cancellation", () => {
     };
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     const controller = new AbortController();
+    const onCaptureStartRequested = vi.fn();
+    const onCaptureStartFailed = vi.fn();
     const pending = startRecording(
       {
         ...params,
         mode: "camera",
         cameraOn: true,
         systemAudioOn: false,
+        lookbackEnabled: true,
         signal: controller.signal,
+        onCaptureStartRequested,
+        onCaptureStartFailed,
       },
       audioCue,
     );
@@ -1433,14 +1850,17 @@ describe("browser recording startup cancellation", () => {
     expect(mediaRecorderStart).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(100);
     const id = createdRecordingId();
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(id);
 
     // A start abandoned this late (a timeout, a closed window) must not
     // discard what was already recorded.
     controller.abort();
     await failed;
+    expect(getRewindClipOrigin(id)).not.toBeNull();
     transcription.resolve(capture());
     await vi.advanceTimersByTimeAsync(1_000);
     await flush();
+    expect(onCaptureStartFailed).not.toHaveBeenCalled();
 
     const uploads = fetchMock.mock.calls.map(([url, init]) => ({
       url: String(url),
@@ -1460,5 +1880,56 @@ describe("browser recording startup cancellation", () => {
           body.includes("user_cancelled"),
       ),
     ).toBe(false);
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+  });
+
+  it("clears earlier screen time when cleanup of a late-start take fails", async () => {
+    useBrowserCameraCapture();
+    installRecordingBackupStore();
+    emitStopChunk = true;
+    const cue = deferred<void>();
+    const transcription = deferred<TranscriptionCapture>();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    mocks.transcribe.mockReturnValueOnce(transcription.promise);
+    rejectMediaRecorderStop = true;
+    const controller = new AbortController();
+    const onCaptureStartFailed = vi.fn((recordingId: string) => {
+      expect(getRewindClipOrigin(recordingId)).not.toBeNull();
+    });
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        systemAudioOn: false,
+        lookbackEnabled: true,
+        signal: controller.signal,
+        onCaptureStartFailed,
+      },
+      audioCue,
+    );
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await reachCue(audioCue.playBeforeCapture);
+    cue.resolve();
+    await flush();
+    expect(mediaRecorderStart).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(100);
+    const id = createdRecordingId();
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+
+    controller.abort();
+    await failed;
+    transcription.resolve(capture());
+    await vi.advanceTimersByTimeAsync(15_000);
+    await flush();
+
+    expect(onCaptureStartFailed).toHaveBeenCalledExactlyOnceWith(id);
+    expect(getRewindClipOrigin(id)).toBeNull();
   });
 });

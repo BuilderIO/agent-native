@@ -1,8 +1,10 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
 import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import type { MotionSourceReadCapability } from "@shared/motion-source-read";
 import {
   MOTION_TEXT_PROPERTIES,
   type MotionTextAnimation,
@@ -11,10 +13,13 @@ import {
 } from "@shared/motion-text-code";
 import {
   applyMotionAutoKeyframe,
+  createMotionTrackId,
   type MotionEase,
   type MotionPlaybackMode,
   type MotionTrack,
+  withMotionTrackIds,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
 } from "@shared/motion-timeline";
 
 import type { MotionDockTrack } from "@/components/design/MotionDock";
@@ -54,6 +59,7 @@ export interface MotionTimelineQueryResult {
   designId: string;
   timelines: MotionTimelineRow[];
   count: number;
+  sourceReadCapability?: MotionSourceReadCapability | null;
   recoveryErrors?: Array<{
     sourceRef: string;
     errorCode: string;
@@ -275,7 +281,9 @@ function isMotionTrack(value: unknown): value is MotionTrack {
 }
 
 function normalizeMotionTracks(value: unknown): MotionTrack[] {
-  return Array.isArray(value) ? value.filter(isMotionTrack) : [];
+  return withMotionTrackIds(
+    Array.isArray(value) ? value.filter(isMotionTrack) : [],
+  );
 }
 
 function labelForMotionTrack(
@@ -323,22 +331,24 @@ export function motionTextDocumentAsDockTracks(
   document: MotionTextDocument | null | undefined,
   projection: CodeLayerProjection,
 ): MotionDockTrack[] {
-  return (document?.animations ?? []).map((animation) => ({
-    targetNodeId: animation.targetNodeId,
-    property: motionTextDockProperty(animation.property),
-    keyframes: animation.keyframes,
-    delayMs: animation.delayMs ?? 0,
-    durationMs: animation.durationMs,
-    label: labelForMotionTrack(
-      {
-        targetNodeId: animation.targetNodeId,
-        property: motionTextDockProperty(animation.property),
-        keyframes: animation.keyframes,
-      },
-      projection,
-    ),
-    isTextAnimation: true,
-  }));
+  return withMotionTrackIds(
+    (document?.animations ?? []).map((animation) => ({
+      targetNodeId: animation.targetNodeId,
+      property: motionTextDockProperty(animation.property),
+      keyframes: animation.keyframes,
+      delayMs: animation.delayMs ?? 0,
+      durationMs: animation.durationMs,
+      label: labelForMotionTrack(
+        {
+          targetNodeId: animation.targetNodeId,
+          property: motionTextDockProperty(animation.property),
+          keyframes: animation.keyframes,
+        },
+        projection,
+      ),
+      isTextAnimation: true,
+    })),
+  );
 }
 
 export function motionTextAnimationsFromDockTracks(
@@ -442,6 +452,7 @@ export function applyMotionAutoKeyframesForStyles(
     playheadT: number;
     timelineDurationMs: number;
     defaultEase?: MotionEase;
+    trackId?: string;
   },
 ): MotionDockTrack[] {
   let next: MotionDockTrack[] = tracks;
@@ -459,6 +470,7 @@ export function applyMotionAutoKeyframesForStyles(
         value,
         playheadT: args.playheadT,
         timelineDurationMs: args.timelineDurationMs,
+        trackId: args.trackId,
       },
       args.defaultEase,
     );
@@ -496,6 +508,7 @@ export function upsertMotionStyleKeyframes(args: {
   playhead: number;
   timelineDurationMs?: number;
   defaultEase?: string;
+  trackId?: string;
 }): MotionDockTrack[] {
   const t = Math.max(0, Math.min(1, args.playhead));
   const ease = args.defaultEase ?? "ease";
@@ -509,10 +522,18 @@ export function upsertMotionStyleKeyframes(args: {
     if (!property) continue;
     if (!isMotionAnimatableProperty(property)) continue;
 
-    const existingIndex = nextTracks.findIndex(
-      (track) =>
-        track.targetNodeId === args.targetNodeId && track.property === property,
+    const matchingIndices = nextTracks.flatMap((track, index) =>
+      track.targetNodeId === args.targetNodeId && track.property === property
+        ? [index]
+        : [],
     );
+    const selectedIndex = args.trackId
+      ? matchingIndices.find((index) => nextTracks[index]?.id === args.trackId)
+      : undefined;
+    const existingIndex =
+      selectedIndex ?? (matchingIndices.length === 1 ? matchingIndices[0] : -1);
+
+    if (matchingIndices.length > 1 && existingIndex === -1) continue;
 
     if (existingIndex >= 0) {
       const keyed = applyMotionAutoKeyframe(
@@ -523,6 +544,7 @@ export function upsertMotionStyleKeyframes(args: {
           value,
           playheadT: t,
           timelineDurationMs: args.timelineDurationMs ?? 1,
+          trackId: nextTracks[existingIndex]?.id,
         },
         ease,
       );
@@ -543,23 +565,19 @@ export function upsertMotionStyleKeyframes(args: {
     if (value === baseValue) continue;
     const keyframes =
       t <= MOTION_KEYFRAME_TIME_EPSILON
-        ? [
-            { t: 0, value, ease },
-            { t: 1, value: baseValue, ease },
-          ]
-        : t >= 1 - MOTION_KEYFRAME_TIME_EPSILON
-          ? [
-              { t: 0, value: baseValue, ease },
-              { t: 1, value, ease },
-            ]
-          : [
-              { t: 0, value: baseValue, ease },
-              { t, value, ease },
-              { t: 1, value: baseValue, ease },
-            ];
+        ? [{ t: 0, value, ease }]
+        : [
+            { t: 0, value: baseValue, ease },
+            {
+              t: t >= 1 - MOTION_KEYFRAME_TIME_EPSILON ? 1 : t,
+              value,
+              ease,
+            },
+          ];
     nextTracks = [
       ...nextTracks,
       {
+        id: createMotionTrackId(),
         targetNodeId: args.targetNodeId,
         property,
         keyframes,
@@ -582,6 +600,7 @@ export function applyMotionStyleKeyframeEdit(
     timelineDurationMs: number;
     defaultEase?: string;
     autoKeyframeEnabled: boolean;
+    trackId?: string;
   },
 ): MotionDockTrack[] {
   if (args.autoKeyframeEnabled) {
@@ -593,6 +612,7 @@ export function applyMotionStyleKeyframeEdit(
     playheadT: args.playhead,
     timelineDurationMs: args.timelineDurationMs,
     defaultEase: args.defaultEase as MotionEase | undefined,
+    trackId: args.trackId,
   });
 }
 
@@ -635,7 +655,6 @@ export function motionAnimationStyleDefinitionFromTracks(args: {
 }
 
 export function applyMotionAnimationStyleToTargets(args: {
-  existingTracks: readonly MotionDockTrack[];
   style: MotionAnimationStyleDefinition;
   targets: readonly { nodeId: string; label: string }[];
   currentTimeMs: number;
@@ -646,14 +665,9 @@ export function applyMotionAnimationStyleToTargets(args: {
   unsupportedSequenceProperty?: string;
 } {
   const nextTracks: MotionDockTrack[] = [];
-  let timelineDurationMs = Math.min(
+  const timelineDurationMs = Math.min(
     MOTION_TIMELINE_MAX_DURATION_MS,
     Math.max(0, args.timelineDurationMs),
-  );
-  const existingProperties = new Set(
-    args.existingTracks.map(
-      (track) => `${track.targetNodeId}\u0000${track.property}`,
-    ),
   );
   const playheadMs = Math.max(0, args.currentTimeMs);
   const baseTimelineDurationMs = timelineDurationMs;
@@ -670,19 +684,26 @@ export function applyMotionAnimationStyleToTargets(args: {
     }
 
     for (const [property, styleTracks] of tracksByProperty) {
-      const identity = `${target.nodeId}\u0000${property}`;
-      if (existingProperties.has(identity)) continue;
       const segments = styleTracks
         .map((styleTrack, order) => {
           const startMs = playheadMs + (styleTrack.delayMs ?? 0);
-          if (startMs >= MOTION_TIMELINE_MAX_DURATION_MS) return null;
+          if (
+            startMs > MOTION_TIMELINE_MAX_DURATION_MS ||
+            startMs + (styleTrack.durationMs ?? 0) >
+              MOTION_TIMELINE_MAX_CONTENT_END_MS
+          ) {
+            return null;
+          }
           const requestedDuration =
             styleTrack.durationMs ??
             Math.max(50, baseTimelineDurationMs - startMs);
-          const durationMs = Math.min(
-            requestedDuration,
-            MOTION_TIMELINE_MAX_DURATION_MS - startMs,
-          );
+          if (
+            startMs + requestedDuration >
+            MOTION_TIMELINE_MAX_CONTENT_END_MS
+          ) {
+            return null;
+          }
+          const durationMs = requestedDuration;
           return durationMs > 0
             ? { styleTrack, startMs, durationMs, order }
             : null;
@@ -726,12 +747,71 @@ export function applyMotionAnimationStyleToTargets(args: {
           ? { durationMs }
           : {}),
       });
-      existingProperties.add(identity);
-      timelineDurationMs = Math.max(timelineDurationMs, endMs);
     }
   }
 
   return { tracks: nextTracks, timelineDurationMs };
+}
+
+export function applyMotionBuiltInRecipeToTargets(args: {
+  recipe: MotionBuiltInRecipe;
+  targets: readonly { nodeId: string; label: string }[];
+  currentTimeMs: number;
+  timelineDurationMs: number;
+}): {
+  tracks: MotionDockTrack[];
+  timelineDurationMs: number;
+  skippedTrackCount: number;
+} {
+  const timelineDurationMs = Math.min(
+    MOTION_TIMELINE_MAX_DURATION_MS,
+    Math.max(0, args.timelineDurationMs),
+  );
+  const playheadMs = Math.min(
+    MOTION_TIMELINE_MAX_DURATION_MS,
+    Math.max(0, args.currentTimeMs),
+  );
+  const tracks: MotionDockTrack[] = [];
+  let skippedTrackCount = 0;
+
+  for (const target of args.targets) {
+    for (const recipeTrack of args.recipe.tracks) {
+      const startMs = playheadMs + recipeTrack.delayMs;
+      if (startMs > MOTION_TIMELINE_MAX_DURATION_MS) {
+        skippedTrackCount += 1;
+        continue;
+      }
+      const durationMs = recipeTrack.durationMs;
+      if (
+        durationMs <= 0 ||
+        startMs + durationMs > MOTION_TIMELINE_MAX_CONTENT_END_MS
+      ) {
+        skippedTrackCount += 1;
+        continue;
+      }
+      tracks.push({
+        id: createMotionTrackId(),
+        targetNodeId: target.nodeId,
+        label: target.label,
+        property: recipeTrack.property,
+        ...(recipeTrack.property === "translate"
+          ? { composition: "add" as const }
+          : {}),
+        keyframes: recipeTrack.keyframes.map((keyframe, index) => ({
+          ...keyframe,
+          ...(index === 0 ? { ease: recipeTrack.easing } : {}),
+        })),
+        ...(startMs > 0 ? { delayMs: startMs } : {}),
+        durationMs,
+      });
+    }
+  }
+
+  return {
+    tracks: skippedTrackCount === 0 ? tracks : [],
+    timelineDurationMs,
+    skippedTrackCount,
+  };
 }
 
 function sequenceStyleTrackSegments(

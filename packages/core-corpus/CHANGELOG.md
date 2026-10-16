@@ -1,5 +1,17 @@
 # @agent-native/core-corpus
 
+## 0.209.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.209.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.209.0
 
 ### Patch Changes
