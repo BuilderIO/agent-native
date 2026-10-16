@@ -277,6 +277,49 @@ describe("agent discovery", () => {
     expect(normalizeAgentId("videos")).toBe("clips");
   });
 
+  it("maps the retired videos host to the current Clips host", async () => {
+    process.env.NODE_ENV = "production";
+    resetBuiltinAgentsConfigForTests();
+    const clipsUrl = TEMPLATES.find(
+      (template) => template.name === "clips",
+    )?.prodUrl;
+    if (!clipsUrl) throw new Error("Clips template must have a production URL");
+
+    const manifest = JSON.stringify({
+      id: "videos",
+      name: "Videos",
+      description: "AI video creator",
+      url: "https://videos.agent-native.com",
+    });
+    resourceListMock.mockResolvedValue([
+      { id: "videos-resource", path: "remote-agents/videos.json" },
+    ]);
+    resourceGetMock.mockResolvedValue({ content: manifest });
+
+    await expect(discoverAgents("analytics")).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "clips", url: clipsUrl }),
+      ]),
+    );
+
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+      {
+        id: "videos-resource",
+        owner: "__shared__",
+        path: "remote-agents/videos.json",
+        content: manifest,
+      },
+    ]);
+    await expect(
+      discoverOrgDirectoryAgents("analytics"),
+    ).resolves.toMatchObject({
+      status: "available",
+      agents: expect.arrayContaining([
+        expect.objectContaining({ id: "clips", url: clipsUrl }),
+      ]),
+    });
+  });
+
   it("seeds built-in remote agents with production URLs only", () => {
     process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
       urls: { design: "https://beta.design.agent-native.com" },
