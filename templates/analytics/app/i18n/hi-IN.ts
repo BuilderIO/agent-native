@@ -83,8 +83,7 @@ export default {
     sigmaCredentialStageFailed:
       "अस्थायी Sigma क्रेडेंशियल सेव नहीं हो सके। Vault का ऐक्सेस जाँचें और फिर कोशिश करें।",
     sigmaCredentialsRequired: "पहले Sigma क्लाइंट ID और क्लाइंट सीक्रेट सेव करें।",
-    sigmaBaseUrlInvalid:
-      "समर्थित आधिकारिक Sigma API क्षेत्र का URL चुनें।",
+    sigmaBaseUrlInvalid: "समर्थित आधिकारिक Sigma API क्षेत्र का URL चुनें।",
     sigmaPersistenceUnavailable:
       "Analytics अभी Sigma कनेक्शन को सुरक्षित रूप से सेव नहीं कर सकता। फिर कोशिश करें।",
     sigmaPolicyInvalid:

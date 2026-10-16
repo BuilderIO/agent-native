@@ -29,12 +29,12 @@ import {
 } from "../oauth-tokens/store.js";
 import { getRegisteredAppRoles, resolveAppRole } from "../org/app-roles.js";
 import { getOrgContext } from "../org/context.js";
+import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import {
   readAppSecret,
   readAppSecretMeta,
   writeAppSecret,
 } from "../secrets/storage.js";
-import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import {
   listWorkspaceConnections,
   upsertWorkspaceConnection,

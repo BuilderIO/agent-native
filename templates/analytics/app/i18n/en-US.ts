@@ -299,8 +299,7 @@ export default {
     sigmaCredentialStageFailed:
       "Couldn't securely stage the Sigma credentials. Check Vault access and try again.",
     sigmaCredentialsRequired: "Enter the Sigma client ID and client secret.",
-    sigmaBaseUrlInvalid:
-      "Choose a supported official Sigma API region URL.",
+    sigmaBaseUrlInvalid: "Choose a supported official Sigma API region URL.",
     sigmaPersistenceUnavailable:
       "Analytics can't securely save the Sigma connection right now. Try again.",
     sigmaPolicyInvalid:

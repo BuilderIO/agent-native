@@ -203,8 +203,7 @@ export default {
     sigmaOAuthConnect: "連線個人 Sigma 帳戶",
     sigmaOAuthAddAnother: "連線另一個 Sigma 帳戶",
     sigmaOAuthCancel: "取消",
-    sigmaOAuthDescription:
-      "使用你的帳戶登入 Sigma，瀏覽你有權存取的活頁簿。",
+    sigmaOAuthDescription: "使用你的帳戶登入 Sigma，瀏覽你有權存取的活頁簿。",
     sigmaClientId: "用戶端 ID",
     sigmaClientSecret: "用戶端密鑰",
     sigmaBaseUrl: "API 基礎 URL（選填）",
@@ -216,8 +215,7 @@ export default {
     sigmaCredentialStageFailed:
       "無法暫存 Sigma 臨時認證資料。請檢查 Vault 存取權限後再試一次。",
     sigmaCredentialsRequired: "請先儲存 Sigma 用戶端 ID 和用戶端密鑰。",
-    sigmaBaseUrlInvalid:
-      "請選擇 Sigma 官方支援的 API 區域 URL。",
+    sigmaBaseUrlInvalid: "請選擇 Sigma 官方支援的 API 區域 URL。",
     sigmaPersistenceUnavailable:
       "Analytics 目前無法安全地儲存 Sigma 連線。請再試一次。",
     sigmaPolicyInvalid:

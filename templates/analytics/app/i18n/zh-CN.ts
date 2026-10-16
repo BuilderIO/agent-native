@@ -69,8 +69,7 @@ export default {
     sigmaOAuthConnect: "连接个人 Sigma 账户",
     sigmaOAuthAddAnother: "连接其他 Sigma 账户",
     sigmaOAuthCancel: "取消",
-    sigmaOAuthDescription:
-      "使用你的账户登录 Sigma，浏览你有权访问的工作簿。",
+    sigmaOAuthDescription: "使用你的账户登录 Sigma，浏览你有权访问的工作簿。",
     sigmaClientId: "客户端 ID",
     sigmaClientSecret: "客户端密钥",
     sigmaBaseUrl: "API 基础 URL（可选）",
@@ -82,8 +81,7 @@ export default {
     sigmaCredentialStageFailed:
       "无法暂存临时 Sigma 凭据。请检查 Vault 访问权限，然后重试。",
     sigmaCredentialsRequired: "请先保存 Sigma 客户端 ID 和客户端密钥。",
-    sigmaBaseUrlInvalid:
-      "请选择 Sigma 官方支持的 API 区域 URL。",
+    sigmaBaseUrlInvalid: "请选择 Sigma 官方支持的 API 区域 URL。",
     sigmaPersistenceUnavailable:
       "Analytics 目前无法安全保存 Sigma 连接。请重试。",
     sigmaPolicyInvalid:

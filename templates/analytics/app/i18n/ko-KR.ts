@@ -86,8 +86,7 @@ export default {
       "임시 Sigma 자격 증명을 저장하지 못했습니다. Vault 액세스 권한을 확인한 후 다시 시도하세요.",
     sigmaCredentialsRequired:
       "먼저 Sigma 클라이언트 ID와 클라이언트 시크릿을 저장하세요.",
-    sigmaBaseUrlInvalid:
-      "Sigma에서 공식 지원하는 API 리전 URL을 선택하세요.",
+    sigmaBaseUrlInvalid: "Sigma에서 공식 지원하는 API 리전 URL을 선택하세요.",
     sigmaPersistenceUnavailable:
       "현재 Analytics에서 Sigma 연결을 안전하게 저장할 수 없습니다. 다시 시도하세요.",
     sigmaPolicyInvalid:

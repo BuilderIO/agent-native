@@ -86,8 +86,7 @@ export default {
     sigmaCredentialStageFailed:
       "تعذر تخزين بيانات اعتماد Sigma المؤقتة. تحقق من إمكانية الوصول إلى Vault ثم حاول مرة أخرى.",
     sigmaCredentialsRequired: "احفظ معرّف عميل Sigma وسر العميل أولًا.",
-    sigmaBaseUrlInvalid:
-      "اختر عنوان URL رسميًا لمنطقة Sigma API مدعومة.",
+    sigmaBaseUrlInvalid: "اختر عنوان URL رسميًا لمنطقة Sigma API مدعومة.",
     sigmaPersistenceUnavailable:
       "لا يمكن لـ Analytics حفظ اتصال Sigma بأمان حاليًا. حاول مرة أخرى.",
     sigmaPolicyInvalid:
