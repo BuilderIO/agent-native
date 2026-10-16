@@ -18,7 +18,10 @@ vi.mock("../db/index.js", async () => {
   return { ...actual, getDb: getDbMock };
 });
 
-import { MAX_OUTPUTS_PER_RECORDING } from "../../shared/output-use";
+import {
+  MAX_OUTPUTS_PER_RECORDING,
+  MIN_PRESENTATION_MS,
+} from "../../shared/output-use";
 import { schema } from "../db/index.js";
 import {
   __resetOutputOutcomesForTests,
@@ -150,6 +153,20 @@ describe("aggregateOutputOutcomeRows", () => {
       firstUsedAt: "2026-10-03T10:00:00.000Z",
       usedEvent: "deck_exported",
     });
+  });
+
+  it("counts a presentation from one slide advanced and 30 seconds", () => {
+    const usedEvent = (properties: Record<string, unknown>) =>
+      aggregateOutputOutcomeRows([
+        made("s1", "deck-1"),
+        presented("deck-1", "2026-10-02T10:00:00.000Z", properties),
+      ]).outcomes[0]?.usedEvent ?? null;
+    expect(
+      usedEvent({ slides_advanced: 1, duration_ms: MIN_PRESENTATION_MS }),
+    ).toBe("presentation_ended");
+    expect(
+      usedEvent({ slides_advanced: 1, duration_ms: MIN_PRESENTATION_MS - 1 }),
+    ).toBeNull();
   });
 
   it("keeps the earliest making with its session", () => {
@@ -331,6 +348,75 @@ describe("output outcomes on Postgres", () => {
     await addRecording("r1", "s1");
 
     expect(await unusedRecordings(AFTER_WINDOW)).toEqual(["r1"]);
+  });
+
+  it("counts a use at exactly seven days", async () => {
+    await ingest([made("s1", "deck-1")]);
+    await ingest([exported("deck-1", "2026-10-08T10:00:00.000Z")]);
+    await addRecording("r1", "s1");
+
+    expect(await unusedRecordings(AFTER_WINDOW)).toEqual([]);
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r1"],
+      AFTER_WINDOW,
+    );
+    expect(result.outputs.r1?.[0]?.status).toBe("used");
+  });
+
+  it("counts a use delivered before its making", async () => {
+    await ingest([presented("deck-1", "2026-10-03T10:00:00.000Z")]);
+    await ingest([made("s1", "deck-1")]);
+    await addRecording("r1", "s1");
+
+    expect(await unusedRecordings(AFTER_WINDOW)).toEqual([]);
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r1"],
+      AFTER_WINDOW,
+    );
+    expect(result.outputs.r1).toMatchObject([
+      { status: "used", usedAt: "2026-10-03T10:00:00.000Z" },
+    ]);
+  });
+
+  it("reads a batch delivered twice the same as once", async () => {
+    const batch = [
+      made("s1", "deck-1"),
+      presented("deck-1", "2026-10-03T10:00:00.000Z"),
+    ];
+    await ingest(batch);
+    await ingest(batch);
+    await addRecording("r1", "s1");
+
+    const rows = await client.query(
+      "SELECT count(*)::int AS count FROM analytics_output_outcomes",
+    );
+    expect(rows.rows[0].count).toBe(1);
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r1"],
+      AFTER_WINDOW,
+    );
+    expect(result.outputs.r1?.[0]?.status).toBe("used");
+  });
+
+  it("keeps two tenants' decks with the same id apart", async () => {
+    const other = { ownerEmail: "other@example.com", orgId: "org_2" };
+    await ingest([made("s1", "deck-1"), made("s2", "deck-1", MADE, other)]);
+    await ingest([
+      { ...presented("deck-1", "2026-10-03T10:00:00.000Z"), ...other },
+    ]);
+    await addRecording("r1", "s1");
+    await addRecording("r2", "s2", other);
+
+    expect(await unusedRecordings(AFTER_WINDOW)).toEqual(["r1"]);
+    expect(
+      await unusedRecordings(AFTER_WINDOW, {
+        userEmail: other.ownerEmail,
+        orgId: other.orgId,
+      }),
+    ).toEqual([]);
   });
 
   it("merges batches that arrive out of order", async () => {
