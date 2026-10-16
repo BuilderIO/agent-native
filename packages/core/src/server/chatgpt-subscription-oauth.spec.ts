@@ -21,8 +21,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../labs/store.js", () => mocks);
 
 // Account reads hit the settings and OAuth tables, which a fresh test database
-// does not have. Default every read to "no account"; the unresolved-scope test
-// asserts these reads never happen, so the stub cannot hide a skipped guard.
+// does not have. Each read defaults to "no account"; a test that seeds an
+// account must set the mock itself. The unresolved-scope test asserts these
+// reads never happen, so the stub cannot hide a skipped guard. The mocked
+// credential reader skips isChatGPTCredential, so seeded credentials must pass
+// that validator by hand.
 vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
   listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
