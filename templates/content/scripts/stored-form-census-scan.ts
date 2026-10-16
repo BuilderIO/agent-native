@@ -6,7 +6,7 @@ import { resolveMarkdownSuggestionRange } from "../shared/suggestion-rebase.js";
 import {
   canonicalizerFingerprint,
   classifyBody,
-  quoteAnchors,
+  commentAnchorText,
 } from "./stored-form-census-kinds.js";
 
 type CensusQuery = (
@@ -16,6 +16,10 @@ type CensusQuery = (
 
 const PAGE_BATCH = 100;
 const ITEM_BATCH = 200;
+// Each suggestion's payloads are loaded with its batch, so the batch is small
+// and a row over the byte cap is counted without being loaded.
+const SUGGESTION_BATCH = 25;
+const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
 const ORPHAN_BATCH = 1000;
 // Larger bodies and live copies are counted without being parsed. Parsing has
 // no deadline and Content's parser is quadratic on some input (a run of `[`
@@ -52,7 +56,7 @@ export const CENSUS_STATEMENTS = {
   suggestions:
     "SELECT id, resource_id FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id, id) >= (?, ?) ORDER BY resource_id, id LIMIT ?",
   suggestionOperations:
-    "SELECT suggestion_id, operation_kind, target_id, schema_version, before_json, after_json, anchor_json FROM agent_review_suggestion_operations WHERE suggestion_id = ANY(?) ORDER BY suggestion_id, ordinal",
+    "SELECT o.suggestion_id, o.operation_kind, o.target_id, o.schema_version, p.payload_bytes, CASE WHEN p.payload_bytes <= ? THEN o.before_json END AS before_json, CASE WHEN p.payload_bytes <= ? THEN o.after_json END AS after_json, CASE WHEN p.payload_bytes <= ? THEN o.anchor_json END AS anchor_json FROM agent_review_suggestion_operations o CROSS JOIN LATERAL (SELECT COALESCE(octet_length(o.before_json), 0) + COALESCE(octet_length(o.after_json), 0) + COALESCE(octet_length(o.anchor_json), 0) AS payload_bytes) p WHERE o.suggestion_id = ANY(?) ORDER BY o.suggestion_id, o.ordinal",
   comments:
     "SELECT id, document_id, quoted_text FROM document_comments WHERE document_id = ANY(?) AND parent_id IS NULL AND resolved = 0 AND quoted_text IS NOT NULL AND quoted_text <> '' AND (document_id, id) >= (?, ?) ORDER BY document_id, id LIMIT ?",
   drafts:
@@ -186,6 +190,35 @@ function anchorOutcome(
   return afterCanonicalize ? "recoveredByCanonicalize" : "alreadyUnanchored";
 }
 
+function occurrences(text: string, quote: string): number {
+  // Non-overlapping, as the editor counts the candidates it chooses among.
+  let count = 0;
+  for (
+    let at = text.indexOf(quote);
+    at !== -1 && count < 2;
+    at = text.indexOf(quote, at + Math.max(1, quote.length))
+  )
+    count += 1;
+  return count;
+}
+
+/**
+ * Where a comment's quote lands. The editor picks among repeated quotes by
+ * the text around them, so once canonicalizing changes the editor text a
+ * repeated quote may land on another occurrence, which is not judged.
+ */
+function commentOutcome(
+  now: string,
+  after: string,
+  quote: string,
+): AnchorOutcome | "ambiguous" {
+  const before = occurrences(now, quote);
+  const kept = occurrences(after, quote);
+  if (now !== after && before > 0 && kept > 0 && Math.max(before, kept) > 1)
+    return "ambiguous";
+  return anchorOutcome(before > 0, kept > 0);
+}
+
 type LiveCopyOutcome =
   | "match"
   | "equivalent"
@@ -235,13 +268,41 @@ function parseJsonObject(
     : { ok: false, malformed: false };
 }
 
+type SuggestionOperation = Parameters<typeof resolveMarkdownSuggestionRange>[1];
+
+/**
+ * Whether accepting would place `operation` on `markdown`, by the rule of
+ * applyMarkdownSuggestionOperation in server/lib/suggested-edits.ts: the text
+ * it was made against takes it whole, with or without an anchor; any other
+ * text needs changed text on both sides and an anchor that still resolves.
+ */
+function appliesTo(markdown: string, operation: SuggestionOperation) {
+  const before = operation.before as Record<string, unknown>;
+  const after = operation.after as Record<string, unknown>;
+  if (markdown === before.markdown) return true;
+  const anchor = operation.anchor as Record<string, unknown> | null;
+  if (
+    typeof before.changedText !== "string" ||
+    typeof after.changedText !== "string" ||
+    !anchor ||
+    !Number.isInteger(anchor.from) ||
+    !Number.isInteger(anchor.to) ||
+    typeof anchor.prefix !== "string" ||
+    typeof anchor.suffix !== "string"
+  )
+    return false;
+  return resolveMarkdownSuggestionRange(markdown, operation) !== null;
+}
+
 /** Where a pending suggestion's anchor lands, or why it cannot be judged. */
 function suggestionOutcome(
   operations: Record<string, unknown>[],
   page: AgentFormPage,
-): AnchorOutcome | "notAcceptable" | "unreadable" {
+): AnchorOutcome | "notAcceptable" | "unreadable" | "tooLarge" {
   if (operations.length !== 1) return "notAcceptable";
   const [row] = operations;
+  if (Number(row.payload_bytes) > MAX_SUGGESTION_PAYLOAD_BYTES)
+    return "tooLarge";
   const before = parseJsonObject(row.before_json);
   const after = parseJsonObject(row.after_json);
   const anchor = parseJsonObject(row.anchor_json);
@@ -255,7 +316,6 @@ function suggestionOutcome(
     Number(row.schema_version) !== 1 ||
     !before.ok ||
     !after.ok ||
-    !anchor.ok ||
     typeof before.value.markdown !== "string" ||
     typeof after.value.markdown !== "string" ||
     before.value.markdown.length > MAX_SUGGESTION_MARKDOWN_CHARS ||
@@ -270,12 +330,12 @@ function suggestionOutcome(
     schemaVersion: 1,
     before: before.value,
     after: after.value,
-    anchor: anchor.value,
-  } as Parameters<typeof resolveMarkdownSuggestionRange>[1];
+    anchor: anchor.ok ? anchor.value : null,
+  } as SuggestionOperation;
   try {
     return anchorOutcome(
-      resolveMarkdownSuggestionRange(page.body, operation) !== null,
-      resolveMarkdownSuggestionRange(page.canonical, operation) !== null,
+      appliesTo(page.body, operation),
+      appliesTo(page.canonical, operation),
     );
   } catch {
     return "unreadable";
@@ -472,12 +532,15 @@ export async function runStoredFormCensusScan(
           ]),
         (row) => [String(row.resource_id), String(row.id)],
         2,
-        ITEM_BATCH,
+        SUGGESTION_BATCH,
       )) {
         const operations = new Map<string, Record<string, unknown>[]>(
           suggestions.map((row) => [String(row.id), []]),
         );
         for (const row of await read(CENSUS_STATEMENTS.suggestionOperations, [
+          MAX_SUGGESTION_PAYLOAD_BYTES,
+          MAX_SUGGESTION_PAYLOAD_BYTES,
+          MAX_SUGGESTION_PAYLOAD_BYTES,
           [...operations.keys()],
         ]))
           operations.get(String(row.suggestion_id))?.push(row);
@@ -492,18 +555,15 @@ export async function runStoredFormCensusScan(
     }
 
     if (hasComments) {
-      type PageAnchors = {
-        now: (quote: string) => boolean;
-        after: (quote: string) => boolean;
-      };
+      type PageAnchors = { now: string; after: string };
       const anchorsByPage = new Map<string, PageAnchors | "unreadable">();
       const anchorsFor = (page: AgentFormPage) => {
         let anchors = anchorsByPage.get(page.id);
         if (anchors === undefined) {
           try {
             anchors = {
-              now: quoteAnchors(page.body),
-              after: quoteAnchors(page.canonical),
+              now: commentAnchorText(page.body),
+              after: commentAnchorText(page.canonical),
             };
           } catch {
             anchors = "unreadable";
@@ -527,7 +587,7 @@ export async function runStoredFormCensusScan(
             .get(
               anchors === "unreadable" || typeof quote !== "string"
                 ? "unreadable"
-                : anchorOutcome(anchors.now(quote), anchors.after(quote)),
+                : commentOutcome(anchors.now, anchors.after, quote),
             )
             .add(page);
           await keepAlive();
@@ -582,8 +642,16 @@ export async function runStoredFormCensusScan(
       agentForm.suggestions.pagesIn("unreadable"),
     ],
     [
+      `pages with suggestions over ${MAX_SUGGESTION_PAYLOAD_BYTES} bytes, not judged`,
+      agentForm.suggestions.pagesIn("tooLarge"),
+    ],
+    [
       "pages with comments whose anchors could not be checked",
       agentForm.comments.pagesIn("unreadable"),
+    ],
+    [
+      "pages with comments whose repeated quote may land elsewhere",
+      agentForm.comments.pagesIn("ambiguous"),
     ],
   ];
   for (const [reason, pages] of notJudged)

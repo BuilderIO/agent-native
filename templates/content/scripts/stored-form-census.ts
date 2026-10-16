@@ -321,11 +321,13 @@ export type CensusCliDependencies = {
   connect: (url: string) => Promise<DbExec>;
 };
 
-const URL_CREDENTIALS = /(\/\/[^\s:@/]*):[^\s@/]*@/g;
+// The whole user info: a URL without a password can still carry a secret as
+// its user name.
+const URL_CREDENTIALS = /\/\/[^\s@/]*@/g;
 
 /** `text` with URL credentials and the target's password replaced. */
 export function redactCredentials(text: string, password = ""): string {
-  const redacted = text.replace(URL_CREDENTIALS, "$1:***@");
+  const redacted = text.replace(URL_CREDENTIALS, "//***@");
   const secrets = [password, safeDecode(password)].filter(
     (secret) => secret.length > 0,
   );

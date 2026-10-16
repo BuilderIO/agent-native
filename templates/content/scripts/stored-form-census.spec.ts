@@ -300,8 +300,20 @@ describe("stored-form census guards (SF-09)", () => {
     expect(failure).not.toContain(PASSWORD);
 
     expect(redactCredentials(`see ${url} now`)).toBe(
-      `see ${targetUrl("reader", BRANCH_HOST, "neondb", "***")} now`,
+      `see postgres://***@${BRANCH_HOST}/neondb now`,
     );
+
+    // A URL with no password can still carry a secret as its user name.
+    const passwordless = cli(
+      ["--database-url-env=CENSUS_URL"],
+      { CENSUS_URL: targetUrl(PASSWORD, "localhost", "content", "") },
+      async (target) => {
+        throw new Error(`could not reach ${target}`);
+      },
+    );
+    expect(await passwordless.run).toBe(1);
+    expect(passwordless.events.join("\n")).toContain("could not reach");
+    expect(passwordless.events.join("\n")).not.toContain(PASSWORD);
 
     // The password may also sit where the target lines and refusals print.
     for (const misplaced of [
@@ -804,6 +816,72 @@ describe("stored-form census against a local database", () => {
       "bodies over 262144 bytes, not classified: 1",
       "unreadable live copies: 1",
       "pages with suggestions that could not be read or resolved: 1",
+    ]);
+  });
+
+  it("judges suggestions by Content's accept rule and leaves repeated quotes unjudged", async () => {
+    // Canonicalizing reads the code span as a fence, so the editor text
+    // changes from "notea``bnote" to "notenote".
+    const body = "note\n\n`a``b`\n\nnote";
+    await db.execute({
+      sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
+      args: ["page-repeat", body],
+    });
+    for (const [id, before, after] of [
+      // Applies now without an anchor because the body is unchanged.
+      ["suggestion-whole", body, "note"],
+      ["suggestion-older", "older text", "newer text"],
+      ["suggestion-huge", "x".repeat(5 * 1024 * 1024), "y"],
+    ]) {
+      await db.execute({
+        sql: "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, actor_kind, base_revision, summary, created_at, updated_at) VALUES (?, 'document', 'page-repeat', 'content.document-markdown', 1, 't2', 'agent', 'r0', 'Edit', 'now', 'now')",
+        args: [id],
+      });
+      await db.execute({
+        sql: "INSERT INTO agent_review_suggestion_operations (id, suggestion_id, ordinal, operation_kind, target_id, before_json, after_json, schema_version) VALUES (?, ?, 0, 'replace_text', 'body', ?, ?, 1)",
+        args: [
+          `${id}-operation`,
+          id,
+          JSON.stringify({ markdown: before }),
+          JSON.stringify({ markdown: after }),
+        ],
+      });
+    }
+    for (const [id, quote] of [
+      ["comment-repeat", "note"],
+      ["comment-code", "a``b"],
+    ]) {
+      await db.execute({
+        sql: "INSERT INTO document_comments (id, document_id, thread_id, content, quoted_text, author_email) VALUES (?, 'page-repeat', ?, 'Comment', ?, 'a@example.com')",
+        args: [id, id, quote],
+      });
+    }
+    const { run, stdout } = cli(
+      ["--database-url-env=CENSUS_URL"],
+      { CENSUS_URL: "pglite:memory" },
+      async () => ({ ...db, close: async () => {} }),
+    );
+    expect(await run).toBe(2);
+    const report = JSON.parse(stdout.join(""));
+    const suggestions = report.agentFormPages.pendingSuggestions;
+    expect(suggestions.strandedByCanonicalize.pageIds).toContain("page-repeat");
+    expect(suggestions.alreadyUnanchored).toMatchObject({
+      items: 1,
+      pageIds: ["page-repeat"],
+    });
+    expect(suggestions.tooLarge).toMatchObject({
+      items: 1,
+      pageIds: ["page-repeat"],
+    });
+    const comments = report.agentFormPages.commentAnchors;
+    expect(comments.ambiguous).toMatchObject({
+      items: 1,
+      pageIds: ["page-repeat"],
+    });
+    expect(comments.strandedByCanonicalize.pageIds).toContain("page-repeat");
+    expect(report.incompleteReasons).toEqual([
+      "pages with suggestions over 4194304 bytes, not judged: 1",
+      "pages with comments whose repeated quote may land elsewhere: 1",
     ]);
   });
 

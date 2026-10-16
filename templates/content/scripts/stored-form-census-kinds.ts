@@ -655,10 +655,9 @@ export function classifyBody(body: string): BodyClassification {
   };
 }
 
-/** Whether a comment's quote can still be found in the page's editor text. */
-export function quoteAnchors(markdown: string): (quote: string) => boolean {
-  const text = editorText(nfmToDoc(markdown));
-  return (quote) => text.includes(quote);
+/** The editor text a comment's quote is anchored against. */
+export function commentAnchorText(markdown: string): string {
+  return editorText(nfmToDoc(markdown));
 }
 
 const CANONICALIZER_PROBES = [
