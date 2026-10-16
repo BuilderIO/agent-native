@@ -15,6 +15,7 @@ export const DBT_CONNECTION_READINESS = [
   "not_connected",
   "token_missing",
   "environment_missing",
+  "environment_invalid",
   "needs_reauth",
   "error",
 ] as const;
@@ -44,7 +45,10 @@ export function dbtConnectionReadiness({
   if (status !== "connected") return "not_connected";
   if (tokenConfigured === null) return "error";
   if (!tokenConfigured) return "token_missing";
-  if (!environmentId) return "environment_missing";
+  // Same check as query-dbt-semantic-metric, which trims and then requires digits.
+  const environment = environmentId?.trim() ?? "";
+  if (!environment) return "environment_missing";
+  if (!/^\d+$/.test(environment)) return "environment_invalid";
   return "ready";
 }
 
@@ -60,6 +64,8 @@ export function dbtConnectionReadinessReason(
       return "The dbt Semantic Layer token is not saved.";
     case "environment_missing":
       return "The dbt environment ID is not saved.";
+    case "environment_invalid":
+      return "The saved dbt environment ID must contain only digits. Re-save it on the Semantic Layer page.";
     case "needs_reauth":
       return "The dbt connection needs to be reconnected.";
     case "error":

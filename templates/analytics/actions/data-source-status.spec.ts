@@ -54,6 +54,12 @@ vi.mock("@agent-native/core/connections", () => ({
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionGrants: mocks.listWorkspaceConnectionGrants,
+  resolveWorkspaceConnectionForApp: async () => ({
+    available: true,
+    connection: null,
+    appAccess: null,
+    reason: "",
+  }),
   listWorkspaceConnections: mocks.listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderForApp: vi.fn(
     ({
@@ -117,6 +123,7 @@ vi.mock("../server/lib/github-oauth", () => ({
 }));
 
 vi.mock("../server/lib/provider-credentials", () => ({
+  ANALYTICS_APP_ID: "analytics",
   resolveAnalyticsProviderCredential: mocks.resolveAnalyticsProviderCredential,
 }));
 

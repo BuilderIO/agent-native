@@ -66,6 +66,16 @@ function connectionReadiness(readiness: string): ToolCallDetail {
   );
 }
 
+function warehouseRead(isError = false): ToolCallDetail {
+  return {
+    name: "bigquery",
+    input: {},
+    completed: true,
+    isError,
+    result: "{}",
+  };
+}
+
 const DISCLOSED =
   "The synthetic_active_accounts value is 10. It reads warehouse tables and is not the owner-approved Semantic Layer definition.";
 
@@ -254,8 +264,12 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
       ],
     ];
 
+    // Every passing disclosure also needs a successful warehouse read.
     for (const [label, output] of passing) {
-      const { report } = await scoreCase(unconnectedCase, output);
+      const { report } = await scoreCase(unconnectedCase, {
+        ...output,
+        toolCallDetails: [...(output.toolCallDetails ?? []), warehouseRead()],
+      });
       expect(report, label).toMatchObject({ total: 1, passed: 1, failed: 0 });
     }
     for (const [label, output, reason] of failing) {
@@ -267,5 +281,49 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
       });
       expect(result.reason, label).toContain(reason);
     }
+  });
+
+  it("requires a successful warehouse read and catches approval claims in other phrasings", async () => {
+    const readiness = [connectionReadiness("not_connected")];
+    const withRead = (text: string) =>
+      transcript(
+        text,
+        ["get-dbt-connection", "bigquery"],
+        [...readiness, warehouseRead()],
+      );
+
+    for (const output of [
+      transcript(DISCLOSED, ["get-dbt-connection"], readiness),
+      transcript(
+        DISCLOSED,
+        ["get-dbt-connection", "bigquery"],
+        [...readiness, warehouseRead(true)],
+      ),
+    ]) {
+      const { report, reason } = await scoreCase(unconnectedCase, output);
+      expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+      expect(reason).toContain("no successful warehouse query");
+    }
+
+    for (const text of [
+      "This is approved: 10. It reads warehouse tables and is not the owner-approved Semantic Layer definition.",
+      "The approved number is 10. It reads warehouse tables and is not the owner-approved Semantic Layer definition.",
+      "The value comes from the approved metric. It reads warehouse tables and is not the owner-approved Semantic Layer definition.",
+    ]) {
+      const { report, reason } = await scoreCase(
+        unconnectedCase,
+        withRead(text),
+      );
+      expect(report, text).toMatchObject({ total: 1, passed: 0, failed: 1 });
+      expect(reason, text).toContain(
+        "presented the number as the approved definition",
+      );
+    }
+
+    // A negated mention of the approved definition is a correct disclosure.
+    const negated =
+      "The approved definition is not available for this metric. The value is 10 from warehouse tables and is not the owner-approved Semantic Layer definition.";
+    const { report } = await scoreCase(unconnectedCase, withRead(negated));
+    expect(report, negated).toMatchObject({ total: 1, passed: 1, failed: 0 });
   });
 });

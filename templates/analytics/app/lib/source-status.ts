@@ -33,7 +33,14 @@ function dbtHealthState(
   connection: WorkspaceConnectionProviderSummary | undefined,
 ): SourceHealthState {
   const readiness = connection?.dbtReadiness;
-  if (readiness === undefined || readiness === "error") return "error";
+  // A saved but malformed environment ID needs repair, so it is an error, not a missing setup step.
+  if (
+    readiness === undefined ||
+    readiness === "error" ||
+    readiness === "environment_invalid"
+  ) {
+    return "error";
+  }
   if (readiness === "needs_reauth") return "needs_reauth";
   return readiness === "ready" ? "connected" : "not_connected";
 }
@@ -61,8 +68,16 @@ export function sourceHealthState(
   const grantState = connection?.grantState;
   // The aggregate status list includes connections granted to other apps.
   // Use the per-connection list filtered for Analytics when assessing health.
+  // dbt health comes from readiness whatever the grant state, so a granted row
+  // in error cannot fall through to "configured".
+  if (
+    sourceId === "dbt" &&
+    (grantState === "connected" || grantState === "granted")
+  ) {
+    return dbtHealthState(connection);
+  }
   if (grantState === "connected") {
-    return sourceId === "dbt" ? dbtHealthState(connection) : "connected";
+    return "connected";
   }
   if (grantState === "needs_grant") {
     const missingRequiredKeys = provider?.missingRequiredKeys;

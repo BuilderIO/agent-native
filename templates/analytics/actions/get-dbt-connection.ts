@@ -8,6 +8,7 @@ import { listWorkspaceConnectionsForApp } from "@agent-native/core/workspace-con
 import { z } from "zod";
 
 import { resolveOrgRole } from "../server/lib/db-admin-connections.js";
+import { callerAccessibleDbtConnections } from "../server/lib/dbt-caller-connections.js";
 import {
   DBT_BASE_URL_CONFIG_KEY,
   DBT_CONNECTION_READINESS,
@@ -96,7 +97,8 @@ export default defineAction({
       }),
       resolveOrgRole(email, orgId),
     ]);
-    const listed = connections.map((connection) => {
+    const callerConnections = await callerAccessibleDbtConnections(connections);
+    const listed = callerConnections.map((connection) => {
       const environmentId = configString(
         connection,
         DBT_ENVIRONMENT_CONFIG_KEY,

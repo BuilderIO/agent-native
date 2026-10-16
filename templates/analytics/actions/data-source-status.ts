@@ -19,6 +19,7 @@ import {
 } from "../server/lib/credential-keys";
 import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
+import { callerAccessibleDbtConnections } from "../server/lib/dbt-caller-connections";
 import { DBT_PROVIDER_ID } from "../server/lib/dbt-connection";
 import { dbtProviderReadiness } from "../server/lib/dbt-readiness";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
@@ -225,10 +226,17 @@ export default defineAction({
         workspace.grants,
       ).connections.map((connection) => connection.id),
     );
-    const dbtReadiness = await dbtProviderReadiness(
-      dbtConnections.filter((connection) => dbtGrantedIds.has(connection.id)),
-      ctx.orgId ?? null,
-    );
+    // A failed workspace listing means the rows are unknown, not absent.
+    const dbtReadiness = workspace.error
+      ? "error"
+      : await dbtProviderReadiness(
+          await callerAccessibleDbtConnections(
+            dbtConnections.filter((connection) =>
+              dbtGrantedIds.has(connection.id),
+            ),
+          ),
+          ctx.orgId ?? null,
+        );
     const workspaceProviderStatuses = workspaceProviderIds.map((providerId) => {
       const catalogProvider =
         workspaceCatalog.find((provider) => provider.id === providerId) ??

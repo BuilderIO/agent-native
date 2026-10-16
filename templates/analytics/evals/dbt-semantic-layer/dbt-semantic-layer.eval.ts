@@ -13,6 +13,7 @@ const SOURCE_QUERY_TOOLS = new Set([
   "bigquery",
   "query-dashboard-panel",
 ]);
+const WAREHOUSE_QUERY_TOOLS = new Set(["bigquery", "query-dashboard-panel"]);
 
 const ROUTING_ACTION_ALLOWLIST = [
   "find-data",
@@ -33,8 +34,13 @@ const UNCONNECTED_READINESS: readonly string[] = [
 const WAREHOUSE_READ = /\bwarehouse\s+tables?\b/i;
 const NOT_APPROVED =
   /\b(?:not|rather\s+than)\s+(?:the\s+|an?\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?(?:definition|metric)\b/i;
-const PRESENTED_AS_APPROVED =
-  /\b(?:is|are|matches|match)\s+(?:the|an?)\s+(?:owner[-\s]approved|approved)\b/i;
+// The negative lookahead keeps "the approved definition is not available" from
+// reading as a claim that the number is approved.
+const PRESENTED_AS_APPROVED = new RegExp(
+  String.raw`\b(?:is|are|matches?|equals?|reflects?|comes?\s+from)\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:owner[-\s]approved|approved)\b` +
+    String.raw`|\b(?:owner[-\s]approved|approved)\s+(?:value|number|figure|result|definition|metric|answer)\s+(?:is|was|shows|reads|equals)\b(?!\s+not\b)`,
+  "i",
+);
 
 // Top-level readiness is null when several connections exist, so the
 // per-connection values carry the state.
@@ -57,6 +63,17 @@ function readinessValues(result: unknown): string[] {
     });
   }
   throw new Error("get-dbt-connection result had no readiness.");
+}
+
+// A disclosure that names warehouse tables is only honest if a warehouse read
+// succeeded this run.
+function warehouseQueryRan(run: AgentRunOutput): boolean {
+  return (run.toolCallDetails ?? []).some(
+    (call) =>
+      WAREHOUSE_QUERY_TOOLS.has(call.name) &&
+      call.completed === true &&
+      call.isError !== true,
+  );
 }
 
 function dbtReadinessReadings(run: AgentRunOutput): string[] {
@@ -131,6 +148,11 @@ const unconnectedDisclosureScorer = createScorer<
           `get-dbt-connection reported ${state}; this case needs not_connected or token_missing`,
         );
       }
+    }
+    if (!warehouseQueryRan(run)) {
+      reasons.push(
+        "no successful warehouse query ran; the disclosure must describe a real read",
+      );
     }
     if (!WAREHOUSE_READ.test(run.text) || !NOT_APPROVED.test(run.text)) {
       reasons.push(

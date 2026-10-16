@@ -6,6 +6,12 @@ const mocks = vi.hoisted(() => ({
   hasAppSecret: vi.fn(async () => true),
   listWorkspaceConnectionsForApp: vi.fn(),
   resolveOrgRole: vi.fn(async () => "member" as string | null),
+  resolveWorkspaceConnectionForApp: vi.fn(async () => ({
+    available: true,
+    connection: null,
+    appAccess: null,
+    reason: "",
+  })),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -26,6 +32,7 @@ vi.mock("@agent-native/core/secrets", () => ({
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionForApp: mocks.resolveWorkspaceConnectionForApp,
 }));
 
 vi.mock("../server/lib/db-admin-connections.js", () => ({
@@ -185,6 +192,47 @@ describe("get-dbt-connection", () => {
       "member@example.test",
       "org_test",
     );
+  });
+
+  it("drops a connection restricted to another user, so it cannot make this caller look ready", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      connectedRow,
+      { ...connectedRow, id: "conn_dbt_2", label: "dbt Cloud (restricted)" },
+    ]);
+    mocks.resolveWorkspaceConnectionForApp
+      .mockResolvedValueOnce({
+        available: true,
+        connection: connectedRow,
+        appAccess: null,
+        reason: "",
+      } as never)
+      .mockResolvedValueOnce({
+        available: false,
+        connection: null,
+        appAccess: null,
+        reason: "restricted",
+      } as never);
+
+    await expect(action.run({}, {} as never)).resolves.toMatchObject({
+      connected: true,
+      readiness: "ready",
+      connectionId: "conn_dbt_1",
+      connections: [{ id: "conn_dbt_1", readiness: "ready" }],
+    });
+  });
+
+  it("reports a malformed environment ID as environment_invalid, not ready", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      {
+        ...connectedRow,
+        config: { ...connectedRow.config, semanticLayerEnvironmentId: "12a" },
+      },
+    ]);
+
+    await expect(action.run({}, {} as never)).resolves.toMatchObject({
+      connected: false,
+      readiness: "environment_invalid",
+    });
   });
 
   it("fails loudly instead of reporting an unconfigured connection when a stored value is not a string", async () => {

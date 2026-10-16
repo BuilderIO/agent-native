@@ -23,6 +23,7 @@ import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
 import "../lib/sigma-setup-secret-sweep.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import { callerAccessibleDbtConnections } from "../lib/dbt-caller-connections";
 import {
   DBT_CONNECTION_READINESS,
   DBT_PROVIDER_ID,
@@ -342,18 +343,23 @@ const DBT_READINESS_UNKNOWN_LINE =
 
 // Runs on every agent run. A throw here drops the whole guidance block (core
 // returns an empty string), so a failed lookup must become the "unknown" line.
-async function dbtReadinessLine(event: any): Promise<string> {
+// Returns null when the org has no dbt connection at all, so the guidance does
+// not spend tokens on a source the org cannot use.
+async function dbtReadinessLine(event: any): Promise<string | null> {
   try {
     const ctx = await getOrgContext(event);
-    const grantedConnections = await listWorkspaceConnectionsForApp({
-      appId: ANALYTICS_APP_ID,
-      provider: DBT_PROVIDER_ID,
-      includeDisabled: true,
-    });
+    const grantedConnections = await callerAccessibleDbtConnections(
+      await listWorkspaceConnectionsForApp({
+        appId: ANALYTICS_APP_ID,
+        provider: DBT_PROVIDER_ID,
+        includeDisabled: true,
+      }),
+    );
     const readiness = await dbtProviderReadiness(
       grantedConnections,
       ctx.orgId ?? null,
     );
+    if (readiness === "not_connected") return null;
     if (readiness === "ready") return "dbt Semantic Layer: ready.";
     return `dbt Semantic Layer: not ready (${readiness}). ${dbtConnectionReadinessReason(readiness)} Setup: [Semantic Layer](${DBT_SEMANTIC_LAYER_LINK}).`;
   } catch (error) {
@@ -365,7 +371,7 @@ async function dbtReadinessLine(event: any): Promise<string> {
 }
 
 async function analyticsRequestExtraContext(event: any): Promise<string> {
-  return analyticsExtraContext(await dbtReadinessLine(event));
+  return analyticsExtraContext((await dbtReadinessLine(event)) ?? undefined);
 }
 
 // A request stays inside one sentence or one bulleted list: a summary of the
@@ -525,26 +531,50 @@ function exhaustedDraftPrefixFor({
 }
 
 // Names dbt only when this turn gives a reason to: the in-turn status check
-// reported dbt not ready, or a dbt metric query failed. Silence is not "ready".
+// reported a dbt connection that is not ready, or this turn queried dbt. An org
+// with no dbt connection gets no note unless it asked for dbt. Silence is not "ready".
 function dbtUnverifiedNote(
   sourceStatus: DataSourceStatusSummary,
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
 ): string | null {
-  const readiness = sourceStatus.dbtReadiness;
-  if (readiness !== undefined && readiness !== "ready") {
-    return `The dbt Semantic Layer is not ready: ${dbtConnectionReadinessReason(readiness)} Set it up on the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}), then ask again.`;
-  }
-  const dbtQueryFailed = (toolResults ?? []).some(
+  const dbtResults = (toolResults ?? []).filter(
     (result) =>
-      result.isError === true &&
       String(result.name ?? "")
         .trim()
         .toLowerCase()
-        .replace(/[\s_]+/g, "-") === "query-dbt-semantic-metric",
+        .replace(/[\s_]+/g, "-") === DBT_QUERY_TOOL,
   );
-  return dbtQueryFailed
-    ? `The dbt Semantic Layer query failed this turn. Check the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}) for the connection status, then ask again.`
+  const readiness = sourceStatus.dbtReadiness;
+  if (
+    readiness !== undefined &&
+    readiness !== "ready" &&
+    (readiness !== "not_connected" || dbtResults.length > 0)
+  ) {
+    return `The dbt Semantic Layer is not ready: ${dbtConnectionReadinessReason(readiness)} Set it up on the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}), then ask again.`;
+  }
+  return dbtResults.some(dbtQueryDidNotComplete)
+    ? `The dbt Semantic Layer query did not complete this turn. Check the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}) for the connection status, then ask again.`
     : null;
+}
+
+const DBT_QUERY_TOOL = "query-dbt-semantic-metric";
+
+// Normal failure states (connection_error, not_found, ...) return without
+// isError, so the payload status decides too. An unreadable payload counts as
+// not completed rather than as success.
+function dbtQueryDidNotComplete(result: {
+  isError?: boolean;
+  content?: unknown;
+}): boolean {
+  if (result.isError === true) return true;
+  try {
+    const parsed = JSON.parse(String(result.content ?? "")) as {
+      status?: unknown;
+    };
+    return parsed.status !== "success";
+  } catch {
+    return true;
+  }
 }
 
 function isRealUserTextMessage(message: {

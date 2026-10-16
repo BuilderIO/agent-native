@@ -42,6 +42,15 @@ describe("dbtConnectionReadiness", () => {
     ).toBe("not_connected");
   });
 
+  it("reports a non-digit environment ID as invalid, and trims surrounding whitespace before checking", () => {
+    expect(dbtConnectionReadiness({ ...ready, environmentId: "12a" })).toBe(
+      "environment_invalid",
+    );
+    expect(
+      dbtConnectionReadiness({ ...ready, environmentId: " 123456 " }),
+    ).toBe("ready");
+  });
+
   it("reports a failed token lookup as an error, not as a missing token", () => {
     expect(dbtConnectionReadiness({ ...ready, tokenConfigured: null })).toBe(
       "error",

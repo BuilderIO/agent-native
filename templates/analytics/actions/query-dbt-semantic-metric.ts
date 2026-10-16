@@ -490,6 +490,7 @@ export default defineAction({
     }),
   outputSchema: queryMetricOutputSchema,
   readOnly: true,
+  grounding: true,
   parallelSafe: true,
   mcpTool: true,
   http: { method: "POST" },
