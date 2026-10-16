@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -65,7 +65,12 @@ export default defineAction({
   readOnly: true,
   run: async (args, context) => {
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail) {
+      fail("Sign in to check the Analytics model", {
+        errorCode: "unauthenticated",
+        statusCode: 401,
+      });
+    }
     const backend = await getFirstPartyAnalyticsBackend(
       { userEmail, orgId: getRequestOrgId() || null },
       context?.signal,

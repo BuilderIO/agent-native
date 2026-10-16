@@ -1,9 +1,3 @@
-import { BigQueryMetadataError, getBigQueryTableMetadata } from "./bigquery";
-import {
-  credentialCacheScope,
-  requireRequestCredentialContext,
-} from "./credentials-context";
-import { raceWithAbort } from "./gcloud";
 import {
   SOURCE_GENERATION_STALE_AFTER_MS,
   type AvailableSourceGeneration,
@@ -12,6 +6,12 @@ import {
   type SourceGenerationUnavailableReason,
   type UnavailableSourceGeneration,
 } from "../../shared/source-generation.js";
+import { BigQueryMetadataError, getBigQueryTableMetadata } from "./bigquery";
+import {
+  credentialCacheScope,
+  requireRequestCredentialContext,
+} from "./credentials-context";
+import { raceWithAbort } from "./gcloud";
 
 export {
   SOURCE_GENERATION_STALE_AFTER_MS,
@@ -146,9 +146,7 @@ export async function resolveSourceGeneration(
       }),
     ),
   );
-  const oldestCheckedAt = sources
-    .map((source) => source.checkedAt)
-    .sort()[0];
+  const oldestCheckedAt = sources.map((source) => source.checkedAt).sort()[0];
   const missing = sources.find(
     (source): source is UnavailableSourceGeneration =>
       source.status === "unavailable",

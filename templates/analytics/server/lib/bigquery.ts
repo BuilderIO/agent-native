@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "crypto";
 import { getDbExec } from "@agent-native/core/db";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import type { SourceGenerationResult } from "../../shared/source-generation.js";
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -11,7 +12,6 @@ import {
 } from "./credentials-context";
 import { getBigQueryAccessToken, raceWithAbort } from "./gcloud";
 import { assertReadOnlySql } from "./read-only-sql";
-import type { SourceGenerationResult } from "../../shared/source-generation.js";
 
 async function getProjectContext(signal?: AbortSignal): Promise<{
   projectId: string;
@@ -534,7 +534,7 @@ function getL1(
     l1Cache.delete(key);
     return null;
   }
-  return entry.result;
+  return reusableCacheHit(entry.result);
 }
 
 function setL1(key: string, result: QueryResult, fence: CacheFence): void {
@@ -683,9 +683,9 @@ async function getL2(key: string): Promise<QueryResult | null> {
     toIsoTimestamp(result.fetchedAt) ?? toIsoTimestamp(entry.created_at);
   if (fetchedAt === undefined) {
     const { fetchedAt: _unreadable, ...rest } = result;
-    return rest;
+    return reusableCacheHit(rest);
   }
-  return { ...result, fetchedAt };
+  return reusableCacheHit({ ...result, fetchedAt });
 }
 
 async function finishCacheQuery(
@@ -1220,13 +1220,15 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     } else {
       // Validate shared generation before L1 so another instance's refresh invalidates local entries.
       cacheFence = await getCacheFence(cacheKey);
-      const l1Hit = reusableCacheHit(
-        getL1(cacheKey, cacheFence.generation, cacheFence.fenceToken),
+      const l1Hit = getL1(
+        cacheKey,
+        cacheFence.generation,
+        cacheFence.fenceToken,
       );
       if (l1Hit) {
         return { ...l1Hit, cached: true };
       }
-      const l2Hit = reusableCacheHit(await getL2(cacheKey));
+      const l2Hit = await getL2(cacheKey);
       if (l2Hit) {
         setL1(cacheKey, l2Hit, cacheFence);
         return { ...l2Hit, cached: true };

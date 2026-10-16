@@ -299,6 +299,7 @@ describe("first-party BigQuery backend", () => {
       table: null,
       backfillCursor: null,
       backfillCompleted: false,
+      modelTable: null,
     });
 
     expect(getOrgSetting).toHaveBeenCalledWith(
@@ -1245,6 +1246,31 @@ describe("first-party BigQuery backend", () => {
         table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
         backfillCursor: "evt_last",
         backfillCompleted: true,
+      }),
+    );
+  });
+
+  it("keeps the stored events model when a save does not name one", async () => {
+    const scope = { userEmail: "owner@example.com", orgId: "org_builder" };
+    getScopedSettingRecord.mockResolvedValue({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      model: { table: "builder-3b0a2.dbt_mart.fact_events" },
+    });
+
+    await expect(getFirstPartyAnalyticsBackend(scope)).resolves.toMatchObject({
+      modelTable: "builder-3b0a2.dbt_mart.fact_events",
+    });
+    await saveFirstPartyAnalyticsBackend(scope, {
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+
+    expect(putScopedSettingRecord).toHaveBeenCalledWith(
+      { email: "owner@example.com", orgId: "org_builder" },
+      "first-party-analytics-backend",
+      expect.objectContaining({
+        model: { table: "builder-3b0a2.dbt_mart.fact_events" },
       }),
     );
   });

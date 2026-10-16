@@ -61,7 +61,11 @@ describe("resolveSourceGeneration", () => {
       MODEL,
     ]);
     expect(getBigQueryTableMetadata).toHaveBeenCalledWith(
-      { projectId: "example-project", datasetId: "dbt_mart", tableId: "dim_users" },
+      {
+        projectId: "example-project",
+        datasetId: "dbt_mart",
+        tableId: "dim_users",
+      },
       undefined,
       { fresh: true },
     );
