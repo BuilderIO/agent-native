@@ -20,6 +20,7 @@ import {
   resolveSlideClipboardsForPaste,
   shouldHandleSlideClipboardPaste,
   shouldHandleSlideClipboardShortcut,
+  writeSlideClipboardMarkerToEvent,
   writeSlideClipboard,
   writeSlideClipboards,
 } from "../lib/slide-clipboard";
@@ -84,8 +85,21 @@ describe("slide thumbnail shortcuts", () => {
     expect(shouldHandleSlideClipboardShortcut("c", true)).toBe(true);
   });
 
+  it("keeps cut slides when the native clipboard marker cannot be written", () => {
+    const cutStart = deckEditorSource.indexOf("const cutSlides = useCallback(");
+    const cutEnd = deckEditorSource.indexOf("const pasteSlideAfter", cutStart);
+    const cutBody = deckEditorSource.slice(cutStart, cutEnd);
+
+    expect(cutBody).toContain("if (!saveSlidesToClipboard(slides)) return;");
+    expect(cutBody.indexOf("saveSlidesToClipboard(slides)")).toBeLessThan(
+      cutBody.indexOf("deleteSlideIds(slideIds)"),
+    );
+  });
+
   it("persists multi-slide copies for another deck tab to paste", () => {
-    expect(deckEditorSource).toContain("saveSlidesToClipboard(slides);");
+    expect(deckEditorSource).toContain(
+      "if (!saveSlidesToClipboard(slides)) return;",
+    );
     expect(deckEditorSource).toContain(
       "readSlideClipboards(slideClipboardStorageKey)",
     );
@@ -201,6 +215,41 @@ describe("slide paste event target", () => {
     );
     expect(isSlideClipboardPasteSurface(thumbnail, null)).toBe(true);
     expect(isSlideClipboardPasteSurface(null, canvas)).toBe(true);
+  });
+});
+
+describe("native slide clipboard marker writes", () => {
+  it("writes an HTML marker and clears plain text", () => {
+    const values = new Map<string, string>();
+    const event = {
+      clipboardData: {
+        setData: (type: string, value: string) => values.set(type, value),
+      },
+    } as unknown as ClipboardEvent;
+    const marker = getSlideClipboardNativeMarker([{ id: "slide-1" }], 1_000);
+
+    expect(writeSlideClipboardMarkerToEvent(event, marker)).toBe(true);
+    expect(values.get("text/html")).toBe(
+      getSlideClipboardNativeMarkerHtml(marker),
+    );
+    expect(values.get("text/plain")).toBe("");
+  });
+
+  it("reports when the browser rejects the HTML marker write", () => {
+    const event = {
+      clipboardData: {
+        setData: () => {
+          throw new Error("clipboard denied");
+        },
+      },
+    } as unknown as ClipboardEvent;
+
+    expect(
+      writeSlideClipboardMarkerToEvent(
+        event,
+        getSlideClipboardNativeMarker([{ id: "slide-1" }], 1_000),
+      ),
+    ).toBe(false);
   });
 });
 

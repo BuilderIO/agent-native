@@ -194,7 +194,6 @@ import {
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardNativeMarker,
-  getSlideClipboardNativeMarkerHtml,
   hasClipboardPayloadBeyondSlideMarker,
   hasImageClipboardPayload,
   isSlideClipboardPasteSurface,
@@ -205,6 +204,7 @@ import {
   resolveSlideClipboardsForPaste,
   shouldHandleSlideClipboardPaste,
   shouldHandleSlideClipboardShortcut,
+  writeSlideClipboardMarkerToEvent,
   writeSlideClipboards,
 } from "@/lib/slide-clipboard";
 import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
@@ -441,33 +441,28 @@ function hasBlockingSlideClipboardOverlay(): boolean {
 function writeSlideClipboardMarkerToNativeClipboard(
   slides: readonly Pick<Slide, "id">[],
   copiedAt: number,
-): void {
+): boolean {
   const marker = getSlideClipboardNativeMarker(slides, copiedAt);
   if (
     typeof document === "undefined" ||
     typeof document.execCommand !== "function"
   ) {
-    return;
+    return false;
   }
+  let wrote = false;
   const handleCopy = (event: ClipboardEvent) => {
-    if (!event.clipboardData) return;
-    try {
-      event.clipboardData.setData(
-        "text/html",
-        getSlideClipboardNativeMarkerHtml(marker),
-      );
-      event.clipboardData.setData("text/plain", "");
+    wrote = writeSlideClipboardMarkerToEvent(event, marker);
+    if (wrote) {
       event.preventDefault();
       event.stopImmediatePropagation();
-    } catch {
-      // The in-app clipboard remains available if this browser blocks native copy.
     }
   };
   document.addEventListener("copy", handleCopy, true);
   try {
-    document.execCommand("copy");
-  } catch {
-    // The in-app clipboard remains available if this browser blocks native copy.
+    return document.execCommand("copy") && wrote;
+  } catch (error) {
+    console.warn("Unable to execute native slide clipboard copy", error);
+    return false;
   } finally {
     document.removeEventListener("copy", handleCopy, true);
   }
@@ -3713,17 +3708,26 @@ export default function DeckEditor() {
     (slides: Slide[], writeNativeMarker = true) => {
       const copiedAt = Date.now();
       const snapshots = normalizeSlideClipboards(slides);
-      if (!snapshots) return;
+      if (!snapshots) return false;
       slideClipboardSlidesRef.current = snapshots;
       slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
+      let nativeMarkerWritten = !writeNativeMarker;
       if (writeNativeMarker) {
         slideClipboardMarkerWriteInProgressRef.current = true;
         try {
-          writeSlideClipboardMarkerToNativeClipboard(snapshots, copiedAt);
+          nativeMarkerWritten = writeSlideClipboardMarkerToNativeClipboard(
+            snapshots,
+            copiedAt,
+          );
         } finally {
           slideClipboardMarkerWriteInProgressRef.current = false;
         }
+      }
+      if (!nativeMarkerWritten) {
+        console.warn(
+          "Native slide clipboard marker unavailable; use the slide Paste menu.",
+        );
       }
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
@@ -3735,6 +3739,7 @@ export default function DeckEditor() {
       } else {
         slideClipboardPersistenceFailedRef.current = false;
       }
+      return nativeMarkerWritten;
     },
     [slideClipboardStorageKey],
   );
@@ -3743,8 +3748,8 @@ export default function DeckEditor() {
     (slideIds: string[], writeNativeMarker = true) => {
       const selected = new Set(slideIds);
       const slides = deck?.slides.filter((slide) => selected.has(slide.id));
-      if (!slides?.length) return;
-      saveSlidesToClipboard(slides, writeNativeMarker);
+      if (!slides?.length) return false;
+      return saveSlidesToClipboard(slides, writeNativeMarker);
     },
     [deck, saveSlidesToClipboard],
   );
@@ -3754,7 +3759,7 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       const slides = selectedSlideIdsForAction(slideIds);
       if (!slides.length || slides.length >= deck.slides.length) return;
-      saveSlidesToClipboard(slides);
+      if (!saveSlidesToClipboard(slides)) return;
       deleteSlideIds(slideIds);
     },
     [
@@ -3926,22 +3931,20 @@ export default function DeckEditor() {
 
       const slideIds =
         selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
-      event.preventDefault();
-      event.stopPropagation();
       copySlides(slideIds, false);
 
       const copiedSlides = slideClipboardSlidesRef.current;
       const copiedAt = slideClipboardArmedAtRef.current;
-      if (!event.clipboardData || !copiedSlides || copiedAt === null) return;
+      if (!copiedSlides || copiedAt === null) return;
       const marker = getSlideClipboardNativeMarker(copiedSlides, copiedAt);
-      try {
-        event.clipboardData.setData(
-          "text/html",
-          getSlideClipboardNativeMarkerHtml(marker),
+      const markerWritten = writeSlideClipboardMarkerToEvent(event, marker);
+      if (markerWritten) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      } else {
+        console.warn(
+          "Native slide clipboard marker unavailable; use the slide Paste menu.",
         );
-        event.clipboardData.setData("text/plain", "");
-      } catch {
-        // Leave native copy untouched if this browser rejects clipboardData.
       }
     };
     document.addEventListener("keydown", handleKeyDown);

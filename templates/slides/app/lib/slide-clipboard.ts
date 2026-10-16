@@ -63,6 +63,30 @@ export function getSlideClipboardNativeMarkerHtml(marker: string): string {
   return `<!--${marker}-->`;
 }
 
+export function writeSlideClipboardMarkerToEvent(
+  event: ClipboardEvent,
+  marker: string,
+): boolean {
+  if (!event.clipboardData) return false;
+  try {
+    event.clipboardData.setData(
+      "text/html",
+      getSlideClipboardNativeMarkerHtml(marker),
+    );
+  } catch (error) {
+    console.warn("Unable to write Slides clipboard marker", error);
+    return false;
+  }
+  try {
+    event.clipboardData.setData("text/plain", "");
+  } catch (error) {
+    // The HTML marker is enough to identify this clipboard as a slide copy.
+    console.warn("Unable to clear Slides clipboard plain text", error);
+    return true;
+  }
+  return true;
+}
+
 export function readSlideClipboardNativeMarker(html: string): string | null {
   const prefix = `<!--${SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX}`;
   const start = html.indexOf(prefix);

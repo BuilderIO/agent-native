@@ -638,13 +638,12 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain("if (hasNativeText) return;");
   });
 
-  it("uses the native layer marker instead of a timer to arbitrate paste", () => {
+  it("uses the native layer marker and keeps native text authoritative", () => {
     expect(source).toContain("writeSlideObjectClipboard");
     expect(source).toContain("readSlideObjectClipboardId");
-    expect(source).toContain("overlappingNativeClipboardIdsRef");
-    expect(source).toContain("copySessionId");
-    expect(source).toContain('window.addEventListener("blur"');
     expect(source).not.toContain("objectPasteFallbackRef");
+    expect(source).not.toContain("navigator.clipboard.write");
+    expect(source).not.toContain("overlappingNativeClipboardIdsRef");
     const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
     const pasteEnd = source.indexOf(
       "// Appearance clipboard shortcuts",
@@ -654,14 +653,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
       pasteBody.indexOf("const hasNativeText"),
     );
-    expect(pasteBody).toContain(
-      "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
-    );
-    expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
-      pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
-    );
-    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
-    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
+    expect(pasteBody).toContain("if (hasNativeText) return;");
     expect(pasteBody).not.toContain("clipboard.clipboardText");
     expect(source).toContain(
       "copySlideObjects(selection, storedFormOfCopy),\n      selection[0],",
