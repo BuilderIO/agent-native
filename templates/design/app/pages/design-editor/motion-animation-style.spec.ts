@@ -25,7 +25,6 @@ describe("createMotionAnimationStyleTracks", () => {
       defaultEase: "ease-out",
       currentTimeMs: 400,
       timelineDurationMs: 1000,
-      existingTracks: [],
     });
 
     expect(result.tracks).toHaveLength(2);
@@ -48,16 +47,6 @@ describe("createMotionAnimationStyleTracks", () => {
   });
 
   it("preserves existing properties while creating the selected individual style", () => {
-    const existingTracks = [
-      {
-        targetNodeId: "hero",
-        property: "opacity",
-        keyframes: [
-          { t: 0, value: "0" },
-          { t: 1, value: "1" },
-        ],
-      },
-    ];
     const result = createMotionAnimationStyleTracks({
       targets: [{ nodeId: "hero", label: "Hero" }],
       style: {
@@ -74,7 +63,6 @@ describe("createMotionAnimationStyleTracks", () => {
       defaultEase: "ease-out",
       currentTimeMs: 500,
       timelineDurationMs: 1000,
-      existingTracks,
     });
 
     expect(result.tracks).toHaveLength(1);
