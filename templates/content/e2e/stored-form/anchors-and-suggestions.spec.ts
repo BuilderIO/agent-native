@@ -739,7 +739,17 @@ test.describe(
       "Delta paragraph the reader types after.",
     ].join("\n");
 
-    const PRICE = { find: "costs $60", replace: "costs $75" };
+    // The agent takes its find from the readback, as SF-10 asks: switching a
+    // page stores its body in canonical form, which escapes the "$", and a
+    // find on the bytes the agent sent is then refused.
+    const priceIn = (body: string | null | undefined) => {
+      const find = body && /costs \\?\$60/.exec(body)?.[0];
+      if (!find)
+        throw new Error(
+          `The stored body has no Charlie price: ${JSON.stringify(body)}`,
+        );
+      return { find, replace: find.replace("60", "75") };
+    };
     // A find/replace suggestion paints only the characters that change.
     const PRICE_MARKS = { deleted: "60", inserted: "75" };
 
@@ -755,7 +765,8 @@ test.describe(
         on: {
           lane: "L3",
           outcome: "SF-05",
-          reason: `${AGENT_FORM_LOSS} A switched page stores the agent's body in canonical form once L3's switch and writers land.`,
+          reason:
+            "On a switched page the comments stay anchored and the suggestion paints, but accepting it fails with a 500: decide-resource-suggestion writes through withPreparedYDocMutation, which refuses a live copy.",
         },
       }),
       async ({ page, context }) => {
@@ -767,7 +778,12 @@ test.describe(
             (await getDocument(page, id)).content === AGENT_FORM,
           ),
         });
-        const price = await suggest(agent, page, id, PRICE);
+        const price = await suggest(
+          agent,
+          page,
+          id,
+          priceIn((await getDocument(page, id)).content),
+        );
 
         const tabs = await TabSet.create(context);
         const tab = await tabs.open("A", id);
