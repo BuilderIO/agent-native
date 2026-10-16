@@ -1170,7 +1170,9 @@ function dataSourceStatusSummary(
       const configured = dbtNotReady
         ? dbtReadiness === undefined ||
           dbtReadiness === "error" ||
-          dbtReadiness === "checking"
+          dbtReadiness === "checking" ||
+          dbtReadiness === "needs_reauth" ||
+          dbtReadiness === "environment_invalid"
           ? null
           : false
         : record.configured === true ||

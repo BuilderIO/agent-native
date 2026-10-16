@@ -72,9 +72,13 @@ export function sourceHealthState(
   // Use the per-connection list filtered for Analytics when assessing health.
   // dbt health comes from readiness whatever the grant state, so a granted row
   // in error cannot fall through to "configured".
+  // A failed dbt lookup reports no grant, so its error must win over the grant.
   if (
     sourceId === "dbt" &&
-    (grantState === "connected" || grantState === "granted")
+    (connection?.dbtReadiness === "error" ||
+      connection?.dbtReadiness === "checking" ||
+      grantState === "connected" ||
+      grantState === "granted")
   ) {
     return dbtHealthState(connection);
   }

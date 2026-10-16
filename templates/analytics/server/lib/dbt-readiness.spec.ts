@@ -23,6 +23,7 @@ function row(overrides: Record<string, unknown> = {}) {
     label: "dbt Cloud",
     status: "connected",
     config: { semanticLayerEnvironmentId: "123456" },
+    credentialRefs: [{ key: "DBT_SEMANTIC_LAYER_TOKEN" }],
     ...overrides,
   } as any;
 }
@@ -99,6 +100,12 @@ describe("dbtProviderReadiness", () => {
         "org_test",
       ),
     ).resolves.toBe("needs_reauth");
+  });
+
+  it("reports a connected row without the token credential reference as token_missing", async () => {
+    await expect(
+      dbtProviderReadiness([row({ credentialRefs: [] })], "org_test"),
+    ).resolves.toBe("token_missing");
   });
 
   it("reports a blank environment ID as missing, the same way the readiness function does", async () => {

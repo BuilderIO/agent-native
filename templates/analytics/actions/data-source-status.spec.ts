@@ -146,6 +146,7 @@ describe("data-source-status", () => {
         provider: "dbt",
         status: "connected",
         config: { semanticLayerEnvironmentId: "123456" },
+        credentialRefs: [{ key: "DBT_SEMANTIC_LAYER_TOKEN" }],
       },
     ] as any);
     mocks.workspaceSummaryByProvider.dbt = {

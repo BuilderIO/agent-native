@@ -40,6 +40,7 @@ const connectedRow = {
   provider: "dbt",
   label: "dbt Cloud",
   status: "connected",
+  credentialRefs: [{ key: "DBT_SEMANTIC_LAYER_TOKEN" }],
   config: {
     semanticLayerBaseUrl: "https://semantic-layer.cloud.getdbt.com/api/graphql",
     semanticLayerEnvironmentId: "123456",

@@ -15,9 +15,15 @@ function rowReadiness(
   tokenConfigured: boolean | null,
 ): DbtConnectionReadiness {
   const value = connection.config[DBT_ENVIRONMENT_CONFIG_KEY];
+  // The metric query resolves the token through this connection's credential
+  // reference, so a row without it cannot serve a query, whatever the org holds.
+  const hasTokenRef = connection.credentialRefs.some(
+    (ref) => ref.key === DBT_SEMANTIC_LAYER_TOKEN_KEY,
+  );
   const readiness = dbtConnectionReadiness({
     status: connection.status,
-    tokenConfigured,
+    tokenConfigured:
+      tokenConfigured === null ? null : tokenConfigured && hasTokenRef,
     environmentId: typeof value === "string" ? value : null,
   });
   // Only a non-string saved value is corrupt. A blank string is missing, and the
