@@ -51,6 +51,33 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.209.1
+
+### Patch Changes
+
+- eb4cd30: Count staged-dataset payloads by UTF-8 byte size when enforcing the shared per-app quota.
+- ebf1cc7: Keep the Clips feature guide current for earlier screen-time sharing.
+- e90b90a: One-click Builder.io account creation now records `cta_clicked` for its `builder_connect_clicked` click, like the sign-in popup path, and tags its `builder_connect_failed` event with `connect_url_kind: "provision"`. The tracking docs now name `builder_connect_clicked`, the event that counts clicks on both paths.
+- db3a30e: Add a docs guide for creating an Agent-Native app with an AI agent.
+- ce01559: When a run no longer has a tool the conversation used or loaded earlier, calling it returns `Error: Tool no longer available` instead of `Unknown tool`, the run's first request names loaded tools that went away, and a call the user approved stops the run instead of handing the model a "go ahead". Action entries accept an optional `revision`; one-time approvals record it, and "Always allow" takes the revision of the approval the user clicked (`set-tool-approval-policy` accepts `approvalId`), so a changed revision asks the user again. Existing approval rows keep matching entries without a revision. The chat approval card no longer offers "Always allow" for approvals that cannot persist. `resolveAdditionalActions` also receives `threadId`, `requestedTurnId`, and `internalContinuation` for chat.
+- b95626f: Point the Gong provider catalog at Gong's semantic MCP tools for account and deal questions instead of paging raw call endpoints.
+
+  Provider requests that come back truncated now say the body is incomplete and name the recovery, and the shared corpus prompt orders provider-side search ahead of scanning records locally.
+
+- Release all public npm packages with a patch version bump.
+- 517fade: Say why a workspace app answers 503 "Workspace app access is temporarily unavailable". The 503 body now carries a `code` (and, when a Dispatch registry reply arrived, `upstreamStatus`, `audience`, and `detail`), and each cause is logged once per instance. A new `checkWorkspaceAppAccess` returns the cause; `isWorkspaceAppAccessAllowed` keeps its `true` / `false` / `"unavailable"` contract. Dispatch logs why it refused a registry token (server-side only; the 401 stays a fixed refusal), using the new `diagnoseA2ATokenFailure` from `@agent-native/core/a2a`.
+- c139e35: Expire queued chat submissions when their retry window closes, and require peer support before sending deadline-bound retries.
+- c139e35: Fix server expiry preservation during queued prompt recovery and localize the older-server retry message.
+- 64bf791: Stop ending agent runs on `write_tool_outcome_unknown` after an action's own deterministic rejection: actions can declare `retrySafe`, an app's `{ ...entry, run }` wrapper keeps the action's execution boundary, and GET/HEAD provider requests are retry-safe. Staged datasets now evict the oldest scratch data instead of failing every `stageAs` once an app reaches its shared cap, deletes serialize with that eviction, and `stageAs` ids are derived from a hash of the app, owner, and name so owners whose emails sanitize alike no longer collide; `query-staged-dataset` reports a dataset evicted or replaced mid-read instead of an empty result. Rate-limited continuation dispatch retries with jittered backoff and `Retry-After`, a sibling-model fallback gets one attempt, and a valid `automation-no-op` is no longer vetoed by an earlier rejected one. Chat completions to GPT reasoning models send `max_completion_tokens`.
+- e5a64ae: Expose a run's resolved thinking effort on its request run context and to `onEngineResolved`. `onEngineResolved` is also called before each model call, so the run context follows a rate-limit fallback to another model and the lower effort an empty-response retry steps down to; an action records the model and effort its call actually used. `runAgentLoop` reports these through `onModelSettings`. Each custom agent profile loop runs in its own copy of the run context, carrying its own model and effort and starting with no tool-search or extension reads, so an action called there records that profile's model and parallel profiles never overwrite each other or the run. Delegated A2A and `ask_app` runs keep the run context on the model and effort each call uses the same way. Export the composer's `MentionChip` so sent messages can draw mentions exactly as the composer does. `InlineMarkdown` protects spans in one pass, so a shorter span is never matched again inside a longer one's label, and a span can name the one occurrence it protects with `at`. The `@` popover can show why host mention items failed to load, with a Retry action, through `mentionItemsError` and `onRetryMentionItems`; Retry is a row above the items, so the arrow keys reach it and Enter or Tab runs it. The composer handle's `setText` and the new `initialReferences` prop take chips for ranges of the text, so a restored draft gets its chips back in place, with a space after a chip that ends it. The `@` that `insertTextAtCursor` places opens a popover that filters as you type, and picking from it keeps the space before the `@`. A chip's plain text is spaced from a word right beside it, so the text always reads each chip as its own `@name`.
+- ef6a530: Expose the scoped database transaction context so app actions can promote credentials and connection metadata atomically.
+- e6e1f56: Keep explicit sidebar URL intent reliable across remounts and manual closes.
+- 4e49b3a: Framework stores now declare their schema with `defineStore()`. The release step applies each store's migrations once per database under a lease, records them in `_an_store_migrations`, and fails the deploy with `SchemaNotMigratedError` when the ledger does not cover the code it ships. Hosted functions of apps that migrate at release do no schema work on cold starts. Apps that do not migrate at release keep provisioning on demand and never write the ledger. `getDbExec()` now always returns the schema-guarded client.
+- Updated dependencies
+- Updated dependencies [c139e35]
+  - @agent-native/agentkit@0.209.1
+  - @agent-native/recap-cli@0.5.73
+
 ## 0.209.0
 
 ### Minor Changes
@@ -4082,13 +4109,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
-
-## 0.167.3
-
-### Patch Changes
-
-- 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
-- 40baf42: Preserve browser attribution through Better Auth email signup user creation.
-- 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

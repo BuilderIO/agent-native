@@ -11,7 +11,10 @@ import {
 
 const harness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
-  requireAgentChatAiSetup: vi.fn(async () => {}),
+  readinessInputs: [] as unknown[],
+  requireAgentChatAiSetup: vi.fn(async (input?: unknown) => {
+    harness.readinessInputs.push(input);
+  }),
 }));
 
 // The real shim also bootstraps every default plugin. This keeps its routing
@@ -209,11 +212,32 @@ beforeAll(async () => {
   h3App.use((event) => {
     const anonymous = event.req.headers.get("x-test-anonymous") === "1";
     const ownerless = event.req.headers.get("x-test-ownerless") === "1";
+    const directLoopback =
+      event.req.headers.get("x-test-direct-loopback") === "1";
     seedAgentRunOwnerContext(event, {
       owner: ownerless ? "" : anonymous ? "anonymous-owner@example.com" : OWNER,
       anonymous,
-      orgId: null,
+      orgId: directLoopback ? "test-org" : null,
+      ...(!ownerless && !anonymous && !directLoopback
+        ? { orgScope: "personal" as const }
+        : {}),
     });
+    if (directLoopback) {
+      (event.req as any).context = { clientAddress: "127.0.0.1" };
+      Object.defineProperty(event, "node", {
+        configurable: true,
+        value: {
+          ...event.node,
+          req: {
+            headers: { host: "127.0.0.1:3000" },
+            socket: {
+              remoteAddress: "127.0.0.1",
+              localAddress: "127.0.0.1",
+            },
+          },
+        },
+      });
+    }
   });
   createAgentChatPlugin({
     actions: () => ({}),
@@ -285,6 +309,7 @@ beforeAll(async () => {
 beforeEach(() => {
   resetAgentEngineReadinessForTests();
   harness.requireAgentChatAiSetup.mockClear();
+  harness.readinessInputs.length = 0;
 });
 
 afterAll(async () => {
@@ -294,6 +319,34 @@ afterAll(async () => {
 });
 
 describe("background agent sessions through the agent-chat plugin", () => {
+  it("does not pass loopback as an org ChatGPT readiness exception", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";
+    try {
+      const response = await fetch("/_agent-native/agent-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-direct-loopback": "1",
+        },
+        body: JSON.stringify({
+          message: "Local organization send",
+          engine: ENGINE_NAME,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await response.text();
+      expect(harness.readinessInputs).toEqual([undefined]);
+    } finally {
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+    }
+  });
+
   it("accepts a background session and persists its user message", async () => {
     const handle = startBackgroundAgentSession({
       message: "Reply to this comment",

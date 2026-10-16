@@ -256,6 +256,20 @@ Put the binding's identity in the name, such as a window id or scope
 appearing. "Always allow" approvals follow the tool name, so they carry over
 when the same name later means something new.
 
+Set `revision` on an entry to stop that: one-time approvals and "Always allow"
+record the revision they were given for, and a different revision asks the user
+again. A custom "Always allow" handler should pass the approval's `askId` to
+`set-tool-approval-policy` as `approvalId`; without it, the grant covers only
+entries that have no revision.
+
+A call to a tool the conversation used or loaded earlier, but that this run no
+longer has, fails with `Error: Tool no longer available` instead of
+`Unknown tool`, and a run that starts after loaded tools went away tells the
+model which ones. If the user had approved that call, the run stops rather than
+letting the model continue without it. For chat, the callback also receives
+`threadId`, `requestedTurnId`, and `internalContinuation`, so an app that
+wants one tool set for a whole turn can keep its own snapshot.
+
 These entries are native tools for the agent loop only. Like the caller's MCP
 tools, they aren't reachable from `run-code` or `tool-orchestration`.
 

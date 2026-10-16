@@ -689,6 +689,13 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
+    voiceNavigation: "语音导航",
+    voiceNavigationNextCommand: "下一张幻灯片",
+    voiceNavigationPreviousCommand: "上一张幻灯片",
+    voiceNavigationHint: "说“{{next}}”或“{{previous}}”来切换幻灯片。",
+    voiceNavigationListening: "正在聆听“{{next}}”或“{{previous}}”。",
+    voiceNavigationUnavailable: "此浏览器不支持语音导航。",
+    voiceNavigationError: "语音导航已停止。请检查麦克风权限和连接，然后重试。",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
@@ -773,6 +780,8 @@ const messages = {
     generationFailed: "未能创建幻灯片。请查看聊天中的详情，然后重试。",
     generationOutcomeUnresolved:
       "无法确认幻灯片是否已创建。请先检查演示文稿，再重试。",
+    generationOutcomeUnresolvedWithSlides:
+      "无法确认幻灯片是否已创建完成。继续之前，请查看此处显示的幻灯片。",
     partialGenerationFailed:
       "我们没能完成幻灯片制作。继续之前，请查看已创建的幻灯片和您的原始请求。",
     originalPrompt: "你输入的内容",
@@ -794,6 +803,8 @@ const messages = {
     keepEditing: "继续编辑",
     leaveWithoutSaving: "不保存退出",
     editorMarkupNotSaved: "此编辑未保存，因为它会向幻灯片添加编辑器标记。",
+    historyStepConflict: "此历史记录步骤与当前演示文稿冲突，因此已跳过。",
+    historyStepFailed: "此历史记录步骤无法应用，因此已跳过。",
     textEditConflictNotSaved:
       "你的文本编辑未保存，因为同一段文本同时在其他地方被更改。",
   },

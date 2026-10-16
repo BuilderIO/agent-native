@@ -1136,6 +1136,17 @@ describe("MotionDock time units and Size preset", () => {
     expect(markup).toContain('style="left:-4px;width:2910.6px"');
     expect(markup).toContain('aria-label="Motion dock"');
   });
+
+  it("distinguishes unsupported source syntax from an empty timeline", () => {
+    const reason = "Authored animation syntax is unsupported.";
+    const markup = render({ sourceReadUnavailableReason: reason });
+
+    expect(markup).toContain(
+      'data-motion-source-read-unavailable="true" role="status"',
+    );
+    expect(markup).toContain(reason);
+    expect(render({})).not.toContain("data-motion-source-read-unavailable");
+  });
 });
 
 describe("MotionDock — timeline body anatomy", () => {

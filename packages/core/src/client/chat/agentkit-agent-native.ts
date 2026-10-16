@@ -2,6 +2,9 @@ import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type {
   AgentAnnotation,
   AgentAnnotationSnapshot,
+  AgentCapabilitiesDiscovery,
+  AgentCapabilityDescriptor,
+  AgentCapabilityId,
   AgentError,
   AgentEvent,
   AgentMessage,
@@ -10,14 +13,19 @@ import type {
   AgentRunSnapshot,
   AgentQueuedMessage,
   AgentRequestContext,
+  DiscoverCapabilitiesInput,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+  createCapabilityUnavailableError,
+  createCapabilityUnsupportedError,
   agentEventSequenceEnd,
   isAgentKitProtocolVersion,
+  negotiateAgentKitProtocolVersion,
   parseAgentQueuedMessage,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
@@ -43,7 +51,11 @@ import {
   requireAgentEngineConfiguredForDispatch,
 } from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
-import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
+import {
+  CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+  CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
+  CHAT_REQUEST_TOO_LARGE_MESSAGE,
+} from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
   appendChatThreadScopeParams,
@@ -3590,7 +3602,7 @@ export function createAgentNativeAgentKitTransport(
           await waitForSnapshotRetry(attempt, signal);
         };
         throwIfRequestAborted(signal);
-        let response: Response;
+        let response: Response | undefined = undefined;
         try {
           response = await fetcher(threadUrl, {
             method: "PUT",
@@ -3674,6 +3686,7 @@ export function createAgentNativeAgentKitTransport(
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
     claimedMessage?: AgentQueuedMessage;
+    submissionExpired?: boolean;
   }> {
     if (mutation.type === "append") {
       assertNoInlineImageBytes(
@@ -3714,6 +3727,7 @@ export function createAgentNativeAgentKitTransport(
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
       ...(claimedMessage ? { claimedMessage } : {}),
+      ...(value.submissionExpired === true ? { submissionExpired: true } : {}),
     };
   }
 
@@ -3899,6 +3913,12 @@ export function createAgentNativeAgentKitTransport(
           type: "append",
           message,
         });
+        if (result.submissionExpired) {
+          throw Object.assign(
+            new Error("The prompt expired before it could be queued."),
+            { code: "submission_expired", retryable: false },
+          );
+        }
         if (!result.message) {
           throw new TypeError("Agent chat queue mutation omitted its message.");
         }
@@ -3963,6 +3983,10 @@ export function createAgentNativeAgentKitTransport(
           throw error;
         }
         try {
+          if (claim.submissionExpired) {
+            clearPromotionClaimId(threadId, messageId);
+            return { alreadyRemoved: true as const };
+          }
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
@@ -4027,6 +4051,21 @@ export function createAgentNativeAgentKitTransport(
           clearPromotionClaimId(threadId, messageId);
           return run;
         } catch (error) {
+          if (asRecord(error)?.code === "submission_expired") {
+            try {
+              await persistQueueMutation(threadId, {
+                type: "remove",
+                messageId,
+              });
+            } catch (removeError) {
+              throw new AggregateError(
+                [error, removeError],
+                "An expired queued prompt could not be removed.",
+              );
+            }
+            clearPromotionClaimId(threadId, messageId);
+            return { alreadyRemoved: true as const };
+          }
           try {
             await persistQueueMutation(threadId, {
               type: "release",
@@ -4273,10 +4312,121 @@ export function createAgentNativeAgentKitTransport(
   };
   const subscribeToRun =
     protocolTransport.subscribeToRun.bind(protocolTransport);
+  const discoverCapabilities =
+    protocolTransport.discoverCapabilities?.bind(protocolTransport);
+  const serverBackedCapabilities = isAgentNativeChatRuntime(runtime);
+  const capabilitiesUrl = apiUrl.endsWith("/")
+    ? `${apiUrl}capabilities`
+    : `${apiUrl}/capabilities`;
   transport = {
     ...protocolTransport,
     assertAiSetupReady,
     startRun: (input, context) => startRunTrackingRunningState(input, context),
+    async discoverCapabilities(
+      input: DiscoverCapabilitiesInput,
+      context?: AgentRequestContext,
+    ): Promise<AgentCapabilitiesDiscovery> {
+      const capability = AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID;
+      const discovery: AgentCapabilitiesDiscovery = discoverCapabilities
+        ? await discoverCapabilities(input, context)
+        : (() => {
+            const legacy = protocolTransport.capabilities ?? {};
+            return {
+              protocol: negotiateAgentKitProtocolVersion(input.protocol, {
+                correlationId: context?.correlationId,
+              }),
+              capabilities: Object.entries(legacy).reduce<
+                AgentCapabilityDescriptor[]
+              >((descriptors, [id, state]) => {
+                if (typeof state !== "boolean") return descriptors;
+                const capabilityId = id as AgentCapabilityId;
+                descriptors.push(
+                  state
+                    ? { id: capabilityId, state: "available" }
+                    : {
+                        id: capabilityId,
+                        state: "unsupported",
+                        error: createCapabilityUnsupportedError(capabilityId),
+                      },
+                );
+                return descriptors;
+              }, []),
+              discoveredAt: new Date().toISOString(),
+              legacy,
+            };
+          })();
+      let supported = false;
+      let unavailableError:
+        | ReturnType<typeof createCapabilityUnavailableError>
+        | undefined;
+      if (serverBackedCapabilities) {
+        const createUnavailableError = () =>
+          createCapabilityUnavailableError(capability, {
+            message: CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+          });
+        let response: Response | undefined = undefined;
+        try {
+          response = await fetcher(capabilitiesUrl, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "same-origin",
+            cache: "no-store",
+            ...(context?.signal ? { signal: context.signal } : {}),
+          });
+        } catch (error) {
+          if (context?.signal?.aborted) throw error;
+          unavailableError = createUnavailableError();
+        }
+        if (
+          !unavailableError &&
+          response &&
+          !response.ok &&
+          response.status !== 404 &&
+          response.status !== 405
+        ) {
+          unavailableError = createUnavailableError();
+        }
+        if (!unavailableError && response?.ok) {
+          try {
+            const serverCapabilities = asRecord(await response.json());
+            if (!serverCapabilities) {
+              throw new TypeError("Capability response must be an object.");
+            }
+            supported = serverCapabilities?.[capability] === true;
+          } catch (error) {
+            if (context?.signal?.aborted) throw error;
+            unavailableError = createUnavailableError();
+          }
+        }
+      }
+      const descriptor: AgentCapabilityDescriptor = supported
+        ? { id: capability, state: "available" }
+        : unavailableError
+          ? { id: capability, state: "unavailable", error: unavailableError }
+          : {
+              id: capability,
+              state: "unsupported",
+              error: createCapabilityUnsupportedError(capability, {
+                message: CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
+              }),
+            };
+      const legacy = { ...discovery.legacy };
+      if (unavailableError) {
+        delete legacy[capability];
+      } else {
+        legacy[capability] = supported;
+      }
+      return {
+        ...discovery,
+        capabilities: [
+          ...discovery.capabilities.filter(
+            (candidate) => candidate.id !== capability,
+          ),
+          descriptor,
+        ],
+        legacy,
+      };
+    },
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,

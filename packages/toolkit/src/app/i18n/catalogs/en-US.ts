@@ -674,6 +674,10 @@ const messages = {
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
   "errorMessages.requestTooLarge":
     "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+  "errorMessages.capabilityUnavailable":
+    "We couldn't send your message right now. Please try again shortly.",
+  "errorMessages.capabilityUnsupported":
+    "This app can't safely retry your saved prompt yet. Update the app, then try again.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
   "errorMessages.runUnverified":
@@ -3109,6 +3113,18 @@ const messages = {
   "settingsSubAgents.close": "Close",
   "observability.insights.rawTrace":
     "Raw trace (every span, with inputs and outputs)",
+  "reportProblem.menuItem": "Report a problem",
+  "reportProblem.title_one":
+    "Attach what the app did in the last {{count}} second?",
+  "reportProblem.title_other":
+    "Attach what the app did in the last {{count}} seconds?",
+  "reportProblem.noEvents": "Nothing recorded yet.",
+  "reportProblem.send": "Send to agent",
+  "reportProblem.copy": "Copy problem report",
+  "reportProblem.attaching": "Attaching…",
+  "reportProblem.notAttached": "The report was not attached.",
+  "reportProblem.agentMessage":
+    "Something went wrong in the app. Use the attached problem report to explain what happened.",
 } as const;
 
 export default messages;

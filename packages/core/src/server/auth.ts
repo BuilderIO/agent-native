@@ -19,11 +19,11 @@ import {
   newOrgSelection,
   ORG_SELECTION_COOKIE,
 } from "../org/request-org-cache.js";
-import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  WORKSPACE_APP_ACCESS_UNAVAILABLE,
-  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
-} from "../org/workspace-app-access.js";
+  isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailableBody,
+} from "../org/workspace-app-access-outcome.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -577,9 +577,17 @@ async function enrichLegacySessionIdentity(
       // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
       .catch(() => null);
   }
-  if (!existing) return session;
+  if (
+    !existing ||
+    existing.user.email.trim().toLowerCase() !==
+      session.email.trim().toLowerCase()
+  ) {
+    return session;
+  }
   return {
     ...session,
+    authUserId: session.authUserId ?? existing.user.id,
+    userId: session.userId ?? existing.user.id,
     ...(!session.name?.trim() && existing.user.name?.trim()
       ? { name: existing.user.name.trim() }
       : {}),
@@ -4299,9 +4307,9 @@ function createAuthGuardFn(
           email: session.email,
           orgId: session.orgId,
         });
-        if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+        if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
           setResponseStatus(event, 503);
-          return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+          return workspaceAppAccessUnavailableBody(workspaceAppAccess);
         }
         if (workspaceAppAccess === false) {
           setResponseStatus(event, 403);

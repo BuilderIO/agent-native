@@ -2601,6 +2601,7 @@ const arSA = {
     auditLog: "سجل التدقيق",
     doctorCodeChecks: "Doctor (فحوصات الكود)",
     observability: "قابلية الملاحظة",
+    recorder: "المسجّل",
     observationalMemory: "ذاكرة ملاحظة",
     ciEvalGate: "بوابة تقييم CI",
     usingYourAgentOverview: "نظرة عامة",

@@ -1048,6 +1048,8 @@ export default {
       timelineDescription:
         "कीफ़्रेम टाइमलाइन। {{tracks}} ट्रैक, {{keyframes}} कीफ़्रेम। स्क्रॉल करने के लिए तीर कुंजियों या Space + ड्रैग का उपयोग करें, ज़ूम करने के लिए पिंच या Cmd/Ctrl + व्हील करें, कीफ़्रेम को स्थानांतरित करने के लिए ड्रैग करें, एक से अधिक चुनने के लिए Shift/Cmd और जोड़ने के लिए डबल-क्लिक करें।",
       size: "आकार",
+      sourceReadUnavailable:
+        "Motion इस ऐनिमेशन के व्यवहार को बदले बिना इसे पढ़ नहीं सकता।",
       sourceWriteUnavailable:
         "अभी Motion कोड केवल इनलाइन HTML डिज़ाइन में लिखा जा सकता है।",
       sourceConflict:

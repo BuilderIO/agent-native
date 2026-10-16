@@ -2605,6 +2605,7 @@ const koKR = {
     auditLog: "감사 로그",
     doctorCodeChecks: "Doctor (코드 검사)",
     observability: "관측성",
+    recorder: "레코더",
     observationalMemory: "관측 메모리",
     ciEvalGate: "CI 평가 게이트",
     usingYourAgentOverview: "개요",

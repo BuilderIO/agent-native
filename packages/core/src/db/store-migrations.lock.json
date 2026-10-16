@@ -49,11 +49,19 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "tool-revision",
+      "checksum": null
     }
   ],
   "agent_tool_approvals": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "tool-revision",
       "checksum": null
     }
   ],

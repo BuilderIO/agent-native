@@ -75,6 +75,37 @@ describe("create-recording schema", () => {
     });
   });
 
+  it("classifies hosted provider auth failures without changing own-storage behavior", () => {
+    expect(
+      classifyInitialUploadFailure(new S3MultipartStartError(401), {
+        storageMode: "hosted",
+      }),
+    ).toEqual({
+      failureCode: "hosted_storage_unavailable",
+      failureStage: "multipart_start",
+      httpStatus: 401,
+    });
+    expect(
+      classifyInitialUploadFailure(
+        Object.assign(new Error("provider rejected credentials"), {
+          code: "InvalidAccessKeyId",
+        }),
+        { storageMode: "hosted" },
+      ),
+    ).toEqual({
+      failureCode: "hosted_storage_unavailable",
+      failureStage: "multipart_start",
+    });
+    expect(
+      classifyInitialUploadFailure(new S3MultipartStartError(403), {
+        storageMode: "own",
+      }),
+    ).toMatchObject({
+      failureCode: "storage_setup_required",
+      httpStatus: 403,
+    });
+  });
+
   it("leaves visibility unset so the organization default can apply", () => {
     const parsed = createRecordingSchema.parse({
       title: "Uploaded demo",

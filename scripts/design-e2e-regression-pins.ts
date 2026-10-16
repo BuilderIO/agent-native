@@ -94,16 +94,33 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "resizing a selected element emits a visual-style-change payload",
   },
   {
+    shard: "inspector-3a",
+    file: "text-tool-board-creation.spec.ts",
+    title:
+      "single-screen control: text tool click then immediate typing still works",
+  },
+  {
     shard: "inspector-3b",
     file: "inspector-styles.spec.ts",
     title:
       "pointercancel restores a scrubbed value without adding a history step",
   },
   {
+    shard: "inspector-3b",
+    file: "interaction-selection.spec.ts",
+    title: "double-click after selecting Card drills into the clicked child",
+  },
+  {
     shard: "inspector-4a",
     file: "inspector-styles.spec.ts",
     title:
       "numeric input applies arithmetic expressions and starts an Option scrub drag",
+  },
+  {
+    shard: "inspector-4a",
+    file: "text-edit-roundtrip.spec.ts",
+    title:
+      "inline text edit commits, undo and redo restore exact content, and reload keeps it",
   },
   {
     shard: "inspector-4b",
@@ -114,6 +131,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "inspector-4b",
     file: "inspector-styles.spec.ts",
     title: "style layer row actions stay visible and toggle visibility state",
+  },
+  {
+    shard: "inspector-4b",
+    file: "text-range-visibility.spec.ts",
+    title: "Line Height Enter returns a real Text-tool range to the editor",
   },
   {
     shard: "drag-1a",
@@ -127,6 +149,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "the zoom percentage input updates the overview canvas scale",
   },
   {
+    shard: "drag-1a",
+    file: "interaction-selection.spec.ts",
+    title: "cmd+click deep-selects Kid B directly with no prior selection",
+  },
+  {
     shard: "drag-1b",
     file: "drag-and-drop.drag-feedback.spec.ts",
     title: "snap guides appear when an edge aligns with a sibling",
@@ -135,6 +162,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "drag-1b",
     file: "drag-and-drop.moving-by-drag.spec.ts",
     title: "dropping over a sibling keeps the moved position after reload",
+  },
+  {
+    shard: "drag-1b",
+    file: "interaction-selection.spec.ts",
+    title:
+      "shift+click adds an unselected object, then removes it on a second shift+click",
   },
   {
     shard: "drag-2a",
@@ -154,6 +187,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "board regression: an overlapping Frame drop into another board Frame persists after reload",
   },
   {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title: "a marquee over Card selects Card only, not its children",
+  },
+  {
     shard: "drag-2b",
     file: "interaction-selection.spec.ts",
     title:
@@ -164,6 +202,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "interaction-selection.spec.ts",
     title:
       "selected nested frame drag from its grandchild tracks the pointer and persists",
+  },
+  {
+    shard: "drag-2b",
+    file: "interaction-selection.spec.ts",
+    title: "clicking a child inside Card selects Card, not Kid A",
   },
   {
     shard: "position-1a",
@@ -235,6 +278,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Position stays Frame-relative through a positioned plain wrapper",
   },
   {
+    shard: "position-2b",
+    file: "canvas-tools.spec.ts",
+    title:
+      "new empty text is one atomic undo step and cancel leaves the frame intact",
+  },
+  {
     shard: "position-3",
     file: "position-alignment.spec.ts",
     title: "Top and Bottom alignment controls move to their named edges",
@@ -255,6 +304,206 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "position-3",
     file: "position-alignment.spec.ts",
     title: "Align uses a Group's bounds while Position stays Frame-relative",
+  },
+  {
+    shard: "inspector-1a",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "Layers-first editing preserves identity in the AI-generated Orbit source",
+  },
+  {
+    shard: "inspector-1b",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "duplicate authored IDs are repaired before Layers-first edits and persist after reload",
+  },
+  {
+    shard: "inspector-3a",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "edit-design rejects malformed AI CSS without changing the styled canvas",
+  },
+  {
+    shard: "drag-1a",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "dropping a layer from AI-generated source into a panel keeps its node ID and its drop position",
+  },
+  {
+    shard: "drag-1b",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "round-trips a styled nested layer across independent designs, route remounts, and browser tabs as one undo step",
+  },
+  {
+    shard: "drag-2b",
+    file: "editor-keyboard-layers.spec.ts",
+    title: "keeps two responsive pastes distinct across settled undo and redo",
+  },
+  {
+    shard: "position-1a",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "pastes a nested selected layer on the same screen and another screen with fresh ids after reload",
+  },
+  {
+    shard: "position-1b",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "pastes a multi-selection across screens with each layer and child id regenerated",
+  },
+  {
+    shard: "position-2a",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "duplicates, deletes, cuts, undoes, and redoes selected layers from the keyboard",
+  },
+  {
+    shard: "inspector-3b",
+    file: "editor.spec.ts",
+    title:
+      "deeply nested layer rows keep a clickable hit target without scrolling the tree sideways",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title: "cmd+marquee over Card reaches into Kid A and Kid B",
+  },
+  {
+    shard: "inspector-4a",
+    file: "text-keyboard-workflow.spec.ts",
+    title:
+      "Cmd+Enter commits a text edit so Cmd+D duplicates the layer, and each copy keeps its own text and name",
+  },
+  {
+    shard: "inspector-4b",
+    file: "interaction-unique-paths.spec.ts",
+    title:
+      "paste properties copies the source's fill, border, radius and opacity onto the target and keeps the target's position and size",
+  },
+  {
+    shard: "position-2b",
+    file: "auto-layout-keyboard.spec.ts",
+    title:
+      "pasting into a selected frame puts one copy of Alpha inside it at Alpha's size",
+  },
+  {
+    shard: "position-3",
+    file: "paste-svg-into-selected-frame.spec.ts",
+    title:
+      "Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it",
+  },
+  {
+    shard: "inspector-3a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R drops the replacement where the old layer stood",
+  },
+  {
+    shard: "inspector-4a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "clicking an inline child on the board surface selects it and leaves its text alone",
+  },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R on an underlined text layer does not nest a copy inside it",
+  },
+  {
+    shard: "inspector-1b",
+    file: "pasted-svg-image-inspector.spec.ts",
+    title:
+      "pasted SVG is an editable sized layer and image scale mode writes object-fit",
+  },
+  {
+    shard: "drag-1a",
+    file: "drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts",
+    title: "dragging from empty canvas marquee-selects the elements it covers",
+  },
+  {
+    shard: "drag-2b",
+    file: "performance-bridge-baseline.spec.ts",
+    title:
+      "a Cmd-marquee across a large screen and a small one scans each crossed screen once and commits the selection once",
+  },
+  {
+    shard: "inspector-4b",
+    file: "structure-selection.spec.ts",
+    title:
+      "Cmd+Shift+G ungroups: the children return to the page at their original positions and stay selected together",
+  },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R replaces a flow text root at its measured origin",
+  },
+  {
+    shard: "inspector-1a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R uses rendered flow offsets for relative text",
+  },
+  {
+    shard: "inspector-3a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R maps flow placement through rotated and skewed ancestors",
+  },
+  {
+    shard: "inspector-4a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R places a zero-size flow text root at its measured origin",
+  },
+  {
+    shard: "inspector-1b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R places a stylesheet-sized transformed copy at the target bounds",
+  },
+  {
+    shard: "drag-1b",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R replaces wrapped inline text at its measured origin",
+  },
+  {
+    shard: "position-1a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R preserves a top-only transform origin on the copied layer",
+  },
+  {
+    shard: "position-2a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R places a margin-offset copy at the target bounds",
+  },
+  {
+    shard: "position-1b",
+    file: "select-layer-context-menu.spec.ts",
+    title:
+      "Select layer on a non-active overview screen preserves exact screen and layer identity",
+  },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves non-pixel margins at exact visual coordinates",
+  },
+  {
+    shard: "position-3",
+    file: "canvas-chords.spec.ts",
+    title: "Keyboard paste and replacement preserve board-layer geometry",
+  },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste and replacement measure the active breakpoint preview",
+  },
+  {
+    shard: "inspector-3a",
+    file: "canvas-chords.spec.ts",
+    title: "Keyboard repeat paste preserves mixed positioned and flow roots",
   },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 

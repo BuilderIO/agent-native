@@ -67,6 +67,36 @@ type PreviewState =
   | { status: "ready"; src: string; metadataLoaded: boolean }
   | { status: "error" };
 
+const PREVIEW_DEBOUNCE_MS = 220;
+const PREVIEW_TIMEOUT_MS = 60_000;
+
+async function loadPreviewWithTimeout(
+  value: ScreenHistoryWindow,
+  invoke: RewindInvoke | undefined,
+) {
+  let timedOut = false;
+  let timeout: number | undefined;
+  const request = loadRewindPreview(value, invoke);
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = window.setTimeout(() => {
+      timedOut = true;
+      reject(new Error("Earlier screen time preview timed out."));
+    }, PREVIEW_TIMEOUT_MS);
+  });
+  void request.then(
+    (result) => {
+      if (timedOut) void discardQuietly(result.path, invoke);
+    },
+    () => undefined,
+  );
+
+  try {
+    return await Promise.race([request, deadline]);
+  } finally {
+    if (timeout !== undefined) window.clearTimeout(timeout);
+  }
+}
+
 // Radix unmounts the content on close, so each open starts from the item's window.
 function LookbackEditForm({
   item,
@@ -83,7 +113,6 @@ function LookbackEditForm({
     startedAt: item.originalStartedAt,
     endedAt: item.originalEndedAt,
   };
-  const originalStartMs = Date.parse(original.startedAt);
   const [value, setValue] = useState<ScreenHistoryWindow>({
     startedAt: item.startedAt,
     endedAt: item.endedAt,
@@ -94,43 +123,67 @@ function LookbackEditForm({
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
-  // Both in seconds from the start of the cut, which begins at originalStartedAt.
+  // Both in seconds from the start of the selected preview window.
   const [position, setPosition] = useState<number | null>(null);
   const [selectionStop, setSelectionStop] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const previewTaskRef = useRef<Promise<void> | null>(null);
   const unchanged =
     value.startedAt === item.startedAt && value.endedAt === item.endedAt;
 
   // Every close route unmounts this form, and the cleanup discards the cut it
   // loaded. A cut that resolves after the close is discarded when it arrives.
+  // Keep the local cut bounded to the current selection so an unavailable part
+  // of the wider lookback window does not prevent editing captured footage.
   useEffect(() => {
     let cancelled = false;
     let loadedPath: string | null = null;
-    loadRewindPreview(
-      { startedAt: item.originalStartedAt, endedAt: item.originalEndedAt },
-      invoke,
-    )
-      .then((result) => {
-        if (cancelled) {
-          void discardQuietly(result.path, invoke);
-          return;
+    setPreview({ status: "loading" });
+    setPosition(null);
+    setSelectionStop(null);
+    const timer = window.setTimeout(() => {
+      const previousTask = previewTaskRef.current;
+      const task = (async () => {
+        try {
+          await previousTask;
+          if (cancelled) return;
+          const result = await loadPreviewWithTimeout(value, invoke);
+          if (cancelled) {
+            await discardQuietly(result.path, invoke);
+            return;
+          }
+          loadedPath = result.path;
+          setPreview({
+            status: "ready",
+            src: result.src,
+            metadataLoaded: false,
+          });
+        } catch (previewError) {
+          if (cancelled) return;
+          console.warn(
+            "[record-pill] earlier screen time preview failed:",
+            previewError,
+          );
+          setPreview({ status: "error" });
         }
-        loadedPath = result.path;
-        setPreview({ status: "ready", src: result.src, metadataLoaded: false });
-      })
-      .catch((previewError) => {
-        if (cancelled) return;
-        console.warn(
-          "[record-pill] earlier screen time preview failed:",
-          previewError,
-        );
-        setPreview({ status: "error" });
-      });
+      })();
+      previewTaskRef.current = task;
+      void task.then(
+        () => {
+          if (previewTaskRef.current === task) previewTaskRef.current = null;
+        },
+        () => {
+          if (previewTaskRef.current === task) previewTaskRef.current = null;
+        },
+      );
+    }, PREVIEW_DEBOUNCE_MS);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       if (loadedPath) void discardQuietly(loadedPath, invoke);
     };
-  }, [attempt, item.originalStartedAt, item.originalEndedAt, invoke]);
+  }, [attempt, value.startedAt, value.endedAt, invoke]);
 
   async function save() {
     if (saving || unchanged || !isWindowWithin(original, value)) return;
@@ -174,13 +227,13 @@ function LookbackEditForm({
   }
 
   function cutSeconds(iso: string): number {
-    return (Date.parse(iso) - originalStartMs) / 1000;
+    return (Date.parse(iso) - Date.parse(value.startedAt)) / 1000;
   }
 
   function playSelection() {
     const video = videoRef.current;
     if (!video) return;
-    video.currentTime = cutSeconds(value.startedAt);
+    video.currentTime = 0;
     setSelectionStop(cutSeconds(value.endedAt));
     void video.play().catch((playError) => {
       console.warn("[record-pill] preview playback failed:", playError);
@@ -200,7 +253,7 @@ function LookbackEditForm({
   const playhead =
     position === null
       ? null
-      : new Date(originalStartMs + position * 1000).toISOString();
+      : new Date(Date.parse(value.startedAt) + position * 1000).toISOString();
 
   return (
     <>

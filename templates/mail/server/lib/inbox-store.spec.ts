@@ -116,9 +116,11 @@ import {
   resetSyncAccountProgress,
   SyncClaimLostError,
   deleteInboxThreadRow,
+  inboxRowToItem,
   markThreadsOutOfInboxBeforeSync,
   upsertInboxThreadRows,
   withSyncClaim,
+  type InboxThreadRow,
 } from "./inbox-store.js";
 
 function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -210,6 +212,42 @@ describe("readCachedLabels", () => {
     expect(labelMapByAccount.get("acct1@example.com")?.size).toBe(0);
     expect(labelMapByAccount.get("acct-never-synced@example.com")?.size).toBe(
       0,
+    );
+  });
+});
+
+describe("inboxRowToItem", () => {
+  it("decodes Gmail's HTML-escaped snippet once", () => {
+    const row: InboxThreadRow = {
+      id: "owner@example.com:acct1@example.com:t1",
+      ownerEmail: "owner@example.com",
+      accountEmail: "acct1@example.com",
+      threadId: "t1",
+      historyId: "1",
+      inInbox: true,
+      isUnread: false,
+      isStarred: false,
+      isImportant: false,
+      isAutomated: false,
+      latestDate: 1,
+      latestMessageId: "m1",
+      subject: "Hello",
+      snippet:
+        "I&#39;ve sent &quot;Q&amp;A&quot; &#x2014; type &amp;lt;br&amp;gt;",
+      fromName: "Sender",
+      fromEmail: "sender@example.com",
+      to: [],
+      labelIds: ["INBOX"],
+      messageIds: ["m1"],
+      messageCount: 1,
+      unreadCount: 0,
+      hasAttachments: false,
+      syncedAt: 1,
+      updatedAt: 1,
+    };
+
+    expect(inboxRowToItem(row, undefined).snippet).toBe(
+      'I\'ve sent "Q&A" — type &lt;br&gt;',
     );
   });
 });

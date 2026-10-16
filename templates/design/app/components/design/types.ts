@@ -185,6 +185,7 @@ export interface ElementInfo {
     c: number;
     d: number;
   };
+  absoluteSiblingVisualOrigin?: { x: number; y: number };
   textContent?: string;
   textContentTruncated?: boolean;
   htmlContent?: string;
