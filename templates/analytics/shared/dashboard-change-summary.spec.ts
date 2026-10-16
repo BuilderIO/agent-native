@@ -210,6 +210,20 @@ describe("describeDashboardChanges", () => {
     expect(
       describeDashboardChanges(
         dashboard(),
+        dashboard({ panels: [panel("dau", { height: 3 }), panel("wau")] }),
+      ),
+    ).toEqual([{ kind: "panel-resized", title: "DAU" }]);
+    expect(
+      describeDashboardChanges(
+        dashboard(),
+        dashboard({
+          panels: [panel("dau", { width: 2, height: 3 }), panel("wau")],
+        }),
+      ),
+    ).toEqual([{ kind: "panel-resized", title: "DAU" }]);
+    expect(
+      describeDashboardChanges(
+        dashboard(),
         dashboard({
           panels: [panel("dau", { width: 2 }), panel("wau", { width: 2 })],
         }),
@@ -244,6 +258,33 @@ describe("describeDashboardChanges", () => {
         }),
       ),
     ).toEqual([{ kind: "layout-changed" }]);
+  });
+
+  it("reports height changes alongside added and removed panels", () => {
+    expect(
+      describeDashboardChanges(
+        dashboard(),
+        dashboard({
+          panels: [
+            panel("dau", { width: 2, height: 3 }),
+            panel("wau"),
+            panel("mau"),
+          ],
+        }),
+      ),
+    ).toEqual([
+      { kind: "panel-added", title: "MAU" },
+      { kind: "panel-resized", title: "DAU" },
+    ]);
+    expect(
+      describeDashboardChanges(
+        dashboard(),
+        dashboard({ panels: [panel("dau", { width: 2, height: 3 })] }),
+      ),
+    ).toEqual([
+      { kind: "panel-removed", title: "WAU" },
+      { kind: "panel-resized", title: "DAU" },
+    ]);
   });
 
   it("names added, changed, and removed filters by label", () => {
