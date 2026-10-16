@@ -823,6 +823,48 @@ describe("a page whose write path changes mid-write", () => {
       reason: "stored_body_behind",
     });
   });
+
+  it("keeps a page on its live copy when another server commits between the gate's reads", async () => {
+    const { liveBodyWriterGate } = await import("../lib/live-body-writer.js");
+    await switchedPage("torn", "Hello there");
+    // Another server's commit moves the page's markers and its collab doc's
+    // version in one transaction, right after the gate reads the page row.
+    const peerCommit = () =>
+      inTransaction(async (tx) => {
+        await tx.execute({
+          sql: "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
+          args: ["torn"],
+        });
+        await tx.execute({
+          sql: "UPDATE documents SET body_revision = body_revision + 1, collab_body_revision = body_revision + 1, live_copy_version = live_copy_version + 1 WHERE id = ?",
+          args: ["torn"],
+        });
+      });
+    const db = getDb();
+    let reads = 0;
+    const racing = {
+      select: (fields: never) => ({
+        from: (table: never) => ({
+          where: (where: never) => ({
+            limit: async (count: number) => {
+              const rows = await db
+                .select(fields)
+                .from(table)
+                .where(where)
+                .limit(count);
+              if (++reads === 1) await peerCommit();
+              return rows;
+            },
+          }),
+        }),
+      }),
+    } as unknown as NonNullable<Parameters<typeof liveBodyWriterGate>[1]>["db"];
+
+    await expect(liveBodyWriterGate("torn", { db: racing })).resolves.toEqual({
+      writePath: "live_copy",
+    });
+    await expect(gateFor("torn")).resolves.toEqual({ writePath: "live_copy" });
+  });
 });
 
 describe("server writers through editContentLiveCopy", () => {
@@ -1023,6 +1065,28 @@ describe("a browser save to a switched page's body", () => {
       .where(eq(schema.documentBrowserSaveAttempts.documentId, id));
   }
 
+  /** The recovery draft tab-a keeps on the server for `content`. */
+  async function keepDraft(id: string, content: string) {
+    await getDb()
+      .insert(schema.documentPreviewDrafts)
+      .values({
+        id: `${id}-draft`,
+        ownerEmail: OWNER,
+        documentId: id,
+        title: id,
+        content,
+        editorSessionId: "tab-a",
+        editGeneration: 1,
+      });
+  }
+
+  async function drafts(id: string) {
+    return getDb()
+      .select({ content: schema.documentPreviewDrafts.content })
+      .from(schema.documentPreviewDrafts)
+      .where(eq(schema.documentPreviewDrafts.documentId, id));
+  }
+
   /** Another tab rewrites the page's one paragraph, keeping its structure. */
   async function typeInOtherTab(id: string, bodies: string[]) {
     for (const body of bodies) {
@@ -1052,8 +1116,8 @@ describe("a browser save to a switched page's body", () => {
         bodyRevision: before.bodyRevision,
         collabVersion: await collabVersion("two-tabs"),
       },
-      browserSaveAttempt: { result: "live_copy" },
     });
+    expect(saved).not.toHaveProperty("browserSaveAttempt");
     expect(await page("two-tabs")).toEqual(before);
     expect(
       (await history("two-tabs")).filter((row) =>
@@ -1065,11 +1129,57 @@ describe("a browser save to a switched page's body", () => {
       writePath: "live_copy",
     });
 
-    // A retry of the same attempt replays the answer.
+    // A retry of a save the live copy does not hold is answered again.
     await expect(
       browserSave("two-tabs", loaded, "Hello there A"),
     ).resolves.toMatchObject({
       bodySave: { status: "live_copy", matchesLiveCopy: false },
+    });
+    expect(await receipts("two-tabs")).toEqual([]);
+  });
+
+  it("settles a tab's draft only once the live copy holds its body", async () => {
+    await switchedPage("draft", "Hello there");
+    const loaded = await page("draft");
+    await keepDraft("draft", "Hello there\nOnly in tab A");
+    const snapshot = (content: string) => ({
+      editorSnapshotTitle: "draft",
+      editorSnapshotContent: content,
+    });
+
+    // Tab A's updates never reached the live copy: its draft is the only
+    // copy of its text on the server.
+    await expect(
+      browserSave(
+        "draft",
+        loaded,
+        "Hello there\nOnly in tab A",
+        snapshot("Hello there\nOnly in tab A"),
+      ),
+    ).resolves.toMatchObject({ bodySave: { matchesLiveCopy: false } });
+    expect(await drafts("draft")).toEqual([
+      { content: "Hello there\nOnly in tab A" },
+    ]);
+    expect(await receipts("draft")).toEqual([]);
+
+    await expect(
+      browserSave("draft", loaded, "Hello there", {
+        ...snapshot("Hello there"),
+        browserSaveAttemptId: "draft-matched",
+      }),
+    ).resolves.toMatchObject({
+      bodySave: { matchesLiveCopy: true },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await drafts("draft")).toEqual([]);
+    expect(await receipts("draft")).toEqual([{ attemptId: "draft-matched" }]);
+    await expect(
+      browserSave("draft", loaded, "Hello there", {
+        ...snapshot("Hello there"),
+        browserSaveAttemptId: "draft-matched",
+      }),
+    ).resolves.toMatchObject({
+      bodySave: { matchesLiveCopy: true },
       browserSaveAttempt: { result: "replayed" },
     });
   });
@@ -1126,6 +1236,74 @@ describe("a browser save to a switched page's body", () => {
     expect(await receipts("recovery")).toEqual([
       { attemptId: "recovery-matched" },
     ]);
+  });
+
+  it("leaves a stale empty or Builder-image body to the live copy, and refuses it with the flags off", async () => {
+    await switchedPage("stale-empty", "Hello there");
+    const empty = await page("stale-empty");
+    const [{ updatedAt }] = await getDb()
+      .select({ updatedAt: schema.documents.updatedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "stale-empty"));
+    const emptySave = (attemptId: string) =>
+      browserSave("stale-empty", empty, "", {
+        loadedUpdatedAt: updatedAt,
+        loadedContentWasEmpty: true,
+        browserSaveAttemptId: attemptId,
+      });
+
+    const image = "Opening.\n\n![Diagram](https://example.test/image.png)";
+    const staleImage =
+      'Opening.\n\n<SourceComponent componentName="Image" previewUrl={"https://example.test/image.png"} />';
+    await switchedPage("stale-image", image);
+    const builder = await page("stale-image");
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "stale-image-source",
+      ownerEmail: OWNER,
+      databaseId: "stale-image-db",
+      sourceType: "builder-cms",
+      sourceName: "Builder",
+      sourceTable: "test",
+    });
+    await getDb()
+      .insert(schema.contentDatabaseSourceRows)
+      .values({
+        id: "stale-image-row",
+        ownerEmail: OWNER,
+        sourceId: "stale-image-source",
+        databaseItemId: "item",
+        documentId: "stale-image",
+        sourceRowId: "row",
+        sourceQualifiedId: "row",
+        sourceDisplayKey: "row",
+        sourceValuesJson: JSON.stringify({ "__builder.body.content": image }),
+      });
+    const imageSave = (attemptId: string) =>
+      browserSave("stale-image", builder, staleImage, {
+        browserSaveAttemptId: attemptId,
+      });
+
+    for (const saved of [
+      await emptySave("empty-on"),
+      await imageSave("image-on"),
+    ]) {
+      expect(saved).not.toHaveProperty("conflict");
+      expect(saved).toMatchObject({
+        bodySave: { status: "live_copy", matchesLiveCopy: false },
+      });
+    }
+    expect(await page("stale-empty")).toEqual(empty);
+    expect(await page("stale-image")).toEqual(builder);
+
+    await setFlags(false);
+    await expect(emptySave("empty-off")).resolves.toMatchObject({
+      conflict: true,
+    });
+    await expect(imageSave("image-off")).resolves.toMatchObject({
+      conflict: true,
+    });
+    expect(await page("stale-empty")).toEqual(empty);
+    expect(await page("stale-image")).toEqual(builder);
   });
 
   it("takes main's path for the same save once the page's flags are off (SF-11)", async () => {

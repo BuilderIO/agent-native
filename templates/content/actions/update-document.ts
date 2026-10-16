@@ -966,7 +966,7 @@ const updateDocumentAction = defineAction({
         args.authoredCandidateContent === undefined
           ? undefined
           : normalizeAuthoredContent(args.authoredCandidateContent);
-      let browserSaveContentRejected = false;
+      let staleBodySave: "stale_builder_image" | "stale_empty_body" | undefined;
       if (content !== undefined && !args.preserveLeadingTitleHeading) {
         if (
           content.includes('componentName="Image"') &&
@@ -1004,12 +1004,11 @@ const updateDocumentAction = defineAction({
               sourceContent,
             })
           ) {
-            browserSaveContentRejected = true;
-            measurement.reason_code = "stale_builder_image";
-            content = existing.content;
+            staleBodySave = "stale_builder_image";
           }
         }
         if (
+          !staleBodySave &&
           shouldRejectStaleEmptyBodySave({
             incomingContent: content,
             currentContent: existing.content,
@@ -1018,13 +1017,26 @@ const updateDocumentAction = defineAction({
             loadedContentWasEmpty: args.loadedContentWasEmpty,
           })
         ) {
-          browserSaveContentRejected = true;
-          measurement.stale_base = "true";
-          measurement.reason_code = "stale_empty_body";
-          content = existing.content;
+          staleBodySave = "stale_empty_body";
         }
       }
-      if (browserSaveContentRejected && args.browserSaveAttemptId) {
+      // These guard a body write, and a switched page's body may not be
+      // written here at all: the gate, read under the page lock, decides.
+      const staleBodySaveDeferred =
+        ctx?.caller === "frontend" && !!existing.liveBodySwitchedAt;
+      /** Keeps the stored body; true when the save must answer a conflict. */
+      const refuseStaleBodySave = (storedContent: string) => {
+        measurement.reason_code = staleBodySave;
+        if (staleBodySave === "stale_empty_body")
+          measurement.stale_base = "true";
+        content = storedContent;
+        return !!args.browserSaveAttemptId;
+      };
+      if (
+        staleBodySave &&
+        !staleBodySaveDeferred &&
+        refuseStaleBodySave(existing.content)
+      ) {
         measurement.outcome = "conflict";
         return respond(
           documentConflictResponse(existing, access.role, currentFavorite),
@@ -1234,13 +1246,19 @@ const updateDocumentAction = defineAction({
                 collabVersion: page.liveCopyVersion as number,
               };
               content = undefined;
+            } else if (
+              staleBodySave &&
+              staleBodySaveDeferred &&
+              refuseStaleBodySave(historyBefore.content)
+            ) {
+              contentCasConflict = true;
+              return;
             }
           }
-          // A recovery replay settles only a body the live copy already holds.
-          const settlesLiveCopyBody =
-            !!liveCopyBodySave &&
-            (args.recoveryExpectedUpdatedAt === undefined ||
-              liveCopyBodySave.matchesLiveCopy);
+          // Only a body the live copy already holds settles its draft or
+          // keeps a receipt. A tab whose updates never reached the live copy
+          // has nothing else on the server holding its text.
+          const settlesLiveCopyBody = !!liveCopyBodySave?.matchesLiveCopy;
           const confirmBrowserSave = async (
             snapshot: { title: string; content: string },
             now: string,

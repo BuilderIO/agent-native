@@ -3,7 +3,7 @@ import {
   evaluateFeatureFlagRules,
   getFeatureFlagRulesStrict,
 } from "@agent-native/core/feature-flags";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import {
   LIVE_BODY_SHADOW_FLAG,
@@ -62,16 +62,34 @@ export const liveBodyWriterPageColumns = {
 };
 
 /**
- * Decides the write path for a page row the caller already read, for example
- * under the row lock its write holds; pass that transaction so the flags and
- * the stored live copy's version are read in it rather than from the
- * request's settings snapshot. Unreadable or malformed flag state throws:
- * reading it as "off" would send a switched page's writes down the legacy
- * path.
+ * Decides the write path for a page row the caller read under its row lock;
+ * pass that transaction so the flags and the stored live copy's version are
+ * read in it rather than from the request's settings snapshot. A caller
+ * without the lock uses `liveBodyWriterGate`. Unreadable or malformed flag
+ * state throws: reading it as "off" would send a switched page's writes down
+ * the legacy path.
  */
 export async function liveBodyWriterGateForRow(
   row: LiveBodyWriterPageRow | null | undefined,
   options: { transaction?: DbExec } = {},
+): Promise<LiveBodyWriterGate> {
+  return gateForMarkers(
+    row,
+    async (documentId) => {
+      const { rows } = await (options.transaction ?? getDbExec()).execute({
+        sql: "SELECT version FROM _collab_docs WHERE doc_id = ?",
+        args: [documentId],
+      });
+      return (rows[0] as { version?: unknown } | undefined)?.version;
+    },
+    options,
+  );
+}
+
+async function gateForMarkers(
+  row: LiveBodyWriterPageRow | null | undefined,
+  readCollabVersion: (documentId: string) => Promise<unknown>,
+  options: { transaction?: DbExec },
 ): Promise<LiveBodyWriterGate> {
   if (!row) return { writePath: "legacy", reason: "no_page" };
   if (!row.liveBodySwitchedAt)
@@ -80,7 +98,10 @@ export async function liveBodyWriterGateForRow(
     return { writePath: "legacy", reason: "live_copy_behind" };
   // The stored version, not the one an edit was built on: a peer's commit
   // moves both markers, and core's fence retries the overtaken edit.
-  const collabVersion = await storedCollabVersion(row.id, options.transaction);
+  const collabVersion = parseCollabVersion(
+    row.id,
+    await readCollabVersion(row.id),
+  );
   if (collabVersion === null || row.liveCopyVersion !== collabVersion)
     return { writePath: "legacy", reason: "stored_body_behind" };
   return (await liveBodyWriterFlagsOn(row, options))
@@ -89,16 +110,8 @@ export async function liveBodyWriterGateForRow(
 }
 
 // Core's version for the page's collab doc; null when it has none.
-async function storedCollabVersion(
-  documentId: string,
-  transaction: DbExec | undefined,
-): Promise<number | null> {
-  const { rows } = await (transaction ?? getDbExec()).execute({
-    sql: "SELECT version FROM _collab_docs WHERE doc_id = ?",
-    args: [documentId],
-  });
-  const version = (rows[0] as { version?: unknown } | undefined)?.version;
-  if (version === undefined) return null;
+function parseCollabVersion(documentId: string, version: unknown) {
+  if (version === undefined || version === null) return null;
   const parsed = Number(version);
   if (!Number.isSafeInteger(parsed)) {
     throw new Error(
@@ -169,6 +182,7 @@ async function ownerOrgIds(
 
 type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
 
+/** The write path for a page, read without its row lock. */
 export async function liveBodyWriterGate(
   docId: string,
   options: { db?: ContentDb } = {},
@@ -179,7 +193,24 @@ export async function liveBodyWriterGate(
     .from(schema.documents)
     .where(eq(schema.documents.id, docId))
     .limit(1);
-  return liveBodyWriterGateForRow(row);
+  // Most pages stop here, before `_collab_docs`, which a deployment creates
+  // with its first collab doc.
+  if (!row) return { writePath: "legacy", reason: "no_page" };
+  if (!row.liveBodySwitchedAt)
+    return { writePath: "legacy", reason: "not_switched" };
+  // A live-copy commit moves the page's markers and its collab doc's version
+  // together, so read them in one statement: two reads could straddle a
+  // commit and see the page behind its own live copy.
+  // guard:allow-unscoped — callers check access to the page first, and the gate returns only its write path.
+  const [markers] = await db
+    .select({
+      ...liveBodyWriterPageColumns,
+      collabVersion: sql<unknown>`(SELECT collab.version FROM _collab_docs AS collab WHERE collab.doc_id = documents.id)`,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, docId))
+    .limit(1);
+  return gateForMarkers(markers, async () => markers?.collabVersion, {});
 }
 
 /** True when `docId`'s body must be written through its live copy. */
