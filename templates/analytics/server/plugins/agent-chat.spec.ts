@@ -1493,6 +1493,15 @@ describe("realDataFinalGuard", () => {
     });
     expect(
       evaluate(
+        [recentCall],
+        [recentResult],
+        "Compare activation rate over the last 3 months vs last year.",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
         [recentCall, previousCall],
         [recentResult, previousResult],
         "Compare activation rate over the last 3 months vs the previous 3 months and prior 3 months.",

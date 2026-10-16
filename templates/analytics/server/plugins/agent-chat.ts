@@ -1463,7 +1463,7 @@ function requestedComparisonCalendarRanges(
   }
 
   if (
-    /\b(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?|(?:same|equivalent)\s+period\s+)?(?:one|1)\s+year\s+ago\b/i.test(
+    /\b(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i.test(
       userText,
     )
   ) {
@@ -1489,7 +1489,22 @@ function requestedComparisonCalendarRanges(
       : [];
   }
 
-  if (/\b(?:ago|earlier|before)\b/i.test(userText)) return [];
+  const comparisonConnector = userText.match(
+    /\b(?:vs\.?|versus|against|compared\s+to)\b/i,
+  );
+  const comparisonSuffix =
+    comparisonConnector?.index !== undefined
+      ? userText.slice(
+          comparisonConnector.index + comparisonConnector[0].length,
+        )
+      : "";
+  if (
+    /\b(?:today|yesterday|ago|earlier|before|ytd|qtd|mtd)\b|\b(?:last|past|previous|prior|current|this|same|equivalent|comparable)\s+(?:\d+\s+)?(?:day|week|month|quarter|year|period)s?\b|\b(?:19|20)\d{2}\b/i.test(
+      comparisonSuffix,
+    )
+  ) {
+    return [];
+  }
 
   return null;
 }
