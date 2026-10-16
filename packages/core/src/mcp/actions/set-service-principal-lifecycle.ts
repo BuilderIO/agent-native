@@ -62,6 +62,7 @@ export default defineAction({
     lifecycle: z.enum(SERVICE_PRINCIPAL_LIFECYCLES),
     reason: z.string().trim().max(500).optional(),
   }),
+  agentTool: false,
   toolCallable: false,
   audit: orgAdminAudit({
     targetType: "service-principal",
