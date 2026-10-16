@@ -179,28 +179,39 @@ test.describe(
       agent = AgentClient.shared(page);
     });
 
-    test("no tab is open", async ({ page, context }) => {
-      const tabs = await TabSet.create(context);
-      const markers = new Markers();
-      const id = await createPage(page, "SF-02 no tab", EDITOR_BODY);
-      await enterGateArm(page, id);
-      const seed = await tabs.open("seed", id);
-      await tabs.quiet();
-      await seed.close();
-      const before = await liveCopyContaining(page, id, PAGE_PARAGRAPHS);
+    test(
+      "no tab is open",
+      knownLossOnArm({
+        on: {
+          lane: "L3",
+          outcome: "SF-02",
+          reason:
+            "On a switched page the agent's edit-document writes the stored body, not the live copy, so a tab opened just after the edit can load a live copy without it and never show it (intermittent: 2 of 14 runs on L4b's head).",
+        },
+      }),
+      async ({ page, context }) => {
+        const tabs = await TabSet.create(context);
+        const markers = new Markers();
+        const id = await createPage(page, "SF-02 no tab", EDITOR_BODY);
+        await enterGateArm(page, id);
+        const seed = await tabs.open("seed", id);
+        await tabs.quiet();
+        await seed.close();
+        const before = await liveCopyContaining(page, id, PAGE_PARAGRAPHS);
 
-      const edit = await agentEdit(agent, page, id, markers);
-      const opened = await tabs.open("A", id);
-      await expectShownInTime([opened], edit);
-      await expectEachOnce([opened], page, id, markers);
-      expectBlocksKept(
-        before,
-        await liveCopyContaining(page, id, markers.all),
-        [ALPHA, BRAVO, CHARLIE],
-      );
-      await expectReplay(agent, tabs, page, id, edit);
-      expectNoRecoveryNoise(tabs);
-    });
+        const edit = await agentEdit(agent, page, id, markers);
+        const opened = await tabs.open("A", id);
+        await expectShownInTime([opened], edit);
+        await expectEachOnce([opened], page, id, markers);
+        expectBlocksKept(
+          before,
+          await liveCopyContaining(page, id, markers.all),
+          [ALPHA, BRAVO, CHARLIE],
+        );
+        await expectReplay(agent, tabs, page, id, edit);
+        expectNoRecoveryNoise(tabs);
+      },
+    );
 
     test("one tab is open and idle", async ({ page, context }) => {
       const tabs = await TabSet.create(context);
