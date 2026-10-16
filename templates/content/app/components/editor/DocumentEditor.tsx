@@ -1997,6 +1997,25 @@ type DocumentUpdates = {
   icon?: Document["icon"];
 };
 
+/**
+ * What a save on a page whose body is written through its live copy reports.
+ * The body reads as saved only once the server has acknowledged every
+ * live-copy update; until then the collab client keeps resending them.
+ */
+export function liveCopyBodySaveResult(args: {
+  titleSaved: boolean;
+  bodyAcknowledged: boolean;
+  stillWritesThroughLiveCopy: boolean;
+}): DocumentSaveResult {
+  // The server stopped deriving the body, and leaving the live copy queued a
+  // legacy save of it.
+  if (!args.stillWritesThroughLiveCopy)
+    return { contentPersisted: false, outcome: "superseded" };
+  if (!args.bodyAcknowledged)
+    return { contentPersisted: false, outcome: "pending_collaboration_flush" };
+  return { contentPersisted: args.titleSaved };
+}
+
 export function enqueueDocumentSave<T>(
   queueRef: MutableRefObject<Promise<void>>,
   save: () => Promise<T>,
@@ -4123,18 +4142,11 @@ function PageEditorSessionBody({
         }
       }
       const bodyAcknowledged = await flushBeforeSave(flushCollabUpdates);
-      if (!bodyWritesThroughLiveCopyRef.current) {
-        // The server stopped deriving the body, and leaving the live copy
-        // queued a legacy save of it.
-        return { contentPersisted: false, outcome: "superseded" };
-      }
-      if (!bodyAcknowledged) {
-        return {
-          contentPersisted: false,
-          outcome: "pending_collaboration_flush",
-        };
-      }
-      return { contentPersisted: titleSaved };
+      return liveCopyBodySaveResult({
+        titleSaved,
+        bodyAcknowledged,
+        stillWritesThroughLiveCopy: bodyWritesThroughLiveCopyRef.current,
+      });
     },
     [flushCollabUpdates, persistDocumentUpdates],
   );
@@ -8124,7 +8136,7 @@ function PageEditorSessionBody({
     textarea.setSelectionRange(end, end);
   }, []);
 
-  const flushLatestPageEdits = useCallback(async () => {
+  const flushLatestPageEdits = useCallback(async (): Promise<void> => {
     if (documentReconcileConflict || localSourceConflict) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
