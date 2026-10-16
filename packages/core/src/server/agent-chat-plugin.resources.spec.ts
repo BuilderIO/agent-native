@@ -662,23 +662,121 @@ describe("agent chat thread list route", () => {
     );
   });
 
-  it.each([
-    ["an unknown ownership", "?ownership=everyone"],
-    ["a negative limit", "?limit=-5"],
-    ["a zero limit", "?limit=0"],
-    ["a fractional limit", "?limit=1.5"],
-    ["a non-numeric limit", "?limit=lots"],
-    ["a negative offset", "?offset=-1"],
-    ["a non-numeric offset", "?offset=next"],
-  ])(
-    "answers 400 for %s instead of listing from somewhere else",
-    async (_name, search) => {
-      const response = await getThreads(search);
-      expect(response.status).toBe(400);
-      expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
-      expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
-    },
-  );
+  describe.each(["list", "search"] as const)("%s query validation", (mode) => {
+    const suffix = mode === "search" ? "&q=plan" : "";
+
+    it.each([
+      ["an unknown ownership", "?ownership=everyone"],
+      ["an empty ownership", "?ownership="],
+      ["a whitespace ownership", "?ownership=%20"],
+      ["duplicate ownership values", "?ownership=all&ownership=all"],
+      ["an empty limit", "?limit="],
+      ["a whitespace limit", "?limit=%20"],
+      ["a negative limit", "?limit=-5"],
+      ["a zero limit", "?limit=0"],
+      ["a fractional limit", "?limit=1.5"],
+      ["a non-numeric limit", "?limit=lots"],
+      ["duplicate limit values", "?limit=1&limit=1"],
+      ["an unsafe limit", "?limit=9007199254740992"],
+      ["an imprecise limit", "?limit=9007199254740993"],
+      ["an overflowing limit", `?limit=${"9".repeat(400)}`],
+      ["an empty offset", "?offset="],
+      ["a whitespace offset", "?offset=%20"],
+      ["a negative offset", "?offset=-1"],
+      ["a fractional offset", "?offset=1.5"],
+      ["a non-numeric offset", "?offset=next"],
+      ["duplicate offset values", "?offset=1&offset=1"],
+      ["an unsafe offset", "?offset=9007199254740992"],
+      ["an imprecise offset", "?offset=9007199254740993"],
+      ["an overflowing offset", `?offset=${"9".repeat(400)}`],
+    ])(
+      "answers 400 for %s before calling either store",
+      async (_name, search) => {
+        const response = await getThreads(`${search}${suffix}`);
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+          error: search.startsWith("?ownership")
+            ? "Invalid ownership filter"
+            : "Invalid limit or offset",
+        });
+        expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
+        expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["all", "mine", "shared"] as const)(
+      "preserves valid %s ownership",
+      async (ownership) => {
+        threadStoreMocks.listThreads.mockResolvedValue([]);
+        threadStoreMocks.searchThreads.mockResolvedValue([]);
+        const response = await getThreads(
+          `?ownership=${ownership}&limit=2&offset=0${suffix}`,
+        );
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ threads: [], hasMore: false });
+        if (mode === "list") {
+          expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+            "user@example.test",
+            expect.objectContaining({ ownership, limit: 3, offset: 0 }),
+          );
+          expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
+        } else {
+          expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+            "user@example.test",
+            "plan",
+            3,
+            expect.objectContaining({ ownership, offset: 0 }),
+          );
+          expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
+        }
+      },
+    );
+
+    it("defaults only absent parameters", async () => {
+      threadStoreMocks.listThreads.mockResolvedValue([]);
+      threadStoreMocks.searchThreads.mockResolvedValue([]);
+      const response = await getThreads(mode === "list" ? "" : "?q=plan");
+      expect(response.status).toBe(200);
+      if (mode === "list") {
+        expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          expect.objectContaining({ ownership: "all", limit: 51, offset: 0 }),
+        );
+      } else {
+        expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          "plan",
+          51,
+          expect.objectContaining({ ownership: "all", offset: 0 }),
+        );
+      }
+    });
+
+    it("accepts the largest safe offset and caps a valid safe limit above 200", async () => {
+      threadStoreMocks.listThreads.mockResolvedValue([]);
+      threadStoreMocks.searchThreads.mockResolvedValue([]);
+      const response = await getThreads(
+        `?limit=${Number.MAX_SAFE_INTEGER}&offset=${Number.MAX_SAFE_INTEGER}${suffix}`,
+      );
+      expect(response.status).toBe(200);
+      if (mode === "list") {
+        expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          expect.objectContaining({
+            limit: 201,
+            offset: Number.MAX_SAFE_INTEGER,
+          }),
+        );
+      } else {
+        expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          "plan",
+          201,
+          expect.objectContaining({ offset: Number.MAX_SAFE_INTEGER }),
+        );
+      }
+    });
+  });
 
   it("caps an oversized limit at the page maximum", async () => {
     threadStoreMocks.listThreads.mockResolvedValue([]);

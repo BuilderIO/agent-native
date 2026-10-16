@@ -7137,9 +7137,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         raw: unknown,
         fallback: number,
       ): number | null => {
-        if (raw === undefined || raw === null || raw === "") return fallback;
-        const text = String(raw).trim();
-        return /^\d+$/.test(text) ? Number(text) : null;
+        if (raw === undefined) return fallback;
+        if (typeof raw !== "string") return null;
+        const text = raw.trim();
+        if (!/^\d+$/.test(text)) return null;
+        const value = Number(text);
+        return Number.isSafeInteger(value) ? value : null;
       };
       const parseScopeFromBody = (raw: unknown): ChatThreadScope | null => {
         if (raw == null) return null;
@@ -7818,7 +7821,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
             const includeExternal = String(query.includeExternal ?? "") === "1";
-            const ownership = query.ownership ? String(query.ownership) : "all";
+            const ownership =
+              query.ownership === undefined ? "all" : query.ownership;
             if (!isChatThreadOwnership(ownership)) {
               setResponseStatus(event, 400);
               return { error: "Invalid ownership filter" };
