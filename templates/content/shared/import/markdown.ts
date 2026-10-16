@@ -20,6 +20,10 @@ import { unified, type Processor } from "unified";
 import { parse as parseYaml } from "yaml";
 
 import {
+  splitMarkdownExportManifest,
+  type ExportManifest,
+} from "../blocks-fields-manifest";
+import {
   nfmToDoc,
   notionSpanAttrs,
   pushAll,
@@ -275,8 +279,12 @@ export interface ParseMarkdownImportInput {
 export function parseMarkdownImport(
   input: ParseMarkdownImportInput,
 ): MarkdownImportDraft {
-  const text = input.text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  const exported = splitMarkdownExportManifest(
+    input.text.replace(/^﻿/, "").replace(/\r\n?/g, "\n"),
+  );
+  const text = exported.body;
   const notes = new ImportNoteBag();
+  noteExportManifest(exported.manifest, text, notes);
   const frontmatterMatch = FRONTMATTER_RE.exec(text);
   const body = frontmatterMatch ? text.slice(frontmatterMatch[0].length) : text;
   const frontmatter = readFrontmatter(
@@ -501,6 +509,24 @@ function withoutCodeSpans(paragraph: string): string {
   }
   parts.push(paragraph.slice(last));
   return parts.join("");
+}
+
+// The page body is the export's primary field. Its other fields, and the
+// block identities of all of them, do not come back: an import is a new page.
+function noteExportManifest(
+  manifest: ExportManifest,
+  body: string,
+  notes: ImportNoteBag,
+) {
+  if (manifest.kind === "unreadable")
+    notes.add("export-manifest-unreadable", manifest.reason);
+  if (manifest.kind !== "read") return;
+  for (const field of manifest.fields) {
+    const markdown = field.markdown.trim();
+    // An older export names no primary field; its body ends the file.
+    const isBody = field.primary ?? body.trimEnd().endsWith(markdown);
+    if (!isBody && markdown) notes.add("blocks-field-not-imported", field.name);
+  }
 }
 
 interface FrontmatterFields {

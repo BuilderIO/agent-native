@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { legacyBlocksFieldIdentity } from "../blocks-field-identity";
 import { createContentEditorStructuralSchema } from "../content-editor-structural-schema";
-import { markdownWithTitle } from "../document-export";
+import { buildDocumentExport, markdownWithTitle } from "../document-export";
 import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "../nfm";
 import { finalizeMarkdownImport, ImportContractError } from "./finalize";
 import { newTablePaddingBudget, parseMarkdownImport } from "./markdown";
@@ -426,6 +427,87 @@ describe("Markdown import", () => {
     expect(page.content).toBe(stored);
     expect(page.report.status).toBe("preserved");
     expect(page.report.notes).toEqual([]);
+  });
+
+  describe("a Content export's Blocks field manifest", () => {
+    const field = (name: string, primary: boolean, markdown: string) => ({
+      databaseId: "database-1",
+      propertyId: name.toLowerCase(),
+      name,
+      position: 0,
+      primary,
+      markdown,
+      identity: legacyBlocksFieldIdentity({
+        documentId: "doc_1",
+        propertyId: name.toLowerCase(),
+        markdown,
+      }),
+    });
+    const exported = (
+      stored: string,
+      blocksFields: ReturnType<typeof field>[],
+    ) =>
+      buildDocumentExport({
+        id: "doc_1",
+        title: "Launch plan",
+        content: stored,
+        format: "markdown",
+        blocksFields,
+      }).content;
+
+    it("imports a page whose only field is its body as it was", () => {
+      const stored = "Intro with **bold** and `code`";
+      const page = importMarkdown(
+        exported(stored, [field("Content", true, stored)]),
+        { sourcePath: "launch-plan.md" },
+      );
+      expect(page.content).toBe(stored);
+      expect(page.report.status).toBe("preserved");
+      expect(page.report.notes).toEqual([]);
+    });
+
+    it("names each other field the import leaves out", () => {
+      const page = importMarkdown(
+        exported("Intro", [
+          field("Content", true, "Intro"),
+          field("Notes", false, "Private notes"),
+          field("Empty", false, ""),
+        ]),
+      );
+      expect(page.content).toBe("Intro");
+      expect(page.report.status).toBe("lost");
+      expect(page.report.notes).toEqual([
+        {
+          kind: "blocks-field-not-imported",
+          severity: "lost",
+          count: 1,
+          samples: ["Notes"],
+        },
+      ]);
+    });
+
+    it("takes the field that ends an older export for its body", () => {
+      const fields = [
+        { name: "Content", markdown: "Intro" },
+        { name: "Notes", markdown: "Private notes" },
+      ];
+      const page = importMarkdown(
+        `# Launch plan\n\nIntro\n\n<!-- agent-native-blocks:${JSON.stringify({ version: 1, fields })} -->\n`,
+      );
+      expect(page.content).toBe("Intro");
+      expect(page.report.notes.map((note) => note.samples)).toEqual([
+        ["Notes"],
+      ]);
+    });
+
+    it("reports a manifest it cannot read and still imports the body", () => {
+      const page = importMarkdown(
+        "# Launch plan\n\nIntro\n\n<!-- agent-native-blocks:{broken -->\n",
+      );
+      expect(page.content).toBe("Intro");
+      expect(noteKinds(page)).toEqual(["export-manifest-unreadable"]);
+      expect(page.report.status).toBe("lost");
+    });
   });
 
   it("drops the same links from Content Markdown as from other Markdown", () => {

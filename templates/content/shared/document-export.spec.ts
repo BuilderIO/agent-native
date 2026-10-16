@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { legacyBlocksFieldIdentity } from "./blocks-field-identity";
+import { splitMarkdownExportManifest } from "./blocks-fields-manifest";
 import { renderDatabaseCsv } from "./database-csv-export";
 import {
   buildDocumentExport,
@@ -113,6 +114,7 @@ describe("document export", () => {
         propertyId: "content",
         name: "Content",
         position: 0,
+        primary: true,
         markdown,
         identity: legacyBlocksFieldIdentity({
           documentId: "doc_123",
@@ -125,6 +127,7 @@ describe("document export", () => {
         propertyId: "notes",
         name: "Notes",
         position: 1,
+        primary: false,
         markdown: "Private notes",
         identity: legacyBlocksFieldIdentity({
           documentId: "doc_123",
@@ -144,6 +147,16 @@ describe("document export", () => {
     expect(exported.blocksFields).toEqual(blocksFields);
     expect(exported.content).toContain("<!-- agent-native-blocks:");
     expect(exported.content).toContain('"propertyId":"notes"');
+    expect(splitMarkdownExportManifest(exported.content)).toEqual({
+      body: markdownWithTitle("Identity export", markdown),
+      manifest: {
+        kind: "read",
+        fields: [
+          { name: "Content", primary: true, markdown },
+          { name: "Notes", primary: false, markdown: "Private notes" },
+        ],
+      },
+    });
 
     const html = buildDocumentExport({
       id: "doc_123",

@@ -28,10 +28,6 @@ test.describe.configure({ retries: 0, timeout: 150_000 });
 // Samples main loses today. L1 drops each entry with the fix that keeps it.
 const MAIN_LOSES: Record<string, string> = {};
 
-// Every export fails this before its sample is compared.
-const EXPORT_MANIFEST_LOSS =
-  "Markdown export appends a hidden agent-native-blocks manifest that import drops, so every exported page re-imports reported as lost and with new block identities.";
-
 const KEYSTROKE_PARAGRAPH = "Keystroke lands here.";
 const KEYSTROKE = "!";
 
@@ -126,11 +122,6 @@ test.describe("SF-04 round trips keep every sample", { tag: "@SF-04" }, () => {
     const details = loss
       ? knownLossSpec({ lane: "L1", outcome: "SF-04", reason: loss })
       : {};
-    const exportDetails = knownLossSpec({
-      lane: "L1",
-      outcome: "SF-04",
-      reason: loss ? `${EXPORT_MANIFEST_LOSS} ${loss}` : EXPORT_MANIFEST_LOSS,
-    });
 
     test(
       `${sample.id}: open, save and read back`,
@@ -176,7 +167,7 @@ test.describe("SF-04 round trips keep every sample", { tag: "@SF-04" }, () => {
 
     test(
       `${sample.id}: export, then import`,
-      exportDetails,
+      details,
       async ({ page, context }) => {
         const id = await createSample(
           agent,
