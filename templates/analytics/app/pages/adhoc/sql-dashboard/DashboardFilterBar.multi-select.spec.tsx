@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18nCatalog } from "../../../i18n";
 import { DashboardFilterBar } from "./DashboardFilterBar";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterPreset } from "./types";
 
 const filters: DashboardFilter[] = [
   {
@@ -490,6 +490,26 @@ describe("multi-select dashboard filter", () => {
         values: ["free", "enterprise"],
       });
       expect(() => groupNameInput()).toThrow("not rendered");
+    });
+
+    it("moves focus to the group it saved, since the name form unmounts", () => {
+      const url = "/dashboards/test?f_plan=enterprise,free";
+      const onSavePreset = vi.fn((_filterId: string, preset: FilterPreset) =>
+        // The page adds the preset in the same click, as persist() does.
+        render(
+          url,
+          [{ ...withPreset[0], presets: [...withPreset[0].presets!, preset] }],
+          { onSavePreset },
+        ),
+      );
+      render(url, withPreset, { onSavePreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Mixed");
+      act(() => popoverButton("Save").click());
+
+      expect(popoverButton("Mixed").getAttribute("aria-pressed")).toBe("true");
+      expect(document.activeElement).toBe(popoverButton("Mixed"));
     });
 
     it("says Save for everyone on a shared dashboard and refuses a name already in use", () => {
