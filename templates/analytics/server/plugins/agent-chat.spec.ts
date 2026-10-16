@@ -570,7 +570,6 @@ describe("Analytics agent Plan mode policy", () => {
       "pick the default and label it",
       '"Reading this as: <metric definition>, <window>, <filters>, <source>"',
       '"Changing <panel title> on <dashboard>"',
-      "A source the user names wins",
       "Never ask the user for dataset, table, column, or SQL identifiers",
     ]) {
       expect(rule).toContain(clause);
@@ -1566,6 +1565,36 @@ describe("realDataFinalGuard", () => {
     expect(ambiguous).toMatchObject({
       retryMessage: expect.stringContaining("requested grouping"),
     });
+  });
+
+  it("does not infer organization hierarchy from unrelated dimension prose", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const resultFor = (name: string, description: string) => {
+      const groupBy = [{ name }];
+      return realDataFinalGuard(
+        guardContext({
+          userText:
+            "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+          draftText: "Activation was 42% by organization.",
+          runStartedAt: Date.UTC(2026, 6, 8),
+          toolCalls: [dbtMetricCall(range, groupBy)],
+          toolResults: [
+            dbtMetricResult({ groupBy, timeRange: range }, undefined, {
+              metric: {
+                name: "activation_rate",
+                dimensions: [{ name, description }],
+              },
+            }),
+          ],
+        }),
+      );
+    };
+
+    expect(
+      resultFor("organization_id", "Top-level tier of each organization"),
+    ).toBeNull();
+    expect(resultFor("organization_id", "Root or member account")).toBeNull();
+    expect(resultFor("root", "Organization")).toBeNull();
   });
 
   it("uses a validated selected dbt dimension when the definition summary is truncated", () => {

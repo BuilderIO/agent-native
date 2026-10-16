@@ -35,6 +35,21 @@ const HEADER = [
 
 const VALID_HASH = "a".repeat(64);
 const VALID_REVISION = "b".repeat(40);
+const CASE_KEYS = [
+  "synthetic-unbuilt-index-does-not-claim-absence",
+  "synthetic-content-api-requests-not-visual-views",
+  "synthetic-source-provenance-ambiguity",
+  "synthetic-dbt-disconnected-abstains",
+  "synthetic-dbt-paginated-bounded-grouping",
+  "synthetic-dbt-rolling-window-product-category",
+  "synthetic-latest-skill-event-taxonomy",
+  "synthetic-latest-monthly-ai-credits-by-workspace",
+  "synthetic-bigquery-partial-warning-disclosed",
+  "synthetic-schema-discovery-corrects-query",
+  "synthetic-dbt-organization-description-does-not-change-grain",
+  "synthetic-first-party-div-recovery",
+] as const;
+const REPLICATES = ["1", "2"] as const;
 
 function row(
   phase: "baseline" | "candidate",
@@ -78,17 +93,28 @@ function csv(...rows: string[][]): string {
   return [HEADER.join(","), ...rows.map((cells) => cells.join(","))].join("\n");
 }
 
+function completePhaseRows(
+  phase: "baseline" | "candidate",
+  overrides: Partial<Record<(typeof HEADER)[number], string>> = {},
+): string[][] {
+  return CASE_KEYS.flatMap((caseKey) =>
+    REPLICATES.map((replicate) =>
+      row(phase, { ...overrides, case_key: caseKey, replicate }),
+    ),
+  );
+}
+
 describe("combinePhaseCsvTexts", () => {
   it("combines paired rows with verified production receipts", () => {
     const result = combinePhaseCsvTexts(
-      csv(row("baseline")),
-      csv(row("candidate")),
+      csv(...completePhaseRows("baseline")),
+      csv(...completePhaseRows("candidate")),
     );
 
     expect(result).toMatchObject({
-      baselineRows: 1,
-      candidateRows: 1,
-      passed: [1, 1],
+      baselineRows: 24,
+      candidateRows: 24,
+      passed: [24, 24],
     });
     expect(result.csv).toContain("baseline");
     expect(result.csv).toContain("candidate");
@@ -104,40 +130,54 @@ describe("combinePhaseCsvTexts", () => {
 
   it("rejects case keys outside the reviewed synthetic set", () => {
     const unreviewedKey = "synthetic-unreviewed-name";
+    const baselineRows = completePhaseRows("baseline");
+    baselineRows[0] = row("baseline", { case_key: unreviewedKey });
+    const candidateRows = completePhaseRows("candidate");
+    candidateRows[0] = row("candidate", { case_key: unreviewedKey });
     expect(() =>
-      combinePhaseCsvTexts(
-        csv(row("baseline", { case_key: unreviewedKey })),
-        csv(row("candidate", { case_key: unreviewedKey })),
-      ),
+      combinePhaseCsvTexts(csv(...baselineRows), csv(...candidateRows)),
     ).toThrow("baseline CSV has an invalid synthetic case key.");
+  });
+
+  it("rejects identical but incomplete case/replicate sets", () => {
+    const baselineRows = completePhaseRows("baseline").slice(1);
+    const candidateRows = completePhaseRows("candidate").slice(1);
+
+    expect(() =>
+      combinePhaseCsvTexts(csv(...baselineRows), csv(...candidateRows)),
+    ).toThrow("baseline CSV does not contain the complete case/replicate set.");
   });
 
   it("rejects mixed source revisions inside a phase", () => {
     const baseline = csv(
-      row("baseline"),
-      row("baseline", {
-        case_key: "synthetic-dbt-disconnected-abstains",
-        source_revision: "c".repeat(40),
-      }),
+      ...completePhaseRows("baseline").map((cells, index) =>
+        index === 1
+          ? row("baseline", {
+              case_key: "synthetic-unbuilt-index-does-not-claim-absence",
+              replicate: "2",
+              source_revision: "c".repeat(40),
+            })
+          : cells,
+      ),
     );
 
-    expect(() => combinePhaseCsvTexts(baseline, csv(row("candidate")))).toThrow(
-      "baseline CSV must use one source revision.",
-    );
+    expect(() =>
+      combinePhaseCsvTexts(baseline, csv(...completePhaseRows("candidate"))),
+    ).toThrow("baseline CSV must use one source revision.");
   });
 
   it("rejects invalid scores and missing production receipts", () => {
     expect(() =>
       combinePhaseCsvTexts(
         csv(row("baseline", { score: "2" })),
-        csv(row("candidate")),
+        csv(...completePhaseRows("candidate")),
       ),
     ).toThrow("baseline CSV has an invalid score.");
 
     expect(() =>
       combinePhaseCsvTexts(
         csv(row("baseline", { usage_captured: "false" })),
-        csv(row("candidate")),
+        csv(...completePhaseRows("candidate")),
       ),
     ).toThrow("baseline CSV is missing valid production receipts.");
   });
@@ -153,11 +193,23 @@ describe("combinePhaseCsvTexts", () => {
       owner_org_context_verified: "false",
       usage_captured: "false",
     };
+    const baselineRows = completePhaseRows("baseline");
+    baselineRows[0] = row("baseline", {
+      ...aborted,
+      case_key: CASE_KEYS[0],
+      replicate: REPLICATES[0],
+    });
+    const candidateRows = completePhaseRows("candidate");
+    candidateRows[0] = row("candidate", {
+      ...aborted,
+      case_key: CASE_KEYS[0],
+      replicate: REPLICATES[0],
+    });
     const result = combinePhaseCsvTexts(
-      csv(row("baseline", aborted)),
-      csv(row("candidate", aborted)),
+      csv(...baselineRows),
+      csv(...candidateRows),
     );
 
-    expect(result.passed).toEqual([0, 0]);
+    expect(result.passed).toEqual([23, 23]);
   });
 });

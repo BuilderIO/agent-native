@@ -1,6 +1,7 @@
+import { realpathSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 type Phase = "baseline" | "candidate";
 
@@ -85,7 +86,7 @@ const REASON_CODES = new Set([
   "production_path_failed",
 ]);
 
-const SAFE_CASE_KEYS = new Set([
+const SAFE_CASE_KEYS = [
   "synthetic-unbuilt-index-does-not-claim-absence",
   "synthetic-content-api-requests-not-visual-views",
   "synthetic-source-provenance-ambiguity",
@@ -98,7 +99,9 @@ const SAFE_CASE_KEYS = new Set([
   "synthetic-schema-discovery-corrects-query",
   "synthetic-dbt-organization-description-does-not-change-grain",
   "synthetic-first-party-div-recovery",
-]);
+] as const;
+const SAFE_CASE_KEY_SET = new Set<string>(SAFE_CASE_KEYS);
+const EXPECTED_REPLICATES = ["1", "2"] as const;
 
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -183,7 +186,7 @@ function readPhase(text: string, expectedPhase: Phase): PhaseCsv {
     if (!value("case_key")) {
       throw new Error(`${expectedPhase} CSV has an invalid case key.`);
     }
-    if (!SAFE_CASE_KEYS.has(value("case_key"))) {
+    if (!SAFE_CASE_KEY_SET.has(value("case_key"))) {
       throw new Error(
         `${expectedPhase} CSV has an invalid synthetic case key.`,
       );
@@ -251,6 +254,30 @@ function readPhase(text: string, expectedPhase: Phase): PhaseCsv {
   );
   if (sourceRevisions.size !== 1) {
     throw new Error(`${expectedPhase} CSV must use one source revision.`);
+  }
+
+  const caseKeyIndex = columns.get("case_key")!;
+  const replicateIndex = columns.get("replicate")!;
+  const caseReplicate = (record: string[]) =>
+    `${record[caseKeyIndex]!}\0${record[replicateIndex]!}`;
+  const rowKeys = new Set(rows.map(caseReplicate));
+  if (rowKeys.size !== rows.length) {
+    throw new Error(
+      `${expectedPhase} CSV contains duplicate case/replicate rows.`,
+    );
+  }
+  const expectedRows = SAFE_CASE_KEYS.length * EXPECTED_REPLICATES.length;
+  if (
+    rowKeys.size !== expectedRows ||
+    SAFE_CASE_KEYS.some((caseKey) =>
+      EXPECTED_REPLICATES.some(
+        (replicate) => !rowKeys.has(`${caseKey}\0${replicate}`),
+      ),
+    )
+  ) {
+    throw new Error(
+      `${expectedPhase} CSV does not contain the complete case/replicate set.`,
+    );
   }
 
   return { header, rows };
@@ -348,7 +375,7 @@ async function main(): Promise<void> {
 
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+  fileURLToPath(import.meta.url) === realpathSync(process.argv[1])
 ) {
   main().catch((error: unknown) => {
     console.error(

@@ -97,13 +97,13 @@ pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts
   "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
 ```
 
-The combiner enforces an exact safe header and synthetic case-key allowlist, a
-single source revision per phase, matching harness hashes and case/replicate
-pairs, valid result and production-receipt values, and refuses to overwrite an
-existing output. The generated CSV has no prompts, SQL, provider rows, identity
-values, cursors, or credentials. A passing score requires all production
-receipts; an aborted or incomplete production-path run is retained as a score-0
-failure.
+The combiner enforces an exact safe header, all twelve reviewed case keys at
+replicates 1 and 2 in each phase, one source revision per phase, matching
+harness hashes and case/replicate pairs, valid result and production-receipt
+values, and refuses to overwrite an existing output. The generated CSV has no
+prompts, SQL, provider rows, identity values, cursors, or credentials. A passing
+score requires all production receipts; an aborted or incomplete production-path
+run is retained as a score-0 failure.
 
 ## Current latest-wave comparison
 
