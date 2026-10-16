@@ -14,6 +14,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 import {
+  detectPlatform,
+  pickJoinUrl,
   refreshAccessTokenWithFallback,
   resolveGoogleOAuthCredentialCandidates,
 } from "./google-calendar-client";
@@ -22,6 +24,27 @@ describe("Clips Google Calendar OAuth client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     mocks.resolveGoogleProviderCredentialCandidatesWithReader.mockReset();
+  });
+
+  it("detects and extracts Teams Live meeting links", () => {
+    const joinUrl = "https://teams.live.com/meet/123";
+
+    expect(detectPlatform(joinUrl)).toBe("teams");
+    expect(
+      pickJoinUrl({
+        id: "teams-live",
+        description: `Join the call: ${joinUrl}`,
+      }),
+    ).toBe(joinUrl);
+  });
+
+  it("rejects Teams Live lookalike hosts", () => {
+    const joinUrl = "https://teams.live.com.attacker.test/meet/123";
+
+    expect(detectPlatform(joinUrl)).toBe("other");
+    expect(
+      pickJoinUrl({ id: "lookalike", description: joinUrl }),
+    ).toBeUndefined();
   });
 
   it("restricts Clips Calendar OAuth to the primary Google credential pair", async () => {

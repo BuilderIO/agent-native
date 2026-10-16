@@ -195,6 +195,26 @@ describe("upload lease", () => {
         released_at TEXT
       )`,
     );
+    await execute(
+      client,
+      `CREATE TABLE clips_meetings (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        recording_id TEXT,
+        actual_end TEXT,
+        transcript_status TEXT NOT NULL DEFAULT 'idle',
+        summary_md TEXT NOT NULL DEFAULT '',
+        trashed_at TEXT
+      )`,
+    );
+    await execute(
+      client,
+      `CREATE TABLE recording_transcripts (
+        recording_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        full_text TEXT NOT NULL DEFAULT ''
+      )`,
+    );
     mockDeleteS3ObjectByUrl.mockResolvedValue(true);
     mockReleaseHostedClipRecording.mockImplementation(
       async (input: { recordingId: string }) => {
@@ -530,7 +550,7 @@ describe("upload lease", () => {
       .mockResolvedValueOnce(undefined);
 
     await expect(reapExpiredUploads({ now: NOW })).rejects.toThrow(
-      "Meeting finalization dispatch failed for 1 expired upload(s)",
+      "Meeting finalization dispatch failed for 1 recording(s)",
     );
 
     expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(2);
@@ -552,6 +572,64 @@ describe("upload lease", () => {
       });
       expect(sessionRows).toEqual([]);
     }
+  });
+
+  it("retries failed meeting dispatches from persisted ended-meeting transcript state", async () => {
+    await insertRecording({ id: "meeting-dispatch-retry", status: "failed" });
+    await insertRecording({
+      id: "meeting-dispatch-inflight",
+      status: "failed",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_meetings
+            (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+            VALUES (?, ?, ?, ?, 'failed', '')`,
+      args: [
+        "meeting-dispatch-retry",
+        "owner@example.com",
+        "meeting-dispatch-retry",
+        iso(-60_000),
+      ],
+    });
+    await execute(client, {
+      sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+            VALUES (?, 'ready', ?)`,
+      args: ["meeting-dispatch-retry", "Transcript text"],
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_meetings
+            (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+            VALUES (?, ?, ?, ?, 'pending', '')`,
+      args: [
+        "meeting-dispatch-inflight",
+        "owner@example.com",
+        "meeting-dispatch-inflight",
+        iso(-60_000),
+      ],
+    });
+    await execute(client, {
+      sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+            VALUES (?, 'ready', ?)`,
+      args: ["meeting-dispatch-inflight", "Transcript text"],
+    });
+    mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(
+      new Error("dispatch unavailable"),
+    );
+
+    await expect(reapExpiredUploads({ now: NOW })).rejects.toThrow(
+      "Meeting finalization dispatch failed for 1 recording(s)",
+    );
+    await reapExpiredUploads({ now: NOW + 1_000 });
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledTimes(2);
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenNthCalledWith(1, {
+      recordingId: "meeting-dispatch-retry",
+      ownerEmail: "owner@example.com",
+    });
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenNthCalledWith(2, {
+      recordingId: "meeting-dispatch-retry",
+      ownerEmail: "owner@example.com",
+    });
   });
 
   it("retries hosted reservation release after confirmed cleanup", async () => {

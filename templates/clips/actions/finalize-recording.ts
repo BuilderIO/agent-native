@@ -85,6 +85,7 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 import {
   isRemoteProviderUrl,
   markRecordingSeekable,
@@ -903,13 +904,21 @@ async function completeReadyRecordingBookkeeping(params: {
     finishedAt: stateString(priorState, "finishedAt") ?? now,
   });
 
-  const [existingTranscript] = await getDb()
-    .select({ recordingId: schema.recordingTranscripts.recordingId })
+  const db = getDb();
+  const [existingTranscript] = await db
+    .select({
+      recordingId: schema.recordingTranscripts.recordingId,
+      status: schema.recordingTranscripts.status,
+      updatedAt: schema.recordingTranscripts.updatedAt,
+      fullText: schema.recordingTranscripts.fullText,
+      source: schema.recordingTranscripts.source,
+    })
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, params.id));
+  let shouldDispatchTranscript = false;
   if (!existingTranscript) {
     // A transcript import can create the row after the read above; keep it.
-    await getDb()
+    const [insertedTranscript] = await db
       .insert(schema.recordingTranscripts)
       .values({
         recordingId: params.id,
@@ -918,7 +927,30 @@ async function completeReadyRecordingBookkeeping(params: {
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoNothing({ target: schema.recordingTranscripts.recordingId });
+      .onConflictDoNothing({ target: schema.recordingTranscripts.recordingId })
+      .returning({ recordingId: schema.recordingTranscripts.recordingId });
+    shouldDispatchTranscript = Boolean(insertedTranscript);
+  } else if (
+    existingTranscript.source !== "imported" &&
+    (existingTranscript.status === "failed" ||
+      (existingTranscript.status === "pending" &&
+        resolveTranscriptPresentation(existingTranscript).stalePending))
+  ) {
+    const [claimedTranscript] = await db
+      .update(schema.recordingTranscripts)
+      .set({ status: "pending", updatedAt: now, failureReason: null })
+      .where(
+        and(
+          eq(schema.recordingTranscripts.recordingId, params.id),
+          eq(schema.recordingTranscripts.status, existingTranscript.status),
+          eq(
+            schema.recordingTranscripts.updatedAt,
+            existingTranscript.updatedAt,
+          ),
+        ),
+      )
+      .returning({ recordingId: schema.recordingTranscripts.recordingId });
+    shouldDispatchTranscript = Boolean(claimedTranscript);
   }
 
   await deleteAppState(mediaVerificationStateKey(params.id)).catch((err) => {
@@ -965,15 +997,17 @@ async function completeReadyRecordingBookkeeping(params: {
     });
   }
 
-  await dispatchPostFinalizeJob({
-    recordingId: params.id,
-    kind: "transcript",
-  }).catch((err: unknown) => {
-    console.error("[finalize] transcript dispatch failed", {
-      id: params.id,
-      error: err instanceof Error ? err.message : String(err),
+  if (shouldDispatchTranscript) {
+    await dispatchPostFinalizeJob({
+      recordingId: params.id,
+      kind: "transcript",
+    }).catch((err: unknown) => {
+      console.error("[finalize] transcript dispatch failed", {
+        id: params.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
-  });
+  }
 
   return sourceSizeBytes ?? 0;
 }

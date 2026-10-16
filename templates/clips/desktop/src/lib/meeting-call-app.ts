@@ -1,3 +1,5 @@
+import { detectMeetingPlatform } from "../../../shared/meeting-platform";
+
 const NATIVE_CALL_APP_BUNDLE_IDS = [
   "us.zoom.xos",
   "us.zoom.ZoomClips",
@@ -11,19 +13,6 @@ const BROWSER_CALL_APP_BUNDLE_IDS = [
   "com.apple.Safari",
   "org.mozilla.firefox",
 ] as const;
-
-function isHost(hostname: string, host: string): boolean {
-  return hostname === host || hostname.endsWith(`.${host}`);
-}
-
-function parseJoinUrlHostname(joinUrl: string): string | null {
-  try {
-    return new URL(joinUrl).hostname.toLowerCase();
-  } catch (error) {
-    if (error instanceof TypeError) return null;
-    throw error;
-  }
-}
 
 export function callAppBundleIdsForJoinUrl(
   joinUrl?: string | null,
@@ -46,22 +35,12 @@ export function callAppBundleIdsForJoinUrl(
     return [...NATIVE_CALL_APP_BUNDLE_IDS];
   }
 
-  const hostname = parseJoinUrlHostname(joinUrl);
-  if (hostname) {
-    if (isHost(hostname, "meet.google.com")) {
-      return [...BROWSER_CALL_APP_BUNDLE_IDS];
-    }
-    if (
-      isHost(hostname, "teams.microsoft.com") ||
-      isHost(hostname, "zoom.us") ||
-      isHost(hostname, "zoom.com") ||
-      isHost(hostname, "zoomgov.com")
-    ) {
-      return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
-    }
-    if (isHost(hostname, "webex.com") || isHost(hostname, "webex.us")) {
-      return [...BROWSER_CALL_APP_BUNDLE_IDS];
-    }
+  const urlPlatform = detectMeetingPlatform(joinUrl);
+  if (urlPlatform === "meet" || urlPlatform === "webex") {
+    return [...BROWSER_CALL_APP_BUNDLE_IDS];
+  }
+  if (urlPlatform === "teams" || urlPlatform === "zoom") {
+    return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
   }
 
   if (normalizedPlatform === "meet" || normalizedPlatform === "webex") {

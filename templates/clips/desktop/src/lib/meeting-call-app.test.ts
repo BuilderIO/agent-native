@@ -27,6 +27,13 @@ describe("callAppBundleIdsForJoinUrl", () => {
     }
   });
 
+  it("watches native and browser microphone activity for Teams Live", () => {
+    const ids = callAppBundleIdsForJoinUrl("https://teams.live.com/meet/123");
+
+    expect(ids).toContain("com.microsoft.teams2");
+    expect(ids).toContain("com.google.Chrome");
+  });
+
   it("keeps native Zoom and Teams as the default", () => {
     expect(callAppBundleIdsForJoinUrl(undefined)).toEqual([
       "us.zoom.xos",

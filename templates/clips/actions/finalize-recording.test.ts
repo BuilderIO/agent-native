@@ -70,8 +70,23 @@ const mockUpdateWhere = vi.hoisted(() =>
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
+const mockInsertReturning = vi.hoisted(() =>
+  vi.fn(async () => {
+    if ((mockState.transcriptRows ?? []).length > 0) return [];
+    mockState.transcriptRows = [
+      {
+        recordingId: "rec_1",
+        status: "pending",
+        updatedAt: new Date().toISOString(),
+        fullText: "",
+        source: null,
+      },
+    ];
+    return [{ recordingId: "rec_1" }];
+  }),
+);
 const mockInsertOnConflictDoNothing = vi.hoisted(() =>
-  vi.fn(async () => undefined),
+  vi.fn(() => ({ returning: mockInsertReturning })),
 );
 const mockInsertValues = vi.hoisted(() =>
   vi.fn(() => ({ onConflictDoNothing: mockInsertOnConflictDoNothing })),
@@ -80,11 +95,8 @@ const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
     from: vi.fn((table: { recordingId?: string }) => ({
       where: vi.fn(async () => {
-        if (
-          table?.recordingId === "recordingTranscripts.recordingId" &&
-          mockState.transcriptRows
-        ) {
-          return mockState.transcriptRows;
+        if (table?.recordingId === "recordingTranscripts.recordingId") {
+          return mockState.transcriptRows ?? [];
         }
         const next = mockState.selectRows.shift();
         return next ?? [mockState.existingRecording];
@@ -186,6 +198,11 @@ vi.mock("../server/db/index.js", () => ({
     },
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
+      status: "recordingTranscripts.status",
+      updatedAt: "recordingTranscripts.updatedAt",
+      fullText: "recordingTranscripts.fullText",
+      source: "recordingTranscripts.source",
+      failureReason: "recordingTranscripts.failureReason",
     },
   },
 }));
@@ -1771,6 +1788,58 @@ describe("finalize-recording media serve verification", () => {
       expect.objectContaining({ recordingId: "rec_1" }),
     );
     expect(mockReconcileMeetingOnRecordingReady).toHaveBeenCalledTimes(2);
+    expect(
+      mockDispatchPostFinalizeJob.mock.calls.filter(
+        ([job]) => (job as { kind?: string }).kind === "transcript",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does not dispatch another transcript while the existing request is fresh", async () => {
+    mockState.existingRecording.status = "ready";
+    mockState.existingRecording.videoUrl = "/api/uploads/rec_1/blob";
+    mockState.transcriptRows = [
+      {
+        recordingId: "rec_1",
+        status: "pending",
+        updatedAt: new Date().toISOString(),
+        fullText: "",
+        source: null,
+      },
+    ];
+    mockDeleteAppState.mockResolvedValue(undefined);
+    mockWriteAppState.mockResolvedValue(undefined);
+
+    await finalizeRecording.run({ id: "rec_1" });
+
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "transcript" }),
+    );
+  });
+
+  it("reclaims a failed transcript request when ready bookkeeping replays", async () => {
+    mockState.existingRecording.status = "ready";
+    mockState.existingRecording.videoUrl = "/api/uploads/rec_1/blob";
+    mockState.transcriptRows = [
+      {
+        recordingId: "rec_1",
+        status: "failed",
+        updatedAt: new Date(Date.now() - 60_000).toISOString(),
+        fullText: "",
+        source: null,
+      },
+    ];
+    mockDeleteAppState.mockResolvedValue(undefined);
+    mockWriteAppState.mockResolvedValue(undefined);
+
+    await finalizeRecording.run({ id: "rec_1" });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "pending", failureReason: null }),
+    );
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", kind: "transcript" }),
+    );
   });
 
   it("completes ready bookkeeping when another finalizer wins the ready transition", async () => {

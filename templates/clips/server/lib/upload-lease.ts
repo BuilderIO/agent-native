@@ -221,7 +221,7 @@ class UploadReaperDispatchError extends Error {
     readonly dispatchFailures: Array<{ recordingId: string; error: unknown }>,
   ) {
     super(
-      `Meeting finalization dispatch failed for ${dispatchFailures.length} expired upload(s): ${dispatchFailures.map(({ recordingId }) => recordingId).join(", ")}`,
+      `Meeting finalization dispatch failed for ${dispatchFailures.length} recording(s): ${dispatchFailures.map(({ recordingId }) => recordingId).join(", ")}`,
     );
     this.name = "UploadReaperDispatchError";
   }
@@ -724,7 +724,38 @@ export async function reapExpiredUploads(
 
   if (!dryRun) {
     const dispatchFailures: Array<{ recordingId: string; error: unknown }> = [];
+    const retryableMeetingFinalizations = await exec.execute({
+      sql: `SELECT DISTINCT r.id, r.owner_email
+            FROM recordings r
+            WHERE r.status = 'failed'
+              AND EXISTS (
+                SELECT 1
+                FROM clips_meetings m
+                JOIN recording_transcripts t ON t.recording_id = m.recording_id
+                WHERE m.recording_id = r.id
+                  AND m.owner_email = r.owner_email
+                  AND m.actual_end IS NOT NULL
+                  AND m.transcript_status IN ('ready', 'failed')
+                  AND m.summary_md = ''
+                  AND m.trashed_at IS NULL
+                  AND t.status = 'ready'
+                  AND BTRIM(t.full_text) <> ''
+              )
+            ORDER BY r.id
+            LIMIT ${limit}`,
+      args: [],
+    });
+    const dispatchCandidates = new Map<string, Record<string, unknown>>();
     for (const row of terminatedRows) {
+      dispatchCandidates.set(String(row.id), row);
+    }
+    for (const row of (retryableMeetingFinalizations.rows as Array<
+      Record<string, unknown>
+    >) ?? []) {
+      dispatchCandidates.set(String(row.id), row);
+    }
+
+    for (const row of dispatchCandidates.values()) {
       const recordingId = String(row.id);
       if (typeof row.owner_email !== "string") {
         dispatchFailures.push({
