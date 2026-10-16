@@ -27,7 +27,7 @@ const resolveBrainCredential: ProviderApiCredentialResolver = async ({
   const credential = await resolveSourceCredentialWithProvenance({
     provider: resolvedProvider,
     key,
-    ctx,
+    ctx: resolvedProvider === "gong" ? { ...ctx, credentialScope: "org" } : ctx,
     workspaceConnectionId: connectionId,
   });
   if (!credential) return null;

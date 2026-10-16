@@ -67,5 +67,32 @@ describe("Brain provider API credential resolver", () => {
       scope: "org",
       scopeId: "org-1",
     });
+
+    expect(mocks.resolveSourceCredentialWithProvenance).toHaveBeenCalledWith({
+      provider: "gong",
+      key: "GONG_API_BASE",
+      ctx: {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+      workspaceConnectionId: undefined,
+    });
+  });
+
+  it("preserves the default credential scope for other providers", async () => {
+    const resolveCredential = mocks.resolveCredential;
+    if (!resolveCredential)
+      throw new Error("Brain resolver was not registered");
+    const ctx = { userEmail: "owner@example.test", orgId: "org-1" };
+
+    await resolveCredential({ provider: "slack", key: "SLACK_BOT_TOKEN", ctx });
+
+    expect(mocks.resolveSourceCredentialWithProvenance).toHaveBeenCalledWith({
+      provider: "slack",
+      key: "SLACK_BOT_TOKEN",
+      ctx,
+      workspaceConnectionId: undefined,
+    });
   });
 });

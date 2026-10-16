@@ -4,6 +4,15 @@ const mocks = vi.hoisted(() => ({
   availableKeys: new Set<string>(),
   isBrainAdmin: true,
   providerId: "jira",
+  credentialChecks: [] as Array<{
+    provider: string;
+    key: string;
+    ctx: {
+      userEmail: string;
+      orgId: string;
+      credentialScope?: "org";
+    };
+  }>,
   sourceRows: [] as Array<{ provider: string }>,
   workspace: {
     appId: "brain",
@@ -160,17 +169,22 @@ vi.mock("../server/lib/source-credentials.js", () => ({
   inspectSourceCredentialAvailability: async ({
     key,
     provider,
+    ctx,
   }: {
     key: string;
     provider: string;
-  }) => ({
-    provider,
-    key,
-    available: mocks.availableKeys.has(key),
-    provenance: null,
-    checked: [],
-    missingMessage: `${key} is missing.`,
-  }),
+    ctx: { userEmail: string; orgId: string; credentialScope?: "org" };
+  }) => {
+    mocks.credentialChecks.push({ provider, key, ctx });
+    return {
+      provider,
+      key,
+      available: mocks.availableKeys.has(key),
+      provenance: null,
+      checked: [],
+      missingMessage: `${key} is missing.`,
+    };
+  },
 }));
 
 const { default: action } = await import("./list-connection-providers.js");
@@ -178,6 +192,7 @@ const { default: action } = await import("./list-connection-providers.js");
 describe("list-connection-providers", () => {
   beforeEach(() => {
     mocks.availableKeys.clear();
+    mocks.credentialChecks = [];
     mocks.isBrainAdmin = true;
     mocks.providerId = "jira";
     mocks.sourceRows = [];
@@ -302,6 +317,31 @@ describe("list-connection-providers", () => {
       providerHealth: { status: "ready" },
       rawProviderApi: { available: true },
     });
+
+    expect(
+      mocks.credentialChecks
+        .filter((check) => check.provider === "gong")
+        .map((check) => check.ctx),
+    ).toEqual([
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+    ]);
+    expect(
+      mocks.credentialChecks.find((check) => check.provider === "jira")?.ctx,
+    ).toEqual({ userEmail: "owner@example.test", orgId: "org-1" });
   });
 
   it("reports missing Gong organization API keys without requesting a personal seat", async () => {

@@ -1240,13 +1240,10 @@ export function isPotentialCleanupRecoveryPageBrowserSessionError(
     )?.[1] ?? null;
   if (corsUrl === null) return false;
 
-  try {
-    return /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
-      new URL(corsUrl).pathname,
-    );
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(corsUrl)) return false;
+  return /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+    new URL(corsUrl).pathname,
+  );
 }
 
 export function isExpectedCleanupRecoveryPageBrowserSessionError(

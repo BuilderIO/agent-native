@@ -243,7 +243,7 @@ async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
       inspectSourceCredentialAvailability({
         provider: provider.id,
         key: credential.key,
-        ctx,
+        ctx: provider.id === "gong" ? { ...ctx, credentialScope: "org" } : ctx,
       }),
     ),
   );

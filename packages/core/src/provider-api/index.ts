@@ -1099,6 +1099,9 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Gong",
     defaultBaseUrl: "https://api.gong.io/v2",
     baseUrlCredentialKey: "GONG_API_BASE",
+    baseUrlMustMatchAllowedHost: true,
+    requireHttps: true,
+    allowedHostSuffixes: ["api.gong.io"],
     auth: {
       type: "basic",
       usernameKey: "GONG_ACCESS_KEY",

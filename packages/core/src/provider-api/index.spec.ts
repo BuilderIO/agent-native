@@ -3711,6 +3711,57 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("allows a regional Gong API base URL and sends Basic Auth to it", async () => {
+    resolveCredential.mockImplementation(async (key: string) => {
+      if (key === "GONG_API_BASE") {
+        return "https://us-88601.api.gong.io/v2";
+      }
+      return key === "GONG_ACCESS_KEY" || key === "GONG_ACCESS_SECRET"
+        ? `${key.toLowerCase()}-test-value`
+        : null;
+    });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({ provider: "gong", path: "/calls" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://us-88601.api.gong.io/v2/calls",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Basic /),
+        }),
+      }),
+    );
+  });
+
+  it.each(["https://attacker.example/v2", "http://us-88601.api.gong.io/v2"])(
+    "rejects an unsafe Gong API base URL before sending Basic Auth: %s",
+    async (baseUrl) => {
+      resolveCredential.mockImplementation(async (key: string) => {
+        if (key === "GONG_API_BASE") return baseUrl;
+        return key === "GONG_ACCESS_KEY" || key === "GONG_ACCESS_SECRET"
+          ? `${key.toLowerCase()}-test-value`
+          : null;
+      });
+      const fetchMock = vi.mocked(globalThis.fetch);
+      const runtime = createProviderApiRuntime({
+        appId: "brain",
+        providerIds: ["gong"],
+        getCredentialContext: () => credentialContext,
+      });
+
+      await expect(
+        runtime.executeRequest({ provider: "gong", path: "/calls" }),
+      ).rejects.toThrow(/configured provider host/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("extracts provider docs HTML into compact markdown content", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
