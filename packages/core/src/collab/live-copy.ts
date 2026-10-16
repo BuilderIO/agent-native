@@ -663,7 +663,7 @@ async function runCallPersist(
   }
 }
 
-function sameStamp(a: YDocStamp | null, b: YDocStamp | null): boolean {
+export function sameStamp(a: YDocStamp | null, b: YDocStamp | null): boolean {
   return a?.version === b?.version && a?.digest === b?.digest;
 }
 
@@ -684,9 +684,6 @@ export async function commitLiveCopy(
   let outcome: LiveCopyOutcome = { liveCopy: "derived" };
   try {
     await runLiveCopyTransaction(commit.docId, async (tx) => {
-      // Checked here, after every await of the attempt: a binding released
-      // or replaced while its work ran must not commit it.
-      assertActiveLiveCopy(binding, commit.docId);
       const persist = binding.persist;
       if (persist) {
         // The pool's own transaction does not scope getDbExec(); without
@@ -704,6 +701,9 @@ export async function commitLiveCopy(
         if (!sameStamp(current, base)) throw new CommitVersionConflict();
         await runCallPersist(commit.docId, tx, callPersist);
       }
+      // After every hook: a binding released or replaced while its work or
+      // its persist ran rolls back with what that persist wrote.
+      assertActiveLiveCopy(binding, commit.docId);
       const saved = await trySaveYDocStateWithClient(
         tx,
         commit.docId,
@@ -735,8 +735,8 @@ export async function persistLiveCopyCall(
   assertOwnTransaction(docId, "persistLiveCopyCall");
   try {
     await runLiveCopyTransaction(docId, async (tx) => {
-      assertActiveLiveCopy(binding, docId);
       await runCallPersist(docId, tx, callPersist);
+      assertActiveLiveCopy(binding, docId);
       // Locked after the app's rows, as a commit locks them, and held to the
       // end so no commit can slip in before this one lands.
       const current = await loadYDocStampWithClient(tx, docId, {
