@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
-import { Editor as CoreEditor } from "@tiptap/core";
+import { Editor as CoreEditor, Extension } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
 import { useEditor, type Editor } from "@tiptap/react";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,6 +91,18 @@ function peer(name: string, reconciledRevision?: string): PeerState {
   };
 }
 
+/** Refuses every edit but the live doc's, as a locked block refuses removal. */
+const REFUSES_STORED_BODY = Extension.create({
+  name: "refusesStoredBody",
+  addProseMirrorPlugins: () => [
+    new Plugin({
+      filterTransaction: (transaction) =>
+        !transaction.docChanged ||
+        transaction.getMeta(ySyncPluginKey) !== undefined,
+    }),
+  ],
+});
+
 /** The Yjs state a client's seed of `markdown` writes. */
 function seedState(markdown: string): Uint8Array {
   const doc = new Y.Doc();
@@ -110,9 +124,11 @@ function seedState(markdown: string): Uint8Array {
 function makeTabs({
   joinsOnPeers = true,
   ids = { A: 1, B: 2, C: 3 },
+  cRefusesStoredBody = false,
 }: {
   joinsOnPeers?: boolean;
   ids?: { A: number; B: number; C: number };
+  cRefusesStoredBody?: boolean;
 } = {}) {
   const docs = { A: new Y.Doc(), B: new Y.Doc(), C: new Y.Doc() };
   docs.A.clientID = ids.A;
@@ -196,10 +212,10 @@ function makeTabs({
   }) {
     // Wired as Content's editor wires them.
     const editor = useEditor({
-      extensions: createRichMarkdownExtensions({
-        dialect: "gfm",
-        ydoc: docs[name],
-      }),
+      extensions: [
+        ...createRichMarkdownExtensions({ dialect: "gfm", ydoc: docs[name] }),
+        ...(name === "C" && cRefusesStoredBody ? [REFUSES_STORED_BODY] : []),
+      ],
       onUpdate: ({ editor: updated, transaction }) => {
         const result = results[name];
         result?.reportRemoteUpdate(transaction);
@@ -1051,6 +1067,157 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       expect(tabs.discover.C).not.toHaveBeenCalled();
       expect(heldRevision(tabs.awareness.B)).toBeUndefined();
       expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+    } finally {
+      tabs.dispose();
+    }
+  });
+});
+
+describe("useCollabReconcile: what finishes a join", () => {
+  // A's word in the live doc and an older snapshot that holds it, as a stale
+  // response or one reordered behind the agent edit delivers it.
+  it.each([
+    ["at the same time", { ...ACKNOWLEDGED, updatedAt: AGENT_EDIT.updatedAt }],
+    ["from earlier", ACKNOWLEDGED],
+  ])(
+    "does not finish on an older snapshot %s that matches the doc",
+    async (_, older) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+        await act(async () => tabs.discoverPeers());
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: older,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+
+        expect(tabs.markdown("C")).toBe(older.value);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  // C leads and no collaborator holds either stored body, so C applies one.
+  it.each([
+    [
+      "an edit to text the doc changed too",
+      STORED,
+      "Alpha paragraph, rewritten by an agent.\n\nBravo paragraph.",
+    ],
+    [
+      "an edit beside a stored edit the doc lacks",
+      {
+        ...STORED,
+        value: "Alpha paragraph.\n\nBravo paragraph, edited by an agent.",
+      },
+      `Alpha paragraph.\n\nBravo paragraph, edited by an agent.\n\n${CHARLIE}`,
+    ],
+  ])(
+    "takes a stored body that moves while it joins, with %s",
+    async (_, opened, moved) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+      const onlyA: Array<[number, PeerState]> = [[5, peer("A")]];
+      const later: Snapshot = { ...AGENT_EDIT, value: moved };
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs, { snapshotC: opened });
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: later,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => tabs.discoverPeers("ready", onlyA));
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        await act(async () => tabs.discoverPeers("ready", onlyA));
+        await act(async () => vi.advanceTimersByTimeAsync(6_000));
+
+        // Merged against the body it opened on, which the doc never held, it
+        // kept the doc's text over the stored edit and reported holding it.
+        expect(tabs.markdown("C")).toBe(moved);
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBe(later.revision);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("reports a stored body its editor refuses, and neither edits nor saves", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({
+      ids: { A: 5, B: 6, C: 3 },
+      cRefusesStoredBody: true,
+    });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+
+      expect(tabs.markdown("C")).toBe(SAVED);
+      expect(tabs.joinFailed("C")).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+      expect(tabs.saves.C).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("The editor refused the stored body"),
+        expect.any(Error),
+      );
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("finishes once the lead reports merging the stored body into a doc with unsaved text", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+
+      // B leads and merges the agent edit beside A's unsaved word, so C's doc
+      // holds the stored body but never equals it.
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: AGENT_EDIT, withC: true }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.markdown("C")).toBe(`${SAVED}\n\n${CHARLIE}`);
+      expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+
+      const discoveries = tabs.discover.C.mock.calls.length;
+      act(() =>
+        tabs.reportToC(2, tabs.awareness.B.getLocalState() as PeerState),
+      );
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+      expect(tabs.discover.C).toHaveBeenCalledTimes(discoveries + 1);
+      expect(tabs.results.C!.isJoinPending()).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+      expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+      await act(async () => vi.advanceTimersByTimeAsync(21_000));
+      expect(tabs.joinFailed("C")).toBe(false);
     } finally {
       tabs.dispose();
     }

@@ -57,6 +57,15 @@ import { createVisualEditorExtensions, VisualEditor } from "./VisualEditor";
 // holds an agent edit the live doc lacks. Saving the live doc deletes the edit.
 const LIVE = "Alpha paragraph\n\nBravo paragraph live";
 const STORED = "Alpha paragraph agent\n\nBravo paragraph";
+// The editor refuses any change that removes a source component's block.
+const LOCKED_SOURCE = {
+  type: "registryBlock",
+  attrs: {
+    blockType: "source-component",
+    blockId: "locked",
+    __raw: '<SourceComponent id="locked" />',
+  },
+};
 
 describe("a joining editor's saves", () => {
   let container: HTMLDivElement;
@@ -114,10 +123,15 @@ describe("a joining editor's saves", () => {
     }),
   };
 
-  async function mount(join: keyof typeof discovery, live = LIVE) {
+  async function mount(
+    join: keyof typeof discovery,
+    live = LIVE,
+    extraBlocks: object[] = [],
+  ) {
+    const liveDoc = nfmToDoc(live);
     prosemirrorJSONToYXmlFragment(
       getSchema(createVisualEditorExtensions()),
-      nfmToDoc(live),
+      { ...liveDoc, content: [...(liveDoc.content ?? []), ...extraBlocks] },
       ydoc.getXmlFragment("default"),
     );
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -245,6 +259,33 @@ describe("a joining editor's saves", () => {
     await act(async () => vi.advanceTimersByTimeAsync(5_000));
     expect(editor.getText()).toContain("agent");
     expect(editor.isEditable).toBe(true);
+  });
+
+  it("saves nothing, and says so, when a locked block refuses the stored body", async () => {
+    vi.useFakeTimers();
+    ydoc.clientID = 1;
+    awareness.setLocalState({ user: { name: "C" } });
+    awareness.getStates().set(42, { user: { name: "Peer" } });
+    const { onSaveContent, onChange } = await mount("ready", LIVE, [
+      LOCKED_SOURCE,
+    ]);
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    const editor = captured.editor!;
+
+    expect(editor.getText()).not.toContain("agent");
+    expect(editor.isEditable).toBe(false);
+    expect(awareness.getLocalState()?.reconciledRevision).toBeUndefined();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "empty.genericError",
+    );
+    let persisted: unknown;
+    await act(async () => {
+      persisted = await captured.slash!.onDraftPersisted!(LIVE);
+    });
+    expect(persisted).toBe(false);
+    expect(onSaveContent).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "failed"] as const)(

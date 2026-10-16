@@ -2,6 +2,7 @@
 
 import { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Plugin } from "@tiptap/pm/state";
 import { describe, expect, it } from "vitest";
 
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
@@ -295,6 +296,27 @@ describe("reconcileDocAgainstBase", () => {
       }
     },
   );
+
+  it("fails when a plugin refuses its transaction", () => {
+    const editor = makeEditor("Alpha\n\nBravo local");
+    try {
+      editor.registerPlugin(
+        new Plugin({
+          filterTransaction: (transaction) => !transaction.docChanged,
+        }),
+      );
+      const before = editor.state.doc;
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "Alpha\n\nBravo"),
+        parse(editor, "Alpha server\n\nBravo"),
+      );
+      expect(result).toEqual({ status: "failed", reason: "transaction" });
+      expect(editor.state.doc).toBe(before);
+    } finally {
+      editor.destroy();
+    }
+  });
 
   it("applies remaining server changes beside a common replacement and local edit", () => {
     const editor = makeEditor("Accepted\n\nBravo local\n\nCharlie");

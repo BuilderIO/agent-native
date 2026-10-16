@@ -282,7 +282,11 @@ export function reconcileDocAgainstBase(
     for (const step of plan.steps) tr.step(step);
     tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
+    const before = editor.state.doc;
     editor.view.dispatch(tr);
+    // A plugin can refuse the transaction, and dispatch does not say so.
+    if (editor.state.doc === before)
+      return { status: "failed", reason: "transaction" };
     return { status: "applied", mergedDoc: editor.state.doc };
   } catch {
     return { status: "failed", reason: "transaction" };

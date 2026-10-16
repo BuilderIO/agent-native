@@ -592,6 +592,10 @@ export function useCollabReconcile({
     if (!editor || editor.isDestroyed || joinEvidence?.ydoc !== ydoc) return;
     const check = () => {
       if (editor.isDestroyed) return;
+      // Props can hold an older snapshot than the one the join waits for,
+      // which the reconcile below turns away; finishing on it would take a
+      // base that lacks the newer stored edit.
+      if (joinEvidenceRef.current?.revision !== contentRevision) return;
       const callbacks = reconcileCallbacksRef.current;
       const normalizedValue = callbacks.normalizeValue(value);
       if (callbacks.getMarkdown(editor) !== normalizedValue) return;
@@ -609,6 +613,39 @@ export function useCollabReconcile({
       editor.off("update", check);
     };
   }, [contentRevision, contentUpdatedAt, editor, joinEvidence, value, ydoc]);
+  // A doc the lead merged the stored body into also holds unsaved text, so it
+  // never equals the stored body. The lead's report is how a waiting client
+  // learns it arrived, and a report is trusted only after catching up again.
+  useEffect(() => {
+    const target = heldRevisionAwarenessRef.current;
+    if (
+      !target ||
+      !ydoc ||
+      joinEvidence?.ydoc !== ydoc ||
+      joinEvidence.status !== "ready"
+    )
+      return;
+    const evidence = joinEvidence;
+    const onChange = () => {
+      if (
+        joinEvidenceRef.current !== evidence ||
+        lastAppliedSerializedRef.current !== null ||
+        heldRevisionsMatch(
+          evidence.peers,
+          new Map(target.getStates()),
+          ydoc.clientID,
+        )
+      )
+        return;
+      joinEvidenceRequestRef.current?.cancel();
+      joinEvidenceRequestRef.current = null;
+      requestJoinEvidence(ydoc, evidence.revision);
+    };
+    target.on("change", onChange);
+    return () => {
+      target.off("change", onChange);
+    };
+  }, [joinEvidence, ydoc]);
   const acknowledgedLocalSnapshotRef = useRef<{
     value: string;
     revision: string;
@@ -1175,6 +1212,16 @@ export function useCollabReconcile({
         peerWait.deadline = null;
         return;
       }
+      // Until a joining doc holds a stored body, only the latest one counts: an
+      // older snapshot it happens to match lacks the newer stored edit.
+      if (
+        joinsOnPeerEvidence &&
+        lastAppliedSerializedRef.current === null &&
+        contentUpdatedAt &&
+        latestObservedUpdatedAtRef.current &&
+        contentUpdatedAt < latestObservedUpdatedAtRef.current
+      )
+        return;
       const currentMarkdown = callbacks.getMarkdown(editor);
       const normalizedValue = callbacks.normalizeValue(value);
       const editorUnchangedSinceApply =
@@ -1422,11 +1469,18 @@ export function useCollabReconcile({
         }
         isSettingContentRef.current = true;
         const authoritativeBase = authoritativeBaseRef.current;
+        // A joining doc has held no stored body, so the base it opened on
+        // cannot tell its edits from text that never reached it, and a merge
+        // against it can keep stale text over a stored edit. It takes the
+        // stored body, as it would at the revision it opened on.
+        const joining =
+          joinsOnPeerEvidence && lastAppliedSerializedRef.current === null;
         if (
           contentRevision &&
           scheduledCallbacks.onBaseAwareReconcile &&
           authoritativeBase &&
-          authoritativeBase.revision !== contentRevision
+          authoritativeBase.revision !== contentRevision &&
+          !joining
         ) {
           const parse =
             scheduledCallbacks.parseValue === false
@@ -1495,15 +1549,14 @@ export function useCollabReconcile({
           }
           return;
         }
-        let appliedSurgically = false;
+        const docBefore = editor.state.doc;
+        let surgical: ReturnType<typeof applyDocSurgically> | null = null;
         if (scheduledCallbacks.parseValue !== false) {
           const parse = scheduledCallbacks.parseValue ?? defaultParseValue;
           const parsedDoc = parse(editor, value);
-          if (parsedDoc) {
-            const result = applyDocSurgically(editor, parsedDoc);
-            appliedSurgically = result === "applied" || result === "noop";
-          }
+          if (parsedDoc) surgical = applyDocSurgically(editor, parsedDoc);
         }
+        const appliedSurgically = surgical === "applied" || surgical === "noop";
         if (!appliedSurgically) {
           scheduledCallbacks.setContent(editor, value, {
             emitUpdate: false,
@@ -1511,6 +1564,24 @@ export function useCollabReconcile({
           });
         }
         isSettingContentRef.current = false;
+        // A plugin can refuse the transaction, and dispatch does not say so.
+        const refused = surgical !== "noop" && editor.state.doc === docBefore;
+        const evidence = joinEvidenceRef.current;
+        if (refused && joining && evidence?.ydoc === ydoc) {
+          const error = new Error("The editor refused the stored body");
+          console.warn(
+            "The editor refused the stored body; leaving the document as it is until a retry",
+            error,
+          );
+          joinEvidenceRequestRef.current?.cancel();
+          putJoinEvidence({
+            ydoc: evidence.ydoc,
+            revision: evidence.revision,
+            status: "failed",
+            error,
+          });
+          return;
+        }
         const serialized = scheduledCallbacks.getMarkdown(editor);
         lastEmittedRef.current = serialized;
         pushEmittedRing(recentEmittedRef.current, serialized);
@@ -1518,7 +1589,7 @@ export function useCollabReconcile({
         lastAppliedSerializedRef.current = serialized;
         finishJoin();
         if (contentRevision) {
-          holdAuthoritativeBase({ value, revision: contentRevision });
+          holdAuthoritativeBase({ value, revision: contentRevision }, !refused);
           reportedConflictRevisionRef.current = null;
         }
         if (contentUpdatedAt) {
@@ -1616,11 +1687,11 @@ export function useCollabReconcile({
     joinEvidenceFailed:
       joinEvidence?.ydoc === ydoc && joinEvidence?.status === "failed",
     retryJoinEvidence: () => {
-      if (!ydoc || !contentRevision || joinEvidenceRef.current?.ydoc !== ydoc)
-        return;
+      const evidence = joinEvidenceRef.current;
+      if (!ydoc || evidence?.ydoc !== ydoc) return;
       joinEvidenceRequestRef.current?.cancel();
       joinEvidenceRequestRef.current = null;
-      requestJoinEvidence(ydoc, contentRevision);
+      requestJoinEvidence(ydoc, evidence.revision);
     },
     isJoinPending,
     isSettingContentRef,
