@@ -1747,7 +1747,12 @@ export async function assertFirstPartyAnalyticsBigQueryReady(
 export async function getFirstPartyAnalyticsBigQueryMetrics(
   scope: FirstPartyAnalyticsScope,
   configuredTable?: string | null,
-  options: { includeLegacyOwnerRows?: boolean; startDate?: string } = {},
+  options: {
+    includeLegacyOwnerRows?: boolean;
+    startDate?: string;
+    endDate?: string;
+    maxBytesBilled?: number;
+  } = {},
 ): Promise<{
   eventCount: number;
   dailyRollupRows: number;
@@ -1755,9 +1760,8 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
   lastEventDate: string | null;
 }> {
   const table = await getFirstPartyAnalyticsTable(configuredTable);
-  const physical = firstPartyAnalyticsPhysicalTables(table);
   const ownerEmail = sqlLiteral(scope.userEmail);
-  const today = sqlLiteral(new Date().toISOString().slice(0, 10));
+  const endDate = options.endDate ?? new Date().toISOString().slice(0, 10);
   const includeLegacyOwnerRows = options.includeLegacyOwnerRows !== false;
   const tenantFilter = scope.orgId
     ? includeLegacyOwnerRows
@@ -1765,15 +1769,18 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
       : `(org_id = ${sqlLiteral(scope.orgId)})`
     : `(org_id IS NULL AND owner_email = ${ownerEmail})`;
   const startDateFilter = options.startDate
-    ? ` AND event_date >= ${sqlLiteral(options.startDate)}`
+    ? ` AND event_date >= DATE ${sqlLiteral(options.startDate)}`
     : "";
-  const result = await runQuery(`
+  // Filtering the deduplicating view would still scan historical partitions.
+  const result = await runQuery(
+    `
     WITH scoped_events AS (
-      SELECT *
-      FROM \`${physical.events}\`
+      SELECT event_date, event_name, app, template
+      FROM \`${firstPartyAnalyticsRawTable(table)}\`
       WHERE ${tenantFilter}${startDateFilter}
         AND event_name IS DISTINCT FROM 'http.response'
-        AND event_date <= ${today}
+        AND event_date <= DATE ${sqlLiteral(endDate)}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1
     )
     SELECT
       COUNT(*) AS event_count,
@@ -1784,7 +1791,9 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
       MIN(event_date) AS first_event_date,
       MAX(event_date) AS last_event_date
     FROM scoped_events
-  `);
+  `,
+    { maxBytesBilled: options.maxBytesBilled },
+  );
   const row = result.rows[0] ?? {};
   const readValue = (...names: string[]): unknown => {
     for (const name of names) {

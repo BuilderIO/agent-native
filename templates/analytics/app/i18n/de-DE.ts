@@ -853,6 +853,7 @@ export default {
     bigQueryHealthUnavailable:
       "Der Druck der First-Party-Analytics konnte nicht geprüft werden. Lade die Seite neu, bevor du das Backend wechselst.",
     analyticsEventCount: "Beobachtete Ereignisse",
+    analyticsRecentEventCount: "Beobachtete Ereignisse (letzte 30 Tage)",
     slowQueries24h: "Langsame Abfragen (24 h)",
     maxQueryDuration: "Maximale Abfragezeit",
     defaultKeyName: "Gehostete Vorlagen",

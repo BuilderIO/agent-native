@@ -773,6 +773,7 @@ export default {
     bigQueryHealthUnavailable:
       "現在無法檢查第一方 Analytics 壓力。請重新載入後再嘗試更換後端。",
     analyticsEventCount: "觀察到的事件",
+    analyticsRecentEventCount: "觀察到的事件（最近30天）",
     slowQueries24h: "慢查詢（24 小時）",
     maxQueryDuration: "最長查詢時間",
     defaultKeyName: "託管範本",

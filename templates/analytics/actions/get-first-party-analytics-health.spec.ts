@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery.js";
+
 const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
@@ -7,10 +9,11 @@ const mocks = vi.hoisted(() => ({
   unavailable: vi.fn(),
 }));
 
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
 }));
 vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: ({ to }: { to: string }) => `https://example.com${to}`,
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
@@ -123,5 +126,29 @@ describe("get-first-party-analytics-health", () => {
 
     await expect(action.run({})).rejects.toThrow("no authenticated user");
     expect(mocks.getHealth).not.toHaveBeenCalled();
+  });
+
+  it("reports the typed byte cap failure as unavailable coverage", async () => {
+    const { unavailableFirstPartyAnalyticsHealth } = await vi.importActual<
+      typeof import("../server/lib/first-party-analytics-health.js")
+    >("../server/lib/first-party-analytics-health.js");
+    mocks.unavailable.mockImplementation(unavailableFirstPartyAnalyticsHealth);
+    mocks.getHealth.mockRejectedValueOnce(
+      new BigQueryMaximumBytesBilledError(400),
+    );
+    const result = await action.run({});
+    expect(
+      await action.outputSchema!["~standard"].validate(result),
+    ).toMatchObject({
+      value: {
+        status: "unavailable",
+        metrics: {
+          coverage: { kind: "unavailable", reason: "maximum_bytes_billed" },
+          eventCount: null,
+          dailyRollupRows: null,
+        },
+      },
+    });
+    expect(mocks.unavailable).toHaveBeenCalledWith("maximum_bytes_billed");
   });
 });
