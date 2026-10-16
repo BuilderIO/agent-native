@@ -17,6 +17,7 @@ import {
   materializeLiveBody,
 } from "../../shared/live-body.js";
 import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
+import { rebaseBodyEdit } from "./rebase.js";
 import { CONTENT_HOLDS_BODY_TASK, type HoldsBodyResult } from "./task-names.js";
 
 // The worker half of Content's live copy: every handler here runs in the
@@ -59,12 +60,36 @@ function deriveBody(doc: Y.Doc, field: string): string | LiveCopyTaskRefusal {
   }
 }
 
+const WORD = /[\p{L}\p{N}]+/gu;
+
 /**
- * The tree a Markdown body becomes in the editor. A body the schema cannot
- * represent in full is refused: the live copy would keep the rest and the
- * page would lose that part on its next commit.
+ * Whether the parse of `markdown` lost words of it, such as an unindented
+ * callout child. Comparing two serializations of the parse cannot see that,
+ * since both have already lost them. A structure the parse changes with
+ * every word kept, such as a flattened list, still passes.
+ */
+function parseDropsText(markdown: string): boolean {
+  const kept = new Map<string, number>();
+  for (const word of docToNfm(nfmToDoc(markdown)).match(WORD) ?? []) {
+    kept.set(word, (kept.get(word) ?? 0) + 1);
+  }
+  for (const word of markdown.match(WORD) ?? []) {
+    const count = kept.get(word) ?? 0;
+    if (count === 0) return true;
+    kept.set(word, count - 1);
+  }
+  return false;
+}
+
+/**
+ * The tree a Markdown body becomes in the editor. A body the parse or the
+ * schema cannot represent in full is refused: the live copy would keep the
+ * rest and the page would lose that part on its next commit.
  */
 function buildBody(markdown: string): PMNode | LiveCopyTaskRefusal {
+  if (parseDropsText(markdown)) {
+    return refused("lossy", "the Markdown parser drops part of this body");
+  }
   const parsed = nfmToDoc(markdown);
   let root: PMNode;
   try {
@@ -96,6 +121,16 @@ function replaceBodyInput(
     return refused("invalid_input", "expected must be a string");
   }
   return expected === undefined ? { content } : { content, expected };
+}
+
+function rebaseBodyInput(
+  input: unknown,
+): { base: string; candidate: string } | LiveCopyTaskRefusal {
+  const { base, candidate } = (input ?? {}) as Record<string, unknown>;
+  if (typeof base !== "string" || typeof candidate !== "string") {
+    return refused("invalid_input", "expected { base, candidate } as strings");
+  }
+  return { base, candidate };
 }
 
 function isRefusal(value: unknown): value is LiveCopyTaskRefusal {
@@ -156,6 +191,35 @@ const liveCopyTasks = defineLiveCopyTasks({
         if (current !== parsed.expected) return refused("base_changed");
       }
       const root = buildBody(parsed.content);
+      if (isRefusal(root)) return root;
+      const fragment = doc.getXmlFragment(field);
+      const { meta } = initProseMirrorDoc(fragment, schema());
+      updateYFragment(doc, fragment, root, meta);
+    },
+
+    /**
+     * Applies the blocks `candidate` changed from `base` to the current body
+     * (`rebaseBodyEdit`), so a writer's edit keeps what tabs typed since its
+     * base. Refuses `conflict` when the edit's place in the current body is
+     * ambiguous. A peer's commit that overtakes it runs it again on the
+     * peer's body.
+     */
+    "rebase-body"(doc, field, input) {
+      const parsed = rebaseBodyInput(input);
+      if (isRefusal(parsed)) return parsed;
+      const current = deriveBody(doc, field);
+      if (isRefusal(current)) return current;
+      // The rebase keeps the candidate's blocks in their parsed form, which
+      // has already lost whatever the parse drops.
+      if (parseDropsText(parsed.candidate)) {
+        return refused("lossy", "the Markdown parser drops part of this body");
+      }
+      const content =
+        current === parsed.base
+          ? parsed.candidate
+          : rebaseBodyEdit(parsed.base, parsed.candidate, current);
+      if (content === null) return refused("conflict");
+      const root = buildBody(content);
       if (isRefusal(root)) return root;
       const fragment = doc.getXmlFragment(field);
       const { meta } = initProseMirrorDoc(fragment, schema());

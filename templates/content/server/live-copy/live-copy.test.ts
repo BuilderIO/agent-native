@@ -339,6 +339,18 @@ describe("switching a page to its live copy", () => {
     expect(await collabVersion("off")).toBeUndefined();
   });
 
+  it("refuses to switch a page whose stored body the parser would drop part of", async () => {
+    const stored = "Hello\n<callout>\nOnly text\n</callout>";
+    await insertPage("drops-on-switch", stored);
+
+    await expect(
+      switching.switchPageToLiveCopy("drops-on-switch"),
+    ).rejects.toMatchObject({ code: "build_refused", reason: "lossy" });
+    const row = await page("drops-on-switch");
+    expect(row.content).toBe(stored);
+    expect(row.liveBodySwitchedAt).toBeNull();
+  });
+
   it("converts again after a legacy write, and the stored body wins over the stale copy", async () => {
     await switchedPage("reconvert", "Hello there");
     await expect(switching.switchPageToLegacy("reconvert")).resolves.toEqual({
@@ -1224,6 +1236,95 @@ describe("edit-document on a switched page", () => {
 
     expect((await page("find-changed")).content).toBe(typed);
     expect(await collabVersion("find-changed")).toBe(version);
+  });
+
+  it("applies an edit beside a paragraph a tab added since its base", async () => {
+    await switchedPage("added-beside", "First\n\nSecond");
+    const loaded = await page("added-beside");
+    await typeInTab("added-beside", "First\n\nSecond\n\nThird");
+    const typed = (await page("added-beside")).content;
+
+    const result = await agentEdit("added-beside", loaded, [
+      { find: "First", replace: "First A" },
+    ]);
+
+    expect(result.receipt.outcome).toBe("applied");
+    expect((await page("added-beside")).content).toBe(
+      typed.replace("First", "First A"),
+    );
+  });
+
+  it("refuses an edit whose find now reads the same in a passage a tab changed", async () => {
+    await switchedPage("retarget", "Alice: approved\n\nBob: pending");
+    const loaded = await page("retarget");
+    // The tab moves "approved" from Alice's line to Bob's.
+    await typeInTab("retarget", "Alice: denied\n\nBob: approved");
+    const typed = (await page("retarget")).content;
+    const version = await collabVersion("retarget");
+
+    await expect(
+      agentEdit("retarget", loaded, [{ find: "approved", replace: "revoked" }]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("retarget")).content).toBe(typed);
+    expect(await collabVersion("retarget")).toBe(version);
+  });
+
+  it("refuses an edit whose base History no longer holds, as on a legacy page", async () => {
+    await switchedPage("base-gone", "Alice: approved\n\nBob: pending");
+    await typeInTab("base-gone", "Alice: approved\n\nBob: pending\n\nDraft");
+    const loaded = await page("base-gone");
+    // A second commit in the same typing interval replaces the base's row.
+    await typeInTab("base-gone", "Alice: denied\n\nBob: approved\n\nDraft two");
+    const { findDocumentBodyBase } =
+      await import("../lib/document-body-intents.js");
+    const { documentContentHash } =
+      await import("../../actions/_document-edit-mutation.js");
+    await expect(
+      findDocumentBodyBase({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: "base-gone",
+        contentHash: documentContentHash(loaded.content),
+        revision: loaded.bodyRevision,
+      }),
+    ).resolves.toBeNull();
+    const typed = (await page("base-gone")).content;
+
+    await expect(
+      agentEdit("base-gone", loaded, [
+        { find: "approved", replace: "revoked" },
+      ]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("base-gone")).content).toBe(typed);
+  });
+
+  it("refuses an edit whose Markdown the parser would drop part of", async () => {
+    await switchedPage("drops-text", "Hello");
+    const loaded = await page("drops-text");
+    const version = await collabVersion("drops-text");
+    // A callout's child must be indented; this one would be dropped.
+    const replace = "Hello\n<callout>\nOnly text\n</callout>";
+
+    await expect(
+      agentEdit("drops-text", loaded, [{ find: "Hello", replace }]),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_BODY_UNREPRESENTABLE",
+      statusCode: 422,
+    });
+    const action = (await import("../../actions/edit-document.js")).default;
+    await expect(
+      asOwner(async () =>
+        action.run(
+          { id: "drops-text", find: "Hello", replace } as never,
+          { caller: "frontend", userEmail: OWNER } as never,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_BODY_UNREPRESENTABLE" });
+
+    expect((await page("drops-text")).content).toBe("Hello");
+    expect(await collabVersion("drops-text")).toBe(version);
   });
 
   it("answers a resent edit from its receipt without applying it twice", async () => {

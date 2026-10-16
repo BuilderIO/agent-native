@@ -17,12 +17,15 @@ import {
 /**
  * A server writer's replace names the body it was built from. Core retries
  * an edit a peer's commit overtook, and a replace without `expected` would
- * silently overwrite the peer's text on that retry.
+ * silently overwrite the peer's text on that retry. A rebase names the body
+ * its edit was made on.
  */
 type ContentLiveCopyEditInput<Edit extends string> =
   typeof CONTENT_LIVE_COPY_EDITS.replaceBody extends Edit
     ? { content: string; expected: string }
-    : unknown;
+    : typeof CONTENT_LIVE_COPY_EDITS.rebaseBody extends Edit
+      ? { base: string; candidate: string }
+      : unknown;
 
 function replaceBodyInput(
   documentId: string,
@@ -40,6 +43,17 @@ function replaceBodyInput(
   // The worker gets a structured clone, which drops a getter's or a
   // non-enumerable property's value, so send the values checked here.
   return { content, expected };
+}
+
+function rebaseBodyInput(input: unknown): {
+  base: unknown;
+  candidate: unknown;
+} {
+  const { base, candidate } = (input ?? {}) as {
+    base?: unknown;
+    candidate?: unknown;
+  };
+  return { base, candidate };
 }
 
 /**
@@ -70,8 +84,20 @@ export function liveCopyBaseChanged(error: unknown): boolean {
 }
 
 /**
- * The typed refusal for a body the page's schema can't hold in full; the
- * live copy refuses it rather than keep part of it.
+ * A rebase refused because what other writers changed since its base leaves
+ * the edit's place in the current body ambiguous.
+ */
+export function liveCopyRebaseConflict(error: unknown): boolean {
+  return (
+    error instanceof LiveCopyError &&
+    error.code === "build_refused" &&
+    error.reason === "conflict"
+  );
+}
+
+/**
+ * The typed refusal for a body the page can't hold in full; the live copy
+ * refuses it rather than keep part of it.
  */
 export function unrepresentableBodyError(
   error: unknown,
@@ -116,7 +142,9 @@ export async function editContentLiveCopy<Edit extends string>(
   const input =
     options.edit === CONTENT_LIVE_COPY_EDITS.replaceBody
       ? replaceBodyInput(documentId, options.input)
-      : options.input;
+      : options.edit === CONTENT_LIVE_COPY_EDITS.rebaseBody
+        ? rebaseBodyInput(options.input)
+        : options.input;
   return withContentBodyWriteCause(options.cause, () =>
     mutateLiveCopy(contentLiveCopy, documentId, {
       edit: options.edit,
