@@ -1052,10 +1052,10 @@ export async function getA2ASecretByDomain(
 ): Promise<string | null> {
   const exec = getDbExec();
   const { rows } = await exec.execute({
-    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
     args: [domain.toLowerCase()],
   });
-  if (!rows[0]) return null;
+  if (rows.length !== 1) return null;
   const secret = String((rows[0] as any).a2a_secret || "");
   return secret || null;
 }
@@ -1066,10 +1066,10 @@ export async function resolveOrgByDomain(
   try {
     const exec = getDbExec();
     const { rows } = await exec.execute({
-      sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
       args: [domain.toLowerCase()],
     });
-    if (!rows[0]) return null;
+    if (rows.length !== 1) return null;
     return {
       orgId: String((rows[0] as any).id),
       orgName: String((rows[0] as any).name),
@@ -1086,9 +1086,10 @@ export async function resolveA2AOrganizationMetadataByDomain(
   if (!normalizedDomain) return null;
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, allowed_domain
-          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
     args: [normalizedDomain],
   });
+  if (rows.length !== 1) return null;
   const row = rows[0] as any;
   if (!row) return null;
   const orgId = String(row.id ?? "").trim();
@@ -1129,9 +1130,10 @@ export async function resolveA2AOrganizationCredentialsByDomain(
   if (!normalizedDomain) return null;
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, allowed_domain, a2a_secret
-          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
     args: [normalizedDomain],
   });
+  if (rows.length !== 1) return null;
   const row = rows[0] as any;
   if (!row) return null;
   const orgId = String(row.id ?? "").trim();

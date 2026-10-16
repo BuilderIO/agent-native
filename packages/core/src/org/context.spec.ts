@@ -45,6 +45,7 @@ import {
   getOrgA2ASecret,
   getA2ASecretByDomain,
   resolveA2AOrganizationCredentialsByDomain,
+  resolveA2AOrganizationMetadataByDomain,
   isSoleOrgDomain,
   listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
@@ -506,7 +507,7 @@ describe("getOrgContext", () => {
 
     const calls = mockExecute.mock.calls.map((c) => c[0]);
     expect(calls[1].sql).toContain("LOWER(o.allowed_domain)");
-    expect(calls[1].args).toEqual(["builder.io", "existing@builder.io"]);
+    expect(calls[1].args).toEqual(["existing@builder.io", "builder.io"]);
     expect(calls[2].sql).toContain("INSERT INTO org_members");
     expect(calls.some((c) => c.sql.includes("INSERT INTO organizations"))).toBe(
       false,
@@ -1604,6 +1605,24 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
   it("getA2ASecretByDomain preserves DB errors", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
     await expect(getA2ASecretByDomain("acme.com")).rejects.toThrow("boom");
+  });
+
+  it("does not resolve a secret or organization when a domain is ambiguous", async () => {
+    const duplicateRows = [{ id: "org1" }, { id: "org2" }];
+    queueSelect(duplicateRows, duplicateRows, duplicateRows, duplicateRows);
+
+    await expect(getA2ASecretByDomain("acme.com")).resolves.toBeNull();
+    await expect(resolveOrgByDomain("acme.com")).resolves.toBeNull();
+    await expect(
+      resolveA2AOrganizationMetadataByDomain("acme.com"),
+    ).resolves.toBeNull();
+    await expect(
+      resolveA2AOrganizationCredentialsByDomain("acme.com"),
+    ).resolves.toBeNull();
+    expect(mockExecute.mock.calls).toHaveLength(4);
+    expect(
+      mockExecute.mock.calls.every(([query]) => query.sql.includes("LIMIT 2")),
+    ).toBe(true);
   });
 
   it("resolves org credentials with normalized domain and preserves lookup failures", async () => {
