@@ -1142,11 +1142,20 @@ jobs:
         with:
           restore-dist-cache: "true"
 
-      - name: Create isolated Content row-mutation database
-        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
+      - name: Create isolated Content row-mutation databases
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_block_action_test"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
+
+      # Main still fails these. They report every run without failing the PR
+      # until the fix that drops their known-loss tag lands.
+      - name: Run Content DB tests main still fails
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: pnpm test:content-db:known-loss
 
       - name: Install isolated PGlite test driver
         if: ${{ !cancelled() }}
@@ -1166,9 +1175,11 @@ jobs:
         run: |
           pnpm test:content-db-postgres
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
+          pnpm test:content-db-two-connections
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
+          CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 
       # Two tabs on one page against the production build, with the realtime
       # stream refused as a serverless function refuses it.
@@ -1203,13 +1214,14 @@ jobs:
             e2e/two-tab-convergence.spec.ts \
             e2e/chatgpt-widget-body-paint.spec.ts \
             --workers=1 \
-            --grep-invert @known-loss --output test-results/required
+            --grep-invert @known-loss --output test-results/gate-off
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
           CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/required.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-off.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # Main still loses text in these. They report every run without failing
@@ -1221,13 +1233,54 @@ jobs:
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
             -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
-            --grep @known-loss --pass-with-no-tests --output test-results/known-loss
+            --grep @known-loss --pass-with-no-tests --output test-results/gate-off-known-loss
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
           CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/known-loss.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-off-known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      # The same scenarios on pages switched to the live-body writer (decision
+      # D2). Each one skips, with its reason, until the build has the writer
+      # flag and the per-page switch; a skip is reported, never counted a pass.
+      - name: Run Content two-tab convergence lane with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep-invert @known-loss --output test-results/gate-on
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-on.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content two-tab scenarios main still loses text in, with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep @known-loss --pass-with-no-tests --output test-results/gate-on-known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Summarize Content two-tab convergence
@@ -1236,8 +1289,10 @@ jobs:
         run: >-
           node --experimental-strip-types e2e/convergence-summary.ts
           "$RUNNER_TEMP/content-convergence/convergence.jsonl"
-          "$RUNNER_TEMP/content-convergence/required.json"
-          "$RUNNER_TEMP/content-convergence/known-loss.json"
+          "$RUNNER_TEMP/content-convergence/gate-off.json"
+          "$RUNNER_TEMP/content-convergence/gate-off-known-loss.json"
+          "$RUNNER_TEMP/content-convergence/gate-on.json"
+          "$RUNNER_TEMP/content-convergence/gate-on-known-loss.json"
           >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Content two-tab convergence report

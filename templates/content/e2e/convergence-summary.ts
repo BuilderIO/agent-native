@@ -1,10 +1,21 @@
 // Renders the two-tab convergence report as a job summary:
 //   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [playwright-report.json...]
+// Each Playwright report is one group, headed by its file name.
 import { existsSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 
 import type { ScenarioRecord, TabRecord } from "./helpers";
 
-type PlaywrightSpec = { title: string; ok: boolean; tags: string[] };
+type PlaywrightTest = {
+  status: "expected" | "unexpected" | "flaky" | "skipped";
+  annotations?: { type: string; description?: string }[];
+};
+type PlaywrightSpec = {
+  title: string;
+  ok: boolean;
+  tags: string[];
+  tests?: PlaywrightTest[];
+};
 type PlaywrightSuite = {
   title: string;
   specs?: PlaywrightSpec[];
@@ -50,10 +61,11 @@ const distinct = (
   field: "lost" | "duplicated" | "resurrected",
 ) => new Set(record.integrity.flatMap((entry) => entry[field])).size;
 
+const arms = [...new Set(records.map((record) => record.gate))];
 const lines = [
   "## Content two-tab convergence",
   "",
-  `Build \`${records[0]?.build ?? "unknown"}\`, retries off.`,
+  `Build \`${records[0]?.build ?? "unknown"}\`, live-body gate ${arms.join(" and ") || "unrecorded"}, retries off.`,
   "",
   "Edits are typed markers. Lost and duplicated count distinct markers missing or repeated in any observation: the saved page and each tab at the deadline, after a refresh, and in a tab reopened alone. Deleted, back counts markers a tab deleted that reappeared in any observation.",
   "",
@@ -62,9 +74,7 @@ const lines = [
 ];
 for (const record of records) {
   const tabs = record.tabs;
-  const gate = record.tags.includes(`@${KNOWN_LOSS}`)
-    ? "known loss"
-    : "required";
+  const gate = `${record.gate ?? "unrecorded"}, ${record.tags.includes(`@${KNOWN_LOSS}`) ? "known loss" : "required"}`;
   lines.push(
     `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${distinct(record, "resurrected")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, (tab) => tab.saveOutcomes)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
   );
@@ -102,34 +112,61 @@ if (notes.length)
     ),
   );
 
-const specs: PlaywrightSpec[] = [];
 const missing = playwrightReportPaths.filter((file) => !existsSync(file));
-for (const file of playwrightReportPaths.filter(existsSync)) {
+const reports = playwrightReportPaths.filter(existsSync).map((file) => {
   const report = JSON.parse(readFileSync(file, "utf8")) as {
     suites: PlaywrightSuite[];
   };
+  const specs: PlaywrightSpec[] = [];
   const walk = (suite: PlaywrightSuite) => {
     specs.push(...(suite.specs ?? []));
     for (const child of suite.suites ?? []) walk(child);
   };
   for (const suite of report.suites) walk(suite);
-}
+  return { label: basename(file, ".json"), specs };
+});
+const specs = reports.flatMap((report) => report.specs);
 // The JSON report strips the `@` from tags.
-const groups = [
-  ["Required", specs.filter((spec) => !spec.tags.includes(KNOWN_LOSS))],
-  [
-    "Known loss, not blocking",
-    specs.filter((spec) => spec.tags.includes(KNOWN_LOSS)),
-  ],
-] as const;
-if (playwrightReportPaths.length > missing.length) {
+const groups = reports
+  .flatMap(
+    ({ label, specs }) =>
+      [
+        [
+          `${label}: required`,
+          specs.filter((spec) => !spec.tags.includes(KNOWN_LOSS)),
+        ],
+        [
+          `${label}: known loss, not blocking`,
+          specs.filter((spec) => spec.tags.includes(KNOWN_LOSS)),
+        ],
+      ] as const,
+  )
+  .filter(([, group]) => group.length > 0);
+// A skipped test reports ok, so it is counted apart: it checked nothing.
+const skipReason = (spec: PlaywrightSpec) =>
+  spec.tests?.every((test) => test.status === "skipped")
+    ? (spec.tests
+        .flatMap((test) => test.annotations ?? [])
+        .find((annotation) => annotation.type === "skip")?.description ??
+      "no reason given")
+    : null;
+if (reports.length) {
   for (const [heading, group] of groups) {
+    const skipped = group.filter((spec) => skipReason(spec) !== null);
     const failed = group.filter((spec) => !spec.ok);
     lines.push(
       "",
-      `### ${heading}: ${group.length - failed.length} passed, ${failed.length} failed`,
+      `### ${heading}: ${group.length - failed.length - skipped.length} passed, ${failed.length} failed, ${skipped.length} skipped`,
       ...(failed.length
         ? ["", ...failed.map((spec) => `- ${spec.title}`)]
+        : []),
+      ...(skipped.length
+        ? [
+            "",
+            ...skipped.map(
+              (spec) => `- skipped: ${spec.title} (${skipReason(spec)})`,
+            ),
+          ]
         : []),
     );
   }

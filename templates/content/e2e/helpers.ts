@@ -974,29 +974,30 @@ export class AgentClient {
     ).toBe(false);
   }
 
-  /** Apply one find/replace and fail unless the server reports it applied. */
-  async edit(id: string, find: string, replace: string): Promise<void> {
-    const { revision } = await getDocument(this.page, id);
+  /**
+   * Call one tool over the MCP transport, exactly as a connector does, and
+   * return what the connector would see: the tool's text and whether the
+   * server marked it an error. Transport failures fail the test.
+   */
+  async call(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<McpToolResult> {
     const response = await this.page.request.post("/_agent-native/mcp", {
       headers: {
         ...this.connectorHeaders,
         Accept: "application/json, text/event-stream",
         "mcp-protocol-version": "2026-07-28",
         "mcp-method": "tools/call",
-        "mcp-name": "edit-document",
+        "mcp-name": name,
       },
       data: {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
         params: {
-          name: "edit-document",
-          arguments: {
-            id,
-            baseRevision: revision,
-            idempotencyKey: `${id}-${find}-${Date.now()}`,
-            edits: [{ find, replace }],
-          },
+          name,
+          arguments: args,
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientInfo": {
@@ -1009,7 +1010,7 @@ export class AgentClient {
       },
     });
     const raw = await response.text();
-    expect(response.ok(), `edit-document over MCP: ${raw}`).toBe(true);
+    expect(response.ok(), `${name} over MCP: ${raw}`).toBe(true);
     const payload = raw.trimStart().startsWith("{")
       ? JSON.parse(raw)
       : JSON.parse(
@@ -1019,19 +1020,47 @@ export class AgentClient {
             .map((line) => line.slice("data:".length))
             .join(""),
         );
-    expect(payload.result?.isError, `edit-document over MCP: ${raw}`).not.toBe(
-      true,
-    );
+    expect(payload.error, `${name} over MCP: ${raw}`).toBeUndefined();
     const text = payload.result?.content?.[0]?.text;
-    expect(typeof text, `edit-document over MCP returned no text: ${raw}`).toBe(
+    expect(typeof text, `${name} over MCP returned no text: ${raw}`).toBe(
       "string",
     );
-    const receipt = JSON.parse(text) as { applied?: number; total?: number };
+    return { isError: payload.result?.isError === true, text, raw };
+  }
+
+  /** Call a tool that must succeed and return its parsed JSON result. */
+  async callJson<T = Record<string, any>>(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<T> {
+    const result = await this.call(name, args);
+    expect(result.isError, `${name} over MCP: ${result.raw}`).toBe(false);
+    return JSON.parse(result.text) as T;
+  }
+
+  /** Apply one find/replace and fail unless the server reports it applied. */
+  async edit(id: string, find: string, replace: string): Promise<void> {
+    const { revision } = await getDocument(this.page, id);
+    const receipt = await this.callJson<{ applied?: number; total?: number }>(
+      "edit-document",
+      {
+        id,
+        baseRevision: revision,
+        idempotencyKey: `${id}-${find}-${Date.now()}`,
+        edits: [{ find, replace }],
+      },
+    );
     expect(
       receipt.applied,
-      `edit-document applied ${receipt.applied} of ${receipt.total}: ${text}`,
+      `edit-document applied ${receipt.applied} of ${receipt.total}: ${JSON.stringify(receipt)}`,
     ).toBe(receipt.total);
   }
+}
+
+export interface McpToolResult {
+  isError: boolean;
+  text: string;
+  raw: string;
 }
 
 export interface IntegrityObservation {
@@ -1146,6 +1175,8 @@ export interface ScenarioRecord {
   tags: string[];
   notes: Record<string, unknown>;
   build: string;
+  /** The side of the D2 live-body gate the scenario ran on. */
+  gate: "off" | "on";
   authoredEdits: number;
   markers: number;
   durationMs: number;

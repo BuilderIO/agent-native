@@ -2,10 +2,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 // Measures Content page loads the way the startup acceptance defines them:
 // body visible (Element Timing "content-body"), usable sidebar (first Files
-// root row, "sidebar-files-row"), and editable ("content-editable" mark), plus
-// every framework request with its Server-Timing. The Resource Timing buffer is
-// raised by an init script, before the page's first subresource, because a
-// Content load makes more requests than the default 250-entry buffer holds.
+// root row, "sidebar-files-row"), and editable ("content-editable" mark, and
+// "content-editable:painted" for the frame after it), plus every framework
+// request with its Server-Timing. The Resource Timing buffer is raised by an
+// init script, before the page's first subresource, because a Content load
+// makes more requests than the default 250-entry buffer holds.
 //
 //   node scripts/trace-startup.mjs --base-url http://127.0.0.1:8080 \
 //     --email perf-owner@example.local --password '...' \
@@ -36,6 +37,41 @@ import { mkdirSync, writeFileSync } from "node:fs";
 //   --local-storage <json> local storage entries written before every load,
 //                          like '{"sidebar-width":"320"}' or
 //                          '{"content.sidebar.collapsed":"true"}'
+//
+// Compare mode (decision D4, the editor-ready budget) measures a lane's build
+// against main on the same harness. The lane passes when
+//
+//   lane p50 <= main p50 + |main block 1 p50 - main block 2 p50|
+//
+// over `content-editable:painted`. The defaults are D4 exactly, so a lane runs
+//
+//   node scripts/trace-startup.mjs --compare \
+//     --main-url http://127.0.0.1:8081 --lane-url http://127.0.0.1:8082 \
+//     --email perf-owner@example.local --password '...' \
+//     [--main-sha <sha> --lane-sha <sha>] [--out .tmp/d4.json]
+//
+// which is --state cached --path /home at 1280x800 in four alternating blocks
+// of seven runs (main, lane, main, lane). Each block gets a fresh browser
+// context, the cached state's one warm load and settle, then its measured
+// runs. The spread is how far the two main blocks, which are the same build,
+// drifted apart on this machine; the lane may be that much slower than main.
+//
+// Serve main and the lane side by side: build each checkout (`pnpm build` in
+// templates/content) and start its server on its own port (`PORT=8081 pnpm
+// start` from the main worktree, `PORT=8082 pnpm start` from the lane's). Point
+// both at one database, or seed the same fixture account into each; every URL
+// is logged in separately with the same --email and --password, or with
+// --main-cookie and --lane-cookie. Keep other heavy work off the machine: the
+// spread only absorbs noise that reached both main blocks.
+//
+// The last line is the verdict, and the exit code follows it: `D4 PASS` exits
+// 0, `D4 FAIL` exits 1, and `D4 UNMEASURED` exits 2. UNMEASURED means no
+// verdict was possible: a run had no `content-editable:painted` value (an
+// older build, a hidden tab), a load failed, or fewer than two main blocks
+// exist to measure the spread. Overriding --state, --path, --viewport,
+// --blocks, --runs-per-block, --latency-ms, --jitter-ms, or --local-storage
+// prints a warning, writes `d4: false` to the report, and ends the verdict
+// line with "(not a D4 run)"; do not cite that line as D4 proof.
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
@@ -52,12 +88,37 @@ for (let i = 2; i < process.argv.length; i += 1) {
   }
 }
 
-const baseUrl = (args.get("base-url") ?? "").replace(/\/+$/, "");
-if (!baseUrl) throw new Error("--base-url is required");
-const state = args.get("state") ?? "cached";
-const path = args.get("path") ?? "/home";
+const D4 = {
+  state: "cached",
+  path: "/home",
+  viewport: "1280x800",
+  blocks: 4,
+  runsPerBlock: 7,
+  metric: "editablePainted",
+};
+const D4_EXIT_CODES = { PASS: 0, FAIL: 1, UNMEASURED: 2 };
+
+function trimUrl(url) {
+  return (url ?? "").replace(/\/+$/, "");
+}
+
+const compare = args.get("compare") === "true";
+const baseUrl = trimUrl(args.get("base-url"));
+const mainUrl = trimUrl(args.get("main-url"));
+const laneUrl = trimUrl(args.get("lane-url"));
+if (compare) {
+  if (!mainUrl || !laneUrl) {
+    throw new Error("--compare needs --main-url and --lane-url");
+  }
+} else if (!baseUrl) {
+  throw new Error("--base-url is required");
+}
+const state = args.get("state") ?? D4.state;
+const path = args.get("path") ?? D4.path;
 const clickPath = args.get("click-path");
 const runs = Number(args.get("runs") ?? 10);
+const blockCount = Number(args.get("blocks") ?? D4.blocks);
+const runsPerBlock = Number(args.get("runs-per-block") ?? D4.runsPerBlock);
 const settleMs = Number(args.get("settle-ms") ?? 8000);
 const timeoutMs = Number(args.get("timeout-ms") ?? 30000);
 const outPath = args.get("out");
@@ -67,7 +128,9 @@ const framesDir = args.get("frames");
 const latencyMs = Number(args.get("latency-ms") ?? 0);
 const jitterMs = Number(args.get("jitter-ms") ?? 0);
 const localStorageEntries = JSON.parse(args.get("local-storage") ?? "{}");
-const [viewportWidth, viewportHeight] = (args.get("viewport") ?? "1440x900")
+const [viewportWidth, viewportHeight] = (
+  args.get("viewport") ?? (compare ? D4.viewport : "1440x900")
+)
   .split("x")
   .map(Number);
 if (!viewportWidth || !viewportHeight) {
@@ -79,19 +142,49 @@ if (!["cached", "hard", "warm-network", "in-app"].includes(state)) {
 if (state === "in-app" && !clickPath) {
   throw new Error("--state in-app needs --click-path /page/<id>");
 }
+if (compare) {
+  if (args.has("runs")) {
+    throw new Error("--compare takes --runs-per-block, not --runs");
+  }
+  if (stability || framesDir) {
+    throw new Error("--compare does not take --stability or --frames");
+  }
+  if (!Number.isInteger(blockCount) || blockCount < 2) {
+    throw new Error("--blocks must be an integer of at least 2");
+  }
+  if (!Number.isInteger(runsPerBlock) || runsPerBlock < 1) {
+    throw new Error("--runs-per-block must be a positive integer");
+  }
+}
+
+// What differs from D4, so a run that is not D4 says so in its warning, its
+// report, and its verdict line instead of passing as the budget check.
+const d4Deviations = [
+  ["state", state, D4.state],
+  ["path", path, D4.path],
+  ["viewport", `${viewportWidth}x${viewportHeight}`, D4.viewport],
+  ["blocks", blockCount, D4.blocks],
+  ["runs per block", runsPerBlock, D4.runsPerBlock],
+  ["latency-ms", latencyMs, 0],
+  ["jitter-ms", jitterMs, 0],
+]
+  .filter(([, actual, expected]) => actual !== expected)
+  .map(([name, actual, expected]) => `${name} ${actual} (D4: ${expected})`);
+if (Object.keys(localStorageEntries).length) {
+  d4Deviations.push("local-storage set (D4: none)");
+}
 
 const require = createRequire(
   resolve(import.meta.dirname, "../../../package.json"),
 );
 const { chromium } = require("@playwright/test");
 
-async function sessionCookies() {
-  const raw = args.get("cookie");
-  if (raw) return raw;
+async function sessionCookies(baseUrl, cookie, cookieFlag) {
+  if (cookie) return cookie;
   const email = args.get("email");
   const password = args.get("password");
   if (!email || !password) {
-    throw new Error("Pass --cookie or --email and --password");
+    throw new Error(`Pass ${cookieFlag} or --email and --password`);
   }
   const response = await fetch(`${baseUrl}/_agent-native/auth/login`, {
     method: "POST",
@@ -113,7 +206,7 @@ async function sessionCookies() {
     .join("; ");
 }
 
-function toPlaywrightCookies(header) {
+function toPlaywrightCookies(baseUrl, header) {
   const url = new URL(baseUrl);
   return header
     .split(";")
@@ -283,6 +376,7 @@ function collect([since, documentId]) {
     sidebarObserved: at(mark("trace:sidebar-dom")),
     sidebarActiveRow: at(mark("trace:sidebar-active-row")),
     editable: at(mark("content-editable")),
+    editablePainted: at(mark("content-editable:painted")),
     anchors: Object.fromEntries(
       Object.entries(trace.anchors).map(([name, anchor]) => [
         name,
@@ -348,6 +442,7 @@ function summarizeRun(result) {
     ),
     sidebarActiveRow: result.sidebarActiveRow,
     editable: result.editable,
+    editablePainted: result.editablePainted,
     frameworkRequests: requests.length,
     sessionRequests: requests.filter(
       (request) => request.path === "auth/session",
@@ -411,6 +506,105 @@ function percentile(values, p) {
   ];
 }
 
+// D4 as a pure function of the measured blocks, in run order. A block is
+// `{ side: "main" | "lane", values }`, one metric value per run, null for a run
+// that had none. A missing value makes the verdict UNMEASURED: dropping it
+// would let a lane pass on the runs that happened to work.
+function computeD4Verdict(
+  blocks,
+  { matchesD4 = true, metric = D4.metric } = {},
+) {
+  const stats = blocks.map((block, i) => {
+    const measured = block.values.filter((value) => Number.isFinite(value));
+    return {
+      index: i + 1,
+      side: block.side,
+      n: block.values.length,
+      missing: block.values.length - measured.length,
+      p50: percentile(measured, 50),
+      min: measured.length ? Math.min(...measured) : null,
+      max: measured.length ? Math.max(...measured) : null,
+    };
+  });
+  const mainBlocks = stats.filter((stat) => stat.side === "main");
+  const laneBlocks = stats.filter((stat) => stat.side === "lane");
+  const sideP50 = (side) =>
+    percentile(
+      blocks
+        .filter((block) => block.side === side)
+        .flatMap((block) => block.values.filter(Number.isFinite)),
+      50,
+    );
+  const result = {
+    d4: matchesD4 && mainBlocks.length === 2 && laneBlocks.length === 2,
+    metric,
+    blocks: stats,
+    mainP50: sideP50("main"),
+    laneP50: sideP50("lane"),
+    spread: null,
+    threshold: null,
+  };
+  const finish = (status, line) => ({
+    ...result,
+    status,
+    line: result.d4 ? line : `${line} (not a D4 run)`,
+  });
+  const incomplete = stats.filter(
+    (stat) => stat.missing > 0 || stat.p50 === null,
+  );
+  if (incomplete.length) {
+    return finish(
+      "UNMEASURED",
+      `D4 UNMEASURED ${metric} missing in ${incomplete
+        .map(
+          (stat) =>
+            `block ${stat.index} (${stat.side}) ${stat.missing} of ${stat.n} runs`,
+        )
+        .join(", ")}`,
+    );
+  }
+  if (mainBlocks.length < 2 || laneBlocks.length < 1) {
+    return finish(
+      "UNMEASURED",
+      `D4 UNMEASURED needs two main blocks for the spread and one lane block, got ${mainBlocks.length} main and ${laneBlocks.length} lane`,
+    );
+  }
+  const spread = Math.abs(mainBlocks[0].p50 - mainBlocks[1].p50);
+  const threshold = result.mainP50 + spread;
+  const pass = result.laneP50 <= threshold;
+  Object.assign(result, { spread, threshold });
+  return finish(
+    pass ? "PASS" : "FAIL",
+    `D4 ${pass ? "PASS" : "FAIL"} lane p50 ${result.laneP50} ms ${pass ? "<=" : ">"} main p50 ${result.mainP50} ms + spread ${spread} ms (threshold ${threshold} ms)`,
+  );
+}
+
+function formatBlockTable(stats) {
+  const rows = [
+    ["block", "side", "n", "p50", "min", "max", "missing"],
+    ...stats.map((stat) => [
+      stat.index,
+      stat.side,
+      stat.n,
+      stat.p50 ?? "-",
+      stat.min ?? "-",
+      stat.max ?? "-",
+      stat.missing,
+    ]),
+  ];
+  const widths = rows[0].map((_, column) =>
+    Math.max(...rows.map((row) => String(row[column]).length)),
+  );
+  return rows
+    .map((row) =>
+      row
+        .map((cell, column) => String(cell).padEnd(widths[column]))
+        .join("  ")
+        .trimEnd(),
+    )
+    .join("\n");
+}
+
 async function waitForBody(page, since, documentId) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -446,18 +640,12 @@ async function waitForBody(page, since, documentId) {
   );
 }
 
-const cookieHeader = await sessionCookies();
-const browser = await chromium.launch({
-  headless: args.get("headed") !== "true",
-});
-const results = [];
-
-async function newContext() {
+async function newContext(browser, baseUrl, cookieHeader) {
   const context = await browser.newContext({
     viewport: { width: viewportWidth, height: viewportHeight },
   });
   context.setDefaultNavigationTimeout(timeoutMs);
-  await context.addCookies(toPlaywrightCookies(cookieHeader));
+  await context.addCookies(toPlaywrightCookies(baseUrl, cookieHeader));
   await context.addInitScript(installProbe, { stability });
   if (Object.keys(localStorageEntries).length) {
     await context.addInitScript((entries) => {
@@ -532,122 +720,257 @@ async function saveFrames(instrumented, run, timeOrigin) {
   writeFileSync(resolve(dir, "concat.txt"), `${concat.join("\n")}\n`);
 }
 
-let shared = state === "cached" || state === "hard" ? await newContext() : null;
-if (shared) {
-  const warm = await shared.newPage();
-  await warm.goto(`${baseUrl}${path}`, { waitUntil: "load" });
-  await waitForBody(warm, 0);
-  // A returning user's last visit finished loading, sidebar included, so the
-  // layout it left behind is there to restore.
-  await warm.waitForTimeout(settleMs);
-  await warm.close();
-}
-
-for (let run = 0; run < runs; run += 1) {
-  const context = shared ?? (await newContext());
-  const page = await context.newPage();
-  const instrumented = await instrumentPage(page);
-  let result;
-  if (state === "in-app") {
-    await page.goto(`${baseUrl}${path}`, { waitUntil: "load" });
-    await waitForBody(page, 0);
-    await page.waitForTimeout(settleMs);
-    const targetId = clickPath.split("/").pop();
-    // The target page's anchors share names with the source page's, so the
-    // baseline starts over at the click.
-    const since = await page.evaluate(() => {
-      window.__startupTrace.anchors = {};
-      return performance.now();
-    });
-    await page
-      .locator(`a[href="${clickPath}"]`)
-      .filter({ visible: true })
-      .first()
-      .click();
-    await waitForBody(page, since, targetId);
-    await page.waitForTimeout(settleMs);
-    result = await page.evaluate(collect, [since, targetId]);
-  } else {
-    const navigationStartedAt = Date.now();
-    await page.goto(`${baseUrl}${path}`, { waitUntil: "commit" });
-    await waitForBody(page, 0);
-    await page.waitForTimeout(settleMs);
-    result = await page.evaluate(collect, [0, undefined]);
-    // Count from the first navigation even when the page redirected to a new
-    // document on the way.
-    const offset = Math.max(
-      0,
-      Math.round(result.timeOrigin - navigationStartedAt),
-    );
-    result.redirectOffset = offset;
-    for (const key of [
-      "bodyElement",
-      "bodyPainted",
-      "bodyDom",
-      "sidebarElement",
-      "sidebarPainted",
-      "sidebarDom",
-      "bodyObserved",
-      "sidebarObserved",
-      "sidebarActiveRow",
-      "editable",
-    ]) {
-      if (result[key] != null) result[key] += offset;
-    }
+// One server's worth of runs: a fresh context for the cached and hard states
+// (after the warm load a returning user would have made), a fresh one per run
+// otherwise. Single mode is one block; compare mode alternates blocks.
+async function measureBlock({ browser, baseUrl, cookieHeader, runs, label }) {
+  const results = [];
+  const shared =
+    state === "cached" || state === "hard"
+      ? await newContext(browser, baseUrl, cookieHeader)
+      : null;
+  if (shared) {
+    const warm = await shared.newPage();
+    await warm.goto(`${baseUrl}${path}`, { waitUntil: "load" });
+    await waitForBody(warm, 0);
+    // A returning user's last visit finished loading, sidebar included, so the
+    // layout it left behind is there to restore.
+    await warm.waitForTimeout(settleMs);
+    await warm.close();
   }
-  await saveFrames(instrumented, run, result.timeOrigin);
-  const summary = summarizeRun(result);
-  results.push({
-    run,
-    summary,
-    requests: result.requests,
-    ...(stability ? { anchors: result.anchors } : {}),
-  });
-  console.log(
-    `[trace] ${state} ${path} run ${run + 1}/${runs}: ${JSON.stringify(summary)}`,
+
+  for (let run = 0; run < runs; run += 1) {
+    const context =
+      shared ?? (await newContext(browser, baseUrl, cookieHeader));
+    const page = await context.newPage();
+    const instrumented = await instrumentPage(page);
+    let result;
+    if (state === "in-app") {
+      await page.goto(`${baseUrl}${path}`, { waitUntil: "load" });
+      await waitForBody(page, 0);
+      await page.waitForTimeout(settleMs);
+      const targetId = clickPath.split("/").pop();
+      // The target page's anchors share names with the source page's, so the
+      // baseline starts over at the click.
+      const since = await page.evaluate(() => {
+        window.__startupTrace.anchors = {};
+        return performance.now();
+      });
+      await page
+        .locator(`a[href="${clickPath}"]`)
+        .filter({ visible: true })
+        .first()
+        .click();
+      await waitForBody(page, since, targetId);
+      await page.waitForTimeout(settleMs);
+      result = await page.evaluate(collect, [since, targetId]);
+    } else {
+      const navigationStartedAt = Date.now();
+      await page.goto(`${baseUrl}${path}`, { waitUntil: "commit" });
+      await waitForBody(page, 0);
+      await page.waitForTimeout(settleMs);
+      result = await page.evaluate(collect, [0, undefined]);
+      // Count from the first navigation even when the page redirected to a new
+      // document on the way.
+      const offset = Math.max(
+        0,
+        Math.round(result.timeOrigin - navigationStartedAt),
+      );
+      result.redirectOffset = offset;
+      for (const key of [
+        "bodyElement",
+        "bodyPainted",
+        "bodyDom",
+        "sidebarElement",
+        "sidebarPainted",
+        "sidebarDom",
+        "bodyObserved",
+        "sidebarObserved",
+        "sidebarActiveRow",
+        "editable",
+        "editablePainted",
+      ]) {
+        if (result[key] != null) result[key] += offset;
+      }
+    }
+    await saveFrames(instrumented, run, result.timeOrigin);
+    const summary = summarizeRun(result);
+    results.push({
+      run,
+      summary,
+      requests: result.requests,
+      ...(stability ? { anchors: result.anchors } : {}),
+    });
+    console.log(
+      `[trace] ${label} run ${run + 1}/${runs}: ${JSON.stringify(summary)}`,
+    );
+    await page.close();
+    if (!shared) await context.close();
+  }
+  await shared?.close();
+  return results;
+}
+
+async function runSingle() {
+  const cookieHeader = await sessionCookies(
+    baseUrl,
+    args.get("cookie"),
+    "--cookie",
   );
-  await page.close();
-  if (!shared) await context.close();
+  const browser = await chromium.launch({
+    headless: args.get("headed") !== "true",
+  });
+  const results = await measureBlock({
+    browser,
+    baseUrl,
+    cookieHeader,
+    runs,
+    label: `${state} ${path}`,
+  });
+  await browser.close();
+
+  const metric = (name) => results.map((result) => result.summary[name]);
+  const report = {
+    baseUrl,
+    state,
+    path,
+    clickPath: clickPath ?? null,
+    runs,
+    p50: {
+      bodyVisible: percentile(metric("bodyVisible"), 50),
+      sidebarUsable: percentile(metric("sidebarUsable"), 50),
+      sidebarActiveRow: percentile(metric("sidebarActiveRow"), 50),
+      editable: percentile(metric("editable"), 50),
+      editablePainted: percentile(metric("editablePainted"), 50),
+      frameworkRequests: percentile(metric("frameworkRequests"), 50),
+      documentAfterSession: percentile(metric("documentAfterSession"), 50),
+    },
+    p90: {
+      bodyVisible: percentile(metric("bodyVisible"), 90),
+      sidebarUsable: percentile(metric("sidebarUsable"), 90),
+      sidebarActiveRow: percentile(metric("sidebarActiveRow"), 90),
+      editable: percentile(metric("editable"), 90),
+      editablePainted: percentile(metric("editablePainted"), 90),
+      documentAfterSession: percentile(metric("documentAfterSession"), 90),
+    },
+    max: {
+      sessionRequests: Math.max(...metric("sessionRequests")),
+      getDocumentRequests: Math.max(...metric("getDocumentRequests")),
+      listDocumentsPaged: Math.max(...metric("listDocumentsPaged")),
+    },
+    ...(stability ? { stability: summarizeStabilityRuns(results) } : {}),
+    results,
+  };
+  console.log(JSON.stringify({ ...report, results: undefined }, null, 2));
+  if (outPath) {
+    mkdirSync(dirname(resolve(outPath)), { recursive: true });
+    writeFileSync(resolve(outPath), `${JSON.stringify(report, null, 2)}\n`);
+  }
+  if (stability) {
+    if (results.some((result) => result.summary.unchecked))
+      process.exitCode = 2;
+    else if (report.stability.stableRuns < runs) process.exitCode = 1;
+  }
 }
 
-await browser.close();
+// Main and the lane alternate, main first, each block in its own browser
+// context. A load that fails ends the comparison as UNMEASURED: a crash exits
+// 1, which a caller would read as the lane failing the budget.
+async function runCompare() {
+  if (d4Deviations.length) {
+    console.log(`[trace] warning: not a D4 run: ${d4Deviations.join(", ")}`);
+  }
+  const urls = { main: mainUrl, lane: laneUrl };
+  const blocks = [];
+  let browser;
+  let verdict;
+  let failure = null;
+  try {
+    const cookieHeaders = {
+      main: await sessionCookies(
+        mainUrl,
+        args.get("main-cookie"),
+        "--main-cookie",
+      ),
+      lane: await sessionCookies(
+        laneUrl,
+        args.get("lane-cookie"),
+        "--lane-cookie",
+      ),
+    };
+    browser = await chromium.launch({
+      headless: args.get("headed") !== "true",
+    });
+    for (let i = 0; i < blockCount; i += 1) {
+      const side = i % 2 === 0 ? "main" : "lane";
+      const results = await measureBlock({
+        browser,
+        baseUrl: urls[side],
+        cookieHeader: cookieHeaders[side],
+        runs: runsPerBlock,
+        label: `block ${i + 1}/${blockCount} ${side} ${state} ${path}`,
+      });
+      blocks.push({
+        side,
+        results,
+        values: results.map((result) => result.summary[D4.metric]),
+      });
+    }
+    verdict = computeD4Verdict(blocks, {
+      matchesD4: d4Deviations.length === 0,
+    });
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+    verdict = {
+      status: "UNMEASURED",
+      d4: d4Deviations.length === 0,
+      line: `D4 UNMEASURED run failed: ${failure}${d4Deviations.length ? " (not a D4 run)" : ""}`,
+    };
+  } finally {
+    await browser?.close();
+  }
 
-const metric = (name) => results.map((result) => result.summary[name]);
-const report = {
-  baseUrl,
-  state,
-  path,
-  clickPath: clickPath ?? null,
-  runs,
-  p50: {
-    bodyVisible: percentile(metric("bodyVisible"), 50),
-    sidebarUsable: percentile(metric("sidebarUsable"), 50),
-    sidebarActiveRow: percentile(metric("sidebarActiveRow"), 50),
-    editable: percentile(metric("editable"), 50),
-    frameworkRequests: percentile(metric("frameworkRequests"), 50),
-    documentAfterSession: percentile(metric("documentAfterSession"), 50),
-  },
-  p90: {
-    bodyVisible: percentile(metric("bodyVisible"), 90),
-    sidebarUsable: percentile(metric("sidebarUsable"), 90),
-    sidebarActiveRow: percentile(metric("sidebarActiveRow"), 90),
-    editable: percentile(metric("editable"), 90),
-    documentAfterSession: percentile(metric("documentAfterSession"), 90),
-  },
-  max: {
-    sessionRequests: Math.max(...metric("sessionRequests")),
-    getDocumentRequests: Math.max(...metric("getDocumentRequests")),
-    listDocumentsPaged: Math.max(...metric("listDocumentsPaged")),
-  },
-  ...(stability ? { stability: summarizeStabilityRuns(results) } : {}),
-  results,
-};
-console.log(JSON.stringify({ ...report, results: undefined }, null, 2));
-if (outPath) {
-  mkdirSync(dirname(resolve(outPath)), { recursive: true });
-  writeFileSync(resolve(outPath), `${JSON.stringify(report, null, 2)}\n`);
+  const report = {
+    mode: "compare",
+    d4: verdict.d4,
+    deviations: d4Deviations,
+    inputs: {
+      mainUrl,
+      laneUrl,
+      mainSha: args.get("main-sha") ?? null,
+      laneSha: args.get("lane-sha") ?? null,
+      state,
+      path,
+      viewport: `${viewportWidth}x${viewportHeight}`,
+      blocks: blockCount,
+      runsPerBlock,
+      metric: D4.metric,
+      settleMs,
+      latencyMs,
+      jitterMs,
+    },
+    verdict: {
+      status: verdict.status,
+      line: verdict.line,
+      mainP50: verdict.mainP50 ?? null,
+      laneP50: verdict.laneP50 ?? null,
+      spread: verdict.spread ?? null,
+      threshold: verdict.threshold ?? null,
+    },
+    ...(failure ? { error: failure } : {}),
+    blocks: blocks.map((block, i) => ({
+      ...(verdict.blocks?.[i] ?? { index: i + 1, side: block.side }),
+      runs: block.results.map(({ run, summary }) => ({ run, summary })),
+    })),
+  };
+  if (verdict.blocks) console.log(formatBlockTable(verdict.blocks));
+  if (outPath) {
+    mkdirSync(dirname(resolve(outPath)), { recursive: true });
+    writeFileSync(resolve(outPath), `${JSON.stringify(report, null, 2)}\n`);
+  }
+  console.log(verdict.line);
+  process.exitCode = D4_EXIT_CODES[verdict.status];
 }
-if (stability) {
-  if (results.some((result) => result.summary.unchecked)) process.exitCode = 2;
-  else if (report.stability.stableRuns < runs) process.exitCode = 1;
-}
+
+if (compare) await runCompare();
+else await runSingle();

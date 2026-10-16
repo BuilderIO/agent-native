@@ -21,6 +21,19 @@ Verify the applicable rows:
 | Accessibility     | Do keyboard and assistive-technology paths support the primary workflow?                                   |
 | Performance       | Does the workflow stay inside its declared scale, time, memory, and output limits?                         |
 
+### Editor-ready budget (D4)
+
+A lane that touches Content startup compares itself with main before calling
+its PR ready. Serve main and the lane's build on two ports against the same
+fixture account, then run from `templates/content`:
+`node scripts/trace-startup.mjs --compare --main-url <main> --lane-url <lane>`.
+The defaults are the budget: cached `/home` at 1280x800, four alternating blocks
+of seven runs, metric `content-editable:painted`. The lane passes when its p50
+is at most main's p50 plus the gap between main's two block p50s. Paste the
+final `D4 PASS` or `D4 FAIL` line into the PR. A fail is a finding, not a run to
+repeat until it passes; `D4 UNMEASURED` proves nothing, and a run with
+overridden defaults says `(not a D4 run)`.
+
 ## Status evidence
 
 - `verified`: current proof covers the complete atomic contract.

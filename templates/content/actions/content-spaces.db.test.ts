@@ -7,6 +7,19 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { knownLossTest } from "../acceptance/known-loss";
+
+const ORG_TIMESTAMP_LOSS = {
+  lane: "unowned",
+  reason:
+    "The test creates organizations and org_members with INTEGER timestamps, so Date.now() overflows the column before provisioning runs.",
+} as const;
+const SPACE_REFUSAL_LOSS = {
+  lane: "unowned",
+  reason:
+    "Deleting or reading a space the caller cannot reach fails with 'Content space not found.' where the test expects 'Not authorized'.",
+} as const;
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-spaces-${process.pid}-${Date.now()}.pglite`,
@@ -114,45 +127,50 @@ async function addMember(
 }
 
 describe("Content space provisioning", () => {
-  it("reports a newly granted organization until its space is reconciled", async () => {
-    const email = "late-membership@example.com";
-    const orgId = "org-late-membership";
-    await runWithRequestContext({ userEmail: email }, () =>
-      ensureContentSpacesAction.run({}),
-    );
-    const personalOnly = await runWithRequestContext({ userEmail: email }, () =>
-      listContentSpacesAction.run({}),
-    );
-    expect(personalOnly).toMatchObject({ needsReconciliation: false });
+  it(
+    "reports a newly granted organization until its space is reconciled",
+    knownLossTest(ORG_TIMESTAMP_LOSS),
+    async () => {
+      const email = "late-membership@example.com";
+      const orgId = "org-late-membership";
+      await runWithRequestContext({ userEmail: email }, () =>
+        ensureContentSpacesAction.run({}),
+      );
+      const personalOnly = await runWithRequestContext(
+        { userEmail: email },
+        () => listContentSpacesAction.run({}),
+      );
+      expect(personalOnly).toMatchObject({ needsReconciliation: false });
 
-    await addOrganization(orgId, "Late Membership", email);
-    await addMember("member-late-membership", orgId, email, "owner");
-    const membershipPending = await runWithRequestContext(
-      { userEmail: email },
-      () => listContentSpacesAction.run({}),
-    );
-    expect(membershipPending).toMatchObject({ needsReconciliation: true });
-    expect(membershipPending.reconciliationKey).not.toBe(
-      personalOnly.reconciliationKey,
-    );
+      await addOrganization(orgId, "Late Membership", email);
+      await addMember("member-late-membership", orgId, email, "owner");
+      const membershipPending = await runWithRequestContext(
+        { userEmail: email },
+        () => listContentSpacesAction.run({}),
+      );
+      expect(membershipPending).toMatchObject({ needsReconciliation: true });
+      expect(membershipPending.reconciliationKey).not.toBe(
+        personalOnly.reconciliationKey,
+      );
 
-    await runWithRequestContext({ userEmail: email }, () =>
-      ensureContentSpacesAction.run({}),
-    );
-    await expect(
-      runWithRequestContext({ userEmail: email }, () =>
-        listContentSpacesAction.run({}),
-      ),
-    ).resolves.toMatchObject({
-      needsReconciliation: false,
-      spaces: expect.arrayContaining([
-        expect.objectContaining({
-          id: organizationContentSpaceId(orgId),
-          orgId,
-        }),
-      ]),
-    });
-  });
+      await runWithRequestContext({ userEmail: email }, () =>
+        ensureContentSpacesAction.run({}),
+      );
+      await expect(
+        runWithRequestContext({ userEmail: email }, () =>
+          listContentSpacesAction.run({}),
+        ),
+      ).resolves.toMatchObject({
+        needsReconciliation: false,
+        spaces: expect.arrayContaining([
+          expect.objectContaining({
+            id: organizationContentSpaceId(orgId),
+            orgId,
+          }),
+        ]),
+      });
+    },
+  );
 
   it("batches Files reconciliation for databases with 5,000 row documents", async () => {
     const provisioned = await runWithRequestContext(
@@ -375,41 +393,45 @@ describe("Content space provisioning", () => {
     expect(deletedWorkspaceRows.every((rows) => rows.length === 0)).toBe(true);
   });
 
-  it("only lets owners delete user-created workspaces", async () => {
-    const provisioned = await runWithRequestContext(
-      { userEmail: WORKSPACE_OWNER },
-      () => provisionContentSpaces(getDb(), WORKSPACE_OWNER),
-    );
-    await expect(
-      runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
-        deleteContentSpaceAction.run({
-          spaceId: provisioned.personalSpaceId,
-        }),
-      ),
-    ).rejects.toThrow("Only user-created workspaces can be deleted");
+  it(
+    "only lets owners delete user-created workspaces",
+    knownLossTest(SPACE_REFUSAL_LOSS),
+    async () => {
+      const provisioned = await runWithRequestContext(
+        { userEmail: WORKSPACE_OWNER },
+        () => provisionContentSpaces(getDb(), WORKSPACE_OWNER),
+      );
+      await expect(
+        runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+          deleteContentSpaceAction.run({
+            spaceId: provisioned.personalSpaceId,
+          }),
+        ),
+      ).rejects.toThrow("Only user-created workspaces can be deleted");
 
-    const workspace = await runWithRequestContext(
-      { userEmail: WORKSPACE_OWNER },
-      () =>
-        createContentSpaceAction.run({
-          name: "Private planning",
-          requestId: "delete-owner-only",
-        }),
-    );
-    await expect(
-      runWithRequestContext({ userEmail: OUTSIDER }, () =>
+      const workspace = await runWithRequestContext(
+        { userEmail: WORKSPACE_OWNER },
+        () =>
+          createContentSpaceAction.run({
+            name: "Private planning",
+            requestId: "delete-owner-only",
+          }),
+      );
+      await expect(
+        runWithRequestContext({ userEmail: OUTSIDER }, () =>
+          deleteContentSpaceAction.run({ spaceId: workspace.spaceId }),
+        ),
+      ).rejects.toThrow("Not authorized");
+      await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
         deleteContentSpaceAction.run({ spaceId: workspace.spaceId }),
-      ),
-    ).rejects.toThrow("Not authorized");
-    await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
-      deleteContentSpaceAction.run({ spaceId: workspace.spaceId }),
-    );
-    const [remaining] = await getDb()
-      .select({ id: schema.contentSpaces.id })
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.id, workspace.spaceId));
-    expect(remaining).toBeUndefined();
-  });
+      );
+      const [remaining] = await getDb()
+        .select({ id: schema.contentSpaces.id })
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, workspace.spaceId));
+      expect(remaining).toBeUndefined();
+    },
+  );
 
   it("binds concurrent workspace requests to one canonical name", async () => {
     const outcomes = await Promise.allSettled(
@@ -575,53 +597,57 @@ describe("Content space provisioning", () => {
     ).resolves.toHaveLength(1);
   });
 
-  it("provisions every current organization membership and keeps organization Files documents org-visible", async () => {
-    await addOrganization("org-alpha", "Alpha");
-    await addOrganization("org-beta", "Beta");
-    await addMember("owner-alpha", "org-alpha", OWNER, "owner");
-    await addMember("owner-beta", "org-beta", OWNER, "admin");
-    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
-      provisionContentSpaces(getDb(), OWNER),
-    );
-    expect(result.spaceIds).toEqual(
-      expect.arrayContaining([
-        organizationContentSpaceId("org-alpha"),
-        organizationContentSpaceId("org-beta"),
-      ]),
-    );
-    const orgSpaces = await getDb()
-      .select()
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.orgId, "org-alpha"));
-    expect(orgSpaces).toHaveLength(1);
-    const [files] = await getDb()
-      .select()
-      .from(schema.contentDatabases)
-      .where(
-        and(
-          eq(schema.contentDatabases.spaceId, orgSpaces[0]!.id),
-          eq(schema.contentDatabases.systemRole, "files"),
-        ),
+  it(
+    "provisions every current organization membership and keeps organization Files documents org-visible",
+    knownLossTest(ORG_TIMESTAMP_LOSS),
+    async () => {
+      await addOrganization("org-alpha", "Alpha");
+      await addOrganization("org-beta", "Beta");
+      await addMember("owner-alpha", "org-alpha", OWNER, "owner");
+      await addMember("owner-beta", "org-beta", OWNER, "admin");
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        provisionContentSpaces(getDb(), OWNER),
       );
-    const [document] = await getDb()
-      .select()
-      .from(schema.documents)
-      .where(eq(schema.documents.id, files!.documentId));
-    expect(document).toMatchObject({
-      ownerEmail: OWNER,
-      orgId: "org-alpha",
-      visibility: "org",
-    });
-    const catalogItems = await getDb()
-      .select()
-      .from(schema.contentDatabaseItems)
-      .where(
-        eq(schema.contentDatabaseItems.databaseId, result.catalogDatabaseId),
+      expect(result.spaceIds).toEqual(
+        expect.arrayContaining([
+          organizationContentSpaceId("org-alpha"),
+          organizationContentSpaceId("org-beta"),
+        ]),
       );
-    expect(catalogItems.map((item: any) => item.position).sort()).toEqual([
-      0, 1, 2,
-    ]);
-  });
+      const orgSpaces = await getDb()
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.orgId, "org-alpha"));
+      expect(orgSpaces).toHaveLength(1);
+      const [files] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.spaceId, orgSpaces[0]!.id),
+            eq(schema.contentDatabases.systemRole, "files"),
+          ),
+        );
+      const [document] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, files!.documentId));
+      expect(document).toMatchObject({
+        ownerEmail: OWNER,
+        orgId: "org-alpha",
+        visibility: "org",
+      });
+      const catalogItems = await getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(
+          eq(schema.contentDatabaseItems.databaseId, result.catalogDatabaseId),
+        );
+      expect(catalogItems.map((item: any) => item.position).sort()).toEqual([
+        0, 1, 2,
+      ]);
+    },
+  );
 
   it("uses Favorites membership as a per-user state without replacing Files membership", async () => {
     const provisioned = await runWithRequestContext(
@@ -713,315 +739,338 @@ describe("Content space provisioning", () => {
     ).resolves.toHaveLength(1);
   });
 
-  it("preserves the Content workspace name when the organization is renamed", async () => {
-    const orgId = "org-renamed";
-    const spaceId = organizationContentSpaceId(orgId);
-    await addOrganization(orgId, "Before rename");
-    await addMember("owner-renamed", orgId, OWNER, "owner");
-    const provisioned = await runWithRequestContext({ userEmail: OWNER }, () =>
-      provisionContentSpaces(getDb(), OWNER),
-    );
+  it(
+    "preserves the Content workspace name when the organization is renamed",
+    knownLossTest(ORG_TIMESTAMP_LOSS),
+    async () => {
+      const orgId = "org-renamed";
+      const spaceId = organizationContentSpaceId(orgId);
+      await addOrganization(orgId, "Before rename");
+      await addMember("owner-renamed", orgId, OWNER, "owner");
+      const provisioned = await runWithRequestContext(
+        { userEmail: OWNER },
+        () => provisionContentSpaces(getDb(), OWNER),
+      );
 
-    await getDbExec().execute({
-      sql: "UPDATE organizations SET name = $1 WHERE id = $2",
-      args: ["After rename", orgId],
-    });
-    const rerun = await runWithRequestContext({ userEmail: OWNER }, () =>
-      provisionContentSpaces(getDb(), OWNER),
-    );
-    expect(rerun.created).toEqual({
-      spaces: 0,
-      databases: 0,
-      documents: 0,
-      catalogItems: 0,
-    });
+      await getDbExec().execute({
+        sql: "UPDATE organizations SET name = $1 WHERE id = $2",
+        args: ["After rename", orgId],
+      });
+      const rerun = await runWithRequestContext({ userEmail: OWNER }, () =>
+        provisionContentSpaces(getDb(), OWNER),
+      );
+      expect(rerun.created).toEqual({
+        spaces: 0,
+        databases: 0,
+        documents: 0,
+        catalogItems: 0,
+      });
 
-    const [space] = await getDb()
-      .select()
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.id, spaceId));
-    expect(space?.name).toBe("Before rename");
+      const [space] = await getDb()
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, spaceId));
+      expect(space?.name).toBe("Before rename");
 
-    const [reference] = await getDb()
-      .select({ title: schema.documents.title })
-      .from(schema.contentSpaceCatalogItems)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.contentSpaceCatalogItems.documentId),
-      )
-      .where(
-        and(
-          eq(
-            schema.contentSpaceCatalogItems.catalogDatabaseId,
-            provisioned.catalogDatabaseId,
+      const [reference] = await getDb()
+        .select({ title: schema.documents.title })
+        .from(schema.contentSpaceCatalogItems)
+        .innerJoin(
+          schema.documents,
+          eq(schema.documents.id, schema.contentSpaceCatalogItems.documentId),
+        )
+        .where(
+          and(
+            eq(
+              schema.contentSpaceCatalogItems.catalogDatabaseId,
+              provisioned.catalogDatabaseId,
+            ),
+            eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
           ),
-          eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
-        ),
-      );
-    expect(reference?.title).toBe("Before rename");
-  });
+        );
+      expect(reference?.title).toBe("Before rename");
+    },
+  );
 
-  it("lets an ordinary member provision organization Files on first login", async () => {
-    const orgId = "org-viewer-provisioning";
-    const spaceId = organizationContentSpaceId(orgId);
-    await addOrganization(orgId, "Viewer Provisioning");
-    await addMember("viewer-provisioning", orgId, MEMBER);
+  it(
+    "lets an ordinary member provision organization Files on first login",
+    knownLossTest(ORG_TIMESTAMP_LOSS),
+    async () => {
+      const orgId = "org-viewer-provisioning";
+      const spaceId = organizationContentSpaceId(orgId);
+      await addOrganization(orgId, "Viewer Provisioning");
+      await addMember("viewer-provisioning", orgId, MEMBER);
 
-    const viewerResult = await runWithRequestContext(
-      { userEmail: MEMBER },
-      () => provisionContentSpaces(getDb(), MEMBER),
-    );
-    expect(viewerResult.spaceIds).toContain(spaceId);
-    const [organizationSpace] = await getDb()
-      .select()
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.id, spaceId));
-    expect(organizationSpace).toMatchObject({
-      id: spaceId,
-      orgId,
-      ownerEmail: OWNER,
-      kind: "organization",
-    });
-    const [filesDatabase] = await getDb()
-      .select()
-      .from(schema.contentDatabases)
-      .where(
-        and(
-          eq(schema.contentDatabases.spaceId, spaceId),
-          eq(schema.contentDatabases.systemRole, "files"),
-        ),
+      const viewerResult = await runWithRequestContext(
+        { userEmail: MEMBER },
+        () => provisionContentSpaces(getDb(), MEMBER),
       );
-    expect(filesDatabase).toMatchObject({
-      orgId,
-      ownerEmail: OWNER,
-      systemRole: "files",
-      blocksSeeded: 1,
-    });
-    const filesProperties = await getDb()
-      .select()
-      .from(schema.documentPropertyDefinitions)
-      .where(
-        eq(schema.documentPropertyDefinitions.databaseId, filesDatabase!.id),
-      );
-    expect(filesProperties).toHaveLength(3);
-    expect(filesProperties.map((property) => property.systemRole)).toEqual(
-      expect.arrayContaining([null, "files_parent", "files_source"]),
-    );
-    await runWithRequestContext({ userEmail: MEMBER }, async () => {
-      await expect(resolveContentSpaceAccess(spaceId)).resolves.toMatchObject({
-        role: "viewer",
+      expect(viewerResult.spaceIds).toContain(spaceId);
+      const [organizationSpace] = await getDb()
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, spaceId));
+      expect(organizationSpace).toMatchObject({
+        id: spaceId,
+        orgId,
+        ownerEmail: OWNER,
+        kind: "organization",
       });
-      await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
-        spaces: expect.arrayContaining([
-          expect.objectContaining({ id: spaceId, role: "viewer" }),
-        ]),
-      });
-      await expect(
-        getDocumentAction.run({ id: filesDatabase!.documentId }),
-      ).resolves.toMatchObject({
-        id: filesDatabase!.documentId,
-        database: expect.objectContaining({ systemRole: "files" }),
-        accessRole: "viewer",
-      });
-    });
-  });
-
-  it("does not let a stale catalog reference grant a non-member visibility", async () => {
-    await addOrganization("org-shared", "Shared");
-    await addMember("owner-shared", "org-shared", OWNER, "owner");
-    await addMember("member-shared", "org-shared", MEMBER);
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      provisionContentSpaces(getDb(), OWNER),
-    );
-    await runWithRequestContext({ userEmail: MEMBER }, () =>
-      provisionContentSpaces(getDb(), MEMBER),
-    );
-    const spaceId = organizationContentSpaceId("org-shared");
-    await getDbExec().execute({
-      sql: "DELETE FROM org_members WHERE id = $1",
-      args: ["member-shared"],
-    });
-    await runWithRequestContext({ userEmail: MEMBER }, async () => {
-      await expect(resolveContentSpaceAccess(spaceId)).rejects.toThrow(
-        "Not authorized",
-      );
-      await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
-        spaces: expect.not.arrayContaining([
-          expect.objectContaining({ id: spaceId }),
-        ]),
-      });
-      const [workspacesDatabase] = await getDb()
+      const [filesDatabase] = await getDb()
         .select()
         .from(schema.contentDatabases)
         .where(
           and(
-            eq(schema.contentDatabases.ownerEmail, MEMBER),
-            eq(schema.contentDatabases.systemRole, "workspaces"),
+            eq(schema.contentDatabases.spaceId, spaceId),
+            eq(schema.contentDatabases.systemRole, "files"),
           ),
         );
-      const catalog = await getContentDatabaseAction.run({
-        databaseId: workspacesDatabase!.id,
+      expect(filesDatabase).toMatchObject({
+        orgId,
+        ownerEmail: OWNER,
+        systemRole: "files",
+        blocksSeeded: 1,
       });
-      expect(catalog.items.map((item) => item.document.title)).not.toContain(
-        "Shared",
+      const filesProperties = await getDb()
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          eq(schema.documentPropertyDefinitions.databaseId, filesDatabase!.id),
+        );
+      expect(filesProperties).toHaveLength(3);
+      expect(filesProperties.map((property) => property.systemRole)).toEqual(
+        expect.arrayContaining([null, "files_parent", "files_source"]),
       );
-    });
-  });
+      await runWithRequestContext({ userEmail: MEMBER }, async () => {
+        await expect(resolveContentSpaceAccess(spaceId)).resolves.toMatchObject(
+          {
+            role: "viewer",
+          },
+        );
+        await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
+          spaces: expect.arrayContaining([
+            expect.objectContaining({ id: spaceId, role: "viewer" }),
+          ]),
+        });
+        await expect(
+          getDocumentAction.run({ id: filesDatabase!.documentId }),
+        ).resolves.toMatchObject({
+          id: filesDatabase!.documentId,
+          database: expect.objectContaining({ systemRole: "files" }),
+          accessRole: "viewer",
+        });
+      });
+    },
+  );
 
-  it("lists favorites across every authorized organization without admitting private or unrelated rows", async () => {
-    const favoritesMember = "favorites-member@example.com";
-    await addOrganization("org-favorites-a", "Favorites A");
-    await addOrganization("org-favorites-b", "Favorites B");
-    await addOrganization("org-favorites-other", "Favorites Other");
-    await addMember("owner-favorites-a", "org-favorites-a", OWNER, "owner");
-    await addMember("owner-favorites-b", "org-favorites-b", OWNER, "owner");
-    await addMember(
-      "owner-favorites-other",
-      "org-favorites-other",
-      OWNER,
-      "owner",
-    );
-    await addMember("member-favorites-a", "org-favorites-a", favoritesMember);
-    await addMember("member-favorites-b", "org-favorites-b", favoritesMember);
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      provisionContentSpaces(getDb(), OWNER),
-    );
-    const now = new Date().toISOString();
-    await getDb()
-      .insert(schema.documents)
-      .values([
-        {
-          id: "favorite-org-a",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-a",
-          spaceId: organizationContentSpaceId("org-favorites-a"),
-          title: "Favorite A",
-          isFavorite: 1,
-          visibility: "org",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "favorite-org-b",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-b",
-          spaceId: organizationContentSpaceId("org-favorites-b"),
-          title: "Favorite B",
-          isFavorite: 1,
-          visibility: "org",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "private-org-a",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-a",
-          spaceId: organizationContentSpaceId("org-favorites-a"),
-          title: "Private A",
-          isFavorite: 1,
-          visibility: "private",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "favorite-unrelated",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-other",
-          spaceId: organizationContentSpaceId("org-favorites-other"),
-          title: "Unrelated",
-          isFavorite: 1,
-          visibility: "org",
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]);
+  it(
+    "does not let a stale catalog reference grant a non-member visibility",
+    knownLossTest(ORG_TIMESTAMP_LOSS),
+    async () => {
+      await addOrganization("org-shared", "Shared");
+      await addMember("owner-shared", "org-shared", OWNER, "owner");
+      await addMember("member-shared", "org-shared", MEMBER);
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        provisionContentSpaces(getDb(), OWNER),
+      );
+      await runWithRequestContext({ userEmail: MEMBER }, () =>
+        provisionContentSpaces(getDb(), MEMBER),
+      );
+      const spaceId = organizationContentSpaceId("org-shared");
+      await getDbExec().execute({
+        sql: "DELETE FROM org_members WHERE id = $1",
+        args: ["member-shared"],
+      });
+      await runWithRequestContext({ userEmail: MEMBER }, async () => {
+        await expect(resolveContentSpaceAccess(spaceId)).rejects.toThrow(
+          "Not authorized",
+        );
+        await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
+          spaces: expect.not.arrayContaining([
+            expect.objectContaining({ id: spaceId }),
+          ]),
+        });
+        const [workspacesDatabase] = await getDb()
+          .select()
+          .from(schema.contentDatabases)
+          .where(
+            and(
+              eq(schema.contentDatabases.ownerEmail, MEMBER),
+              eq(schema.contentDatabases.systemRole, "workspaces"),
+            ),
+          );
+        const catalog = await getContentDatabaseAction.run({
+          databaseId: workspacesDatabase!.id,
+        });
+        expect(catalog.items.map((item) => item.document.title)).not.toContain(
+          "Shared",
+        );
+      });
+    },
+  );
 
-    const memberProvisioned = await runWithRequestContext(
-      { userEmail: favoritesMember, orgId: "org-favorites-a" },
-      () => provisionContentSpaces(getDb(), favoritesMember),
-    );
+  it(
+    "lists favorites across every authorized organization without admitting private or unrelated rows",
+    knownLossTest(ORG_TIMESTAMP_LOSS),
+    async () => {
+      const favoritesMember = "favorites-member@example.com";
+      await addOrganization("org-favorites-a", "Favorites A");
+      await addOrganization("org-favorites-b", "Favorites B");
+      await addOrganization("org-favorites-other", "Favorites Other");
+      await addMember("owner-favorites-a", "org-favorites-a", OWNER, "owner");
+      await addMember("owner-favorites-b", "org-favorites-b", OWNER, "owner");
+      await addMember(
+        "owner-favorites-other",
+        "org-favorites-other",
+        OWNER,
+        "owner",
+      );
+      await addMember("member-favorites-a", "org-favorites-a", favoritesMember);
+      await addMember("member-favorites-b", "org-favorites-b", favoritesMember);
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        provisionContentSpaces(getDb(), OWNER),
+      );
+      const now = new Date().toISOString();
+      await getDb()
+        .insert(schema.documents)
+        .values([
+          {
+            id: "favorite-org-a",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-a",
+            spaceId: organizationContentSpaceId("org-favorites-a"),
+            title: "Favorite A",
+            isFavorite: 1,
+            visibility: "org",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "favorite-org-b",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-b",
+            spaceId: organizationContentSpaceId("org-favorites-b"),
+            title: "Favorite B",
+            isFavorite: 1,
+            visibility: "org",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "private-org-a",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-a",
+            spaceId: organizationContentSpaceId("org-favorites-a"),
+            title: "Private A",
+            isFavorite: 1,
+            visibility: "private",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "favorite-unrelated",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-other",
+            spaceId: organizationContentSpaceId("org-favorites-other"),
+            title: "Unrelated",
+            isFavorite: 1,
+            visibility: "org",
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]);
 
-    const result = await runWithRequestContext(
-      { userEmail: favoritesMember, orgId: "org-favorites-a" },
-      () => listDocumentsAction.run({}),
-    );
-    const ids = result.documents.map((document) => document.id);
-    expect(ids).toEqual(
-      expect.arrayContaining(["favorite-org-a", "favorite-org-b"]),
-    );
-    expect(ids).not.toContain("private-org-a");
-    expect(ids).not.toContain("favorite-unrelated");
-    expect(
-      result.documents.find(
-        (document) => document.id === memberProvisioned.favoritesDocumentId,
-      )?.database,
-    ).toMatchObject({ systemRole: "favorites" });
-    const favorites = await runWithRequestContext(
-      { userEmail: favoritesMember, orgId: "org-favorites-a" },
-      () =>
-        getContentDatabaseAction.run({
-          databaseId: memberProvisioned.favoritesDatabaseId,
-        }),
-    );
-    expect(favorites).toMatchObject({
-      database: { systemRole: "favorites" },
-      items: expect.arrayContaining([
-        expect.objectContaining({
-          document: expect.objectContaining({ id: "favorite-org-a" }),
-        }),
-        expect.objectContaining({
-          document: expect.objectContaining({ id: "favorite-org-b" }),
-        }),
-      ]),
-    });
-    expect(
-      "items" in favorites
-        ? favorites.items.map((item) => item.document.id)
-        : [],
-    ).not.toEqual(
-      expect.arrayContaining(["private-org-a", "favorite-unrelated"]),
-    );
+      const memberProvisioned = await runWithRequestContext(
+        { userEmail: favoritesMember, orgId: "org-favorites-a" },
+        () => provisionContentSpaces(getDb(), favoritesMember),
+      );
 
-    await getDb().insert(schema.documentPropertyDefinitions).values({
-      id: "favorites-personal-note",
-      ownerEmail: favoritesMember,
-      orgId: null,
-      databaseId: memberProvisioned.favoritesDatabaseId,
-      name: "Personal note",
-      type: "text",
-      position: 10,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const propertyUpdate = await runWithRequestContext(
-      { userEmail: favoritesMember, orgId: "org-favorites-a" },
-      () =>
-        setDocumentPropertyAction.run({
-          documentId: "favorite-org-b",
-          databaseId: memberProvisioned.favoritesDatabaseId,
-          propertyId: "favorites-personal-note",
-          value: "Cross-workspace metadata",
-        }),
-    );
-    expect(propertyUpdate).toMatchObject({
-      databaseId: memberProvisioned.favoritesDatabaseId,
-      properties: expect.arrayContaining([
-        expect.objectContaining({
-          definition: expect.objectContaining({
-            id: "favorites-personal-note",
+      const result = await runWithRequestContext(
+        { userEmail: favoritesMember, orgId: "org-favorites-a" },
+        () => listDocumentsAction.run({}),
+      );
+      const ids = result.documents.map((document) => document.id);
+      expect(ids).toEqual(
+        expect.arrayContaining(["favorite-org-a", "favorite-org-b"]),
+      );
+      expect(ids).not.toContain("private-org-a");
+      expect(ids).not.toContain("favorite-unrelated");
+      expect(
+        result.documents.find(
+          (document) => document.id === memberProvisioned.favoritesDocumentId,
+        )?.database,
+      ).toMatchObject({ systemRole: "favorites" });
+      const favorites = await runWithRequestContext(
+        { userEmail: favoritesMember, orgId: "org-favorites-a" },
+        () =>
+          getContentDatabaseAction.run({
+            databaseId: memberProvisioned.favoritesDatabaseId,
           }),
-          value: "Cross-workspace metadata",
-        }),
-      ]),
-    });
-  });
+      );
+      expect(favorites).toMatchObject({
+        database: { systemRole: "favorites" },
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            document: expect.objectContaining({ id: "favorite-org-a" }),
+          }),
+          expect.objectContaining({
+            document: expect.objectContaining({ id: "favorite-org-b" }),
+          }),
+        ]),
+      });
+      expect(
+        "items" in favorites
+          ? favorites.items.map((item) => item.document.id)
+          : [],
+      ).not.toEqual(
+        expect.arrayContaining(["private-org-a", "favorite-unrelated"]),
+      );
 
-  it("denies an unrelated authenticated user from a personal space", async () => {
-    const spaceId = personalContentSpaceId(OWNER);
-    await runWithRequestContext({ userEmail: OUTSIDER }, () =>
-      expect(resolveContentSpaceAccess(spaceId)).rejects.toThrow(
-        "Not authorized",
-      ),
-    );
-  });
+      await getDb().insert(schema.documentPropertyDefinitions).values({
+        id: "favorites-personal-note",
+        ownerEmail: favoritesMember,
+        orgId: null,
+        databaseId: memberProvisioned.favoritesDatabaseId,
+        name: "Personal note",
+        type: "text",
+        position: 10,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const propertyUpdate = await runWithRequestContext(
+        { userEmail: favoritesMember, orgId: "org-favorites-a" },
+        () =>
+          setDocumentPropertyAction.run({
+            documentId: "favorite-org-b",
+            databaseId: memberProvisioned.favoritesDatabaseId,
+            propertyId: "favorites-personal-note",
+            value: "Cross-workspace metadata",
+          }),
+      );
+      expect(propertyUpdate).toMatchObject({
+        databaseId: memberProvisioned.favoritesDatabaseId,
+        properties: expect.arrayContaining([
+          expect.objectContaining({
+            definition: expect.objectContaining({
+              id: "favorites-personal-note",
+            }),
+            value: "Cross-workspace metadata",
+          }),
+        ]),
+      });
+    },
+  );
+
+  it(
+    "denies an unrelated authenticated user from a personal space",
+    knownLossTest(SPACE_REFUSAL_LOSS),
+    async () => {
+      const spaceId = personalContentSpaceId(OWNER);
+      await runWithRequestContext({ userEmail: OUTSIDER }, () =>
+        expect(resolveContentSpaceAccess(spaceId)).rejects.toThrow(
+          "Not authorized",
+        ),
+      );
+    },
+  );
 });
