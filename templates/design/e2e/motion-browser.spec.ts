@@ -143,34 +143,34 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
         property: "translate",
         keyframes: [
           {
-            t: 500 / syntheticTimelineDurationMs,
+            t: 523 / syntheticTimelineDurationMs,
             value: "0px 0px",
             ease: "linear",
           },
           {
-            t: 1000 / syntheticTimelineDurationMs,
+            t: 1097 / syntheticTimelineDurationMs,
             value: "0px -20px",
-            ease: "ease-in",
+            ease: "cubic-bezier(0.12, 0.34, 0.78, 0.91)",
           },
           {
-            t: 1500 / syntheticTimelineDurationMs,
+            t: 1679 / syntheticTimelineDurationMs,
             value: "0px 20px",
             ease: "ease-out",
           },
           {
-            t: 2000 / syntheticTimelineDurationMs,
+            t: 2311 / syntheticTimelineDurationMs,
             value: "0px -20px",
-            ease: "ease-in",
+            ease: "cubic-bezier(0.21, 0.05, 0.56, 0.88)",
           },
           {
-            t: 2500 / syntheticTimelineDurationMs,
+            t: 2983 / syntheticTimelineDurationMs,
             value: "0px -20px",
-            ease: "ease-out",
+            ease: "ease-in-out",
           },
           {
-            t: 3000 / syntheticTimelineDurationMs,
+            t: 3527 / syntheticTimelineDurationMs,
             value: "0px 20px",
-            ease: "ease-out",
+            ease: "cubic-bezier(0.42, 0.18, 0.62, 0.77)",
           },
           {
             t: 1,
@@ -214,12 +214,12 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
       ],
     ),
   ).toEqual([
-    [500, "0px 0px", "linear"],
-    [1000, "0px -20px", "ease-in"],
-    [1500, "0px 20px", "ease-out"],
-    [2000, "0px -20px", "ease-in"],
-    [2500, "0px -20px", "ease-out"],
-    [3000, "0px 20px", "ease-out"],
+    [523, "0px 0px", "linear"],
+    [1097, "0px -20px", "cubic-bezier(0.12, 0.34, 0.78, 0.91)"],
+    [1679, "0px 20px", "ease-out"],
+    [2311, "0px -20px", "cubic-bezier(0.21, 0.05, 0.56, 0.88)"],
+    [2983, "0px -20px", "ease-in-out"],
+    [3527, "0px 20px", "cubic-bezier(0.42, 0.18, 0.62, 0.77)"],
     [4000, "0px -20px", "ease-in"],
   ]);
   const savedScale = savedTracks.find(
@@ -254,7 +254,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     "[data-motion-track-row]",
   );
   await expect(savedTimelineRows).toHaveCount(2);
-  for (const timeMs of [500, 1000, 1500, 2000, 2500, 3000, 4000]) {
+  for (const timeMs of [523, 1097, 1679, 2311, 2983, 3527, 4000]) {
     await expect(
       savedTimelineRows.first().getByLabel(`Keyframe at ${timeMs}ms`),
     ).toBeVisible();
