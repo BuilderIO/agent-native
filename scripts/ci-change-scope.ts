@@ -95,10 +95,23 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/interaction-report-interactions.spec.ts",
   "templates/design/e2e/interaction-oversized-nested.spec.ts",
   "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/css-style-helpers.ts",
   "templates/design/e2e/z-order-behavior.spec.ts",
   "templates/design/e2e/interaction-vector-endpoints.spec.ts",
   "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
+]);
+
+const DESIGN_CANVAS_E2E_SHARED_HELPER_SPECS = new Map([
+  [
+    "templates/design/e2e/css-style-helpers.ts",
+    [
+      "templates/design/e2e/css-style-helpers.spec.ts",
+      "templates/design/e2e/interaction-card-structure.spec.ts",
+      "templates/design/e2e/interaction-mobile-landing.spec.ts",
+      "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",
+    ],
+  ],
 ]);
 
 const DESIGN_CANVAS_CONFIG_FILES = new Set([
@@ -792,9 +805,15 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
-  const changedDesignSpecs = changedPaths
-    .filter(isDesignCanvasE2eSpecPath)
-    .sort();
+  const changedDesignSpecs = [
+    ...new Set(
+      changedPaths.flatMap(
+        (path) =>
+          DESIGN_CANVAS_E2E_SHARED_HELPER_SPECS.get(path) ??
+          (isDesignCanvasE2eSpecPath(path) ? [path] : []),
+      ),
+    ),
+  ].sort();
 
   return {
     changedPaths,

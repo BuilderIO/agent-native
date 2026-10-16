@@ -634,6 +634,7 @@ test("selects focused Design core regression for its runtime dependencies", () =
     "templates/design/e2e/interaction-report-interactions.spec.ts",
     "templates/design/e2e/interaction-oversized-nested.spec.ts",
     "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+    "templates/design/e2e/css-style-helpers.ts",
     "templates/design/e2e/interaction-selection.spec.ts",
     "templates/design/e2e/z-order-behavior.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
@@ -752,6 +753,22 @@ test("selects focused Design core regression for its runtime dependencies", () =
       .design_canvas_core_regression,
     false,
   );
+});
+
+test("routes CSS style helper changes to its importing Design E2E specs", () => {
+  const helperPath = "templates/design/e2e/css-style-helpers.ts";
+  const routedSpecs = [
+    "templates/design/e2e/css-style-helpers.spec.ts",
+    "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",
+    "templates/design/e2e/interaction-card-structure.spec.ts",
+    "templates/design/e2e/interaction-mobile-landing.spec.ts",
+  ];
+
+  const scope = classifyChangedPaths([helperPath]);
+  assert.equal(scope.checks.design_canvas_core_regression, true);
+  assert.equal(scope.checks.design_canvas_broad_workflows, true);
+  assert.deepEqual(scope.designCanvasE2eSpecs, routedSpecs);
+  assert.equal(scope.designCanvasE2eSpecCount, routedSpecs.length);
 });
 
 test("Design core and broad selectors cover the same on/off/full inputs", () => {

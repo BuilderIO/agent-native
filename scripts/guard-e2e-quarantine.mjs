@@ -32,8 +32,17 @@ function isSuppressed(item) {
 }
 
 function suppressionIdentity(item) {
-  if (item.modifier !== undefined) return `modifier:${item.modifier}`;
-  return `kind:${item.suppressionKind}`;
+  const identity =
+    item.modifier !== undefined
+      ? `modifier:${item.modifier}`
+      : `kind:${item.suppressionKind}`;
+  const fingerprint =
+    typeof item.suppressionFingerprint === "string"
+      ? item.suppressionFingerprint
+      : typeof item.suppressionReason === "string"
+        ? item.suppressionReason.replace(/\s+at line \d+$/, "")
+        : undefined;
+  return fingerprint === undefined ? identity : `${identity}:${fingerprint}`;
 }
 
 function stableJson(value) {

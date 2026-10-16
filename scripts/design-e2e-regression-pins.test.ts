@@ -878,6 +878,129 @@ test("runtime skip, fixme, and fail annotations reject a pinned test body", () =
   );
 });
 
+test("runtime suppressions in nested helpers stay attached to their registered test", () => {
+  for (const modifier of ["skip", "fixme"]) {
+    const source = [
+      `test("pinned behavior", (_fixtures, testInfo) => {`,
+      `  function nestedHelper() { testInfo.${modifier}(true, "nested helper"); }`,
+      "  nestedHelper();",
+      "});",
+    ].join("\n");
+
+    assert.equal(
+      findDesignE2ETestRegistrations(source)[0]?.suppressionKind,
+      "runtime",
+      `testInfo.${modifier} in a nested helper must remain associated with the enclosing test`,
+    );
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /must run without/,
+    );
+  }
+});
+
+test("simple test aliases resolve through chains for direct and runtime fixme calls", () => {
+  const directAlias = [
+    "const firstTest = test;",
+    "const secondTest = firstTest;",
+    'secondTest.fixme("directly quarantined", () => {});',
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestRegistrations(directAlias)[0]?.suppressionKind,
+    "direct",
+  );
+
+  const runtimeAlias = [
+    "const firstTest = test;",
+    "const secondTest = firstTest;",
+    'test("pinned behavior", (_fixtures, testInfo) => {',
+    '  secondTest.fixme(process.platform === "win32", "platform metadata");',
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestRegistrations(runtimeAlias)[0]?.suppressionKind,
+    "runtime",
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(runtimeAlias, "pinned behavior"),
+    /Unable to inspect conditional test\.fixme/,
+  );
+});
+
+test("suppression fingerprints ignore lines and callback bodies but retain conditions, metadata, and every call", () => {
+  const base = [
+    'test.fixme("pinned behavior", (_fixtures, testInfo) => {',
+    '  testInfo.skip(process.platform === "win32", "platform skip");',
+    '  testInfo.fixme(browserName === "webkit", "browser metadata");',
+    "  expect(true).toBe(true);",
+    "});",
+  ].join("\n");
+  const movedAndEditedBody = [
+    "const unrelated = 1;",
+    "",
+    'test.fixme("pinned behavior", (_fixtures, testInfo) => {',
+    '  testInfo.skip(process.platform === "win32", "platform skip");',
+    '  testInfo.fixme(browserName === "webkit", "browser metadata");',
+    '  expect("changed callback body").toBe("changed callback body");',
+    "});",
+  ].join("\n");
+  const changedCondition = movedAndEditedBody.replace(
+    'process.platform === "win32"',
+    'process.platform === "darwin"',
+  );
+  const changedMetadata = movedAndEditedBody.replace(
+    '"browser metadata"',
+    '"new browser metadata"',
+  );
+  const removeSecondCall = movedAndEditedBody.replace(
+    '  testInfo.fixme(browserName === "webkit", "browser metadata");\n',
+    "",
+  );
+  const fingerprint = (source: string) =>
+    findDesignE2ETestRegistrations(source)[0]?.suppressionFingerprint;
+
+  assert.equal(fingerprint(base), fingerprint(movedAndEditedBody));
+  assert.notEqual(fingerprint(base), fingerprint(changedCondition));
+  assert.notEqual(fingerprint(base), fingerprint(changedMetadata));
+  assert.notEqual(fingerprint(base), fingerprint(removeSecondCall));
+  assert.equal(JSON.parse(fingerprint(base) ?? "[]").length, 3);
+});
+
+test("suppression fingerprints retain file, suite, and runtime events", () => {
+  const source = [
+    'test.skip(process.env.DISABLED === "true", "file metadata");',
+    'test.describe.skip("suite", { tag: "@disabled" }, () => {',
+    '  test.skip(process.env.SUITE_DISABLED === "true", "suite metadata");',
+    '  test("pinned behavior", (_fixtures, testInfo) => {',
+    '    testInfo.skip(process.env.TEST_DISABLED === "true", "runtime metadata");',
+    "  });",
+    "});",
+  ].join("\n");
+  const fingerprint =
+    findDesignE2ETestRegistrations(source)[0]?.suppressionFingerprint;
+  const scopes = (JSON.parse(fingerprint ?? "[]") as Array<{ scope: string }>)
+    .map(({ scope }) => scope)
+    .sort();
+
+  assert.deepEqual(scopes, ["file", "runtime", "suite", "suite"]);
+});
+
+test("unresolved callback and uninvoked helper fingerprints use stable identities", () => {
+  const unresolved = (name: string, prefix = "") =>
+    findDesignE2ETestRegistrations(
+      `${prefix}import { ${name} } from "./shared-callback.ts";\ntest("pinned behavior", ${name});`,
+    )[0]?.suppressionFingerprint;
+  const uninvoked = (name: string, prefix = "") =>
+    findDesignE2ETestRegistrations(
+      `${prefix}function ${name}() { test("pinned behavior", () => {}); }`,
+    )[0]?.suppressionFingerprint;
+
+  assert.equal(unresolved("sharedBody"), unresolved("sharedBody", "\n\n"));
+  assert.notEqual(unresolved("sharedBody"), unresolved("differentBody"));
+  assert.equal(uninvoked("unusedHelper"), uninvoked("unusedHelper", "\n\n"));
+  assert.notEqual(uninvoked("unusedHelper"), uninvoked("anotherHelper"));
+});
+
 test("named test callbacks stay registered and retain runtime suppression", () => {
   const source = [
     "function sharedBody() {",
@@ -896,6 +1019,8 @@ test("named test callbacks stay registered and retain runtime suppression", () =
     line: 5,
     suppressionKind: "runtime",
     suppressionReason: "test.fixme suppresses this test at line 2",
+    suppressionFingerprint:
+      '[{"scope":"runtime","modifier":"fixme","callee":"test.fixme","arguments":["true","\\"shared callback is quarantined\\""]}]',
   });
   assert.deepEqual(registrations[0], {
     file: "",
@@ -941,6 +1066,8 @@ test("uninvoked function registrations fail closed without leaking runtime skips
     suppressionKind: "runtime",
     suppressionReason:
       "Unable to inspect test registration in an uninvoked function body",
+    suppressionFingerprint:
+      '[{"scope":"unknown","modifier":"uninspected-callback","callee":"unknown-execution-context","arguments":[],"callbackIdentity":"function:unusedHelper"}]',
   });
   assert.deepEqual(registrations[1], {
     file: "",

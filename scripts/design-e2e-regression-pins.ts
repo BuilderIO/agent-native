@@ -56,6 +56,7 @@ export type DesignE2ETestRegistration = {
     | "focus"
     | null;
   readonly suppressionReason?: string;
+  readonly suppressionFingerprint?: string;
 };
 
 export const DESIGN_E2E_REGRESSION_PINS = [
@@ -649,16 +650,177 @@ type MutableRegistration = {
   line: number;
   suppressionKind: DesignE2ETestRegistration["suppressionKind"];
   suppressionReason?: string;
-  suiteRuntimeScopes: string[][];
+  suppressionFingerprint?: string;
+  suppressionEvents: SuppressionFingerprintEvent[];
+  suiteRuntimeScopes: SuppressionFingerprintEvent[][];
+  suiteRuntimeReasons: string[][];
+};
+
+type SuppressionFingerprintEvent = {
+  scope: "direct" | "runtime" | "suite" | "file" | "focus" | "unknown";
+  modifier: string;
+  callee: string;
+  arguments: string[];
+  callbackIdentity?: string;
+};
+
+type SuiteSuppression = {
+  modifier: string;
+  event: SuppressionFingerprintEvent;
 };
 
 type RegistrationWalkContext = {
-  suiteSuppressions: string[];
+  suiteSuppressions: SuiteSuppression[];
   currentTest?: MutableRegistration;
   testInfoNames: Set<string>;
-  suiteRuntimeScopes: string[][];
+  suiteRuntimeScopes: SuppressionFingerprintEvent[][];
+  suiteRuntimeReasons: string[][];
   unknownExecutionContext: boolean;
+  unknownCallbackIdentities: string[];
 };
+
+function stableNodeText(
+  node: TypeScript.Node,
+  sourceFile: TypeScript.SourceFile,
+  printer: TypeScript.Printer,
+  ts: typeof TypeScript,
+): string {
+  return printer.printNode(ts.EmitHint.Unspecified, node, sourceFile).trim();
+}
+
+function suppressionFingerprint(
+  events: readonly SuppressionFingerprintEvent[],
+): string | undefined {
+  if (events.length === 0) return undefined;
+  const entries = events
+    .map((event) =>
+      JSON.stringify({
+        scope: event.scope,
+        modifier: event.modifier,
+        callee: event.callee,
+        arguments: event.arguments,
+        ...(event.callbackIdentity === undefined
+          ? {}
+          : { callbackIdentity: event.callbackIdentity }),
+      }),
+    )
+    .sort();
+  return `[${entries.join(",")}]`;
+}
+
+function suppressionFingerprintEvent(
+  call: TypeScript.CallExpression,
+  scope: SuppressionFingerprintEvent["scope"],
+  modifier: string,
+  sourceFile: TypeScript.SourceFile,
+  printer: TypeScript.Printer,
+  ts: typeof TypeScript,
+  callbackArgument?: TypeScript.Expression,
+  callbackIdentity?: string,
+): SuppressionFingerprintEvent {
+  return {
+    scope,
+    modifier,
+    callee: stableNodeText(call.expression, sourceFile, printer, ts),
+    arguments: call.arguments
+      .filter((argument) => argument !== callbackArgument)
+      .map((argument) => stableNodeText(argument, sourceFile, printer, ts)),
+    ...(callbackIdentity === undefined ? {} : { callbackIdentity }),
+  };
+}
+
+function unknownSuppressionEvent(
+  callbackIdentity: string,
+): SuppressionFingerprintEvent {
+  return {
+    scope: "unknown",
+    modifier: "uninspected-callback",
+    callee: "unknown-execution-context",
+    arguments: [],
+    callbackIdentity,
+  };
+}
+
+function functionIdentity(
+  node: TypeScript.Node,
+  sourceFile: TypeScript.SourceFile,
+  printer: TypeScript.Printer,
+  ts: typeof TypeScript,
+): string {
+  if (ts.isFunctionDeclaration(node) && node.name) {
+    return `function:${node.name.text}`;
+  }
+  if (
+    (ts.isMethodDeclaration(node) ||
+      ts.isGetAccessorDeclaration(node) ||
+      ts.isSetAccessorDeclaration(node)) &&
+    node.name
+  ) {
+    return `${ts.SyntaxKind[node.kind]}:${stableNodeText(node.name, sourceFile, printer, ts)}`;
+  }
+  if (ts.isFunctionExpression(node) && node.name) {
+    return `function:${node.name.text}`;
+  }
+  const parent = node.parent;
+  if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+    return `variable:${parent.name.text}`;
+  }
+  if (
+    (ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) &&
+    parent.name
+  ) {
+    return `property:${stableNodeText(parent.name, sourceFile, printer, ts)}`;
+  }
+  return `anonymous:${ts.SyntaxKind[node.kind]}`;
+}
+
+function callbackTokenIdentity(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  printer: TypeScript.Printer,
+  ts: typeof TypeScript,
+): string {
+  const candidate = unwrapExpression(expression, ts);
+  if (ts.isIdentifier(candidate)) return `identifier:${candidate.text}`;
+  if (
+    ts.isPropertyAccessExpression(candidate) ||
+    ts.isElementAccessExpression(candidate)
+  ) {
+    return `reference:${stableNodeText(candidate, sourceFile, printer, ts)}`;
+  }
+  if (ts.isCallExpression(candidate)) {
+    return `call:${stableNodeText(candidate.expression, sourceFile, printer, ts)}`;
+  }
+  if (ts.isConditionalExpression(candidate)) {
+    return [
+      "conditional",
+      stableNodeText(candidate.condition, sourceFile, printer, ts),
+      callbackTokenIdentity(candidate.whenTrue, sourceFile, printer, ts),
+      callbackTokenIdentity(candidate.whenFalse, sourceFile, printer, ts),
+    ].join(":");
+  }
+  if (isCallback(candidate, ts) || ts.isFunctionDeclaration(candidate)) {
+    return functionIdentity(candidate, sourceFile, printer, ts);
+  }
+  return `expression:${ts.SyntaxKind[candidate.kind]}`;
+}
+
+function unwrapExpression(
+  expression: TypeScript.Expression,
+  ts: typeof TypeScript,
+): TypeScript.Expression {
+  let candidate = expression;
+  while (
+    ts.isParenthesizedExpression(candidate) ||
+    ts.isAsExpression(candidate) ||
+    ts.isSatisfiesExpression(candidate) ||
+    ts.isTypeAssertionExpression(candidate) ||
+    ts.isNonNullExpression(candidate)
+  ) {
+    candidate = candidate.expression;
+  }
+  return candidate;
+}
 
 function propertyPath(
   expression: TypeScript.Expression,
@@ -684,7 +846,7 @@ function propertyPath(
 }
 
 function testImports(sourceFile: TypeScript.SourceFile, ts: typeof TypeScript) {
-  const bindings = new Set(["test"]);
+  const aliases = new Map<string, string[] | undefined>([["test", ["test"]]]);
   const namespaces = new Set<string>();
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
@@ -692,7 +854,7 @@ function testImports(sourceFile: TypeScript.SourceFile, ts: typeof TypeScript) {
     if (namedBindings && ts.isNamedImports(namedBindings)) {
       for (const element of namedBindings.elements) {
         if ((element.propertyName ?? element.name).text === "test") {
-          bindings.add(element.name.text);
+          aliases.set(element.name.text, ["test"]);
         }
       }
     } else if (namedBindings && ts.isNamespaceImport(namedBindings)) {
@@ -701,40 +863,79 @@ function testImports(sourceFile: TypeScript.SourceFile, ts: typeof TypeScript) {
       statement.importClause.name &&
       /(?:@playwright\/test|\/rails)$/.test(statement.moduleSpecifier.text)
     ) {
-      bindings.add(statement.importClause.name.text);
+      aliases.set(statement.importClause.name.text, ["test"]);
     }
   }
-  return { bindings, namespaces };
+
+  const declarations: TypeScript.VariableDeclaration[] = [];
+  const collectAliases = (node: TypeScript.Node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & ts.NodeFlags.Const) !== 0
+    ) {
+      declarations.push(node);
+    }
+    ts.forEachChild(node, collectAliases);
+  };
+  collectAliases(sourceFile);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const declaration of declarations) {
+      const name = (declaration.name as TypeScript.Identifier).text;
+      const candidate = normalizedTestPath(
+        declaration.initializer!,
+        aliases,
+        namespaces,
+        ts,
+      );
+      if (candidate.length === 0) continue;
+      const current = aliases.get(name);
+      if (!aliases.has(name)) {
+        aliases.set(name, candidate);
+        changed = true;
+      } else if (
+        current !== undefined &&
+        (current.length !== candidate.length ||
+          current.some((segment, index) => segment !== candidate[index]))
+      ) {
+        aliases.set(name, undefined);
+        changed = true;
+      }
+    }
+  }
+
+  return { aliases, namespaces };
 }
 
 function normalizedTestPath(
   expression: TypeScript.Expression,
-  bindings: Set<string>,
+  aliases: Map<string, string[] | undefined>,
   namespaces: Set<string>,
   ts: typeof TypeScript,
 ) {
-  const segments = propertyPath(expression, ts);
-  if (bindings.has(segments[0] ?? "")) return segments;
+  const segments = propertyPath(unwrapExpression(expression, ts), ts);
+  const aliasPath = aliases.get(segments[0] ?? "");
+  if (aliasPath) return [...aliasPath, ...segments.slice(1)];
   if (namespaces.has(segments[0] ?? "") && segments[1] === "test") {
-    return segments.slice(1);
+    return ["test", ...segments.slice(2)];
   }
   return [];
 }
 
 function testCallKind(
   call: TypeScript.CallExpression,
-  bindings: Set<string>,
+  aliases: Map<string, string[] | undefined>,
   namespaces: Set<string>,
   testInfoNames: Set<string>,
   ts: typeof TypeScript,
 ): { kind: "test" | "describe" | "runtime"; modifier?: string } | undefined {
   const segments = propertyPath(call.expression, ts);
-  const testPath = normalizedTestPath(
-    call.expression,
-    bindings,
-    namespaces,
-    ts,
-  );
+  const testPath = normalizedTestPath(call.expression, aliases, namespaces, ts);
   if (testPath.length === 1) return { kind: "test" };
   if (testPath.length === 2 && TEST_MODIFIERS.has(testPath[1]!)) {
     return { kind: "test", modifier: testPath[1] };
@@ -765,7 +966,7 @@ function testCallKind(
   ) {
     const receiverPath = normalizedTestPath(
       expression.expression.expression,
-      bindings,
+      aliases,
       namespaces,
       ts,
     );
@@ -942,14 +1143,15 @@ export function findDesignE2ETestRegistrations(
     );
   }
 
-  const { bindings, namespaces } = testImports(sourceFile, ts);
+  const { aliases, namespaces } = testImports(sourceFile, ts);
+  const printer = ts.createPrinter({ removeComments: true });
   const namedCallbacks = namedTestCallbacks(sourceFile, ts);
   const resolvedCallbacks = new Set<TypeScript.Node>();
   const collectResolvedCallbacks = (node: TypeScript.Node) => {
     if (ts.isCallExpression(node)) {
       const classification = testCallKind(
         node,
-        bindings,
+        aliases,
         namespaces,
         new Set(["testInfo"]),
         ts,
@@ -969,8 +1171,45 @@ export function findDesignE2ETestRegistrations(
   };
   collectResolvedCallbacks(sourceFile);
   const registrations: MutableRegistration[] = [];
-  const fileSuppressions: string[] = [];
+  const fileSuppressions: SuppressionFingerprintEvent[] = [];
+  const fileSuppressionReasons: string[] = [];
+  const focusEvents: SuppressionFingerprintEvent[] = [];
   let hasFocus = false;
+  const addRuntimeSuppressionEvent = (
+    call: TypeScript.CallExpression,
+    modifier: string,
+    context: RegistrationWalkContext,
+    reason?: string,
+  ) => {
+    const scope = context.currentTest
+      ? "runtime"
+      : context.suiteRuntimeScopes.length > 0
+        ? "suite"
+        : "file";
+    const callbackIdentity = context.unknownCallbackIdentities.join("/");
+    const event = suppressionFingerprintEvent(
+      call,
+      scope,
+      modifier,
+      sourceFile,
+      printer,
+      ts,
+      undefined,
+      callbackIdentity || undefined,
+    );
+    if (context.currentTest) {
+      context.currentTest.suppressionEvents.push(event);
+    } else if (!context.unknownExecutionContext) {
+      const suiteScope = context.suiteRuntimeScopes.at(-1);
+      if (suiteScope) {
+        suiteScope.push(event);
+        if (reason) context.suiteRuntimeReasons.at(-1)?.push(reason);
+      } else {
+        fileSuppressions.push(event);
+        if (reason) fileSuppressionReasons.push(reason);
+      }
+    }
+  };
   const visit = (
     node: TypeScript.Node,
     context: RegistrationWalkContext,
@@ -991,8 +1230,11 @@ export function findDesignE2ETestRegistrations(
         node,
         {
           ...context,
-          currentTest: undefined,
           unknownExecutionContext: true,
+          unknownCallbackIdentities: [
+            ...context.unknownCallbackIdentities,
+            functionIdentity(node, sourceFile, printer, ts),
+          ],
         },
         true,
       );
@@ -1002,7 +1244,7 @@ export function findDesignE2ETestRegistrations(
     if (ts.isCallExpression(node)) {
       const classification = testCallKind(
         node,
-        bindings,
+        aliases,
         namespaces,
         context.testInfoNames,
         ts,
@@ -1022,20 +1264,32 @@ export function findDesignE2ETestRegistrations(
         }
         const suiteSuppressions = [...context.suiteSuppressions];
         if (classification.modifier) {
-          if (classification.modifier !== "only") {
-            suiteSuppressions.push(classification.modifier);
-          }
+          const suiteEvent = suppressionFingerprintEvent(
+            node,
+            classification.modifier === "only" ? "focus" : "suite",
+            classification.modifier,
+            sourceFile,
+            printer,
+            ts,
+            callbackArgument,
+          );
+          suiteSuppressions.push({
+            modifier: classification.modifier,
+            event: suiteEvent,
+          });
           if (
             classification.modifier === "only" &&
             !context.unknownExecutionContext
           ) {
             hasFocus = true;
+            focusEvents.push(suiteEvent);
           }
         }
         const suiteContext: RegistrationWalkContext = {
           ...context,
           suiteSuppressions,
           suiteRuntimeScopes: [...context.suiteRuntimeScopes, []],
+          suiteRuntimeReasons: [...context.suiteRuntimeReasons, []],
         };
         for (const argument of node.arguments) {
           if (argument === callbackArgument) {
@@ -1068,8 +1322,8 @@ export function findDesignE2ETestRegistrations(
             ? modifierSuppression(node, sourceFile, classification.modifier, ts)
             : undefined;
           const suiteModifier = context.suiteSuppressions.find(
-            (modifier) => modifier !== "only",
-          );
+            ({ modifier }) => modifier !== "only",
+          )?.modifier;
           const suiteReason = suiteModifier
             ? `enclosing test.describe.${suiteModifier} can suppress this test`
             : undefined;
@@ -1084,6 +1338,17 @@ export function findDesignE2ETestRegistrations(
           const line =
             sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
               .line + 1;
+          const directEvent = classification.modifier
+            ? suppressionFingerprintEvent(
+                node,
+                "direct",
+                classification.modifier,
+                sourceFile,
+                printer,
+                ts,
+                callbackArgument,
+              )
+            : undefined;
           const item: MutableRegistration = {
             file,
             ...identity,
@@ -1104,13 +1369,42 @@ export function findDesignE2ETestRegistrations(
                     directReason ?? suiteReason ?? inspectionReason,
                 }
               : {}),
+            suppressionEvents: [
+              ...context.suiteSuppressions.map(({ event }) => event),
+              ...context.unknownCallbackIdentities.map(unknownSuppressionEvent),
+              ...(directEvent ? [directEvent] : []),
+              ...(!callback && callbackArgument
+                ? [
+                    unknownSuppressionEvent(
+                      callbackTokenIdentity(
+                        callbackArgument,
+                        sourceFile,
+                        printer,
+                        ts,
+                      ),
+                    ),
+                  ]
+                : []),
+            ],
             suiteRuntimeScopes: context.suiteRuntimeScopes,
+            suiteRuntimeReasons: context.suiteRuntimeReasons,
           };
           if (
             classification.modifier === "only" &&
             !context.unknownExecutionContext
           ) {
             hasFocus = true;
+            focusEvents.push(
+              suppressionFingerprintEvent(
+                node,
+                "focus",
+                "only",
+                sourceFile,
+                printer,
+                ts,
+                callbackArgument,
+              ),
+            );
           }
           registrations.push(item);
 
@@ -1144,16 +1438,18 @@ export function findDesignE2ETestRegistrations(
             classification.modifier,
             ts,
           );
+          addRuntimeSuppressionEvent(
+            node,
+            classification.modifier,
+            context,
+            reason,
+          );
           if (reason) {
             if (context.currentTest) {
               if (!context.currentTest.suppressionKind) {
                 context.currentTest.suppressionKind = "runtime";
                 context.currentTest.suppressionReason = reason;
               }
-            } else if (!context.unknownExecutionContext) {
-              const suiteScope = context.suiteRuntimeScopes.at(-1);
-              if (suiteScope) suiteScope.push(reason);
-              else fileSuppressions.push(reason);
             }
           }
         }
@@ -1164,16 +1460,18 @@ export function findDesignE2ETestRegistrations(
           classification.modifier!,
           ts,
         );
+        addRuntimeSuppressionEvent(
+          node,
+          classification.modifier!,
+          context,
+          reason,
+        );
         if (reason) {
           if (context.currentTest) {
             if (!context.currentTest.suppressionKind) {
               context.currentTest.suppressionKind = "runtime";
               context.currentTest.suppressionReason = reason;
             }
-          } else if (!context.unknownExecutionContext) {
-            const suiteScope = context.suiteRuntimeScopes.at(-1);
-            if (suiteScope) suiteScope.push(reason);
-            else fileSuppressions.push(reason);
           }
         }
       }
@@ -1184,18 +1482,28 @@ export function findDesignE2ETestRegistrations(
     suiteSuppressions: [],
     testInfoNames: new Set(["testInfo"]),
     suiteRuntimeScopes: [],
+    suiteRuntimeReasons: [],
     unknownExecutionContext: false,
+    unknownCallbackIdentities: [],
   });
 
   for (const item of registrations) {
-    const runtimeSuiteSuppression = item.suiteRuntimeScopes.flat().at(0);
+    item.suppressionEvents.push(
+      ...item.suiteRuntimeScopes.flat(),
+      ...fileSuppressions,
+      ...focusEvents,
+    );
+    item.suppressionFingerprint = suppressionFingerprint(
+      item.suppressionEvents,
+    );
+    const runtimeSuiteSuppression = item.suiteRuntimeReasons.flat().at(0);
     if (runtimeSuiteSuppression && !item.suppressionKind) {
       item.suppressionKind = "suite";
       item.suppressionReason = runtimeSuiteSuppression;
     }
-    if (fileSuppressions.length > 0 && !item.suppressionKind) {
+    if (fileSuppressionReasons.length > 0 && !item.suppressionKind) {
       item.suppressionKind = "file";
-      item.suppressionReason = fileSuppressions[0];
+      item.suppressionReason = fileSuppressionReasons[0];
     }
     if (hasFocus && !item.suppressionKind) {
       item.suppressionKind = "focus";
@@ -1213,6 +1521,9 @@ export function findDesignE2ETestRegistrations(
     ...(item.suppressionReason === undefined
       ? {}
       : { suppressionReason: item.suppressionReason }),
+    ...(item.suppressionFingerprint === undefined
+      ? {}
+      : { suppressionFingerprint: item.suppressionFingerprint }),
   }));
 }
 

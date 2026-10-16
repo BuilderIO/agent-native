@@ -280,6 +280,100 @@ test("AST comparison catches quarantines hidden by enclosing or runtime suppress
   );
 });
 
+function parseSingleSuppressedTest(source: string) {
+  const registrations = findDesignE2ETestRegistrations(source, baseFixme.file);
+  assert.equal(registrations.length, 1, source);
+  assert.equal(typeof registrations[0]?.suppressionFingerprint, "string");
+  return registrations[0]!;
+}
+
+test("conditional runtime skip changed to unconditional needs a new receipt", () => {
+  const base = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isMobile, "mobile unsupported"); });',
+  );
+  const head = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(true, "mobile unsupported"); });',
+  );
+
+  assert.equal(base.file, head.file);
+  assert.equal(base.title, head.title);
+  assert.equal(base.suppressionKind, "runtime");
+  assert.equal(head.suppressionKind, "runtime");
+  assert.match(
+    compareQuarantineSnapshots([base], [head], []).join("\n"),
+    /new test suppression needs an explicit exception/,
+  );
+});
+
+test("changed runtime skip condition needs a new receipt for the same identity", () => {
+  const base = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isMobile, "unsupported"); });',
+  );
+  const head = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isTablet, "unsupported"); });',
+  );
+
+  assert.notEqual(base.suppressionFingerprint, head.suppressionFingerprint);
+  assert.match(
+    compareQuarantineSnapshots([base], [head], []).join("\n"),
+    /new test suppression needs an explicit exception/,
+  );
+});
+
+test("a runtime suppression condition change accepts a valid review receipt", () => {
+  const base = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isMobile, "unsupported"); });',
+  );
+  const head = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isTablet, "unsupported"); });',
+  );
+
+  assert.deepEqual(
+    compareQuarantineSnapshots(
+      [base],
+      [head],
+      [
+        {
+          action: "add",
+          file: base.file,
+          title: base.title,
+          reason: "The tablet-specific browser failure still reproduces.",
+          evidence: "issue-901",
+          owner: "design-e2e",
+          expires: "2026-11-16",
+        },
+      ],
+      "2026-10-16",
+    ),
+    [],
+  );
+});
+
+test("moving a runtime suppression without changing it preserves its fingerprint", () => {
+  const base = parseSingleSuppressedTest(
+    'test("existing behavior", () => { test.skip(isMobile, "unsupported"); });',
+  );
+  const head = parseSingleSuppressedTest(
+    '\n\n\ntest("existing behavior", () => { test.skip(isMobile, "unsupported"); });',
+  );
+
+  assert.notEqual(base.line, head.line);
+  assert.equal(base.suppressionFingerprint, head.suppressionFingerprint);
+  assert.deepEqual(compareQuarantineSnapshots([base], [head], []), []);
+});
+
+test("editing a direct fixme callback does not change its suppression fingerprint", () => {
+  const base = parseSingleSuppressedTest(
+    'test.fixme("existing behavior", () => { expect(value).toBe(1); });',
+  );
+  const head = parseSingleSuppressedTest(
+    'test.fixme("existing behavior", () => { expect(value).toBe(2); });',
+  );
+
+  assert.equal(base.suppressionFingerprint, head.suppressionFingerprint);
+  assert.deepEqual(compareQuarantineSnapshots([base], [head], []), []);
+});
+
 test("generated callback quarantines are recorded and require an exception", () => {
   const generated = findDesignE2ETestRegistrations(
     '["one"].forEach((name) => { test.fixme(name, () => {}); });',
@@ -295,6 +389,8 @@ test("generated callback quarantines are recorded and require an exception", () 
       modifier: "fixme",
       suppressionKind: "direct",
       suppressionReason: "Unable to inspect conditional test.fixme at line 1",
+      suppressionFingerprint:
+        '[{"scope":"direct","modifier":"fixme","callee":"test.fixme","arguments":["name"]},{"scope":"unknown","modifier":"uninspected-callback","callee":"unknown-execution-context","arguments":[],"callbackIdentity":"anonymous:ArrowFunction"}]',
     },
   ]);
   assert.match(
