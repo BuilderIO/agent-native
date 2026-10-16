@@ -440,7 +440,7 @@ function safeStorageRemove(key: string): void {
   try {
     window.localStorage.removeItem(key);
   } catch {
-    // private browsing / storage disabled — best-effort
+    // coercion-ok: storage that can't be read holds nothing to remove.
   }
 }
 
@@ -889,7 +889,8 @@ function clearStoredAttribution(): void {
     try {
       document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
     } catch {
-      // document.cookie can throw in sandboxed iframes — best-effort.
+      // coercion-ok: a sandboxed iframe can't read or write cookies, so
+      // there is none here to clear.
     }
   }
 }
