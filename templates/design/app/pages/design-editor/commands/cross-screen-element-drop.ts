@@ -1557,23 +1557,6 @@ export function runCrossScreenElementDrop(
     );
   };
 
-  const restoreRetryablePublication = (
-    publication: typeof targetPublication,
-    fileId: string,
-    content: string,
-  ): boolean => {
-    if (!isCurrentPublication(fileId, publication)) return true;
-    return (
-      applyFileContentUpdate(fileId, content, {
-        recordHistory: false,
-        refreshPreview: false,
-        forcePreviewFullDocument: true,
-        persist: false,
-        historyBeforeContent: publication.content,
-      }).status === "accepted"
-    );
-  };
-
   const targetSave = targetPublication.saveCompletion;
   const sourceSave = sourcePublication.saveCompletion;
   if (!targetSave && !sourceSave) {
@@ -1586,15 +1569,13 @@ export function runCrossScreenElementDrop(
     targetSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
     sourceSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
   ]).then(async ([targetResult, sourceResult]) => {
-    const targetSaved =
-      targetResult.status === "fulfilled" && targetResult.value === "persisted";
-    const sourceSaved =
-      sourceResult.status === "fulfilled" && sourceResult.value === "persisted";
-    const targetRetryable =
-      targetResult.status === "fulfilled" && targetResult.value === "retryable";
-    const sourceRetryable =
-      sourceResult.status === "fulfilled" && sourceResult.value === "retryable";
-    const retryableSave = targetRetryable || sourceRetryable;
+    // A retryable save is journaled for replay and may already be on the
+    // server; rolling back its partner would turn the move into a delete.
+    const landed = (result: PromiseSettledResult<FileContentSaveCompletion>) =>
+      result.status === "fulfilled" &&
+      (result.value === "persisted" || result.value === "retryable");
+    const targetLanded = landed(targetResult);
+    const sourceLanded = landed(sourceResult);
     const saveConflict =
       (targetResult.status === "fulfilled" &&
         targetResult.value === "conflict") ||
@@ -1602,60 +1583,13 @@ export function runCrossScreenElementDrop(
         sourceResult.value === "conflict");
     const saveFailed =
       targetResult.status === "rejected" || sourceResult.status === "rejected";
-    if (targetSaved && sourceSaved) {
+    if (targetLanded && sourceLanded) {
       finalizePublication();
       releasePendingHistory();
       return;
     }
-    if (retryableSave) {
-      const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
-      const localRestores: boolean[] = [];
-      if (targetSaved) {
-        rollbackResults.push(
-          rollbackAfterSaveConflict(
-            targetPublication,
-            targetScreenId,
-            rawDestContent,
-          ),
-        );
-      } else if (targetRetryable) {
-        localRestores.push(
-          restoreRetryablePublication(
-            targetPublication,
-            targetScreenId,
-            rawDestContent,
-          ),
-        );
-      }
-      if (sourceSaved) {
-        rollbackResults.push(
-          rollbackAfterSaveConflict(
-            sourcePublication,
-            sourceScreenId,
-            sourceContent,
-          ),
-        );
-      } else if (sourceRetryable) {
-        localRestores.push(
-          restoreRetryablePublication(
-            sourcePublication,
-            sourceScreenId,
-            sourceContent,
-          ),
-        );
-      }
-      const rollbackFailed = (await Promise.all(rollbackResults)).some(
-        (status) => status !== "persisted",
-      );
-      if (rollbackFailed || localRestores.some((restored) => !restored)) {
-        toast.error(t("designEditor.toasts.saveConflict"));
-      }
-      clearPendingHistory?.();
-      releasePendingHistory();
-      return;
-    }
     const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
-    if (targetSaved && !sourceSaved) {
+    if (targetLanded) {
       rollbackResults.push(
         rollbackAfterSaveConflict(
           targetPublication,
@@ -1664,7 +1598,7 @@ export function runCrossScreenElementDrop(
         ),
       );
     }
-    if (sourceSaved && !targetSaved) {
+    if (sourceLanded) {
       rollbackResults.push(
         rollbackAfterSaveConflict(
           sourcePublication,

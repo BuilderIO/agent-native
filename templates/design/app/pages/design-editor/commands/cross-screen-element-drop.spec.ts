@@ -69,7 +69,6 @@ function runStoredCrossScreenDrop(args: {
   sourceContent: string;
   destinationContent: string;
   boardFileId?: string;
-  refusePersistFalseFor?: string[];
   drop: Parameters<typeof runCrossScreenElementDrop>[1];
   publish?: Parameters<
     typeof runCrossScreenElementDrop
@@ -126,12 +125,6 @@ function runStoredCrossScreenDrop(args: {
     >[2],
   ) => {
     if (options?.persist === false) cancelledFileIds.push(fileId);
-    if (
-      options?.persist === false &&
-      args.refusePersistFalseFor?.includes(fileId)
-    ) {
-      return { status: "refused" as const };
-    }
     const result =
       options?.persist === false
         ? { ...acceptFixture(fileId, content), saveCompletion: undefined }
@@ -1470,7 +1463,7 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     },
   );
 
-  it("rolls back both optimistic files and history queues for a retryable save", async () => {
+  it("keeps the move when the source save is queued for retry", async () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
     let resolveTarget!: (saved: FileContentSaveCompletion) => void;
@@ -1515,67 +1508,19 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     resolveSource("retryable");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(result.historyEntries).toEqual([]);
-    expect(result.selectionEvents).toEqual([]);
-    expect(publicationCount).toBe(3);
-    expect(result.clearPendingHistoryCalls()).toBe(1);
-    expect(result.cancelledFileIds).toEqual(["source"]);
-    expect(result.contentByFile.get("source")).toBe(
-      acceptFixture("source", sourceContent).content,
-    );
-    expect(result.contentByFile.get("target")).toBe(
-      acceptFixture("target", destinationContent).content,
-    );
-  });
-
-  it("does not locally restore a conflicting side in a mixed retryable result", async () => {
-    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
-    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
-    let resolveTarget!: (saved: FileContentSaveCompletion) => void;
-    let resolveSource!: (saved: FileContentSaveCompletion) => void;
-    const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
-      resolveTarget = resolve;
-    });
-    const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
-      resolveSource = resolve;
-    });
-    let publicationCount = 0;
-    const result = runStoredCrossScreenDrop({
-      sourceContent,
-      destinationContent,
-      publish: (fileId, content) => {
-        const publication = acceptFixture(fileId, content);
-        publicationCount += 1;
-        return {
-          ...publication,
-          saveCompletion: publicationCount === 1 ? targetSave : sourceSave,
-        };
-      },
-      drop: {
-        sourceSelector: '[data-agent-native-node-id="moving"]',
-        sourceNodeId: "moving",
-        sourceProvenance: { uniqueNodeId: "moving" },
-        sourceScreenId: "source",
-        targetScreenId: "target",
-        targetAnchorNodeId: "target-root",
-        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
-        targetAnchorProvenance: { uniqueNodeId: "target-root" },
-        targetAnchorPlacement: "inside",
-      },
-    });
-
-    resolveTarget("conflict");
-    resolveSource("retryable");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
     expect(publicationCount).toBe(2);
-    expect(result.cancelledFileIds).toEqual(["source"]);
-    expect(result.historyEntries).toEqual([]);
-    expect(result.selectionEvents).toEqual([]);
-    expect(result.contentByFile.get("target")).toBe(destinationContent);
+    expect(result.cancelledFileIds).toEqual([]);
+    expect(result.historyEntries).toHaveLength(1);
+    expect(result.clearPendingHistoryCalls()).toBe(0);
+    expect(result.contentByFile.get("target")).toContain(
+      'data-agent-native-node-id="moving"',
+    );
+    expect(result.contentByFile.get("source")).not.toContain(
+      'data-agent-native-node-id="moving"',
+    );
   });
 
-  it("still restores the source when the target retryable rollback refuses", async () => {
+  it("keeps the move when both saves are queued for retry", async () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
     let resolveTarget!: (saved: FileContentSaveCompletion) => void;
@@ -1590,7 +1535,6 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     const result = runStoredCrossScreenDrop({
       sourceContent,
       destinationContent,
-      refusePersistFalseFor: ["target"],
       publish: (fileId, content) => {
         const publication = acceptFixture(fileId, content);
         publicationCount += 1;
@@ -1622,10 +1566,62 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(publicationCount).toBe(2);
-    expect(result.cancelledFileIds).toEqual(["target", "source"]);
+    expect(result.cancelledFileIds).toEqual([]);
+    expect(result.historyEntries).toHaveLength(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("restores a retryable source with a saved rollback when the target save conflicts", async () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    let resolveTarget!: (saved: FileContentSaveCompletion) => void;
+    let resolveSource!: (saved: FileContentSaveCompletion) => void;
+    const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveTarget = resolve;
+    });
+    const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveSource = resolve;
+    });
+    let publicationCount = 0;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: (fileId, content) => {
+        const publication = acceptFixture(fileId, content);
+        publicationCount += 1;
+        return {
+          ...publication,
+          saveCompletion:
+            publicationCount === 1
+              ? targetSave
+              : publicationCount === 2
+                ? sourceSave
+                : Promise.resolve("persisted" as const),
+        };
+      },
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    resolveTarget("conflict");
+    resolveSource("retryable");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(publicationCount).toBe(3);
+    expect(result.cancelledFileIds).toEqual([]);
     expect(result.contentByFile.get("source")).toBe(
       acceptFixture("source", sourceContent).content,
     );
+    expect(result.contentByFile.get("target")).toBe(destinationContent);
     expect(result.historyEntries).toEqual([]);
     expect(result.selectionEvents).toEqual([]);
     expect(result.clearPendingHistoryCalls()).toBe(1);
