@@ -928,6 +928,17 @@ describe("stored-form census against a local database", () => {
     await db.execute(
       `INSERT INTO agent_review_suggestion_operations (id, suggestion_id, ordinal, operation_kind, target_id, before_json, after_json, schema_version) SELECT 'suggestion-many-' || i, 'suggestion-many', i, 'replace_text', 'body', '{"markdown":"a"}', '{"markdown":"b"}', 1 FROM generate_series(0, 2) AS i`,
     );
+    // Would apply now, but Content refuses another adapter version.
+    await db.execute(
+      "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, actor_kind, base_revision, summary, created_at, updated_at) VALUES ('suggestion-v2', 'document', 'page-repeat', 'content.document-markdown', 2, 't2', 'agent', 'r0', 'Edit', 'now', 'now')",
+    );
+    await db.execute({
+      sql: "INSERT INTO agent_review_suggestion_operations (id, suggestion_id, ordinal, operation_kind, target_id, before_json, after_json, schema_version) VALUES ('suggestion-v2-operation', 'suggestion-v2', 0, 'replace_text', 'body', ?, ?, 1)",
+      args: [
+        JSON.stringify({ markdown: body }),
+        JSON.stringify({ markdown: "note" }),
+      ],
+    });
     for (const [id, quote] of [
       ["comment-repeat", "note"],
       ["comment-code", "a``b"],
@@ -958,7 +969,11 @@ describe("stored-form census against a local database", () => {
       items: 1,
       pageIds: ["page-repeat"],
     });
-    expect(suggestions.notAcceptable.pageIds).toContain("page-repeat");
+    // Two on page-agent, plus the three-operation and other-version ones.
+    expect(suggestions.notAcceptable).toMatchObject({
+      items: 4,
+      pageIds: ["page-agent", "page-repeat"],
+    });
     const comments = report.agentFormPages.commentAnchors;
     expect(comments.ambiguous).toMatchObject({
       items: 1,

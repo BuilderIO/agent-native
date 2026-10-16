@@ -31,7 +31,8 @@ const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
 const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;
 // What one query may return, which bounds the census's memory however large
 // the rows it meets: a batch holds as many rows as fit at their byte cap, and
-// a row over its cap is counted without being loaded.
+// a row over its cap is counted without being loaded. A text column the
+// census only tests for presence is read as a flag, never as its value.
 const QUERY_BYTES = 32 * 1024 * 1024;
 const PAGE_BATCH = QUERY_BYTES / MAX_BODY_BYTES;
 const LIVE_COPY_BATCH = QUERY_BYTES / MAX_LIVE_COPY_BASE64_BYTES;
@@ -39,6 +40,9 @@ const COMMENT_BATCH = QUERY_BYTES / MAX_BODY_BYTES;
 const SUGGESTION_BATCH = QUERY_BYTES / MAX_SUGGESTION_PAYLOAD_BYTES;
 const KEEPALIVE_AFTER_MS = 10_000;
 const SUGGESTION_ADAPTER = "content.document-markdown";
+// Content's adapter in server/lib/suggested-edits.ts. A decision refuses a
+// suggestion made under any other version, so it can never apply.
+const SUGGESTION_ADAPTER_VERSION = 1;
 // The checks validateOperations in server/lib/suggested-edits.ts makes before
 // accepting. A suggestion that fails them can never apply, so it has no
 // anchor to keep or lose.
@@ -60,11 +64,11 @@ export const CENSUS_STATEMENTS = {
     "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY(?)",
   keepalive: "SELECT 1 AS alive",
   documents:
-    "SELECT id, CASE WHEN octet_length(content) <= ? THEN content END AS content, octet_length(content) AS content_bytes, body_revision, collab_body_revision, trashed_at, source_mode, source_kind, source_path FROM documents WHERE id >= ? ORDER BY id LIMIT ?",
+    "SELECT id, CASE WHEN octet_length(content) <= ? THEN content END AS content, octet_length(content) AS content_bytes, body_revision, collab_body_revision, trashed_at IS NOT NULL AS trashed, (source_mode IS NOT NULL OR source_kind IS NOT NULL OR source_path IS NOT NULL) AS source_owned FROM documents WHERE id >= ? ORDER BY id LIMIT ?",
   liveCopies:
     "SELECT doc_id, CASE WHEN octet_length(yjs_state) <= ? THEN yjs_state END AS yjs_state FROM _collab_docs WHERE doc_id = ANY(?)",
   suggestions:
-    "SELECT id, resource_id FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id, id) >= (?, ?) ORDER BY resource_id, id LIMIT ?",
+    "SELECT id, resource_id, adapter_version FROM agent_review_suggestions WHERE resource_type = 'document' AND adapter_kind = ? AND status = 'pending' AND resource_id = ANY(?) AND (resource_id, id) >= (?, ?) ORDER BY resource_id, id LIMIT ?",
   suggestionOperations:
     "SELECT o.suggestion_id, o.operation_kind, o.target_id, o.schema_version, p.payload_bytes, CASE WHEN p.payload_bytes <= ? THEN o.before_json END AS before_json, CASE WHEN p.payload_bytes <= ? THEN o.after_json END AS after_json, CASE WHEN p.payload_bytes <= ? THEN o.anchor_json END AS anchor_json FROM agent_review_suggestion_operations o CROSS JOIN LATERAL (SELECT COALESCE(octet_length(o.before_json), 0) + COALESCE(octet_length(o.after_json), 0) + COALESCE(octet_length(o.anchor_json), 0) AS payload_bytes) p WHERE o.suggestion_id = ANY(?) AND NOT EXISTS (SELECT 1 FROM agent_review_suggestion_operations x WHERE x.suggestion_id = o.suggestion_id AND x.id <> o.id) ORDER BY o.suggestion_id",
   comments:
@@ -380,6 +384,12 @@ function suggestionOutcome(
   }
 }
 
+function flag(value: unknown): boolean {
+  if (typeof value !== "boolean")
+    throw new Error(`A flag column was read as ${typeof value}, not a boolean`);
+  return value;
+}
+
 function revisionState(row: Record<string, unknown>) {
   if (row.collab_body_revision == null) return "none";
   const collab = Number(row.collab_body_revision);
@@ -482,11 +492,8 @@ export async function runStoredFormCensusScan(
     for (const row of rows) {
       const page: Page = {
         id: String(row.id),
-        trashed: row.trashed_at != null,
-        sourceOwned:
-          row.source_mode != null ||
-          row.source_kind != null ||
-          row.source_path != null,
+        trashed: flag(row.trashed),
+        sourceOwned: flag(row.source_owned),
       };
       batchPages.set(page.id, page);
       scanned.documents += 1;
@@ -604,7 +611,11 @@ export async function runStoredFormCensusScan(
         for (const row of suggestions) {
           const page = pages.get(String(row.resource_id))!;
           agentForm.suggestions
-            .get(suggestionOutcome(operations.get(String(row.id))!, page))
+            .get(
+              Number(row.adapter_version) === SUGGESTION_ADAPTER_VERSION
+                ? suggestionOutcome(operations.get(String(row.id))!, page)
+                : "notAcceptable",
+            )
             .add(page);
           await keepAlive();
         }
