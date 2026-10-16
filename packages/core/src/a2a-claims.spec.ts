@@ -61,6 +61,27 @@ describe("verifyA2ATokenWithClaims", () => {
     });
   });
 
+  it("uses the receiver-verified organization ID when the token omits its local ID", async () => {
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          iss: "https://analytics.example.com",
+          org_domain: "builder.io",
+          jti: "call-1",
+          scope: "flags:read",
+        }),
+      ),
+    ).toEqual({
+      email: "operator@example.com",
+      orgId: "org-1",
+      orgDomain: "builder.io",
+      jti: "call-1",
+      issuer: "https://analytics.example.com",
+      scope: ["flags:read"],
+    });
+  });
+
   it("rejects privileged delegation without a verified organization domain", async () => {
     verifyA2ATokenMock.mockResolvedValue({
       email: "operator@example.com",
@@ -71,6 +92,24 @@ describe("verifyA2ATokenWithClaims", () => {
         await token({
           aud: "https://content.example.com",
           org_id: "org-1",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects delegation when the receiver cannot resolve a local organization ID", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "operator@example.com",
+      orgDomain: "builder.io",
+      orgId: "",
+    });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_domain: "builder.io",
           jti: "call-1",
           scope: "flags:write",
         }),
@@ -134,6 +173,33 @@ describe("verifyA2ATokenWithClaims", () => {
           org_id: "org-1",
           jti: "call-1",
           scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a malformed explicit organization ID", async () => {
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: null,
+          org_domain: "builder.io",
+          jti: "call-1",
+          scope: "flags:read",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects an organization domain different from the resolved target", async () => {
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_domain: "other.example",
+          jti: "call-1",
+          scope: "flags:read",
         }),
       ),
     ).toBeNull();

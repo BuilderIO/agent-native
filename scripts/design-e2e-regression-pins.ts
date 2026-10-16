@@ -505,6 +505,18 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "canvas-chords.spec.ts",
     title: "Keyboard repeat paste preserves mixed positioned and flow roots",
   },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard repeat paste moves relative roots 16px under an RTL containing block",
+  },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves relative roots without an anchor across screens",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {

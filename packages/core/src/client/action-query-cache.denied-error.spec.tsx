@@ -147,7 +147,7 @@ function singleActionResponse(
     });
   }
   return new Response(
-    JSON.stringify({ designs: [{ title: "saved for Bob" }] }),
+    JSON.stringify({ designs: [{ title: "fresh for Bob" }] }),
     {
       status: 200,
       headers: {
@@ -255,6 +255,7 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
   const { records, storage } = memoryStorage();
   setActionQueryCacheStorage(storage);
   const nextBobFetch = deferred<Response>();
+  const nextBobHeldFetch = deferred<Response>();
   let privateRequestCount = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const action =
@@ -266,6 +267,7 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
         return singleActionResponse(action, true, "Alice private data denied");
       return nextBobFetch.promise;
     }
+    if (action === "list-designs") return nextBobHeldFetch.promise;
     return singleActionResponse(action, false, "");
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -308,6 +310,9 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
         "Action get-private-data failed: Alice private data denied",
     ),
   ).toBe(false);
+  await expect
+    .poll(() => client.getQueryState(HELD_KEY)?.fetchStatus)
+    .toBe("fetching");
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
     "pending",
   );
@@ -336,6 +341,12 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
   expect(records.has(SCOPE_B)).toBe(false);
+  await act(async () =>
+    nextBobHeldFetch.resolve(singleActionResponse("list-designs", false, "")),
+  );
+  await expect
+    .poll(() => container?.querySelector('[data-testid="held"]')?.textContent)
+    .toBe("fresh for Bob");
 });
 
 it("keeps same-scope denial evidence fail-closed", async () => {
@@ -428,6 +439,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   const { records, storage } = memoryStorage();
   setActionQueryCacheStorage(storage);
   const bobFetch = deferred<Response>();
+  const bobHeldFetch = deferred<Response>();
   let privateRequestCount = 0;
   const batchedActions: string[][] = [];
   const fetchMock = vi.fn(
@@ -452,6 +464,8 @@ it("characterizes Gate scope changes separately from direct binding", async () =
                       "Alice private data denied",
                     )
                   : await bobFetch.promise;
+            } else if (requestedAction === "list-designs") {
+              response = await bobHeldFetch.promise;
             } else {
               response = singleActionResponse(requestedAction, false, "");
             }
@@ -479,6 +493,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
           );
         return bobFetch.promise;
       }
+      if (action === "list-designs") return bobHeldFetch.promise;
       return singleActionResponse(action, false, "");
     },
   );
@@ -514,15 +529,22 @@ it("characterizes Gate scope changes separately from direct binding", async () =
         "Action get-private-data failed: Alice private data denied",
     ),
   ).toBe(false);
+  await expect
+    .poll(() => client.getQueryState(HELD_KEY)?.fetchStatus)
+    .toBe("fetching");
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
     "pending",
   );
-  await act(async () =>
-    bobFetch.resolve(singleActionResponse("get-private-data", false, "")),
-  );
+  await act(async () => {
+    bobFetch.resolve(singleActionResponse("get-private-data", false, ""));
+    bobHeldFetch.resolve(singleActionResponse("list-designs", false, ""));
+  });
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
+  await expect
+    .poll(() => container?.querySelector('[data-testid="held"]')?.textContent)
+    .toBe("fresh for Bob");
   // The denial cleared the query's data, so Bob's read is a first fetch and
   // goes alone instead of joining a batch.
   expect(batchedActions.flat()).not.toContain("get-private-data");

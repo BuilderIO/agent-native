@@ -43,8 +43,12 @@ const {
   __resetSuggestionTablesForTests,
 } = await import("./store.js");
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetSuggestionTablesForTests();
   await ensureSuggestionTables();
 });
