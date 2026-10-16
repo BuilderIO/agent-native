@@ -10876,10 +10876,8 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-        {layersPanel
-          ? layersPanelSlot
-            ? createPortal(layersPanel, layersPanelSlot)
-            : layersPanel
+        {layersPanel && layersPanelSlot
+          ? createPortal(layersPanel, layersPanelSlot)
           : null}
       </div>
 

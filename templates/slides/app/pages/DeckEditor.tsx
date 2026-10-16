@@ -1038,6 +1038,7 @@ export default function DeckEditor() {
         template_name: "slides",
         panel: "layers",
       });
+      setSidebarOpen(true);
     }
     setAnimationsOpen(false);
     setAnimationTargets(NO_ANIMATION_TARGETS);
