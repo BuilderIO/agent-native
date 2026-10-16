@@ -172,6 +172,17 @@ function selectSiblings({
     );
 }
 
+function siblingsInOrder(
+  siblings: Array<{ id: string; position: number; title: string }>,
+) {
+  return [...siblings].sort(
+    (a, b) =>
+      a.position - b.position ||
+      a.title.localeCompare(b.title) ||
+      a.id.localeCompare(b.id),
+  );
+}
+
 async function resolveSiblingPositionsAfterMove({
   db,
   ownerEmail,
@@ -193,14 +204,9 @@ async function resolveSiblingPositionsAfterMove({
     parentId,
     rootSection,
   });
-  const siblingsWithoutActive = siblings
-    .filter((document) => document.id !== id)
-    .sort(
-      (a, b) =>
-        a.position - b.position ||
-        a.title.localeCompare(b.title) ||
-        a.id.localeCompare(b.id),
-    );
+  const siblingsWithoutActive = siblingsInOrder(
+    siblings.filter((document) => document.id !== id),
+  );
   const nextIndex = Math.max(
     0,
     Math.min(position, siblingsWithoutActive.length),
@@ -269,7 +275,10 @@ export default defineAction({
       throw new Error("--parentId, --position, or --spaceId is required");
     }
     if (args.parentId === id) {
-      throw new Error("A document cannot be moved under itself");
+      throw new ActionContractError("A document cannot be moved under itself", {
+        errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT",
+        statusCode: 400,
+      });
     }
 
     const access = await assertDocumentMutationAccess(id, "editor", "id");
@@ -300,13 +309,22 @@ export default defineAction({
           "parentId",
         );
         if (parentAccess.resource.ownerEmail !== ownerEmail) {
-          throw new Error("Parent document must belong to the same owner");
+          throw new ActionContractError(
+            "Parent document must belong to the same owner",
+            { errorCode: "PARENT_OWNER_MISMATCH", statusCode: 409 },
+          );
         }
         if (parentAccess.resource.spaceId !== existing.spaceId) {
-          throw new Error("Parent document must be in the same Content space");
+          throw new ActionContractError(
+            "Parent document must be in the same Content space",
+            { errorCode: "PARENT_SPACE_MISMATCH", statusCode: 409 },
+          );
         }
         if (!sameRootSection(parentAccess.resource, existing)) {
-          throw new Error("Parent document must be in the same section");
+          throw new ActionContractError(
+            "Parent document must be in the same section",
+            { errorCode: "PARENT_SECTION_MISMATCH", statusCode: 409 },
+          );
         }
         await assertParentIsNotDescendant({
           db,
@@ -336,25 +354,27 @@ export default defineAction({
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
         let blockDatabaseIdToDetach: string | null = null;
-        // The renumbering was read before these locks. A sibling that left or
-        // joined the parent since would get a position from the old order.
+        // The renumbering was read before these locks. A sibling that left,
+        // joined or was reordered since would get a position from the old
+        // order.
         const assertSiblingsUnchanged = async () => {
           if (!normalizedSiblingPositions) return;
-          const expected = new Set(
-            normalizedSiblingPositions.map((document) => document.id),
-          );
-          expected.delete(id);
-          const current = (
+          const expected = normalizedSiblingPositions
+            .map((document) => document.id)
+            .filter((siblingId) => siblingId !== id);
+          const current = siblingsInOrder(
             await selectSiblings({
               db: tx,
               ownerEmail,
               parentId: targetParentId,
               rootSection: existing,
-            })
-          ).filter((document) => document.id !== id);
+            }),
+          )
+            .map((document) => document.id)
+            .filter((siblingId) => siblingId !== id);
           if (
-            current.length !== expected.size ||
-            current.some((document) => !expected.has(document.id))
+            current.length !== expected.length ||
+            current.some((siblingId, index) => siblingId !== expected[index])
           ) {
             throw new ActionContractError(
               "The document's move scope changed. Read it again and retry.",

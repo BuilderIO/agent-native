@@ -34,7 +34,7 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
-import { lockOwnerPageTree } from "./_row-lock-order.js";
+import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
@@ -713,15 +713,49 @@ export default defineAction({
           continue;
         }
 
-        const reparented = await db.transaction(async (transaction) => {
+        const skippedReason = await db.transaction(async (transaction) => {
           const tx = transaction as unknown as typeof db;
-          // A move elsewhere can put safeParentId under this page after the
-          // check above; move-document serializes on the same lock.
+          // Rechecked even when the parent is unchanged: a move or Trash
+          // elsewhere can change the page or its parent after the checks
+          // above. move-document serializes on the same tree lock.
+          if (safeParentId) await lockOwnerPageTree(tx, ownerEmail);
+          await lockDocumentRows(tx, safeParentId ? [id, safeParentId] : [id]);
+          const [page] = await tx
+            .select({
+              ownerEmail: schema.documents.ownerEmail,
+              spaceId: schema.documents.spaceId,
+              trashedAt: schema.documents.trashedAt,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id));
+          if (!page || page.trashedAt) {
+            return "Skipped layout update: the page was deleted or moved to Trash.";
+          }
           if (
-            safeParentId &&
-            safeParentId !== (currentParentById.get(id) ?? null)
+            page.ownerEmail !== ownerEmail ||
+            (page.spaceId ?? defaultSpaceId) !== spaceById.get(id)
           ) {
-            await lockOwnerPageTree(tx, ownerEmail);
+            return "Skipped layout update: the page moved to another Content space.";
+          }
+          if (safeParentId) {
+            const [parent] = await tx
+              .select({
+                ownerEmail: schema.documents.ownerEmail,
+                spaceId: schema.documents.spaceId,
+                trashedAt: schema.documents.trashedAt,
+              })
+              .from(schema.documents)
+              .where(eq(schema.documents.id, safeParentId));
+            if (parent?.trashedAt) {
+              return `Skipped parent "${safeParentId}" because it is in Trash.`;
+            }
+            if (
+              !parent ||
+              parent.ownerEmail !== ownerEmail ||
+              parent.spaceId !== spaceById.get(id)
+            ) {
+              return `Skipped parent "${safeParentId}" because it is not editable in the same Content space.`;
+            }
             if (
               await parentIsDescendant(tx, {
                 ownerEmail,
@@ -729,7 +763,7 @@ export default defineAction({
                 parentId: safeParentId,
               })
             ) {
-              return false;
+              return "Skipped parent update: cycle.";
             }
           }
           await tx
@@ -751,13 +785,10 @@ export default defineAction({
                 eq(schema.documents.ownerEmail, ownerEmail),
               ),
             );
-          return true;
+          return null;
         });
-        if (!reparented) {
-          skipped.push({
-            path: pathById.get(id) ?? id,
-            reason: "Skipped parent update: cycle.",
-          });
+        if (skippedReason) {
+          skipped.push({ path: pathById.get(id) ?? id, reason: skippedReason });
         }
       }
 

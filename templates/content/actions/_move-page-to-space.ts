@@ -103,6 +103,42 @@ async function membershipIdsOf(tx: ContentDb, documentIds: string[]) {
   return membershipIds;
 }
 
+/** A page read under the root that has since left it would move with it. */
+async function pagesLeftSubtree(tx: ContentDb, rootId: string, ids: string[]) {
+  const idSet = new Set(ids);
+  const pages = new Map<
+    string,
+    { parentId: string | null; trashParentId: string | null }
+  >();
+  for (const idGroup of groups(ids)) {
+    // guard:allow-unscoped — re-reads only the parent links of pages the move already access-checked and holds locked.
+    const rows: Array<{
+      id: string;
+      parentId: string | null;
+      trashParentId: string | null;
+    }> = await tx
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+        trashParentId: schema.documents.trashParentId,
+      })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, idGroup));
+    for (const row of rows) pages.set(row.id, row);
+  }
+  return ids.some((id) => {
+    if (id === rootId) return false;
+    const page = pages.get(id);
+    return (
+      !page ||
+      !(
+        (page.parentId && idSet.has(page.parentId)) ||
+        (page.trashParentId && idSet.has(page.trashParentId))
+      )
+    );
+  });
+}
+
 /**
  * Locks a move between spaces in the global order and re-checks what the move
  * read before it. The pages leave their owner's tree for the mover's, so a
@@ -126,7 +162,10 @@ async function lockMoveBetweenSpaces(args: {
   await lockDocumentRows(tx, parentId ? [...ids, parentId] : ids);
   const lockedMembershipIds = new Set(membershipIds);
   if (
-    (await membershipIdsOf(tx, ids)).some((id) => !lockedMembershipIds.has(id))
+    (await membershipIdsOf(tx, ids)).some(
+      (id) => !lockedMembershipIds.has(id),
+    ) ||
+    (await pagesLeftSubtree(tx, root.id, ids))
   ) {
     throw contractError(
       "This page changed while it was being moved. Try again.",
@@ -154,12 +193,14 @@ async function lockMoveBetweenSpaces(args: {
       "DOCUMENT_MOVE_SCOPE_CHANGED",
     );
   }
-  if (!parentId) return;
+  if (!parentId) return null;
   const [parent] = await tx
     .select({
       spaceId: schema.documents.spaceId,
       ownerEmail: schema.documents.ownerEmail,
       trashedAt: schema.documents.trashedAt,
+      orgId: schema.documents.orgId,
+      visibility: schema.documents.visibility,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, parentId));
@@ -179,6 +220,7 @@ async function lockMoveBetweenSpaces(args: {
       "DOCUMENT_MOVE_SCOPE_CHANGED",
     );
   }
+  return parent;
 }
 
 export async function movePageToSpace(args: {
@@ -246,12 +288,6 @@ export async function movePageToSpace(args: {
     if (parent.trashedAt) {
       throw contractError("Parent document is in Trash", "PARENT_TRASHED");
     }
-    orgId = parent.orgId ?? null;
-    visibility = parent.visibility as typeof visibility;
-    parentShares = await db
-      .select()
-      .from(schema.documentShares)
-      .where(eq(schema.documentShares.resourceId, parentId));
   }
 
   const filesDatabases = await db
@@ -338,7 +374,7 @@ export async function movePageToSpace(args: {
         );
 
       await db.transaction(async (tx) => {
-        await lockMoveBetweenSpaces({
+        const parent = await lockMoveBetweenSpaces({
           tx: tx as unknown as ContentDb,
           root,
           ids,
@@ -346,6 +382,15 @@ export async function movePageToSpace(args: {
           parentId,
           userEmail,
         });
+        // Read under the parent's lock: the subtree takes the parent's access.
+        if (parent && parentId) {
+          orgId = parent.orgId ?? null;
+          visibility = parent.visibility as typeof visibility;
+          parentShares = await tx
+            .select()
+            .from(schema.documentShares)
+            .where(eq(schema.documentShares.resourceId, parentId));
+        }
         const idSet = new Set(ids);
         for (const idGroup of groups(ids)) {
           const children: Array<{ id: string }> = await tx
