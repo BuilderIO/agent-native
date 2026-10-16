@@ -2120,7 +2120,7 @@ export default function DeckEditor() {
           emptyGenerationRecoveryRef.current = null;
         }
       } catch {
-        toast.error(t("editorSidebar.newSlideSaveFailed"));
+        toast.error(t("settings.saveFailed"));
       }
     };
     void (async () => {
