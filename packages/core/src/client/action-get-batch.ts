@@ -13,9 +13,9 @@ const INVALID_BATCH_RESPONSE = "Action batch returned an invalid response.";
 
 /**
  * Same-tick coalescing for action GETs. Calls made in one synchronous run,
- * such as a page's queries mounting together, are sent as one POST to the
- * batch action. Each caller gets a Response shaped like its own GET, so
- * performActionFetch's error handling applies to it unchanged.
+ * such as a sync event refreshing a page's queries together, are sent as one
+ * POST to the batch action. Each caller gets a Response shaped like its own
+ * GET, so performActionFetch's error handling applies to it unchanged.
  */
 
 export interface ActionGetRequest {
