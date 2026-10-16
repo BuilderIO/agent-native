@@ -784,6 +784,20 @@ const cases: readonly Case[] = [
             };
           }
         | undefined;
+      const inputGroupBy = Array.isArray(queryCall?.input.groupBy)
+        ? (queryCall.input.groupBy as Array<{
+            name?: string;
+            grain?: string;
+          }>)
+        : [];
+      const hasWeeklyTimeGrain = (
+        groups: Array<{ name?: string; grain?: string }> | undefined,
+      ) =>
+        groups?.some(
+          (group) =>
+            group.name === "metric_time" &&
+            group.grain?.toUpperCase() === "WEEK",
+        ) === true;
       const text = output?.text.toLowerCase() ?? "";
       return (
         output?.toolCalls.filter((name) => name === "query-dbt-semantic-metric")
@@ -792,6 +806,8 @@ const cases: readonly Case[] = [
           "synthetic_weekly_active_product_users" &&
         JSON.stringify(success?.querySpec?.timeRange) ===
           JSON.stringify({ startDate: "2026-09-01", endDate: "2026-09-30" }) &&
+        hasWeeklyTimeGrain(inputGroupBy) &&
+        hasWeeklyTimeGrain(success?.querySpec?.groupBy) &&
         success?.querySpec?.groupBy?.some(
           (group) => group.name === "synthetic_organization_id",
         ) === true &&
@@ -902,7 +918,7 @@ const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
 ];
 const csvRows: SafeCsvRow[] = [];
 let resolveProductionEvalContext: typeof import("../production-context.js").resolveProductionEvalContext;
-let createUnsupportedFunctionValidationError: (() => Error) | undefined;
+let createUnsupportedDivError: (() => Error) | undefined;
 
 function csvEscape(value: string | number | boolean): string {
   const text = String(value);
@@ -1118,13 +1134,13 @@ async function runCase(
       });
   }
   if (testCase.key === "synthetic-first-party-div-recovery") {
+    if (!createUnsupportedDivError) {
+      throw new Error(
+        "First-party Analytics DIV rejection fixture is unavailable.",
+      );
+    }
     providerBoundary.queryFirstPartyAnalytics
-      .mockRejectedValueOnce(
-        createUnsupportedFunctionValidationError?.() ??
-          new Error(
-            "First-party analytics queries cannot call unapproved SQL function div",
-          ),
-      )
+      .mockRejectedValueOnce(createUnsupportedDivError())
       .mockResolvedValueOnce({
         rows: [{ avg_events_per_day: 4.2 }],
         schema: [{ name: "avg_events_per_day", type: "number" }],
@@ -1675,7 +1691,7 @@ beforeAll(async () => {
   try {
     const { FirstPartyAnalyticsValidationError } =
       await import("../../server/lib/first-party-analytics-errors.js");
-    createUnsupportedFunctionValidationError = () =>
+    createUnsupportedDivError = () =>
       new FirstPartyAnalyticsValidationError(
         "unsupported_function",
         "First-party analytics queries cannot call unapproved SQL function div",
@@ -1685,7 +1701,13 @@ beforeAll(async () => {
       error instanceof Error &&
       /Cannot find module .*first-party-analytics-errors/i.test(error.message)
     ) {
-      createUnsupportedFunctionValidationError = undefined;
+      const { FirstPartyAnalyticsUnsupportedSqlError } =
+        await import("../../server/lib/first-party-analytics-backend.js");
+      createUnsupportedDivError = () =>
+        new FirstPartyAnalyticsUnsupportedSqlError(
+          "unsupported SQL function DIV",
+          "First-party BigQuery query cannot translate DIV",
+        );
     } else {
       throw error;
     }
