@@ -329,6 +329,29 @@ describe("list-connection-providers", () => {
     });
   });
 
+  it("does not report Gong ready from active connection metadata when org keys are missing", async () => {
+    mocks.providerId = "gong";
+    mocks.workspace.provider = "gong";
+    mocks.workspace.hasWorkspaceConnection = true;
+    mocks.workspace.hasGrantedWorkspaceConnection = true;
+    mocks.workspace.hasActiveWorkspaceConnection = true;
+    mocks.workspace.grantState = "granted";
+    mocks.availableKeys.add("GONG_ACCESS_KEY");
+
+    const result = await action.run({});
+
+    expect(
+      result.providers.find((provider) => provider.id === "gong"),
+    ).toMatchObject({
+      configured: false,
+      providerHealth: { status: "missing_credentials" },
+      credentialHealth: {
+        status: "missing",
+        missingCredentialKeys: ["GONG_ACCESS_SECRET"],
+      },
+    });
+  });
+
   it("reports Jira ready only when the complete Basic-auth fallback exists", async () => {
     mocks.availableKeys.add("JIRA_BASE_URL");
     mocks.availableKeys.add("JIRA_USER_EMAIL");

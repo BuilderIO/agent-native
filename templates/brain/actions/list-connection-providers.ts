@@ -177,7 +177,9 @@ function providerApiConfigured({
   if (!providerApi) return null;
   if (providerApiBaseUrlError) return false;
   if (credentialHealth.status === "unavailable") return null;
-  if (workspace.hasActiveWorkspaceConnection) return true;
+  if (providerApi.id !== "gong" && workspace.hasActiveWorkspaceConnection) {
+    return true;
+  }
   if (providerApi.auth === "none") return true;
 
   const availableKeys = new Set(

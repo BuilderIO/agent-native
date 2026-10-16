@@ -47,6 +47,54 @@ export interface McpAgentKitConnectionTarget {
   requestId: string;
 }
 
+const EXCLUDED_CONNECTION_REQUEST_HANDLED_KEY =
+  "agent-native:excluded-connection-request-handled";
+const handledExcludedConnectionRequests = new Set<string>();
+
+type ExcludedConnectionRequestMarker = "handled" | "unhandled" | "unavailable";
+
+function excludedConnectionRequestStorageKey(
+  target: McpAgentKitConnectionTarget,
+) {
+  return `${EXCLUDED_CONNECTION_REQUEST_HANDLED_KEY}:${JSON.stringify([
+    target.threadId,
+    target.runId,
+    target.requestId,
+  ])}`;
+}
+
+function getExcludedConnectionRequestMarker(
+  storageKey: string,
+): ExcludedConnectionRequestMarker {
+  if (handledExcludedConnectionRequests.has(storageKey)) return "handled";
+  if (typeof window === "undefined") return "unavailable";
+  try {
+    return window.sessionStorage.getItem(storageKey) === "1"
+      ? "handled"
+      : "unhandled";
+  } catch {
+    return "unavailable";
+  }
+}
+
+function markExcludedConnectionRequestHandled(
+  storageKey: string,
+  markerWasUnavailable: boolean,
+) {
+  if (markerWasUnavailable) {
+    handledExcludedConnectionRequests.add(storageKey);
+  }
+  if (typeof window === "undefined") {
+    handledExcludedConnectionRequests.add(storageKey);
+    return;
+  }
+  try {
+    window.sessionStorage.setItem(storageKey, "1");
+  } catch {
+    handledExcludedConnectionRequests.add(storageKey);
+  }
+}
+
 export interface McpAgentKitConnectionRequestCardProps {
   provider: string;
   detail?: string;
@@ -84,6 +132,7 @@ export function McpAgentKitConnectionRequestCard({
     setExcludedRequestResolutionPending,
   ] = useState(false);
   onDeclinedRef.current = onDeclined;
+  const targetKey = excludedConnectionRequestStorageKey(target);
   const [workspaceSetupOpened, setWorkspaceSetupOpened] = useState(false);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
   const excludedIds = new Set(
@@ -125,11 +174,22 @@ export function McpAgentKitConnectionRequestCard({
   }, [status]);
   const resolveExcludedRequest = useCallback(() => {
     if (settledRef.current) return;
+    const marker = getExcludedConnectionRequestMarker(targetKey);
+    if (marker === "handled") {
+      settledRef.current = true;
+      return;
+    }
     settledRef.current = true;
     setExcludedRequestResolutionPending(true);
     void Promise.resolve()
       .then(() => onDeclinedRef.current())
-      .then(() => setExcludedRequestResolutionFailed(false))
+      .then(() => {
+        markExcludedConnectionRequestHandled(
+          targetKey,
+          marker === "unavailable",
+        );
+        setExcludedRequestResolutionFailed(false);
+      })
       .catch(() => {
         settledRef.current = false;
         setExcludedRequestResolutionFailed(true);
@@ -137,7 +197,7 @@ export function McpAgentKitConnectionRequestCard({
       .finally(() => {
         setExcludedRequestResolutionPending(false);
       });
-  }, []);
+  }, [targetKey]);
   useEffect(() => {
     if (!integrationExcluded || status !== "requested") return;
     resolveExcludedRequest();
