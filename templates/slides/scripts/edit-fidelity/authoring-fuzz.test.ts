@@ -4171,7 +4171,21 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
   expect(excerpt.at(-1)?.operation).toEqual(plan.at(-1));
 });
 
-it("treats a young cancelled read-only status probe during save/reload as expected", () => {
+it("ignores a read-only status probe abort only when the outgoing document is reloading", () => {
+  const navigation: NonNullable<
+    Parameters<typeof isExpectedReadOnlyStatusProbeAbort>[6]
+  > = {
+    requestStartedAt: 120,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost/deck/deck-1?slide=2",
+    reloadNavigationStartedAt: 100,
+    outgoingDocumentUrl: "http://localhost/deck/deck-1?slide=2",
+    mainFrameNavigationStartedAt: 110,
+    mainFrameNavigationUrl: "http://localhost/deck/deck-1?slide=1",
+    mainFrameNavigationCommittedAtAtRequest: null,
+    mainFrameNavigationCommittedAt: null,
+    failedAt: 150,
+  };
   expect(
     isExpectedReadOnlyStatusProbeAbort(
       "GET",
@@ -4180,6 +4194,7 @@ it("treats a young cancelled read-only status probe during save/reload as expect
       "save/reload",
       true,
       21,
+      navigation,
     ),
   ).toBe(true);
   expect(
@@ -4190,11 +4205,26 @@ it("treats a young cancelled read-only status probe during save/reload as expect
       "save/reload",
       true,
       5,
+      { ...navigation, requestStartedAt: 105, failedAt: 115 },
     ),
   ).toBe(true);
 });
 
 it("keeps status probe aborts that are not expected as page errors", () => {
+  const navigation: NonNullable<
+    Parameters<typeof isExpectedReadOnlyStatusProbeAbort>[6]
+  > = {
+    requestStartedAt: 120,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost/deck/deck-1?slide=2",
+    reloadNavigationStartedAt: 100,
+    outgoingDocumentUrl: "http://localhost/deck/deck-1?slide=2",
+    mainFrameNavigationStartedAt: 110,
+    mainFrameNavigationUrl: "http://localhost/deck/deck-1?slide=1",
+    mainFrameNavigationCommittedAtAtRequest: null,
+    mainFrameNavigationCommittedAt: null,
+    failedAt: 150,
+  };
   const expected = [
     "GET",
     "/_agent-native/actions/get-deck-access-status",
@@ -4202,7 +4232,18 @@ it("keeps status probe aborts that are not expected as page errors", () => {
     "save/reload",
     true,
     21,
+    navigation,
   ] as const;
+  const isExpectedWithNavigation = (navigation: (typeof expected)[6] | null) =>
+    isExpectedReadOnlyStatusProbeAbort(
+      expected[0],
+      expected[1],
+      expected[2],
+      expected[3],
+      expected[4],
+      expected[5],
+      navigation,
+    );
   // A mutation, a different phase, another origin, an old request, or a non-navigation error stays an error.
   expect(
     isExpectedReadOnlyStatusProbeAbort(
@@ -4212,6 +4253,7 @@ it("keeps status probe aborts that are not expected as page errors", () => {
       expected[3],
       expected[4],
       expected[5],
+      expected[6],
     ),
   ).toBe(false);
   expect(
@@ -4222,6 +4264,7 @@ it("keeps status probe aborts that are not expected as page errors", () => {
       "edit",
       expected[4],
       expected[5],
+      expected[6],
     ),
   ).toBe(false);
   expect(
@@ -4232,6 +4275,7 @@ it("keeps status probe aborts that are not expected as page errors", () => {
       expected[3],
       false,
       expected[5],
+      expected[6],
     ),
   ).toBe(false);
   expect(
@@ -4242,6 +4286,7 @@ it("keeps status probe aborts that are not expected as page errors", () => {
       expected[3],
       expected[4],
       60_000,
+      expected[6],
     ),
   ).toBe(false);
   expect(
@@ -4252,6 +4297,32 @@ it("keeps status probe aborts that are not expected as page errors", () => {
       expected[3],
       expected[4],
       expected[5],
+      expected[6],
     ),
+  ).toBe(false);
+  expect(isExpectedWithNavigation(null)).toBe(false);
+  expect(
+    isExpectedWithNavigation({
+      ...expected[6],
+      requestFrameUrl: "http://localhost/other",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedWithNavigation({
+      ...expected[6],
+      mainFrameNavigationUrl: "http://localhost/other",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedWithNavigation({
+      ...expected[6],
+      mainFrameNavigationCommittedAtAtRequest: 130,
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedWithNavigation({
+      ...expected[6],
+      failedAt: 2_000,
+    }),
   ).toBe(false);
 });

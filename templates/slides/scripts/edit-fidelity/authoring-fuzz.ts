@@ -428,11 +428,38 @@ const readOnlyStatusProbePaths: readonly string[] = [
   "/_agent-native/actions/get-deck-access-status",
 ];
 
-// A read-only status probe that the client cancels a few milliseconds after it
-// starts (a route or component change) fails with a navigation abort error. The
-// save/reload checks read the saved deck, not this probe, so a young same-origin GET
-// cancelled that way is expected. Mutations and browser-session traffic keep their
-// own rules.
+type ReadOnlyStatusProbeNavigationEvidence = {
+  requestStartedAt: number;
+  requestSourceIsMainFrame: boolean;
+  requestFrameUrl: string | null;
+  reloadNavigationStartedAt: number | null;
+  outgoingDocumentUrl: string | null;
+  mainFrameNavigationStartedAt: number | null;
+  mainFrameNavigationUrl: string | null;
+  mainFrameNavigationCommittedAtAtRequest: number | null;
+  mainFrameNavigationCommittedAt: number | null;
+  failedAt: number;
+};
+
+function isSameDeckNavigationUrl(
+  value: string | null,
+  outgoing: string | null,
+) {
+  if (!value || !outgoing || !URL.canParse(value) || !URL.canParse(outgoing)) {
+    return false;
+  }
+  const navigationUrl = new URL(value);
+  const outgoingUrl = new URL(outgoing);
+  if (!navigationUrl.pathname.startsWith("/deck/")) return false;
+  navigationUrl.hash = "";
+  outgoingUrl.hash = "";
+  navigationUrl.searchParams.delete("slide");
+  outgoingUrl.searchParams.delete("slide");
+  return navigationUrl.href === outgoingUrl.href;
+}
+
+// A status probe is ignorable only when the failed request came from the outgoing
+// document and failed alongside the matching main-frame reload navigation.
 export function isExpectedReadOnlyStatusProbeAbort(
   method: string,
   pathname: string,
@@ -440,7 +467,36 @@ export function isExpectedReadOnlyStatusProbeAbort(
   activePhase: string,
   requestSameOrigin: boolean,
   requestAgeMs: number,
+  navigation: ReadOnlyStatusProbeNavigationEvidence | null,
 ) {
+  const navigationStartedForReload =
+    navigation?.reloadNavigationStartedAt !== null &&
+    navigation?.reloadNavigationStartedAt !== undefined &&
+    navigation?.mainFrameNavigationStartedAt !== null &&
+    navigation?.mainFrameNavigationStartedAt !== undefined &&
+    navigation.mainFrameNavigationStartedAt >=
+      navigation.reloadNavigationStartedAt &&
+    isSameDeckNavigationUrl(
+      navigation.mainFrameNavigationUrl,
+      navigation.outgoingDocumentUrl,
+    );
+  const requestBelongsToOutgoingDocument =
+    navigation?.requestSourceIsMainFrame === true &&
+    navigation.mainFrameNavigationCommittedAtAtRequest === null &&
+    isSameDeckNavigationUrl(
+      navigation.requestFrameUrl,
+      navigation.outgoingDocumentUrl,
+    );
+  const failedAlongsideNavigation =
+    navigationStartedForReload &&
+    navigation !== null &&
+    (Math.abs(navigation.failedAt - navigation.mainFrameNavigationStartedAt!) <=
+      outgoingBrowserSessionAbortWindowMs ||
+      (navigation.mainFrameNavigationCommittedAt !== null &&
+        Math.abs(
+          navigation.failedAt - navigation.mainFrameNavigationCommittedAt,
+        ) <= outgoingBrowserSessionAbortWindowMs));
+
   return (
     activePhase === "save/reload" &&
     method === "GET" &&
@@ -448,7 +504,11 @@ export function isExpectedReadOnlyStatusProbeAbort(
     readOnlyStatusProbePaths.includes(pathname) &&
     navigationAbortErrors.includes(errorText) &&
     requestAgeMs >= 0 &&
-    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs
+    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
+    navigation !== null &&
+    navigation.requestStartedAt >= navigation.reloadNavigationStartedAt! &&
+    requestBelongsToOutgoingDocument &&
+    failedAlongsideNavigation
   );
 }
 // Browser-session requests abort after at least ten seconds; leave timer slack.
@@ -2401,7 +2461,10 @@ export async function runAuthoringFuzz(
       requestFrameUrl: string | null;
       mainFrameNavigationStartedAt: number | null;
       mainFrameNavigationRequestSequence: number | null;
+      mainFrameNavigationUrl: string | null;
       mainFrameNavigationCommittedAt: number | null;
+      reloadNavigationStartedAt: number | null;
+      outgoingDocumentUrl: string | null;
     }
   >();
   const inFlightBrowserSessionRequests = new Map<
@@ -2462,6 +2525,7 @@ export async function runAuthoringFuzz(
   let outgoingDocumentUrlAtReload: string | null = null;
   let mainFrameNavigationStartedAt: number | null = null;
   let mainFrameNavigationRequestSequence: number | null = null;
+  let mainFrameNavigationUrl: string | null = null;
   let mainFrameNavigationCommittedAt: number | null = null;
   let requestEventSequence = 0;
   let currentBrowserSessionId: string | null = null;
@@ -2840,6 +2904,7 @@ export async function runAuthoringFuzz(
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const watchedRequestDetailsAtStart = watchedRequestDetails.get(request);
+    const failedAt = Date.now();
     const navigationCandidate = reloadNavigationRequests.get(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
@@ -2892,6 +2957,7 @@ export async function runAuthoringFuzz(
             navigationAtFailure: {
               startedAt: mainFrameNavigationStartedAt,
               requestSequence: mainFrameNavigationRequestSequence,
+              url: mainFrameNavigationUrl,
               committedAt: mainFrameNavigationCommittedAt,
             },
             pageUrlAtFailure: page.url(),
@@ -2982,6 +3048,24 @@ export async function runAuthoringFuzz(
           activePhase,
           requestUrl.origin === authoringPageOrigin,
           probeAgeMs,
+          watchedRequestDetailsAtStart && requestStartedAt !== undefined
+            ? {
+                requestStartedAt,
+                requestSourceIsMainFrame:
+                  watchedRequestDetailsAtStart.requestSourceIsMainFrame,
+                requestFrameUrl: watchedRequestDetailsAtStart.requestFrameUrl,
+                reloadNavigationStartedAt:
+                  watchedRequestDetailsAtStart.reloadNavigationStartedAt,
+                outgoingDocumentUrl:
+                  watchedRequestDetailsAtStart.outgoingDocumentUrl,
+                mainFrameNavigationStartedAt,
+                mainFrameNavigationUrl,
+                mainFrameNavigationCommittedAtAtRequest:
+                  watchedRequestDetailsAtStart.mainFrameNavigationCommittedAt,
+                mainFrameNavigationCommittedAt,
+                failedAt,
+              }
+            : null,
         )
       ) {
         pageErrors.push(
@@ -3006,6 +3090,7 @@ export async function runAuthoringFuzz(
     ) {
       mainFrameNavigationStartedAt = startedAt;
       mainFrameNavigationRequestSequence = requestSequence;
+      mainFrameNavigationUrl = request.url();
       mainFrameNavigationCommittedAt = null;
       for (const candidate of reloadNavigationRequests.values()) {
         if (
@@ -3057,7 +3142,10 @@ export async function runAuthoringFuzz(
         requestFrameUrl,
         mainFrameNavigationStartedAt,
         mainFrameNavigationRequestSequence,
+        mainFrameNavigationUrl,
         mainFrameNavigationCommittedAt,
+        reloadNavigationStartedAt,
+        outgoingDocumentUrl: outgoingDocumentUrlAtReload,
       });
     }
     const requestStartedDuringNavigation =
@@ -8510,6 +8598,7 @@ export async function runAuthoringFuzz(
       outgoingDocumentUrlAtReload = page.url();
       mainFrameNavigationStartedAt = null;
       mainFrameNavigationRequestSequence = null;
+      mainFrameNavigationUrl = null;
       mainFrameNavigationCommittedAt = null;
       retiredSessionErrorCorrelator.beginNavigation(
         browserSessionIdAtReload,
