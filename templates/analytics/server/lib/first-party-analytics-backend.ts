@@ -757,6 +757,12 @@ function normalizePostgresSql(sql: string): string {
   let cursor = 0;
   let result = "";
   const tokens = lexAgentSql(sql, { dialect: "postgres" });
+  const typedLiteralPrefixes = new Set([
+    "date",
+    "time",
+    "datetime",
+    "timestamp",
+  ]);
   for (const [index, token] of tokens.entries()) {
     if (token.kind === "string" && !token.text.startsWith("'")) {
       const prefix = token.text.startsWith("$")
@@ -773,10 +779,13 @@ function normalizePostgresSql(sql: string): string {
       previous?.kind === "word" &&
       previous.end === token.start
     ) {
-      throw new FirstPartyAnalyticsUnsupportedSqlError(
-        "a string literal without a preceding separator",
-        "First-party BigQuery query requires a separator before string literals",
-      );
+      if (!typedLiteralPrefixes.has(previous.text.toLowerCase())) {
+        throw new FirstPartyAnalyticsUnsupportedSqlError(
+          "a string literal without a preceding separator",
+          "First-party BigQuery query requires a separator before string literals",
+        );
+      }
+      result += " ";
     }
     // PostgreSQL nests block comments; GoogleSQL does not. Remove the skipped
     // spans before translating so inner comment terminators cannot expose SQL.

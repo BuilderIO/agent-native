@@ -729,6 +729,7 @@ describe("first-party BigQuery backend", () => {
       "SELECT '2026-08-01'::date AS v FROM analytics_events",
       "CAST('2026-08-01' AS DATE)",
     ],
+    ["SELECT DATE'2026-08-01' AS v FROM analytics_events", "DATE '2026-08-01'"],
     [
       "SELECT properties::jsonb ->> '$ai_model' AS v FROM analytics_events",
       `JSON_VALUE(properties, '$."$ai_model"')`,
@@ -793,6 +794,10 @@ describe("first-party BigQuery backend", () => {
     [
       "SELECT id FROM analytics_events WHERE path ILIKE '%signup%'",
       "ILIKE/SIMILAR TO",
+    ],
+    [
+      "SELECT column'value' AS d FROM analytics_events",
+      "a string literal without a preceding separator",
     ],
   ])("names the unsupported construct for %s", (sql, construct) => {
     const table = {
