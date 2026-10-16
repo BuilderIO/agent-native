@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
+import { AgentClient } from "./helpers";
 
 const EMAIL =
   process.env.CONTENT_E2E_EMAIL ||
@@ -17,7 +18,7 @@ async function globalSetup(_config: FullConfig) {
   const baseURL = process.env.CONTENT_BASE_URL || "http://127.0.0.1:8090";
   mkdirSync(".auth", { recursive: true });
   const browser = await chromium.launch();
-  const ctx = await browser.newContext();
+  const ctx = await browser.newContext({ baseURL });
   const page = await ctx.newPage();
   let result: Record<string, unknown> = {};
   try {
@@ -90,11 +91,15 @@ async function globalSetup(_config: FullConfig) {
       : EMAIL
     ).trim(),
   );
-  await browser.close();
-  if (!result.sessionEmail || result.firstRunCompleteStatus !== 200) {
-    throw new Error(
-      `[content global-setup] sign-in or first-run setup failed, so authed specs would not reach a usable page: ${JSON.stringify(result)}`,
-    );
+  try {
+    if (!result.sessionEmail || result.firstRunCompleteStatus !== 200) {
+      throw new Error(
+        `[content global-setup] sign-in or first-run setup failed, so authed specs would not reach a usable page: ${JSON.stringify(result)}`,
+      );
+    }
+    await AgentClient.connectShared(page);
+  } finally {
+    await browser.close();
   }
 }
 

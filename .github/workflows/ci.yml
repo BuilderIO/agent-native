@@ -1115,7 +1115,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.content == 'true' || needs.change-scope.outputs.content_convergence == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     permissions:
       contents: read
       packages: read
@@ -1283,6 +1283,70 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
+      # The stored-form acceptance checks (SF-02 to SF-12), on both sides of
+      # the gate. Each creates its own pages, so two workers share the server.
+      - name: Run Content stored-form acceptance checks
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep-invert @known-loss --output test-results/stored-form-gate-off
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-off.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content stored-form checks main still fails
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep @known-loss --pass-with-no-tests --output test-results/stored-form-gate-off-known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-off-known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content stored-form acceptance checks with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep-invert @known-loss --output test-results/stored-form-gate-on
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content stored-form checks main still fails, with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep @known-loss --pass-with-no-tests --output test-results/stored-form-gate-on-known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on-known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
       - name: Summarize Content two-tab convergence
         if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
         working-directory: templates/content
@@ -1293,6 +1357,10 @@ jobs:
           "$RUNNER_TEMP/content-convergence/gate-off-known-loss.json"
           "$RUNNER_TEMP/content-convergence/gate-on.json"
           "$RUNNER_TEMP/content-convergence/gate-on-known-loss.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-off.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-off-known-loss.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-on.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-on-known-loss.json"
           >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Content two-tab convergence report

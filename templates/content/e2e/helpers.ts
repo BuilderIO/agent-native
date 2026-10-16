@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import {
@@ -862,6 +869,27 @@ export function countMarkers(
 
 const MCP_TOKENS_PATH = "/_agent-native/mcp/connect/tokens";
 
+// The run's one shared connector, written by global setup and revoked by
+// global teardown. The device flow allows 20 starts a minute per server, and
+// the token list cannot tell apart tokens two workers mint at once, so specs
+// that call many tools share this connection instead of each making one.
+const SHARED_CONNECTOR_FILE = ".auth/mcp-connector.json";
+
+interface SharedConnector {
+  headers: Record<string, string>;
+  tokenId: string | null;
+}
+
+function readSharedConnector(): SharedConnector | null {
+  if (!existsSync(SHARED_CONNECTOR_FILE)) return null;
+  const saved = JSON.parse(
+    readFileSync(SHARED_CONNECTOR_FILE, "utf8"),
+  ) as Partial<SharedConnector>;
+  if (!saved.headers || !Object.keys(saved.headers).length)
+    throw new Error(`${SHARED_CONNECTOR_FILE} names no connector headers`);
+  return { headers: saved.headers, tokenId: saved.tokenId ?? null };
+}
+
 async function activeMcpTokenIds(page: Page): Promise<Set<string>> {
   const response = await page.request.get(MCP_TOKENS_PATH);
   const text = await response.text();
@@ -942,6 +970,35 @@ export class AgentClient {
       throw error;
     }
     return new AgentClient(page, headers, minted[0]);
+  }
+
+  /** Connect the run's shared connector; only global setup calls this. */
+  static async connectShared(page: Page): Promise<void> {
+    const agent = await AgentClient.connect(page);
+    const saved: SharedConnector = {
+      headers: agent.connectorHeaders,
+      tokenId: agent.tokenId,
+    };
+    writeFileSync(SHARED_CONNECTOR_FILE, JSON.stringify(saved));
+  }
+
+  /** The connector global setup made, acting through this test's page. */
+  static shared(page: Page): AgentClient {
+    const saved = readSharedConnector();
+    if (!saved)
+      throw new Error(
+        `No shared MCP connector: global setup writes ${SHARED_CONNECTOR_FILE}.`,
+      );
+    // No token id: a test's disconnect() leaves the shared token alone.
+    return new AgentClient(page, saved.headers, null);
+  }
+
+  /** Revoke the shared connector; only global teardown calls this. */
+  static async revokeShared(page: Page): Promise<void> {
+    const saved = readSharedConnector();
+    if (!saved) return;
+    await new AgentClient(page, saved.headers, saved.tokenId).disconnect();
+    rmSync(SHARED_CONNECTOR_FILE);
   }
 
   /** Connect, apply one edit, and revoke the connection even if the edit fails. */
@@ -1025,17 +1082,49 @@ export class AgentClient {
     expect(typeof text, `${name} over MCP returned no text: ${raw}`).toBe(
       "string",
     );
-    return { isError: payload.result?.isError === true, text, raw };
+    const structured = payload.result?.structuredContent;
+    return {
+      isError: payload.result?.isError === true,
+      text,
+      structured:
+        structured && typeof structured === "object" ? structured : null,
+      raw,
+    };
   }
 
-  /** Call a tool that must succeed and return its parsed JSON result. */
+  /**
+   * Call a tool that must succeed and return the object a connector can read
+   * from it: its structured content, or its text when that is JSON. A tool
+   * that answers with prose alone fails here, naming the prose.
+   */
   async callJson<T = Record<string, any>>(
     name: string,
     args: Record<string, unknown>,
   ): Promise<T> {
     const result = await this.call(name, args);
     expect(result.isError, `${name} over MCP: ${result.raw}`).toBe(false);
-    return JSON.parse(result.text) as T;
+    if (result.structured) return result.structured as T;
+    try {
+      return JSON.parse(result.text) as T;
+    } catch {
+      throw new Error(
+        `${name} over MCP returned prose, not a result object: ${result.text}`,
+      );
+    }
+  }
+
+  /**
+   * Create a page as a connector does. create-document may answer with a
+   * one-line summary rather than a result object; a connector then finds the
+   * new page's id in the summary's link, and so does this.
+   */
+  async createPage(
+    title: string,
+    content: string,
+  ): Promise<{ id: string; result: McpToolResult }> {
+    const result = await this.call("create-document", { title, content });
+    expect(result.isError, result.raw).toBe(false);
+    return { id: createdPageId(result), result };
   }
 
   /** Apply one find/replace and fail unless the server reports it applied. */
@@ -1060,7 +1149,19 @@ export class AgentClient {
 export interface McpToolResult {
   isError: boolean;
   text: string;
+  /** The tool's `structuredContent`, when it sent one. */
+  structured: Record<string, unknown> | null;
   raw: string;
+}
+
+/** The id of the page a successful create-document over MCP made. */
+export function createdPageId(result: McpToolResult): string {
+  const id =
+    (typeof result.structured?.id === "string" && result.structured.id) ||
+    result.text.match(/"id":\s*"([\w-]+)"/)?.[1] ||
+    result.text.match(/\/page\/([\w-]+)/)?.[1];
+  if (!id) throw new Error(`create-document named no page: ${result.raw}`);
+  return id;
 }
 
 export interface IntegrityObservation {

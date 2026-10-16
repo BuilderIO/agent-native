@@ -69,14 +69,57 @@ export async function enterGateArm(
   await switchPage(page, documentId);
 }
 
-// L3 owns the per-page switch inside the D2 gate. Until it lands, a page cannot
-// be switched, so the gate-on arm has nothing to check.
+const SWITCH_ACTION = "switch-live-body-page";
+
+/**
+ * Switch the page through L3's action, then require both the switch and
+ * get-document to say the page writes through its live copy. A build that has
+ * the switch before its writers are routed answers "legacy", and a gate-on
+ * scenario run there would pass on the old path, so the arm skips instead.
+ */
 async function switchPage(
-  _page: Page,
-  _documentId: string | null,
+  page: Page,
+  documentId: string | null,
 ): Promise<void> {
-  test.skip(
-    true,
-    "Gate on: the D2 per-page switch is not wired into e2e/live-body-gate.ts yet. L3 adds it.",
+  if (documentId === null)
+    test.skip(
+      true,
+      "Gate on: this test creates its page through the UI, and only a page that exists can be switched.",
+    );
+  const response = await page.request.post(
+    `/_agent-native/actions/${SWITCH_ACTION}`,
+    { data: { id: documentId, switched: true }, headers: ACTION_HEADERS },
   );
+  const text = await response.text();
+  if (response.status() === 404 && text.includes("Cannot find any route"))
+    test.skip(
+      true,
+      `Gate on: this build has no ${SWITCH_ACTION} action. L3 adds it with conversion of the page's live copy.`,
+    );
+  expect(
+    response.ok(),
+    `${SWITCH_ACTION} (${response.status()}): ${text}`,
+  ).toBe(true);
+  const switched = JSON.parse(text) as { writePath?: string; reason?: string };
+  if (switched.writePath !== "live_copy")
+    test.skip(
+      true,
+      `Gate on: ${SWITCH_ACTION} left the page on the ${switched.writePath ?? "unreported"} write path${switched.reason ? ` (${switched.reason})` : ""}.`,
+    );
+  const read = await page.request.get("/_agent-native/actions/get-document", {
+    params: { id: documentId! },
+    headers: ACTION_HEADERS,
+  });
+  const readText = await read.text();
+  expect(read.ok(), `get-document (${read.status()}): ${readText}`).toBe(true);
+  const { writePath } = JSON.parse(readText) as { writePath?: string };
+  if (writePath === undefined)
+    test.skip(
+      true,
+      "Gate on: get-document does not report writePath yet, so the arm cannot confirm the page writes through its live copy.",
+    );
+  expect(
+    writePath,
+    `${SWITCH_ACTION} said live_copy, but get-document says otherwise`,
+  ).toBe("live_copy");
 }

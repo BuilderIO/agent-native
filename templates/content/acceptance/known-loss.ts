@@ -34,8 +34,8 @@ export type OutcomeId =
   | "SF-12";
 
 export interface KnownLoss {
-  /** The lane whose fix flips this check, or `unowned` when no lane owns it yet. */
-  lane: Lane | readonly Lane[] | "unowned";
+  /** The lanes whose fixes flip this check; `unowned` marks a loss no lane owns yet. */
+  lane: Lane | "unowned" | readonly (Lane | "unowned")[];
   /** The acceptance outcome the failure breaks, when it maps to one. */
   outcome?: OutcomeId;
   /** What main does wrong, in one sentence a lane can verify. */
@@ -63,11 +63,7 @@ export function knownLossTest(loss: KnownLoss): TestOptions {
 /** Playwright details: `test("…", knownLossSpec({ … }), async () => { … })`. */
 export function knownLossSpec(loss: KnownLoss) {
   return {
-    tag: [
-      `@${KNOWN_LOSS_TAG}`,
-      ...lanes(loss).map((lane) => `@${lane}`),
-      ...(loss.outcome ? [`@${loss.outcome}`] : []),
-    ],
+    tag: [`@${KNOWN_LOSS_TAG}`, ...lanes(loss).map((lane) => `@${lane}`)],
     annotation: { type: KNOWN_LOSS_TAG, description: describeKnownLoss(loss) },
   };
 }

@@ -131,6 +131,7 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
 // e2e specs and unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/acceptance/known-loss.ts",
+  "templates/content/acceptance/round-trip-corpus.ts",
   "templates/content/agent-native.config.ts",
   "templates/content/agent-native.json",
   "templates/content/package.json",
@@ -139,6 +140,7 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/vite.config.ts",
   "templates/content/e2e/convergence-summary.ts",
   "templates/content/e2e/global-setup.ts",
+  "templates/content/e2e/global-teardown.ts",
   "templates/content/e2e/helpers.ts",
   "templates/content/e2e/live-body-gate.ts",
   "templates/content/e2e/playwright.config.ts",

@@ -34,6 +34,22 @@ final `D4 PASS` or `D4 FAIL` line into the PR. A fail is a finding, not a run to
 repeat until it passes; `D4 UNMEASURED` proves nothing, and a run with
 overridden defaults says `(not a D4 run)`.
 
+### Stored-form acceptance (SF-01 to SF-12)
+
+The browser and MCP checks live in `e2e/stored-form/`; the writer checks are
+`acceptance/*.db.test.ts`. CI runs both on each side of the live-body gate, and
+checks tagged known-loss run in steps that report without failing the PR. A
+lane's fix drops the tag from every check it flips, in the same PR, so the
+check blocks every PR after it. Run the browser checks against the production
+build, which refuses PGlite: serve `.output/server/index.mjs` on Postgres, then
+from `templates/content` run
+`CONTENT_BASE_URL=<url> CONTENT_LIVE_BODY_GATE=off npx playwright test -c e2e/playwright.config.ts e2e/stored-form/`.
+Global setup connects one MCP connector for the run, because the device flow
+allows 20 starts a minute; two runs from one checkout at once overwrite each
+other's connector. A change that means to alter what a writer stores with the
+gate off reruns `acceptance/gate-off-stored-bytes.db.test.ts` with `-u` and
+commits the golden diff.
+
 ## Status evidence
 
 - `verified`: current proof covers the complete atomic contract.

@@ -18,6 +18,7 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   reporter: [["list"], ["json", { outputFile: ".report.json" }]],
   globalSetup: "./global-setup.ts",
+  globalTeardown: "./global-teardown.ts",
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",
