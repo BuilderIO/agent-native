@@ -17,9 +17,8 @@ Four phases. Phase 0 comes before investigation. Claim only what you
 can reconcile this run: each `👀` needs a current disposition, same-thread
 status reply, and reaction decision before you claim another batch.
 
-0. **Gate, then claim** only the eligible items you can carry through a
-   current disposition, same-thread status reply, and reaction decision this
-   run. Finish that batch's replies before claiming another batch.
+0. **Gate, then claim** only eligible items you can reconcile this run; finish
+   their replies before claiming another batch.
 1. **Answer the people who answered you.** Older open questions first.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
@@ -96,6 +95,7 @@ After the reply, add and read back reactions before advancing:
 
 - Start the reply with the exact canonical disposition label (`Fixed`,
   `Partially fixed`, `In progress`, etc.) and include the recorded evidence
+  verbatim. Copy each fixed-scope verification into its status-reply evidence
   verbatim. A vague or negated substring such as `Not fixed` does not record
   `Fixed`; the inventory checker enforces the visible label and evidence.
 - Use `Partially fixed` whenever any distinct report scope remains unfinished,
