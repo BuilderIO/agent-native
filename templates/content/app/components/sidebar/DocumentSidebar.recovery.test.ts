@@ -310,5 +310,18 @@ describe("document sidebar create recovery", () => {
 
       expect((await read())?.snapshot.content).toBe("Orphaned draft");
     });
+
+    it("skips a draft whose editor opened between the lock query and the read", async () => {
+      writeDrafts();
+      const query = navigator.locks.query.bind(navigator.locks);
+      vi.spyOn(navigator.locks, "query").mockImplementationOnce(async () => {
+        const answer = await query();
+        holdPageDraftWriter("open-tab");
+        return answer;
+      });
+
+      const read = readReplayableDraft(scope);
+      expect((await read())?.snapshot.content).toBe("Orphaned draft");
+    });
   });
 });

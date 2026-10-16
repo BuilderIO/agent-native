@@ -288,8 +288,18 @@ export function retryCreateAfterIntentWrite<T>(
 export function readReplayableDraft(
   scope: Parameters<typeof readPageDraftJournal>[0],
 ): () => Promise<PageDraftJournalEntry | null> {
-  return async () =>
-    readPageDraftJournal(scope, (await liveDraftWriterIds()) ?? undefined);
+  return async () => {
+    let skipped = await liveDraftWriterIds();
+    for (;;) {
+      const entry = readPageDraftJournal(scope, skipped ?? undefined);
+      if (!entry || !skipped) return entry;
+      // An editor can open and write its first entry between the lock query
+      // and the read, so the entry's writer is checked after reading it.
+      const live = await liveDraftWriterIds();
+      if (!live?.has(entry.scope.writerId)) return entry;
+      skipped = new Set([...skipped, ...live]);
+    }
+  };
 }
 
 export async function readDocumentBeforeCreateDiscard(
