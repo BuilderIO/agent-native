@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RecordingContextItem } from "./context-api";
 import {
@@ -10,6 +10,10 @@ import {
   takePendingLookbackContextAfterStop,
   type PendingLookbackContext,
 } from "./pending-lookback-context";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function pending(recordingId: string): PendingLookbackContext {
   return {
@@ -175,6 +179,48 @@ describe("settlePendingLookbackContextAfterStop", () => {
       "clear-intent",
       "remove",
     ]);
+  });
+
+  it("attempts server removal when cleanup storage cannot be written", async () => {
+    const context = pending("recording-a");
+    let resolveItem!: (item: RecordingContextItem) => void;
+    context.item = new Promise((resolve) => {
+      resolveItem = resolve;
+    });
+    const contexts = new Map([[context.recordingId, context]]);
+    const removeItem = vi.fn(async () => {});
+    const error = new Error("local storage is full");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const cleanupLifecycle = {
+      persistIntent: vi.fn(() => {
+        throw error;
+      }),
+      persistRemovalItem: vi.fn(() => {
+        throw error;
+      }),
+      clearIntent: vi.fn(),
+    };
+
+    const settling = settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      false,
+      removeItem,
+      cleanupLifecycle,
+    );
+
+    expect(removeItem).not.toHaveBeenCalled();
+    resolveItem({ id: "context-1" } as RecordingContextItem);
+    await settling;
+
+    expect(log).toHaveBeenCalledTimes(3);
+    expect(removeItem).toHaveBeenCalledWith(
+      context.target,
+      "context-1",
+      context.account,
+    );
+    expect(cleanupLifecycle.clearIntent).not.toHaveBeenCalled();
+    expect(contexts.has(context.recordingId)).toBe(false);
   });
 
   it("removes the server request when recording stop fails", async () => {

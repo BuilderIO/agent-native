@@ -58,21 +58,30 @@ export function lookbackOriginForItem(
   if (item.capturedDeviceId != null && item.capturedDeviceId !== deviceId) {
     return null;
   }
-  const localOrigin = originFor(item.recordingId, item);
-  if (localOrigin) return localOrigin;
-  // The device id keeps saved request settings reusable for trims; audio flags
-  // alone never prove which device owns the local screen-history buffer.
-  if (
+  const persistedOrigin =
     item.capturedDeviceId === deviceId &&
     typeof item.includeMicrophone === "boolean" &&
     typeof item.includeSystemAudio === "boolean"
-  ) {
-    return {
-      includeMicrophone: item.includeMicrophone,
-      includeSystemAudio: item.includeSystemAudio,
-    };
+      ? {
+          includeMicrophone: item.includeMicrophone,
+          includeSystemAudio: item.includeSystemAudio,
+        }
+      : null;
+  let localOrigin: LookbackOrigin | null;
+  try {
+    localOrigin = originFor(item.recordingId, item);
+  } catch (error) {
+    if (!persistedOrigin) throw error;
+    console.warn(
+      "[lookback] local capture details are unreadable; using the saved same-device request settings:",
+      error,
+    );
+    return persistedOrigin;
   }
-  return null;
+  if (localOrigin) return localOrigin;
+  // The device id keeps saved request settings reusable for trims; audio flags
+  // alone never prove which device owns the local screen-history buffer.
+  return persistedOrigin;
 }
 
 export type LookbackWorkerOutcome = "skipped" | "ready" | "failed";

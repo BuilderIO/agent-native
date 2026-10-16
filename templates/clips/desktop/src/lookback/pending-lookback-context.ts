@@ -74,6 +74,19 @@ export function isLookbackContextAwaitingStop(
   return contexts.has(recordingId);
 }
 
+function tryPersistCleanupStep(step: string, persist: () => void): boolean {
+  try {
+    persist();
+    return true;
+  } catch (error) {
+    console.error(
+      `[lookback] failed to persist ${step}; attempting direct server cleanup:`,
+      error,
+    );
+    return false;
+  }
+}
+
 export async function settlePendingLookbackContextAfterStop(
   contexts: Map<string, PendingLookbackContext>,
   recordingId: string | null | undefined,
@@ -98,21 +111,42 @@ export async function settlePendingLookbackContextAfterStop(
   pending.removalInProgress = true;
   try {
     if (cleanupLifecycle && !pending.cleanupIntentPersisted) {
-      cleanupLifecycle.persistIntent(pending);
-      pending.cleanupIntentPersisted = true;
+      if (
+        tryPersistCleanupStep("failed-stop cleanup intent", () =>
+          cleanupLifecycle.persistIntent(pending),
+        )
+      ) {
+        pending.cleanupIntentPersisted = true;
+      }
     }
     const item = await pending.item;
     if (item) {
       pending.removalItemId = item.id;
       if (cleanupLifecycle) {
         if (!pending.removalItemQueued) {
-          cleanupLifecycle.persistIntent(pending, item.id);
-          cleanupLifecycle.persistRemovalItem(pending, item.id);
-          pending.removalItemQueued = true;
+          if (
+            tryPersistCleanupStep("failed-stop cleanup item", () =>
+              cleanupLifecycle.persistIntent(pending, item.id),
+            )
+          ) {
+            pending.cleanupIntentPersisted = true;
+          }
+          if (
+            tryPersistCleanupStep("failed-stop removal queue", () =>
+              cleanupLifecycle.persistRemovalItem(pending, item.id),
+            )
+          ) {
+            pending.removalItemQueued = true;
+          }
         }
-        if (!pending.cleanupIntentCleared) {
-          cleanupLifecycle.clearIntent(pending);
-          pending.cleanupIntentCleared = true;
+        if (pending.removalItemQueued && !pending.cleanupIntentCleared) {
+          if (
+            tryPersistCleanupStep("failed-stop cleanup intent removal", () =>
+              cleanupLifecycle.clearIntent(pending),
+            )
+          ) {
+            pending.cleanupIntentCleared = true;
+          }
         }
       }
       await removeItem(pending.target, item.id, pending.account);

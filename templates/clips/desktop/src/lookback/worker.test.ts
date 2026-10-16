@@ -87,6 +87,7 @@ function fakeDeps(
 describe("processRecordingContextItem", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("skips items whose footage was captured on another device", async () => {
@@ -272,6 +273,51 @@ describe("processRecordingContextItem", () => {
       expect.objectContaining({ includeMic: false, includeSystemAudio: true }),
     );
     expect(deps.forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+  });
+
+  it("uses saved same-device settings when local capture details are unreadable", async () => {
+    const contextItem = item({
+      capturedDeviceId: "device-local",
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const deps = fakeDeps({
+      originFor: vi.fn(() => {
+        throw new Error("local storage unavailable");
+      }),
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "ready",
+    );
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(deps.created).toEqual([
+      { hasAudio: true, startedAt: contextItem.startedAt },
+    ]);
+    expect(deps.uploadWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMic: false, includeSystemAudio: true }),
+    );
+  });
+
+  it("preserves an unreadable-origin error when saved ownership is unavailable", async () => {
+    const storageError = new Error("local storage unavailable");
+    const deps = fakeDeps({
+      originFor: vi.fn(() => {
+        throw storageError;
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).rejects.toBe(
+      storageError,
+    );
+    expect(deps.createRecording).not.toHaveBeenCalled();
+    expect(deps.update).not.toHaveBeenCalled();
   });
 
   it("keeps a legacy origin after success so the saved item can be trimmed", async () => {
