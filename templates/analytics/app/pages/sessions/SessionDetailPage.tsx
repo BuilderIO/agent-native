@@ -344,7 +344,7 @@ export default function SessionDetailPage() {
         </div>
         {recording ? (
           <TooltipProvider>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <SessionOutputsButton recordingId={recording.id} />
               <CopySessionForAgentButton recordingId={recording.id} />
               <AskSessionPopover recording={recording} />

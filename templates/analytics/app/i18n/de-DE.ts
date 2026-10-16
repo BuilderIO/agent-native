@@ -1699,7 +1699,7 @@ export default {
     catalogMadeIt: "Erstellt",
     catalogUsedIt: "Genutzt",
     catalogNoUsedIt:
-      "Für {{apps}} ist kein „Genutzt“-Ereignis festgelegt, daher kann „Erstellt, nicht genutzt“ deren Ergebnisse nicht prüfen.",
+      "„Erstellt, nicht genutzt“ kann Ergebnisse aus {{apps}} nicht prüfen, weil kein „Genutzt“-Ereignis festgelegt ist.",
     catalogPropertyKeys: "Eigenschaftsschlüssel",
     catalogMoreKeys: "+{{count}} weitere",
     catalogTruncated:

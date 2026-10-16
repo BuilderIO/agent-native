@@ -1732,7 +1732,7 @@ export default {
     catalogMadeIt: "Made it",
     catalogUsedIt: "Used it",
     catalogNoUsedIt:
-      "No “used it” event is defined for {{apps}}, so “Made it, didn't use it” can't check their outputs.",
+      "“Made it, didn't use it” can't check outputs from {{apps}} because no “used it” event is defined.",
     catalogPropertyKeys: "Property keys",
     catalogMoreKeys: "+{{count}} more",
     catalogTruncated: "Showing only the {{count}} most recently seen events.",

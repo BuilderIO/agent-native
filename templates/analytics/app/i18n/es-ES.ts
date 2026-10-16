@@ -1686,7 +1686,7 @@ export default {
     catalogMadeIt: "Lo creó",
     catalogUsedIt: "Lo usó",
     catalogNoUsedIt:
-      "No hay ningún evento de “lo usó” definido para {{apps}}, así que “Lo creó, no lo usó” no puede revisar lo que crean.",
+      "“Lo creó, no lo usó” no puede revisar lo creado en {{apps}} porque no hay ningún evento de “lo usó” definido.",
     catalogPropertyKeys: "Claves de propiedades",
     catalogMoreKeys: "+{{count}} más",
     catalogTruncated:

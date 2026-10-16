@@ -1572,7 +1572,7 @@ export default {
     catalogMadeIt: "已创建",
     catalogUsedIt: "已使用",
     catalogNoUsedIt:
-      "{{apps}} 没有定义“已使用”事件，因此“已创建但未使用”无法检查其产出。",
+      "未定义“已使用”事件，因此“已创建但未使用”无法检查 {{apps}} 的产出。",
     catalogPropertyKeys: "属性键",
     catalogMoreKeys: "另外 {{count}} 个",
     catalogTruncated: "仅显示最近出现的 {{count}} 个事件。",

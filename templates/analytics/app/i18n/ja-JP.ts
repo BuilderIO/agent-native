@@ -1663,7 +1663,7 @@ export default {
     catalogMadeIt: "作成",
     catalogUsedIt: "使用",
     catalogNoUsedIt:
-      "{{apps}} には「使用」イベントが定義されていないため、「作成したが未使用」で成果物を確認できません。",
+      "「使用」イベントが定義されていないため、「作成したが未使用」で {{apps}} の成果物を確認できません。",
     catalogPropertyKeys: "プロパティキー",
     catalogMoreKeys: "他 {{count}} 件",
     catalogTruncated:

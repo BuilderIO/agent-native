@@ -1695,7 +1695,7 @@ export default {
     catalogMadeIt: "Créé",
     catalogUsedIt: "Utilisé",
     catalogNoUsedIt:
-      "Aucun événement « utilisé » n'est défini pour {{apps}}, donc « Créé, pas utilisé » ne peut pas vérifier leurs résultats.",
+      "« Créé, pas utilisé » ne peut pas vérifier les résultats de {{apps}}, car aucun événement « utilisé » n'est défini.",
     catalogPropertyKeys: "Clés de propriétés",
     catalogMoreKeys: "+{{count}} de plus",
     catalogTruncated:

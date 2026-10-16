@@ -1635,7 +1635,7 @@ export default {
     catalogMadeIt: "만듦",
     catalogUsedIt: "사용함",
     catalogNoUsedIt:
-      "{{apps}}에는 “사용함” 이벤트가 정의되어 있지 않아 “만들었지만 사용 안 함”으로 결과물을 확인할 수 없습니다.",
+      "“사용함” 이벤트가 정의되어 있지 않아 “만들었지만 사용 안 함”으로 {{apps}}의 결과물을 확인할 수 없습니다.",
     catalogPropertyKeys: "속성 키",
     catalogMoreKeys: "+{{count}}개 더",
     catalogTruncated: "가장 최근에 수신한 이벤트 {{count}}개만 표시합니다.",

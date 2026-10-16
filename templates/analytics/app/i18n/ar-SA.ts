@@ -1629,7 +1629,7 @@ export default {
     catalogMadeIt: "إنشاء",
     catalogUsedIt: "استخدام",
     catalogNoUsedIt:
-      "لا يوجد حدث «استخدام» معرّف لـ {{apps}}، لذا لا يمكن لـ «أنشأه ولم يستخدمه» فحص مخرجاتها.",
+      "لا يمكن لـ «أنشأه ولم يستخدمه» فحص مخرجات {{apps}} لعدم تعريف حدث «استخدام».",
     catalogPropertyKeys: "مفاتيح الخصائص",
     catalogMoreKeys: "+{{count}} أخرى",
     catalogTruncated: "يتم عرض أحدث {{count}} حدث ظهورًا فقط.",
