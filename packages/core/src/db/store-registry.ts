@@ -14,11 +14,7 @@
  */
 
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
-import {
-  getDbExec,
-  HostedRuntimeLocalDatabaseError,
-  type DbExec,
-} from "./client.js";
+import { getDbExec, type DbExec } from "./client.js";
 import {
   appMigratesAtRelease,
   schemaEnsureSkipRequested,
@@ -29,11 +25,7 @@ import {
   isProductionServerlessFunctionRuntime,
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
-import {
-  recordLegacyMigrationEntry,
-  runMigrations,
-  type MigrationEntry,
-} from "./migrations.js";
+import { runMigrations, type MigrationEntry } from "./migrations.js";
 import { retainRequestDbPoolScope } from "./request-pool-context.js";
 import {
   dbClientGeneration,
@@ -314,11 +306,13 @@ async function applyPending(
  * plugins from mounting that page, as `runMigrations` never did. Every later
  * query raises the same refusal, so nothing downstream reads as migrated.
  */
-function databaseRefusal(
-  err: unknown,
-): HostedRuntimeLocalDatabaseError | undefined {
+// By name rather than `instanceof`: this module must not import the class from
+// `client.js`, which nearly every spec mocks, and the runner wraps the error.
+function databaseRefusal(err: unknown): Error | undefined {
   for (let cause = err; cause; cause = (cause as Error).cause) {
-    if (cause instanceof HostedRuntimeLocalDatabaseError) return cause;
+    if ((cause as Error).name === "HostedRuntimeLocalDatabaseError") {
+      return cause as Error;
+    }
   }
   return undefined;
 }
@@ -333,6 +327,41 @@ async function tolerateRefusedDatabase(
     const refusal = databaseRefusal(err);
     if (!refusal || isReleaseStep()) throw err;
     console.error(`[db] Skipping store "${storeId}". ${refusal.message}`);
+  }
+}
+
+/**
+ * Records an entry in a `runMigrations` list's own bookkeeping as that runner
+ * would after applying it: by name when named, and the version only when it
+ * advances `MAX(version)`, the one value that gates unnamed entries.
+ */
+async function recordLegacyMigrationEntry(
+  exec: DbExec,
+  table: string,
+  entry: { version: number; name?: string },
+): Promise<void> {
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
+    ),
+  );
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table}_named (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
+    ),
+  );
+  if (entry.name) {
+    await exec.execute({
+      sql: `INSERT INTO ${table}_named (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`,
+      args: [entry.name, entry.version],
+    });
+  }
+  const { rows } = await exec.execute(`SELECT MAX(version) AS v FROM ${table}`);
+  if (entry.version > Number(rows[0]?.v ?? 0)) {
+    await exec.execute({
+      sql: `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`,
+      args: [entry.version],
+    });
   }
 }
 
