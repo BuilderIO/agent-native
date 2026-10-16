@@ -624,9 +624,12 @@ export const AgentNativeExtensionFrame = forwardRef<
         ...style,
       }}
       onLoad={(event) => {
-        externalLinkBridgeCleanupRef.current?.();
         externalLinkBridgeCleanupRef.current =
-          connectExtensionExternalLinkBridge(event.currentTarget, window);
+          connectExtensionExternalLinkBridge(
+            event.currentTarget,
+            window,
+            srcDoc,
+          );
         bridgeRef.current?.setTargetWindow(
           event.currentTarget.contentWindow ?? null,
         );

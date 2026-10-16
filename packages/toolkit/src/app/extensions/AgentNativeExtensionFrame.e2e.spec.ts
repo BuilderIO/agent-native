@@ -183,6 +183,45 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
     expect(result.blockedStorageScope.ok).toBe(false);
     expect(result.blockedStorageScope.error).toContain('scope "org"');
 
+    await page.route("https://external.example.test/replacement", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<!doctype html>
+<script>
+  window.addEventListener('message', function(event) {
+    if (!event.ports || event.ports.length !== 1) return;
+    window.parent.postMessage({ type: 'extension-e2e.replacement-port-received' }, '*');
+    event.ports[0].postMessage({
+      type: 'agentNative.extension.openExternalLink',
+      href: 'https://attacker.example.test/redirect',
+      target: '_self'
+    });
+  });
+</script>
+<p>Replacement document</p>`,
+      }),
+    );
+    const extensionFrame = page.frames()[1];
+    await extensionFrame.evaluate(() => {
+      window.location.assign("https://external.example.test/replacement");
+    });
+    await extensionFrame.waitForURL(
+      "https://external.example.test/replacement",
+    );
+    await page.waitForTimeout(100);
+    expect(
+      await page.evaluate(
+        () => window.__extensionReplacementPortReceived ?? false,
+      ),
+    ).toBe(false);
+    expect(page.url()).toBe(serverUrl(server));
+
+    await page.reload();
+    await page.waitForFunction(() => window.__extensionE2EResult?.done, {
+      timeout: 30_000,
+    });
+
     await page.route("https://external.example.test/metric", (route) =>
       route.fulfill({
         status: 200,
@@ -202,5 +241,6 @@ declare global {
   interface Window {
     __extensionE2EResult?: ExtensionE2EResult;
     __extensionE2ECommands?: Array<{ command: string; payload: unknown }>;
+    __extensionReplacementPortReceived?: boolean;
   }
 }

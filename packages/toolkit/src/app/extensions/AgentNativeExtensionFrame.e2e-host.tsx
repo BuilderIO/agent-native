@@ -56,6 +56,7 @@ const extensionContent = `
 interface ExtensionE2EWindow {
   __extensionE2EResult?: unknown;
   __extensionE2ECommands?: Array<{ command: string; payload: unknown }>;
+  __extensionReplacementPortReceived?: boolean;
 }
 
 const hostWindow = window as Window & ExtensionE2EWindow;
@@ -81,6 +82,10 @@ const wrongSlotExtension = {
 
 hostWindow.__extensionE2ECommands = [];
 window.addEventListener("message", (event) => {
+  if (event.data?.type === "extension-e2e.replacement-port-received") {
+    hostWindow.__extensionReplacementPortReceived = true;
+    return;
+  }
   if (event.data?.type !== "extension-e2e.done") return;
   hostWindow.__extensionE2EResult = event.data.result;
   const results = document.getElementById("host-results");

@@ -701,9 +701,12 @@ export function InlineExtensionFrame({
         }}
         onLoad={() => {
           if (iframeRef.current) {
-            externalLinkBridgeCleanupRef.current?.();
             externalLinkBridgeCleanupRef.current =
-              connectExtensionExternalLinkBridge(iframeRef.current, window);
+              connectExtensionExternalLinkBridge(
+                iframeRef.current,
+                window,
+                srcDoc ?? iframeSrc ?? "",
+              );
           }
           sendThemeToIframe();
           sendContextToIframe();

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_EXTENSION_DISPLAY_SOURCES,
@@ -18,6 +18,7 @@ import {
   EXTENSION_IFRAME_META_CSP,
   extensionIframeCspBase,
   extensionIframeMetaCspFromDisplaySources,
+  navigateExtensionExternalLink,
   parseExtensionExternalLinkRequest,
 } from "./html-shell.js";
 import {
@@ -127,6 +128,37 @@ describe("buildExtensionHtml", () => {
         "https://app.example.com",
       ),
     ).toBeNull();
+  });
+
+  it("requires transient host user activation before navigating", () => {
+    const request = {
+      type: EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE,
+      href: "https://docs.example.com/metric",
+      target: "_self",
+    };
+    const inactiveAssign = vi.fn();
+    const inactiveHost = {
+      location: { origin: "https://app.example.com", assign: inactiveAssign },
+      navigator: { userActivation: { isActive: false } },
+    } as unknown as Window;
+
+    expect(navigateExtensionExternalLink(request, inactiveHost)).toBe(
+      "ignored",
+    );
+    expect(inactiveAssign).not.toHaveBeenCalled();
+
+    const activeAssign = vi.fn();
+    const activeHost = {
+      location: { origin: "https://app.example.com", assign: activeAssign },
+      navigator: { userActivation: { isActive: true } },
+    } as unknown as Window;
+
+    expect(navigateExtensionExternalLink(request, activeHost)).toBe(
+      "navigated",
+    );
+    expect(activeAssign).toHaveBeenCalledWith(
+      "https://docs.example.com/metric",
+    );
   });
 
   it("keeps frame-ancestors in the HTTP header CSP only", () => {

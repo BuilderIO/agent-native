@@ -101,10 +101,10 @@ export function extensionIframeMetaCspFromDisplaySources(
  *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
  *      `EmbeddedExtension.tsx`) normalizes the sandbox through
  *      `normalizeAgentNativeExtensionSandbox()`, which permits scripts, forms,
- *      popups, downloads, and top-level navigation after a user activation,
- *      but strips `allow-same-origin`. Adding `allow-same-origin` would give
- *      the extension full DOM access to the parent window via cross-frame
- *      script.
+ *      popups, and downloads. External links use the validated host bridge;
+ *      extensions never receive top-level navigation permission. Adding
+ *      `allow-same-origin` would give the extension full DOM access to the
+ *      parent window via cross-frame script.
  *
  *   2. Every reachable parent action must treat the postMessage payload as
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
@@ -168,6 +168,16 @@ export interface ExtensionExternalLinkRequest {
   target: "_self";
 }
 
+interface ExtensionExternalLinkBridgeRegistration {
+  documentKey: string;
+  cleanup: () => void;
+}
+
+const extensionExternalLinkBridges = new WeakMap<
+  HTMLIFrameElement,
+  ExtensionExternalLinkBridgeRegistration
+>();
+
 export function parseExtensionExternalLinkRequest(
   message: unknown,
   currentOrigin: string,
@@ -201,6 +211,8 @@ export function navigateExtensionExternalLink(
   message: unknown,
   hostWindow: Window,
 ): "ignored" | "navigated" {
+  if (!hostWindow.navigator.userActivation?.isActive) return "ignored";
+
   const request = parseExtensionExternalLinkRequest(
     message,
     hostWindow.location.origin,
@@ -213,7 +225,14 @@ export function navigateExtensionExternalLink(
 export function connectExtensionExternalLinkBridge(
   iframe: HTMLIFrameElement,
   hostWindow: Window,
+  documentKey: string,
 ): (() => void) | null {
+  const existingBridge = extensionExternalLinkBridges.get(iframe);
+  if (existingBridge?.documentKey === documentKey) {
+    return existingBridge.cleanup;
+  }
+  existingBridge?.cleanup();
+
   const frameWindow = iframe.contentWindow;
   if (!frameWindow || typeof MessageChannel === "undefined") return null;
 
@@ -228,9 +247,16 @@ export function connectExtensionExternalLinkBridge(
     [channel.port2],
   );
 
-  return () => {
+  let bridge: ExtensionExternalLinkBridgeRegistration;
+  const cleanup = () => {
     channel.port1.close();
+    if (extensionExternalLinkBridges.get(iframe) === bridge) {
+      extensionExternalLinkBridges.delete(iframe);
+    }
   };
+  bridge = { documentKey, cleanup };
+  extensionExternalLinkBridges.set(iframe, bridge);
+  return cleanup;
 }
 
 export function buildExtensionExternalLinkBootstrap(): string {

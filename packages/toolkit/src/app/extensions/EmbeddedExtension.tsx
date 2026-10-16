@@ -466,9 +466,12 @@ export function EmbeddedExtension({
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
           if (iframeRef.current) {
-            externalLinkBridgeCleanupRef.current?.();
             externalLinkBridgeCleanupRef.current =
-              connectExtensionExternalLinkBridge(iframeRef.current, window);
+              connectExtensionExternalLinkBridge(
+                iframeRef.current,
+                window,
+                iframeSrc,
+              );
           }
           iframeRef.current?.contentWindow?.postMessage(
             {

@@ -1314,9 +1314,12 @@ export function ExtensionViewer({
               // spinner up until the real document loads.
               if (usesSrcDoc && !iframeSrcDoc) return;
               if (iframeRef.current) {
-                externalLinkBridgeCleanupRef.current?.();
                 externalLinkBridgeCleanupRef.current =
-                  connectExtensionExternalLinkBridge(iframeRef.current, window);
+                  connectExtensionExternalLinkBridge(
+                    iframeRef.current,
+                    window,
+                    iframeSrcDoc ?? iframeSrc,
+                  );
               }
               sendThemeToIframe();
               setTimeout(() => setIframeReady(true), 150);
