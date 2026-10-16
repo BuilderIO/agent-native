@@ -19,6 +19,7 @@ export interface AgentRunOutput {
     readonly result?: string;
   }[];
   readonly ok: boolean;
+  readonly scoreable?: boolean;
   readonly error?: string;
   readonly runId: string;
   readonly durationMs: number;

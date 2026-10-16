@@ -92,8 +92,10 @@ export async function scoreEval(
   }
 
   const scores: ScorerResult[] = [];
-  for (const scorer of evalCase.scorers) {
-    scores.push(await runScorer(scorer, run, runner, threshold));
+  if (run.scoreable !== false) {
+    for (const scorer of evalCase.scorers) {
+      scores.push(await runScorer(scorer, run, runner, threshold));
+    }
   }
 
   const avgScore =

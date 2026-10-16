@@ -1316,6 +1316,42 @@ describe("runEvalSuite runner creation", () => {
     expect(suite.report.results[0].usage).toBeUndefined();
   });
 
+  it.each(["text", "toolCalls", "runId", "durationMs"] as const)(
+    "fails closed when successful adapter output is missing %s",
+    async (missingField) => {
+      const analyze = vi.fn((run: { text: string }) => run.text);
+      const evalCase = defineEval({
+        name: `malformed-production-output-without-${missingField}`,
+        input: { prompt: "find active users" },
+        scorers: [{ name: "sentinel", analyze, generateScore: () => 1 }],
+      });
+      const productionChatPath = testProductionChatPath();
+      productionChatPath.run = async (args) => {
+        const result = await testProductionChatPath().run(args);
+        const output = { ...result.output } as Record<string, unknown>;
+        delete output[missingField];
+        return { ...result, output: output as never };
+      };
+
+      const suite = await runEvalSuite({
+        evals: [evalCase],
+        productionContext: {
+          ...testProductionContext(),
+          productionChatPath,
+        },
+        requireProductionChatPath: true,
+        persist: false,
+      });
+
+      expect(suite.report.results[0]).toMatchObject({
+        status: "failed",
+        error: "Production chat eval adapter returned malformed run output.",
+        scores: [],
+      });
+      expect(analyze).not.toHaveBeenCalled();
+    },
+  );
+
   it("fails closed when an adapter returns a truthy non-boolean ok value", async () => {
     const evalCase = defineEval({
       name: "malformed-production-adapter-ok",

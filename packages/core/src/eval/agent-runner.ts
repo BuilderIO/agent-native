@@ -478,9 +478,8 @@ async function runProductionChatPath(args: {
       };
     }
     const output = result.output;
-    if (typeof output.ok !== "boolean") {
-      return failedProductionPathOutput(
-        output,
+    if (!isProductionPathOutput(output)) {
+      return malformedProductionPathOutput(
         "Production chat eval adapter returned malformed run output.",
         Date.now() - started,
         partialUsage,
@@ -731,6 +730,26 @@ function validateProductionPathRun(
   return undefined;
 }
 
+function isProductionPathOutput(value: unknown): value is AgentRunOutput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const output = value as Record<string, unknown>;
+  return (
+    typeof output.text === "string" &&
+    Array.isArray(output.toolCalls) &&
+    Array.from(output.toolCalls).every(
+      (toolCall) => typeof toolCall === "string",
+    ) &&
+    typeof output.ok === "boolean" &&
+    typeof output.runId === "string" &&
+    typeof output.durationMs === "number" &&
+    Number.isFinite(output.durationMs) &&
+    output.durationMs >= 0
+  );
+}
+
 function resolveActionAllowlist(
   actions: Record<string, ActionEntry>,
   requested?: readonly string[],
@@ -773,6 +792,23 @@ function failedProductionPathOutput(
     ...safeOutput,
     ok: false,
     error,
+    durationMs,
+    ...(usage ? { usage } : {}),
+  };
+}
+
+function malformedProductionPathOutput(
+  error: string,
+  durationMs: number,
+  usage?: AgentLoopUsage,
+): AgentRunOutput {
+  return {
+    text: "",
+    toolCalls: [],
+    ok: false,
+    scoreable: false,
+    error,
+    runId: `eval:${crypto.randomUUID()}`,
     durationMs,
     ...(usage ? { usage } : {}),
   };
