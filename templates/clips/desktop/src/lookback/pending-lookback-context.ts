@@ -12,6 +12,9 @@ export interface PendingLookbackContext {
   account: string;
   item: Promise<RecordingContextItem | null>;
   stopFailed?: boolean;
+  stopSucceeded?: boolean;
+  requestFailedAfterStop?: boolean;
+  settlingAfterStop?: boolean;
   removalItemId?: string;
   removalInProgress?: boolean;
   cleanupIntentPersisted?: boolean;
@@ -20,9 +23,30 @@ export interface PendingLookbackContext {
 }
 
 export interface PendingLookbackCleanupLifecycle {
-  persistIntent: (context: PendingLookbackContext, itemId?: string) => void;
+  persistIntent: (
+    context: PendingLookbackContext,
+    itemId?: string,
+    mode?: "remove" | "retain",
+  ) => void;
   persistRemovalItem: (context: PendingLookbackContext, itemId: string) => void;
   clearIntent: (context: PendingLookbackContext) => void;
+}
+
+export function pendingSuccessfulLookbackRequests(
+  contexts: Map<string, PendingLookbackContext>,
+  scope?: { serverUrl: string; account: string | null },
+): PendingLookbackContext[] {
+  return [...contexts.values()].filter(
+    (context) =>
+      context.stopSucceeded &&
+      context.requestFailedAfterStop &&
+      !context.stopFailed &&
+      (!scope ||
+        sameLookbackRemovalScope(
+          { serverUrl: context.target.serverUrl, account: context.account },
+          scope,
+        )),
+  );
 }
 
 export function pendingFailedLookbackContexts(
@@ -102,10 +126,41 @@ export async function settlePendingLookbackContextAfterStop(
   const pending = contexts.get(recordingId);
   if (!pending) return;
   if (stopSucceeded) {
-    contexts.delete(recordingId);
+    pending.stopSucceeded = true;
+    if (pending.settlingAfterStop) return;
+    pending.settlingAfterStop = true;
+    try {
+      await pending.item;
+      if (!pending.stopFailed && contexts.get(recordingId) === pending) {
+        contexts.delete(recordingId);
+      }
+    } catch (error) {
+      if (pending.stopFailed) return;
+      pending.requestFailedAfterStop = true;
+      if (!cleanupLifecycle) {
+        console.warn(
+          "[lookback] keeping the successful-stop request available for retry:",
+          error,
+        );
+        return;
+      }
+      try {
+        cleanupLifecycle.persistIntent(pending, undefined, "retain");
+        if (contexts.get(recordingId) === pending) contexts.delete(recordingId);
+      } catch (persistError) {
+        console.error(
+          "[lookback] failed to persist the successful-stop request for retry; keeping it in memory:",
+          persistError,
+        );
+      }
+    } finally {
+      pending.settlingAfterStop = false;
+    }
     return;
   }
 
+  pending.stopSucceeded = false;
+  pending.requestFailedAfterStop = false;
   pending.stopFailed = true;
   if (pending.removalInProgress) return;
   pending.removalInProgress = true;

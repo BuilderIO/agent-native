@@ -109,6 +109,40 @@ describe("pending lookback cleanup intents", () => {
     expect(hasPendingLookbackCleanupIntentWarning(state)).toBe(false);
   });
 
+  it("retries a successful-stop request without queuing it for removal", async () => {
+    const storage = memoryStorage();
+    const intentKey = pendingLookbackCleanupIntentStorageKey(
+      serverUrl,
+      account,
+    );
+    const removalKey = pendingLookbackRemovalStorageKey(serverUrl, account);
+    if (!intentKey || !removalKey)
+      throw new Error("Expected scoped storage keys.");
+    persistPendingLookbackCleanupIntent(
+      storage,
+      serverUrl,
+      account,
+      request,
+      undefined,
+      "retain",
+    );
+    const requestItem = vi.fn(async () => ({ id: "context-1" }));
+
+    const state = await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      requestItem,
+    });
+
+    expect(requestItem).toHaveBeenCalledOnce();
+    expect(storage.getItem(intentKey)).toBeNull();
+    expect(storage.getItem(removalKey)).toBeNull();
+    expect(state.pendingRecordingIds.size).toBe(0);
+    expect(hasPendingLookbackCleanupIntentWarning(state)).toBe(false);
+  });
+
   it("reuses a known context ID after a crash without creating another request", async () => {
     const storage = memoryStorage();
     persistPendingLookbackCleanupIntent(
@@ -187,6 +221,32 @@ describe("pending lookback cleanup intents", () => {
 
     expect(state.pendingRecordingIds).toEqual(new Set(["recording-1"]));
     expect(hasPendingLookbackCleanupIntentWarning(state)).toBe(true);
+  });
+
+  it("keeps a retained request retryable without showing a cleanup warning", async () => {
+    const storage = memoryStorage();
+    persistPendingLookbackCleanupIntent(
+      storage,
+      serverUrl,
+      account,
+      request,
+      undefined,
+      "retain",
+    );
+    const requestItem = vi.fn(async () => {
+      throw new Error("network unavailable");
+    });
+
+    const state = await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      requestItem,
+    });
+
+    expect(state.pendingRecordingIds).toEqual(new Set(["recording-1"]));
+    expect(hasPendingLookbackCleanupIntentWarning(state)).toBe(false);
   });
 
   it.each([

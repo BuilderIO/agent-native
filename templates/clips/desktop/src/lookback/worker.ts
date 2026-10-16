@@ -1,5 +1,9 @@
 import { ClipsActionError } from "../lib/clips-action";
 import type { createPrivateAgentRewindRecording } from "../lib/recorder";
+import {
+  RECORDING_SERVER_UNAVAILABLE,
+  RECORDING_SESSION_EXPIRED,
+} from "../lib/recording-request";
 import type {
   RecordingContextItem,
   RecordingContextUpdate,
@@ -217,9 +221,9 @@ async function processRecordingContextItemWithOrigin(
         }),
     );
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
+    if (isRetryableRecordingCreateFailure(error)) {
       console.warn(
-        "[lookback] recording creation timed out; leaving the item pending for retry:",
+        "[lookback] recording creation failed temporarily; leaving the item pending for retry:",
         error,
       );
       return "failed";
@@ -394,13 +398,19 @@ async function failAfterClaim(
     return "ready";
   }
 
-  await trashUnusedRecording(recordingId, deps);
   if (
     current.status === "processing" &&
     current.pendingMediaRecordingId === recordingId
   ) {
-    await markFailed(item, error, deps);
+    // Keep the reservation until a later stale-claim retry replaces it. The
+    // processing transition trashes the old reservation after the new one lands.
+    console.warn(
+      "[lookback] keeping the reserved footage for a later export retry:",
+      error,
+    );
+    return "failed";
   }
+  await trashUnusedRecording(recordingId, deps);
   return "failed";
 }
 
@@ -468,6 +478,33 @@ const NON_RETRYABLE_STATUSES = new Set([400, 422]);
 // status is read from the text it builds from the server's response.
 const NATIVE_UPLOAD_REJECTED =
   /^native recording (?:upload|retry setup) returned (400|422)\b/;
+const CREATE_RECORDING_RESPONSE = /^create-recording (\d{3})\b/;
+
+function isRetryableRecordingCreateFailure(error: unknown): boolean {
+  if (error instanceof Error && error.name === "TimeoutError") return true;
+  if (error instanceof TypeError) return true;
+  if (error instanceof ClipsActionError) {
+    return isRetryableStatus(error.status);
+  }
+  if (!(error instanceof Error)) return false;
+  if (
+    error.message === RECORDING_SERVER_UNAVAILABLE ||
+    error.message === RECORDING_SESSION_EXPIRED
+  ) {
+    return true;
+  }
+  const response = CREATE_RECORDING_RESPONSE.exec(error.message);
+  return response ? isRetryableStatus(Number(response[1])) : false;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    (status >= 500 && status < 600)
+  );
+}
 
 function isNonRetryable(error: unknown): boolean {
   if (error instanceof ClipsActionError) {

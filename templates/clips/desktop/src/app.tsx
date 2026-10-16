@@ -301,6 +301,7 @@ import {
   hasPendingFailedLookbackRemoval,
   isLookbackContextAwaitingStop,
   pendingFailedLookbackContexts,
+  pendingSuccessfulLookbackRequests,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContextAfterStop,
   type PendingLookbackCleanupLifecycle,
@@ -2018,13 +2019,14 @@ export function App({
     storage: LookbackRemovalStorage,
   ): PendingLookbackCleanupLifecycle {
     return {
-      persistIntent: (context, itemId) =>
+      persistIntent: (context, itemId, mode) =>
         persistPendingLookbackCleanupIntent(
           storage,
           context.target.serverUrl,
           context.account,
           context.request,
           itemId,
+          mode,
         ),
       persistRemovalItem: (context, itemId) =>
         persistPendingLookbackRemoval(
@@ -2196,7 +2198,7 @@ export function App({
     }
   }
 
-  // Failed stops remove their server item; successful stops leave it for the worker.
+  // Successful stops release the item only after its request settles or is durable.
   function settleLookbackContextAfterStop(
     recordingId: string | null | undefined,
     stopSucceeded: boolean,
@@ -2289,12 +2291,25 @@ export function App({
       if (inFlight) return;
       inFlight = true;
       try {
+        const successfulStopRetries = pendingSuccessfulLookbackRequests(
+          lookbackContextRef.current,
+          { serverUrl, account: signedInAs },
+        );
         const failedStops = pendingFailedLookbackContexts(
           lookbackContextRef.current,
           { serverUrl, account: signedInAs },
         );
-        await Promise.allSettled(
-          failedStops.map((context) =>
+        await Promise.allSettled([
+          ...successfulStopRetries.map((context) =>
+            settlePendingLookbackContextAfterStop(
+              lookbackContextRef.current,
+              context.recordingId,
+              true,
+              removeFailedLookbackItem,
+              lookbackCleanupLifecycle(lookbackRemovalStorage()),
+            ),
+          ),
+          ...failedStops.map((context) =>
             settlePendingLookbackContextAfterStop(
               lookbackContextRef.current,
               context.recordingId,
@@ -2303,7 +2318,7 @@ export function App({
               lookbackCleanupLifecycle(lookbackRemovalStorage()),
             ),
           ),
-        );
+        ]);
         if (cancelled) return;
         const storage = lookbackRemovalStorage();
         const activeRecordingIds = new Set(lookbackContextRef.current.keys());
@@ -2315,6 +2330,7 @@ export function App({
           skipRecordingIds: activeRecordingIds,
           retries: lookbackCleanupIntentRetriesRef.current,
           requestItem: requestRecordingContextOnce,
+          onTerminalRequestFailure: forgetRewindClipOrigin,
         });
         if (cancelled) return;
         const storedRemovals = readPendingLookbackRemovals(
@@ -2369,7 +2385,7 @@ export function App({
         if (!lookbackLabEnabled || !rewindOn) return;
 
         const cleanupRemovalIds = cleanupIntents.intents.flatMap((intent) =>
-          intent.itemId ? [intent.itemId] : [],
+          intent.mode !== "retain" && intent.itemId ? [intent.itemId] : [],
         );
         const excludeIds = [
           ...new Set([

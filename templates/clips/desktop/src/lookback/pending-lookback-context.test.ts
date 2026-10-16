@@ -4,6 +4,7 @@ import type { RecordingContextItem } from "./context-api";
 import {
   hasPendingFailedLookbackRemoval,
   isLookbackContextAwaitingStop,
+  pendingSuccessfulLookbackRequests,
   pendingFailedLookbackContexts,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContext,
@@ -327,6 +328,64 @@ describe("settlePendingLookbackContextAfterStop", () => {
 
     expect(removeItem).not.toHaveBeenCalled();
     expect(contexts.has(context.recordingId)).toBe(false);
+  });
+
+  it("persists a retry intent when a successful stop outlives request retries", async () => {
+    const context = pending("recording-a");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let rejectItem!: (error: Error) => void;
+    context.item = new Promise((_resolve, reject) => {
+      rejectItem = reject;
+    });
+    const contexts = new Map([[context.recordingId, context]]);
+    const persistIntent = vi.fn();
+    const settling = settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      true,
+      vi.fn(async () => {}),
+      {
+        persistIntent,
+        persistRemovalItem: vi.fn(),
+        clearIntent: vi.fn(),
+      },
+    );
+
+    rejectItem(new Error("network unavailable"));
+    await settling;
+
+    expect(persistIntent).toHaveBeenCalledWith(context, undefined, "retain");
+    expect(contexts.has(context.recordingId)).toBe(false);
+  });
+
+  it("keeps the request in memory when its retry intent cannot be persisted", async () => {
+    const context = pending("recording-a");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let rejectItem!: (error: Error) => void;
+    context.item = new Promise((_resolve, reject) => {
+      rejectItem = reject;
+    });
+    const contexts = new Map([[context.recordingId, context]]);
+    const settling = settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      true,
+      vi.fn(async () => {}),
+      {
+        persistIntent: () => {
+          throw new Error("storage unavailable");
+        },
+        persistRemovalItem: vi.fn(),
+        clearIntent: vi.fn(),
+      },
+    );
+
+    rejectItem(new Error("network unavailable"));
+    await settling;
+
+    expect(contexts.get(context.recordingId)).toBe(context);
+    expect(pendingSuccessfulLookbackRequests(contexts)).toEqual([context]);
   });
 
   it("releases the cleanup handle when the request never reached the server", async () => {

@@ -183,7 +183,30 @@ describe("processRecordingContextItem", () => {
     expect(deps.forgetOrigin).not.toHaveBeenCalled();
   });
 
-  it("cancels and releases a native upload that never returns", async () => {
+  it.each([
+    ["server unavailable", new Error("SERVER_UNAVAILABLE")],
+    ["session expired", new Error("SESSION_EXPIRED")],
+    ["network interruption", new TypeError("fetch failed")],
+  ])(
+    "leaves transient recording creation failures pending: %s",
+    async (_, error) => {
+      const deps = fakeDeps({
+        currentItem: vi.fn(async () => item()),
+        createRecording: vi.fn(async () => {
+          throw error;
+        }),
+      });
+
+      await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+        "failed",
+      );
+
+      expect(deps.update).not.toHaveBeenCalled();
+      expect(deps.trashed).toEqual([]);
+    },
+  );
+
+  it("keeps a timed out native upload claimed for retry", async () => {
     vi.useFakeTimers();
     const deps = fakeDeps({
       currentItem: vi.fn(async () =>
@@ -197,10 +220,11 @@ describe("processRecordingContextItem", () => {
 
     await expect(processing).resolves.toBe("failed");
     expect(deps.cancelUpload).toHaveBeenCalledWith("media-1");
-    expect(deps.trashed).toEqual(["media-1"]);
-    expect(deps.updates.at(-1)).toEqual(
-      expect.objectContaining({ id: "ctx1", status: "failed" }),
-    );
+    expect(deps.trashed).toEqual([]);
+    expect(deps.updates).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+    ]);
+    expect(deps.currentItem).toHaveBeenCalledWith("rec1", "ctx1");
   });
 
   it("keeps an origin while a failed item can still be retried", async () => {

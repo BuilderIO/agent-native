@@ -18,6 +18,7 @@ const MAX_CONTEXT_REQUEST_RECOVERIES_PER_POLL = 1;
 export interface PendingLookbackCleanupIntent {
   request: RecordingContextRequestInput;
   itemId?: string;
+  mode?: "retain";
   retryAttempts?: number;
   retryAt?: number;
 }
@@ -95,6 +96,9 @@ function readIntents(
       ) {
         return { ok: false };
       }
+      if (intent.mode !== undefined && intent.mode !== "retain") {
+        return { ok: false };
+      }
       if (
         (intent.retryAttempts !== undefined &&
           (!Number.isInteger(intent.retryAttempts) ||
@@ -117,6 +121,7 @@ function readIntents(
       intents.push({
         request,
         ...(intent.itemId ? { itemId: intent.itemId } : {}),
+        ...(intent.mode ? { mode: intent.mode } : {}),
         ...(intent.retryAttempts !== undefined && intent.retryAt !== undefined
           ? {
               retryAttempts: intent.retryAttempts,
@@ -146,6 +151,7 @@ export function persistPendingLookbackCleanupIntent(
   account: string | null | undefined,
   request: RecordingContextRequestInput,
   itemId?: string,
+  mode?: "remove" | "retain",
 ): void {
   const key = pendingLookbackCleanupIntentStorageKey(serverUrl, account);
   if (!key) throw new Error("A signed-in account is required for cleanup.");
@@ -155,9 +161,11 @@ export function persistPendingLookbackCleanupIntent(
     (intent) => intent.request.recordingId === request.recordingId,
   );
   const savedItemId = itemId ?? existing?.itemId;
+  const savedMode = mode ?? "remove";
   const intent: PendingLookbackCleanupIntent = {
     request: existing?.request ?? request,
     ...(savedItemId ? { itemId: savedItemId } : {}),
+    ...(savedMode === "retain" ? { mode: savedMode } : {}),
     ...(existing?.retryAttempts !== undefined && existing.retryAt !== undefined
       ? {
           retryAttempts: existing.retryAttempts,
@@ -219,7 +227,7 @@ export function readPendingLookbackCleanupIntents(
     pendingRecordingIds: new Set(
       state.intents.map((intent) => intent.request.recordingId),
     ),
-    failed: state.intents.length > 0,
+    failed: state.intents.some((intent) => intent.mode !== "retain"),
   };
 }
 
@@ -231,6 +239,7 @@ export async function retryPendingLookbackCleanupIntents(input: {
   skipRecordingIds?: ReadonlySet<string>;
   retries?: Map<string, LookbackRemovalRetry>;
   now?: () => number;
+  onTerminalRequestFailure?: (recordingId: string) => void;
   requestItem: (
     target: ClipsActionTarget,
     request: RecordingContextRequestInput,
@@ -281,6 +290,7 @@ export async function retryPendingLookbackCleanupIntents(input: {
           item = await input.requestItem(input.target, intent.request);
         } catch (error) {
           if (!isTerminalRecordingContextRequestFailure(error)) throw error;
+          input.onTerminalRequestFailure?.(recordingId);
           clearPendingLookbackCleanupIntent(
             input.storage,
             input.serverUrl,
@@ -291,13 +301,25 @@ export async function retryPendingLookbackCleanupIntents(input: {
           continue;
         }
         itemId = item.id;
-        persistPendingLookbackCleanupIntent(
+        if (intent.mode !== "retain") {
+          persistPendingLookbackCleanupIntent(
+            input.storage,
+            input.serverUrl,
+            input.account,
+            intent.request,
+            itemId,
+          );
+        }
+      }
+      if (intent.mode === "retain") {
+        clearPendingLookbackCleanupIntent(
           input.storage,
           input.serverUrl,
           input.account,
-          intent.request,
-          itemId,
+          recordingId,
         );
+        input.retries?.delete(retryKey);
+        continue;
       }
       persistPendingLookbackRemoval(
         input.storage,
@@ -355,5 +377,8 @@ export async function retryPendingLookbackCleanupIntents(input: {
 export function hasPendingLookbackCleanupIntentWarning(
   state: PendingLookbackCleanupIntentState,
 ): boolean {
-  return state.status === "unreadable" || state.pendingRecordingIds.size > 0;
+  return (
+    state.status === "unreadable" ||
+    state.intents.some((intent) => intent.mode !== "retain")
+  );
 }
