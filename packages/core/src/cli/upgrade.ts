@@ -678,11 +678,26 @@ function findNearestPnpmWorkspaceFile(projectRoot: string): string | null {
   }
 }
 
+// Only a project that installs @agent-native/* packages needs the exclusion;
+// any other pnpm workspace keeps its release-age gate as configured.
+function dependsOnAgentNative(project: UpgradeProject): boolean {
+  return project.packageFiles.some((file) => {
+    const read = readJsonFile(file);
+    return (
+      read.ok &&
+      PINNABLE_SECTIONS.some((section) =>
+        Object.keys(read.value[section] ?? {}).some(isAgentNativePackageName),
+      )
+    );
+  });
+}
+
 function alignReleaseAgeExclude(
   project: UpgradeProject,
   dryRun: boolean,
 ): UpgradeRunResult["steps"][number] | null {
   if (detectPackageManager(project.root) !== "pnpm") return null;
+  if (!dependsOnAgentNative(project)) return null;
   const file = findNearestPnpmWorkspaceFile(project.root);
   if (!file) return null;
   const displayFile = relativeTo(project.root, file);

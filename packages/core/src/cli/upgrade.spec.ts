@@ -1268,6 +1268,54 @@ describe("runUpgrade", () => {
       expect(out.join("\n")).not.toContain("release-age");
     });
 
+    it("leaves a pnpm workspace without @agent-native dependencies alone", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: {
+          name: "other-workspace",
+          private: true,
+          devDependencies: { typescript: "^5.9.0" },
+        },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: { web: { name: "web", dependencies: { react: "^19.0.0" } } },
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+    });
+
+    it("updates a workspace whose only @agent-native dependency is in a member app", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        olderWorkspaceYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
     it("updates the workspace root's file when run from a member app", async () => {
       const root = makeTempProject({
         kind: "workspace",
