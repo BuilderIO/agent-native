@@ -119,6 +119,20 @@ describe("extractLayerPosition", () => {
     );
   });
 
+  it("positions a clone without rewriting the rest of its authored style text", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="source" style="position:absolute;left:0;top:0;background:#fffdf8;padding:0 24px">Source</div>',
+      ],
+      { positions: [{ x: 100, y: 180 }] },
+    );
+
+    expect(parseFragment(result!.htmlFragments[0]!).getAttribute("style")).toBe(
+      "position:absolute;left: 100px;top: 180px;background:#fffdf8;padding:0 24px",
+    );
+  });
+
   it("clears an authored inset before positioning a clone", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,

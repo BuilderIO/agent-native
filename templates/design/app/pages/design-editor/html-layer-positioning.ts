@@ -114,6 +114,24 @@ function patchNodeStyleInHtml(
   return patched ?? content;
 }
 
+/** Writes `updates` into the element's style text, leaving every other declaration as authored. */
+export function patchElementInlineStyle(
+  element: HTMLElement | SVGElement,
+  updates: Array<{ property: string; value: string | null }>,
+): void {
+  const changed = updates.filter(
+    (update) =>
+      element.style.getPropertyValue(update.property) !== (update.value ?? ""),
+  );
+  if (changed.length === 0) return;
+  const nextStyle = patchInlineStyleDeclarations(
+    element.getAttribute("style"),
+    changed.map((update) => ({ ...update, priority: "" })),
+  );
+  if (nextStyle === null) element.removeAttribute("style");
+  else element.setAttribute("style", nextStyle);
+}
+
 function patchInlineStyleDeclarations(
   style: string | null,
   updates: Array<{

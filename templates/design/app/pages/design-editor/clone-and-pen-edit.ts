@@ -52,6 +52,7 @@ import {
 } from "./clone-idrefs";
 import { queryUniqueSelector } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { patchElementInlineStyle } from "./html-layer-positioning";
 import {
   applyPortableStyles,
   elementAtPortableStylePath,
@@ -780,27 +781,23 @@ function setRootLayerPosition(
     measuredVisualOffset || position.positionMode === "relative";
   const left = formatClonePosition(position.x - offset.x, preserveFractional);
   const top = formatClonePosition(position.y - offset.y, preserveFractional);
-  const mode = position.positionMode === "relative" ? "relative" : "absolute";
-  // Any CSSOM write re-serializes the layer's authored style text.
-  if (
-    host.style.position === mode &&
-    host.style.left === left &&
-    host.style.top === top &&
-    (mode === "relative" ||
-      (!host.style.right && !host.style.bottom && !host.style.inset))
-  ) {
-    return true;
-  }
-  if (position.positionMode === "relative") {
-    host.style.position = "relative";
-  } else {
-    host.style.removeProperty("inset");
-    host.style.position = "absolute";
-    host.style.right = "";
-    host.style.bottom = "";
-  }
-  host.style.left = left;
-  host.style.top = top;
+  patchElementInlineStyle(
+    host,
+    position.positionMode === "relative"
+      ? [
+          { property: "position", value: "relative" },
+          { property: "left", value: left },
+          { property: "top", value: top },
+        ]
+      : [
+          { property: "inset", value: null },
+          { property: "right", value: null },
+          { property: "bottom", value: null },
+          { property: "position", value: "absolute" },
+          { property: "left", value: left },
+          { property: "top", value: top },
+        ],
+  );
   return true;
 }
 
