@@ -1022,14 +1022,16 @@ export function SqlChartCard({
         </DialogContent>
       </Dialog>
 
-      <PanelDrilldownDialog
-        panel={panel}
-        datum={drilldownDatum}
-        resolvedSql={resolvedSql}
-        dashboardId={dashboardId}
-        filters={filters}
-        onClose={() => setDrilldownDatum(null)}
-      />
+      {drilldownDatum ? (
+        <PanelDrilldownDialog
+          panel={panel}
+          datum={drilldownDatum}
+          resolvedSql={resolvedSql}
+          dashboardId={dashboardId}
+          filters={filters}
+          onClose={() => setDrilldownDatum(null)}
+        />
+      ) : null}
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
