@@ -122,9 +122,14 @@ export function parseTranscriptImport(
     return { ok: false, format, error: { code: "empty", line: null } };
   }
   if (durationMs !== null) {
-    const pastEnd = parsed.segments.findIndex(
-      (segment) => segment.startMs > durationMs + PAST_END_TOLERANCE_MS,
-    );
+    // Every cue needs a start inside the clip to join, so a transcript that
+    // starts at or past the end belongs to a different video.
+    const pastEnd =
+      parsed.segments[0].startMs >= durationMs
+        ? 0
+        : parsed.segments.findIndex(
+            (segment) => segment.startMs > durationMs + PAST_END_TOLERANCE_MS,
+          );
     if (pastEnd >= 0) {
       return {
         ok: false,
@@ -133,16 +138,10 @@ export function parseTranscriptImport(
       };
     }
   }
-  // Ends past the video are cut at its end. A cue that starts inside the
-  // tolerance keeps a 1 ms span, since a zero-length cue is dropped on read.
   const segments =
     durationMs === null
       ? parsed.segments
-      : parsed.segments.map((segment) =>
-          segment.endMs > durationMs
-            ? { ...segment, endMs: Math.max(durationMs, segment.startMs + 1) }
-            : segment,
-        );
+      : fitToDuration(parsed.segments, durationMs);
   return {
     ok: true,
     format,
@@ -223,13 +222,7 @@ function parseCues(lines: string[], format: "vtt" | "srt"): ParsedLines {
   for (const cue of cues) {
     const previous = timed[timed.length - 1];
     if (previous && cue.segment.startMs === previous.segment.startMs) {
-      const { speaker, ...rest } = previous.segment;
-      previous.segment = {
-        ...rest,
-        endMs: Math.max(rest.endMs, cue.segment.endMs),
-        text: `${rest.text} ${cue.segment.text}`,
-        ...(speaker && speaker === cue.segment.speaker ? { speaker } : {}),
-      };
+      previous.segment = joinSegments(previous.segment, cue.segment);
       continue;
     }
     if (previous && previous.segment.endMs > cue.segment.startMs) {
@@ -241,6 +234,39 @@ function parseCues(lines: string[], format: "vtt" | "srt"): ParsedLines {
     segments: timed.map((cue) => cue.segment),
     lineNumbers: timed.map((cue) => cue.line),
     language,
+  };
+}
+
+// Duration metadata can run a little short of the media, so a cue starting
+// inside the tolerance is real speech at the very end. Its words join the
+// last cue that starts inside the clip, and every cue ends by the clip's end.
+function fitToDuration(
+  segments: TranscriptSegment[],
+  durationMs: number,
+): TranscriptSegment[] {
+  const fitted: TranscriptSegment[] = [];
+  for (const segment of segments) {
+    const next =
+      fitted.length && segment.startMs >= durationMs
+        ? joinSegments(fitted.pop()!, segment)
+        : segment;
+    fitted.push(
+      next.endMs > durationMs ? { ...next, endMs: durationMs } : next,
+    );
+  }
+  return fitted;
+}
+
+function joinSegments(
+  first: TranscriptSegment,
+  second: TranscriptSegment,
+): TranscriptSegment {
+  const { speaker, ...rest } = first;
+  return {
+    ...rest,
+    endMs: Math.max(rest.endMs, second.endMs),
+    text: `${rest.text} ${second.text}`,
+    ...(speaker && speaker === second.speaker ? { speaker } : {}),
   };
 }
 
@@ -423,7 +449,9 @@ function splitAtCueTimings(
   let seenTiming = false;
   for (const [index, line] of block.entries()) {
     if (!CUE_TIMING_START.test(line.text)) continue;
-    if (seenTiming) {
+    // A part's own timing is its first line, or its second after an
+    // identifier; one further down starts the next cue, even after a NOTE.
+    if (seenTiming || index - start > 1) {
       const cut =
         index - 1 > start && /^\d+$/.test(block[index - 1].text.trim())
           ? index - 1
@@ -443,11 +471,13 @@ function splitBlocks(
   const blocks: Array<Array<{ text: string; number: number }>> = [];
   let current: Array<{ text: string; number: number }> = [];
   for (const [index, text] of lines.entries()) {
-    if (text.trim()) {
-      current.push({ text, number: index + 1 });
-    } else if (current.length) {
-      blocks.push(current);
+    // Only an empty line ends a block, as in WebVTT: a line of spaces inside
+    // a cue is part of its text, not the start of a cue with no timing.
+    if (text === "") {
+      if (current.length) blocks.push(current);
       current = [];
+    } else if (text.trim() || current.length) {
+      current.push({ text, number: index + 1 });
     }
   }
   if (current.length) blocks.push(current);

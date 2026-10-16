@@ -254,16 +254,48 @@ describe("parseTranscriptImport", () => {
     );
   });
 
-  it("cuts a cue that runs past the end of the video at the end", () => {
+  it("ends every cue by the end of the video, keeping speech just past it", () => {
     const result = parseTranscriptImport(
       "WEBVTT\n\n00:30.000 --> 59:00.000\nlast\n\n01:00.500 --> 01:05.000\nafter",
       { durationMs: 60_000 },
     );
     expect(result).toMatchObject({
       ok: true,
+      segments: [{ startMs: 30_000, endMs: 60_000, text: "last after" }],
+      fullText: "last after",
+    });
+  });
+
+  it("rejects a transcript that starts at the end of the video", () => {
+    const result = parseTranscriptImport(
+      "WEBVTT\n\n01:00.000 --> 01:00.500\nafter",
+      { durationMs: 60_000 },
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "past-end", line: 3 },
+    });
+  });
+
+  it.each([
+    [
+      "inside a cue",
+      "WEBVTT\n\n00:01.000 --> 00:02.000\n   \nHello\n\n00:02.000 --> 00:03.000\nWorld",
+    ],
+    [
+      "between cues",
+      "1\n00:00:01,000 --> 00:00:02,000\nHello\n \n2\n00:00:02,000 --> 00:00:03,000\nWorld",
+    ],
+    [
+      "after a NOTE",
+      "WEBVTT\n\nNOTE draft\n\t\n00:01.000 --> 00:02.000\nHello\n\n00:02.000 --> 00:03.000\nWorld",
+    ],
+  ])("reads a line of spaces %s as part of the block", (_, text) => {
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
       segments: [
-        { startMs: 30_000, endMs: 60_000, text: "last" },
-        { startMs: 60_500, endMs: 60_501, text: "after" },
+        { startMs: 1000, endMs: 2000, text: "Hello" },
+        { startMs: 2000, endMs: 3000, text: "World" },
       ],
     });
   });

@@ -786,6 +786,7 @@ async function completeReadyTranscript({
   ownerEmail,
   fullText,
   segmentsJson,
+  imported,
   preserved = false,
 }: {
   db: ReturnType<typeof getDb>;
@@ -793,6 +794,8 @@ async function completeReadyTranscript({
   ownerEmail: string;
   fullText: string;
   segmentsJson?: string | null;
+  /** An imported file's cues are the transcript of record, never rewritten. */
+  imported: boolean;
   preserved?: boolean;
 }): Promise<{
   recordingId: string;
@@ -820,16 +823,20 @@ async function completeReadyTranscript({
     )
     .limit(1);
 
-  const normalizedSegments = normalizeTranscriptSegments({
-    segments: parseTranscriptSegments(segmentsJson),
-    fullText,
-    durationMs: recForTitle?.durationMs,
-  });
+  const normalizedSegments = imported
+    ? []
+    : normalizeTranscriptSegments({
+        segments: parseTranscriptSegments(segmentsJson),
+        fullText,
+        durationMs: recForTitle?.durationMs,
+      });
   if (normalizedSegments.length) {
     const normalizedSegmentsJson = JSON.stringify(normalizedSegments);
     if (normalizedSegmentsJson !== (segmentsJson ?? "[]")) {
       const language = await resolveStoredLanguage(db, recordingId);
-      await upsertTranscriptRow(db, {
+      // An import that landed since the caller read this transcript wins, and
+      // its text is the one the title and summary must come from.
+      const kept = await writeTranscriptOrKeepImport(db, {
         recordingId,
         ownerEmail,
         status: "ready",
@@ -839,6 +846,7 @@ async function completeReadyTranscript({
         fullText,
         now: new Date().toISOString(),
       });
+      if (kept) return kept;
       segmentsJson = normalizedSegmentsJson;
     }
   }
@@ -946,6 +954,7 @@ async function preserveReadyTranscriptIfAvailable({
       ownerEmail,
       fullText: current.fullText,
       segmentsJson: current.segmentsJson,
+      imported: current.source === IMPORTED_TRANSCRIPT_SOURCE,
       preserved: true,
     });
   }
@@ -1135,6 +1144,8 @@ const requestTranscriptAction = defineAction({
           ownerEmail,
           fullText: existingNativeTranscript.fullText,
           segmentsJson: existingNativeTranscript.segmentsJson,
+          imported:
+            existingNativeTranscript.source === IMPORTED_TRANSCRIPT_SOURCE,
         });
       }
     }

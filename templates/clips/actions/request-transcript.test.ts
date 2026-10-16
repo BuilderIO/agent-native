@@ -1050,6 +1050,66 @@ describe("requestTranscript regeneration", () => {
       expect(cloudTextWrites()).toHaveLength(0);
     });
 
+    it("keeps an imported cue as written instead of rechunking it", async () => {
+      const longCue = "One imported cue that runs well past seven words long.";
+      mockSelectRows.queue = [
+        [
+          {
+            ...importedRow,
+            fullText: longCue,
+            segmentsJson: JSON.stringify([
+              { startMs: 0, endMs: 4000, text: longCue },
+            ]),
+          },
+        ],
+        [titleRow],
+      ];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(result).toMatchObject({ status: "ready", provider: "existing" });
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+      expect(mockInsertValues).not.toHaveBeenCalled();
+    });
+
+    it("titles the clip from an import that lands while a ready transcript is rechunked", async () => {
+      const untitledRow = {
+        ...titleRow,
+        title: "Untitled recording",
+        titleSource: "default",
+      };
+      mockRegenerateTitleRun.mockResolvedValue({ updated: true });
+      mockSelectRows.queue = [
+        [
+          {
+            ...pendingRow,
+            status: "ready",
+            fullText: "Automatic words with no segments yet.",
+          },
+        ],
+        [untitledRow],
+        [{ language: "en" }],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [untitledRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockRegenerateTitleRun).toHaveBeenCalledTimes(1);
+      expect(mockRegenerateTitleRun).toHaveBeenCalledWith(
+        expect.objectContaining({ transcriptText: importedRow.fullText }),
+      );
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
     it("keeps an import that lands while cloud transcription runs", async () => {
       mockSelectRows.queue = [
         [pendingRow],
