@@ -338,7 +338,9 @@ function withKeyDate(
     id: ids.date,
     setId: target?.id ?? ids.newSet,
     addedBy: saved?.addedBy ?? "",
-    updatedAt: new Date().toISOString(),
+    // An edit keeps the version it was made from until the server's arrives;
+    // a dialog opened meanwhile sends it, and the server would refuse a new one.
+    updatedAt: saved?.updatedAt ?? new Date().toISOString(),
     ...fields,
     ...(keptTime === undefined ? {} : { time: keptTime }),
     ...(keptZone === undefined ? {} : { timeZone: keptZone }),
@@ -405,7 +407,10 @@ export function useRenameKeyDateSet() {
     "save-key-date-set",
     KEY_DATE_SETS,
     "annotations.saveFailed",
-    (sets, { id, name }: { id: string; name: string }) => {
+    (
+      sets,
+      { id, name }: { id: string; name: string; expectedUpdatedAt?: string },
+    ) => {
       const before = sets.find((set) => set.id === id)?.name;
       const rename = (current: KeyDateSet[], to: string) =>
         current.map((set) => (set.id === id ? { ...set, name: to } : set));

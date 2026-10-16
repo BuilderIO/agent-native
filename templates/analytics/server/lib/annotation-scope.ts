@@ -56,7 +56,7 @@ export async function lockAnnotationScope(
  * before someone else's save can't quietly undo it. Call it under the lock.
  */
 export function failIfChangedSince(
-  what: "data note" | "key date",
+  what: "data note" | "key date" | "key-date set",
   expectedUpdatedAt: string | undefined,
   updatedAt: string,
 ): void {

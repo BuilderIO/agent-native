@@ -161,6 +161,36 @@ describe("key-dates store", () => {
     expect(renamed).toMatchObject({ id: launches.id, name: "Launch moments" });
   });
 
+  it("refuses a rename made from a copy someone has renamed since", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+      const opened = await store.saveKeyDateSet(alice, { name: "Launches" });
+      vi.setSystemTime(new Date("2026-10-14T12:05:00Z"));
+      await store.saveKeyDateSet(bob, {
+        id: opened.id,
+        name: "Launch moments",
+        expectedUpdatedAt: opened.updatedAt,
+      });
+
+      await expect(
+        store.saveKeyDateSet(alice, {
+          id: opened.id,
+          name: "Releases",
+          expectedUpdatedAt: opened.updatedAt,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "annotation_conflict",
+      });
+      expect((await store.listKeyDateSets(alice))[0].name).toBe(
+        "Launch moments",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("moves a date to another set and deletes a set with its dates", async () => {
     const saved = await store.saveKeyDate(alice, productHunt);
     const changes = await store.saveKeyDateSet(alice, {

@@ -131,10 +131,19 @@ async function createSet(
 
 export async function saveKeyDateSet(
   scope: KeyDateScope,
-  input: { id?: string; name: string },
+  input: { id?: string; name: string; expectedUpdatedAt?: string },
 ): Promise<KeyDateSet> {
   const name = cleanSetName(input.name);
   return writeInAnnotationScope(scope, async (tx) => {
+    if (input.id) {
+      const current = await findSet(tx, scope, eq(sets.id, input.id));
+      if (!current) notFound("set", input.id);
+      failIfChangedSince(
+        "key-date set",
+        input.expectedUpdatedAt,
+        current.updatedAt,
+      );
+    }
     const duplicate = await findSet(
       tx,
       scope,
