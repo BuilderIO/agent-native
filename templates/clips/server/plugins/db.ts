@@ -1235,7 +1235,7 @@ export const migrations = runMigrations(
       sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
     },
     {
-      version: 89,
+      version: 91,
       name: "recording-context-capture-audio",
       // Nullable so existing requests can fall back to their originating device.
       sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS include_microphone BOOLEAN;
