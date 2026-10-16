@@ -347,6 +347,18 @@ describe("parser limits", () => {
     expect(
       withinParserLimits(L("```", "  ```", nested("```", "</details>", "```"))),
     ).toBe(false);
+    // Containers closed before a mismatched close stay closed.
+    expect(
+      withinParserLimits(
+        L(
+          ...Array<string>(150).fill(L("<details>", "x", "</details>")),
+          "<callout>",
+          "</details>",
+          "</callout>",
+          ...Array<string>(3000).fill("filler"),
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("caps the emphasis runs in one paragraph, however many lines it spans", () => {

@@ -60,12 +60,14 @@ const CONTENT_FENCE = /^(`{3,})(.*)$/;
  * at the same tabs, outside a code fence: Content pairs closes by tag and
  * indentation and skips fenced lines. Its code blocks end on lines its fence
  * scanners do not, so a container line inside a fence may still open one.
- * Once a close or a fenced container line breaks that shape, no close can be
- * trusted: from there every container opened so far counts, which also bounds
- * the opens left unclosed, each of which Content scans to the end of its
- * parent. Content rereads a container's lines once per level around them and
- * its canonical form indents them once per level, so their total depth is
- * held to the body cap.
+ * Once a close or a fenced container line breaks that shape, no later close
+ * can be trusted: from there the containers still open count, and so does
+ * every container opened after, which also bounds the opens left unclosed,
+ * each of which Content scans to the end of its parent. Those closed before
+ * stay closed, because up to the break every close paired as Content pairs
+ * it. Content rereads a container's lines once per level around them and its
+ * canonical form indents them once per level, so their total depth is held
+ * to the body cap.
  */
 export function withinParserLimits(text: string): boolean {
   if (text.length > MAX_BODY_BYTES) return false;
@@ -86,10 +88,10 @@ export function withinParserLimits(text: string): boolean {
     const closes =
       CONTAINER_CLOSE.exec(bare)?.[1] ??
       (line.trim() === "</table>" ? "table" : undefined);
-    if (opens) opened++;
     const run = CONTENT_FENCE.exec(bare);
+    let breaks = false;
     if (fence) {
-      if (opens || closes) paired = false;
+      breaks = !!(opens || closes);
       if (run && !run[2].trim() && run[1].length >= fence) fence = 0;
     } else if (run) {
       fence = run[1].length;
@@ -99,8 +101,13 @@ export function withinParserLimits(text: string): boolean {
       const top = open[open.length - 1];
       if (top.tag === closes && (closes === "table" || top.tabs === tabs))
         open.pop();
-      else paired = false;
+      else breaks = true;
     }
+    if (breaks && paired) {
+      paired = false;
+      opened = open.length;
+    }
+    if (opens && !paired) opened++;
     const containers = paired ? open.length : opened;
     indentation += containers;
     if (indentation > MAX_BODY_BYTES) return false;
