@@ -537,39 +537,34 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
   request,
 }) => {
   const designId = await createDesign(app, "Hidden Code source reads");
-  try {
-    const fileId = await createScreen(request, designId, {
-      content: FILL_HTML,
-      metadata: { sourceType: "inline", width: 1280, height: 900 },
-      geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
-    });
-    const screenShell = page.locator(
-      `[data-screen-shell][data-frame-id="${fileId}"]`,
-    );
+  const fileId = await createScreen(request, designId, {
+    content: FILL_HTML,
+    metadata: { sourceType: "inline", width: 1280, height: 900 },
+    geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+  });
+  const screenShell = page.locator(
+    `[data-screen-shell][data-frame-id="${fileId}"]`,
+  );
 
-    let sourceReads = 0;
-    page.on("request", (request) => {
-      const url = new URL(request.url());
-      if (
-        url.pathname.endsWith("/_agent-native/actions/read-source-file") &&
-        url.searchParams.has("path")
-      ) {
-        sourceReads += 1;
-      }
+  let sourceReads = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      url.pathname.endsWith("/_agent-native/actions/read-source-file") &&
+      url.searchParams.has("path")
+    ) {
+      sourceReads += 1;
+    }
+  });
+  const codeWorkbench = page.getByTestId("design-code-workbench");
+  const openCodeWorkbench = async () => {
+    // Re-navigating during Vite's first optimization cancels the workbench load.
+    await page.goto(appPath(`/design/${designId}?panel=code`), {
+      waitUntil: "domcontentloaded",
     });
-    const codeWorkbench = page.getByTestId("design-code-workbench");
-    // The dev server can reload the page once to recover optimized deps, which
-    // strands the first navigation on "Loading application"; navigate again.
-    const openCodeWorkbench = async () => {
-      await expect(async () => {
-        await page.goto(appPath(`/design/${designId}?panel=code`), {
-          waitUntil: "domcontentloaded",
-        });
-        await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
-      }).toPass({ timeout: 60_000 });
-    };
-    await openCodeWorkbench();
-    await expect(screenShell).toBeVisible();
+    await expect(codeWorkbench).toBeVisible({ timeout: 60_000 });
+  };
+  const openCodeFile = async () => {
     await page.evaluate(async (id) => {
       const workbench = (window as any).__designCodeWorkbench;
       const providerKey = "inline:" + id;
@@ -578,46 +573,50 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
         preview: false,
       });
     }, designId);
-    await expect.poll(() => sourceReads).toBeGreaterThan(0);
-    const sourceReadsBeforeEdits = sourceReads;
+  };
+  await openCodeWorkbench();
+  await expect(screenShell).toBeVisible();
+  await openCodeFile();
+  await expect.poll(() => sourceReads).toBeGreaterThan(0);
+  const sourceReadsBeforeEdits = sourceReads;
 
-    await page.getByRole("button", { name: "Layers", exact: true }).click();
-    await expect(page.getByTestId("design-code-workbench")).toBeHidden();
-    const allScreensButton = page.getByRole("button", { name: "All screens" });
-    await allScreensButton.click();
-    await expect(allScreensButton).toHaveAttribute("aria-current", "page");
-    await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
+  await page.getByRole("button", { name: "Layers", exact: true }).click();
+  await expect(page.getByTestId("design-code-workbench")).toBeHidden();
+  const frameLabel = screenShell.locator("[data-frame-label]");
+  await expect(frameLabel).toBeVisible();
+  await frameLabel.click();
+  await expect(
+    page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem", { selected: true }),
+  ).toHaveCount(1);
 
-    const readFrameX = async () =>
-      designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
-    const initialX = await readFrameX();
-    expect(initialX).toBe(0);
-    // Retry only readiness: each key press is a non-idempotent mutation.
-    for (let index = 0; index < 20; index += 1) {
-      const writeResponse = page.waitForResponse((response) => {
-        const pathname = new URL(response.url()).pathname;
-        return (
-          pathname.endsWith("/_agent-native/actions/update-design") &&
-          response.request().method() === "POST"
-        );
-      });
-      await page.keyboard.press("ArrowRight");
-      const response = await writeResponse;
-      expect(
-        response.ok(),
-        `canvas commit failed: ${response.status()} ${await response.text()}`,
-      ).toBe(true);
-      await expect.poll(readFrameX).toBe(initialX + index + 1);
-    }
-    expect(sourceReads).toBe(sourceReadsBeforeEdits);
-
-    await openCodeWorkbench();
-    await expect
-      .poll(() => sourceReads)
-      .toBeGreaterThan(sourceReadsBeforeEdits);
-  } finally {
-    await action(request, "delete-design", { id: designId });
+  const readFrameX = async () =>
+    designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
+  const initialX = await readFrameX();
+  expect(initialX).toBe(0);
+  // Retry only readiness: each key press is a non-idempotent mutation.
+  for (let index = 0; index < 20; index += 1) {
+    const writeResponse = page.waitForResponse((response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        pathname.endsWith("/_agent-native/actions/update-design") &&
+        response.request().method() === "POST"
+      );
+    });
+    await page.keyboard.press("ArrowRight");
+    const response = await writeResponse;
+    expect(
+      response.ok(),
+      `canvas commit failed: ${response.status()} ${await response.text()}`,
+    ).toBe(true);
+    await expect.poll(readFrameX).toBe(initialX + index + 1);
   }
+  expect(sourceReads).toBe(sourceReadsBeforeEdits);
+
+  await openCodeWorkbench();
+  await openCodeFile();
+  await expect.poll(() => sourceReads).toBeGreaterThan(sourceReadsBeforeEdits);
 });
 
 test("a screen's east-edge resize keeps its explicit height in the rendered card", async ({
