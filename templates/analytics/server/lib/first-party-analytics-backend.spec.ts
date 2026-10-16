@@ -296,6 +296,7 @@ describe("first-party BigQuery backend", () => {
       }),
     ).resolves.toEqual({
       sink: "postgres",
+      sinkSetting: "absent",
       table: null,
       backfillCursor: null,
       backfillCompleted: false,
