@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 type Phase = "baseline" | "candidate";
 
@@ -8,31 +9,95 @@ interface PhaseCsv {
   rows: string[][];
 }
 
-const REQUIRED_COLUMNS = [
+const SAFE_CSV_COLUMNS = [
   "phase",
   "source_revision",
   "harness_sha256",
   "case_key",
   "replicate",
   "score",
+  "reason_code",
+  "completed",
+  "aborted",
   "production_path_invoked",
   "guard_applied",
   "owner_org_context_verified",
   "usage_captured",
+  "tool_call_count",
+  "provider_call_count",
+  "dbt_call_count",
+  "bigquery_call_count",
+  "schema_search_call_count",
+  "provenance_distinguished",
+  "event_taxonomy_grounded",
+  "bounded_grouping_verified",
+  "first_party_div_recovery_verified",
+  "organization_grain_verified",
+  "partial_warning_disclosed",
+  "latency_ms",
+  "input_tokens",
+  "output_tokens",
+  "llm_calls",
 ] as const;
 
-const FORBIDDEN_COLUMNS = new Set([
-  "prompt",
-  "sql",
-  "args",
-  "transcript",
-  "rows",
-  "org_id",
-  "user_id",
-  "connection_id",
-  "token",
-  "cursor",
-  "result",
+const BOOLEAN_COLUMNS = [
+  "completed",
+  "aborted",
+  "production_path_invoked",
+  "guard_applied",
+  "owner_org_context_verified",
+  "usage_captured",
+  "provenance_distinguished",
+  "event_taxonomy_grounded",
+  "bounded_grouping_verified",
+  "first_party_div_recovery_verified",
+  "organization_grain_verified",
+  "partial_warning_disclosed",
+] as const;
+
+const NUMBER_COLUMNS = [
+  "tool_call_count",
+  "provider_call_count",
+  "dbt_call_count",
+  "bigquery_call_count",
+  "schema_search_call_count",
+  "latency_ms",
+  "input_tokens",
+  "output_tokens",
+  "llm_calls",
+] as const;
+
+const INTEGER_COLUMNS = [
+  "tool_call_count",
+  "provider_call_count",
+  "dbt_call_count",
+  "bigquery_call_count",
+  "schema_search_call_count",
+  "input_tokens",
+  "output_tokens",
+  "llm_calls",
+] as const;
+
+const REASON_CODES = new Set([
+  "pass",
+  "aborted",
+  "contract_failed",
+  "production_path_failed",
+]);
+
+const SAFE_CASE_KEYS = new Set([
+  "synthetic-unbuilt-index-does-not-claim-absence",
+  "synthetic-content-api-requests-not-visual-views",
+  "synthetic-source-provenance-ambiguity",
+  "synthetic-dbt-disconnected-abstains",
+  "synthetic-dbt-paginated-bounded-grouping",
+  "synthetic-dbt-rolling-window-product-category",
+  "synthetic-latest-skill-event-taxonomy",
+  "synthetic-latest-monthly-ai-credits-by-workspace",
+  "synthetic-bigquery-partial-warning-disclosed",
+  "synthetic-schema-discovery-corrects-query",
+  "synthetic-dbt-organization-description-does-not-change-grain",
+  "synthetic-first-party-div-recovery",
 ]);
 
 function parseCsv(text: string): string[][] {
@@ -83,11 +148,8 @@ function escapeCsvCell(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
-async function readPhase(
-  path: string,
-  expectedPhase: Phase,
-): Promise<PhaseCsv> {
-  const parsed = parseCsv(await readFile(path, "utf8"));
+function readPhase(text: string, expectedPhase: Phase): PhaseCsv {
+  const parsed = parseCsv(text);
   const header = parsed[0]?.map((cell, index) =>
     index === 0 ? cell.replace(/^\uFEFF/, "") : cell,
   );
@@ -96,13 +158,8 @@ async function readPhase(
   }
 
   const columns = new Map(header.map((column, index) => [column, index]));
-  for (const column of REQUIRED_COLUMNS) {
-    if (!columns.has(column)) {
-      throw new Error(`${expectedPhase} CSV is missing a required column.`);
-    }
-  }
-  if (header.some((column) => FORBIDDEN_COLUMNS.has(column.toLowerCase()))) {
-    throw new Error(`${expectedPhase} CSV contains a forbidden column.`);
+  if (header.join("\0") !== SAFE_CSV_COLUMNS.join("\0")) {
+    throw new Error(`${expectedPhase} CSV does not match the safe schema.`);
   }
 
   const rows = parsed
@@ -123,26 +180,93 @@ async function readPhase(
     if (!/^[0-9a-f]{64}$/.test(value("harness_sha256"))) {
       throw new Error(`${expectedPhase} CSV has an invalid harness hash.`);
     }
-    if (!value("case_key") || !/^\d+$/.test(value("replicate"))) {
+    if (!value("case_key")) {
       throw new Error(`${expectedPhase} CSV has an invalid case key.`);
     }
+    if (!SAFE_CASE_KEYS.has(value("case_key"))) {
+      throw new Error(
+        `${expectedPhase} CSV has an invalid synthetic case key.`,
+      );
+    }
+    if (!/^\d+$/.test(value("replicate")) || Number(value("replicate")) < 1) {
+      throw new Error(`${expectedPhase} CSV has an invalid replicate.`);
+    }
+    if (!(value("score") === "0" || value("score") === "1")) {
+      throw new Error(`${expectedPhase} CSV has an invalid score.`);
+    }
+    if (!REASON_CODES.has(value("reason_code"))) {
+      throw new Error(`${expectedPhase} CSV has an invalid reason code.`);
+    }
+    const score = value("score");
+    const reasonCode = value("reason_code");
+    const completed = value("completed") === "true";
+    const aborted = value("aborted") === "true";
+    if (
+      (score === "1") !== (reasonCode === "pass") ||
+      (reasonCode === "pass" && (!completed || aborted)) ||
+      (reasonCode === "aborted") !== aborted ||
+      (reasonCode === "contract_failed" && !completed) ||
+      (reasonCode === "production_path_failed" && completed) ||
+      (aborted && completed)
+    ) {
+      throw new Error(`${expectedPhase} CSV has inconsistent result status.`);
+    }
+    if (
+      BOOLEAN_COLUMNS.some(
+        (column) => value(column) !== "true" && value(column) !== "false",
+      )
+    ) {
+      throw new Error(`${expectedPhase} CSV has an invalid boolean value.`);
+    }
+    if (
+      NUMBER_COLUMNS.some((column) => {
+        const numericValue = value(column);
+        return (
+          !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(numericValue) ||
+          !Number.isFinite(Number(numericValue))
+        );
+      })
+    ) {
+      throw new Error(`${expectedPhase} CSV has an invalid numeric value.`);
+    }
+    if (INTEGER_COLUMNS.some((column) => !/^\d+$/.test(value(column)))) {
+      throw new Error(`${expectedPhase} CSV has an invalid integer value.`);
+    }
+    if (
+      (score === "1" || reasonCode === "contract_failed") &&
+      [
+        "production_path_invoked",
+        "guard_applied",
+        "owner_org_context_verified",
+        "usage_captured",
+      ].some((column) => value(column) !== "true")
+    ) {
+      throw new Error(
+        `${expectedPhase} CSV is missing valid production receipts.`,
+      );
+    }
+  }
+  const sourceRevisions = new Set(
+    rows.map((record) => record[columns.get("source_revision")!]!),
+  );
+  if (sourceRevisions.size !== 1) {
+    throw new Error(`${expectedPhase} CSV must use one source revision.`);
   }
 
   return { header, rows };
 }
 
-async function main(): Promise<void> {
-  const [baselinePath, candidatePath, outputPath] = process.argv.slice(2);
-  if (!baselinePath || !candidatePath || !outputPath) {
-    throw new Error(
-      "Usage: combine-phase-csv <baseline.csv> <candidate.csv> <output.csv>",
-    );
-  }
-
-  const [baseline, candidate] = await Promise.all([
-    readPhase(resolve(baselinePath), "baseline"),
-    readPhase(resolve(candidatePath), "candidate"),
-  ]);
+export function combinePhaseCsvTexts(
+  baselineText: string,
+  candidateText: string,
+): {
+  csv: string;
+  baselineRows: number;
+  candidateRows: number;
+  passed: [number, number];
+} {
+  const baseline = readPhase(baselineText, "baseline");
+  const candidate = readPhase(candidateText, "candidate");
   if (baseline.header.join("\0") !== candidate.header.join("\0")) {
     throw new Error("Baseline and candidate CSV headers do not match.");
   }
@@ -185,23 +309,51 @@ async function main(): Promise<void> {
       row.map(escapeCsvCell).join(","),
     ),
   ].join("\n");
-  await writeFile(resolve(outputPath), `${csv}\n`, {
+  const scoreIndex = columnIndex.get("score")!;
+  const passed = (phase: PhaseCsv) =>
+    phase.rows.filter((row) => row[scoreIndex] === "1").length;
+
+  return {
+    csv: `${csv}\n`,
+    baselineRows: baseline.rows.length,
+    candidateRows: candidate.rows.length,
+    passed: [passed(baseline), passed(candidate)],
+  };
+}
+
+async function main(): Promise<void> {
+  const [baselinePath, candidatePath, outputPath] = process.argv.slice(2);
+  if (!baselinePath || !candidatePath || !outputPath) {
+    throw new Error(
+      "Usage: combine-phase-csv <baseline.csv> <candidate.csv> <output.csv>",
+    );
+  }
+
+  const result = combinePhaseCsvTexts(
+    await readFile(resolve(baselinePath), "utf8"),
+    await readFile(resolve(candidatePath), "utf8"),
+  );
+  await writeFile(resolve(outputPath), result.csv, {
     encoding: "utf8",
     flag: "wx",
     mode: 0o600,
   });
 
-  const scoreIndex = columnIndex.get("score")!;
-  const passed = (phase: PhaseCsv) =>
-    phase.rows.filter((row) => row[scoreIndex] === "1").length;
   console.log(
-    `Combined ${baseline.rows.length} baseline and ${candidate.rows.length} candidate rows; ` +
-      `${passed(baseline)}/${baseline.rows.length} and ` +
-      `${passed(candidate)}/${candidate.rows.length} passed.`,
+    `Combined ${result.baselineRows} baseline and ${result.candidateRows} candidate rows; ` +
+      `${result.passed[0]}/${result.baselineRows} and ` +
+      `${result.passed[1]}/${result.candidateRows} passed.`,
   );
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : "CSV combine failed.");
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  main().catch((error: unknown) => {
+    console.error(
+      error instanceof Error ? error.message : "CSV combine failed.",
+    );
+    process.exitCode = 1;
+  });
+}

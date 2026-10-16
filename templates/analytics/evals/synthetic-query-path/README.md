@@ -56,20 +56,24 @@ validation remain covered by the focused dbt action tests.
 
 ## Reproduce a paired comparison
 
-The eval harness is newer than the baseline commit. Copy that same harness
-into a clean baseline worktree so both phases use identical test bytes while
-the production code remains at the requested revision. Use a fresh worktree
-path for each reproduction:
+The eval harness is newer than the baseline commit. Check out both requested
+source revisions into detached worktrees, then copy the candidate harness into
+the baseline worktree so both phases use identical test bytes while the
+production code remains at the requested revision. Run each phase inside its
+pinned worktree and use fresh paths for every reproduction:
 
 ```sh
 BASELINE_SHA=3215556c9c955b5e37ff359708f4ef527d019c4e
 CANDIDATE_SHA=f899416ee99fcd0d82253729de97a12d79ba003b
-BASELINE_DIR=".tmp/analytics-eval-baseline-$(date +%s)"
-EVAL_DIR="$(pwd)/.tmp/analytics-eval-$(date +%s)"
+RUN_ID="$(date +%s)-$$"
+BASELINE_DIR=".tmp/analytics-eval-baseline-$RUN_ID"
+CANDIDATE_DIR=".tmp/analytics-eval-candidate-$RUN_ID"
+EVAL_DIR="$(pwd)/.tmp/analytics-eval-$RUN_ID"
 mkdir -p "$EVAL_DIR"
 git worktree add --detach "$BASELINE_DIR" "$BASELINE_SHA"
+git worktree add --detach "$CANDIDATE_DIR" "$CANDIDATE_SHA"
 mkdir -p "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path"
-cp templates/analytics/evals/synthetic-query-path/production-path.spec.ts \
+cp "$CANDIDATE_DIR/templates/analytics/evals/synthetic-query-path/production-path.spec.ts" \
   "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path/production-path.spec.ts"
 (
   cd "$BASELINE_DIR"
@@ -80,18 +84,26 @@ cp templates/analytics/evals/synthetic-query-path/production-path.spec.ts \
     ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/baseline.csv" \
     pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
 )
-ANALYTICS_QUERY_EVAL_PHASE=candidate \
-  ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$CANDIDATE_SHA" \
-  ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
-  ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/candidate.csv" \
-  pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+(
+  cd "$CANDIDATE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=candidate \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$CANDIDATE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/candidate.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+)
 pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts \
   "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
 ```
 
-The combiner checks each phase, the shared harness hash, and exact case/replicate
-pairing; it refuses to overwrite an existing output. The generated CSV has no
-prompts, SQL, provider rows, identity values, cursors, or credentials.
+The combiner enforces an exact safe header and synthetic case-key allowlist, a
+single source revision per phase, matching harness hashes and case/replicate
+pairs, valid result and production-receipt values, and refuses to overwrite an
+existing output. The generated CSV has no prompts, SQL, provider rows, identity
+values, cursors, or credentials. A passing score requires all production
+receipts; an aborted or incomplete production-path run is retained as a score-0
+failure.
 
 ## Current latest-wave comparison
 
