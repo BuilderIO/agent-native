@@ -712,7 +712,8 @@ const messages = {
     voiceNavigationListening: "“{{next}}” 또는 “{{previous}}”를 듣고 있습니다.",
     voiceNavigationUnavailable:
       "이 브라우저에서는 음성 탐색을 사용할 수 없습니다.",
-    voiceNavigationError: "음성 탐색이 중지되었습니다. 다시 시작해 보세요.",
+    voiceNavigationError:
+      "음성 탐색이 중지되었습니다. 마이크 권한과 연결을 확인한 후 다시 시도해 주세요.",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",

@@ -715,7 +715,8 @@ const messages = {
     voiceNavigationListening: "Listening for “{{next}}” or “{{previous}}”.",
     voiceNavigationUnavailable:
       "Voice navigation isn't available in this browser.",
-    voiceNavigationError: "Voice navigation stopped. Try starting it again.",
+    voiceNavigationError:
+      "Voice navigation stopped. Check microphone permission and connection, then try again.",
     exitPresentation: "Exit presentation",
     enterFullscreen: "Enter fullscreen",
     clickToEnterFullscreen: "Click to enter fullscreen",

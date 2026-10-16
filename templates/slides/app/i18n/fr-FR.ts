@@ -740,7 +740,7 @@ const messages = {
     voiceNavigationUnavailable:
       "La navigation vocale n’est pas disponible dans ce navigateur.",
     voiceNavigationError:
-      "La navigation vocale s’est arrêtée. Relancez-la pour réessayer.",
+      "La navigation vocale s’est arrêtée. Vérifiez l’autorisation et la connexion du micro, puis réessayez.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",

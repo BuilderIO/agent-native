@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   getSlideCanvasTraversalElements,
@@ -221,12 +221,28 @@ describe("slide video helpers", () => {
     const button = document.createElement("button");
     document.body.append(button);
     button.focus();
+    const nativeMatches = button.matches.bind(button);
+    const focusVisible = vi
+      .spyOn(button, "matches")
+      .mockImplementation((selector) =>
+        selector === ":focus-visible" ? true : nativeMatches(selector),
+      );
 
     expect(
       isInteractiveKeyboardEvent(
         new KeyboardEvent("keydown", { key: " ", bubbles: true }),
       ),
     ).toBe(true);
+    focusVisible.mockImplementation((selector) =>
+      selector === ":focus-visible" ? false : nativeMatches(selector),
+    );
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true }),
+      ),
+    ).toBe(false);
+    focusVisible.mockRestore();
+
     expect(
       isInteractiveKeyboardEvent(
         new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),

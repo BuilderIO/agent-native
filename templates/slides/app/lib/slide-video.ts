@@ -233,8 +233,16 @@ export function isInteractiveKeyboardEvent(event: KeyboardEvent): boolean {
     return true;
   }
   if (event.key === " ") {
+    const buttonControls =
+      'button, input[type="button"], input[type="submit"], input[type="reset"], [role="button"]';
+    const focusedButton = targets
+      .filter((target): target is Element => target instanceof Element)
+      .map((target) => target.closest(buttonControls))
+      .find((target): target is Element => target !== null);
+    if (focusedButton) return focusedButton.matches(":focus-visible");
+
     return matches(
-      'button, input[type="button"], input[type="submit"], input[type="reset"], input[type="checkbox"], input[type="radio"], input[type="file"], input[type="color"], input[type="date"], input[type="datetime-local"], input[type="month"], input[type="time"], input[type="week"], select, summary, [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [role="listbox"], [role="option"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
+      'input[type="checkbox"], input[type="radio"], input[type="file"], input[type="color"], input[type="date"], input[type="datetime-local"], input[type="month"], input[type="time"], input[type="week"], select, summary, [role="checkbox"], [role="radio"], [role="switch"], [role="listbox"], [role="option"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
     );
   }
   const isRadioGroup =

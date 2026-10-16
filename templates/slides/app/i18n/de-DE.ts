@@ -731,7 +731,7 @@ const messages = {
     voiceNavigationUnavailable:
       "Sprachsteuerung ist in diesem Browser nicht verfügbar.",
     voiceNavigationError:
-      "Die Sprachsteuerung wurde beendet. Starten Sie sie erneut, um es noch einmal zu versuchen.",
+      "Die Sprachnavigation wurde gestoppt. Prüfen Sie die Mikrofonberechtigung und Verbindung und versuchen Sie es erneut.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",

@@ -118,6 +118,45 @@ describe("PresentationView keyboard shortcuts", () => {
     expect(screen.getByText("2 / 3")).toBeTruthy();
   });
 
+  it("keeps Space as a deck shortcut after a mouse-focused button", () => {
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+
+    const previous = screen.getByRole("button", {
+      name: "presentation.previousSlide",
+    });
+    fireEvent.click(previous);
+    previous.focus();
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+
+    const nativeMatches = previous.matches.bind(previous);
+    const focusVisible = vi
+      .spyOn(previous, "matches")
+      .mockImplementation((selector) =>
+        selector === ":focus-visible" ? false : nativeMatches(selector),
+      );
+    const space = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, space);
+
+    expect(space.defaultPrevented).toBe(true);
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+    focusVisible.mockRestore();
+  });
+
   it("keeps fullscreen, presenter, and exit shortcuts available to focused video", () => {
     render(
       <MemoryRouter>

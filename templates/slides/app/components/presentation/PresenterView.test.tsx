@@ -32,7 +32,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "presentation.voiceNavigationUnavailable":
         "Voice navigation is unavailable in this browser.",
       "presentation.voiceNavigationError":
-        "Voice navigation stopped. Try starting it again.",
+        "Voice navigation stopped. Check microphone permission and connection, then try again.",
     };
     if (transcriptionMock.locale === "zh-CN") {
       messages["presentation.voiceNavigationNextCommand"] = "下一张幻灯片";
@@ -558,7 +558,7 @@ describe("PresenterView without an audience", () => {
     ]);
   });
 
-  it("uses generic retry guidance when recognition stops after an error", () => {
+  it("shows microphone permission and connection guidance after recognition stops", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
     fireEvent.click(
       within(presenter.container).getByRole("button", {
@@ -566,12 +566,14 @@ describe("PresenterView without an audience", () => {
       }),
     );
 
-    transcriptionMock.getIncompleteReason.mockReturnValue("network");
+    transcriptionMock.getIncompleteReason.mockReturnValue(
+      "Browser speech recognition stopped mid-recording (not-allowed).",
+    );
     act(() => transcriptionMock.setIsActive?.(false));
 
     expect(
       within(presenter.container).getByText(
-        "Voice navigation stopped. Try starting it again.",
+        "Voice navigation stopped. Check microphone permission and connection, then try again.",
       ),
     ).toBeTruthy();
   });

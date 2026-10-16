@@ -709,7 +709,8 @@ const messages = {
     voiceNavigationHint: "नेविगेट करने के लिए “{{next}}” या “{{previous}}” कहें।",
     voiceNavigationListening: "“{{next}}” या “{{previous}}” सुन रहा है।",
     voiceNavigationUnavailable: "इस ब्राउज़र में आवाज़ से नेविगेशन उपलब्ध नहीं है।",
-    voiceNavigationError: "आवाज़ से नेविगेशन रुक गया। इसे फिर से शुरू करके देखें।",
+    voiceNavigationError:
+      "आवाज़ से नेविगेशन रुक गया। माइक्रोफ़ोन की अनुमति और कनेक्शन जाँचें, फिर दोबारा कोशिश करें।",
     exitPresentation: "प्रस्तुति से बाहर निकलें",
     enterFullscreen: "फ़ुलस्क्रीन में जाएं",
     clickToEnterFullscreen: "फ़ुलस्क्रीन में जाने के लिए क्लिक करें",

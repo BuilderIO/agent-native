@@ -695,7 +695,7 @@ const messages = {
     voiceNavigationHint: "说“{{next}}”或“{{previous}}”来切换幻灯片。",
     voiceNavigationListening: "正在聆听“{{next}}”或“{{previous}}”。",
     voiceNavigationUnavailable: "此浏览器不支持语音导航。",
-    voiceNavigationError: "语音导航已停止。请重新启动后再试。",
+    voiceNavigationError: "语音导航已停止。请检查麦克风权限和连接，然后重试。",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",

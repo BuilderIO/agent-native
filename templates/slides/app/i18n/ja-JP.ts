@@ -720,7 +720,7 @@ const messages = {
     voiceNavigationUnavailable:
       "このブラウザーでは音声ナビゲーションを利用できません。",
     voiceNavigationError:
-      "音声ナビゲーションが停止しました。もう一度開始してください。",
+      "音声ナビゲーションが停止しました。マイクの権限と接続を確認して、もう一度お試しください。",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",

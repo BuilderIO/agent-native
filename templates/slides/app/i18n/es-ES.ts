@@ -733,7 +733,7 @@ const messages = {
     voiceNavigationUnavailable:
       "La navegación por voz no está disponible en este navegador.",
     voiceNavigationError:
-      "La navegación por voz se detuvo. Vuelve a iniciarla para intentarlo de nuevo.",
+      "La navegación por voz se detuvo. Comprueba el permiso y la conexión del micrófono y vuelve a intentarlo.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",

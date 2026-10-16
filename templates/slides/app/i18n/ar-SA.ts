@@ -727,7 +727,8 @@ const messages = {
     voiceNavigationHint: "قل «{{next}}» أو «{{previous}}» للتنقل.",
     voiceNavigationListening: "يستمع إلى «{{next}}» أو «{{previous}}».",
     voiceNavigationUnavailable: "التنقل الصوتي غير متاح في هذا المتصفح.",
-    voiceNavigationError: "توقف التنقل الصوتي. ابدأه مرة أخرى للمحاولة.",
+    voiceNavigationError:
+      "توقف التنقل الصوتي. تحقّق من إذن الميكروفون واتصاله، ثم حاول مرة أخرى.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
