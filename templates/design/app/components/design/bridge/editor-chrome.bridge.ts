@@ -24633,7 +24633,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         lateAltStartClientX === null ||
         ev.clientX !== lateAltStartClientX ||
         ev.clientY !== lateAltStartClientY;
-      if (ev.altKey && moved && movedSinceLateAlt && !duplicatedForDrag) {
+      if (
+        ev.type === events.move &&
+        ev.altKey &&
+        moved &&
+        movedSinceLateAlt &&
+        !duplicatedForDrag
+      ) {
         activateLateDuplicate(ev);
       }
       lastPointerClientX = ev.clientX;

@@ -18682,6 +18682,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragEl = gestureEl;
       var gestureViewport = bridgeGestureViewport();
       var DRAG_THRESHOLD = 3;
+      var lastPointerClientX = startX;
+      var lastPointerClientY = startY;
+      var lateAltStartClientX = null;
+      var lateAltStartClientY = null;
       var bridgeMoveController = createCanvasGestureController({
         capabilities: { move: true, resize: true },
         drag: {
@@ -19018,9 +19022,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
         }
-        if (ev.altKey && moved && !duplicatedForDrag) {
+        var movedSinceLateAlt = lateAltStartClientX === null || ev.clientX !== lateAltStartClientX || ev.clientY !== lateAltStartClientY;
+        if (ev.type === events.move && ev.altKey && moved && movedSinceLateAlt && !duplicatedForDrag) {
           activateLateDuplicate(ev);
         }
+        lastPointerClientX = ev.clientX;
+        lastPointerClientY = ev.clientY;
         var rawDx = controllerMove.gesture.canvasDelta.x;
         var rawDy = controllerMove.gesture.canvasDelta.y;
         var nextLeft = originLeft + rawDx;
@@ -19163,6 +19170,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
       function onMoveKeyDown(ev) {
+        if (ev.key === "Alt" && !ev.repeat && !duplicatedForDrag) {
+          lateAltStartClientX = lastPointerClientX;
+          lateAltStartClientY = lastPointerClientY;
+        }
         if (ev.key !== "Escape") return;
         stopNativeInteraction(ev);
         cancelMoveDrag();
