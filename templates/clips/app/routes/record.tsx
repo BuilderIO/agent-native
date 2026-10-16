@@ -304,7 +304,7 @@ function saveBlobToDisk(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-function openUrlFromUserGesture(
+export function openUrlFromUserGesture(
   url: string,
   fallbackToCurrentFrame = true,
 ): boolean {

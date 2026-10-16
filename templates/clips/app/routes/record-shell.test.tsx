@@ -18,6 +18,7 @@ import {
   buildRecordingErrorToastOptions,
   isStorageStatusUnavailable,
   localizedRecordingErrorMessage,
+  openUrlFromUserGesture,
   recordingErrorToastRecoveryAction,
   RecorderRouteStatus,
   RecordingErrorCard,
@@ -864,6 +865,22 @@ describe("record route lifecycle shell", () => {
       true,
     );
     expect(onPopupBlocked).not.toHaveBeenCalled();
+  });
+
+  it("navigates the current frame when a settings popup is blocked", () => {
+    const originalUrl = window.location.href;
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    try {
+      window.history.replaceState({}, "", "/record");
+      const settingsUrl = new URL("/settings", window.location.href).toString();
+
+      expect(openUrlFromUserGesture(settingsUrl)).toBe(false);
+      expect(open).toHaveBeenCalledWith(settingsUrl, "_blank");
+      expect(window.location.href).toBe(settingsUrl);
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
   });
 
   it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {
