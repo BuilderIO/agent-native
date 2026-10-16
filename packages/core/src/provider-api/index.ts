@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { AgentConnectionRequiredError } from "../action.js";
+import { AgentConnectionRequiredError, fail } from "../action.js";
 import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
@@ -1917,16 +1917,16 @@ export async function fetchProviderApiDocs(
     throw new Error(`Blocked private/internal docs URL: ${url.href}`);
   }
 
-  const response = await fetchWithTimeout(url.href, {
-    method: "GET",
-    maxBytes: clampMaxBytes(options.maxBytes),
-  });
+  const { response, finalUrl } = await fetchPublicDocsPage(
+    url.href,
+    clampMaxBytes(options.maxBytes),
+  );
 
   const responseBody =
     response.text ??
     (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
   const content = await processWebContent({
-    url: url.href,
+    url: finalUrl,
     body: responseBody,
     contentType: response.contentType,
     responseMode: options.responseMode ?? "auto",
@@ -1941,10 +1941,114 @@ export async function fetchProviderApiDocs(
   return {
     provider: options.provider,
     catalog,
-    request: { url: url.href },
+    request: { url: url.href, finalUrl },
     response: responseForOutput,
     ...(content.mode === "raw" ? {} : { content }),
   };
+}
+
+const PROVIDER_DOCS_MAX_REDIRECTS = 5;
+const PROVIDER_DOCS_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+type ProviderDocsRedirectFailure =
+  | "blocked"
+  | "loop"
+  | "missing_location"
+  | "too_many_redirects";
+
+function failProviderDocsRedirect(
+  reason: ProviderDocsRedirectFailure,
+  message: string,
+  details: Record<string, unknown>,
+): never {
+  fail(message, {
+    errorCode: `provider_docs_redirect_${reason}`,
+    statusCode: reason === "blocked" ? 400 : 502,
+    details: { reason, ...details },
+  });
+}
+
+// Docs fetches are unauthenticated public GETs, so unlike credentialed
+// provider requests (which must never chase a 30x to another host) they follow
+// redirects. Each hop gets the same SSRF check as the first URL before it is
+// fetched; a 30x is never returned as if it were the page.
+async function fetchPublicDocsPage(
+  startUrl: string,
+  maxBytes: number,
+): Promise<{ response: ProviderApiHttpResponse; finalUrl: string }> {
+  const visited = new Set<string>();
+  let currentUrl = startUrl;
+  for (let redirects = 0; ; redirects++) {
+    visited.add(urlWithoutHash(currentUrl));
+    const response = await fetchWithTimeout(currentUrl, {
+      method: "GET",
+      maxBytes,
+    });
+    if (response.status < 300 || response.status >= 400) {
+      return { response, finalUrl: currentUrl };
+    }
+
+    const location = response.headers.location;
+    const details = {
+      url: startUrl,
+      from: currentUrl,
+      status: response.status,
+      redirects,
+    };
+    if (!PROVIDER_DOCS_REDIRECT_STATUSES.has(response.status) || !location) {
+      failProviderDocsRedirect(
+        "missing_location",
+        `Docs URL ${currentUrl} returned HTTP ${response.status} ${response.statusText} without a redirect Location to follow.`,
+        details,
+      );
+    }
+    let nextUrl: URL;
+    try {
+      nextUrl = new URL(location, currentUrl);
+    } catch {
+      failProviderDocsRedirect(
+        "missing_location",
+        `Docs URL ${currentUrl} redirected to an invalid Location: ${location}`,
+        { ...details, location },
+      );
+    }
+    const next = { ...details, location: nextUrl.href };
+    if (visited.has(urlWithoutHash(nextUrl.href))) {
+      failProviderDocsRedirect(
+        "loop",
+        `Docs URL ${startUrl} redirects in a loop (${currentUrl} -> ${nextUrl.href}).`,
+        next,
+      );
+    }
+    if (redirects >= PROVIDER_DOCS_MAX_REDIRECTS) {
+      failProviderDocsRedirect(
+        "too_many_redirects",
+        `Docs URL ${startUrl} redirected more than ${PROVIDER_DOCS_MAX_REDIRECTS} times (last hop ${currentUrl} -> ${nextUrl.href}).`,
+        next,
+      );
+    }
+    if (nextUrl.protocol !== "https:" && nextUrl.protocol !== "http:") {
+      failProviderDocsRedirect(
+        "blocked",
+        `Docs URL ${currentUrl} redirected to a non-http(s) URL: ${nextUrl.href}`,
+        next,
+      );
+    }
+    if (await isBlockedExtensionUrlWithDns(nextUrl.href)) {
+      failProviderDocsRedirect(
+        "blocked",
+        `Docs URL ${currentUrl} redirected to a blocked private/internal URL: ${nextUrl.href}`,
+        next,
+      );
+    }
+    currentUrl = nextUrl.href;
+  }
+}
+
+function urlWithoutHash(href: string): string {
+  const url = new URL(href);
+  url.hash = "";
+  return url.href;
 }
 
 function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
