@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ClipsActionError } from "../lib/clips-action";
+import { ClipsActionError, ClipsActionTimeoutError } from "../lib/clips-action";
 import {
   getRecordingContextItem,
   isTerminalRecordingContextRequestFailure,
   listPendingRecordingContext,
+  LOOKBACK_ACTION_TIMEOUT_MS,
   removeRecordingContext,
   requestRecordingContext,
   settleRecordingContextRequest,
+  visitPendingRecordingContextPage,
+  type PendingRecordingContextPage,
+  type RecordingContextItem,
 } from "./context-api";
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
@@ -206,6 +210,7 @@ describe("removeRecordingContext", () => {
 
 describe("listPendingRecordingContext", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -276,6 +281,71 @@ describe("listPendingRecordingContext", () => {
       "2026-10-15T11:59:00.000Z",
     );
     expect(url.searchParams.get("afterId")).toBe("ctx10");
+  });
+
+  it("times out a stalled pending-context action so polling can retry", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const request = listPendingRecordingContext(target, {
+      deviceId: "device-1",
+    });
+    const rejected = expect(request).rejects.toBeInstanceOf(
+      ClipsActionTimeoutError,
+    );
+
+    await vi.advanceTimersByTimeAsync(LOOKBACK_ACTION_TIMEOUT_MS);
+
+    await rejected;
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+});
+
+describe("visitPendingRecordingContextPage", () => {
+  it("returns the next cursor only after every item is inspected", () => {
+    const previousCursor = {
+      afterCreatedAt: "2026-10-15T11:59:00.000Z",
+      afterId: "ctx10",
+    };
+    const page: PendingRecordingContextPage = {
+      items: [{ id: "ctx1" }, { id: "ctx2" }] as RecordingContextItem[],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    };
+    let cursor = previousCursor;
+
+    expect(() => {
+      cursor = visitPendingRecordingContextPage(page, (item) => {
+        if (item.id === "ctx2") throw new Error("local storage unreadable");
+      })!;
+    }).toThrow("local storage unreadable");
+
+    expect(cursor).toBe(previousCursor);
+  });
+
+  it("returns the page cursor after every item is inspected", () => {
+    const page = {
+      items: [{ id: "ctx1" }] as RecordingContextItem[],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    } satisfies PendingRecordingContextPage;
+
+    expect(visitPendingRecordingContextPage(page, () => {})).toEqual(
+      page.nextCursor,
+    );
   });
 });
 

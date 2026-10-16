@@ -42,6 +42,28 @@ export interface PendingRecordingContextPage {
   nextCursor: PendingRecordingContextCursor | null;
 }
 
+export const LOOKBACK_ACTION_TIMEOUT_MS = 15_000;
+
+function callLookbackActionFor<T>(
+  target: ClipsActionTarget,
+  name: string,
+  body: Record<string, unknown>,
+  opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
+): Promise<T> {
+  return callClipsActionFor<T>(target, name, body, {
+    ...opts,
+    timeoutMs: LOOKBACK_ACTION_TIMEOUT_MS,
+  });
+}
+
+export function visitPendingRecordingContextPage(
+  page: PendingRecordingContextPage,
+  visitItem: (item: RecordingContextItem) => void,
+): PendingRecordingContextCursor | null {
+  for (const item of page.items) visitItem(item);
+  return page.nextCursor;
+}
+
 // A type alias, not an interface: the action body parameter is a
 // Record<string, unknown>, which interfaces are not assignable to.
 export type RecordingContextUpdate = {
@@ -67,7 +89,7 @@ export function requestRecordingContext(
   target: ClipsActionTarget,
   input: RecordingContextRequestInput,
 ): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
+  return callLookbackActionFor<RecordingContextItem>(
     target,
     "request-recording-context",
     input,
@@ -110,7 +132,7 @@ export async function removeRecordingContext(
   id: string,
 ): Promise<RecordingContextItem | null> {
   try {
-    return await callClipsActionFor<RecordingContextItem>(
+    return await callLookbackActionFor<RecordingContextItem>(
       target,
       "remove-recording-context",
       { id },
@@ -131,12 +153,9 @@ export async function listRecordingContext(
   target: ClipsActionTarget,
   recordingId: string,
 ): Promise<RecordingContextItem[]> {
-  const result = await callClipsActionFor<{ items: RecordingContextItem[] }>(
-    target,
-    "list-recording-context",
-    { recordingId },
-    { method: "GET" },
-  );
+  const result = await callLookbackActionFor<{
+    items: RecordingContextItem[];
+  }>(target, "list-recording-context", { recordingId }, { method: "GET" });
   return result.items;
 }
 
@@ -175,7 +194,7 @@ export async function listPendingRecordingContext(
     cursor?: PendingRecordingContextCursor | null;
   },
 ): Promise<PendingRecordingContextPage> {
-  return callClipsActionFor<PendingRecordingContextPage>(
+  return callLookbackActionFor<PendingRecordingContextPage>(
     target,
     "list-pending-recording-context",
     {
@@ -192,7 +211,7 @@ export function updateRecordingContext(
   target: ClipsActionTarget,
   input: RecordingContextUpdate,
 ): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
+  return callLookbackActionFor<RecordingContextItem>(
     target,
     "update-recording-context",
     input,
@@ -203,7 +222,7 @@ export function setRecordingContextWindow(
   target: ClipsActionTarget,
   input: { id: string; startedAt: string; endedAt: string },
 ): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
+  return callLookbackActionFor<RecordingContextItem>(
     target,
     "set-recording-context-window",
     input,

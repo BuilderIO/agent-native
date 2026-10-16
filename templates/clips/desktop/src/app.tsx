@@ -270,6 +270,8 @@ import {
   listPendingRecordingContext,
   requestRecordingContext,
   settleRecordingContextRequest,
+  visitPendingRecordingContextPage,
+  LOOKBACK_ACTION_TIMEOUT_MS,
   type PendingRecordingContextCursor,
   type RecordingContextRequestInput,
   removeRecordingContext,
@@ -1669,7 +1671,11 @@ export function App({
     <T,>(
       name: string,
       body: Record<string, unknown>,
-      opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
+      opts?: {
+        method?: "GET" | "POST";
+        signal?: AbortSignal;
+        timeoutMs?: number;
+      },
     ): Promise<T> =>
       callClipsActionFor<T>(
         { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
@@ -2203,7 +2209,12 @@ export function App({
             includeMic: input.includeMic,
             includeSystemAudio: input.includeSystemAudio,
           }),
-        trashRecording: (id) => callClipsAction("trash-recording", { id }),
+        trashRecording: (id) =>
+          callClipsAction(
+            "trash-recording",
+            { id },
+            { timeoutMs: LOOKBACK_ACTION_TIMEOUT_MS },
+          ),
       });
     },
     [callClipsAction, serverUrl],
@@ -2320,48 +2331,50 @@ export function App({
           },
         );
         if (cancelled) return;
-        pendingLookbackCursorRef.current = page.nextCursor;
-        for (const item of page.items) {
-          if (!shouldProcessLookbackItem(item.id, pendingRemovals)) continue;
-          if (cleanupIntents.pendingRecordingIds.has(item.recordingId))
-            continue;
-          if (processingLookbackIdsRef.current.has(item.id)) continue;
-          if (
-            isLookbackContextAwaitingStop(
-              lookbackContextRef.current,
-              item.recordingId,
-            )
-          ) {
-            continue;
-          }
-          if (
-            !lookbackOriginForItem(item, deviceId, (recordingId) => {
-              const origin = getRewindClipOrigin(recordingId);
-              return origin
-                ? {
-                    includeMicrophone: origin.includeMicrophone,
-                    includeSystemAudio: origin.includeSystemAudio,
-                  }
-                : null;
-            })
-          ) {
-            // Not this device's footage. Excluding it keeps the batch from
-            // refilling with items this device will never export.
-            skippedLookbackIdsRef.current.add(item.id);
-            continue;
-          }
-          processingLookbackIdsRef.current.add(item.id);
-          void processLookbackItem(item)
-            .catch((error: unknown) => {
-              console.error(
-                "[clips-popover] earlier screen time export failed:",
-                error,
-              );
-            })
-            .finally(() => {
-              processingLookbackIdsRef.current.delete(item.id);
-            });
-        }
+        pendingLookbackCursorRef.current = visitPendingRecordingContextPage(
+          page,
+          (item) => {
+            if (!shouldProcessLookbackItem(item.id, pendingRemovals)) return;
+            if (cleanupIntents.pendingRecordingIds.has(item.recordingId))
+              return;
+            if (processingLookbackIdsRef.current.has(item.id)) return;
+            if (
+              isLookbackContextAwaitingStop(
+                lookbackContextRef.current,
+                item.recordingId,
+              )
+            ) {
+              return;
+            }
+            if (
+              !lookbackOriginForItem(item, deviceId, (recordingId) => {
+                const origin = getRewindClipOrigin(recordingId);
+                return origin
+                  ? {
+                      includeMicrophone: origin.includeMicrophone,
+                      includeSystemAudio: origin.includeSystemAudio,
+                    }
+                  : null;
+              })
+            ) {
+              // Not this device's footage. Excluding it keeps the batch from
+              // refilling with items this device will never export.
+              skippedLookbackIdsRef.current.add(item.id);
+              return;
+            }
+            processingLookbackIdsRef.current.add(item.id);
+            void processLookbackItem(item)
+              .catch((error: unknown) => {
+                console.error(
+                  "[clips-popover] earlier screen time export failed:",
+                  error,
+                );
+              })
+              .finally(() => {
+                processingLookbackIdsRef.current.delete(item.id);
+              });
+          },
+        );
       } catch (error) {
         // Nothing starts on a failed read; the next tick reads again.
         console.warn(
