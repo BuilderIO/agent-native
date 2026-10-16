@@ -608,6 +608,8 @@ const messages = {
     addTransition: "إضافة انتقال",
     effect: "التأثير",
     onClick: "عند النقر",
+    withPrevious: "مع السابق",
+    trigger: "البدء",
     byParagraph: "حسب الفقرة",
     expand: "توسيع الانتقال",
     collapse: "طي الانتقال",
