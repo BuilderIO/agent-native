@@ -842,6 +842,10 @@ const messages = {
     leaveWithoutSaving: "Salir sin guardar",
     editorMarkupNotSaved:
       "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
+    historyStepConflict:
+      "Se omitió este paso del historial porque entra en conflicto con la presentación actual.",
+    historyStepFailed:
+      "Se omitió este paso del historial porque no se pudo aplicar.",
     textEditConflictNotSaved:
       "Tu edición de texto no se guardó porque el mismo texto se cambió en otro lugar al mismo tiempo.",
   },

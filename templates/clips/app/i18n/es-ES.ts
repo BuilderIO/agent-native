@@ -652,6 +652,32 @@ const messages = {
     nativeSpeechPrimary:
       "La voz nativa sigue siendo la fuente principal de transcripción.",
   },
+  transcriptImport: {
+    addFile: "Añadir archivo de transcripción",
+    imported: "Importada",
+    replaceTitle: "¿Reemplazar la transcripción?",
+    replaceDescription: "{{fileName}} reemplazará la transcripción actual.",
+    replace: "Reemplazar",
+    regenerateOverImportTitle: "¿Reemplazar la transcripción importada?",
+    regenerateOverImportDescription:
+      "Una nueva transcripción creada a partir del audio de la grabación reemplazará la importada desde un archivo.",
+    added: "Transcripción añadida",
+    replaced: "Transcripción reemplazada",
+    failed: "No se pudo añadir la transcripción",
+    invalidFile: "No se pudo leer {{fileName}}",
+    errorEmpty: "El archivo no contiene texto de transcripción.",
+    errorTooLarge: "El archivo es demasiado grande para importarlo.",
+    errorNotUtf8:
+      "El archivo no es texto UTF-8. Guárdalo como UTF-8 e inténtalo de nuevo.",
+    errorMissingTiming:
+      "Línea {{line}}: se esperaba una línea de tiempo del subtítulo como 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "Línea {{line}}: no se pudo leer el tiempo del subtítulo.",
+    errorBadRange: "Línea {{line}}: el subtítulo termina antes de empezar.",
+    errorMissingTimestamp:
+      "Línea {{line}}: se esperaba una hora de inicio como 0:21 o [0:21].",
+    errorOutOfOrder: "Línea {{line}}: esta hora es anterior a la anterior.",
+    errorPastEnd: "Línea {{line}}: esta hora es posterior al final del vídeo.",
+  },
   thumbnailPicker: {
     failedCapture: "No se pudo capturar el fotograma",
     failedGif: "No se pudo generar GIF; pruebe con un rango más corto",

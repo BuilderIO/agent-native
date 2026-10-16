@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSelectionOverlayAutofitKey,
+  createSelectionOverlayMeasurementIdentityKey,
   createSelectionOverlayMeasurementKey,
   currentSelectionOverlayFrame,
   currentSelectionOverlayRect,
@@ -47,6 +48,22 @@ function measurementKey(
   });
 }
 
+function measurementIdentityKey(
+  objectId: string,
+  revision = 0,
+  canvasZoom = 100,
+) {
+  return createSelectionOverlayMeasurementIdentityKey({
+    slideId: "slide-1",
+    content: "",
+    objectId,
+    selector: `[data-slide-object-id="${objectId}"]`,
+    path: [0],
+    canvasZoom,
+    revision,
+  });
+}
+
 function SelectionOverlayHarness({
   objectId,
   content,
@@ -67,6 +84,7 @@ function SelectionOverlayHarness({
   onRender: (left: number | null) => void;
 }) {
   const key = measurementKey(objectId, content, revision, canvasZoom);
+  const identityKey = measurementIdentityKey(objectId, revision, canvasZoom);
   const [measurement, setMeasurement] =
     useState<SelectionOverlayMeasurement | null>(null);
   const selectionIsOnActiveSlide = isSelectionOverlayOnActiveSlide(
@@ -74,7 +92,7 @@ function SelectionOverlayHarness({
     activeSlideId,
   );
   const visibleRect = selectionIsOnActiveSlide
-    ? currentSelectionOverlayRect(measurement, key)
+    ? currentSelectionOverlayRect(measurement, key, identityKey)
     : null;
   onRender(visibleRect?.left ?? null);
 
@@ -83,7 +101,7 @@ function SelectionOverlayHarness({
       setMeasurement(null);
       return;
     }
-    setMeasurement({ key, rect: currentRect });
+    setMeasurement({ key, identityKey, rect: currentRect });
   }, [currentRect, key, selectionIsOnActiveSlide]);
 
   return visibleRect ? (
@@ -93,31 +111,31 @@ function SelectionOverlayHarness({
 
 function AutofitSelectionOverlayHarness({
   autofitSettled,
+  content,
   currentRect,
   onRender,
 }: {
   autofitSettled: boolean;
+  content: string;
   currentRect: DOMRect;
   onRender: (left: number | null) => void;
 }) {
-  const key = measurementKey("object-a", "autofit content");
+  const key = measurementKey("object-a", content);
+  const identityKey = measurementIdentityKey("object-a");
   const [measurement, setMeasurement] =
     useState<SelectionOverlayMeasurement | null>(null);
-  const visibleRect = isSelectionOverlayAutofitSettled(
-    autofitSettled ? key : null,
+  const visibleRect = currentSelectionOverlayRect(
+    measurement,
     key,
-  )
-    ? currentSelectionOverlayRect(measurement, key)
-    : null;
+    identityKey,
+  );
   onRender(visibleRect?.left ?? null);
 
   useLayoutEffect(() => {
-    if (!autofitSettled) {
-      setMeasurement(null);
+    if (!isSelectionOverlayAutofitSettled(autofitSettled ? key : null, key))
       return;
-    }
 
-    setMeasurement({ key, rect: currentRect });
+    setMeasurement({ key, identityKey, rect: currentRect });
   }, [autofitSettled, currentRect, key]);
 
   return visibleRect ? (
@@ -172,9 +190,15 @@ describe("selection overlay measurement", () => {
       canvasZoom: 75,
       revision: 0,
     });
+    const identityKey = measurementIdentityKey("object-a", 0, 100);
+    const currentIdentityKey = measurementIdentityKey("object-a", 0, 75);
 
     expect(
-      currentSelectionOverlayRect({ key: oldKey, rect: rect(120) }, currentKey),
+      currentSelectionOverlayRect(
+        { key: oldKey, identityKey, rect: rect(120) },
+        currentKey,
+        currentIdentityKey,
+      ),
     ).toBeNull();
   });
 
@@ -234,6 +258,7 @@ describe("selection overlay measurement", () => {
     const view = render(
       <AutofitSelectionOverlayHarness
         autofitSettled={false}
+        content="autofit content"
         currentRect={rect(120)}
         onRender={(left) => renderedLefts.push(left)}
       />,
@@ -245,12 +270,56 @@ describe("selection overlay measurement", () => {
     view.rerender(
       <AutofitSelectionOverlayHarness
         autofitSettled
+        content="autofit content"
         currentRect={rect(560)}
         onRender={(left) => renderedLefts.push(left)}
       />,
     );
 
     expect(renderedLefts.slice(beforeSettle)).toEqual([null, 560]);
+    expect(
+      view.container.firstElementChild?.getAttribute(
+        "data-selection-overlay-left",
+      ),
+    ).toBe("560");
+  });
+
+  it("keeps the prior outline visible while new slide content awaits AutoFit", () => {
+    const renderedLefts: Array<number | null> = [];
+    const view = render(
+      <AutofitSelectionOverlayHarness
+        autofitSettled
+        content="before undo"
+        currentRect={rect(120)}
+        onRender={(left) => renderedLefts.push(left)}
+      />,
+    );
+    expect(view.container.firstElementChild).not.toBeNull();
+
+    const beforeContentChange = renderedLefts.length;
+    view.rerender(
+      <AutofitSelectionOverlayHarness
+        autofitSettled={false}
+        content="after undo"
+        currentRect={rect(560)}
+        onRender={(left) => renderedLefts.push(left)}
+      />,
+    );
+    expect(renderedLefts.slice(beforeContentChange)).toEqual([120]);
+    expect(
+      view.container.firstElementChild?.getAttribute(
+        "data-selection-overlay-left",
+      ),
+    ).toBe("120");
+
+    view.rerender(
+      <AutofitSelectionOverlayHarness
+        autofitSettled
+        content="after undo"
+        currentRect={rect(560)}
+        onRender={(left) => renderedLefts.push(left)}
+      />,
+    );
     expect(
       view.container.firstElementChild?.getAttribute(
         "data-selection-overlay-left",
