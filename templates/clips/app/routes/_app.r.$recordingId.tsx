@@ -1800,6 +1800,7 @@ export default function RecordingPage() {
             onClick: () =>
               void restoreTranscriptVersion(recordingId, savedVersionId),
           },
+          duration: 12_000,
         }
       : undefined;
   /** Resolves false when the restore failed, after reporting it. */

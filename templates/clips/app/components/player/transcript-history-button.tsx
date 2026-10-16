@@ -15,6 +15,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { relativeTime } from "./comments-panel";
+
 /** A replaced transcript, as get-recording-player-data lists it to editors. */
 export interface TranscriptVersion {
   id: string;
@@ -39,21 +41,6 @@ export function TranscriptHistoryButton({
   const formatters = useFormatters();
   const [open, setOpen] = useState(false);
   const label = t("transcriptHistory.title");
-
-  const relative = (iso: string) => {
-    const date = new Date(iso);
-    const diff = (date.getTime() - Date.now()) / 1000;
-    const abs = Math.abs(diff);
-    if (abs < 60)
-      return formatters.formatRelativeTime(Math.round(diff), "second");
-    if (abs < 3600)
-      return formatters.formatRelativeTime(Math.round(diff / 60), "minute");
-    if (abs < 86400)
-      return formatters.formatRelativeTime(Math.round(diff / 3600), "hour");
-    if (abs < 604800)
-      return formatters.formatRelativeTime(Math.round(diff / 86400), "day");
-    return formatters.formatDate(date);
-  };
 
   const trigger =
     variant === "icon" ? (
@@ -100,7 +87,10 @@ export function TranscriptHistoryButton({
                       ? t("transcriptImport.imported")
                       : t("transcriptHistory.automatic")}
                     {" · "}
-                    {relative(version.replacedAt)}
+                    {relativeTime(
+                      version.replacedAt,
+                      formatters.formatRelativeTime,
+                    )}
                   </p>
                 </div>
                 <Button
