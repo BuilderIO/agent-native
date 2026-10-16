@@ -693,6 +693,30 @@ function retryPromptFromLocationState(state: unknown): string | null {
   return typeof prompt === "string" && prompt.trim() ? prompt : null;
 }
 
+const LAYERS_MIN_HEIGHT = 120;
+const LAYERS_MIN_RAIL_HEIGHT = 160;
+const RAIL_MIN_WIDTH = 160;
+const RAIL_MAX_WIDTH = 400;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function trackPointerDrag(
+  event: React.PointerEvent<HTMLElement>,
+  onMove: (event: PointerEvent) => void,
+) {
+  event.preventDefault();
+  const end = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -957,6 +981,8 @@ export default function DeckEditor() {
   const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
+  const [layersHeight, setLayersHeight] = useState<number | null>(null);
+  const [railWidth, setRailWidth] = useState<number | null>(null);
   const [animationTarget, setAnimationTarget] =
     useState<SelectedAnimationTarget | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
@@ -5367,7 +5393,48 @@ export default function DeckEditor() {
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute z-[70] flex h-full min-h-0 flex-col md:relative">
+            <div
+              className="absolute z-[70] flex h-full min-h-0 w-48 flex-col sm:w-52 md:relative"
+              style={{ width: railWidth ?? undefined }}
+            >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("editorToolbar.resizeSlideList")}
+                aria-valuenow={railWidth ?? undefined}
+                tabIndex={0}
+                className="absolute inset-y-0 -right-1 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none md:block"
+                onPointerDown={(event) => {
+                  const rail = event.currentTarget.parentElement;
+                  if (!rail) return;
+                  const startX = event.clientX;
+                  const startWidth = rail.offsetWidth;
+                  trackPointerDrag(event, (moveEvent) =>
+                    setRailWidth(
+                      clamp(
+                        startWidth + moveEvent.clientX - startX,
+                        RAIL_MIN_WIDTH,
+                        RAIL_MAX_WIDTH,
+                      ),
+                    ),
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                    return;
+                  event.preventDefault();
+                  const rail = event.currentTarget.parentElement;
+                  if (!rail) return;
+                  const delta = event.key === "ArrowRight" ? 16 : -16;
+                  setRailWidth(
+                    clamp(
+                      rail.offsetWidth + delta,
+                      RAIL_MIN_WIDTH,
+                      RAIL_MAX_WIDTH,
+                    ),
+                  );
+                }}
+              />
               <div className="min-h-0 flex-1">
                 <DndContext
                   sensors={sensors}
@@ -5461,10 +5528,57 @@ export default function DeckEditor() {
                     : null}
                 </DndContext>
               </div>
+              {layersOpen ? (
+                <div className="relative h-0 shrink-0">
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    aria-label={t("editorToolbar.resizeLayers")}
+                    aria-valuenow={layersHeight ?? undefined}
+                    tabIndex={0}
+                    className="absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none"
+                    onPointerDown={(event) => {
+                      const host = layersPanelSlot;
+                      if (!host) return;
+                      const startY = event.clientY;
+                      const startHeight = host.offsetHeight;
+                      const railHeight =
+                        host.parentElement?.offsetHeight ?? startHeight;
+                      trackPointerDrag(event, (moveEvent) =>
+                        setLayersHeight(
+                          clamp(
+                            startHeight + startY - moveEvent.clientY,
+                            LAYERS_MIN_HEIGHT,
+                            railHeight - LAYERS_MIN_RAIL_HEIGHT,
+                          ),
+                        ),
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+                        return;
+                      event.preventDefault();
+                      const host = layersPanelSlot;
+                      if (!host) return;
+                      const railHeight =
+                        host.parentElement?.offsetHeight ?? host.offsetHeight;
+                      const delta = event.key === "ArrowUp" ? 24 : -24;
+                      setLayersHeight(
+                        clamp(
+                          host.offsetHeight + delta,
+                          LAYERS_MIN_HEIGHT,
+                          railHeight - LAYERS_MIN_RAIL_HEIGHT,
+                        ),
+                      );
+                    }}
+                  />
+                </div>
+              ) : null}
               <div
                 ref={setLayersPanelSlot}
                 data-layers-panel-host="true"
-                className="flex h-1/2 w-48 shrink-0 flex-col overflow-hidden empty:hidden sm:w-52"
+                style={{ height: layersHeight ?? "50%" }}
+                className="flex w-full shrink-0 flex-col overflow-hidden empty:hidden"
               />
             </div>
           </>

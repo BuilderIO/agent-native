@@ -297,6 +297,8 @@ const messages = {
     layers: "Layers",
     closeLayers: "Close layers panel",
     searchLayers: "Search layers",
+    resizeLayers: "Resize layers panel",
+    resizeSlideList: "Resize slide list",
     expandLayer: "Expand layer",
     collapseLayer: "Collapse layer",
     tweaks: "Tweaks",

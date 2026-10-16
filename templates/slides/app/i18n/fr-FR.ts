@@ -307,6 +307,8 @@ const messages = {
     layers: "Calques",
     closeLayers: "Fermer le panneau des calques",
     searchLayers: "Rechercher des calques",
+    resizeLayers: "Redimensionner le panneau des calques",
+    resizeSlideList: "Redimensionner la liste des diapositives",
     expandLayer: "Développer le calque",
     collapseLayer: "Réduire le calque",
     tweaks: "Réglages",

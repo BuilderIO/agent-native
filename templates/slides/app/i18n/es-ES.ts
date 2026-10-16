@@ -303,6 +303,8 @@ const messages = {
     layers: "Capas",
     closeLayers: "Cerrar panel de capas",
     searchLayers: "Buscar capas",
+    resizeLayers: "Cambiar el tamaño del panel de capas",
+    resizeSlideList: "Cambiar el ancho de la lista de diapositivas",
     expandLayer: "Expandir capa",
     collapseLayer: "Contraer capa",
     tweaks: "Ajustes finos",

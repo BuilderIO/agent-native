@@ -287,6 +287,8 @@ const messages = {
     layers: "圖層",
     closeLayers: "關閉圖層面板",
     searchLayers: "搜尋圖層",
+    resizeLayers: "調整圖層面板大小",
+    resizeSlideList: "調整投影片清單寬度",
     expandLayer: "展開圖層",
     collapseLayer: "收合圖層",
     tweaks: "微調",

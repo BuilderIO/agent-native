@@ -288,6 +288,8 @@ const messages = {
     layers: "图层",
     closeLayers: "关闭图层面板",
     searchLayers: "搜索图层",
+    resizeLayers: "调整图层面板大小",
+    resizeSlideList: "调整幻灯片列表宽度",
     expandLayer: "展开图层",
     collapseLayer: "折叠图层",
     tweaks: "微调",

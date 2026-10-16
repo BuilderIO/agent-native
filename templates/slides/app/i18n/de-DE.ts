@@ -302,6 +302,8 @@ const messages = {
     layers: "Ebenen",
     closeLayers: "Ebenen-Panel schließen",
     searchLayers: "Ebenen durchsuchen",
+    resizeLayers: "Ebenen-Panel anpassen",
+    resizeSlideList: "Folienliste anpassen",
     expandLayer: "Ebene erweitern",
     collapseLayer: "Ebene reduzieren",
     tweaks: "Feinabstimmung",

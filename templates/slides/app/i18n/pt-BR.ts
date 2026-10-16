@@ -298,6 +298,8 @@ const messages = {
     layers: "Camadas",
     closeLayers: "Fechar painel de camadas",
     searchLayers: "Pesquisar camadas",
+    resizeLayers: "Redimensionar painel de camadas",
+    resizeSlideList: "Redimensionar lista de slides",
     expandLayer: "Expandir camada",
     collapseLayer: "Recolher camada",
     tweaks: "Ajustes",

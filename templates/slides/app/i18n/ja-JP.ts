@@ -298,6 +298,8 @@ const messages = {
     layers: "レイヤー",
     closeLayers: "レイヤーパネルを閉じる",
     searchLayers: "レイヤーを検索",
+    resizeLayers: "レイヤーパネルの高さを調整",
+    resizeSlideList: "スライド一覧の幅を調整",
     expandLayer: "レイヤーを展開",
     collapseLayer: "レイヤーを折りたたむ",
     tweaks: "調整",

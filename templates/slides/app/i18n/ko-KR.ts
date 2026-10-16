@@ -297,6 +297,8 @@ const messages = {
     layers: "레이어",
     closeLayers: "레이어 패널 닫기",
     searchLayers: "레이어 검색",
+    resizeLayers: "레이어 패널 크기 조절",
+    resizeSlideList: "슬라이드 목록 너비 조절",
     expandLayer: "레이어 펼치기",
     collapseLayer: "레이어 접기",
     tweaks: "조정",

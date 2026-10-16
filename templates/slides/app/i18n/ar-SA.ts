@@ -298,6 +298,8 @@ const messages = {
     layers: "الطبقات",
     closeLayers: "إغلاق لوحة الطبقات",
     searchLayers: "البحث في الطبقات",
+    resizeLayers: "تغيير حجم لوحة الطبقات",
+    resizeSlideList: "تغيير عرض قائمة الشرائح",
     expandLayer: "توسيع الطبقة",
     collapseLayer: "طي الطبقة",
     tweaks: "تعديلات",

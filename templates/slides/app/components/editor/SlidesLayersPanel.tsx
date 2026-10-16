@@ -3,7 +3,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconHash,
-  IconLetterCase,
   IconPhoto,
   IconSearch,
   IconSquare,
@@ -81,6 +80,27 @@ function dropPlacement(event: DragEvent<HTMLElement>): SlidesLayerPlacement {
   return position < 0.3 ? "after" : position > 0.7 ? "before" : "inside";
 }
 
+// Tabler has no large/small "Aa" glyph; this is Lucide's a-large-small, which the Figma spec uses for text layers.
+function TextLayerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m15 16 2.536-7.328a1.02 1.02 1 0 1 1.928 0L22 16" />
+      <path d="M15.697 14h5.606" />
+      <path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16" />
+      <path d="M3.304 13h6.392" />
+    </svg>
+  );
+}
+
 function LayerGlyph({
   kind,
   hasChildren,
@@ -91,7 +111,7 @@ function LayerGlyph({
   const className = "size-4";
   switch (kind) {
     case "text":
-      return <IconLetterCase className={className} />;
+      return <TextLayerIcon className={className} />;
     case "image":
       return <IconPhoto className={className} />;
     case "video":
