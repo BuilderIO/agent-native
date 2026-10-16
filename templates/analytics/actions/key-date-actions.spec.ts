@@ -16,6 +16,9 @@ const reads = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
+  fail: (message: string, options: object) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("../server/lib/key-dates-store.js", () => mocks);
 vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
@@ -162,6 +165,7 @@ describe("key-date actions", () => {
       expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
         "shared-dashboard",
         scope,
+        undefined,
       );
       expect(mocks.listKeyDateSets).toHaveBeenCalledWith(owner);
       expect(result).toEqual({
@@ -184,6 +188,26 @@ describe("key-date actions", () => {
         editable: false,
       });
       expect(JSON.stringify(result)).not.toContain("@example.test");
+    });
+
+    it("lists a reviewed dashboard's sets through the Human Review check", async () => {
+      shared(false);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+        reviewPreview: true,
+        reviewOrgId: "org-2",
+      });
+
+      expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+        "shared-dashboard",
+        scope,
+        { reviewOrgId: "org-2" },
+      );
+      expect(result.editable).toBe(false);
+      await expect(
+        actions.list.run({ reviewPreview: true, reviewOrgId: "org-2" }),
+      ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it("keeps the sets it hides for a reader who can show them again", async () => {

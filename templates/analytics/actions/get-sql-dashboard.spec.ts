@@ -1047,6 +1047,41 @@ describe("get-sql-dashboard agent reads", () => {
     expect(result.truncated).toBeUndefined();
   });
 
+  it("tells a Human Review read to pass its review arguments to the reads that fetch the rest", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.getDashboardForReview.mockResolvedValue({
+      ...savedDashboard(panels),
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+    });
+    annotationsAtStoreLimits(panels);
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", reviewPreview: true, reviewOrgId: "org-b" },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(result.omittedDataNoteCount).toBeGreaterThan(0);
+    expect(result.hint).toContain("list-data-notes with dashboardId");
+    expect(result.hint).toContain(
+      "Pass each the same reviewPreview and reviewOrgId as this read.",
+    );
+
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+    const ordinary = (await getSqlDashboard.run(
+      { id: "weekly" },
+      agent,
+    )) as Record<string, unknown>;
+    expect(ordinary.hint).not.toContain("reviewPreview");
+  });
+
   it("returns the whole config to the UI however large it is", async () => {
     const panels = Array.from({ length: 10 }, (_, index) =>
       sqlPanel(`p${index}`, 2_000),

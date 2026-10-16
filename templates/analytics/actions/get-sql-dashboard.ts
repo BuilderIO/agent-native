@@ -1,7 +1,5 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
-  currentRequestUserIsOrgAdmin,
-  getAppConfig,
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
@@ -21,11 +19,9 @@ import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-f
 import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
 import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
 import { dataNotesForReader } from "../server/lib/dashboard-data-notes";
+import { getReviewedDashboard } from "../server/lib/dashboard-review-access";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-import {
-  getDashboard,
-  getDashboardForReview,
-} from "../server/lib/dashboards-store";
+import { getDashboard } from "../server/lib/dashboards-store";
 import { listDataNotes } from "../server/lib/data-notes-store";
 import { listKeyDateSets } from "../server/lib/key-dates-store";
 import { drawsKeyDates, keyDateEvents } from "../shared/key-dates";
@@ -100,33 +96,12 @@ export default defineAction({
       includeConfig: args.includeConfig === true,
       panelIds: args.panelIds,
       forAgent: isAgentContextCaller(actionContext?.caller),
+      reviewPreview: args.reviewPreview === true,
     };
 
     let dash;
     if (args.reviewPreview) {
-      if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
-        fail(
-          "Only organization owners and admins can preview reviewed dashboards.",
-          { statusCode: 403 },
-        );
-      }
-      const superOrgId = getAppConfig().observability.superOrgId;
-      const isSuperOrg = superOrgId === orgId;
-      const targetOrgId = isSuperOrg ? args.reviewOrgId : orgId;
-      if (!targetOrgId) {
-        fail(
-          "A customer organization is required for this dashboard preview.",
-          {
-            statusCode: 400,
-          },
-        );
-      }
-      dash = await getDashboardForReview(
-        args.id,
-        isSuperOrg
-          ? { kind: "super-organization", orgId: targetOrgId }
-          : { kind: "organization", orgId: targetOrgId },
-      );
+      dash = await getReviewedDashboard(args.id, orgId, args.reviewOrgId);
     } else {
       dash = await getDashboard(args.id, ctx);
     }

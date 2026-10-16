@@ -20,6 +20,9 @@ const reads = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
+  fail: (message: string, options: object) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("../server/lib/data-notes-store.js", () => mocks);
 vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
@@ -164,10 +167,31 @@ describe("data-note actions", () => {
       expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
         "shared-dashboard",
         scope,
+        undefined,
       );
       expect(mocks.listDataNotes).toHaveBeenCalledWith(owner);
       const { addedBy: _, ...incident } = SETUP_INCIDENT;
       expect(result).toEqual({ notes: [incident], editable: false });
+    });
+
+    it("lists a reviewed dashboard's notes through the Human Review check", async () => {
+      shared(false);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+        reviewPreview: true,
+        reviewOrgId: "org-2",
+      });
+
+      expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+        "shared-dashboard",
+        scope,
+        { reviewOrgId: "org-2" },
+      );
+      expect(result.editable).toBe(false);
+      await expect(
+        actions.list.run({ reviewPreview: true, reviewOrgId: "org-2" }),
+      ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it("drops pins to the owner's other dashboards, and notes only a section is pinned to", async () => {

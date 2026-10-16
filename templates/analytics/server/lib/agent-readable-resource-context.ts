@@ -146,6 +146,18 @@ export interface DashboardAgentContextOptions {
   annotationSummary?:
     | DashboardAnnotationSummary
     | DashboardAnnotationsUnreadable;
+  /** A Human Review read, whose follow-up reads need the same review arguments. */
+  reviewPreview?: boolean;
+}
+
+/** A hint naming the reads that fetch what was left out, which a Human Review read must make as one too. */
+function readsHint(
+  hint: string,
+  options: DashboardAgentContextOptions,
+): string {
+  return options.reviewPreview
+    ? `${hint} Pass each the same reviewPreview and reviewOrgId as this read.`
+    : hint;
 }
 
 function mergeSavedConfig(
@@ -201,7 +213,7 @@ function withRequestedDetail(
   }
   const compact: Record<string, unknown> = { ...base, ...requested };
   if (options.includeConfig !== true) {
-    return options.forAgent ? withFittedAnnotations(compact) : compact;
+    return options.forAgent ? withFittedAnnotations(compact, options) : compact;
   }
 
   const full = mergeSavedConfig(compact, config);
@@ -222,10 +234,16 @@ function withRequestedDetail(
         omittedPanelIds: panels.flatMap((panel) =>
           typeof panel.id === "string" ? [panel.id] : [],
         ),
-        hint: `The full config is over ${cap} characters, so only summaries are returned. Call get-sql-dashboard again with panelIds for the panels whose SQL and config you need.`,
+        hint: readsHint(
+          `The full config is over ${cap} characters, so only summaries are returned. Call get-sql-dashboard again with panelIds for the panels whose SQL and config you need.`,
+          options,
+        ),
       },
       AGENT_FULL_CONFIG_MAX_CHARS,
-      `The full config is over ${cap} characters, and so are its summaries, so only trimmed summaries are returned: panel bindings, layout rows, and key dates are omitted, as is anything an omitted* field counts or names. Call get-sql-dashboard without includeConfig for every panel's summary, or with panelIds for a panel's SQL and config, and list-key-dates or list-data-notes with dashboardId for every key date and note.`,
+      readsHint(
+        `The full config is over ${cap} characters, and so are its summaries, so only trimmed summaries are returned: panel bindings, layout rows, and key dates are omitted, as is anything an omitted* field counts or names. Call get-sql-dashboard without includeConfig for every panel's summary, or with panelIds for a panel's SQL and config, and list-key-dates or list-data-notes with dashboardId for every key date and note.`,
+        options,
+      ),
     ),
     ...requested,
   };
@@ -238,6 +256,7 @@ function withRequestedDetail(
  */
 function withFittedAnnotations(
   context: Record<string, unknown>,
+  options: DashboardAgentContextOptions,
 ): Record<string, unknown> {
   const annotations = Object.fromEntries(
     ["keyDateSets", "keyDatesHint", "dataNotes"].flatMap((key) =>
@@ -247,7 +266,10 @@ function withFittedAnnotations(
   const fitted = fitDashboardScreenContext(
     annotations,
     AGENT_FULL_CONFIG_MAX_CHARS,
-    `Key dates and data notes are over ${AGENT_FULL_CONFIG_MAX_CHARS.toLocaleString()} characters, so sets list no recent dates, and anything an omitted* field counts is left out. Call list-key-dates or list-data-notes with dashboardId for all of them.`,
+    readsHint(
+      `Key dates and data notes are over ${AGENT_FULL_CONFIG_MAX_CHARS.toLocaleString()} characters, so sets list no recent dates, and anything an omitted* field counts is left out. Call list-key-dates or list-data-notes with dashboardId for all of them.`,
+      options,
+    ),
   );
   return fitted === annotations ? context : { ...context, ...fitted };
 }
