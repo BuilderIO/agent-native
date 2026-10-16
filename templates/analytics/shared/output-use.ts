@@ -106,7 +106,10 @@ export function outputIdOf(properties: EventProperties): string | null {
 export interface OutputRecordingPages {
   firstUrl: string | null;
   lastUrl: string | null;
-  /** Origins the recording's replay key accepts uploads from; [] when any. */
+  /**
+   * Origins the recording's replay key lists. An empty list accepts uploads
+   * from anywhere, so it vouches for no origin and yields no link.
+   */
   allowedOrigins: readonly string[];
 }
 
@@ -136,21 +139,29 @@ export function outputUrl(
   if (!rule) return null;
   const pages = [recording.firstUrl, recording.lastUrl].flatMap((value) => {
     const page = recordedPage(value);
-    return page && recording.allowedOrigins.includes(page.origin) ? [page] : [];
+    return page ? [page] : [];
   });
+  // A recording's id lives in its tab's sessionStorage, which is per origin,
+  // so a real recording never spans origins; pages on two came from a forged
+  // upload, and neither can be trusted.
+  const origin = pages[0]?.origin;
+  if (
+    !origin ||
+    pages.some((page) => page.origin !== origin) ||
+    !recording.allowedOrigins.includes(origin)
+  ) {
+    return null;
+  }
   // A workspace deploy mounts each app at `/<app id>` on one origin, and a
   // tab's recording follows it from app to app, so either page may show the
   // mount. Reading that prefix as the mount assumes the app has no route of
   // its own there (Slides has none). The recording's app label can't decide
-  // it: without a declared app it is the hostname's first label. Uploaded
-  // pages can name two origins, so the origin and mount come from one page.
+  // it: without a declared app it is the hostname's first label.
   const mount = `/${app}`;
-  const mounted = pages.find(
+  const mounted = pages.some(
     (page) => page.pathname === mount || page.pathname.startsWith(`${mount}/`),
   );
-  const page = mounted ?? pages[0];
-  if (!page) return null;
-  return `${page.origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
+  return `${origin}${mounted ? mount : ""}${rule.outputPath(outputId)}`;
 }
 
 /**

@@ -213,41 +213,25 @@ describe("outputUrl", () => {
     ).toBeNull();
   });
 
-  it("takes the origin and the mount from the same page", () => {
+  it("links no deck when the recording's pages name two origins", () => {
+    // A real recording never leaves its tab's origin, so these were forged.
     const allowed = ["https://one.example.com", "https://two.example.com"];
-    expect(
-      outputUrl(
-        "slides",
-        "deck-1",
-        pages(
-          "https://one.example.com/mail/inbox",
-          "https://two.example.com/slides/deck/deck-1",
-          allowed,
-        ),
-      ),
-    ).toBe("https://two.example.com/slides/deck/deck-1");
-    expect(
-      outputUrl(
-        "slides",
-        "deck-1",
-        pages(
-          "https://phish.example.net/deck/new",
-          "https://one.example.com/deck/new",
-          allowed,
-        ),
-      ),
-    ).toBe("https://one.example.com/deck/deck-1");
-    expect(
-      outputUrl(
-        "slides",
-        "deck-1",
-        pages(
-          "https://one.example.com/deck/new",
-          "https://phish.example.net/slides/home",
-          allowed,
-        ),
-      ),
-    ).toBe("https://one.example.com/deck/deck-1");
+    for (const [firstUrl, lastUrl] of [
+      [
+        "https://one.example.com/mail/inbox",
+        "https://two.example.com/slides/deck/deck-1",
+      ],
+      ["https://one.example.com/deck/new", "https://two.example.com/deck/new"],
+      [
+        "https://phish.example.net/deck/new",
+        "https://one.example.com/deck/new",
+      ],
+      ["https://one.example.com/deck/new", "https://phish.example.net/slides"],
+    ]) {
+      expect(
+        outputUrl("slides", "deck-1", pages(firstUrl, lastUrl, allowed)),
+      ).toBeNull();
+    }
   });
 });
 
