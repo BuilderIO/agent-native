@@ -484,8 +484,8 @@ async function editAround(
     "Charlie paragraph",
     ` ${markers.next("B")}`,
   );
-  await tabs.waitForSaveAnswers(first, 1);
-  await tabs.waitForSaveAnswers(second, 1);
+  await tabs.waitForTypingSaved(first, id);
+  await tabs.waitForTypingSaved(second, id);
 
   await agent.edit(
     id,
@@ -506,6 +506,13 @@ async function editAround(
   return { id, tabs, first, second, markers, threadId, accepted, rejected };
 }
 
+const AGENT_EDIT_ON_SWITCHED_PAGE = {
+  lane: "L3",
+  outcome: "SF-05",
+  reason:
+    "On a switched page the agent's edit-document writes the stored body, not the live copy, so the server answers both tabs' next collab updates not_derived (not_live_copy); they go back to update-document saves, which go to History with recovery notices and error toasts. No text is lost.",
+} as const;
+
 test.describe(
   "SF-05 comment anchors and pending suggestions",
   { tag: "@SF-05" },
@@ -516,61 +523,68 @@ test.describe(
       agent = AgentClient.shared(page);
     });
 
-    test("a comment and pending suggestions stay put while two tabs and an agent edit around them", async ({
-      page,
-      context,
-    }) => {
-      const scene = await editAround(
-        page,
-        context,
-        agent,
-        "SF-05 edits around anchors",
-      );
-      for (const [tab, label] of [
-        [scene.first, "A"],
-        [scene.second, "B"],
-      ] as const) {
-        await expectHighlight(tab, label, scene.threadId, QUOTE, "Bravo");
-        await expectSuggestionRenders(
-          tab,
-          label,
-          scene.accepted,
-          ACCEPTED,
-          "Delta",
+    test(
+      "a comment and pending suggestions stay put while two tabs and an agent edit around them",
+      knownLossOnArm({ on: AGENT_EDIT_ON_SWITCHED_PAGE }),
+      async ({ page, context }) => {
+        const scene = await editAround(
+          page,
+          context,
+          agent,
+          "SF-05 edits around anchors",
         );
-        await expectSuggestionRenders(
-          tab,
-          label,
-          scene.rejected,
-          REJECTED,
-          "Golf",
-        );
-      }
+        for (const [tab, label] of [
+          [scene.first, "A"],
+          [scene.second, "B"],
+        ] as const) {
+          await expectHighlight(tab, label, scene.threadId, QUOTE, "Bravo");
+          await expectSuggestionRenders(
+            tab,
+            label,
+            scene.accepted,
+            ACCEPTED,
+            "Delta",
+          );
+          await expectSuggestionRenders(
+            tab,
+            label,
+            scene.rejected,
+            REJECTED,
+            "Golf",
+          );
+        }
 
-      const { comments } = await (async () => {
-        const response = await page.request.get(
-          "/_agent-native/actions/list-comments",
-          { params: { documentId: scene.id }, headers: ACTION_HEADERS },
+        const { comments } = await (async () => {
+          const response = await page.request.get(
+            "/_agent-native/actions/list-comments",
+            { params: { documentId: scene.id }, headers: ACTION_HEADERS },
+          );
+          const text = await response.text();
+          expect(response.ok(), `list-comments: ${text}`).toBe(true);
+          return JSON.parse(text) as {
+            comments: Array<{ thread_id: string; quoted_text: string | null }>;
+          };
+        })();
+        expect(
+          comments.find((comment) => comment.thread_id === scene.threadId)
+            ?.quoted_text,
+          "the stored quote",
+        ).toBe(QUOTE);
+        // A tab opened now has only the stored anchor to place the highlight.
+        const fresh = await scene.tabs.open("fresh", scene.id);
+        await expectHighlight(
+          fresh,
+          "fresh tab",
+          scene.threadId,
+          QUOTE,
+          "Bravo",
         );
-        const text = await response.text();
-        expect(response.ok(), `list-comments: ${text}`).toBe(true);
-        return JSON.parse(text) as {
-          comments: Array<{ thread_id: string; quoted_text: string | null }>;
-        };
-      })();
-      expect(
-        comments.find((comment) => comment.thread_id === scene.threadId)
-          ?.quoted_text,
-        "the stored quote",
-      ).toBe(QUOTE);
-      // A tab opened now has only the stored anchor to place the highlight.
-      const fresh = await scene.tabs.open("fresh", scene.id);
-      await expectHighlight(fresh, "fresh tab", scene.threadId, QUOTE, "Bravo");
-      for (const id of [scene.accepted, scene.rejected])
-        expect(await suggestionStatus(page, scene.id, id)).toBe("pending");
-      // The fresh tab's own saves are the known loss checked next.
-      expectNoNoise(scene.tabs, ["A", "B"]);
-    });
+        for (const id of [scene.accepted, scene.rejected])
+          expect(await suggestionStatus(page, scene.id, id)).toBe("pending");
+        // The fresh tab's own saves are the known loss checked next.
+        expectNoNoise(scene.tabs, ["A", "B"]);
+      },
+    );
 
     test(
       "a tab opened after the edits saves nothing",
@@ -664,47 +678,48 @@ test.describe(
       },
     );
 
-    test("rejecting a suggestion after the edits leaves the body byte for byte", async ({
-      page,
-      context,
-    }) => {
-      const scene = await editAround(
-        page,
-        context,
-        agent,
-        "SF-05 reject after edits",
-      );
-      const decisions = recordDecisions(scene.second);
-      const before = (await getDocument(page, scene.id)).content;
-
-      await decideInUi(scene.second, scene.rejected, "rejected");
-      await expect
-        .poll(() => suggestionStatus(page, scene.id, scene.rejected), {
-          message: "the suggestion is rejected",
-          timeout: 30_000,
-        })
-        .toBe("rejected");
-      for (const tab of [scene.first, scene.second])
-        await expect(
-          tab.locator(`${EDITOR} [data-suggestion-id="${scene.rejected}"]`),
-        ).toHaveCount(0, { timeout: POLL_INTERVAL_MS * 3 });
-      await delay(POLL_INTERVAL_MS + 3_000);
-      await scene.tabs.quiet();
-      expect((await getDocument(page, scene.id)).content).toBe(before);
-      for (const [tab, label] of [
-        [scene.first, "A"],
-        [scene.second, "B"],
-      ] as const)
-        await expectSuggestionRenders(
-          tab,
-          label,
-          scene.accepted,
-          ACCEPTED,
-          "Delta",
+    test(
+      "rejecting a suggestion after the edits leaves the body byte for byte",
+      knownLossOnArm({ on: AGENT_EDIT_ON_SWITCHED_PAGE }),
+      async ({ page, context }) => {
+        const scene = await editAround(
+          page,
+          context,
+          agent,
+          "SF-05 reject after edits",
         );
-      expect(decisions.map((answer) => answer.status)).toEqual([200]);
-      expectNoNoise(scene.tabs);
-    });
+        const decisions = recordDecisions(scene.second);
+        const before = (await getDocument(page, scene.id)).content;
+
+        await decideInUi(scene.second, scene.rejected, "rejected");
+        await expect
+          .poll(() => suggestionStatus(page, scene.id, scene.rejected), {
+            message: "the suggestion is rejected",
+            timeout: 30_000,
+          })
+          .toBe("rejected");
+        for (const tab of [scene.first, scene.second])
+          await expect(
+            tab.locator(`${EDITOR} [data-suggestion-id="${scene.rejected}"]`),
+          ).toHaveCount(0, { timeout: POLL_INTERVAL_MS * 3 });
+        await delay(POLL_INTERVAL_MS + 3_000);
+        await scene.tabs.quiet();
+        expect((await getDocument(page, scene.id)).content).toBe(before);
+        for (const [tab, label] of [
+          [scene.first, "A"],
+          [scene.second, "B"],
+        ] as const)
+          await expectSuggestionRenders(
+            tab,
+            label,
+            scene.accepted,
+            ACCEPTED,
+            "Delta",
+          );
+        expect(decisions.map((answer) => answer.status)).toEqual([200]);
+        expectNoNoise(scene.tabs);
+      },
+    );
 
     // Agent-form Markdown: blank lines between blocks, an escaped underscore,
     // underscore emphasis, bare dollar signs and a pipe table whose cells

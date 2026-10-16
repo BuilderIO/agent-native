@@ -16,7 +16,7 @@ import {
   noiseFailures,
   typeAtParagraphEnd,
 } from "../helpers";
-import { enterGateArm } from "../live-body-gate";
+import { enterGateArm, knownLossOnArm } from "../live-body-gate";
 import { expectBlocksKept, liveCopyContaining } from "./collab-blocks";
 
 // SF-02: an agent's edit over MCP lands on a page while it is open. Each case
@@ -223,40 +223,48 @@ test.describe(
       expectNoRecoveryNoise(tabs);
     });
 
-    test("a tab is typing and its save is still on the way", async ({
-      page,
-      context,
-    }) => {
-      const tabs = await TabSet.create(context);
-      const markers = new Markers();
-      const id = await createPage(page, "SF-02 save held", EDITOR_BODY);
-      await enterGateArm(page, id);
-      const typing = await tabs.open("A", id);
-      const gate = await SaveGate.install(typing);
-      await tabs.quiet();
-      const before = await liveCopyContaining(page, id, PAGE_PARAGRAPHS);
+    test(
+      "a tab is typing and its save is still on the way",
+      knownLossOnArm({
+        on: {
+          lane: "L3",
+          outcome: "SF-02",
+          reason:
+            "On a switched page the agent's edit-document writes the stored body, not the live copy, so the server answers the typing tab's held collab update not_derived (not_live_copy) and the tab goes back to an update-document save, which shows \"This page changed elsewhere\". No text is lost.",
+        },
+      }),
+      async ({ page, context }) => {
+        const tabs = await TabSet.create(context);
+        const markers = new Markers();
+        const id = await createPage(page, "SF-02 save held", EDITOR_BODY);
+        await enterGateArm(page, id);
+        const typing = await tabs.open("A", id);
+        const gate = await SaveGate.install(typing);
+        await tabs.quiet();
+        const before = await liveCopyContaining(page, id, PAGE_PARAGRAPHS);
 
-      gate.holdArrivals();
-      await typeAtParagraphEnd(
-        typing,
-        "Alpha paragraph",
-        ` ${markers.next("A")}`,
-      );
-      await gate.waitForHeld();
-      const edit = await agentEdit(agent, page, id, markers);
-      await expectShownInTime([typing], edit);
-      gate.pass();
-      await gate.release();
+        gate.holdArrivals();
+        await typeAtParagraphEnd(
+          typing,
+          "Alpha paragraph",
+          ` ${markers.next("A")}`,
+        );
+        await gate.waitForHeld();
+        const edit = await agentEdit(agent, page, id, markers);
+        await expectShownInTime([typing], edit);
+        gate.pass();
+        await gate.release();
 
-      await expectEachOnce([typing], page, id, markers);
-      expectBlocksKept(
-        before,
-        await liveCopyContaining(page, id, markers.all),
-        [BRAVO, CHARLIE],
-      );
-      await expectReplay(agent, tabs, page, id, edit);
-      expectNoRecoveryNoise(tabs);
-    });
+        await expectEachOnce([typing], page, id, markers);
+        expectBlocksKept(
+          before,
+          await liveCopyContaining(page, id, markers.all),
+          [BRAVO, CHARLIE],
+        );
+        await expectReplay(agent, tabs, page, id, edit);
+        expectNoRecoveryNoise(tabs);
+      },
+    );
 
     test(
       "two tabs are typing",
@@ -345,7 +353,7 @@ test.describe(
         "Alpha paragraph",
         ` ${markers.next("A")}`,
       );
-      await tabs.waitForSaveAnswers(open, 1);
+      await tabs.waitForTypingSaved(open, id);
       const edit = await agentEdit(agent, page, id, markers);
       await expectShownInTime([open], edit);
       await expectEachOnce([open], page, id, markers);

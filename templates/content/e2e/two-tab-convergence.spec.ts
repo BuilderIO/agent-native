@@ -1183,7 +1183,7 @@ test.describe(
             "Alpha paragraph",
             ` ${s.markers.next("A")}`,
           );
-          await s.tabs.waitForSaveAnswers(first, 1);
+          await s.tabs.waitForTypingSaved(first, s.id);
 
           const fromAgent = s.markers.next("Agent");
           s.notes.agentIdentity = await AgentClient.editOnce(

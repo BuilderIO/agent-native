@@ -608,6 +608,23 @@ export class TabSet {
       .toBeGreaterThanOrEqual(count);
   }
 
+  /**
+   * Wait until everything a tab has typed is saved. A legacy tab saves it in
+   * one debounced save. A switched tab sends its collab updates one at a
+   * time, so its first can be answered while the rest still wait to go; its
+   * typing is saved once its outbox is empty.
+   */
+  async waitForTypingSaved(page: Page, documentId: string): Promise<void> {
+    await this.waitForSaveAnswers(page, 1);
+    if (BODY_SAVES === "update-document") return;
+    await expect
+      .poll(() => outboxEntries(page, documentId), {
+        message: `${this.record(page).label}'s outbox should empty once its updates are answered`,
+        timeout: 30_000,
+      })
+      .toEqual([]);
+  }
+
   /** Wait until an open tab's editor shows text another tab or agent wrote. */
   async waitForText(page: Page, text: string): Promise<void> {
     await expect(page.locator(EDITOR)).toContainText(text, { timeout: 30_000 });
