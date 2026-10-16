@@ -2,7 +2,6 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useSession } from "@agent-native/core/client/use-session";
 
 export type DeckAccessStatusResponse = {
   exists: boolean;
@@ -20,14 +19,11 @@ export type DeckAccessStatusResponse = {
 };
 
 export function useDeckAccessStatus(deckId?: string) {
-  const { status } = useSession();
   return useActionQuery<DeckAccessStatusResponse>(
     "get-deck-access-status",
     { deckId: deckId ?? "" },
     {
-      enabled:
-        Boolean(deckId) &&
-        (status === "authenticated" || status === "unauthenticated"),
+      enabled: Boolean(deckId),
       retry: false,
     },
   );
