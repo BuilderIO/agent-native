@@ -8788,8 +8788,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         originFrames: Object.fromEntries(
           originEntries.map((entry) => [entry.id, entry.geometry]),
         ) as FrameGeometryById,
+        // A Hug screen's height is its content's, so it saves what renders.
         savedFrames: Object.fromEntries(
-          savedEntries.map((entry) => [entry.id, entry.geometry]),
+          savedEntries
+            .filter((entry) => {
+              const screen = renderedScreens.find(
+                (candidate) => candidate.id === entry.id,
+              );
+              return (
+                !screen || getResolvedMetadata(screen).heightMode !== "hug"
+              );
+            })
+            .map((entry) => [entry.id, entry.geometry]),
         ) as FrameGeometryById,
         originBounds: frameBoundsToGeometry(originBounds),
         targetIds: originEntries.map((entry) => entry.id),
@@ -9012,7 +9022,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               kScaleStyleChangesByFrameId[screenId] = changes;
             });
           }
-          const before = frameGeometryWithOverrides(after, state.savedFrames);
+          const before = frameGeometryWithOverrides(after, {
+            ...state.originFrames,
+            ...state.savedFrames,
+          });
           const committed = missingKScaleTarget
             ? false
             : onGeometryCommitRef.current?.(
@@ -9063,6 +9076,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       resolveSnapStepForTargets,
       screenRootComputedStylesById,
       scaleScreenContents,
+      renderedScreens,
+      getResolvedMetadata,
     ],
   );
 
