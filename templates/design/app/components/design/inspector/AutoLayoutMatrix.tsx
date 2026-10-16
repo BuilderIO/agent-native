@@ -44,6 +44,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  INSPECTOR_GRID_COLUMNS,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
   INSPECTOR_GRID_PAIR_SPAN,
@@ -1522,10 +1523,10 @@ function GapField({
   return (
     <InspectorGrid
       className="items-center"
-      layout="field-action"
+      layout="columns"
       onKeyDown={handleShortcut}
     >
-      <InspectorGridCell span={24}>
+      <InspectorGridCell span={INSPECTOR_GRID_COLUMNS}>
         {/* [gap-icon] value [▾] in one control surface */}
         <div
           className={cn(

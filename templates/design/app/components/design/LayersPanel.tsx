@@ -1869,6 +1869,19 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
+  const handleRowMouseEnter = () => {
+    onHoverLayer?.(node.id);
+    const toggleDrag = activeIconToggleDrag;
+    if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
+      onToggleLocked?.(node.id, toggleDrag.value);
+    } else if (
+      toggleDrag?.kind === "hidden" &&
+      node.hidden !== toggleDrag.value
+    ) {
+      onToggleHidden?.(node.id, toggleDrag.value);
+    }
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       if (event.key === "Enter" && isSelected) return;
@@ -2124,7 +2137,7 @@ const LayerRow = memo(function LayerRow({
             onDropIndicatorChange(null);
             clearSpringLoadTimer();
           }}
-          onMouseEnter={() => onHoverLayer?.(node.id)}
+          onMouseEnter={handleRowMouseEnter}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
@@ -2319,6 +2332,7 @@ const LayerRow = memo(function LayerRow({
                         aria-label={node.locked ? labels.unlock : labels.lock}
                         draggable={false}
                         onMouseDown={(event) => {
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextLocked = !node.locked;
                           onToggleLocked?.(node.id, nextLocked);
@@ -2328,17 +2342,6 @@ const LayerRow = memo(function LayerRow({
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleLocked?.(node.id, !node.locked);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "locked" &&
-                            node.locked !== activeIconToggleDrag.value
-                          ) {
-                            onToggleLocked?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.locked ? (
@@ -2369,6 +2372,7 @@ const LayerRow = memo(function LayerRow({
                         aria-label={node.hidden ? labels.show : labels.hide}
                         draggable={false}
                         onMouseDown={(event) => {
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextHidden = !node.hidden;
                           onToggleHidden?.(node.id, nextHidden);
@@ -2378,17 +2382,6 @@ const LayerRow = memo(function LayerRow({
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleHidden?.(node.id, !node.hidden);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "hidden" &&
-                            node.hidden !== activeIconToggleDrag.value
-                          ) {
-                            onToggleHidden?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.hidden ? (

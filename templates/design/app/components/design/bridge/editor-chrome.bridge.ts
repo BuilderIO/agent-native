@@ -3952,10 +3952,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   }
 
   /*
-   * Screen contents use direct selection on a plain click:
-   * Screen contents intentionally select the deepest block under a plain
-   * single click, while the infinite-canvas board uses container-first
-   * selection. These are distinct interaction modes.
+   * Screen contents select the deepest block on a plain click unless an
+   * already-selected ancestor owns that hit.
    */
   function plainClickSelectionTarget(hit: Element | null): Element | null {
     if (!designCanvasBoardSurface) {
@@ -3965,11 +3963,36 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return containerFirstSelectionTarget(hit);
   }
 
+  function selectedContainerForPlainClick(
+    hit: Element | null,
+    ev?: MouseEvent | null,
+    repeatedClick?: boolean,
+  ): Element | null {
+    if (
+      !ev ||
+      (repeatedClick ?? ev.detail > 1) ||
+      ev.metaKey ||
+      ev.ctrlKey ||
+      ev.shiftKey ||
+      ev.altKey ||
+      !hit ||
+      !selectedEl ||
+      !document.documentElement.contains(selectedEl)
+    ) {
+      return null;
+    }
+    var target = selectionTargetForHit(hit, true);
+    return target && target !== selectedEl && selectedEl.contains(target)
+      ? selectedEl
+      : null;
+  }
+
   function clickThroughSelectionTarget(
     hit: Element | null,
     ev: MouseEvent,
+    repeatedClick?: boolean,
   ): Element | null {
-    if (ev.detail > 1) return null;
+    if (repeatedClick ?? ev.detail > 1) return null;
     if (!selectedEl || !document.documentElement.contains(selectedEl)) {
       return null;
     }
@@ -8060,6 +8083,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   } | null = null;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer: ReturnType<typeof setTimeout> | null = null;
+  var shieldPointerClickCount = 0;
+  var lastShieldPointerDownAt = 0;
+  var lastShieldPointerDownPoint: { x: number; y: number } | null = null;
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -14302,7 +14328,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
         ? selectionTargetForHit(target)
-        : plainClickSelectionTarget(target);
+        : selectedContainerForPlainClick(target, e) ||
+          plainClickSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -26761,6 +26788,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function beginPotentialShieldDrag(e) {
     if (readOnly) return;
+    if (
+      e.type === "pointerdown" &&
+      e.pointerType === "mouse" &&
+      e.button === 0
+    ) {
+      var now = Date.now();
+      var sameClickPoint =
+        lastShieldPointerDownPoint &&
+        now - lastShieldPointerDownAt < 500 &&
+        Math.hypot(
+          e.clientX - lastShieldPointerDownPoint.x,
+          e.clientY - lastShieldPointerDownPoint.y,
+        ) <= 4;
+      shieldPointerClickCount = sameClickPoint
+        ? shieldPointerClickCount + 1
+        : 1;
+      lastShieldPointerDownAt = now;
+      lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
+    }
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
     }
@@ -26928,7 +26974,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     function onUp(ev) {
       clearPendingShieldDrag();
-      if (didStartDrag) return;
+      var repeatedClick = Boolean(
+        ev &&
+        (ev.detail > 1 ||
+          (ev.type === "pointerup" && shieldPointerClickCount > 1)),
+      );
+      if (didStartDrag) {
+        shieldPointerClickCount = 0;
+        lastShieldPointerDownAt = 0;
+        lastShieldPointerDownPoint = null;
+        return;
+      }
       if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
@@ -26941,9 +26997,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !readOnly && (e.metaKey || e.ctrlKey)
           ? selectionTargetForHit(hit)
           : !designCanvasBoardSurface
-            ? plainClickSelectionTarget(hit)
+            ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
+              plainClickSelectionTarget(hit)
             : (!readOnly && !e.shiftKey
-                ? clickThroughSelectionTarget(hit, ev)
+                ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
+                  clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
         selectTarget(cycledEl, ev, true);

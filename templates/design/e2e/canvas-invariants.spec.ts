@@ -651,8 +651,7 @@ test.describe("selection", () => {
     expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: Escape right after drawing clears the canvas selection chrome, but the Layers panel and inspector keep Rectangle selected (selection
-  test.fixme("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
+  test("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
     app,
   }) => {
     const id = await openPage(app, DRAW_FRAME_PAGE);
@@ -668,9 +667,7 @@ test.describe("selection", () => {
       drawn.map((node) => [node.parent, node.attrs["data-an-primitive"]]),
     ).toEqual([["draw-frame", "rectangle"]]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Rectangle"]);
-
     await app.page.keyboard.press("Escape");
-
     await expect.poll(() => app.selectedLayers()).toEqual([]);
     await expect(app.page.locator("[data-frame-selection-box]")).toHaveCount(0);
   });

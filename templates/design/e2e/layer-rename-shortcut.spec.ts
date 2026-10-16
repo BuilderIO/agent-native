@@ -62,7 +62,7 @@ test("Cmd/Ctrl+R renames the canvas-selected layer inline and Enter saves only t
   expectOnlyChanged(before, after, ["alpha"]);
 });
 
-// fixme: product bug: After the rename field opens and closes, the Layers scroller is left at scrollLeft 136 (0 before): the Home, Main and Hero rows show
+// This seed does not produce horizontal overflow, so the reported scroll regression is not reproduced here.
 test.fixme("Escape in the Cmd/Ctrl+R rename field discards the typed name and leaves the Layers panel unscrolled", async ({
   app,
   page,

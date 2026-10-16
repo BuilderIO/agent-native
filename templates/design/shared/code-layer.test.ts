@@ -3462,6 +3462,22 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("display: flex");
     expect(patch.content).toContain("flex-direction: row");
     expect(patch.content).toContain("gap: 16px");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("preserves an authored cross-axis alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" style="align-items: center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: center");
+    expect(patch.content).not.toContain("align-items: flex-start");
   });
 
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
@@ -3545,6 +3561,7 @@ describe("autoLayout", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("flex-direction: column");
     expect(patch.content).toContain("gap: 8px");
+    expect(patch.content).toContain("align-items: flex-start");
   });
 
   it("replaces a min-height:0 that would let the container collapse anyway", () => {
