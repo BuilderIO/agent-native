@@ -42,6 +42,26 @@ export function uploadLeaseExpiry(nowMs: number = Date.now()): string {
  */
 export const WAITING_STORAGE_LEASE_MS = 7 * 24 * 60 * 60 * 1000;
 
+const MEETING_FINALIZATION_RETRY_STATE_PREFIX = "clips-meeting-finalize-retry-";
+const MAX_MEETING_FINALIZATION_DISPATCH_ATTEMPTS = 5;
+const MEETING_FINALIZATION_RETRY_BASE_MS = 5 * 60 * 1000;
+const MEETING_FINALIZATION_RETRY_MAX_MS = 15 * 60 * 1000;
+
+type MeetingFinalizationRetryState = {
+  recordingId: string;
+  ownerEmail: string;
+  status: "scheduled" | "exhausted";
+  attempts: number;
+  updatedAt: string;
+  nextAttemptAt: string;
+};
+
+type MeetingFinalizationDispatchClaim =
+  | "claimed"
+  | "waiting"
+  | "exhausted"
+  | "already-exhausted";
+
 export { WAITING_STORAGE_EXPIRED_REASON };
 
 export function waitingStorageLeaseExpiry(nowMs: number = Date.now()): string {
@@ -214,6 +234,7 @@ export interface ReapResult {
   resumableCleanupFailed: number;
   hostedReservationsReleased: number;
   hostedCleanupFailed: number;
+  meetingFinalizationRetriesExhausted: number;
 }
 
 class UploadReaperDispatchError extends Error {
@@ -232,6 +253,133 @@ export async function markHostedCleanupConfirmed(
   videoUrl: string | null = null,
 ): Promise<string> {
   return writeHostedCleanupConfirmedMarker({ recordingId, videoUrl });
+}
+
+function meetingFinalizationRetryKey(recordingId: string): string {
+  return `${MEETING_FINALIZATION_RETRY_STATE_PREFIX}${recordingId}`;
+}
+
+function parseMeetingFinalizationRetryState(
+  value: unknown,
+  recordingId: string,
+  ownerEmail: string,
+): MeetingFinalizationRetryState {
+  if (typeof value !== "string") {
+    throw new Error(
+      `Meeting finalization retry state for ${recordingId} is unreadable`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Meeting finalization retry state for ${recordingId} is malformed: ${detail}`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      `Meeting finalization retry state for ${recordingId} is invalid`,
+    );
+  }
+  const state = parsed as Partial<MeetingFinalizationRetryState>;
+  if (
+    state.recordingId !== recordingId ||
+    state.ownerEmail !== ownerEmail ||
+    (state.status !== "scheduled" && state.status !== "exhausted") ||
+    !Number.isInteger(state.attempts) ||
+    (state.attempts ?? 0) < 1 ||
+    typeof state.updatedAt !== "string" ||
+    !Number.isFinite(Date.parse(state.updatedAt)) ||
+    typeof state.nextAttemptAt !== "string" ||
+    !Number.isFinite(Date.parse(state.nextAttemptAt))
+  ) {
+    throw new Error(
+      `Meeting finalization retry state for ${recordingId} is invalid`,
+    );
+  }
+  return state as MeetingFinalizationRetryState;
+}
+
+function meetingFinalizationRetryDelayMs(attempt: number): number {
+  return Math.min(
+    MEETING_FINALIZATION_RETRY_MAX_MS,
+    MEETING_FINALIZATION_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1),
+  );
+}
+
+async function claimMeetingFinalizationDispatch(params: {
+  recordingId: string;
+  ownerEmail: string;
+  now: number;
+}): Promise<MeetingFinalizationDispatchClaim> {
+  const exec = getDbExec();
+  const key = meetingFinalizationRetryKey(params.recordingId);
+  const current = await exec.execute({
+    sql: `SELECT value FROM application_state WHERE key = $1`,
+    args: [key],
+  });
+  const existing = (current.rows as Array<Record<string, unknown>>)[0];
+  const oldValue = existing?.value;
+  const state =
+    existing === undefined
+      ? null
+      : parseMeetingFinalizationRetryState(
+          oldValue,
+          params.recordingId,
+          params.ownerEmail,
+        );
+  if (state?.status === "exhausted") return "already-exhausted";
+  if (state && Date.parse(state.nextAttemptAt) > params.now) return "waiting";
+
+  if (state && state.attempts >= MAX_MEETING_FINALIZATION_DISPATCH_ATTEMPTS) {
+    const exhaustedState: MeetingFinalizationRetryState = {
+      ...state,
+      status: "exhausted",
+      updatedAt: new Date(params.now).toISOString(),
+    };
+    const exhausted = await exec.execute({
+      sql: `UPDATE application_state
+            SET value = $1
+            WHERE key = $2 AND value = $3
+            RETURNING key`,
+      args: [JSON.stringify(exhaustedState), key, oldValue],
+    });
+    return (exhausted.rows as Array<unknown>).length > 0
+      ? "exhausted"
+      : "waiting";
+  }
+
+  const attempts = (state?.attempts ?? 0) + 1;
+  const nextState: MeetingFinalizationRetryState = {
+    recordingId: params.recordingId,
+    ownerEmail: params.ownerEmail,
+    status: "scheduled",
+    attempts,
+    updatedAt: new Date(params.now).toISOString(),
+    nextAttemptAt: new Date(
+      params.now + meetingFinalizationRetryDelayMs(attempts),
+    ).toISOString(),
+  };
+  const serialized = JSON.stringify(nextState);
+  const claim =
+    state === null
+      ? await exec.execute({
+          sql: `INSERT INTO application_state (key, value)
+                VALUES ($1, $2)
+                ON CONFLICT (key) DO NOTHING
+                RETURNING key`,
+          args: [key, serialized],
+        })
+      : await exec.execute({
+          sql: `UPDATE application_state
+                SET value = $1
+                WHERE key = $2 AND value = $3
+                RETURNING key`,
+          args: [serialized, key, oldValue],
+        });
+  return (claim.rows as Array<unknown>).length > 0 ? "claimed" : "waiting";
 }
 
 function resumableSessionKey(
@@ -318,7 +466,8 @@ export async function reapExpiredUploads(
   options: { now?: number; limit?: number; dryRun?: boolean } = {},
 ): Promise<ReapResult> {
   const exec = getDbExec();
-  const nowIso = new Date(options.now ?? Date.now()).toISOString();
+  const now = options.now ?? Date.now();
+  const nowIso = new Date(now).toISOString();
   const limit = Math.max(1, Math.min(options.limit ?? 200, 1000));
   const dryRun = options.dryRun === true;
 
@@ -393,6 +542,7 @@ export async function reapExpiredUploads(
   let resumableCleanupFailed = 0;
   let hostedReservationsReleased = 0;
   let hostedCleanupFailed = 0;
+  let meetingFinalizationRetriesExhausted = 0;
   let terminatedRows: Array<Record<string, unknown>> = [];
   if (!dryRun) {
     for (const row of (pendingHostedReleases.rows as Array<
@@ -765,6 +915,23 @@ export async function reapExpiredUploads(
         continue;
       }
       try {
+        const claim = await claimMeetingFinalizationDispatch({
+          recordingId,
+          ownerEmail: row.owner_email,
+          now,
+        });
+        if (claim === "waiting" || claim === "already-exhausted") continue;
+        if (claim === "exhausted") {
+          meetingFinalizationRetriesExhausted += 1;
+          console.error(
+            "[upload-reaper] meeting finalization retry limit exhausted",
+            {
+              recordingId,
+              attempts: MAX_MEETING_FINALIZATION_DISPATCH_ATTEMPTS,
+            },
+          );
+          continue;
+        }
         await reconcileMeetingOnRecordingFailed({
           recordingId,
           ownerEmail: row.owner_email,
@@ -787,6 +954,7 @@ export async function reapExpiredUploads(
     resumableCleanupFailed,
     hostedReservationsReleased,
     hostedCleanupFailed,
+    meetingFinalizationRetriesExhausted,
   };
 }
 

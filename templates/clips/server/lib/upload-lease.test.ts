@@ -574,7 +574,7 @@ describe("upload lease", () => {
     }
   });
 
-  it("retries failed meeting dispatches from persisted ended-meeting transcript state", async () => {
+  it("backs off and caps repeated failed meeting finalization dispatches", async () => {
     await insertRecording({ id: "meeting-dispatch-retry", status: "failed" });
     await insertRecording({
       id: "meeting-dispatch-inflight",
@@ -616,17 +616,33 @@ describe("upload lease", () => {
       new Error("dispatch unavailable"),
     );
 
-    await expect(reapExpiredUploads({ now: NOW })).rejects.toThrow(
-      "Meeting finalization dispatch failed for 1 recording(s)",
-    );
+    const initialDispatches = await Promise.allSettled([
+      reapExpiredUploads({ now: NOW }),
+      reapExpiredUploads({ now: NOW }),
+    ]);
+    expect(
+      initialDispatches.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
     await reapExpiredUploads({ now: NOW + 1_000 });
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledTimes(1);
 
-    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledTimes(2);
+    await reapExpiredUploads({ now: NOW + 5 * 60_000 });
+    await reapExpiredUploads({ now: NOW + 15 * 60_000 });
+    await reapExpiredUploads({ now: NOW + 30 * 60_000 });
+    await reapExpiredUploads({ now: NOW + 45 * 60_000 });
+    const exhausted = await reapExpiredUploads({ now: NOW + 60 * 60_000 });
+    expect(exhausted.meetingFinalizationRetriesExhausted).toBe(1);
+    const afterExhaustion = await reapExpiredUploads({
+      now: NOW + 61 * 60_000,
+    });
+    expect(afterExhaustion.meetingFinalizationRetriesExhausted).toBe(0);
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledTimes(5);
     expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenNthCalledWith(1, {
       recordingId: "meeting-dispatch-retry",
       ownerEmail: "owner@example.com",
     });
-    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenNthCalledWith(2, {
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenLastCalledWith({
       recordingId: "meeting-dispatch-retry",
       ownerEmail: "owner@example.com",
     });
