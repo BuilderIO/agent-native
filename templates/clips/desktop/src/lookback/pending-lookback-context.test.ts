@@ -330,7 +330,7 @@ describe("settlePendingLookbackContextAfterStop", () => {
     expect(contexts.has(context.recordingId)).toBe(false);
   });
 
-  it("persists a retry intent when a successful stop outlives request retries", async () => {
+  it("persists a retry intent before a successful stop request settles", async () => {
     const context = pending("recording-a");
     vi.spyOn(console, "warn").mockImplementation(() => {});
     let rejectItem!: (error: Error) => void;
@@ -351,10 +351,13 @@ describe("settlePendingLookbackContextAfterStop", () => {
       },
     );
 
-    rejectItem(new Error("network unavailable"));
     await settling;
-
     expect(persistIntent).toHaveBeenCalledWith(context, undefined, "retain");
+    expect(contexts.get(context.recordingId)).toBe(context);
+
+    rejectItem(new Error("network unavailable"));
+    await expect(context.item).rejects.toThrow("network unavailable");
+
     expect(contexts.has(context.recordingId)).toBe(false);
   });
 
@@ -381,8 +384,9 @@ describe("settlePendingLookbackContextAfterStop", () => {
       },
     );
 
-    rejectItem(new Error("network unavailable"));
     await settling;
+    rejectItem(new Error("network unavailable"));
+    await expect(context.item).rejects.toThrow("network unavailable");
 
     expect(contexts.get(context.recordingId)).toBe(context);
     expect(pendingSuccessfulLookbackRequests(contexts)).toEqual([context]);

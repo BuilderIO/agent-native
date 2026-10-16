@@ -435,7 +435,7 @@ describe("processRecordingContextItem", () => {
     expect(deps.trashed).toEqual(["media-old"]);
   });
 
-  it("trashes the new footage and marks the item failed when the upload fails", async () => {
+  it("keeps reserved footage retryable when the upload fails", async () => {
     const deps = fakeDeps({
       uploadWindow: vi.fn(async () => {
         throw new Error("disk full");
@@ -448,12 +448,10 @@ describe("processRecordingContextItem", () => {
         deps,
       ),
     ).resolves.toBe("failed");
-    expect(deps.trashed).toEqual(["media-1"]);
-    expect(deps.updates.slice(-1)[0]).toEqual({
-      id: "ctx1",
-      status: "failed",
-      error: "disk full",
-    });
+    expect(deps.trashed).toEqual([]);
+    expect(deps.updates).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+    ]);
   });
 
   it("trashes the new footage and does not upload when another claim owns the item", async () => {
@@ -496,7 +494,7 @@ describe("processRecordingContextItem", () => {
     expect(deps.update).toHaveBeenCalledTimes(1);
   });
 
-  it("marks the item failed when the claim landed before its response was lost", async () => {
+  it("keeps the claimed item retryable when its claim response was lost", async () => {
     const deps = fakeDeps({
       update: vi.fn(async (input: RecordingContextUpdate) => {
         if (input.status === "processing") {
@@ -509,12 +507,8 @@ describe("processRecordingContextItem", () => {
     await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
       "failed",
     );
-    expect(deps.trashed).toEqual(["media-1"]);
-    expect(deps.update).toHaveBeenLastCalledWith({
-      id: "ctx1",
-      status: "failed",
-      error: "socket hang up",
-    });
+    expect(deps.trashed).toEqual([]);
+    expect(deps.update).toHaveBeenCalledTimes(1);
   });
 
   it("claims the item before failing it when creating its footage throws", async () => {
@@ -724,26 +718,26 @@ describe("processRecordingContextItem", () => {
     );
   });
 
-  it("ignores a 409 when recording a failure the item has already moved past", async () => {
+  it("trashes its footage when a newer processing claim owns the item", async () => {
     const deps = fakeDeps({
       uploadWindow: vi.fn(async () => {
         throw new Error("disk full");
       }),
-      update: vi.fn(async (input: RecordingContextUpdate) => {
-        if (input.status === "failed") {
-          throw new ClipsActionError("Cannot move.", 409);
-        }
-        return input;
-      }),
+      currentItem: vi.fn(async () =>
+        item({ status: "processing", pendingMediaRecordingId: "media-new" }),
+      ),
     });
 
     await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
       "failed",
     );
     expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
   });
 
-  it("treats a rejected ready write as a failed export and cleans up its media", async () => {
+  it("keeps reserved footage retryable when a ready write fails", async () => {
     const deps = fakeDeps({
       update: vi.fn(async (input: RecordingContextUpdate) => {
         if (input.status === "ready") throw new Error("server 500");
@@ -754,17 +748,15 @@ describe("processRecordingContextItem", () => {
     await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
       "failed",
     );
-    expect(deps.trashed).toEqual(["media-1"]);
-    expect(deps.update).toHaveBeenLastCalledWith({
-      id: "ctx1",
-      status: "failed",
-      error: "server 500",
-    });
+    expect(deps.trashed).toEqual([]);
+    expect(deps.updates).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+    ]);
   });
 
   it("never sends an empty or non-Error failure as the error text", async () => {
     const empty = fakeDeps({
-      uploadWindow: vi.fn(async () => {
+      createRecording: vi.fn(async () => {
         throw new Error("");
       }),
     });
@@ -774,7 +766,7 @@ describe("processRecordingContextItem", () => {
     );
 
     const thrown = fakeDeps({
-      uploadWindow: vi.fn(async () => {
+      createRecording: vi.fn(async () => {
         throw "boom";
       }),
     });
@@ -787,7 +779,7 @@ describe("processRecordingContextItem", () => {
   it("still marks the item failed when cleaning up the media also fails", async () => {
     const deps = fakeDeps({
       uploadWindow: vi.fn(async () => {
-        throw new Error("network down");
+        throw new ClipsActionError("network down", 422);
       }),
       trashRecording: vi.fn(async () => {
         throw new Error("trash offline");

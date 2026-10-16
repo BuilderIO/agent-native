@@ -127,35 +127,68 @@ export async function settlePendingLookbackContextAfterStop(
   if (!pending) return;
   if (stopSucceeded) {
     pending.stopSucceeded = true;
-    if (pending.settlingAfterStop) return;
-    pending.settlingAfterStop = true;
-    try {
-      await pending.item;
-      if (!pending.stopFailed && contexts.get(recordingId) === pending) {
-        contexts.delete(recordingId);
-      }
-    } catch (error) {
-      if (pending.stopFailed) return;
-      pending.requestFailedAfterStop = true;
-      if (!cleanupLifecycle) {
-        console.warn(
-          "[lookback] keeping the successful-stop request available for retry:",
-          error,
-        );
-        return;
-      }
+    if (pending.requestFailedAfterStop) {
+      if (!cleanupLifecycle || pending.cleanupIntentPersisted) return;
       try {
         cleanupLifecycle.persistIntent(pending, undefined, "retain");
+        pending.cleanupIntentPersisted = true;
         if (contexts.get(recordingId) === pending) contexts.delete(recordingId);
-      } catch (persistError) {
+      } catch (error) {
         console.error(
           "[lookback] failed to persist the successful-stop request for retry; keeping it in memory:",
-          persistError,
+          error,
         );
       }
-    } finally {
-      pending.settlingAfterStop = false;
+      return;
     }
+    if (pending.settlingAfterStop) return;
+    pending.settlingAfterStop = true;
+    if (cleanupLifecycle) {
+      try {
+        cleanupLifecycle.persistIntent(pending, undefined, "retain");
+        pending.cleanupIntentPersisted = true;
+      } catch (error) {
+        console.error(
+          "[lookback] failed to persist the successful-stop request for retry; keeping it in memory:",
+          error,
+        );
+      }
+    }
+    void pending.item
+      .then(
+        () => {
+          if (pending.cleanupIntentPersisted && cleanupLifecycle) {
+            try {
+              cleanupLifecycle.clearIntent(pending);
+            } catch (error) {
+              console.warn(
+                "[lookback] the request succeeded but its retry intent could not be cleared:",
+                error,
+              );
+            }
+          }
+          if (!pending.stopFailed && contexts.get(recordingId) === pending) {
+            contexts.delete(recordingId);
+          }
+        },
+        (error) => {
+          if (pending.stopFailed) return;
+          pending.requestFailedAfterStop = true;
+          if (pending.cleanupIntentPersisted) {
+            if (contexts.get(recordingId) === pending) {
+              contexts.delete(recordingId);
+            }
+            return;
+          }
+          console.warn(
+            "[lookback] keeping the successful-stop request available for retry:",
+            error,
+          );
+        },
+      )
+      .finally(() => {
+        pending.settlingAfterStop = false;
+      });
     return;
   }
 
