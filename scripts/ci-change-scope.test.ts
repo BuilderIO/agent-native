@@ -2291,6 +2291,7 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/e2e/playwright.config.ts",
     "templates/content/e2e/live-body-gate.ts",
     "templates/content/e2e/gate-arm.ts",
+    "templates/content/e2e/auth-files.ts",
     "templates/content/e2e/stored-form/editor-mounts-once.spec.ts",
     "templates/content/acceptance/known-loss.ts",
     "packages/core/src/collab/client.ts",

@@ -17,7 +17,7 @@ import {
   postAction,
   signInAccount,
 } from "../helpers";
-import { enterGateArm } from "../live-body-gate";
+import { enterGateArm, leaveGateArm } from "../live-body-gate";
 import { liveCopyContaining } from "./collab-blocks";
 
 // SF-06: every editor visit mounts one editor. Each case counts the
@@ -264,8 +264,9 @@ test.describe(
           baseURL,
           storageState: { cookies: [], origins: [] },
         });
+        let reader: Page | undefined;
         try {
-          const reader = await signIn(
+          reader = await signIn(
             landing,
             baseURL!,
             await landingAccountEmail(page),
@@ -289,7 +290,11 @@ test.describe(
             mode: "editing",
           });
         } finally {
-          await landing.close();
+          try {
+            if (reader) await leaveGateArm(reader);
+          } finally {
+            await landing.close();
+          }
         }
       },
     );

@@ -70,6 +70,68 @@ export async function enterGateArm(
   await switchPage(page, documentId);
 }
 
+interface FlagRules {
+  mode: "off" | "on" | "rules";
+  emails: string[];
+  orgIds: string[];
+  percentage: number;
+}
+
+/**
+ * Take the signed-in account back off both gate flags. enterGateArm adds the
+ * account's email to each flag's rules in its organization, and that entry
+ * outlives the run, so a later gate-off run signed in as the same account
+ * would find the flags on. Other entries in the rules stay as they are.
+ */
+export async function leaveGateArm(page: Page): Promise<void> {
+  if (GATE_ARM !== "on") return;
+  const session = await page.request.get("/_agent-native/auth/session", {
+    headers: { Accept: "application/json" },
+  });
+  const email = ((await session.json()) as { email?: string }).email
+    ?.trim()
+    .toLowerCase();
+  if (!email)
+    throw new Error(
+      `Leaving the gate-on arm: no signed-in account (session ${session.status()}).`,
+    );
+  const response = await page.request.get(
+    "/_agent-native/actions/list-feature-flags",
+    { headers: ACTION_HEADERS },
+  );
+  const text = await response.text();
+  if (!response.ok())
+    throw new Error(`list-feature-flags (${response.status()}): ${text}`);
+  const listed = JSON.parse(text) as {
+    status: string;
+    flags: { key: string; rules: FlagRules }[];
+  };
+  // set-feature-flag needs the same permission, so an account that cannot
+  // list the flags never enabled them.
+  if (listed.status === "forbidden") return;
+  for (const flag of listed.flags) {
+    if (flag.key !== SHADOW_FLAG && flag.key !== WRITER_FLAG) continue;
+    if (!flag.rules.emails.includes(email)) continue;
+    const { mode, emails, orgIds, percentage } = flag.rules;
+    await postAction(page, "set-feature-flag", {
+      operation: "replace-rules",
+      key: flag.key,
+      rules: {
+        mode,
+        emails: emails.filter((entry) => entry !== email),
+        orgIds,
+        percentage,
+      },
+    });
+  }
+  const left = await flagValues(page);
+  for (const key of [SHADOW_FLAG, WRITER_FLAG])
+    if (left[key] === true)
+      throw new Error(
+        `${key} is still on for ${email} after leaving the gate-on arm, so its rules turn it on for more than this account.`,
+      );
+}
+
 const SWITCH_ACTION = "set-live-body-switch";
 
 /**

@@ -188,7 +188,7 @@ async function alternate(s: Scenario) {
 }
 
 const SWITCHED_HAS_NO_DRAFT =
-  "A switched page keeps unsent edits in its outbox, not a recovery draft, and offers no Keep Mine; the outbox scenarios cover it.";
+  "A switched page keeps unsent edits in its outbox, not a recovery draft journal; the outbox scenarios cover it.";
 const LEGACY_KEEPS_A_DRAFT =
   "A legacy page keeps a body it could not save in a recovery draft; the Keep Mine and journal scenarios cover it.";
 
@@ -328,6 +328,80 @@ async function peerTitleWhileUpdatesFail(
       'A showed "Your latest page edits could not be saved."',
       'A toasted "Your latest page edits could not be saved. Try again before leaving this page."',
     ];
+}
+
+/**
+ * Keep Mine on a switched page, which merges edits and so has no stale
+ * version to choose: while the server refuses A's updates, B renames the page
+ * twice and types, and once A's updates go through, the page holds both tabs'
+ * text under B's title without asking A which version to keep. The integrity
+ * checks then find both in the live copy and the stored form after a reload.
+ */
+async function peerTitlesWhileUpdatesPending(s: Scenario) {
+  const { first: a, second: b } = await openPair(s, 0);
+  const aMarker = s.markers.next("A");
+  const peerTitles = [
+    `Peer title first ${s.id.slice(0, 8)}`,
+    `Peer title final ${s.id.slice(0, 8)}`,
+  ];
+  const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
+  const collabUpdateMatcher = (url: URL) => url.pathname === collabUpdatePath;
+  let failedCollabUpdates = 0;
+  await a.route(collabUpdateMatcher, (route) => {
+    failedCollabUpdates++;
+    return route.fulfill({
+      status: 503,
+      body: "Collaboration update refused while another tab renames the page",
+    });
+  });
+
+  await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+  await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
+  const titleInput = b.getByLabel("Document title");
+  for (const title of peerTitles) {
+    await titleInput.fill(title);
+    await titleInput.press("Tab");
+    await expect
+      .poll(async () => (await getDocument(s.reader, s.id)).title, {
+        message: "B's title should reach the canonical page",
+        timeout: 30_000,
+      })
+      .toBe(title);
+    await expect(a.getByLabel("Document title")).toHaveValue(title, {
+      timeout: 30_000,
+    });
+  }
+  const bMarker = s.markers.next("B");
+  await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
+  // Not waitForTypingSaved: the tabs share one outbox, which holds A's
+  // refused update until the server takes it.
+  await expect
+    .poll(async () => (await getDocument(s.reader, s.id)).content, {
+      message: "B's text should reach the page",
+      timeout: 30_000,
+    })
+    .toContain(bMarker);
+  await s.tabs.waitForText(a, bMarker);
+  expect(
+    (await getDocument(s.reader, s.id)).content,
+    "A's text reached the page while the server refused its updates",
+  ).not.toContain(aMarker);
+
+  await a.unroute(collabUpdateMatcher);
+  await expect
+    .poll(async () => getDocument(s.reader, s.id), {
+      message: "A's pending text should land under B's title",
+      timeout: 30_000,
+    })
+    .toMatchObject({
+      title: peerTitles[1],
+      content: expect.stringContaining(aMarker),
+    });
+  await expect(
+    a.getByText("Choose which version to keep", { exact: true }),
+  ).toBeHidden();
+  await expect(a.locator(EDITOR)).toContainText(bMarker);
+  s.notes.failedCollabUpdates = failedCollabUpdates;
 }
 
 test.describe(
@@ -662,7 +736,13 @@ test.describe(
     test("Keep Mine retains a peer title adopted while an editor recovery draft is pending", async ({
       context,
     }, testInfo) => {
-      test.skip(BODY_SAVES === "collab-update", SWITCHED_HAS_NO_DRAFT);
+      if (BODY_SAVES === "collab-update")
+        return runScenario(
+          "peer-title-retained-recovery",
+          testInfo,
+          context,
+          peerTitlesWhileUpdatesPending,
+        );
       await runScenario(
         "peer-title-retained-recovery",
         testInfo,

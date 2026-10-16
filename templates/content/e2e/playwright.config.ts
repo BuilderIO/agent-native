@@ -2,6 +2,8 @@ import path from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
 
+import { AUTH_FILES } from "./auth-files";
+
 const BASE_URL = process.env.CONTENT_BASE_URL || "http://127.0.0.1:8090"; // e2e-harness-ignore: specs read the served URL from here
 
 // CI serves the production build it just made on the job's Postgres. Locally,
@@ -31,7 +33,7 @@ export default defineConfig({
       name: "authed",
       use: {
         ...devices["Desktop Chrome"],
-        storageState: ".auth/state.json",
+        storageState: AUTH_FILES.state,
       },
     },
   ],

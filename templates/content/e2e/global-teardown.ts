@@ -1,6 +1,8 @@
 import { chromium, type FullConfig } from "@playwright/test";
 
+import { AUTH_FILES } from "./auth-files";
 import { AgentClient } from "./helpers";
+import { leaveGateArm } from "./live-body-gate";
 
 async function globalTeardown(config: FullConfig) {
   const baseURL = config.projects[0]?.use.baseURL;
@@ -12,9 +14,14 @@ async function globalTeardown(config: FullConfig) {
   try {
     const context = await browser.newContext({
       baseURL,
-      storageState: ".auth/state.json",
+      storageState: AUTH_FILES.state,
     });
-    await AgentClient.revokeShared(await context.newPage());
+    const page = await context.newPage();
+    try {
+      await leaveGateArm(page);
+    } finally {
+      await AgentClient.revokeShared(page);
+    }
   } finally {
     await browser.close();
   }

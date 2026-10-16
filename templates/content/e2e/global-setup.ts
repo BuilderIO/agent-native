@@ -3,11 +3,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
+import { AUTH_FILES, RUN_EMAIL as EMAIL } from "./auth-files";
 import { AgentClient, signInAccount, type SignInResult } from "./helpers";
 
-const EMAIL =
-  process.env.CONTENT_E2E_EMAIL ||
-  `e2e+autoz-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@content.test`;
 if (!isAutozQaEmail(EMAIL)) {
   throw new Error("CONTENT_E2E_EMAIL must contain +autoz.");
 }
@@ -16,7 +14,7 @@ const PASS =
 
 async function globalSetup(_config: FullConfig) {
   const baseURL = process.env.CONTENT_BASE_URL || "http://127.0.0.1:8090";
-  mkdirSync(".auth", { recursive: true });
+  mkdirSync(AUTH_FILES.dir, { recursive: true });
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ baseURL });
   const page = await ctx.newPage();
@@ -33,8 +31,8 @@ async function globalSetup(_config: FullConfig) {
   const sessionEmail = "sessionEmail" in result ? result.sessionEmail : null;
   // eslint-disable-next-line no-console
   console.log("[content global-setup] auth:", JSON.stringify(result));
-  await ctx.storageState({ path: ".auth/state.json" });
-  writeFileSync(".auth/email.txt", (sessionEmail ?? EMAIL).trim());
+  await ctx.storageState({ path: AUTH_FILES.state });
+  writeFileSync(AUTH_FILES.email, (sessionEmail ?? EMAIL).trim());
   try {
     if (
       !sessionEmail ||
@@ -46,6 +44,14 @@ async function globalSetup(_config: FullConfig) {
       );
     }
     await AgentClient.connectShared(page);
+    // A dev server compiles each route on its first request, which can outlast
+    // the specs' 25 s navigation timeout. CI serves a build it already started.
+    if (!process.env.CI)
+      for (const route of ["/", "/page/warm-up"])
+        await page.goto(route, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
   } finally {
     await browser.close();
   }

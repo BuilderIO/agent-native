@@ -20,6 +20,7 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
+import { AUTH_FILES } from "./auth-files";
 import {
   appendFixtureInput,
   captureFixtureInput,
@@ -350,6 +351,33 @@ const OBSERVER = `
 })();
 `;
 
+const CLIENT_SAVE_PATH =
+  /^\/_agent-native\/(?:actions\/update-document|collab\/[^/]+\/update)$/;
+
+// Counts the saves a tab's own code still awaits. A save the tab gives up on,
+// such as one its collab client aborts and resends, leaves this count even when
+// the browser never reports a response for it, which a count of intercepted
+// requests cannot tell from a save still on its way.
+const PENDING_SAVES = `
+(() => {
+  const save = new RegExp(${JSON.stringify(CLIENT_SAVE_PATH.source)});
+  const send = globalThis.fetch;
+  globalThis.__pendingSaves = 0;
+  globalThis.fetch = function (input, init) {
+    const request = input instanceof Request ? input : null;
+    const method = String(init?.method ?? request?.method ?? "GET").toUpperCase();
+    const url = new URL(request ? request.url : String(input), location.href);
+    if (method !== "POST" || !save.test(url.pathname))
+      return send.apply(this, arguments);
+    globalThis.__pendingSaves++;
+    const settle = () => { globalThis.__pendingSaves--; };
+    const sent = send.apply(this, arguments);
+    sent.then(settle, settle);
+    return sent;
+  };
+})();
+`;
+
 export type SaveOutcome =
   | "written"
   | "replayed"
@@ -538,6 +566,7 @@ export class TabSet {
     const set = new TabSet(context);
     await context.addInitScript(TAB_VISIBILITY);
     await context.addInitScript(OBSERVER);
+    await context.addInitScript(PENDING_SAVES);
     await context.exposeBinding(
       "__convergenceReport",
       ({ page }, kind: string, detail: string) =>
@@ -655,18 +684,51 @@ export class TabSet {
   }
 
   /**
-   * Wait until no tab has a save on the wire. Reloading or closing a tab cuts
-   * off its save in flight, which is a race of its own; without this wait the
-   * refresh check races whichever save the tab sent last.
+   * Wait until every open tab's client has settled: it awaits no save, and
+   * its outbox holds no update the server has not acknowledged. Reloading or
+   * closing a tab cuts off its save in flight, which is a race of its own;
+   * without this wait the refresh check races whichever save the tab sent
+   * last.
    */
   async quiet(): Promise<void> {
     await expect
-      .poll(() => this.savesInFlight, {
-        message: "saves still in flight after the scenario ended",
+      .poll(() => this.unsettledClients(), {
+        message: "a tab's client still awaits a save after the scenario ended",
         timeout: CONVERGENCE_DEADLINE_MS,
       })
-      .toBe(0);
+      .toEqual([]);
     await this.settled();
+  }
+
+  private async unsettledClients(): Promise<string[]> {
+    const unsettled: string[] = [];
+    for (const [page, record] of this.tabs) {
+      if (page.isClosed()) continue;
+      const state = await page
+        .evaluate((prefix) => {
+          let outbox = 0;
+          for (let index = 0; index < localStorage.length; index++) {
+            const key = localStorage.key(index);
+            if (key?.startsWith(prefix) && localStorage.getItem(key)) outbox++;
+          }
+          const pending = (globalThis as { __pendingSaves?: unknown })
+            .__pendingSaves;
+          return {
+            pending: typeof pending === "number" ? pending : null,
+            outbox,
+          };
+        }, OUTBOX_PREFIX)
+        .catch((error: unknown) => String(error).slice(0, 120));
+      if (typeof state === "string")
+        unsettled.push(`${record.label}: unreadable (${state})`);
+      else if (state.pending === null)
+        unsettled.push(`${record.label}: its save counter never loaded`);
+      else if (state.pending > 0 || state.outbox > 0)
+        unsettled.push(
+          `${record.label}: ${state.pending} saves awaited, ${state.outbox} outbox entries`,
+        );
+    }
+    return unsettled;
   }
 
   private observe(page: Page, kind: string, detail: string) {
@@ -1068,7 +1130,7 @@ const MCP_TOKENS_PATH = "/_agent-native/mcp/connect/tokens";
 // global teardown. The device flow allows 20 starts a minute per server, and
 // the token list cannot tell apart tokens two workers mint at once, so specs
 // that call many tools share this connection instead of each making one.
-const SHARED_CONNECTOR_FILE = ".auth/mcp-connector.json";
+const SHARED_CONNECTOR_FILE = AUTH_FILES.connector;
 
 interface SharedConnector {
   headers: Record<string, string>;
