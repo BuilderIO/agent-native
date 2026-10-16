@@ -314,11 +314,13 @@ async function applyPending(
  * plugins from mounting that page, as `runMigrations` never did. Every later
  * query raises the same refusal, so nothing downstream reads as migrated.
  */
-function isDatabaseRefusal(err: unknown): boolean {
+function databaseRefusal(
+  err: unknown,
+): HostedRuntimeLocalDatabaseError | undefined {
   for (let cause = err; cause; cause = (cause as Error).cause) {
-    if (cause instanceof HostedRuntimeLocalDatabaseError) return true;
+    if (cause instanceof HostedRuntimeLocalDatabaseError) return cause;
   }
-  return false;
+  return undefined;
 }
 
 async function tolerateRefusedDatabase(
@@ -328,8 +330,9 @@ async function tolerateRefusedDatabase(
   try {
     await apply();
   } catch (err) {
-    if (!isDatabaseRefusal(err) || isReleaseStep()) throw err;
-    console.error(`[db] Skipping store "${storeId}". ${err.message}`);
+    const refusal = databaseRefusal(err);
+    if (!refusal || isReleaseStep()) throw err;
+    console.error(`[db] Skipping store "${storeId}". ${refusal.message}`);
   }
 }
 
