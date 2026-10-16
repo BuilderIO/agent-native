@@ -352,9 +352,18 @@ const messages = {
     editorLinkDescription:
       "デッキをエディターで開きます。アクセス権を持つ人はこのリンクを使用できます。",
     presentationLink: "プレゼンテーションリンク",
-    presentationLinkDescription:
-      "全画面プレゼンテーションモードで直接開きます。",
+    presentationLinkDescription: "デッキをプレゼンテーションモードで開きます",
     present: "発表",
+    presentInTab: "このタブで",
+    presentFullScreen: "全画面表示",
+    presentPresenterView: "発表者ビュー",
+    presentPresenterViewDescription: "発表中にスピーカーノートを表示",
+    presenterViewBlocked:
+      "発表者ビューを開くには、ポップアップを許可してください。",
+    export: "エクスポート",
+    privacyPrivate: "非公開",
+    privacyOrg: "組織と共有",
+    privacyPublic: "公開",
     more: "その他",
     importing: "インポート中...",
     importFile: "ファイルをインポート",
@@ -402,6 +411,8 @@ const messages = {
     shareWithTeam: "チームと共有...",
     publicShareLink: "公開共有リンク...",
     downloadHtml: "HTML としてダウンロード",
+    downloadPdf: "PDF としてダウンロード",
+    downloadPptx: "PPTX としてダウンロード",
     exportPdf: "PDF としてエクスポート",
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
@@ -437,6 +448,9 @@ const messages = {
     openSharedLink: "共有リンクを開く",
     anyoneWithLink:
       "このリンクを持つ人は誰でもこのプレゼンテーションを表示できます。",
+    connectSlides: "Slides を接続",
+    otherAgents: "その他のエージェント",
+    whoHasAccess: "アクセスできる人",
   },
   slideTextMenu: {
     brandColors: "ブランドカラー",
