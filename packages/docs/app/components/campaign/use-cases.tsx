@@ -363,8 +363,7 @@ export function UseCasePage({
                 </p>
                 {recipe.tip ? (
                   <p className="campaign-recipe-tip m-0 whitespace-pre-line">
-                    <strong>{t("campaign.recipeNextTime")}</strong>{" "}
-                    {recipe.tip}
+                    <strong>{t("campaign.recipeNextTime")}</strong> {recipe.tip}
                   </p>
                 ) : null}
               </div>

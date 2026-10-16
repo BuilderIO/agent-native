@@ -225,7 +225,9 @@ export function parseCampaignContent(
   const bySlug = new Map(useCases.map((item) => [item.slug, item]));
   const articles = parseFiles(sources.articles, articleSchema, true)
     .filter((article) => {
-      const linked = article.use_case ? bySlug.get(article.use_case) : undefined;
+      const linked = article.use_case
+        ? bySlug.get(article.use_case)
+        : undefined;
       if (!linked || linked.job_id === article.job_id) return true;
       console.error(
         `[campaign-content] ${article.slug}: job_id does not match use_case; article skipped`,

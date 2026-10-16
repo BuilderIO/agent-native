@@ -48,8 +48,12 @@ export function TemplateLandingFaq({
       aria-labelledby={headingId}
       className={`border border-[var(--docs-border)] ${className}`}
     >
-      <div className={`flex flex-col ${layout === "split" ? "lg:flex-row lg:items-stretch" : ""}`}>
-        <div className={`flex shrink-0 flex-col gap-3 border-b border-[var(--docs-border)] px-6 py-8 sm:px-8 ${layout === "split" ? "lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16" : ""}`}>
+      <div
+        className={`flex flex-col ${layout === "split" ? "lg:flex-row lg:items-stretch" : ""}`}
+      >
+        <div
+          className={`flex shrink-0 flex-col gap-3 border-b border-[var(--docs-border)] px-6 py-8 sm:px-8 ${layout === "split" ? "lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16" : ""}`}
+        >
           <p className="m-0 font-mono text-sm font-semibold uppercase tracking-[0.28px]">
             {eyebrow}
           </p>
@@ -68,7 +72,9 @@ export function TemplateLandingFaq({
           </div>
         </div>
 
-        <div className={`flex min-w-0 flex-1 flex-col ${layout === "split" ? "border-t border-[var(--docs-border)] lg:border-t-0" : ""}`}>
+        <div
+          className={`flex min-w-0 flex-1 flex-col ${layout === "split" ? "border-t border-[var(--docs-border)] lg:border-t-0" : ""}`}
+        >
           {items.map((item) => {
             const isOpen = openItemId === item.id;
             const triggerId = `${regionId}-${item.id}-trigger`;
@@ -106,7 +112,9 @@ export function TemplateLandingFaq({
                         {item.question}
                       </span>
                       {item.metadata ? (
-                        <span className="ms-auto max-w-[45%] shrink-0">{item.metadata}</span>
+                        <span className="ms-auto max-w-[45%] shrink-0">
+                          {item.metadata}
+                        </span>
                       ) : null}
                       <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)]">
                         <IconChevronDown
@@ -138,7 +146,9 @@ export function TemplateLandingFaq({
                   }`}
                 >
                   <div className="overflow-hidden">
-                    <div className={`px-6 pb-6 sm:px-8 ${layout === "split" ? "pe-16 sm:pe-20" : ""}`}>
+                    <div
+                      className={`px-6 pb-6 sm:px-8 ${layout === "split" ? "pe-16 sm:pe-20" : ""}`}
+                    >
                       <div className="text-lg leading-[1.3] text-[var(--fg-secondary)]">
                         {item.answer}
                       </div>

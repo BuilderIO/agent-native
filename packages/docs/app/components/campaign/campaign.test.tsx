@@ -282,11 +282,12 @@ function expectRecipeAccordion(
     expect(tag.getAttribute("aria-label")).toBe(
       `How often: ${recipe.how_often}`,
     );
-    const question = trigger.cloneNode(true) as Element;
-    question.querySelector(".campaign-frequency-tag")!.remove();
-    expect(question.textContent?.trim()).toBe(recipe.title);
-    expect(tag.parentElement?.lastElementChild).toBe(tag);
-    expect(tag.parentElement?.textContent?.startsWith(recipe.title)).toBe(true);
+    const title = trigger.firstElementChild!;
+    expect(title.textContent).toBe(recipe.title);
+    expect(trigger.contains(tag)).toBe(true);
+    expect(
+      title.compareDocumentPosition(tag) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const panelId = `use-case-recipes-${recipe.id}-panel`;
     expect(trigger.getAttribute("aria-controls")).toBe(panelId);
     const panel = document.getElementById(panelId)!;
@@ -2018,10 +2019,13 @@ describe("public campaign frontend", () => {
     ).toBeTruthy();
     const trigger = recipeTag.closest("button[aria-expanded]")!;
     expect(trigger.id).toBe(`use-case-recipes-${recipe.id}-trigger`);
-    expect(trigger.textContent?.trim().startsWith(recipe.title)).toBe(true);
-    const question = recipeTag.parentElement!;
-    expect(question.lastElementChild).toBe(recipeTag);
-    expect(question.textContent?.startsWith(recipe.title)).toBe(true);
+    const title = trigger.firstElementChild!;
+    expect(title.textContent).toBe(recipe.title);
+    expect(trigger.contains(recipeTag)).toBe(true);
+    expect(
+      title.compareDocumentPosition(recipeTag) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const absent = dom(markup(<UseCasePage item={useCase} articles={[]} />));
     expect(absent.querySelector(".campaign-frequency-tag")).toBeNull();
   });
