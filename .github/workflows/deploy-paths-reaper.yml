@@ -13,7 +13,9 @@ name: Deploy paths reaper
 
 on:
   schedule:
-    - cron: "11 * * * *"
+    # After the nightly canary (07:43 UTC) and the two-hour minimum age below, so
+    # whatever that run leaked is already old enough to drop.
+    - cron: "41 10 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -67,8 +69,8 @@ jobs:
           fi
           pnpm exec tsx scripts/reap-deploy-paths.ts "${args[@]}" 2>&1 | tee report/reap.log
 
-      # Only a failed sweep leaves anything worth keeping: an hourly artifact
-      # for every clean run would be thousands of 90-day files.
+      # Only a failed sweep leaves anything worth keeping: an artifact for every
+      # clean run would add a 90-day file every day.
       - name: Retain the complete report
         id: report-artifact
         if: ${{ failure() }}
