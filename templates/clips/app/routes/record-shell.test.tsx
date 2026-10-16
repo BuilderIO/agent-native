@@ -16,6 +16,7 @@ import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 import {
   isStorageStatusUnavailable,
   localizedRecordingErrorMessage,
+  recordingErrorToastRecoveryAction,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
@@ -25,6 +26,26 @@ import {
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
 } from "./record";
+
+function stubDocumentCapturePolicy(
+  allowsFeature: (feature: string) => boolean,
+): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    document,
+    "permissionsPolicy",
+  );
+  Object.defineProperty(document, "permissionsPolicy", {
+    configurable: true,
+    value: { allowsFeature },
+  });
+  return () => {
+    if (descriptor) {
+      Object.defineProperty(document, "permissionsPolicy", descriptor);
+    } else {
+      Reflect.deleteProperty(document, "permissionsPolicy");
+    }
+  };
+}
 
 describe("record route lifecycle shell", () => {
   let container: HTMLDivElement;
@@ -560,6 +581,90 @@ describe("record route lifecycle shell", () => {
     expect(
       buttons.some((button) => button.textContent?.trim() === "Camera"),
     ).toBe(true);
+  });
+
+  it("keeps embedded camera denials on device recovery when policy allows capture", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const restorePolicy = stubDocumentCapturePolicy(() => true);
+
+    try {
+      act(() => {
+        root.render(
+          <RecordingErrorCard
+            error="Camera access is blocked by the browser, macOS, or this app frame."
+            mode="camera"
+            micDeviceId={null}
+            canRetryUpload={false}
+            canDownloadRecording={false}
+            onDownloadRecording={vi.fn()}
+            onTryAgain={vi.fn()}
+          />,
+        );
+      });
+
+      const buttons = Array.from(container.querySelectorAll("button"));
+      expect(
+        buttons.some(
+          (button) => button.textContent === "recordRoute.openRecorderInTab",
+        ),
+      ).toBe(false);
+      expect(container.textContent).toContain(
+        "Open this site's browser settings, allow Camera, then reload Clips.",
+      );
+    } finally {
+      restorePolicy();
+    }
+  });
+
+  it("offers embedded tab recovery when capture policy inspection throws", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const restorePolicy = stubDocumentCapturePolicy(() => {
+      throw new Error("Policy inspection is unavailable.");
+    });
+
+    try {
+      act(() => {
+        root.render(
+          <RecordingErrorCard
+            error="Camera access is blocked by the browser, macOS, or this app frame."
+            mode="camera"
+            micDeviceId={null}
+            canRetryUpload={false}
+            canDownloadRecording={false}
+            onDownloadRecording={vi.fn()}
+            onTryAgain={vi.fn()}
+          />,
+        );
+      });
+
+      const buttons = Array.from(container.querySelectorAll("button"));
+      expect(
+        buttons.some(
+          (button) => button.textContent === "recordRoute.openRecorderInTab",
+        ),
+      ).toBe(true);
+      expect(container.textContent).not.toContain(
+        "Allow Camera for this site first.",
+      );
+    } finally {
+      restorePolicy();
+    }
+  });
+
+  it("uses tab recovery for embedded unknown-policy toast actions", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const directUrl = "https://clips.test/record?mode=camera";
+
+    expect(
+      recordingErrorToastRecoveryAction(
+        "Camera access is blocked by the browser, macOS, or this app frame.",
+        "camera",
+        directUrl,
+      ),
+    ).toEqual({
+      labelKey: "recordRoute.openRecorderInTab",
+      url: directUrl,
+    });
   });
 
   it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {

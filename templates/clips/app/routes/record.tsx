@@ -557,6 +557,23 @@ function permissionSettingsUrl(
   return MAC_SCREEN_RECORDING_PREF_URL;
 }
 
+export function recordingErrorToastRecoveryAction(
+  message: string,
+  mode: RecordingMode | undefined,
+  directUrl: string,
+): {
+  labelKey: "recordRoute.openRecorderInTab" | "recordRoute.openSettings";
+  url: string;
+} | null {
+  if (isEmbeddedCapturePolicyUnknownError(message)) {
+    return { labelKey: "recordRoute.openRecorderInTab", url: directUrl };
+  }
+  if (isUploadFailureError(message)) return null;
+
+  const url = permissionSettingsUrl(message, mode);
+  return url ? { labelKey: "recordRoute.openSettings", url } : null;
+}
+
 function isDismissedCapturePicker(err: unknown, message: string): boolean {
   const name = err instanceof Error ? err.name : "";
   return (
@@ -1582,18 +1599,20 @@ export default function RecordRoute() {
         uploadFailure || embeddedCapturePolicyUnknownError
           ? null
           : permissionGuidance(message, pendingOpts ?? undefined);
-      const settingsUrl = uploadFailure
-        ? null
-        : permissionSettingsUrl(message, pendingOpts?.mode);
+      const recoveryAction = recordingErrorToastRecoveryAction(
+        message,
+        pendingOpts?.mode,
+        directRecorderUrl(pendingOpts ?? undefined),
+      );
       const friendlyMessage = friendlyRecordingErrorMessage(message);
       const options = {
         description: guidance ?? friendlyMessage,
         duration: guidance ? 20_000 : 10_000,
-        action: settingsUrl
+        action: recoveryAction
           ? {
-              label: t("recordRoute.openSettings"),
+              label: t(recoveryAction.labelKey),
               onClick: () => {
-                openUrlFromUserGesture(settingsUrl);
+                openUrlFromUserGesture(recoveryAction.url);
               },
             }
           : undefined,
