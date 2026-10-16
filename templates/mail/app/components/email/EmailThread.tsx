@@ -102,7 +102,7 @@ import {
 } from "@/lib/message-draft-builders";
 import { getResolvedTheme } from "@/lib/theme";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import type { ThreadSummary } from "@/lib/threads";
+import { matchesThreadAccount, type ThreadSummary } from "@/lib/threads";
 import {
   cn,
   formatEmailDate,
@@ -243,7 +243,10 @@ export function EmailThread({
         continue;
       }
       for (const email of emails) {
-        if ((email.threadId || email.id) === threadId) {
+        if (
+          (email.threadId || email.id) === threadId &&
+          matchesThreadAccount(email, accountEmail)
+        ) {
           allCached.push(email);
         }
       }
@@ -256,17 +259,19 @@ export function EmailThread({
         return true;
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [threadId, queryClient]);
+  }, [accountEmail, threadId, queryClient]);
 
   const { data: threadMessages } = useThreadMessages(threadId, accountEmail);
 
   const previewMessage = useMemo(() => {
     if (!threadId || !threads.length) return undefined;
     const thread = threads.find(
-      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+      (t) =>
+        (t.latestMessage.threadId || t.latestMessage.id) === threadId &&
+        matchesThreadAccount(t.latestMessage, accountEmail),
     );
     return thread?.latestMessage;
-  }, [threadId, threads]);
+  }, [accountEmail, threadId, threads]);
 
   const allMessages =
     threadMessages ??

@@ -79,9 +79,26 @@ export function SearchBar({
   const [saveName, setSaveName] = useState("");
   const [saveError, setSaveError] = useState("");
   const [savePending, setSavePending] = useState(false);
+  const [localCacheRevision, setLocalCacheRevision] = useState(0);
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (!("query" in event)) return;
+      const queryKey = event.query.queryKey;
+      if (
+        queryKey[0] === "emails" ||
+        (queryKey[0] === INBOX_THREADS_QUERY_KEY[0] &&
+          queryKey[1] === INBOX_THREADS_QUERY_KEY[1])
+      ) {
+        setLocalCacheRevision((revision) => revision + 1);
+      }
+    });
+    setLocalCacheRevision((revision) => revision + 1);
+    return unsubscribe;
+  }, [queryClient]);
 
   useEffect(
     () => () => {
@@ -156,7 +173,7 @@ export function SearchBar({
           new Date(a.latestMessage.date).getTime(),
       )
       .slice(0, LOCAL_MATCH_LIMIT);
-  }, [query, queryClient]);
+  }, [query, queryClient, localCacheRevision]);
 
   const remoteSearchPending =
     useIsFetching({ queryKey: ["emails", "all", query.trim()] }) > 0;
@@ -190,8 +207,14 @@ export function SearchBar({
     [navigate],
   );
 
+  const cancelScheduledSearch = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = undefined;
+  }, []);
+
   const selectContact = useCallback(
     (contact: Contact) => {
+      cancelScheduledSearch();
       const q = contact.email;
       trackEvent("mail_search_result_selected", {
         app_name: "mail",
@@ -203,11 +226,13 @@ export function SearchBar({
       void navigate(`/all?q=${encodeURIComponent(q)}`);
       inputRef.current?.blur();
     },
-    [navigate],
+    [cancelScheduledSearch, navigate],
   );
 
   const selectThread = useCallback(
     (thread: ThreadSummary) => {
+      cancelScheduledSearch();
+      lastSyncedQueryRef.current = query.trim();
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
       trackEvent("mail_search_result_selected", {
@@ -226,21 +251,22 @@ export function SearchBar({
       );
       inputRef.current?.blur();
     },
-    [navigate],
+    [cancelScheduledSearch, navigate, query],
   );
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    cancelScheduledSearch();
     const q = query.trim();
     if (q.length >= MIN_REMOTE_QUERY_LENGTH) {
       debounceRef.current = setTimeout(() => {
+        debounceRef.current = undefined;
         executeSearch(q);
       }, 400);
     }
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      cancelScheduledSearch();
     };
-  }, [query, executeSearch]);
+  }, [query, cancelScheduledSearch, executeSearch]);
 
   const combinedMatchCount = matchedContacts.length + localMatches.length;
 

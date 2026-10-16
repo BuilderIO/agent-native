@@ -40,6 +40,12 @@ const mocks = vi.hoisted(() => ({
   ],
   getQueriesData: vi.fn(),
   inboxThreads: [] as Array<Record<string, unknown>>,
+  queryCacheListeners: new Set<(event: any) => void>(),
+  queryClient: null as any,
+  subscribeToQueryCache: vi.fn((listener: (event: any) => void) => {
+    mocks.queryCacheListeners.add(listener);
+    return () => mocks.queryCacheListeners.delete(listener);
+  }),
   navigate: vi.fn(),
 }));
 
@@ -53,7 +59,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useIsFetching: () => 0,
-  useQueryClient: () => ({ getQueriesData: mocks.getQueriesData }),
+  useQueryClient: () => mocks.queryClient,
 }));
 
 vi.mock("react-router", () => ({
@@ -150,6 +156,11 @@ function SearchPaletteHarness({
 describe("SearchBar suggestion selection", () => {
   beforeEach(() => {
     mocks.inboxThreads = [];
+    mocks.queryCacheListeners.clear();
+    mocks.queryClient = {
+      getQueriesData: mocks.getQueriesData,
+      getQueryCache: () => ({ subscribe: mocks.subscribeToQueryCache }),
+    };
     mocks.getQueriesData.mockImplementation(({ queryKey }) => {
       if (queryKey[0] === "action") {
         return [[queryKey, { items: mocks.inboxThreads, tabPreviews: {} }]];
@@ -190,6 +201,7 @@ describe("SearchBar suggestion selection", () => {
   });
 
   it("shows matching inbox threads from the local cache immediately", () => {
+    vi.useFakeTimers();
     mocks.inboxThreads = [
       {
         id: "inbox-message",
@@ -221,6 +233,48 @@ describe("SearchBar suggestion selection", () => {
 
     expect(mocks.navigate).toHaveBeenCalledWith(
       "/all/inbox-thread?accountEmail=demo%40example.test",
+    );
+    act(() => vi.advanceTimersByTime(500));
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes local suggestions when inbox rows arrive after opening", () => {
+    mocks.getQueriesData.mockImplementation(({ queryKey }) => {
+      if (queryKey[0] === "action") {
+        return [[queryKey, { items: mocks.inboxThreads, tabPreviews: {} }]];
+      }
+      return [];
+    });
+
+    render(<SearchBar onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "arrival" },
+    });
+    expect(screen.queryByRole("option")).toBeNull();
+
+    mocks.inboxThreads = [
+      {
+        id: "late-message",
+        threadId: "late-thread",
+        subject: "Late arrival result",
+        from: { name: "Casey Sender", email: "casey@example.test" },
+        snippet: "The inbox cache filled after search opened.",
+        accountEmail: "demo@example.test",
+      },
+    ];
+    act(() => {
+      for (const listener of mocks.queryCacheListeners) {
+        listener({
+          type: "updated",
+          query: {
+            queryKey: ["action", "list-inbox-threads", { tab: "inbox" }],
+          },
+        });
+      }
+    });
+
+    expect(screen.getByRole("option").textContent).toContain(
+      "Late arrival result",
     );
   });
 

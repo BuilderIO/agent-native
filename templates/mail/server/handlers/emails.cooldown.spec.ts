@@ -220,7 +220,11 @@ describe("listEmails during a Gmail cooldown", () => {
   });
 
   it("keeps global search ranking inside a bounded metadata window", async () => {
-    mocks.query = { view: "all", q: "from:sender@example.com" };
+    mocks.query = {
+      view: "all",
+      q: "from:sender@example.com",
+      limit: "25",
+    };
 
     await (listEmails as any)(event);
 
@@ -230,6 +234,23 @@ describe("listEmails during a Gmail cooldown", () => {
         q: "from:sender@example.com",
         threadFormat: "metadata",
         threadCandidateLimit: 40,
+      }),
+    );
+  });
+
+  it("keeps candidate ranking available for 50-row search pages", async () => {
+    mocks.query = {
+      view: "all",
+      q: "from:sender@example.com",
+      limit: "50",
+    };
+
+    await (listEmails as any)(event);
+
+    expect(mocks.listInboxEmails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: 50,
+        threadCandidateLimit: 51,
       }),
     );
   });
