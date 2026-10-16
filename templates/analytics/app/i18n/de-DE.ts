@@ -774,6 +774,8 @@ export default {
       runRunning: "Wird seit {{when}} erfasst",
       runFailed: "Fehlgeschlagen {{when}}",
       unavailable: "Erfassungsstatus nicht verfügbar: {{message}}",
+      keyUnreadable:
+        "Der gespeicherte Dienstkontoschlüssel konnte nicht gelesen werden. Speichere ihn unter Google Cloud erneut.",
     },
     uploadFile: "Datei hochladen",
     googleSheetsExport: "Google-Sheets-Export",

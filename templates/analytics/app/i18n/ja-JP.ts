@@ -756,6 +756,8 @@ export default {
       runRunning: "{{when}} から収集中",
       runFailed: "{{when}} に失敗",
       unavailable: "収集状況を取得できません: {{message}}",
+      keyUnreadable:
+        "保存されたサービスアカウントのキーを読み取れませんでした。Google Cloud で保存し直してください。",
     },
     uploadFile: "ファイルをアップロードする",
     googleSheetsExport: "Google スプレッドシートへのエクスポート",

@@ -706,6 +706,8 @@ export default {
       runRunning: "自 {{when}} 起收集中",
       runFailed: "失败于 {{when}}",
       unavailable: "无法获取收集状态：{{message}}",
+      keyUnreadable:
+        "无法读取已保存的服务账号密钥。请在 Google Cloud 下重新保存。",
     },
     uploadFile: "上传文件",
     googleSheetsExport: "Google Sheets 导出",

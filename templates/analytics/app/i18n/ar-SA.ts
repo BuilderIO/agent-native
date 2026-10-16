@@ -736,6 +736,8 @@ export default {
       runRunning: "جارٍ الجمع منذ {{when}}",
       runFailed: "فشل {{when}}",
       unavailable: "حالة الجمع غير متاحة: {{message}}",
+      keyUnreadable:
+        "تعذرت قراءة مفتاح حساب الخدمة المحفوظ. احفظه مرة أخرى ضمن Google Cloud.",
     },
     uploadFile: "تحميل الملف",
     googleSheetsExport: "تصدير Google Sheets",

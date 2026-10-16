@@ -731,6 +731,8 @@ export default {
       runRunning: "{{when}} से इकट्ठा हो रहा है",
       runFailed: "{{when}} को विफल",
       unavailable: "संग्रह की स्थिति उपलब्ध नहीं है: {{message}}",
+      keyUnreadable:
+        "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकी। इसे Google Cloud में फिर से सहेजें।",
     },
     uploadFile: "फ़ाइल अपलोड करें",
     googleSheetsExport: "Google Sheets निर्यात",

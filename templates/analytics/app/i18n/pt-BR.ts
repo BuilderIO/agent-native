@@ -766,6 +766,8 @@ export default {
       runRunning: "Coletando desde {{when}}",
       runFailed: "Falhou {{when}}",
       unavailable: "Status da coleta indisponível: {{message}}",
+      keyUnreadable:
+        "Não foi possível ler a chave de conta de serviço salva. Salve-a novamente em Google Cloud.",
     },
     uploadFile: "Carregar arquivo",
     googleSheetsExport: "Exportação para o Google Sheets",
