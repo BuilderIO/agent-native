@@ -29,6 +29,16 @@ export interface RecordingContextItem {
   updatedAt: string;
 }
 
+export interface PendingRecordingContextCursor {
+  afterCreatedAt: string;
+  afterId: string;
+}
+
+export interface PendingRecordingContextPage {
+  items: RecordingContextItem[];
+  nextCursor: PendingRecordingContextCursor | null;
+}
+
 // A type alias, not an interface: the action body parameter is a
 // Record<string, unknown>, which interfaces are not assignable to.
 export type RecordingContextUpdate = {
@@ -123,15 +133,23 @@ export async function getRecordingContextItem(
 // another device captured.
 export async function listPendingRecordingContext(
   target: ClipsActionTarget,
-  input: { deviceId: string; excludeIds?: string[] },
-): Promise<RecordingContextItem[]> {
-  const result = await callClipsActionFor<{ items: RecordingContextItem[] }>(
+  input: {
+    deviceId: string;
+    excludeIds?: string[];
+    cursor?: PendingRecordingContextCursor | null;
+  },
+): Promise<PendingRecordingContextPage> {
+  return callClipsActionFor<PendingRecordingContextPage>(
     target,
     "list-pending-recording-context",
-    { deviceId: input.deviceId, excludeIds: input.excludeIds },
+    {
+      deviceId: input.deviceId,
+      excludeIds: input.excludeIds,
+      afterCreatedAt: input.cursor?.afterCreatedAt,
+      afterId: input.cursor?.afterId,
+    },
     { method: "GET" },
   );
-  return result.items;
 }
 
 export function updateRecordingContext(

@@ -151,6 +151,61 @@ describe("pending lookback cleanup intents", () => {
     expect(hasPendingLookbackCleanupIntentWarning(state)).toBe(true);
   });
 
+  it("persists exponential backoff after failed request recovery", async () => {
+    const storage = memoryStorage();
+    const key = pendingLookbackCleanupIntentStorageKey(serverUrl, account);
+    if (!key) throw new Error("Expected a scoped storage key.");
+    persistPendingLookbackCleanupIntent(storage, serverUrl, account, request);
+    let now = 1_000;
+    const requestItem = vi.fn(async () => {
+      now += 4_000;
+      throw new Error("network unavailable");
+    });
+    const retries = new Map<string, { attempts: number; retryAt: number }>();
+
+    await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      retries,
+      now: () => now,
+      requestItem,
+    });
+
+    expect(requestItem).toHaveBeenCalledOnce();
+    expect(JSON.parse(storage.getItem(key) ?? "[]")).toMatchObject([
+      { retryAttempts: 1, retryAt: 8_000 },
+    ]);
+
+    now = 7_999;
+    await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      retries,
+      now: () => now,
+      requestItem,
+    });
+    expect(requestItem).toHaveBeenCalledOnce();
+
+    now = 8_000;
+    await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      retries,
+      now: () => now,
+      requestItem,
+    });
+    expect(requestItem).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(storage.getItem(key) ?? "[]")).toMatchObject([
+      { retryAttempts: 2, retryAt: 18_000 },
+    ]);
+  });
+
   it("keeps the recovered ID in the intent when the removal queue cannot be saved", async () => {
     const values = new Map<string, string>();
     const intentKey = pendingLookbackCleanupIntentStorageKey(
@@ -179,6 +234,7 @@ describe("pending lookback cleanup intents", () => {
       serverUrl,
       account,
       target: { serverUrl, authToken: "current-token" },
+      now: () => 1_000,
       requestItem,
     });
     expect(failed.pendingRecordingIds).toEqual(new Set(["recording-1"]));
@@ -190,6 +246,7 @@ describe("pending lookback cleanup intents", () => {
       serverUrl,
       account,
       target: { serverUrl, authToken: "current-token" },
+      now: () => 4_000,
       requestItem,
     });
 

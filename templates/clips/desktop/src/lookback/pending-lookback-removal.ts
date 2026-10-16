@@ -20,6 +20,13 @@ export interface LookbackRemovalRetry {
 const INITIAL_RETRY_DELAY_MS = 3_000;
 const MAX_RETRY_DELAY_MS = 5 * 60_000;
 
+export function lookbackRetryDelayMs(attempts: number): number {
+  return Math.min(
+    INITIAL_RETRY_DELAY_MS * 2 ** Math.max(0, attempts - 1),
+    MAX_RETRY_DELAY_MS,
+  );
+}
+
 export function pendingLookbackRemovalRetryIds(
   retries: ReadonlyMap<string, LookbackRemovalRetry>,
   now = Date.now(),
@@ -37,12 +44,7 @@ export function recordLookbackRemovalRetryFailure(
   const attempts = (retries.get(id)?.attempts ?? 0) + 1;
   retries.set(id, {
     attempts,
-    retryAt:
-      now +
-      Math.min(
-        INITIAL_RETRY_DELAY_MS * 2 ** (attempts - 1),
-        MAX_RETRY_DELAY_MS,
-      ),
+    retryAt: now + lookbackRetryDelayMs(attempts),
   });
 }
 

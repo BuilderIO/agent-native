@@ -9,7 +9,10 @@ import {
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
 
-function stubFetch(body: unknown = { items: [] }, status = 200) {
+function stubFetch(
+  body: unknown = { items: [], nextCursor: null },
+  status = 200,
+) {
   const fetchMock = vi.fn(
     async (_url: string, _init?: RequestInit) =>
       new Response(JSON.stringify(body), {
@@ -101,7 +104,7 @@ describe("listPendingRecordingContext", () => {
         deviceId: "device-1",
         excludeIds: ["ctx1", "ctx2"],
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual({ items: [], nextCursor: null });
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(url.pathname).toBe(
@@ -128,6 +131,38 @@ describe("listPendingRecordingContext", () => {
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(url.searchParams.has("excludeIds")).toBe(false);
+  });
+
+  it("continues after a stable item cursor", async () => {
+    const fetchMock = stubFetch({
+      items: [],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    });
+
+    await expect(
+      listPendingRecordingContext(target, {
+        deviceId: "device-1",
+        cursor: {
+          afterCreatedAt: "2026-10-15T11:59:00.000Z",
+          afterId: "ctx10",
+        },
+      }),
+    ).resolves.toEqual({
+      items: [],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    });
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("afterCreatedAt")).toBe(
+      "2026-10-15T11:59:00.000Z",
+    );
+    expect(url.searchParams.get("afterId")).toBe("ctx10");
   });
 });
 

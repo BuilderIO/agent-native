@@ -3,7 +3,9 @@ import { originForServer } from "../lib/desktop-auth-token";
 import type { RecordingContextRequestInput } from "./context-api";
 import {
   pendingLookbackRemovalStorageKey,
+  lookbackRetryDelayMs,
   persistPendingLookbackRemoval,
+  type LookbackRemovalRetry,
   type LookbackRemovalStorage,
 } from "./pending-lookback-removal";
 
@@ -12,6 +14,8 @@ const STORAGE_KEY_PREFIX = "clips:lookback-pending-cleanup-intents:v1";
 export interface PendingLookbackCleanupIntent {
   request: RecordingContextRequestInput;
   itemId?: string;
+  retryAttempts?: number;
+  retryAt?: number;
 }
 
 export type PendingLookbackCleanupIntentState =
@@ -84,6 +88,18 @@ function readIntents(
         return { ok: false };
       }
       if (
+        (intent.retryAttempts !== undefined &&
+          (!Number.isInteger(intent.retryAttempts) ||
+            intent.retryAttempts < 1)) ||
+        (intent.retryAt !== undefined &&
+          (typeof intent.retryAt !== "number" ||
+            !Number.isFinite(intent.retryAt) ||
+            intent.retryAt < 0)) ||
+        (intent.retryAttempts === undefined) !== (intent.retryAt === undefined)
+      ) {
+        return { ok: false };
+      }
+      if (
         intents.some(
           (saved) => saved.request.recordingId === request.recordingId,
         )
@@ -93,6 +109,12 @@ function readIntents(
       intents.push({
         request,
         ...(intent.itemId ? { itemId: intent.itemId } : {}),
+        ...(intent.retryAttempts !== undefined && intent.retryAt !== undefined
+          ? {
+              retryAttempts: intent.retryAttempts,
+              retryAt: intent.retryAt,
+            }
+          : {}),
       });
     }
     return { ok: true, intents };
@@ -128,6 +150,12 @@ export function persistPendingLookbackCleanupIntent(
   const intent: PendingLookbackCleanupIntent = {
     request: existing?.request ?? request,
     ...(savedItemId ? { itemId: savedItemId } : {}),
+    ...(existing?.retryAttempts !== undefined && existing.retryAt !== undefined
+      ? {
+          retryAttempts: existing.retryAttempts,
+          retryAt: existing.retryAt,
+        }
+      : {}),
   };
   const intents = existing
     ? state.intents.map((saved) =>
@@ -193,6 +221,8 @@ export async function retryPendingLookbackCleanupIntents(input: {
   account: string | null | undefined;
   target: { serverUrl: string; authToken: string };
   skipRecordingIds?: ReadonlySet<string>;
+  retries?: Map<string, LookbackRemovalRetry>;
+  now?: () => number;
   requestItem: (
     target: ClipsActionTarget,
     request: RecordingContextRequestInput,
@@ -224,6 +254,10 @@ export async function retryPendingLookbackCleanupIntents(input: {
   for (const intent of initial.intents) {
     const recordingId = intent.request.recordingId;
     if (input.skipRecordingIds?.has(recordingId)) continue;
+    const retryKey = `${key}:${recordingId}`;
+    const retry = input.retries?.get(retryKey);
+    const now = input.now?.() ?? Date.now();
+    if (Math.max(intent.retryAt ?? 0, retry?.retryAt ?? 0) > now) continue;
     try {
       let itemId = intent.itemId;
       if (!itemId) {
@@ -249,8 +283,37 @@ export async function retryPendingLookbackCleanupIntents(input: {
         input.account,
         recordingId,
       );
+      input.retries?.delete(retryKey);
     } catch {
       // The durable intent remains the retry handle when any step fails.
+      const attempts =
+        Math.max(intent.retryAttempts ?? 0, retry?.attempts ?? 0) + 1;
+      const failedAt = input.now?.() ?? Date.now();
+      const nextRetry = {
+        attempts,
+        retryAt: failedAt + lookbackRetryDelayMs(attempts),
+      };
+      input.retries?.set(retryKey, nextRetry);
+      try {
+        const current = readIntents(input.storage, key);
+        if (current.ok) {
+          writeIntents(
+            input.storage,
+            key,
+            current.intents.map((saved) =>
+              saved.request.recordingId === recordingId
+                ? {
+                    ...saved,
+                    retryAttempts: nextRetry.attempts,
+                    retryAt: nextRetry.retryAt,
+                  }
+                : saved,
+            ),
+          );
+        }
+      } catch {
+        // The in-memory retry schedule still rate-limits this process.
+      }
     }
   }
 

@@ -268,6 +268,7 @@ import {
   getRecordingContextItem,
   listPendingRecordingContext,
   requestRecordingContext,
+  type PendingRecordingContextCursor,
   type RecordingContextRequestInput,
   removeRecordingContext,
   type RecordingContextItem,
@@ -1251,6 +1252,12 @@ export function App({
   const lookbackRemovalRetriesRef = useRef(
     new Map<string, LookbackRemovalRetry>(),
   );
+  const lookbackCleanupIntentRetriesRef = useRef(
+    new Map<string, LookbackRemovalRetry>(),
+  );
+  const pendingLookbackCursorRef = useRef<PendingRecordingContextCursor | null>(
+    null,
+  );
   const processingLookbackIdsRef = useRef<Set<string>>(new Set());
   // Pending items whose footage was captured on another device. Session-scoped,
   // so a restart checks them against local origins again.
@@ -2181,6 +2188,7 @@ export function App({
   );
 
   useEffect(() => {
+    pendingLookbackCursorRef.current = null;
     if (authStatus !== "authed" || !signedInAs) return;
     let cancelled = false;
     let inFlight = false;
@@ -2212,6 +2220,7 @@ export function App({
           account: signedInAs,
           target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           skipRecordingIds: activeRecordingIds,
+          retries: lookbackCleanupIntentRetriesRef.current,
           requestItem: requestRecordingContext,
         });
         if (cancelled) return;
@@ -2277,17 +2286,19 @@ export function App({
             ...skippedLookbackIdsRef.current,
           ]),
         ].slice(0, 100);
-        const items = await listPendingRecordingContext(
+        const page = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           {
             deviceId: clipsDeviceId(),
-            // Keep cleanup IDs ahead of unrelated-device skips so failed
-            // removals do not starve newer work in the oldest-first batch.
+            cursor: pendingLookbackCursorRef.current,
+            // Prioritize cleanup IDs in the bounded list; cursor pages pass
+            // any remaining cleanup items without starving newer work.
             excludeIds,
           },
         );
         if (cancelled) return;
-        for (const item of items) {
+        pendingLookbackCursorRef.current = page.nextCursor;
+        for (const item of page.items) {
           if (!shouldProcessLookbackItem(item.id, pendingRemovals)) continue;
           if (cleanupIntents.pendingRecordingIds.has(item.recordingId))
             continue;
