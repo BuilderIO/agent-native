@@ -21,6 +21,13 @@ type Parent = {
     actorId: string;
     text: string;
   } | null;
+  // Latest reply by this sweep actor in the root thread, read from Slack.
+  latestOwnedReply?: {
+    ts: string;
+    threadParentTs: string;
+    actorId: string;
+    text: string;
+  };
   statusReply?: {
     ts: string;
     threadParentTs: string;
@@ -54,6 +61,8 @@ type Channel = {
   pages: Page[];
   // Actual Slack root timestamps fetched for replies whose roots are off-page.
   threadRoots?: string[];
+  // The root message's own reaction and disposition audit, not just the reply.
+  threadRootAudits?: Parent[];
 };
 
 type Inventory = {
@@ -93,6 +102,23 @@ function slackTimestamp(value: unknown, label: string): bigint {
 
 function isSlackUserId(value: unknown): value is string {
   return typeof value === "string" && /^[UW][A-Z0-9]+$/.test(value);
+}
+
+function isNamedHumanOwner(owner: string): boolean {
+  const personName = owner.split(/[/(]/, 1)[0]!.trim();
+  if (
+    /\b(?:unassigned|not assigned|owner|lead|team|admin|author|engineer(?:ing)?|product|release|workspace|app|production|security|data|code|actions|role|analyst|designer|developer|manager|director|reviewer|maintainer|approver|support|ops|on[ -]?call|platform)\b/i.test(
+      personName,
+    )
+  ) {
+    return false;
+  }
+  const nameParts = personName.split(/\s+/);
+  return (
+    nameParts.length > 0 &&
+    nameParts.length <= 4 &&
+    nameParts.every((part) => /^(?:\p{Lu}[\p{L}'’.-]*|[A-Z]\.)$/u.test(part))
+  );
 }
 
 function validateReactionOwners(
@@ -217,6 +243,195 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
   );
 }
 
+function validateHumanOwnerBlock(
+  parentName: string,
+  disposition: string,
+  handoffs: Handoff[],
+  hasTicket: boolean,
+): void {
+  if (
+    disposition === "Blocked on human owner" &&
+    (handoffs.length === 0 || !hasTicket)
+  ) {
+    throw new Error(
+      `${parentName}: Blocked on human owner needs a distinct handoff assigned to a named individual and this actor's 🎫`,
+    );
+  }
+}
+
+function validateSupplementalRootAudit(
+  channelName: string,
+  rootTs: string,
+  parent: Parent,
+  sweepActorId: string,
+): void {
+  const parentName = `${channelName} supplemental root ${rootTs}`;
+  const timestamp = slackTimestamp(parent.ts, `${parentName}.ts`);
+  const threadParentTimestamp = slackTimestamp(
+    parent.threadParentTs,
+    `${parentName}.threadParentTs`,
+  );
+  if (timestamp.toString() !== rootTs || timestamp !== threadParentTimestamp) {
+    throw new Error(`${parentName}: audit row must be the self-root message`);
+  }
+  if (parent.reactionChecked !== true) {
+    throw new Error(`${parentName}: check reactions before triage`);
+  }
+  if (
+    typeof parent.disposition !== "string" ||
+    !canonicalDispositions.has(parent.disposition)
+  ) {
+    throw new Error(
+      `${parentName}: use an exact canonical disposition for every root`,
+    );
+  }
+  if (
+    typeof parent.reactionSummary !== "string" ||
+    !parent.reactionSummary.trim() ||
+    !parent.reactionOwners ||
+    typeof parent.reactionOwners !== "object" ||
+    Array.isArray(parent.reactionOwners)
+  ) {
+    throw new Error(`${parentName}: record the exact observed reaction state`);
+  }
+  validateReactionOwners(
+    parentName,
+    parent.reactionSummary,
+    parent.reactionOwners,
+  );
+
+  const ownsEye = (parent.reactionOwners.eyes ?? []).includes(sweepActorId);
+  const hasCheckmark = (parent.reactionOwners.white_check_mark ?? []).includes(
+    sweepActorId,
+  );
+  const hasTicket = (parent.reactionOwners.ticket ?? []).includes(sweepActorId);
+  if (!ownsEye && !hasCheckmark && !hasTicket) return;
+
+  if (
+    !Object.prototype.hasOwnProperty.call(parent, "latestRelevantHumanReply")
+  ) {
+    throw new Error(
+      `${parentName}: record the latest relevant human reply, or null if there is none`,
+    );
+  }
+  const decision = parent.reactionDecision;
+  for (const [key, present] of [
+    ["checkmark", hasCheckmark],
+    ["ticket", hasTicket],
+  ] as const) {
+    const markDecision = decision?.[key];
+    if (
+      !markDecision ||
+      markDecision.state !== (present ? "present" : "none") ||
+      !markDecision.reason?.trim()
+    ) {
+      throw new Error(
+        `${parentName}: record a matching ✅ and 🎫 decision with a reason`,
+      );
+    }
+  }
+
+  const reply = parent.statusReply;
+  const latestOwnedReply = parent.latestOwnedReply;
+  if (
+    !reply ||
+    !latestOwnedReply ||
+    reply.actorId !== sweepActorId ||
+    latestOwnedReply.actorId !== sweepActorId ||
+    reply.ts !== latestOwnedReply.ts ||
+    reply.text !== latestOwnedReply.text ||
+    typeof reply.text !== "string" ||
+    !reply.text.trim() ||
+    typeof reply.evidence !== "string" ||
+    !reply.evidence.trim() ||
+    reply.disposition !== parent.disposition ||
+    !replyStatesDisposition(reply.text, parent.disposition) ||
+    !reply.text.includes(reply.evidence.trim())
+  ) {
+    throw new Error(
+      `${parentName}: an owned root eye or mark needs its latest same-actor status reply`,
+    );
+  }
+  const replyTs = slackTimestamp(reply.ts, `${parentName}.statusReply.ts`);
+  if (
+    slackTimestamp(
+      reply.threadParentTs,
+      `${parentName}.statusReply.threadParentTs`,
+    ) !== timestamp ||
+    slackTimestamp(
+      latestOwnedReply.threadParentTs,
+      `${parentName}.latestOwnedReply.threadParentTs`,
+    ) !== timestamp ||
+    replyTs <= timestamp
+  ) {
+    throw new Error(
+      `${parentName}: status reply must follow and belong to the root thread`,
+    );
+  }
+  const humanReply = parent.latestRelevantHumanReply;
+  if (humanReply !== null) {
+    if (
+      !humanReply ||
+      !isSlackUserId(humanReply.actorId) ||
+      humanReply.actorId === sweepActorId ||
+      typeof humanReply.text !== "string" ||
+      !humanReply.text.trim() ||
+      replyTs <= slackTimestamp(humanReply.ts, `${parentName}.humanReply.ts`)
+    ) {
+      throw new Error(
+        `${parentName}: status reply must follow the latest relevant human reply`,
+      );
+    }
+  }
+
+  const fixedScopes = parent.fixedScopes ?? [];
+  if (!Array.isArray(fixedScopes)) {
+    throw new Error(`${parentName}: fixedScopes must be an array`);
+  }
+  if (hasCheckmark !== fixedScopes.length > 0) {
+    throw new Error(
+      `${parentName}: a root ✅ requires verified fixed-scope evidence, and every fixed scope needs ✅`,
+    );
+  }
+  if (
+    fixedScopes.some(
+      (fixedScope) =>
+        !fixedScope?.scope?.trim() ||
+        !fixedScope.verification?.trim() ||
+        !reply.evidence.includes(fixedScope.verification.trim()),
+    )
+  ) {
+    throw new Error(
+      `${parentName}: status evidence must include every verified root scope`,
+    );
+  }
+
+  if (parent.handoff && parent.handoffs !== undefined) {
+    throw new Error(`${parentName}: use handoff or handoffs, not both`);
+  }
+  const handoffs = parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
+  if (!Array.isArray(handoffs) || hasTicket !== handoffs.length > 0) {
+    throw new Error(
+      `${parentName}: a root 🎫 requires a distinct handoff assigned to a named individual, and each handoff needs 🎫`,
+    );
+  }
+  validateHumanOwnerBlock(parentName, parent.disposition, handoffs, hasTicket);
+  if (
+    handoffs.some(
+      (handoff) =>
+        !handoff?.scope?.trim() ||
+        !handoff.owner?.trim() ||
+        !isNamedHumanOwner(handoff.owner) ||
+        !handoff.action?.trim(),
+    ) ||
+    (handoffs.length > 0 && !replyNamesHandoffs(reply.text, handoffs))
+  ) {
+    throw new Error(
+      `${parentName}: status reply must name each assigned individual owner and action`,
+    );
+  }
+}
+
 function validateInventory(inventory: Inventory): string[] {
   if (!inventory || !Array.isArray(inventory.channels)) {
     throw new Error("Expected { cutoffTs, channels } in the inventory JSON");
@@ -273,6 +488,14 @@ function validateInventory(inventory: Inventory): string[] {
     ) {
       throw new Error(
         `${name}: threadRoots must be an array of Slack timestamps`,
+      );
+    }
+    if (
+      channel.threadRootAudits !== undefined &&
+      !Array.isArray(channel.threadRootAudits)
+    ) {
+      throw new Error(
+        `${name}: threadRootAudits must be an array of root disposition rows`,
       );
     }
 
@@ -526,10 +749,44 @@ function validateInventory(inventory: Inventory): string[] {
               `${parentName}: an owned 👀 or own ✅/🎫 needs a same-parent status reply by the same actor`,
             );
           }
+          const latestOwnedReply = parent.latestOwnedReply;
+          if (
+            !latestOwnedReply ||
+            latestOwnedReply.actorId !== inventory.sweepActorId ||
+            typeof latestOwnedReply.text !== "string" ||
+            !latestOwnedReply.text.trim()
+          ) {
+            throw new Error(
+              `${parentName}: record the latest same-actor reply from the full thread read`,
+            );
+          }
+          const latestOwnedReplyTs = slackTimestamp(
+            latestOwnedReply.ts,
+            `${parentName}.latestOwnedReply.ts`,
+          );
+          if (
+            slackTimestamp(
+              latestOwnedReply.threadParentTs,
+              `${parentName}.latestOwnedReply.threadParentTs`,
+            ) !== threadParentTimestamp
+          ) {
+            throw new Error(
+              `${parentName}: latestOwnedReply must belong to the source message's root thread`,
+            );
+          }
           const replyTs = slackTimestamp(
             reply.ts,
             `${parentName}.statusReply.ts`,
           );
+          if (
+            latestOwnedReplyTs !== replyTs ||
+            latestOwnedReply.actorId !== reply.actorId ||
+            latestOwnedReply.text !== reply.text
+          ) {
+            throw new Error(
+              `${parentName}: statusReply must be the latest same-actor reply read from the full thread`,
+            );
+          }
           if (replyTs <= timestamp) {
             throw new Error(
               `${parentName}: status reply must be newer than its parent`,
@@ -674,11 +931,12 @@ function validateInventory(inventory: Inventory): string[] {
               !handoff.scope.trim() ||
               typeof handoff.owner !== "string" ||
               !handoff.owner.trim() ||
+              !isNamedHumanOwner(handoff.owner) ||
               typeof handoff.action !== "string" ||
               !handoff.action.trim()
             ) {
               throw new Error(
-                `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, owner, and action`,
+                `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, assigned individual, and action`,
               );
             }
             const normalizedScope = normalizeScope(handoff.scope);
@@ -702,6 +960,12 @@ function validateInventory(inventory: Inventory): string[] {
               `${parentName}: this actor's 🎫 needs a distinct handoff owner and action`,
             );
           }
+          validateHumanOwnerBlock(
+            parentName,
+            parent.disposition,
+            handoffs,
+            hasTicket,
+          );
           if (parent.disposition === "Fixed" && handoffs.length > 0) {
             throw new Error(
               `${parentName}: Fixed disposition cannot retain unfinished handoffs; use Partially fixed`,
@@ -808,6 +1072,36 @@ function validateInventory(inventory: Inventory): string[] {
       supplementalRoots.add(rootTimestamp);
     }
 
+    const auditedSupplementalRoots = new Set<string>();
+    for (const [auditIndex, rootAudit] of (
+      channel.threadRootAudits ?? []
+    ).entries()) {
+      const rootTimestamp = slackTimestamp(
+        rootAudit.ts,
+        `${name}.threadRootAudits[${auditIndex}].ts`,
+      ).toString();
+      if (!supplementalRoots.has(rootTimestamp)) {
+        throw new Error(
+          `${name}: threadRootAudits contains a root missing from threadRoots`,
+        );
+      }
+      if (auditedSupplementalRoots.has(rootTimestamp)) {
+        throw new Error(`${name}: threadRootAudits contains a duplicate root`);
+      }
+      auditedSupplementalRoots.add(rootTimestamp);
+      validateSupplementalRootAudit(
+        name,
+        rootTimestamp,
+        rootAudit,
+        inventory.sweepActorId,
+      );
+    }
+    if (auditedSupplementalRoots.size !== supplementalRoots.size) {
+      throw new Error(
+        `${name}: every supplemental root needs its own reaction and disposition audit row`,
+      );
+    }
+
     const referencedSupplementalRoots = new Set<string>();
     for (const [timestamp, parent] of parentsByTimestamp) {
       const rootTimestamp = slackTimestamp(
@@ -842,6 +1136,58 @@ function validateInventory(inventory: Inventory): string[] {
     summaries.push(
       `${channel.channelId}: ${parentCount} source occurrences, ${uniqueInWindow.size} unique in window, ${overlapCount} cutoff overlap, ${cursorOverlapCount} page overlap, ${channel.pages.length} page(s)`,
     );
+
+    const auditedRows = [
+      ...parentsByTimestamp.values(),
+      ...(channel.threadRootAudits ?? []),
+    ];
+    const ownedEyes = auditedRows.filter((parent) =>
+      (parent.reactionOwners.eyes ?? []).includes(inventory.sweepActorId),
+    );
+    const ownedCheckmarks = auditedRows.filter((parent) =>
+      (parent.reactionOwners.white_check_mark ?? []).includes(
+        inventory.sweepActorId,
+      ),
+    );
+    const ownedTickets = auditedRows.filter((parent) =>
+      (parent.reactionOwners.ticket ?? []).includes(inventory.sweepActorId),
+    );
+    const verifiedScopeCount = auditedRows.reduce(
+      (count, parent) => count + (parent.fixedScopes?.length ?? 0),
+      0,
+    );
+    const distinctHandoffs = new Set<string>();
+    for (const parent of auditedRows) {
+      const handoffs =
+        parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
+      for (const handoff of handoffs) {
+        distinctHandoffs.add(
+          [handoff.scope, handoff.owner, handoff.action]
+            .map(normalizeScope)
+            .join("\u0000"),
+        );
+      }
+    }
+    const eyeOnlyRows = ownedEyes.filter(
+      (parent) =>
+        !(parent.reactionOwners.white_check_mark ?? []).includes(
+          inventory.sweepActorId,
+        ) &&
+        !(parent.reactionOwners.ticket ?? []).includes(inventory.sweepActorId),
+    );
+    summaries.push(
+      `${channel.channelId}: owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHandoffs.size} distinct human handoffs, eye-only ${eyeOnlyRows.length}`,
+    );
+    if (eyeOnlyRows.length > 0) {
+      summaries.push(
+        `${channel.channelId}: eye-only pending reasons: ${eyeOnlyRows
+          .map((parent) => {
+            const decision = parent.reactionDecision!;
+            return `${parent.ts} — ✅ ${decision.checkmark.reason}; 🎫 ${decision.ticket.reason}`;
+          })
+          .join(" | ")}`,
+      );
+    }
   }
 
   if (permalink !== null && !permalinkFound) {
@@ -891,6 +1237,12 @@ if (args[0] === "--self-test" && args.length === 1) {
                 },
                 disposition: "Fixed",
                 latestRelevantHumanReply: null,
+                latestOwnedReply: {
+                  ts: "12.000000",
+                  threadParentTs: "10.000000",
+                  actorId: "USWEEPER",
+                  text: "Fixed: focused test passed in the open PR; merge pending",
+                },
                 reactionDecision: {
                   checkmark: {
                     state: "present",
@@ -932,15 +1284,45 @@ if (args[0] === "--self-test" && args.length === 1) {
     ],
   };
   const firstPage = valid.channels[0].pages[0];
+  const latestOwnedReplyFrom = (
+    reply: NonNullable<Parent["statusReply"]>,
+  ): NonNullable<Parent["latestOwnedReply"]> => ({
+    ts: reply.ts,
+    threadParentTs: reply.threadParentTs,
+    actorId: reply.actorId,
+    text: reply.text,
+  });
+  const supplementalRootAudit = (
+    ts: string,
+    overrides: Partial<Parent> = {},
+  ): Parent => ({
+    ts,
+    threadParentTs: ts,
+    reactionChecked: true,
+    reactionSummary: "none",
+    reactionOwners: {},
+    disposition: "Skipped",
+    ...overrides,
+  });
   const withSweepOwnedParent = (overrides: Partial<Parent>): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
       ...channel,
       pages: channel.pages.map((page) => ({
         ...page,
-        parents: page.parents.map((parent) =>
-          parent.ts === "10.000000" ? { ...parent, ...overrides } : parent,
-        ),
+        parents: page.parents.map((parent) => {
+          if (parent.ts !== "10.000000") return parent;
+          const updated = { ...parent, ...overrides };
+          if (
+            overrides.statusReply &&
+            overrides.latestOwnedReply === undefined
+          ) {
+            updated.latestOwnedReply = latestOwnedReplyFrom(
+              overrides.statusReply,
+            );
+          }
+          return updated;
+        }),
       })),
     })),
   });
@@ -950,51 +1332,51 @@ if (args[0] === "--self-test" && args.length === 1) {
       ...channel,
       pages: channel.pages.map((page) => ({
         ...page,
-        parents: page.parents.map((parent) =>
-          parent.ts === "10.000000"
-            ? {
-                ...parent,
-                disposition: "Partially fixed",
-                reactionSummary:
-                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
-                reactionOwners: {
-                  eyes: ["USWEEPER"],
-                  white_check_mark: ["USWEEPER"],
-                  ticket: ["USWEEPER"],
-                },
-                reactionDecision: {
-                  checkmark: {
-                    state: "present",
-                    reason: "Verified route-picker fix",
-                  },
-                  ticket: {
-                    state: "present",
-                    reason: "A product owner has a distinct follow-up",
-                  },
-                },
-                handoffs: [
-                  {
-                    scope: "secondary request",
-                    owner: "Product owner",
-                    action: "choose the remaining behavior",
-                  },
-                ],
-                fixedScopes: [
-                  {
-                    scope: "route-picker behavior",
-                    verification:
-                      "focused route-picker test passed; merge pending",
-                  },
-                ],
-                statusReply: {
-                  ...parent.statusReply!,
-                  disposition: "Partially fixed",
-                  evidence: "focused route-picker test passed; merge pending",
-                  text,
-                },
-              }
-            : parent,
-        ),
+        parents: page.parents.map((parent) => {
+          if (parent.ts !== "10.000000") return parent;
+          const statusReply = {
+            ...parent.statusReply!,
+            disposition: "Partially fixed",
+            evidence: "focused route-picker test passed; merge pending",
+            text,
+          };
+          return {
+            ...parent,
+            disposition: "Partially fixed",
+            reactionSummary:
+              "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
+            reactionOwners: {
+              eyes: ["USWEEPER"],
+              white_check_mark: ["USWEEPER"],
+              ticket: ["USWEEPER"],
+            },
+            reactionDecision: {
+              checkmark: {
+                state: "present",
+                reason: "Verified route-picker fix",
+              },
+              ticket: {
+                state: "present",
+                reason: "A product owner has a distinct follow-up",
+              },
+            },
+            handoffs: [
+              {
+                scope: "secondary request",
+                owner: "Alex Rivera",
+                action: "choose the remaining behavior",
+              },
+            ],
+            fixedScopes: [
+              {
+                scope: "route-picker behavior",
+                verification: "focused route-picker test passed; merge pending",
+              },
+            ],
+            statusReply,
+            latestOwnedReply: latestOwnedReplyFrom(statusReply),
+          };
+        }),
       })),
     })),
   });
@@ -1039,41 +1421,43 @@ if (args[0] === "--self-test" && args.length === 1) {
       ...channel,
       pages: channel.pages.map((page) => ({
         ...page,
-        parents: page.parents.map((parent) =>
-          parent.ts === "10.000000"
-            ? {
-                ...parent,
-                disposition: "In progress",
-                reactionSummary: "ticket (1): USWEEPER",
-                reactionOwners: { ticket: ["USWEEPER"] },
-                reactionDecision: {
-                  checkmark: {
-                    state: "none",
-                    reason: "No verified scope is complete yet",
-                  },
-                  ticket: {
-                    state: "present",
-                    reason: "A product owner owns the remaining action",
-                  },
-                },
-                fixedScopes: [],
-                handoffs: [
-                  {
-                    scope: "remaining design choice",
-                    owner: "Product owner",
-                    action: "choose the remaining behavior",
-                  },
-                ],
-                statusReply: {
-                  ...parent.statusReply!,
-                  disposition: "In progress",
-                  evidence: "Product owner will choose the remaining behavior",
-                  text: "In progress: Product owner will choose the remaining behavior. Handoff: Product owner — choose the remaining behavior.",
-                },
-                ...overrides,
-              }
-            : parent,
-        ),
+        parents: page.parents.map((parent) => {
+          if (parent.ts !== "10.000000") return parent;
+          const statusReply = {
+            ...parent.statusReply!,
+            disposition: "In progress",
+            evidence: "Alex Rivera will choose the remaining behavior",
+            text: "In progress: Alex Rivera will choose the remaining behavior. Handoff: Alex Rivera — choose the remaining behavior.",
+          };
+          const updated: Parent = {
+            ...parent,
+            disposition: "In progress",
+            reactionSummary: "ticket (1): USWEEPER",
+            reactionOwners: { ticket: ["USWEEPER"] },
+            reactionDecision: {
+              checkmark: {
+                state: "none",
+                reason: "No verified scope is complete yet",
+              },
+              ticket: {
+                state: "present",
+                reason: "A product owner owns the remaining action",
+              },
+            },
+            fixedScopes: [],
+            handoffs: [
+              {
+                scope: "remaining design choice",
+                owner: "Alex Rivera",
+                action: "choose the remaining behavior",
+              },
+            ],
+            statusReply,
+            ...overrides,
+          };
+          updated.latestOwnedReply = latestOwnedReplyFrom(updated.statusReply!);
+          return updated;
+        }),
       })),
     })),
   });
@@ -1165,6 +1549,21 @@ if (args[0] === "--self-test" && args.length === 1) {
           })),
         })),
       },
+    },
+    {
+      name: "owned eye missing latest same-actor reply audit",
+      inventory: withSweepOwnedParent({ latestOwnedReply: undefined }),
+    },
+    {
+      name: "newer same-actor correction invalidates an older status reply",
+      inventory: withSweepOwnedParent({
+        latestOwnedReply: {
+          ts: "13.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          text: "In progress: previous status was incorrect; investigation continues",
+        },
+      }),
     },
     {
       name: "Owned elsewhere cannot hide this actor's eye or checkmark",
@@ -1327,6 +1726,60 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "supplemental root needs its own reaction and disposition audit",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          threadRoots: ["8.500000"],
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "9.500000"
+                ? { ...parent, threadParentTs: "8.500000" }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "supplemental root eye needs current status and reaction decisions",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          threadRoots: ["8.500000"],
+          threadRootAudits: [
+            supplementalRootAudit("8.500000", {
+              reactionSummary: "eyes (1): USWEEPER",
+              reactionOwners: { eyes: ["USWEEPER"] },
+              disposition: "In progress",
+              latestRelevantHumanReply: null,
+              reactionDecision: {
+                checkmark: {
+                  state: "none",
+                  reason: "No verified root scope is complete",
+                },
+                ticket: {
+                  state: "none",
+                  reason: "No distinct human handoff is assigned",
+                },
+              },
+            }),
+          ],
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "9.500000"
+                ? { ...parent, threadParentTs: "8.500000" }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
       name: "supplemental root inside the cutoff bypasses the source manifest",
       inventory: {
         ...valid,
@@ -1351,6 +1804,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         channels: valid.channels.map((channel) => ({
           ...channel,
           threadRoots: ["9.000000"],
+          threadRootAudits: [supplementalRootAudit("9.000000")],
           pages: channel.pages.map((page) => ({
             ...page,
             parents: page.parents.map((parent) =>
@@ -1499,7 +1953,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     {
       name: "handoff reply must name the recorded action",
       inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product owner will follow up.",
+        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Alex Rivera will follow up.",
       ),
     },
     {
@@ -1616,8 +2070,8 @@ if (args[0] === "--self-test" && args.length === 1) {
           threadParentTs: "10.000000",
           actorId: "USWEEPER",
           disposition: "Partially fixed",
-          evidence: "Product owner will choose the remaining behavior",
-          text: "Partially fixed: Product owner will choose the remaining behavior.",
+          evidence: "Alex Rivera will choose the remaining behavior",
+          text: "Partially fixed: Alex Rivera will choose the remaining behavior.",
         },
       }),
     },
@@ -1682,6 +2136,43 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "ticket handoff cannot name an unassigned role",
+      inventory: withUnownedTicket({
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Product/engineering lead (not assigned)",
+            action: "choose the remaining behavior",
+          },
+        ],
+      }),
+    },
+    {
+      name: "Blocked on human owner without a handoff or ticket",
+      inventory: withUnownedTicket({
+        disposition: "Blocked on human owner",
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: ["USWEEPER"] },
+        reactionDecision: {
+          checkmark: {
+            state: "none",
+            reason: "No fixed scope has passed verification",
+          },
+          ticket: {
+            state: "none",
+            reason: "No human owner has been assigned",
+          },
+        },
+        handoffs: [],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Blocked on human owner",
+          evidence: "No human owner has been assigned to the remaining action.",
+          text: "Blocked on human owner: no human owner has been assigned to the remaining action.",
+        },
+      }),
+    },
+    {
       name: "Fixed disposition cannot retain an unfinished handoff",
       inventory: {
         ...valid,
@@ -1713,7 +2204,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     handoffs: [
                       {
                         scope: "secondary request",
-                        owner: "Product owner",
+                        owner: "Alex Rivera",
                         action: "choose the remaining behavior",
                       },
                     ],
@@ -1883,7 +2374,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                   handoffs: [
                     {
                       scope: "remaining design choice",
-                      owner: "Product owner",
+                      owner: "Alex Rivera",
                       action: "choose the remaining behavior",
                     },
                   ],
@@ -1902,21 +2393,21 @@ if (args[0] === "--self-test" && args.length === 1) {
         handoffs: [
           {
             scope: "scheduled canary credentials",
-            owner: "Repository Actions admin",
+            owner: "Alex Rivera",
             action: "configure VERCEL_TOKEN",
           },
         ],
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Blocked on human owner",
-          evidence: "Repository Actions admin must configure VERCEL_TOKEN.",
-          text: "Blocked on human owner: Repository Actions admin must configure VERCEL_TOKEN.",
+          evidence: "Alex Rivera must configure VERCEL_TOKEN.",
+          text: "Blocked on human owner: Alex Rivera must configure VERCEL_TOKEN.",
         },
       }),
     );
     validateInventory(
       withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Product owner to choose the remaining behavior.",
+        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Alex Rivera to choose the remaining behavior.",
       ),
     );
     validateInventory({
@@ -1952,6 +2443,10 @@ if (args[0] === "--self-test" && args.length === 1) {
                       "waiting for the URL already requested in this thread",
                     text: "Clarification needed: waiting for the URL already requested in this thread. Evidence: waiting for the URL already requested in this thread.",
                   },
+                  latestOwnedReply: {
+                    ...parent.latestOwnedReply!,
+                    text: "Clarification needed: waiting for the URL already requested in this thread. Evidence: waiting for the URL already requested in this thread.",
+                  },
                 }
               : parent,
           ),
@@ -1985,7 +2480,12 @@ if (args[0] === "--self-test" && args.length === 1) {
                         disposition: "Partially fixed",
                         evidence:
                           "the verified scope is complete; a separate handoff remains.",
-                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Analytics product owner to choose the remaining behavior; release timing — Release owner to schedule the rollout.",
+                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Alex Rivera to choose the remaining behavior; release timing — Morgan Lee to schedule the rollout.",
+                      },
+                      latestOwnedReply: {
+                        ...parent.latestOwnedReply!,
+                        threadParentTs: "9.500000",
+                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Alex Rivera to choose the remaining behavior; release timing — Morgan Lee to schedule the rollout.",
                       },
                       reactionOwners: {
                         eyes: ["USWEEPER"],
@@ -1997,12 +2497,12 @@ if (args[0] === "--self-test" && args.length === 1) {
                       handoffs: [
                         {
                           scope: "secondary request",
-                          owner: "Analytics product owner",
+                          owner: "Alex Rivera",
                           action: "choose the remaining behavior",
                         },
                         {
                           scope: "release timing",
-                          owner: "Release owner",
+                          owner: "Morgan Lee",
                           action: "schedule the rollout",
                         },
                       ],
@@ -2059,6 +2559,10 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...parent.statusReply!,
                     actorId: "WACTOR",
                   },
+                  latestOwnedReply: {
+                    ...parent.latestOwnedReply!,
+                    actorId: "WACTOR",
+                  },
                 }
               : parent,
           ),
@@ -2071,6 +2575,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       channels: valid.channels.map((channel) => ({
         ...channel,
         threadRoots: ["8.500000"],
+        threadRootAudits: [supplementalRootAudit("8.500000")],
         pages: channel.pages.map((page) => ({
           ...page,
           parents: page.parents.map((parent) =>
@@ -2160,6 +2665,63 @@ if (args[0] === "--self-test" && args.length === 1) {
       )
     ) {
       throw new Error("self-test failed to count an inclusive cutoff overlap");
+    }
+    const eyeOnlySummary = validateInventory({
+      ...valid,
+      channels: valid.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  reactionSummary: "eyes (1): USWEEPER",
+                  reactionOwners: { eyes: ["USWEEPER"] },
+                  disposition: "In progress",
+                  latestOwnedReply: {
+                    ...parent.latestOwnedReply!,
+                    text: "In progress — the reported route still needs a live replay",
+                  },
+                  reactionDecision: {
+                    checkmark: {
+                      state: "none",
+                      reason: "The reported route still needs a live replay.",
+                    },
+                    ticket: {
+                      state: "none",
+                      reason: "No separate named human action is assigned.",
+                    },
+                  },
+                  statusReply: {
+                    ...parent.statusReply!,
+                    disposition: "In progress",
+                    evidence: "the reported route still needs a live replay",
+                    text: "In progress — the reported route still needs a live replay",
+                  },
+                  fixedScopes: [],
+                  unfinishedScopes: [
+                    {
+                      scope: "reported route",
+                      evidence: "the reported route still needs a live replay",
+                    },
+                  ],
+                }
+              : parent,
+          ),
+        })),
+      })),
+    });
+    if (
+      !eyeOnlySummary.some((line) =>
+        line.includes(
+          "10.000000 — ✅ The reported route still needs a live replay.; 🎫 No separate named human action is assigned.",
+        ),
+      )
+    ) {
+      throw new Error(
+        "self-test failed to print the pending reasons for an eye-only report",
+      );
     }
     for (const testCase of invalid) {
       try {

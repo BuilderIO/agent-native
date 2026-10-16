@@ -34,8 +34,11 @@ place of Slack source messages.
   row's permalink before recording it; never
   infer the root from a message timestamp. For each reply whose verified root
   predates every page's source manifest, add that exact root timestamp to the
-  channel's `threadRoots` array. Read the reply's actual `thread_ts` or resolve
-  its permalink to establish the root; do not guess from nearby timestamps.
+  channel's `threadRoots` array and add the root's own complete
+  reaction/disposition row to `threadRootAudits`. Read the reply's actual
+  `thread_ts` or resolve its permalink to establish the root; do not guess from
+  nearby timestamps. A reply row does not stand in for auditing the inherited
+  root message.
   Supplemental roots must predate `cutoffTs`; a root at or after the cutoff is
   in scope and must have its own source-manifest row. A root present in a page
   must have its own row with `ts === threadParentTs` and must not be duplicated
@@ -60,7 +63,8 @@ place of Slack source messages.
   reply. If a human answers later, update the disposition and status before
   reconciling it.
   Record each verified `fixedScopes` entry with its proof; record every
-  distinct human handoff in `handoffs[]`, with scope, owner, and action. Finish
+  distinct human handoff in `handoffs[]`, with scope, assigned individual, and
+  action. A role or unassigned team is not an owner. Finish
   the reply and both
   reaction decisions for each owned eye before advancing to the next one. A
   verified fixed scope requires this actor's `✅` even when the overall
@@ -82,7 +86,10 @@ place of Slack source messages.
   `✅`, a `✅` without verified scope, and a `🎫` without a distinct handoff
   owner/action. It rejects supplemental roots at or after the cutoff and checks
   that `reactionSummary` and `reactionOwners` contain the same emoji and exact
-  unique actor IDs. A partial fixed scope is valid with disposition `Partially
+  unique actor IDs. Every `threadRoots` timestamp must have exactly one matching
+  `threadRootAudits` row with its own reaction read-back and disposition; an
+  owned eye or mark on that root also needs its own current reply and two mark
+  decisions. A partial fixed scope is valid with disposition `Partially
 fixed` and its own `✅`; a human handoff for another scope can additionally
   carry `🎫`. It also checks that a
   reply row maps to an in-page self-root or a verified `threadRoots` entry,

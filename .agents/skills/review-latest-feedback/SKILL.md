@@ -13,9 +13,14 @@ metadata:
 
 # Review Latest Feedback
 
-Four phases. Phase 0 comes before investigation. Claim only what you
-can reconcile this run: each `👀` needs a current disposition, same-thread
-status reply, and reaction decision before you claim another batch.
+Read this source skill from the current task checkout before a sweep; never
+follow a copy from another or stale worktree. Generated workspace copies are
+sync outputs. Claim only what you can reconcile this run: each owned `👀` needs
+a current same-thread reply, the required Slack reaction change and read-back,
+and a matching inventory row before you claim another batch. A recorded
+decision without the Slack write is not reconciliation.
+
+Four phases. Phase 0 comes before investigation.
 
 0. **Gate, then claim** only eligible items you can reconcile this run; finish
    their replies before claiming another batch.
@@ -23,11 +28,9 @@ status reply, and reaction decision before you claim another batch.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. At sweep end, reconcile every workflow-owned `👀` in scope,
-including inherited eyes. Give each a current disposition and matching status
-reply; continuing work gets a concrete update, terminal work a final reply
-after verification. Never remove `👀`: verified fixed scope also gets `✅`, and
-distinct unfinished human handoffs get `🎫`. Follow
+Output is fixes. At sweep end, reconcile every owned `👀`—including inherited
+and reply-row eyes—with a current same-thread disposition reply, scoped `✅`,
+and distinct-human `🎫`. Keep `👀` as ownership. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
@@ -79,18 +82,23 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction and owned-eye reconciliation
 
-Reconcile every `👀` you own, including inherited eyes and reply-row eyes, even
-when `✅` is present. Eyes mark ownership, not completion; an eye-only row is
-pending and needs an explicit reason in the recap. Read the root and reactions.
-At wrap-up, report the counts of owned eyes, verified `✅` scopes, human `🎫`
-handoffs, and eye-only items with their pending reasons; `✅` and `🎫` may both
-apply to one report when separate scopes qualify.
-Your current status reply must follow both the eyed source message and latest
-relevant human reply. A later human answer reopens the eye: refresh the
-disposition and post a newer status. Record source `ts` separately from root
-`threadParentTs`.
+Reconcile each owned eye, even with `✅`. Keep source `ts` separate from root
+`threadParentTs`; Phase 1 handles newer replies.
 
-After the reply, add and read back reactions before advancing:
+Finish one eye before taking another:
+
+1. Post a current same-thread status after the source and latest human reply.
+2. Decide separately whether `✅` and `🎫` apply; record a reason for each
+   absent mark. Mark each verified fixed scope with `✅`, including partial
+   fixes and open PRs. UI proof requires replaying the reported flow in the
+   running app or preview; source tests, merge, or deploy alone do not count.
+3. Use `🎫` only for unfinished work assigned to a named person, never an
+   unassigned role or team. Without a named owner, keep **In progress**/`👀`, no
+   `🎫`. Read changes back; verify actor.
+4. Save the disposition, reply, both decisions, and read-back in the inventory.
+
+A reply alone is not reconciliation. Recap each eye-only row and absent-mark
+reasons; resolve missed marks. Unverified flows or unassigned owners may remain.
 
 - Start with the exact canonical disposition and include recorded evidence,
   including each fixed-scope verification, verbatim. The checker rejects vague
@@ -99,13 +107,9 @@ After the reply, add and read back reactions before advancing:
   scope; otherwise use an active or waiting disposition. `Fixed` means no
   report scope remains unfinished.
 
-- `✅` marks a verified **Fixed** source scope, even in an open PR. For UI or
-  other user-visible behavior, meet the `verifying-changes` page-level bar:
-  drive the running app or preview through the reported flow and confirm the
-  symptom is gone; a focused source test alone is not enough. Use the
-  area-specific proof for non-UI scopes. State the proof and whether it is
-  merged or live. Keep `👀` while another scope is active, waiting, or
-  unverified.
+- Apply `✅` after Phase 2 proof for each fixed scope, including partial fixes
+  and open PRs. State proof and merge/live status; keep `👀` for any active,
+  waiting, or unverified scope.
 - `🎫` marks a distinct unfinished action owned by another human; name owner
   and action. A reporter answer, URL, or access request alone stays at `👀`.
 - A claim, merge, or shipment alone never earns `✅`.
@@ -151,9 +155,9 @@ handle a distinct question as its own row.
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
-- **Blocked on human owner (retain 👀, add 🎫):** name the distinct action's
-  owner in the status reply. Reporter-only requests stay in the waiting group
-  without `🎫`.
+- **Blocked on human owner (retain 👀, add 🎫):** use only after a named person
+  accepts the handoff. Unassigned roles stay **In progress** with `👀`, no
+  `🎫`.
 - **Owned elsewhere:** use only for an unmarked item when accessible evidence
   confirms an active owner; marks owned by another task are skipped by the
   ownership gate.

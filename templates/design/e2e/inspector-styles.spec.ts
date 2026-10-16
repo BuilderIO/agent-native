@@ -9,7 +9,7 @@ const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Inspector</title></head>
   <body data-agent-native-node-id="page" style="margin:0;width:800px;height:600px;background:#ffffff;font-family:system-ui,sans-serif">
-    <h1 data-agent-native-node-id="heading" data-agent-native-layer-name="Heading" style="position:absolute;left:40px;top:40px;width:400px;height:60px;margin:0;font-size:40px;line-height:60px;color:#111827">E2E Hero Heading</h1>
+    <h1 data-agent-native-node-id="heading" data-agent-native-layer-name="Heading" style="position:absolute;left:40px;top:40px;width:400px;height:60px;margin:0;font-size:40px;line-height:60px;color:#111827">Heading</h1>
     <p data-agent-native-node-id="para" data-agent-native-layer-name="Paragraph" style="position:absolute;left:40px;top:120px;width:400px;height:24px;margin:0;line-height:24px">First fixture paragraph</p>
     <button data-agent-native-node-id="button" data-agent-native-layer-name="Button" style="position:absolute;left:40px;top:180px;width:140px;height:44px;padding:0 12px;border:0;background:#6366f1;color:#ffffff">Alpha Button</button>
     <div data-agent-native-node-id="card" data-agent-native-layer-name="Card" style="position:absolute;left:40px;top:260px;width:200px;height:120px;background:#e5e7eb"></div>
