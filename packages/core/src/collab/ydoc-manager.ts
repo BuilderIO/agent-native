@@ -677,6 +677,7 @@ export async function readLiveCopy(
   binding: LiveCopyBinding,
   docId: string,
 ): Promise<LiveCopyRead> {
+  await assertLiveCopy(binding, docId);
   await ensureTable();
   const stored = await loadLiveCopyState(binding, docId);
   if (stored.kind === "absent") return { kind: "absent" };
@@ -760,10 +761,13 @@ export async function mutateLiveCopy(
   if (callPersist !== undefined && typeof callPersist !== "function") {
     throw new TypeError("mutateLiveCopy persist must be a function");
   }
-  await assertLiveCopy(binding, docId);
+  // Refused before joining the line: a caller's transaction waiting in it
+  // could hold rows the write ahead needs to commit.
   assertOwnTransaction(docId, "mutateLiveCopy");
-  await ensureTable();
   return withDocWriteLock(docId, async () => {
+    // In line, so a slow appliesTo cannot reorder writes or unbound them.
+    await assertLiveCopy(binding, docId);
+    await ensureTable();
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const stored = await loadLiveCopyState(binding, docId);
       if (stored.kind === "absent") {
@@ -884,10 +888,10 @@ export async function seedLiveCopy(
   docId: string,
   options: SeedLiveCopyOptions,
 ): Promise<LiveCopySeedResult> {
-  await assertLiveCopy(binding, docId);
   assertOwnTransaction(docId, "seedLiveCopy");
-  await ensureTable();
   return withDocWriteLock(docId, async () => {
+    await assertLiveCopy(binding, docId);
+    await ensureTable();
     for (let attempt = 0; attempt < LIVE_COPY_COMMIT_ATTEMPTS; attempt += 1) {
       const stored = await loadLiveCopyState(binding, docId);
       const result = await seedLiveCopyState(

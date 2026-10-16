@@ -1237,6 +1237,41 @@ describe("mutateLiveCopy", () => {
     ).toEqual(["first", "second"]);
   });
 
+  it("checks an edit's or seed's scope after it takes its place in line", async () => {
+    let slowLookup = false;
+    let open = () => {};
+    const appliesTo = async (docId: string) => {
+      if (slowLookup) {
+        slowLookup = false;
+        await new Promise<void>((resolve) => {
+          open = resolve;
+        });
+      }
+      return docId.startsWith("live:");
+    };
+    const binding = define({ maxWaitingWrites: 1, appliesTo });
+
+    slowLookup = true;
+    const seeds = ["first", "second"].map((source) =>
+      manager.seedLiveCopy(binding, "live:doc", { source }),
+    );
+    open();
+    const [first, second] = await Promise.all(seeds);
+    expect([first.seeded, second.seeded]).toEqual([true, false]);
+
+    slowLookup = true;
+    const [one, two, three] = ["one", "two", "three"].map((text) =>
+      manager.mutateLiveCopy(binding, "live:doc", {
+        edit: "append",
+        input: { text },
+      }),
+    );
+    expect(await rejection(three)).toMatchObject({ reason: "queue_full" });
+    open();
+    await Promise.all([one, two]);
+    expect((await row("live:doc"))?.text_snapshot).toBe("first\none\ntwo");
+  });
+
   it("keeps later writes behind a running one after refusing a write", async () => {
     const gates = new Map<
       string,
@@ -1472,6 +1507,9 @@ describe("mutateLiveCopy", () => {
       await rejection(
         manager.mutateLiveCopy(binding, "plain:doc", { edit: "append" }),
       ),
+    ).toMatchObject({ code: "not_live_copy" });
+    expect(
+      await rejection(manager.readLiveCopy(binding, "plain:doc")),
     ).toMatchObject({ code: "not_live_copy" });
   });
 });
