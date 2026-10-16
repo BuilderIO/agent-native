@@ -1,10 +1,15 @@
+import { resolveDefaultFilterVars } from "../../app/pages/adhoc/sql-dashboard/filter-vars.js";
+import {
+  panelTimeRange,
+  type PanelTimeRange,
+} from "../../app/pages/adhoc/sql-dashboard/interpolate.js";
 import type {
   DashboardAnnotations,
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import {
   dataNoteAppliesTo,
-  dataNoteIsRecent,
+  dataNoteInRange,
   panelDrawsDataNotes,
   RECENT_DATA_NOTE_DAYS,
   type DataNote,
@@ -38,9 +43,10 @@ export interface DataNoteSummary {
   endDate?: string;
   /**
    * Charts on this dashboard the note is on. A time chart draws it only over
-   * the dates it plots, so not at all when they miss the note's, and one whose
-   * x values aren't dates lists it only while it is recent. The server never
-   * sees those values, so this can't promise a mark.
+   * the dates it plots, so not at all when they miss the note's; any other
+   * chart, and a time chart whose x values aren't dates, lists it only when
+   * its dates overlap the chart's time range. The server never sees x values,
+   * so this can't promise a mark.
    */
   panelIds: string[];
   /** Charts the note belongs on that this dashboard hides it from. */
@@ -87,7 +93,7 @@ function hiddenPanelIds(
 
 type PlacedNote = Pick<
   DataNote,
-  "endDate" | "matchEvents" | "unlessEvents" | "panels"
+  "startDate" | "endDate" | "matchEvents" | "unlessEvents" | "panels"
 >;
 
 function panelsWithNote(
@@ -102,20 +108,29 @@ function panelsWithNote(
 }
 
 /**
- * As `SqlChartCard` does: time charts shade a note over its dates, other
- * charts list it only while it is recent. The chart type stands in for the
- * x-axis, which the server never sees.
+ * As `SqlChartCard` does: a chart shows a note only when its dates overlap
+ * the chart's time range. Without one, a time chart shades the note over
+ * whatever dates its query returns, and another chart lists it while it is
+ * recent. The chart type stands in for the x-axis, which the server never
+ * sees. `vars` are undefined when the dashboard's filters can't be read, so no
+ * chart's range can be.
  */
 function panelsShowingNote(
   note: PlacedNote,
   dashboardId: string,
   panels: readonly SqlPanel[],
+  vars: Record<string, string> | undefined,
   now: number,
 ): SqlPanel[] {
-  return panelsWithNote(note, dashboardId, panels).filter(
-    (panel) =>
-      isKeyDateChartType(panel.chartType) || dataNoteIsRecent(note, now),
-  );
+  return panelsWithNote(note, dashboardId, panels).filter((panel) => {
+    const range: PanelTimeRange = vars
+      ? panelTimeRange(panel, vars, now)
+      : { kind: "unreadable" };
+    if (isKeyDateChartType(panel.chartType) && range.kind !== "days") {
+      return true;
+    }
+    return dataNoteInRange(note, range, now);
+  });
 }
 
 /** By the instant each happened in its own zone; a date without a time counts from midnight UTC. */
@@ -126,16 +141,24 @@ function newestFirst(dates: readonly KeyDate[]): KeyDate[] {
     .map(({ date }) => date);
 }
 
-/** The key-date sets and data notes a dashboard's charts draw, for an agent explaining them. */
+/**
+ * The key-date sets and data notes a dashboard's charts draw, for an agent
+ * explaining them. `searchParams` are the page's URL filters; without them
+ * the charts show the dashboard's default time range.
+ */
 export function summarizeDashboardAnnotations(
   dashboardId: string,
   config: Record<string, unknown>,
   sets: readonly KeyDateSet[],
   notes: readonly DataNote[],
-  now: number = Date.now(),
+  {
+    now = Date.now(),
+    searchParams,
+  }: { now?: number; searchParams?: Record<string, string> } = {},
 ): DashboardAnnotationSummary {
   const panels = configPanels(config);
   const annotations = configAnnotations(config);
+  const vars = resolveDefaultFilterVars(config, searchParams);
   const hiddenSets = new Set(annotations?.hiddenKeyDateSets);
   return {
     keyDateSets: sets.map((set) => ({
@@ -156,7 +179,7 @@ export function summarizeDashboardAnnotations(
       ? { keyDatesHint: NO_KEY_DATE_CHARTS }
       : {}),
     dataNotes: notes.flatMap((note) => {
-      const reached = panelsShowingNote(note, dashboardId, panels, now);
+      const reached = panelsShowingNote(note, dashboardId, panels, vars, now);
       if (reached.length === 0) return [];
       const hidden = hiddenPanelIds(annotations, note.id);
       const hiddenOn = reached.filter((panel) => hidden.has(panel.id));
@@ -187,11 +210,14 @@ const panelRef = (panel: SqlPanel): PanelRef => ({
   title: panel.title,
 });
 
-/** Which charts on one dashboard a saved data note is on, as `panelIds` above, with a hint when it is on none. */
+/**
+ * Which charts on one dashboard a saved data note is on, as `panelIds` above
+ * at the dashboard's default time range, with a hint when it is on none.
+ */
 export function dataNotePlacement(
   note: Pick<
     DataNote,
-    "id" | "endDate" | "matchEvents" | "unlessEvents" | "panels"
+    "id" | "startDate" | "endDate" | "matchEvents" | "unlessEvents" | "panels"
   >,
   dashboardId: string,
   config: Record<string, unknown>,
@@ -199,17 +225,23 @@ export function dataNotePlacement(
 ) {
   const panels = configPanels(config);
   const belongs = panelsWithNote(note, dashboardId, panels);
-  const reached = panelsShowingNote(note, dashboardId, panels, now);
+  const reached = panelsShowingNote(
+    note,
+    dashboardId,
+    panels,
+    resolveDefaultFilterVars(config),
+    now,
+  );
   const hidden = hiddenPanelIds(configAnnotations(config), note.id);
   const shownOn = reached.filter((panel) => !hidden.has(panel.id));
   const hiddenOn = reached.filter((panel) => hidden.has(panel.id));
-  // A note can be hidden on its time charts and too old for its others, so
-  // each reason it shows nowhere is its own sentence.
+  // A note can be hidden on its time charts and outside the others' time
+  // range, so each reason it shows nowhere is its own sentence.
   const reasons = [
     hiddenOn.length > 0 &&
       "This dashboard hides the note on the charts that would draw it (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own.",
     belongs.length > reached.length &&
-      `Its charts here other than line, area, bar or combo list a note only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`,
+      `Its charts here show a note only when its dates overlap their time range (the dashboard's default here), so a range that covers them shows it; a chart other than line, area, bar or combo whose SQL has no time range, or one the app can't read such as a quarter its SQL works out, lists it only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`,
   ].filter((reason): reason is string => typeof reason === "string");
   const hint =
     shownOn.length > 0

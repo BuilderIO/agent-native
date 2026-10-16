@@ -229,6 +229,7 @@ export default defineAction({
                         }),
                         dashboard.id,
                         dashboard.config as Record<string, unknown>,
+                        url?.searchParams,
                       )
                     : undefined,
               }),

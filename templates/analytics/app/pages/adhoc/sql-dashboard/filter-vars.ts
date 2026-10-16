@@ -41,7 +41,7 @@ function daysAgo(n: number): string {
 // toISOString), so callers treat it like any other unrecognized value.
 const MAX_DAY_COUNT = 36_500;
 
-function parseDayCount(value: string): number | null {
+export function parseDayCount(value: string): number | null {
   const match = /^(\d+)d$/.exec(value);
   if (!match) return null;
   const days = Number(match[1]);
@@ -234,13 +234,25 @@ function dateRangeStart(range: string): string {
   return daysAgo(parseDayCount(range) ?? 30);
 }
 
+/**
+ * The variables a dashboard's SQL gets, as the page resolves them from its URL
+ * (`f_<filter id>` search params), each filter's default where the URL has
+ * none; undefined when the config's filters or variables can't be read.
+ */
 export function resolveDefaultFilterVars(
   config: unknown,
+  searchParams: Record<string, string> = {},
 ): Record<string, string> | undefined {
   const filters = reviewDashboardFilters(config);
   const variables = reviewDashboardVariables(config);
   if (!filters || !variables) return undefined;
-  return { ...variables, ...resolveFilterVars(filters, () => "") };
+  return {
+    ...variables,
+    ...resolveFilterVars(
+      filters,
+      (key) => searchParams[FILTER_PARAM_PREFIX + key] ?? "",
+    ),
+  };
 }
 
 export function resolveFilterVars(

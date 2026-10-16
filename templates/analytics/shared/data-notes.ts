@@ -1,3 +1,4 @@
+import type { PanelTimeRange } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import type {
   DashboardAnnotations,
   SqlPanel,
@@ -59,7 +60,7 @@ export function dataNoteEventsFit(events: readonly string[]): boolean {
   );
 }
 
-/** A chart without a date axis can't place a note, so it flags notes that are ongoing or ended this recently. */
+/** A chart without a date axis or a time range to hold a note's dates against flags notes that are ongoing or ended this recently. */
 export const RECENT_DATA_NOTE_DAYS = 30;
 
 const DAY_MS = 86_400_000;
@@ -337,14 +338,34 @@ export function dataNotesForPanel(
 }
 
 /** Ongoing, or ended within `RECENT_DATA_NOTE_DAYS` of `now`. */
-export function dataNoteIsRecent(
-  note: Pick<DataNote, "endDate">,
-  now: number = Date.now(),
-): boolean {
+function dataNoteIsRecent(note: Pick<DataNote, "endDate">, now: number) {
   if (!note.endDate) return true;
   return (
     Date.parse(note.endDate) + DAY_MS > now - RECENT_DATA_NOTE_DAYS * DAY_MS
   );
+}
+
+/**
+ * Whether a chart without a date axis lists the note: when the note's days
+ * overlap the ones its query covers, or, without a range it can read, while
+ * the note is recent.
+ */
+export function dataNoteInRange(
+  note: Pick<DataNote, "startDate" | "endDate">,
+  range: PanelTimeRange,
+  now: number = Date.now(),
+): boolean {
+  switch (range.kind) {
+    case "all":
+      return true;
+    case "days": {
+      const { start, end } = noteSpan(note);
+      return start < range.end && end > range.start;
+    }
+    case "absent":
+    case "unreadable":
+      return dataNoteIsRecent(note, now);
+  }
 }
 
 /**
@@ -507,17 +528,21 @@ export interface ChartDataNote {
  * The notes a chart shows, in order. A date axis shades each note over the
  * x values it covers, writes one that falls only between them, on days the
  * query returned no row for, under the chart, and leaves off one outside its
- * dates. Any other axis writes the recent notes under the chart.
+ * dates. Any other axis writes the notes in the chart's time range under it.
  */
 export function dataNotesOnChart(
   notes: readonly DataNote[],
   xValues: readonly unknown[],
-  { xKey, now = Date.now() }: { xKey?: string; now?: number } = {},
+  {
+    xKey,
+    range,
+    now = Date.now(),
+  }: { xKey?: string; range: PanelTimeRange; now?: number },
 ): ChartDataNote[] {
   const axis = dateAxis(xValues, xKey);
   if (!axis) {
     return notes
-      .filter((note) => dataNoteIsRecent(note, now))
+      .filter((note) => dataNoteInRange(note, range, now))
       .map((note) => ({ note, bands: [] }));
   }
   return notes.flatMap((note): ChartDataNote[] => {

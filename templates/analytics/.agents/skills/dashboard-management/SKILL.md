@@ -326,9 +326,11 @@ its owner organization's. Read them with `list-data-notes`, passing
   inside the chart, and a hoverable title. Rows sorted by something other than
   date shade each run of the note's rows, never a row between them, under one
   title. Incidents are red; open data problems amber; fixed data problems grey.
-  Other charts flag the note by the title and write it under the chart while it
-  is ongoing or ended in the last 30 days, as does a time chart whose x values
-  aren't dates.
+  Other charts, and a time chart whose x values aren't dates, flag the note by
+  the title and write it under the chart when its dates overlap the chart's
+  time range: the panel's own range if it overrides the dashboard's. A chart
+  whose SQL has no time range, or one the app can't read such as a quarter its
+  SQL works out, does so while the note is ongoing or ended in the last 30 days.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   listing the notes already hidden that stay hidden; `hiddenKeyDateSets` is kept.
@@ -376,7 +378,7 @@ means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
 with `dashboardId` before saying a marker isn't there. `keyDatesHint` means no
 chart on the dashboard draws key dates, so don't cite one there. A note's `panelIds` are the charts it is
 on, but a time chart draws it only over the dates it plots (and, if its x
-values aren't dates, only while the note is recent), so cite it for a change
+values aren't dates, only when they overlap its time range), so cite it for a change
 only when the change falls within the note's dates. `editable: false` means
 they are the owner organization's, so cite them but don't change them.
 

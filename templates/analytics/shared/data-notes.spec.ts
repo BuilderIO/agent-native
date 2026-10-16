@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { panelTimeRange } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   CONNECT_UNDERCOUNT,
   SETUP_INCIDENT,
@@ -7,7 +8,7 @@ import {
 } from "./annotation-fixtures";
 import {
   dataNoteAppliesTo,
-  dataNoteIsRecent,
+  dataNoteInRange,
   dataNotesOnChart,
   dataNotesForPanel,
   dataNoteTone,
@@ -16,6 +17,7 @@ import {
   resolveDataNoteBands,
   sqlCountsEvent,
   xValuesAreDates,
+  type DataNote,
 } from "./data-notes";
 import { xColumnGrain } from "./panel-events";
 
@@ -501,6 +503,7 @@ describe("resolveDataNoteBands", () => {
 
 describe("dataNotesOnChart", () => {
   const now = Date.parse("2026-10-20T12:00:00Z");
+  const range = { kind: "absent" } as const;
   const between = {
     ...SETUP_INCIDENT,
     id: "note-between",
@@ -512,6 +515,7 @@ describe("dataNotesOnChart", () => {
     const xValues = ["2026-10-08", "2026-10-09", "2026-10-13", "2026-10-14"];
     expect(
       dataNotesOnChart([SKIPS_UNTRACKED, between, SETUP_INCIDENT], xValues, {
+        range,
         now,
       }),
     ).toEqual([
@@ -528,15 +532,29 @@ describe("dataNotesOnChart", () => {
       dataNotesOnChart(
         [SKIPS_UNTRACKED, SETUP_INCIDENT],
         ["Signup", "Connect"],
-        { now },
+        { range, now },
       ),
+    ).toEqual([{ note: SETUP_INCIDENT, bands: [] }]);
+  });
+
+  it("writes out the notes in the chart's time range when the x axis is not dates", () => {
+    const december = Date.parse("2026-12-01T12:00:00Z");
+    expect(
+      dataNotesOnChart([SKIPS_UNTRACKED, SETUP_INCIDENT], ["Signup"], {
+        range: {
+          kind: "days",
+          start: Date.parse("2026-10-01"),
+          end: Date.parse("2026-11-01"),
+        },
+        now: december,
+      }),
     ).toEqual([{ note: SETUP_INCIDENT, bands: [] }]);
   });
 
   it("keeps a daily chart's rows to their own days when they all fall on one weekday", () => {
     const mondays = ["2026-10-05", "2026-10-12"];
     expect(
-      dataNotesOnChart([SETUP_INCIDENT], mondays, { xKey: "day", now }),
+      dataNotesOnChart([SETUP_INCIDENT], mondays, { xKey: "day", range, now }),
     ).toEqual([
       {
         note: SETUP_INCIDENT,
@@ -546,7 +564,7 @@ describe("dataNotesOnChart", () => {
       },
     ]);
     expect(
-      dataNotesOnChart([SETUP_INCIDENT], mondays, { xKey: "week", now }),
+      dataNotesOnChart([SETUP_INCIDENT], mondays, { xKey: "week", range, now }),
     ).toEqual([
       {
         note: SETUP_INCIDENT,
@@ -559,6 +577,7 @@ describe("dataNotesOnChart", () => {
     expect(
       dataNotesOnChart([SETUP_INCIDENT], ["2026-10-05"], {
         xKey: "signup_week",
+        range,
         now,
       }),
     ).toEqual([
@@ -572,6 +591,7 @@ describe("dataNotesOnChart", () => {
     expect(
       dataNotesOnChart([SETUP_INCIDENT], ["2026-10-01"], {
         xKey: "monthStart",
+        range,
         now,
       }),
     ).toEqual([
@@ -581,7 +601,11 @@ describe("dataNotesOnChart", () => {
       },
     ]);
     expect(
-      dataNotesOnChart([SETUP_INCIDENT], ["2026-10-05"], { xKey: "day", now }),
+      dataNotesOnChart([SETUP_INCIDENT], ["2026-10-05"], {
+        xKey: "day",
+        range,
+        now,
+      }),
     ).toEqual([]);
   });
 });
@@ -597,12 +621,171 @@ describe("xColumnGrain", () => {
   });
 });
 
-describe("dataNoteIsRecent", () => {
-  it("keeps ongoing notes and ones that ended in the last 30 days", () => {
+describe("dataNoteInRange", () => {
+  const funnel = {
+    sql: "SELECT step, count(*) FROM events WHERE event_name = 'builder_connect_failed' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '90d' AND event_date >= CURRENT_DATE - INTERVAL '90 days') OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}')) GROUP BY step",
+  };
+  const december = Date.parse("2026-12-01T12:00:00Z");
+  const listed = (
+    note: Pick<DataNote, "startDate" | "endDate">,
+    vars: Record<string, string>,
+    now = december,
+  ) => dataNoteInRange(note, panelTimeRange(funnel, vars, now), now);
+
+  it("lists an Oct 9–13 note under a 90-day view in December, not a 30-day one", () => {
+    expect(listed(SETUP_INCIDENT, { timeRange: "90d" })).toBe(true);
+    expect(listed(SETUP_INCIDENT, { timeRange: "30d" })).toBe(false);
+  });
+
+  it("counts a preset's days back from today, through today, as CURRENT_DATE does", () => {
+    // 30d on Nov 12 starts Oct 13, the note's last day; on Nov 13, the day after.
+    const at = (day: string) => Date.parse(`${day}T23:00:00Z`);
+    expect(listed(SETUP_INCIDENT, { timeRange: "30d" }, at("2026-11-12"))).toBe(
+      true,
+    );
+    expect(listed(SETUP_INCIDENT, { timeRange: "30d" }, at("2026-11-13"))).toBe(
+      false,
+    );
+    expect(panelTimeRange(funnel, { timeRange: "7d" }, december)).toEqual({
+      kind: "days",
+      start: Date.parse("2026-11-24"),
+      end: Date.parse("2026-12-02"),
+    });
+  });
+
+  it("reads a preset as long as the filter takes, past the chart's gap-fill limit", () => {
+    const summer2024 = { startDate: "2024-08-05", endDate: "2024-08-09" };
+    expect(listed(summer2024, { timeRange: "900d" })).toBe(true);
+    expect(listed(summer2024, { timeRange: "365d" })).toBe(false);
+  });
+
+  it("reads a date-range filter's start and end, not from a comment, and no range when the SQL reads two", () => {
+    const bySignup = {
+      sql: "SELECT plan, count(*) FROM signups WHERE signup_date >= '{{signupStart}}' AND signup_date <= '{{signupEnd}}' GROUP BY plan",
+    };
+    const vars = { signupStart: "2026-10-13", signupEnd: "2026-10-31" };
+    expect(panelTimeRange(bySignup, vars, december)).toEqual({
+      kind: "days",
+      start: Date.parse("2026-10-13"),
+      end: Date.parse("2026-11-01"),
+    });
+    expect(
+      dataNoteInRange(SETUP_INCIDENT, panelTimeRange(bySignup, vars, december)),
+    ).toBe(true);
+    expect(
+      dataNoteInRange(
+        SETUP_INCIDENT,
+        panelTimeRange(bySignup, { ...vars, signupStart: "2026-10-14" }),
+      ),
+    ).toBe(false);
+    const withSignups = (sql: string) =>
+      panelTimeRange({ sql }, { ...vars, timeRange: "90d" }, december);
+    expect(
+      withSignups(
+        funnel.sql.replace(
+          " GROUP BY step",
+          " AND signup_date >= '{{signupStart}}' AND signup_date <= '{{signupEnd}}' GROUP BY step",
+        ),
+      ),
+    ).toEqual({ kind: "unreadable" });
+    expect(
+      withSignups(`${funnel.sql}
+-- by {{signupStart}} to {{signupEnd}}`),
+    ).toEqual(panelTimeRange(funnel, { timeRange: "90d" }, december));
+  });
+
+  it("reads timeRange's own start and end when the SQL uses only those", () => {
+    const bounded = {
+      sql: "SELECT step, count(*) FROM events WHERE event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}' GROUP BY step",
+    };
+    const vars = {
+      timeRange: "30d",
+      timeRangeStart: "2026-01-05",
+      timeRangeEnd: "2026-01-09",
+    };
+    expect(panelTimeRange(bounded, vars, december)).toEqual({
+      kind: "days",
+      start: Date.parse("2026-01-05"),
+      end: Date.parse("2026-01-10"),
+    });
+  });
+
+  it("lists a note that overlaps a custom range by a day", () => {
+    const custom = (start: string, end: string) => ({
+      timeRange: "custom",
+      timeRangeStart: start,
+      timeRangeEnd: end,
+    });
+    expect(listed(SETUP_INCIDENT, custom("2026-09-01", "2026-10-09"))).toBe(
+      true,
+    );
+    expect(listed(SETUP_INCIDENT, custom("2026-10-13", "2026-10-31"))).toBe(
+      true,
+    );
+    expect(listed(SETUP_INCIDENT, custom("2026-09-01", "2026-10-08"))).toBe(
+      false,
+    );
+    expect(listed(SETUP_INCIDENT, custom("2026-10-14", "2026-10-31"))).toBe(
+      false,
+    );
+  });
+
+  it("lists every note under all of time", () => {
+    const years = Date.parse("2029-06-01T12:00:00Z");
+    expect(listed(SKIPS_UNTRACKED, { timeRange: "all" }, years)).toBe(true);
+    expect(listed(SETUP_INCIDENT, { timeRange: "" }, years)).toBe(true);
+  });
+
+  it("reaches an ongoing note to today and a note without a start back to the first day", () => {
+    const ongoing = { startDate: "2026-11-20" };
+    expect(listed(ongoing, { timeRange: "7d" })).toBe(true);
+    expect(
+      listed(ongoing, {
+        timeRange: "custom",
+        timeRangeStart: "2026-11-01",
+        timeRangeEnd: "2026-11-19",
+      }),
+    ).toBe(false);
+    // Sep 17 is in the 90 days before Dec 1, which start Sep 2.
+    expect(listed(SKIPS_UNTRACKED, { timeRange: "90d" })).toBe(true);
+    expect(listed(SKIPS_UNTRACKED, { timeRange: "30d" })).toBe(false);
+  });
+
+  it("keeps ongoing notes and ones that ended in the last 30 days on a chart without a time range", () => {
     const now = Date.parse("2026-11-01T12:00:00Z");
-    expect(dataNoteIsRecent(CONNECT_UNDERCOUNT, now)).toBe(true);
-    expect(dataNoteIsRecent(SETUP_INCIDENT, now)).toBe(true);
-    expect(dataNoteIsRecent(SKIPS_UNTRACKED, now)).toBe(false);
+    const noFilter = panelTimeRange(funnel, {}, now);
+    const unbound = panelTimeRange(
+      { sql: "SELECT step, count(*) FROM events GROUP BY step" },
+      { timeRange: "90d" },
+      now,
+    );
+    expect(noFilter).toEqual({ kind: "absent" });
+    expect(unbound).toEqual({ kind: "absent" });
+    for (const range of [noFilter, unbound]) {
+      expect(dataNoteInRange(CONNECT_UNDERCOUNT, range, now)).toBe(true);
+      expect(dataNoteInRange(SETUP_INCIDENT, range, now)).toBe(true);
+      expect(dataNoteInRange(SKIPS_UNTRACKED, range, now)).toBe(false);
+    }
+    expect(listed(SETUP_INCIDENT, {})).toBe(false);
+  });
+
+  it("falls back to recent notes, apart from a missing range, when the range can't be read", () => {
+    const unreadable: Record<string, string>[] = [
+      { timeRange: "fortnight" },
+      { timeRange: "custom" },
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-10-31",
+        timeRangeEnd: "2026-10-01",
+      },
+    ];
+    for (const vars of unreadable) {
+      expect(panelTimeRange(funnel, vars, december)).toEqual({
+        kind: "unreadable",
+      });
+      expect(listed(SETUP_INCIDENT, vars)).toBe(false);
+      expect(listed(CONNECT_UNDERCOUNT, vars)).toBe(true);
+    }
   });
 });
 
