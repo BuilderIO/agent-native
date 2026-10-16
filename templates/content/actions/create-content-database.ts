@@ -60,6 +60,7 @@ import {
   seedDefaultBlocksField,
   serializeDatabaseViewConfig,
 } from "./_property-utils.js";
+import { lockParentOfNewPage } from "./_row-lock-order.js";
 
 const createContentDatabaseSchema = z
   .object({
@@ -479,6 +480,7 @@ export async function createContentDatabaseRecord(
     const parentId = args.parentId || null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
+    let parentScope: Parameters<typeof lockParentOfNewPage>[2] | null = null;
 
     if (parentId) {
       const parent = await assertDocumentEditorAccess(db, parentId);
@@ -493,6 +495,12 @@ export async function createContentDatabaseRecord(
       }
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
+      parentScope = {
+        ownerEmail: parent.ownerEmail,
+        spaceId: parent.spaceId ?? null,
+        orgId,
+        visibility: parent.visibility,
+      };
       inheritedShares = await db
         .select({
           principalType: schema.documentShares.principalType,
@@ -571,6 +579,9 @@ export async function createContentDatabaseRecord(
           createdAt: now,
         })),
       );
+    }
+    if (parentId && parentScope) {
+      await lockParentOfNewPage(db, parentId, parentScope);
     }
   }
 

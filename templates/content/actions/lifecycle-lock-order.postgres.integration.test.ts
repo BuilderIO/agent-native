@@ -65,6 +65,7 @@ let updateDocument: typeof import("./update-document.js").default;
 let restoreDocumentVersion: typeof import("./restore-document-version.js").default;
 let removeDatabaseItems: typeof import("./remove-database-items.js").default;
 let createDocument: typeof import("./create-document.js").default;
+let createContentDatabase: typeof import("./create-content-database.js").default;
 let processContentTrashPurge: typeof import("../server/lib/content-trash-purge.js").processContentTrashPurge;
 
 beforeAll(async () => {
@@ -115,6 +116,8 @@ beforeAll(async () => {
     .default;
   removeDatabaseItems = (await import("./remove-database-items.js")).default;
   createDocument = (await import("./create-document.js")).default;
+  createContentDatabase = (await import("./create-content-database.js"))
+    .default;
   ({ processContentTrashPurge } =
     await import("../server/lib/content-trash-purge.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
@@ -2483,44 +2486,50 @@ position: ${position}
       });
     });
 
-    for (const [change, update, errorCode] of [
-      ["moves to another space", "space", "PARENT_SCOPE_CHANGED"],
-      ["moves to Trash", "trash", "PARENT_TRASHED"],
-    ] as const) {
-      it(`refuses a page created under a parent that ${change} while it waits`, async () => {
-        const seed = await seedSpaceMove();
-        const { action: created } = await raceAgainst(
-          async (tx) => {
-            await lockDocumentRows(tx, [seed.ids.moved]);
-            await tx
-              .update(schema.documents)
-              .set(
-                update === "space"
-                  ? { spaceId: seed.ids.toSpace }
-                  : { trashedAt: STAMP, trashRootId: seed.ids.moved },
-              )
-              .where(eq(schema.documents.id, seed.ids.moved));
-          },
-          () =>
-            asOwner(() =>
-              createDocument.run({
-                title: "Late child",
-                parentId: seed.ids.moved,
-              }),
-            ),
-        );
-        await expect(created).rejects.toMatchObject({
-          errorCode,
-          statusCode: 409,
+    for (const [created, create] of [
+      [
+        "page",
+        (parentId: string) =>
+          createDocument.run({ title: "Late child", parentId }),
+      ],
+      [
+        "collection",
+        (parentId: string) =>
+          createContentDatabase.run({ title: "Late collection", parentId }),
+      ],
+    ] as const)
+      for (const [change, update, errorCode] of [
+        ["moves to another space", "space", "PARENT_SCOPE_CHANGED"],
+        ["moves to Trash", "trash", "PARENT_TRASHED"],
+      ] as const) {
+        it(`refuses a ${created} created under a parent that ${change} while it waits`, async () => {
+          const seed = await seedSpaceMove();
+          const { action: creating } = await raceAgainst(
+            async (tx) => {
+              await lockDocumentRows(tx, [seed.ids.moved]);
+              await tx
+                .update(schema.documents)
+                .set(
+                  update === "space"
+                    ? { spaceId: seed.ids.toSpace }
+                    : { trashedAt: STAMP, trashRootId: seed.ids.moved },
+                )
+                .where(eq(schema.documents.id, seed.ids.moved));
+            },
+            () => asOwner(() => create(seed.ids.moved)),
+          );
+          await expect(creating).rejects.toMatchObject({
+            errorCode,
+            statusCode: 409,
+          });
+          expect(
+            await getDb()
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
+              .where(eq(schema.documents.parentId, seed.ids.moved)),
+          ).toEqual([{ id: seed.ids.child }]);
         });
-        expect(
-          await getDb()
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(eq(schema.documents.parentId, seed.ids.moved)),
-        ).toEqual([{ id: seed.ids.child }]);
-      });
-    }
+      }
 
     it("refuses an imported favorite removal when the page is favorited while it waits", async () => {
       const seed = await seedImportedFavorite(false);
