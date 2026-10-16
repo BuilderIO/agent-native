@@ -169,6 +169,121 @@ test("a renamed quarantine with a paired addition receipt is accepted", () => {
   );
 });
 
+test("title renames of direct fixme and skip registrations accept a valid fresh addition", () => {
+  for (const modifier of ["fixme", "skip"]) {
+    const base = parseSingleSuppressedTest(
+      `test.${modifier}("old behavior", () => {});`,
+    );
+    const head = parseSingleSuppressedTest(
+      `test.${modifier}("renamed behavior", () => {});`,
+    );
+    const rename = {
+      action: "rename",
+      from: { file: base.file, title: base.title },
+      to: { file: head.file, title: head.title },
+      reason: "The test title was clarified.",
+      evidence: "issue-124",
+    };
+    const addition = {
+      action: "add",
+      file: head.file,
+      title: head.title,
+      reason: "The renamed test remains suppressed after review.",
+      evidence: "issue-125",
+      owner: "design-e2e",
+      expires: "2026-11-16",
+    };
+
+    assert.notEqual(base.suppressionFingerprint, head.suppressionFingerprint);
+    assert.deepEqual(
+      compareQuarantineSnapshots(
+        [base],
+        [head],
+        [rename, addition],
+        "2026-10-16",
+      ),
+      [],
+      `${modifier} title rename with a fresh addition receipt`,
+    );
+  }
+});
+
+test("renamed suppression fingerprint changes require one fresh valid addition", () => {
+  const base = parseSingleSuppressedTest(
+    'test.fixme("old behavior", () => { test.skip(isMobile, "unsupported"); });',
+  );
+  const head = parseSingleSuppressedTest(
+    'test.fixme("renamed behavior", () => { test.skip(isTablet, "unsupported"); });',
+  );
+  const rename = {
+    action: "rename",
+    from: { file: base.file, title: base.title },
+    to: { file: head.file, title: head.title },
+    reason: "The test title was clarified.",
+    evidence: "issue-126",
+  };
+  const addition = {
+    action: "add",
+    file: head.file,
+    title: head.title,
+    reason: "The renamed condition was reviewed and remains suppressed.",
+    evidence: "issue-127",
+    owner: "design-e2e",
+    expires: "2026-11-16",
+  };
+
+  assert.notEqual(base.suppressionFingerprint, head.suppressionFingerprint);
+  const missingAddition = compareQuarantineSnapshots(
+    [base],
+    [head],
+    [rename],
+    "2026-10-16",
+  ).join("\n");
+  assert.match(missingAddition, /invalid quarantine rename exception/);
+  assert.match(
+    missingAddition,
+    /new test suppression needs an explicit exception/,
+  );
+
+  for (const [label, invalidAddition] of [
+    ["expired", { ...addition, expires: "2026-10-16" }],
+    ["malformed", { ...addition, evidence: "" }],
+  ]) {
+    const violations = compareQuarantineSnapshots(
+      [base],
+      [head],
+      [rename, invalidAddition],
+      "2026-10-16",
+    ).join("\n");
+    assert.match(violations, /invalid quarantine rename exception/, label);
+    assert.match(
+      violations,
+      /new suppression exception needs non-empty reason\/evidence\/owner and a future YYYY-MM-DD expiry/,
+      label,
+    );
+  }
+
+  const duplicateAddition = compareQuarantineSnapshots(
+    [base],
+    [head],
+    [rename, addition, addition],
+    "2026-10-16",
+  ).join("\n");
+  assert.match(duplicateAddition, /duplicate quarantine addition exception/);
+  assert.match(duplicateAddition, /invalid quarantine rename exception/);
+
+  assert.deepEqual(
+    compareQuarantineSnapshots(
+      [base],
+      [head],
+      [rename, addition],
+      "2026-10-16",
+    ),
+    [],
+    "a changed suppression condition is accepted only with the paired fresh receipt",
+  );
+});
+
 test("quarantine renames cannot collapse into existing or shared identities", () => {
   const second = {
     file: "another.spec.ts",
@@ -456,7 +571,7 @@ test("generated callback quarantines are recorded and require an exception", () 
       suppressionKind: "direct",
       suppressionReason: "Unable to inspect conditional test.fixme at line 1",
       suppressionFingerprint:
-        '[{"scope":"direct","modifier":"fixme","callee":"test.fixme","arguments":["name"]},{"scope":"unknown","modifier":"uninspected-callback","callee":"unknown-execution-context","arguments":[],"callbackIdentity":"anonymous:ArrowFunction"}]',
+        '[{"scope":"direct","modifier":"fixme","callee":"test.fixme","arguments":["name"]}]',
     },
   ]);
   assert.match(

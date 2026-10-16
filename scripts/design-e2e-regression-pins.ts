@@ -15,6 +15,16 @@ function loadTypeScript(): typeof TypeScript {
   return loadedTypeScript;
 }
 
+function parseDiagnostics(
+  sourceFile: TypeScript.SourceFile,
+): readonly TypeScript.Diagnostic[] {
+  return (
+    sourceFile as TypeScript.SourceFile & {
+      parseDiagnostics: readonly TypeScript.Diagnostic[];
+    }
+  ).parseDiagnostics;
+}
+
 export const DESIGN_E2E_REGRESSION_SHARDS = [
   "inspector-1a",
   "inspector-1b",
@@ -559,7 +569,7 @@ export function parseDesignE2ERegressionPins(
     true,
     ts.ScriptKind.TS,
   );
-  if (sourceFile.parseDiagnostics.length > 0) {
+  if (parseDiagnostics(sourceFile).length > 0) {
     throw new Error("base pin manifest has TypeScript syntax errors");
   }
 
@@ -860,6 +870,28 @@ function unwrapExpression(
   return candidate;
 }
 
+function constantStringExpression(
+  expression: TypeScript.Expression,
+  ts: typeof TypeScript,
+): string | undefined {
+  const candidate = unwrapExpression(expression, ts);
+  if (
+    ts.isStringLiteral(candidate) ||
+    ts.isNoSubstitutionTemplateLiteral(candidate)
+  ) {
+    return candidate.text;
+  }
+  if (
+    ts.isBinaryExpression(candidate) &&
+    candidate.operatorToken.kind === ts.SyntaxKind.PlusToken
+  ) {
+    const left = constantStringExpression(candidate.left, ts);
+    const right = constantStringExpression(candidate.right, ts);
+    return left === undefined || right === undefined ? undefined : left + right;
+  }
+  return undefined;
+}
+
 function propertyPath(
   expression: TypeScript.Expression,
   ts: typeof TypeScript,
@@ -871,16 +903,23 @@ function propertyPath(
   }
   if (
     ts.isElementAccessExpression(expression) &&
-    expression.argumentExpression &&
-    (ts.isStringLiteral(expression.argumentExpression) ||
-      ts.isNoSubstitutionTemplateLiteral(expression.argumentExpression))
+    expression.argumentExpression
   ) {
+    const property = constantStringExpression(
+      expression.argumentExpression,
+      ts,
+    );
+    if (property === undefined) return [];
     const parentPath = propertyPath(expression.expression, ts);
-    return parentPath.length
-      ? [...parentPath, expression.argumentExpression.text]
-      : [];
+    return parentPath.length ? [...parentPath, property] : [];
   }
   return [];
+}
+
+function isKnownDesignE2ETestModule(moduleSpecifier: string): boolean {
+  return (
+    moduleSpecifier === "@playwright/test" || moduleSpecifier === "./rails"
+  );
 }
 
 type TestAlias = { kind: "test"; path: string[] } | { kind: "namespace" };
@@ -1002,26 +1041,45 @@ function testImports(
 
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
+    const moduleSpecifier = ts.isStringLiteral(statement.moduleSpecifier)
+      ? statement.moduleSpecifier.text
+      : undefined;
+    const recognizedTestModule =
+      moduleSpecifier !== undefined &&
+      isKnownDesignE2ETestModule(moduleSpecifier);
     const namedBindings = statement.importClause.namedBindings;
     if (namedBindings && ts.isNamedImports(namedBindings)) {
       for (const element of namedBindings.elements) {
-        if ((element.propertyName ?? element.name).text === "test") {
+        if (
+          recognizedTestModule &&
+          (element.propertyName ?? element.name).text === "test"
+        ) {
           recordImport(sourceFile, element.name.text, {
             kind: "test",
             path: ["test"],
           });
+        } else {
+          recordDeclaration(sourceFile, element.name.text);
         }
       }
     } else if (namedBindings && ts.isNamespaceImport(namedBindings)) {
-      recordImport(sourceFile, namedBindings.name.text, { kind: "namespace" });
-    } else if (
-      statement.importClause.name &&
-      /(?:@playwright\/test|\/rails)$/.test(statement.moduleSpecifier.text)
-    ) {
-      recordImport(sourceFile, statement.importClause.name.text, {
-        kind: "test",
-        path: ["test"],
-      });
+      if (recognizedTestModule) {
+        recordImport(sourceFile, namedBindings.name.text, {
+          kind: "namespace",
+        });
+      } else {
+        recordDeclaration(sourceFile, namedBindings.name.text);
+      }
+    }
+    if (statement.importClause.name) {
+      if (recognizedTestModule) {
+        recordImport(sourceFile, statement.importClause.name.text, {
+          kind: "test",
+          path: ["test"],
+        });
+      } else {
+        recordDeclaration(sourceFile, statement.importClause.name.text);
+      }
     }
   }
 
@@ -1241,11 +1299,139 @@ function testCallKind(
       kind: "test" | "describe" | "runtime" | "hook";
       modifier?: string;
       uncertain?: boolean;
-      uncertainty?: "playwright" | "test-info";
+      uncertainty?: "playwright" | "test-info" | "unsupported-playwright";
     }
   | undefined {
   const segments = propertyPath(call.expression, ts);
   const testPath = aliases.resolve(call.expression);
+  const expression = unwrapExpression(call.expression, ts);
+  const testInfoReceiverStatus = (
+    candidate: TypeScript.Expression,
+  ): TestInfoAliasStatus => {
+    const receiver = unwrapExpression(candidate, ts);
+    if (
+      ts.isCallExpression(receiver) &&
+      aliases.resolve(receiver.expression).join(".") === "test.info"
+    ) {
+      return "known";
+    }
+    return ts.isIdentifier(receiver)
+      ? testInfoAliases.isTestInfo(
+          receiver,
+          testInfoBindings,
+          testInfoMaybeBindings,
+        )
+      : "not-test-info";
+  };
+  const testInfoModifierFor = (candidate: TypeScript.Expression) => {
+    const accessor = unwrapExpression(candidate, ts);
+    if (ts.isPropertyAccessExpression(accessor)) {
+      const status = testInfoReceiverStatus(accessor.expression);
+      if (
+        status !== "not-test-info" &&
+        TEST_MODIFIERS.has(accessor.name.text)
+      ) {
+        return { modifier: accessor.name.text, status };
+      }
+      return undefined;
+    }
+    if (ts.isElementAccessExpression(accessor) && accessor.argumentExpression) {
+      const status = testInfoReceiverStatus(accessor.expression);
+      if (status === "not-test-info") return undefined;
+      const property = constantStringExpression(
+        accessor.argumentExpression,
+        ts,
+      );
+      if (property === undefined) return { dynamic: true as const, status };
+      if (TEST_MODIFIERS.has(property)) return { modifier: property, status };
+    }
+    return undefined;
+  };
+  const isDynamicTestRootAccess = (candidate: TypeScript.Expression) => {
+    const access = unwrapExpression(candidate, ts);
+    return (
+      ts.isElementAccessExpression(access) &&
+      access.argumentExpression !== undefined &&
+      constantStringExpression(access.argumentExpression, ts) === undefined &&
+      aliases.resolve(access.expression).join(".") === "test"
+    );
+  };
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    (expression.name.text === "call" || expression.name.text === "apply")
+  ) {
+    const target = expression.expression;
+    const targetPath = aliases.resolve(target);
+    const testInfoModifier = testInfoModifierFor(target);
+    let modifier =
+      targetPath.length === 2 && TEST_MODIFIERS.has(targetPath[1]!)
+        ? targetPath[1]
+        : targetPath.length === 3 &&
+            targetPath[1] === "info" &&
+            TEST_MODIFIERS.has(targetPath[2]!)
+          ? targetPath[2]
+          : undefined;
+    const targetSegments = propertyPath(target, ts);
+    const targetRoot = rootIdentifier(target, ts);
+    if (!modifier && targetRoot && targetSegments.length === 2) {
+      const status = testInfoAliases.isTestInfo(
+        targetRoot,
+        testInfoBindings,
+        testInfoMaybeBindings,
+      );
+      if (
+        status !== "not-test-info" &&
+        TEST_MODIFIERS.has(targetSegments[1]!)
+      ) {
+        modifier = targetSegments[1];
+      }
+    } else if (!modifier && targetRoot && targetSegments.length === 1) {
+      modifier = testInfoAliases.modifierAlias(
+        targetRoot,
+        testInfoBindings,
+        testInfoMaybeBindings,
+      )?.modifier;
+    }
+    if (
+      modifier ||
+      testInfoModifier?.modifier ||
+      testInfoModifier?.dynamic ||
+      isDynamicTestRootAccess(target)
+    ) {
+      return {
+        kind: "runtime",
+        ...((modifier ?? testInfoModifier?.modifier) === undefined
+          ? {}
+          : { modifier: modifier ?? testInfoModifier?.modifier }),
+        uncertain: true,
+        uncertainty: "unsupported-playwright",
+      };
+    }
+  }
+  if (isDynamicTestRootAccess(expression)) {
+    return {
+      kind: "runtime",
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
+  const testInfoModifier = testInfoModifierFor(expression);
+  if (testInfoModifier?.dynamic) {
+    return {
+      kind: "runtime",
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
+  if (testInfoModifier?.modifier) {
+    return {
+      kind: "runtime",
+      modifier: testInfoModifier.modifier,
+      ...(testInfoModifier.status === "ambiguous"
+        ? { uncertain: true, uncertainty: "test-info" as const }
+        : {}),
+    };
+  }
   const aliasUncertainty = aliases.isAmbiguous(call.expression)
     ? { uncertain: true, uncertainty: "playwright" as const }
     : {};
@@ -1281,15 +1467,17 @@ function testCallKind(
     return { kind: "describe", modifier: testPath[2], ...aliasUncertainty };
   }
 
-  const expression = call.expression;
+  const originalExpression = call.expression;
   if (
-    ts.isPropertyAccessExpression(expression) &&
-    TEST_MODIFIERS.has(expression.name.text) &&
-    ts.isCallExpression(expression.expression)
+    ts.isPropertyAccessExpression(originalExpression) &&
+    TEST_MODIFIERS.has(originalExpression.name.text) &&
+    ts.isCallExpression(originalExpression.expression)
   ) {
-    const receiverPath = aliases.resolve(expression.expression.expression);
+    const receiverPath = aliases.resolve(
+      originalExpression.expression.expression,
+    );
     if (receiverPath.length === 2 && receiverPath[1] === "info") {
-      return { kind: "runtime", modifier: expression.name.text };
+      return { kind: "runtime", modifier: originalExpression.name.text };
     }
   }
   const testInfoRoot = rootIdentifier(expression, ts);
@@ -1386,7 +1574,22 @@ function executedCallbackArgumentIndices(
 ): number[] {
   const promiseCallbacks = promiseCallbackArgumentIndices(call, ts);
   if (promiseCallbacks.length > 0) return promiseCallbacks;
-  return aliases.resolve(call.expression).join(".") === "test.step" ? [1] : [];
+  if (aliases.resolve(call.expression).join(".") === "test.step") return [1];
+  return literalArrayForEachIterations(call, ts) === 1 ? [0] : [];
+}
+
+function literalArrayForEachIterations(
+  call: TypeScript.CallExpression,
+  ts: typeof TypeScript,
+): number | undefined {
+  const callee = unwrapExpression(call.expression, ts);
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "forEach")
+    return undefined;
+  const receiver = unwrapExpression(callee.expression, ts);
+  if (!ts.isArrayLiteralExpression(receiver)) return undefined;
+  if (receiver.elements.some(ts.isSpreadElement)) return undefined;
+  return receiver.elements.filter((element) => !ts.isOmittedExpression(element))
+    .length;
 }
 
 function promiseCallbackArgumentIndices(
@@ -2065,7 +2268,9 @@ function resolveTestCallback(
   const callback = callbacks.get(candidate.text);
   if (!callback) return undefined;
   resolving.add(candidate.text);
-  if (ts.isFunctionDeclaration(callback) && callback.body) return callback;
+  if (ts.isFunctionDeclaration(callback)) {
+    return callback.body ? callback : undefined;
+  }
   return resolveTestCallback(callback, callbacks, ts, resolving);
 }
 
@@ -2142,8 +2347,9 @@ export function findDesignE2ETestRegistrations(
     true,
     ts.ScriptKind.TS,
   );
-  if (sourceFile.parseDiagnostics.length > 0) {
-    const diagnostic = sourceFile.parseDiagnostics[0]!;
+  const diagnostics = parseDiagnostics(sourceFile);
+  if (diagnostics.length > 0) {
+    const diagnostic = diagnostics[0]!;
     const line =
       sourceFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1;
     throw new Error(
@@ -2431,7 +2637,7 @@ export function findDesignE2ETestRegistrations(
         } else if (helper) {
           if (!seenHelpers.has(helper)) {
             seenHelpers.add(helper);
-            inspectCallback(helper.body);
+            inspectCallback(helper.body!);
           }
           helper.parameters.forEach((_parameter, index) => {
             const argument = candidate.arguments[index];
@@ -2511,7 +2717,7 @@ export function findDesignE2ETestRegistrations(
       }
       ts.forEachChild(candidate, inspectCallback);
     };
-    inspectCallback(callback.body);
+    inspectCallback(callback.body!);
     return found;
   };
   const visit = (
@@ -2686,6 +2892,33 @@ export function findDesignE2ETestRegistrations(
         return;
       }
 
+      const literalForEachCount = literalArrayForEachIterations(node, ts);
+      const forEachCallbackArgument = node.arguments[0];
+      if (literalForEachCount === 0 && forEachCallbackArgument) {
+        visit(node.expression, context);
+        for (const argument of node.arguments.slice(1))
+          visit(argument, context);
+        return;
+      }
+      if (literalForEachCount !== undefined && literalForEachCount > 1) {
+        const callback = forEachCallbackArgument
+          ? resolveTestCallback(forEachCallbackArgument, namedCallbacks, ts)
+          : undefined;
+        if (
+          (forEachCallbackArgument &&
+            isTestCallbackArgument(forEachCallbackArgument, ts) &&
+            !callback) ||
+          (callback && callbackMayAffectPin(callback, context))
+        ) {
+          const line =
+            sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+              .line + 1;
+          throw new PinInspectionUnavailableError(
+            `${file || "Design E2E source"}:${line}: Unable to inspect test effects from a multi-element array forEach callback`,
+          );
+        }
+      }
+
       const awaitedCallbackIndices = executedCallbackArgumentIndices(
         node,
         aliases,
@@ -2731,12 +2964,19 @@ export function findDesignE2ETestRegistrations(
         context.testInfoMaybeBindings,
         ts,
       );
-      if (classification?.uncertainty === "playwright") {
+      if (
+        classification?.uncertainty === "playwright" ||
+        classification?.uncertainty === "unsupported-playwright"
+      ) {
         const line =
           sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
             .line + 1;
         throw new PinInspectionUnavailableError(
-          `${file || "Design E2E source"}:${line}: Unable to inspect ambiguous Playwright API alias`,
+          `${file || "Design E2E source"}:${line}: ${
+            classification.uncertainty === "playwright"
+              ? "Unable to inspect ambiguous Playwright API alias"
+              : "Unable to inspect unsupported Playwright modifier invocation"
+          }`,
         );
       }
       if (classification?.kind === "describe") {

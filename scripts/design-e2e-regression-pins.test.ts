@@ -507,6 +507,235 @@ test("a moved test title resolves to its new line", () => {
   );
 });
 
+test("only Playwright and Design rails imports contribute test aliases", () => {
+  const unrelatedNamed = [
+    'import { test } from "unrelated-runner";',
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  const unrelatedNamespace = [
+    'import * as yjs from "yjs";',
+    'yjs.test("pinned behavior", () => {});',
+  ].join("\n");
+  const unrelatedDefaultRailsLike = [
+    'import test from "unrelated-runner/rails";',
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+
+  for (const source of [
+    unrelatedNamed,
+    unrelatedNamespace,
+    unrelatedDefaultRailsLike,
+  ]) {
+    assert.deepEqual(findDesignE2ETestRegistrations(source), [], source);
+  }
+
+  const railsFixture = [
+    'import { test as railsTest } from "./rails";',
+    'railsTest("pinned behavior", () => {});',
+  ].join("\n");
+  const playwrightNamed = [
+    'import { test } from "@playwright/test";',
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  const playwrightNamespace = [
+    'import * as playwright from "@playwright/test";',
+    'playwright.test("pinned behavior", () => {});',
+  ].join("\n");
+  assert.equal(findDesignE2ETestLine(railsFixture, "pinned behavior"), 2);
+  assert.equal(findDesignE2ETestLine(playwrightNamed, "pinned behavior"), 2);
+  assert.equal(
+    findDesignE2ETestLine(playwrightNamespace, "pinned behavior"),
+    2,
+  );
+
+  const unrelatedImportDoesNotMaskValidRailsTest = [
+    'import { test } from "unrelated-runner";',
+    'import { test as railsTest } from "./rails";',
+    'test("lookalike", () => {});',
+    'railsTest("pinned behavior", () => {});',
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(
+      unrelatedImportDoesNotMaskValidRailsTest,
+      "pinned behavior",
+    ),
+    4,
+  );
+
+  const unrelatedAliasLeavesGlobalFallbackAvailable = [
+    'import { test as unrelatedTest } from "unrelated-runner";',
+    'unrelatedTest("lookalike", () => {});',
+    'test("global fallback", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(
+      unrelatedAliasLeavesGlobalFallbackAvailable,
+    ).map(({ title }) => title),
+    ["global fallback"],
+  );
+
+  const lexicalShadowDoesNotReplaceTheValidImport = [
+    'import { test } from "@playwright/test";',
+    "function registerLocally(test: (title: string, callback: () => void) => void) {",
+    '  test("shadowed lookalike", () => {});',
+    "}",
+    'test("valid imported test", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(
+      lexicalShadowDoesNotReplaceTheValidImport,
+    ).map(({ title }) => title),
+    ["valid imported test"],
+  );
+});
+
+test("computed Playwright modifiers resolve or fail closed", () => {
+  const computedFixme = [
+    'test["fi" + "xme"]("pinned behavior", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(computedFixme).map(
+      ({ title, modifier, suppressionKind }) => [
+        title,
+        modifier ?? null,
+        suppressionKind,
+      ],
+    ),
+    [["pinned behavior", "fixme", "direct"]],
+  );
+
+  const dynamicModifier = [
+    'test("pinned behavior", () => {',
+    '  const modifier = "fixme";',
+    '  test[modifier](true, "dynamic suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(dynamicModifier, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  const computedTestInfoModifier = [
+    'test("pinned behavior", () => {',
+    "  const info = test.info();",
+    '  info["sk" + "ip"](true, "computed TestInfo suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(computedTestInfoModifier, "pinned behavior"),
+    /must run without/,
+  );
+
+  const dynamicTestInfoModifier = [
+    'test("pinned behavior", (_fixtures, testInfo) => {',
+    '  const modifier = "skip";',
+    '  testInfo[modifier](true, "dynamic TestInfo suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(dynamicTestInfoModifier, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  const dynamicTestInfoFactoryModifier = [
+    'test("pinned behavior", () => {',
+    '  const modifier = "skip";',
+    '  test.info()[modifier](true, "dynamic factory TestInfo suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(dynamicTestInfoFactoryModifier, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  const directTestInfoFactoryModifier = [
+    'test("pinned behavior", () => {',
+    '  test.info()["skip"](true, "factory TestInfo suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(directTestInfoFactoryModifier, "pinned behavior"),
+    /must run without/,
+  );
+
+  const calledTestInfoModifier = [
+    'test("pinned behavior", (_fixtures, testInfo) => {',
+    '  testInfo.skip.call(testInfo, true, "called TestInfo suppression");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(calledTestInfoModifier, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  for (const invocation of [
+    'test.fixme.call(undefined, "pinned behavior", () => {});',
+    'test.fixme.apply(undefined, ["pinned behavior", () => {}]);',
+    'test["fi" + "xme"].call(undefined, "pinned behavior", () => {});',
+    'test["fi" + "xme"].apply(undefined, ["pinned behavior", () => {}]);',
+    'test.info()["skip"].call(test.info(), true, "factory call");',
+    'test.info()["skip"].apply(test.info(), [true, "factory apply"]);',
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestRegistrations(invocation),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      invocation,
+    );
+  }
+
+  for (const invocation of [
+    'testInfo[modifier].call(testInfo, true, "dynamic TestInfo call");',
+    'testInfo[modifier].apply(testInfo, [true, "dynamic TestInfo apply"]);',
+  ]) {
+    const source = [
+      'test("pinned behavior", (_fixtures, testInfo) => {',
+      '  const modifier = "skip";',
+      `  ${invocation}`,
+      "});",
+    ].join("\n");
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      invocation,
+    );
+  }
+
+  for (const invocation of [
+    'test.info()[modifier].call(test.info(), true, "dynamic factory TestInfo call");',
+    'test.info()[modifier].apply(test.info(), [true, "dynamic factory TestInfo apply"]);',
+  ]) {
+    const source = [
+      'test("pinned behavior", () => {',
+      '  const modifier = "skip";',
+      `  ${invocation}`,
+      "});",
+    ].join("\n");
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      invocation,
+    );
+  }
+});
+
+test("Playwright fixture, step, info, timeout, and hook calls remain valid", () => {
+  const source = [
+    "test.use({});",
+    "test.setTimeout(1);",
+    "test.beforeEach(() => {});",
+    'test("pinned behavior", async () => {',
+    '  await test.step("child", () => {});',
+    "  const info = test.info();",
+    '  await info.attach("artifact", { body: "text", contentType: "text/plain" });',
+    '  info.outputPath("artifact.txt");',
+    "});",
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 4);
+});
+
 test("title-shaped text in comments, strings, templates, and regexes is ignored", () => {
   const source = [
     '// test("the pinned behavior", () => {});',
@@ -1317,6 +1546,90 @@ test("unknown executed callbacks fail closed only when they can suppress a test"
     () => findDesignE2ETestLine(suiteRuntimeSkip, "suite runtime target"),
     /Unable to inspect callback effects passed to externalRunner/,
   );
+});
+
+test("literal array forEach callbacks retain registration identities and fail closed when repeated", () => {
+  const generatedActive = [
+    '["one"].forEach((name) => test(name, () => {}));',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(generatedActive).map(
+      ({ title, dynamic, suppressionKind }) => [
+        title,
+        dynamic,
+        suppressionKind,
+      ],
+    ),
+    [["expression:name", true, null]],
+  );
+
+  const generatedQuarantine = [
+    '["one"].forEach((name) => { test.fixme(name, () => {}); });',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(generatedQuarantine).map(
+      ({
+        title,
+        dynamic,
+        modifier,
+        suppressionKind,
+        suppressionReason,
+        suppressionFingerprint,
+      }) => [
+        title,
+        dynamic,
+        modifier,
+        suppressionKind,
+        suppressionReason,
+        suppressionFingerprint,
+      ],
+    ),
+    [
+      [
+        "expression:name",
+        true,
+        "fixme",
+        "direct",
+        "Unable to inspect conditional test.fixme at line 1",
+        '[{"scope":"direct","modifier":"fixme","callee":"test.fixme","arguments":["name"]}]',
+      ],
+    ],
+  );
+
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(
+      '([]).forEach(() => test("pinned behavior", () => {}));',
+    ),
+    [],
+  );
+
+  assert.throws(
+    () =>
+      findDesignE2ETestRegistrations(
+        '["one", "two"].forEach(() => test("pinned behavior", () => {}));',
+      ),
+    /Unable to inspect test effects from a multi-element array forEach callback/,
+    "multiple same-title iterations must not look like one required pin",
+  );
+
+  for (const source of [
+    'names.forEach(() => test("pinned behavior", () => {}));',
+    'names.customForEach(() => test("pinned behavior", () => {}));',
+  ]) {
+    const registration = findDesignE2ETestRegistrations(source)[0];
+    assert.equal(registration?.title, "pinned behavior", source);
+    assert.equal(registration?.suppressionKind, "runtime", source);
+    assert.match(
+      registration?.suppressionReason ?? "",
+      /Unable to inspect test registration in an uninvoked function body/,
+      source,
+    );
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect test registration in an uninvoked function body/,
+      source,
+    );
+  }
 });
 
 test("called helper registrations are counted once per call site", () => {

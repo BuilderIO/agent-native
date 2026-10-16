@@ -290,6 +290,23 @@ export function compareQuarantineSnapshots(
     return matches[0];
   };
 
+  const hasValidFreshAddition = (item) => {
+    const addition = exceptionFor(
+      (exception) =>
+        exception?.action === "add" &&
+        exception.file === item.file &&
+        exception.title === item.title,
+    );
+    if (!addition || addition.duplicate) return false;
+    const { exception } = addition;
+    return (
+      exceptionFieldsValid(exception, "add") &&
+      typeof exception.owner === "string" &&
+      Boolean(exception.owner.trim()) &&
+      validExpiry(exception.expires, today)
+    );
+  };
+
   const hasValidRenewal = (exception) => {
     const current = headByKey.get(key(exception.file, exception.title)) ?? [];
     if (
@@ -396,21 +413,23 @@ export function compareQuarantineSnapshots(
     if (rename) {
       const { exception, index } = rename;
       used.add(index);
+      const targetKey =
+        typeof exception.to?.file === "string" &&
+        typeof exception.to?.title === "string"
+          ? key(exception.to.file, exception.to.title)
+          : undefined;
+      const targetMatches = targetKey ? (headByKey.get(targetKey) ?? []) : [];
+      const target = targetMatches.length === 1 ? targetMatches[0] : undefined;
       if (
         !exceptionFieldsValid(exception, "rename") ||
         !exception.to ||
         typeof exception.to.file !== "string" ||
         typeof exception.to.title !== "string" ||
-        headByKey.get(key(exception.to.file, exception.to.title))?.length !==
-          1 ||
-        (isSuppressed(
-          headByKey.get(key(exception.to.file, exception.to.title))?.[0] ?? {},
-        ) &&
-          suppressionIdentity(item) !==
-            suppressionIdentity(
-              headByKey.get(key(exception.to.file, exception.to.title))?.[0] ??
-                {},
-            )) ||
+        targetMatches.length !== 1 ||
+        (target &&
+          isSuppressed(target) &&
+          suppressionIdentity(item) !== suppressionIdentity(target) &&
+          !hasValidFreshAddition(target)) ||
         key(exception.to.file, exception.to.title) === id
       ) {
         violations.push(
