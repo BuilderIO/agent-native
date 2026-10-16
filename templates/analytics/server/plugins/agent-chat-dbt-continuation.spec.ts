@@ -287,6 +287,43 @@ describe("dbt Semantic Layer continuation guard", () => {
     });
   });
 
+  it.each([
+    "organization_root_id",
+    "rootOrgId",
+    "organizationRootId",
+    "rootLevelOrgId",
+  ])(
+    "rejects hierarchy dimensions named %s when the request only says organization",
+    (dimensionName) => {
+      const definition = {
+        ...metric,
+        dimensions: [...metric.dimensions, { name: dimensionName }],
+        dimensionsCount: 3,
+      };
+      const organizationQuery = {
+        ...querySpec,
+        groupBy: [groupBy[0], { name: dimensionName }],
+      };
+
+      expect(
+        realDataFinalGuard(
+          context({
+            initialQuerySpec: organizationQuery,
+            querySpec: organizationQuery,
+            initialMetric: definition,
+            continuationMetric: definition,
+            requestText:
+              "What was activation rate from 2026-10-05 to 2026-10-11 by organization by week?",
+          }),
+        ),
+      ).toMatchObject({
+        retryMessage: expect.stringContaining(
+          "same bounded date range and requested grouping",
+        ),
+      });
+    },
+  );
+
   it("accepts a root organization breakdown when the request names that grain", () => {
     const definition = {
       ...metric,
@@ -310,6 +347,32 @@ describe("dbt Semantic Layer continuation guard", () => {
           continuationMetric: definition,
           requestText:
             "What was activation rate from 2026-10-05 to 2026-10-11 by root organization by week?",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts root-level wording for a camelCase root organization dimension", () => {
+    const dimensionName = "rootOrgId";
+    const definition = {
+      ...metric,
+      dimensions: [...metric.dimensions, { name: dimensionName }],
+      dimensionsCount: 3,
+    };
+    const rootOrganizationQuery = {
+      ...querySpec,
+      groupBy: [groupBy[0], { name: dimensionName }],
+    };
+
+    expect(
+      realDataFinalGuard(
+        context({
+          initialQuerySpec: rootOrganizationQuery,
+          querySpec: rootOrganizationQuery,
+          initialMetric: definition,
+          continuationMetric: definition,
+          requestText:
+            "What was activation rate from 2026-10-05 to 2026-10-11 by root-level organization by week?",
         }),
       ),
     ).toBeNull();

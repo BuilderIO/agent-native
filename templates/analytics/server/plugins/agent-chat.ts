@@ -1873,14 +1873,60 @@ function dbtMetricTimeScopeMismatch(
     .match(/\b(day|week|month|quarter|year)s?\b/i)?.[1]
     ?.toUpperCase();
   const requestedDimensionMatches = new Set<string>();
-  const organizationHierarchyQualifier = (evidence: string) =>
+  const normalizeDimensionEvidence = (evidence: string) =>
     evidence
-      .replace(/[_-]/g, " ")
-      .match(
-        /\b(root|parent|ancestor|top\s+level)\s+(?:organization|org|company|companies|account)\b/i,
-      )?.[1]
-      ?.replace(/\s+/g, " ")
-      .toLowerCase();
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const organizationHierarchyQualifier = (evidence: string) => {
+    const tokens = normalizeDimensionEvidence(evidence).split(" ");
+    const organizationTokens = new Set([
+      "organization",
+      "org",
+      "company",
+      "companies",
+      "account",
+      "accounts",
+    ]);
+    const hierarchyMarkers = [
+      { tokens: ["top", "level"], qualifier: "root" },
+      { tokens: ["root", "level"], qualifier: "root" },
+      { tokens: ["ancestor"], qualifier: "ancestor" },
+      { tokens: ["parent"], qualifier: "parent" },
+      { tokens: ["root"], qualifier: "root" },
+    ];
+    for (let start = 0; start < tokens.length; start += 1) {
+      for (const marker of hierarchyMarkers) {
+        if (
+          !marker.tokens.every(
+            (token, offset) => tokens[start + offset] === token,
+          )
+        ) {
+          continue;
+        }
+        const end = start + marker.tokens.length;
+        if (
+          tokens.some((token, index) => {
+            if (!organizationTokens.has(token)) return false;
+            const gap =
+              index < start
+                ? start - index - 1
+                : index >= end
+                  ? index - end
+                  : 0;
+            return gap <= 2;
+          })
+        ) {
+          return marker.qualifier;
+        }
+      }
+    }
+    return undefined;
+  };
   const requestedOrganizationQualifier =
     organizationHierarchyQualifier(breakdownClause);
   const dimensionAliases = [
@@ -1934,18 +1980,16 @@ function dbtMetricTimeScopeMismatch(
     }
     const matchingNames = dimensions
       .filter((dimension) => {
-        const evidence =
-          `${String(dimension.name ?? "")} ${String(dimension.description ?? "")}`.replace(
-            /[_-]/g,
-            " ",
-          );
+        const evidence = normalizeDimensionEvidence(
+          `${String(dimension.name ?? "")} ${String(dimension.description ?? "")}`,
+        );
         return pattern.test(evidence);
       })
       .map((dimension) => String(dimension.name ?? ""))
       .filter(Boolean);
     const selectedMatches = dimensionsTruncated
       ? [...selectedDimensions].filter((name) =>
-          pattern.test(name.replace(/[_-]/g, " ")),
+          pattern.test(normalizeDimensionEvidence(name)),
         )
       : [];
     const matchingSelectedNames = [
@@ -1974,35 +2018,19 @@ function dbtMetricTimeScopeMismatch(
     }
   }
   if (requestedDimensionMatches.size === 0) {
-    const normalizedRequest = breakdownClause
-      .toLowerCase()
-      .replace(/[_-]/g, " ")
-      .replace(/[^a-z0-9 ]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const normalizedBreakdown = normalizeDimensionEvidence(breakdownClause);
     const exactMatches = new Set(
       dimensions
         .filter(
           (dimension) =>
-            String(dimension.name ?? "")
-              .toLowerCase()
-              .replace(/[_-]/g, " ")
-              .replace(/[^a-z0-9 ]/g, " ")
-              .replace(/\s+/g, " ")
-              .trim() === normalizedRequest,
+            normalizeDimensionEvidence(String(dimension.name ?? "")) ===
+            normalizedBreakdown,
         )
         .map((dimension) => String(dimension.name ?? "")),
     );
     if (dimensionsTruncated) {
       for (const name of selectedDimensions) {
-        if (
-          name
-            .toLowerCase()
-            .replace(/[_-]/g, " ")
-            .replace(/[^a-z0-9 ]/g, " ")
-            .replace(/\s+/g, " ")
-            .trim() === normalizedRequest
-        ) {
+        if (normalizeDimensionEvidence(name) === normalizedBreakdown) {
           exactMatches.add(name);
         }
       }
