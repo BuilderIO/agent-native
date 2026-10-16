@@ -371,6 +371,8 @@ async function awaitPendingWrite(docId: string): Promise<void> {
 
 export async function getDoc(docId: string): Promise<Y.Doc> {
   await awaitPendingWrite(docId);
+  const liveCopy = await liveCopyBindingFor(docId);
+  if (liveCopy) return getLiveCopyDoc(liveCopy, docId);
   const cached = _cache.get(docId);
   if (cached) {
     cached.lastAccess = Date.now();
@@ -408,7 +410,7 @@ const LIVE_COPY_COMMIT_ATTEMPTS = 5;
 function cacheCommittedLiveCopy(
   docId: string,
   doc: Y.Doc,
-  version: number,
+  version: number | null,
 ): void {
   const previous = _cache.get(docId);
   if (previous && previous.doc !== doc) previous.doc.destroy();
@@ -460,6 +462,29 @@ async function commitLiveCopyUpdate(
     `Live copy ${docId} kept changing while the update was being committed; it was not saved.`,
     { reason: String(LIVE_COPY_COMMIT_ATTEMPTS) },
   );
+}
+
+/**
+ * The lenient loader decodes unreadable base64 as zero bytes, which would
+ * serve a malformed live copy as an empty document; read it strictly.
+ */
+async function getLiveCopyDoc(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<Y.Doc> {
+  await ensureTable();
+  const cached = _cache.get(docId);
+  if (cached && cached.syncedVersion === (await loadYDocVersion(docId))) {
+    cached.lastAccess = Date.now();
+    return cached.doc;
+  }
+  const stored = await readClassifiedLiveCopy(binding, getDbExec(), docId);
+  cacheCommittedLiveCopy(
+    docId,
+    stored.doc,
+    stored.kind === "absent" ? null : stored.version,
+  );
+  return stored.doc;
 }
 
 export type LiveCopyRead =

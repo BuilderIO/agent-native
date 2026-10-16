@@ -194,6 +194,21 @@ describe("stored state classification", () => {
     ).toMatchObject({ code: "malformed_state", reason: "yjs" });
   });
 
+  it("serves a malformed copy as a failure on the read routes, not as empty", async () => {
+    define();
+    await insertRow("live:corrupt", "!!!");
+    for (const read of [
+      () => manager.getState("live:corrupt"),
+      () => manager.getDoc("live:corrupt"),
+    ]) {
+      expect(await rejection(read())).toMatchObject({
+        code: "malformed_state",
+        reason: "base64",
+      });
+    }
+    await expect(manager.getState("live:absent")).resolves.toHaveLength(2);
+  });
+
   it("never seeds over malformed state", async () => {
     const binding = define();
     await insertRow("live:corrupt", "!!!", 7);
