@@ -94,6 +94,14 @@ export const createRecordingSchema = z.object({
     .describe(
       "MIME type the browser will record (e.g. video/webm, video/mp4). Used to initialize the resumable session with the correct content type.",
     ),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Size in bytes of a file uploaded whole, when known. A file over the storage's limit is refused before the recording is created.",
+    ),
   requestStreaming: z
     .boolean()
     .optional()

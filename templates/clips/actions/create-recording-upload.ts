@@ -17,7 +17,7 @@ import createRecording from "./create-recording.js";
 
 export default defineAction({
   description:
-    "Upload a local video file to Clips. Creates the recording at the visibility you choose and returns a short-lived upload URL bound to that one recording, plus the steps to POST the file in chunks. The last chunk finalizes the clip; Clips then transcribes it and, when no title is given, titles it. Returns the share link.",
+    "Upload a local video file to Clips. Creates the recording at the visibility you choose and returns a short-lived upload URL bound to that one recording, plus the steps to POST the file in chunks. The last chunk finalizes the clip; Clips then transcribes it and, when no title is given, titles it. Returns the share link. Files can be up to 2 GiB with connected video storage, but Clips' free hosted storage takes clips up to its own limit (250 MB by default); a larger file is refused before anything is created, with the limit that applies.",
   // Advertised up front: an outside agent holding a file has no other way in,
   // and `mcpTool: true` would switch Clips to a connector tier that drops the
   // reads already listed here.
@@ -47,7 +47,9 @@ export default defineAction({
       .int()
       .positive()
       .max(MAX_UPLOAD_BYTES)
-      .describe("The file's size in bytes, up to 2 GiB."),
+      .describe(
+        "The file's size in bytes: up to 2 GiB with connected video storage, or up to the hosted limit (250 MB by default) on Clips' free hosted storage.",
+      ),
     durationMs: z
       .number()
       .int()
@@ -83,6 +85,7 @@ export default defineAction({
           title: args.title,
           visibility: args.visibility,
           mimeType: args.mimeType,
+          sizeBytes: args.sizeBytes,
           width: args.width,
           height: args.height,
           hasAudio: true,

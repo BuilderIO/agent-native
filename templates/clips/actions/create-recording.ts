@@ -46,6 +46,25 @@ import { validateRecordingScope } from "./lib/recording-scope.js";
 /** The `sourceAppName` the native mobile app (packages/mobile-app) sends. */
 const MOBILE_APP_SOURCE_NAME = "Agent-Native Mobile";
 
+function formatUploadBytes(bytes: number): string {
+  const mib = 1024 * 1024;
+  return bytes >= 1024 * mib
+    ? `${Number((bytes / (1024 * mib)).toFixed(1))} GB`
+    : `${Math.ceil(bytes / mib)} MB`;
+}
+
+function uploadTooLargeReason(
+  sizeBytes: number,
+  maxUploadBytes: number,
+  storageMode: "own" | "hosted",
+): string {
+  const size = formatUploadBytes(sizeBytes);
+  const limit = formatUploadBytes(maxUploadBytes);
+  return storageMode === "hosted"
+    ? `This video is ${size}, and Clips' free hosted storage takes clips up to ${limit}. Connect Builder.io or S3-compatible video storage in Clips settings to upload files up to ${formatUploadBytes(MAX_UPLOAD_BYTES)}, or trim the video and try again.`
+    : `This video is ${size}, and uploads are limited to ${limit}. Trim it or export a shorter copy and try again.`;
+}
+
 export function classifyInitialUploadFailure(
   error: unknown,
   options: { storageMode?: "own" | "hosted" } = {},
@@ -202,6 +221,14 @@ export default defineAction({
     };
     const maxUploadBytes =
       storage.mode === "hosted" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
+    if (args.sizeBytes !== undefined && args.sizeBytes > maxUploadBytes) {
+      await releaseHostedReservation();
+      fail(uploadTooLargeReason(args.sizeBytes, maxUploadBytes, storageMode), {
+        errorCode: "upload_too_large",
+        statusCode: 413,
+        details: { sizeBytes: args.sizeBytes, maxUploadBytes, storageMode },
+      });
+    }
 
     try {
       await db.insert(schema.recordings).values({
