@@ -28,6 +28,13 @@ function previewIframe(screenId?: string) {
   };
 }
 
+function markExternalPreviewDocument(iframe: HTMLIFrameElement) {
+  Object.defineProperty(iframe.contentDocument!, "URL", {
+    configurable: true,
+    value: "http://localhost:3000/",
+  });
+}
+
 describe("resolveSvgExportIframe", () => {
   it("selects the active preview instead of an earlier board iframe", () => {
     const board = previewIframe();
@@ -126,6 +133,61 @@ describe("runDownloadSvg", () => {
     }
   });
 
+  it("waits for an external preview to replace its initial about:blank document", async () => {
+    document.body.replaceChildren();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    iframe.dataset.designSourceType = "localhost";
+    const loadedIframe = document.createElement("iframe");
+    document.body.append(iframe, loadedIframe);
+    const initialDocument = iframe.contentDocument!;
+    initialDocument.body.innerHTML = "<main>Initial blank document</main>";
+    const loadedDocument = loadedIframe.contentDocument!;
+    loadedDocument.body.innerHTML = "<main>Loaded external preview</main>";
+    Object.defineProperty(initialDocument, "URL", {
+      configurable: true,
+      value: "about:blank",
+    });
+    markExternalPreviewDocument(loadedIframe);
+    let documentReads = 0;
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      get: () => (documentReads++ === 0 ? initialDocument : loadedDocument),
+    });
+    const downloads: Array<{ blob: Blob; filename: string }> = [];
+
+    try {
+      expect(initialDocument.URL).toBe("about:blank");
+      expect(loadedDocument.URL).toBe("http://localhost:3000/");
+      vi.useFakeTimers();
+      const task = runDownloadSvg({
+        activeCanvasSourceType: "localhost",
+        activePreviewFrameId: "screen-1",
+        design: null,
+        exportScreenId: "screen-1",
+        exportScreenSourceType: "localhost",
+        fallbackExportName: (extension) => `design.${extension}`,
+        pngExportingRef: { current: false },
+        selectedElement: null,
+        setSvgExporting: () => undefined,
+        t: (key) => key,
+        triggerBlobDownload: (blob, filename) =>
+          downloads.push({ blob, filename }),
+      });
+      await vi.runAllTimersAsync();
+      await task;
+
+      expect(documentReads).toBeGreaterThan(1);
+      expect(downloads).toHaveLength(1);
+      const exportedSvg = await downloads[0]!.blob.text();
+      expect(exportedSvg).toContain("Loaded external preview");
+      expect(exportedSvg).not.toContain("Initial blank document");
+    } finally {
+      vi.useRealTimers();
+      document.body.replaceChildren();
+    }
+  });
+
   it("promotes the requested overview screen and waits for its exact preview", async () => {
     document.body.replaceChildren();
     const unrelated = document.createElement("iframe");
@@ -150,6 +212,7 @@ describe("runDownloadSvg", () => {
             const requested = document.createElement("iframe");
             requested.setAttribute("data-screen-iframe-id", "screen-b::bp-390");
             document.body.append(requested);
+            markExternalPreviewDocument(requested);
             requested.contentDocument!.body.innerHTML =
               "<main>Breakpoint target</main>";
             events.push("mount");
@@ -201,6 +264,7 @@ describe("runDownloadSvg", () => {
           const requested = document.createElement("iframe");
           requested.setAttribute("data-screen-iframe-id", screenId);
           document.body.append(requested);
+          markExternalPreviewDocument(requested);
           requested.contentDocument!.body.innerHTML = "<main>Target</main>";
         },
         releaseScreenFromExport: () => events.push("release"),

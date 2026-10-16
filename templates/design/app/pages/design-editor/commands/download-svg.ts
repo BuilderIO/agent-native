@@ -74,17 +74,22 @@ async function waitForSvgExportIframe(args: {
       if (!doc.documentElement && doc.readyState === "complete") {
         return { kind: "unreadable", iframe };
       }
-      if (!args.waitForMount) return { kind: "ready", iframe, doc };
       const sourceType =
         normalizeDesignSourceType(
           iframe.dataset.designSourceType ?? args.exportScreenSourceType,
         ) ??
         args.activeCanvasSourceType ??
         "inline";
+      const isInitialExternalDocument =
+        sourceType !== "inline" && doc.URL === "about:blank";
+      if (!args.waitForMount && !isInitialExternalDocument) {
+        return { kind: "ready", iframe, doc };
+      }
       const bridgeWindow = doc?.defaultView as
         | (Window & { __agentNativeContentSizeReport?: boolean })
         | null;
       if (
+        !isInitialExternalDocument &&
         doc?.readyState === "complete" &&
         (sourceType !== "inline" ||
           args.requireContentSizeReport !== true ||

@@ -56,6 +56,27 @@ type Inventory = {
   channels: Channel[];
 };
 
+const canonicalDispositions = new Set([
+  "Fixed",
+  "Partially fixed",
+  "Shipped",
+  "Live verified",
+  "Open - no question",
+  "Resolved elsewhere",
+  "Skipped",
+  "Clustered",
+  "Abandoned - no answer in 4 days",
+  "Verified locally",
+  "Built - live unverified",
+  "Deployed - live unverified",
+  "Not reproducible - attempted",
+  "In progress",
+  "Asked",
+  "Clarification needed",
+  "Blocked on reporter",
+  "Owned elsewhere",
+]);
+
 function slackTimestamp(value: unknown, label: string): bigint {
   const match = /^(\d+)\.(\d{1,6})$/.exec(String(value ?? ""));
   if (!match) throw new Error(`${label} must be a Slack timestamp`);
@@ -356,10 +377,10 @@ function validateInventory(inventory: Inventory): string[] {
         }
         if (
           typeof parent.disposition !== "string" ||
-          !parent.disposition.trim()
+          !canonicalDispositions.has(parent.disposition)
         ) {
           throw new Error(
-            `${parentName}: record a disposition for every parent`,
+            `${parentName}: use an exact canonical disposition for every parent`,
           );
         }
         if (
@@ -476,6 +497,16 @@ function validateInventory(inventory: Inventory): string[] {
           ) {
             throw new Error(
               `${parentName}: status reply must state the exact disposition and include its recorded evidence`,
+            );
+          }
+          if (
+            fixedScopes.some(
+              (fixedScope) =>
+                !reply.evidence.includes(fixedScope.verification.trim()),
+            )
+          ) {
+            throw new Error(
+              `${parentName}: status reply evidence must include every fixed scope's recorded verification`,
             );
           }
         }
@@ -726,7 +757,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                 reactionChecked: true,
                 reactionSummary: "none",
                 reactionOwners: {},
-                disposition: "bot report; reviewed",
+                disposition: "Skipped",
               },
               {
                 ts: "10.000000",
@@ -761,7 +792,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                   {
                     scope: "initial route screen",
                     verification:
-                      "focused test passes in open PR; merge pending",
+                      "focused test passed in the open PR; merge pending",
                   },
                 ],
               },
@@ -771,7 +802,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                 reactionChecked: true,
                 reactionSummary: "eyes (1): UOTHER",
                 reactionOwners: { eyes: ["UOTHER"] },
-                disposition: "owned by another actor; skipped",
+                disposition: "Skipped",
               },
             ],
           },
@@ -815,6 +846,13 @@ if (args[0] === "--self-test" && args.length === 1) {
                     action: "choose the remaining behavior",
                   },
                 ],
+                fixedScopes: [
+                  {
+                    scope: "route-picker behavior",
+                    verification:
+                      "focused route-picker test passed; merge pending",
+                  },
+                ],
                 statusReply: {
                   ...parent.statusReply!,
                   disposition: "Partially fixed",
@@ -828,6 +866,23 @@ if (args[0] === "--self-test" && args.length === 1) {
     })),
   });
   const invalid = [
+    {
+      name: "noncanonical disposition label",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "9.500000"
+                ? { ...parent, disposition: "Reviewed by another actor" }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
     {
       name: "missing disposition row",
       inventory: {
@@ -1102,6 +1157,31 @@ if (args[0] === "--self-test" && args.length === 1) {
                       ...parent.statusReply!,
                       text: "Fixed — a different note",
                     },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "status reply evidence must match fixed-scope verification",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    fixedScopes: [
+                      {
+                        ...parent.fixedScopes![0]!,
+                        verification: "a separate check that the reply omits",
+                      },
+                    ],
                   }
                 : parent,
             ),
@@ -1512,6 +1592,13 @@ if (args[0] === "--self-test" && args.length === 1) {
                           action: "schedule the rollout",
                         },
                       ],
+                      fixedScopes: [
+                        {
+                          scope: "first scope",
+                          verification:
+                            "the verified scope is complete; a separate handoff remains.",
+                        },
+                      ],
                       reactionDecision: {
                         checkmark: {
                           state: "present",
@@ -1610,7 +1697,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                   reactionChecked: true,
                   reactionSummary: "none",
                   reactionOwners: {},
-                  disposition: "reviewed",
+                  disposition: "Skipped",
                 },
               ],
             },
