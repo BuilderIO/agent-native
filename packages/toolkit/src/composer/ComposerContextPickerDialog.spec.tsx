@@ -26,6 +26,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -241,7 +242,7 @@ describe("shared context URL dialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("disables stale gallery results while a search is loading", async () => {
+  it("debounces remote gallery searches and disables stale results", async () => {
     const nextResults = deferred<{
       items: Array<{ id: string; title: string }>;
       hasMore: boolean;
@@ -268,17 +269,32 @@ describe("shared context URL dialog", () => {
 
     await renderPickerDialog(config);
     await tick();
+    expect(load).toHaveBeenCalledTimes(1);
 
     const primaryCard = () =>
       dialog()!.querySelector<HTMLElement>(".agent-template-library-primary")!;
     expect(primaryCard().getAttribute("aria-disabled")).toBeNull();
 
-    await type("replacement", 'input[type="search"]');
-    await tick();
+    vi.useFakeTimers();
+    await type("re", 'input[type="search"]');
+    expect(primaryCard().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
 
+    await type("replacement", 'input[type="search"]');
     expect(primaryCard().getAttribute("aria-disabled")).toBe("true");
     await act(async () => primaryCard().click());
     expect(onSelect).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load.mock.calls[1][0].search).toBe("replacement");
 
     await act(async () =>
       nextResults.resolve({
@@ -286,7 +302,9 @@ describe("shared context URL dialog", () => {
         hasMore: false,
       }),
     );
-    await tick();
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(primaryCard().getAttribute("aria-disabled")).toBeNull();
     expect(primaryCard().textContent).toContain("Replacement result");

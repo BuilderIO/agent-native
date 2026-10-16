@@ -42,17 +42,34 @@ export function ComposerContextPickerDialog({
     presentation?.mode !== "url" && presentation?.layout === "gallery";
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [search, setSearch] = useState(location.search);
+  const remoteGallery = gallery && Boolean(config.load);
+  const searchPending = remoteGallery && search !== location.search;
   const [touched, setTouched] = useState(false);
   useEffect(() => {
     input.current?.focus();
   }, [stage]);
+  useEffect(() => {
+    setSearch(location.search);
+  }, [location.search]);
+  useEffect(
+    () => () => {
+      if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    },
+    [],
+  );
   const validation = touched && link.trim() ? picker.linkError : undefined;
   const error = stage === "link" ? picker.actionError?.message : picker.error;
   const attach = t("agentChat.composer.contextAttach", {
     defaultValue: "Attach",
   });
   const canAttach =
-    picker.selectedItems.length > 0 && !loading && !selecting && !error;
+    picker.selectedItems.length > 0 &&
+    !loading &&
+    !searchPending &&
+    !selecting &&
+    !error;
   return (
     <Dialog
       open
@@ -126,14 +143,31 @@ export function ComposerContextPickerDialog({
                 type="search"
                 aria-label={config.searchPlaceholder}
                 placeholder={config.searchPlaceholder}
-                value={location.search}
+                value={remoteGallery ? search : location.search}
                 onChange={(event) => {
+                  const value = event.target.value;
                   picker.cursors.current = [undefined];
-                  picker.move({
-                    search: event.target.value,
-                    page: 1,
-                    url: location.url,
-                  });
+                  setSearch(value);
+                  if (searchDebounce.current)
+                    clearTimeout(searchDebounce.current);
+                  if (remoteGallery) {
+                    searchDebounce.current = setTimeout(() => {
+                      searchDebounce.current = null;
+                      if (
+                        value === location.search &&
+                        location.page === 1 &&
+                        location.cursor === undefined
+                      )
+                        return;
+                      picker.move({
+                        search: value,
+                        page: 1,
+                        url: location.url,
+                      });
+                    }, 200);
+                  } else {
+                    picker.move({ search: value, page: 1, url: location.url });
+                  }
                 }}
               />
               {gallery ? (
@@ -146,9 +180,9 @@ export function ComposerContextPickerDialog({
                         (!singleSelect &&
                           config.selectedIds?.includes(item.id)),
                     }))}
-                    loading={loading}
+                    loading={loading || searchPending}
                     error={error}
-                    disabled={selecting || loading}
+                    disabled={selecting || loading || searchPending}
                     labels={{
                       loading: t("agentChat.composer.contextPending", {
                         defaultValue: "Loading context…",
@@ -293,7 +327,7 @@ export function ComposerContextPickerDialog({
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={loading || selecting}
+                      disabled={loading || searchPending || selecting}
                       onClick={() =>
                         picker.move({
                           ...location,
@@ -311,7 +345,9 @@ export function ComposerContextPickerDialog({
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={loading || selecting || Boolean(error)}
+                      disabled={
+                        loading || searchPending || selecting || Boolean(error)
+                      }
                       onClick={() => {
                         picker.cursors.current = [
                           ...picker.cursors.current.slice(0, location.page),
