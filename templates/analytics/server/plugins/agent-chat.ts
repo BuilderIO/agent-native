@@ -44,6 +44,7 @@ import {
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
+  isSuccessfulPayload,
   hasIncompleteDataEvidence,
   isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
@@ -532,6 +533,58 @@ function exhaustedDraftPrefixFor({
     sourceStatusSentence +
     ` Next options: ${nextOptions.join(", ")}.`
   );
+}
+
+const DBT_FALLBACK_DISCLOSURE =
+  "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+const DBT_FALLBACK_SOURCE = /\bwarehouse[-\s]derived\b|\bfrom\s+BigQuery\b/i;
+const DBT_FALLBACK_NOT_APPROVED =
+  /\bnot\s+(?:the\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?definition\b/i;
+
+// A dbt-defined metric answered from BigQuery after dbt did not answer must say
+// so. Only that case retries, and only once: unrelated BigQuery answers never
+// asked dbt, so they pass through untouched.
+function dbtFallbackGuard(
+  context: AgentLoopFinalResponseGuardContext,
+  sourceStatus: DataSourceStatusSummary,
+) {
+  const results = context.toolResults ?? [];
+  const named = (name: unknown, target: string) =>
+    String(name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-") === target;
+  const dbtResults = results.filter((result) =>
+    named(result.name, DBT_QUERY_TOOL),
+  );
+  const latestDbt = dbtResults[dbtResults.length - 1];
+  const dbtUnavailable =
+    latestDbt !== undefined
+      ? dbtQueryDidNotComplete(latestDbt)
+      : sourceStatus.dbtReadiness !== undefined &&
+        !isDbtUsable(sourceStatus.dbtReadiness) &&
+        sourceStatus.dbtReadiness !== "not_connected";
+  if (!dbtUnavailable) return null;
+  const dbtNote = dbtUnverifiedNote(sourceStatus, results);
+  if (!dbtNote) return null;
+  const warehouseAnswered = results.some(
+    (result) =>
+      named(result.name, "bigquery") &&
+      result.isError !== true &&
+      isSuccessfulPayload(result.content, "query_status"),
+  );
+  if (!warehouseAnswered) return null;
+  const disclosed =
+    DBT_FALLBACK_SOURCE.test(context.text) &&
+    DBT_FALLBACK_NOT_APPROVED.test(context.text);
+  if (disclosed) return null;
+  return {
+    retryMessage:
+      `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer. ${dbtNote}`,
+    fallbackMessage: `${DBT_FALLBACK_DISCLOSURE} ${dbtNote}`,
+    exhaustedDraftPrefix: `${DBT_FALLBACK_DISCLOSURE} ${dbtNote}`,
+    maxRetries: 1,
+  };
 }
 
 // Names dbt only when this turn gives a reason to: the in-turn status check
@@ -1417,6 +1470,9 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
+
+  const dbtFallback = dbtFallbackGuard(context, sourceStatus);
+  if (dbtFallback) return dbtFallback;
 
   // A verified dashboard save that rendered a data panel ran its SQL, so its
   // receipt is the live-query evidence for the figures the draft quotes. A

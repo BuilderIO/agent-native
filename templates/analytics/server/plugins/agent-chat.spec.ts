@@ -836,6 +836,98 @@ function guardContext(params: {
   return context;
 }
 
+describe("realDataFinalGuard dbt fallback disclosure", () => {
+  const dbtNotFound = {
+    name: "query-dbt-semantic-metric",
+    isError: false,
+    content: JSON.stringify({ status: "not_found" }),
+  };
+  const dbtSuccess = {
+    name: "query-dbt-semantic-metric",
+    isError: false,
+    content: JSON.stringify({ status: "success" }),
+  };
+  const bigQueryOk = {
+    name: "bigquery",
+    isError: false,
+    content: JSON.stringify({ query_status: "success", rows: [{ n: 10 }] }),
+  };
+  const bigQueryTimedOut = {
+    name: "bigquery",
+    isError: false,
+    content: JSON.stringify({ query_status: "timeout", rows: [] }),
+  };
+  const draft = "Active accounts were 10 last month.";
+  const disclosed =
+    "Active accounts were 10 last month. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+
+  it("asks once for a disclosure when a failed dbt metric falls back to a successful BigQuery answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 1,
+      retryMessage: expect.stringContaining("warehouse-derived"),
+      exhaustedDraftPrefix: expect.stringContaining(
+        "not the owner-approved Semantic Layer definition",
+      ),
+    });
+  });
+
+  it("accepts the fallback answer once it discloses the source", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: disclosed,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not force a retry on a BigQuery answer that never asked dbt", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many sessions did we record yesterday?",
+        draftText: draft,
+        toolResults: [bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not treat a successful dbt answer as a fallback", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtSuccess, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not count a structured BigQuery failure as the fallback answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryTimedOut],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+});
+
 describe("realDataFinalGuard", () => {
   it("accepts a grounded answer from a source action no name list ever enumerated", () => {
     const result = realDataFinalGuard(

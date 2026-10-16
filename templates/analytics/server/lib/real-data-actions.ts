@@ -1243,13 +1243,22 @@ export function hasDataQueryAttempt(
   });
 }
 
-export function isSuccessfulDbtMetricResult(content: unknown): boolean {
+// A payload whose own status field says it succeeded. Structured failures and
+// timeouts come back as ordinary results, so the field is the only evidence.
+export function isSuccessfulPayload(
+  content: unknown,
+  statusKey: "status" | "query_status",
+): boolean {
   const parsed = tryParseJsonContent(String(content ?? ""));
   return (
     parsed !== null &&
     typeof parsed === "object" &&
-    (parsed as { status?: unknown }).status === "success"
+    (parsed as Record<string, unknown>)[statusKey] === "success"
   );
+}
+
+export function isSuccessfulDbtMetricResult(content: unknown): boolean {
+  return isSuccessfulPayload(content, "status");
 }
 
 function isFailedDataQueryAttempt(result: {
