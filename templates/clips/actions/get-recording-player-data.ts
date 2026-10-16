@@ -417,6 +417,7 @@ export default defineAction({
         seekableRepairPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
+        failureCode: rec.failureCode,
         ...(canEditRecording
           ? {
               uploadAttemptId: rec.uploadAttemptId ?? null,
@@ -444,6 +445,8 @@ export default defineAction({
               ? "failed"
               : transcriptPresentation.status,
             language: transcript.language,
+            source: transcript.source ?? null,
+            importId: transcript.importId ?? null,
             fullText: agentTranscript?.fullText ?? transcript.fullText,
             ...(agentTranscript
               ? {

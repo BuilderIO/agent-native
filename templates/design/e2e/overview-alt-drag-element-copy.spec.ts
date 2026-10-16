@@ -204,7 +204,7 @@ test("alt-dragging an element keeps every copy on the canvas, not just in state"
   });
 });
 
-// fixme: product bug: The copy is saved at Screen 2's top-left (inspector X 0 Y 0, no position:absolute) instead of at the drop point near the screen centre
+// fixme: product bug: the copy lands at the drop point, but the source keeps its selection box, so the copy is not the only selected layer
 test.fixme("alt-dragging an element onto another screen copies it to the drop point without moving the source", async ({
   app,
 }) => {

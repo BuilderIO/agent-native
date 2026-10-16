@@ -198,6 +198,50 @@ export function authoredDocumentPositionForNode(
   }
 }
 
+export function authoredAbsoluteChildOriginForNode(
+  content: string,
+  parentAttrId: string,
+): { x: number; y: number } | null {
+  if (typeof window === "undefined" || !parentAttrId) return null;
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  const parent = doc.querySelector(
+    `[data-agent-native-node-id="${CSS.escape(parentAttrId)}"]`,
+  );
+  if (!parent) return null;
+  for (
+    let ancestor: Element | null = parent;
+    ancestor && ancestor !== doc.documentElement;
+    ancestor = ancestor.parentElement
+  ) {
+    if (isAuthoredPositioned(ancestor)) {
+      const position = authoredElementPosition(ancestor);
+      const style = (ancestor as HTMLElement).style;
+      return {
+        x: position.x + (parseInlinePx(style.borderLeftWidth) ?? 0),
+        y: position.y + (parseInlinePx(style.borderTopWidth) ?? 0),
+      };
+    }
+  }
+  return { x: 0, y: 0 };
+}
+
+function isAuthoredPositioned(element: Element): boolean {
+  const position = (element as HTMLElement).style.position;
+  if (
+    position === "absolute" ||
+    position === "fixed" ||
+    position === "relative" ||
+    position === "sticky"
+  ) {
+    return true;
+  }
+  const className =
+    typeof (element as HTMLElement).className === "string"
+      ? (element as HTMLElement).className
+      : "";
+  return POSITION_CLASS_RE.test(className);
+}
+
 export function authoredContainingBlockPositionForNode(
   content: string,
   nodeAttrId: string,

@@ -27,6 +27,22 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "agent-harness-sessions-base-table",
+      "checksum": "709f6e82e6323dcb"
+    },
+    {
+      "name": "agent-harness-sessions-state-columns",
+      "checksum": "91875faf324c0ef2"
+    },
+    {
+      "name": "agent-harness-sessions-widen-millisecond-timestamps",
+      "checksum": "1e9e1af1581a9742"
+    },
+    {
+      "name": "agent-harness-sessions-generation",
+      "checksum": "e93055de6007e793"
     }
   ],
   "agent_runs": [
@@ -37,6 +53,30 @@
     {
       "name": "widen-bigint",
       "checksum": null
+    },
+    {
+      "name": "agent-run-base-tables",
+      "checksum": "ac6ed4a256f28116"
+    },
+    {
+      "name": "agent-run-liveness-and-diagnostics-columns",
+      "checksum": "2a9d24ed6ffbea78"
+    },
+    {
+      "name": "agent-run-continuation-order",
+      "checksum": "efb06f1b4c911719"
+    },
+    {
+      "name": "agent-tool-ledger-result-type",
+      "checksum": "d4fe90219a833db8"
+    },
+    {
+      "name": "agent-tool-ledger-chat-ui-result",
+      "checksum": "288137f1126005f6"
+    },
+    {
+      "name": "agent-run-auto-continue-of",
+      "checksum": "00eb09bcf9ca7fb0"
     }
   ],
   "agent_team_run_queue": [
@@ -53,6 +93,10 @@
     {
       "name": "tool-revision",
       "checksum": null
+    },
+    {
+      "name": "agent-tool-approval-policies-table-and-index",
+      "checksum": "bb1c9e53c85d4f40"
     }
   ],
   "agent_tool_approvals": [
@@ -63,6 +107,18 @@
     {
       "name": "tool-revision",
       "checksum": null
+    },
+    {
+      "name": "agent-tool-approvals-table-and-index",
+      "checksum": "8ba8562ff05494fb"
+    },
+    {
+      "name": "agent-tool-approvals-logical-binding-index",
+      "checksum": "6e7debaee18fb19e"
+    },
+    {
+      "name": "agent-tool-approvals-recovery-index",
+      "checksum": "fdca5e603cce164c"
     }
   ],
   "app_resource_changes": [
@@ -111,6 +167,64 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "automation-runs-table",
+      "checksum": "05e4a639e8e40142"
+    },
+    {
+      "name": "automation-runs-claimed-at",
+      "checksum": "9d1c3994e5887d2f"
+    },
+    {
+      "name": "automation-runs-dispatch-pending",
+      "checksum": "110d2c93fba69a3f"
+    },
+    {
+      "name": "automation-runs-app-id",
+      "checksum": "48a8d098bd64ed91"
+    },
+    {
+      "name": "automation-runs-error-code",
+      "checksum": "d31999550cf54e2d"
+    },
+    {
+      "name": "automation-runs-notification-email",
+      "checksum": "db8402925a12ae73"
+    },
+    {
+      "name": "automation-runs-failure-alerted",
+      "checksum": "c6aab02ee88bf93d"
+    },
+    {
+      "name": "automation-runs-failure-alert-delivery",
+      "checksum": "0ad391513d7c511c"
+    }
+  ],
+  "automation_trigger_events": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "automation-trigger-event-queue",
+      "checksum": "40d51d285df8b7a6"
+    },
+    {
+      "name": "automation-trigger-event-failure-attempts",
+      "checksum": "62e7a1833ef325b0"
+    },
+    {
+      "name": "automation-trigger-event-stale-mail-index",
+      "checksum": "f036574b0be6169c"
+    },
+    {
+      "name": "automation-trigger-event-queue-sweep-state",
+      "checksum": "89eb2b9ac8a2eb2f"
+    },
+    {
+      "name": "automation-trigger-event-active-head-index",
+      "checksum": "dad2945b14f0de23"
     }
   ],
   "automation_webhook_tokens": [
@@ -123,6 +237,52 @@
     {
       "name": "baseline",
       "checksum": null
+    }
+  ],
+  "better_auth": [
+    {
+      "name": "better-auth-core-tables",
+      "checksum": "75b2ff3e3f1ac565"
+    },
+    {
+      "name": "better-auth-repair-user-columns",
+      "checksum": "27d1d3f6cf568efa"
+    },
+    {
+      "name": "legacy-auth-sessions-table",
+      "checksum": "d67c1d034b1b3611"
+    },
+    {
+      "name": "better-auth-jwks-key-rotation-recovery",
+      "checksum": null
+    },
+    {
+      "name": "better-auth-add-onboarding-role",
+      "checksum": "0027c79db097e5a1"
+    },
+    {
+      "name": "better-auth-user-lower-email-index",
+      "checksum": "897b1ce483af6484"
+    },
+    {
+      "name": "better-auth-enterprise-sso-scim-tables",
+      "checksum": "78ba4bda1e35307e"
+    },
+    {
+      "name": "better-auth-identity-rekey-ledger",
+      "checksum": "308592b25b569305"
+    },
+    {
+      "name": "better-auth-jwks-alg-crv-columns",
+      "checksum": "3037835edbd46471"
+    },
+    {
+      "name": "better-auth-two-factor-tables",
+      "checksum": "4ecf3fcd74e022cd"
+    },
+    {
+      "name": "better-auth-user-first-touch-attribution",
+      "checksum": "dc221b676c0dc61d"
     }
   ],
   "browser_sessions": [
@@ -143,6 +303,22 @@
     {
       "name": "indexes",
       "checksum": null
+    },
+    {
+      "name": "chat-threads-base-tables",
+      "checksum": "bfeaaa8ca4af1288"
+    },
+    {
+      "name": "chat-threads-scope-and-sharing-columns",
+      "checksum": "76d071b18224f89b"
+    },
+    {
+      "name": "chat-threads-source-backfill",
+      "checksum": "027aa9d753e848a3"
+    },
+    {
+      "name": "chat-thread-shares-notified-at",
+      "checksum": "f2a3dce63fe66310"
     }
   ],
   "checkpoints": [
@@ -167,6 +343,20 @@
     {
       "name": "baseline",
       "checksum": null
+    }
+  ],
+  "context_xray": [
+    {
+      "name": "v1201",
+      "checksum": "2f2ba296f2557648"
+    },
+    {
+      "name": "v1202",
+      "checksum": "b054e1ecc38d7637"
+    },
+    {
+      "name": "v1203",
+      "checksum": "5995dc62534cdd11"
     }
   ],
   "conversation_scopes": [
@@ -259,6 +449,14 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "identity-sso-flow-state-and-jti",
+      "checksum": "0ef131c592e35909"
+    },
+    {
+      "name": "identity-sso-timestamps-bigint",
+      "checksum": "a17c0175452484cc"
     }
   ],
   "integration_campaigns": [
@@ -325,12 +523,48 @@
     {
       "name": "widen-bigint",
       "checksum": null
+    },
+    {
+      "name": "oauth-tokens-table",
+      "checksum": "8c7ddcbbb856d01f"
+    },
+    {
+      "name": "oauth-tokens-owner-column",
+      "checksum": "2b02d7f09707be90"
+    },
+    {
+      "name": "oauth-tokens-display-name-column",
+      "checksum": "ea7cbba8dff602f8"
+    },
+    {
+      "name": "oauth-tokens-owner-backfill",
+      "checksum": "4aa6eb2e77f62037"
+    },
+    {
+      "name": "oauth-tokens-revision-column",
+      "checksum": "73d74fcfed62aa4e"
+    },
+    {
+      "name": "oauth-tokens-revision-backfill",
+      "checksum": "753598f3334087f5"
     }
   ],
   "observability": [
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "observability-org-scope-legacy-traces",
+      "checksum": "5e3e1e7109673004"
+    },
+    {
+      "name": "observability-org-scope-legacy-feedback",
+      "checksum": "1b6cac0ebaa64b44"
+    },
+    {
+      "name": "observability-org-scope-legacy-threads",
+      "checksum": "e9e749744df6b0e4"
     }
   ],
   "observational_memory": [
@@ -341,6 +575,156 @@
     {
       "name": "widen-bigint",
       "checksum": null
+    },
+    {
+      "name": "v1",
+      "checksum": "7a806bf7eff7003d"
+    },
+    {
+      "name": "v2",
+      "checksum": "709cf34a16ab7e21"
+    },
+    {
+      "name": "v3",
+      "checksum": "c931860ca61eda1d"
+    }
+  ],
+  "org": [
+    {
+      "name": "v1001",
+      "checksum": "c7f32cba7a4d7c50"
+    },
+    {
+      "name": "v1002",
+      "checksum": "c550fb646f72f6a9"
+    },
+    {
+      "name": "v1003",
+      "checksum": "9dee084c9156839f"
+    },
+    {
+      "name": "v1004",
+      "checksum": "30fafc09e4ae3f42"
+    },
+    {
+      "name": "v1005",
+      "checksum": "156a4cf057c45837"
+    },
+    {
+      "name": "v1006",
+      "checksum": "2c32d8ae938a9d90"
+    },
+    {
+      "name": "v1007",
+      "checksum": "829a1c6909e1deb5"
+    },
+    {
+      "name": "v1008",
+      "checksum": "fbbd67d26bc122f0"
+    },
+    {
+      "name": "org-members-dedupe-lower-email",
+      "checksum": "356751cb1266a19a"
+    },
+    {
+      "name": "org-members-unique-lower-email-idx",
+      "checksum": "9e7813ab2fe6720c"
+    },
+    {
+      "name": "v1011",
+      "checksum": "3453588c2a8efbe9"
+    },
+    {
+      "name": "app-member-roles-unique-org-app-lower-email-idx",
+      "checksum": "619796384ec54584"
+    },
+    {
+      "name": "v1013",
+      "checksum": "2efec8e77b5a5580"
+    },
+    {
+      "name": "v1014",
+      "checksum": "efed0abeadc61353"
+    },
+    {
+      "name": "v1015",
+      "checksum": "a04e7db4b8eb3441"
+    },
+    {
+      "name": "v1016",
+      "checksum": "dce510c185fa90d3"
+    },
+    {
+      "name": "workspace-app-access-indexes",
+      "checksum": "36e990834036b883"
+    },
+    {
+      "name": "workspace-apps-restore-ownerless-legacy-visibility",
+      "checksum": "6ca3c93bd7f97789"
+    },
+    {
+      "name": "organization-identity-federation",
+      "checksum": "e24bac924c2d4c7a"
+    },
+    {
+      "name": "organization-federation-removal-pending",
+      "checksum": "47fe40eb2ea33753"
+    },
+    {
+      "name": "organization-federation-roster-initialized",
+      "checksum": "3307d4d99818c2f0"
+    },
+    {
+      "name": "org-tables-timestamps-bigint",
+      "checksum": "a71b72b885bd5585"
+    },
+    {
+      "name": "workspace-app-shares-notified-at",
+      "checksum": "3df53f2c8dd33d8f"
+    },
+    {
+      "name": "suggestion-creations-receipt-version",
+      "checksum": "8705cb2b9fa98789"
+    },
+    {
+      "name": "app-member-roles-drop-single-role-unique-index",
+      "checksum": "8ef975bf717d45df"
+    },
+    {
+      "name": "app-member-roles-unique-org-app-email-role-idx",
+      "checksum": "d0000b15f8f45305"
+    },
+    {
+      "name": "app-permission-overrides-and-invitation-roles",
+      "checksum": "2e162a535fca593d"
+    },
+    {
+      "name": "app-permission-overrides-table",
+      "checksum": "1e492c41cd03d75f"
+    },
+    {
+      "name": "org-scim-membership-ownership",
+      "checksum": "09ca1c03026cda83"
+    },
+    {
+      "name": "org-scim-membership-member-id",
+      "checksum": "cd1c4fb7479507d3"
+    },
+    {
+      "name": "workspace-app-org-enabled",
+      "checksum": "b33be6e242066217"
+    },
+    {
+      "name": "agent-audit-log-base-table",
+      "checksum": "603e8ce5e70f1cc5"
+    },
+    {
+      "name": "organization-visual-identity",
+      "checksum": "e30df3489d7187bb"
+    },
+    {
+      "name": "private-icon-assets",
+      "checksum": "005daf4cb4bf77f7"
     }
   ],
   "pending_tasks": [
@@ -391,6 +775,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "remote-device-table-and-indexes",
+      "checksum": "f6b9d7421da71549"
     }
   ],
   "remote_push": [
@@ -457,6 +845,14 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "automation-scheduler-health-table",
+      "checksum": "211a9aced4e5b550"
+    },
+    {
+      "name": "automation-scheduler-health-lease",
+      "checksum": "d6a4998c3d5b4fd1"
     }
   ],
   "search_resources": [
@@ -539,6 +935,18 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "usage-alert-rules-and-events-tables",
+      "checksum": "b0b123d2d2fe1941"
+    },
+    {
+      "name": "usage-alert-default-column",
+      "checksum": "5fc7cb1ccb6873ab"
+    },
+    {
+      "name": "usage-alert-notification-column",
+      "checksum": "6bf0a66d6dd9c131"
     }
   ],
   "usage_budgets": [
@@ -551,12 +959,68 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "v1",
+      "checksum": "90de1807614ef821"
+    },
+    {
+      "name": "v2",
+      "checksum": "2301affd4acb941c"
+    },
+    {
+      "name": "v3",
+      "checksum": "258fd20e2058890a"
+    },
+    {
+      "name": "v4",
+      "checksum": "d1b7e6139ee84514"
+    },
+    {
+      "name": "v5",
+      "checksum": "ad39b83040e92a4b"
+    },
+    {
+      "name": "v6",
+      "checksum": "ac28e025039da66a"
+    },
+    {
+      "name": "v7",
+      "checksum": "27d57be3f9f535ad"
     }
   ],
   "workspace_user_groups": [
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "v8",
+      "checksum": "69b4d474b17225bc"
+    },
+    {
+      "name": "v9",
+      "checksum": "a7fbcc459812be31"
+    },
+    {
+      "name": "v10",
+      "checksum": "6908298ccdce8ea6"
+    },
+    {
+      "name": "v11",
+      "checksum": "9d51b0a350f3732b"
+    },
+    {
+      "name": "v12",
+      "checksum": "9d51b0a350f3732b"
+    },
+    {
+      "name": "v13",
+      "checksum": "f2d372060f300501"
+    },
+    {
+      "name": "v14",
+      "checksum": "75d25dd8c52ada33"
     }
   ]
 }

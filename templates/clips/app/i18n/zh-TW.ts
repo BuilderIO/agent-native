@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "這是什麼？",
     off: "關",
     none: "無",
+    noneExplanation:
+      "「無」表示新的 Clip 不會包含先前的螢幕時間。Rewind 開啟時仍會持續錄製螢幕。若要停止，請選擇下方的「關閉」。",
     custom: "自訂…",
     customLabel: "自訂長度",
     customAmount: "長度",
@@ -29,13 +31,13 @@ const messages = {
       "無法存取 Rewind 儲存空間。請檢查磁碟空間和資料夾權限後再試一次。",
     rewindConsentTitle: "開啟 Rewind？",
     rewindConsentBody:
-      "Clips 會持續錄製你的螢幕，並將內容保留在此裝置上。代理程式會取得文字摘錄，只有在你核准後才會分享影片。",
+      "Rewind 開啟時，Clips 會持續錄製螢幕，並在此裝置保留近期記錄，直到達到你設定的時間或儲存空間上限。選擇「螢幕 + 音訊」也會錄製麥克風和系統音效。已連線的代理程式無須 Clips 個別核准即可直接存取螢幕影像；之後如何使用這些影像取決於代理程式。你選擇的較早螢幕時間會自動加入每個新 Clip，並遵循該 Clip 的分享設定。預設情況下，將選定時段分享為 Clip 的要求會在傳送前審核。在 Rewind 設定中關閉傳送前審核，即可自動傳送這些要求。Clip 可能包含錄到的麥克風和系統音訊。關閉 Rewind 會停止新的錄製，但會保留已儲存的記錄。Rewind 關閉期間，記錄可能超過時間或儲存空間上限，直到錄製再次開始。選擇「全部刪除」可立即清除已儲存的記錄。",
     rewindConsentCancel: "暫不",
     rewindConsentConfirm: "開啟 Rewind",
     rewindConsentBusy: "正在開啟 Rewind…",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
-      "預設為關閉。螢幕歷程記錄會保留在此裝置上，直到你將它加入錄影或核准分享請求。",
+      "如要包含更早的螢幕時間，請先開啟 Rewind。Rewind 開啟時，會在此裝置保留近期螢幕記錄並遵守時間和儲存空間上限。Rewind 關閉期間，已儲存的記錄可能超過這些上限，直到錄製再次開始。若要立即清除，請開啟 Settings > Rewind > Storage > On this device 並選擇 Delete all。預設情況下，分享所選時段的 Clip 要求會在傳送前審核；在 Rewind 設定中關閉傳送前審核後，這些要求會自動傳送。",
     requestFailed: "無法包含更早的螢幕時間。錄製會繼續，但不含這部分。",
     localOnlyUnavailable: "僅限本機的錄製不會儲存更早的螢幕時間。",
     saving: "正在儲存錄製前的 {{window}}…",
@@ -600,6 +602,31 @@ const messages = {
     groqKeysStart: "Groq 鍵開頭為",
     waiting: "等待…",
     nativeSpeechPrimary: "原生語音仍然是主要的轉錄來源。",
+  },
+  transcriptImport: {
+    addFile: "新增逐字稿檔案",
+    imported: "已匯入",
+    replaceTitle: "要取代逐字稿嗎？",
+    replaceDescription: "{{fileName}} 將取代目前的逐字稿。",
+    replace: "取代",
+    regenerateOverImportTitle: "要取代匯入的逐字稿嗎？",
+    regenerateOverImportDescription:
+      "根據錄影音訊產生的新逐字稿將取代從檔案匯入的逐字稿。",
+    added: "已新增逐字稿",
+    replaced: "已取代逐字稿",
+    failed: "無法新增逐字稿",
+    invalidFile: "無法讀取 {{fileName}}",
+    errorEmpty: "檔案中沒有逐字稿內容。",
+    errorTooLarge: "檔案太大，無法匯入。",
+    errorNotUtf8: "檔案不是 UTF-8 文字。請另存為 UTF-8 後再試一次。",
+    errorMissingTiming:
+      "第 {{line}} 行：應為字幕時間行，例如 00:00:01.000 --> 00:00:04.000。",
+    errorBadTiming: "第 {{line}} 行：無法讀取字幕時間。",
+    errorBadRange: "第 {{line}} 行：字幕的結束時間早於開始時間。",
+    errorMissingTimestamp:
+      "第 {{line}} 行：應為開始時間，例如 0:21 或 [0:21]。",
+    errorOutOfOrder: "第 {{line}} 行：此時間早於上一個時間。",
+    errorPastEnd: "第 {{line}} 行：此時間晚於影片結束時間。",
   },
   thumbnailPicker: {
     failedCapture: "擷取影格失敗",
@@ -1496,6 +1523,8 @@ const messages = {
     builderGrantAskAdmin:
       "請擁有者或管理員連線具有片段上傳權限的 Builder.io 帳戶。",
     statusUnavailable: "無法檢查影片儲存是否就緒。",
+    hostedStorageUnavailable:
+      "Clips 託管儲存空間暫時無法使用。您的免費片段額度不變，請稍後再試上傳。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
     builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
@@ -1778,6 +1807,14 @@ const messages = {
     validWebUrl: "請輸入有效的 http:// 或 https:// 位址。",
   },
   recordRoute: {
+    freeClipsLeft_one: "還剩 {{count}} 個免費片段",
+    freeClipsLeft_other: "還剩 {{count}} 個免費片段",
+    hostedClipsExhaustedTitle: "免費連接 Builder.io，繼續錄製",
+    hostedClipsExhaustedDescription:
+      "免費託管錄製次數已用完。連接 Builder.io 儲存空間，即可繼續將片段儲存到資料庫。",
+    clipExceedsSizeLimit: "此片段超出目前上傳大小限制。",
+    clipExceedsMaxDuration: "此片段超出目前錄製時長限制。",
+    maxClipDurationReached: "已達片段時長上限。正在儲存錄製內容。",
     pageTitle: "新增錄製 · Clips",
     uploadFailed: "上傳失敗",
     uploadFailedAtChunk: "第 {{chunk}}/{{total}} 個區塊上傳失敗：{{message}}",
@@ -1993,6 +2030,9 @@ const messages = {
     vocabularyRemoveFailed: "無法移除詞彙",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 託管儲存空間已滿。請連接 Builder.io 儲存空間以繼續儲存片段。",
+    hostedRecordingTakenDown: "這段錄影已從 Clips 託管儲存空間移除。",
     splitAtPlayhead: "在播放頭處分割 (S)",
     selectedCount: "已選取 {{count}} 項",
     selectAll: "全選",
@@ -2020,6 +2060,7 @@ const messages = {
     viewsCount: "{{count}} 次觀看",
     recordingMenu: "錄製選單",
     moveToFolder: "移動到資料夾",
+    moveHere: "移到此處",
     unarchive: "取消封存",
     shareNamedMeeting: "分享“{{title}}”",
     shareMeeting: "分享會議",

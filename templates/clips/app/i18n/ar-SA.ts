@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "ما هذا؟",
     off: "إيقاف",
     none: "لا شيء",
+    noneExplanation:
+      "تعني «لا شيء» أن المقاطع الجديدة لن تتضمن وقت الشاشة السابق. سيواصل Rewind تسجيل الشاشة ما دام مفعّلًا. اختر «إيقاف» أدناه لإيقافه.",
     custom: "مخصص…",
     customLabel: "مدة مخصصة",
     customAmount: "المدة",
@@ -31,13 +33,13 @@ const messages = {
       "تعذّر الوصول إلى مساحة تخزين Rewind. تحقّق من مساحة القرص وأذونات المجلد ثم حاول مرة أخرى.",
     rewindConsentTitle: "تفعيل Rewind؟",
     rewindConsentBody:
-      "سيسجل Clips شاشتك باستمرار ويحتفظ بالتسجيل على هذا الجهاز. يحصل الوكلاء على مقتطفات نصية، ولا تتم مشاركة الفيديو إلا بعد موافقتك.",
+      "أثناء تشغيل Rewind، يسجل Clips شاشتك باستمرار ويحتفظ بسجل حديث على هذا الجهاز حتى بلوغ حد الوقت أو التخزين الذي اخترته. اختر «الشاشة + الصوت» لتسجيل الميكروفون وصوت النظام أيضًا. يمكن للوكلاء المتصلين الوصول إلى صور الشاشة مباشرةً دون موافقة منفصلة من Clips؛ ويعتمد ما يحدث لهذه الصور بعد ذلك على الوكيل. عند اختيار مدة لوقت الشاشة السابق، يضيف Clips هذه المدة تلقائيًا إلى كل Clip جديد وفق إعدادات المشاركة الخاصة به. تُراجع طلبات مشاركة فترة محددة كـ Clip قبل الإرسال افتراضيًا. عطّل المراجعة قبل الإرسال في إعدادات Rewind لإرسال هذه الطلبات تلقائيًا. قد يتضمن Clip الصوت المسجل من الميكروفون أو النظام. إيقاف Rewind يوقف التسجيل الجديد لكنه يحتفظ بالسجل المحفوظ. أثناء إيقافه، قد يتجاوز السجل حدود الوقت أو التخزين حتى يبدأ التسجيل مجددًا. اختر «حذف الكل» لمسح السجل الآن.",
     rewindConsentCancel: "ليس الآن",
     rewindConsentConfirm: "تفعيل Rewind",
     rewindConsentBusy: "جارٍ تفعيل Rewind…",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
-      "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",
+      "لتضمين وقت شاشة سابق، شغّل Rewind أولًا. أثناء تشغيل Rewind، يحتفظ بسجل حديث للشاشة على هذا الجهاز ضمن حدود الوقت والتخزين التي اخترتها. أثناء إيقافه، قد يتجاوز السجل المحفوظ هذه الحدود حتى يبدأ التسجيل مجددًا. لمحو السجل الآن، افتح Settings > Rewind > Storage > On this device واختر Delete all. تُراجع طلبات Clip قبل الإرسال افتراضيًا، إلا إذا عطّلت المراجعة قبل الإرسال في إعدادات Rewind.",
     requestFailed: "تعذّر تضمين وقت الشاشة السابق. يستمر التسجيل بدونه.",
     localOnlyUnavailable: "لا يُحفظ وقت الشاشة السابق للتسجيلات المحلية فقط.",
     saving: "جارٍ حفظ {{window}} قبل…",
@@ -629,6 +631,32 @@ const messages = {
     groqKeysStart: "مفاتيح Groq تبدأ بـ",
     waiting: "منتظر…",
     nativeSpeechPrimary: "يبقى الكلام الأصلي مصدر النسخ الأساسي.",
+  },
+  transcriptImport: {
+    addFile: "إضافة ملف النص",
+    imported: "مستورد",
+    replaceTitle: "استبدال النص؟",
+    replaceDescription: "سيحل {{fileName}} محل النص الحالي.",
+    replace: "استبدال",
+    regenerateOverImportTitle: "استبدال النص المستورد؟",
+    regenerateOverImportDescription:
+      "سيحل نص جديد من صوت التسجيل محل النص المستورد من ملف.",
+    added: "تمت إضافة النص",
+    replaced: "تم استبدال النص",
+    failed: "تعذّرت إضافة النص",
+    invalidFile: "تعذّرت قراءة {{fileName}}",
+    errorEmpty: "لا يحتوي الملف على نص.",
+    errorTooLarge: "الملف كبير جدًا للاستيراد.",
+    errorNotUtf8:
+      "الملف ليس نصًا بترميز UTF-8. احفظه بترميز UTF-8 ثم حاول مرة أخرى.",
+    errorMissingTiming:
+      "السطر {{line}}: كان المتوقع سطر توقيت للترجمة مثل 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "السطر {{line}}: تعذّرت قراءة توقيت الترجمة.",
+    errorBadRange: "السطر {{line}}: تنتهي الترجمة قبل أن تبدأ.",
+    errorMissingTimestamp:
+      "السطر {{line}}: كان المتوقع وقت بدء مثل 0:21 أو [0:21].",
+    errorOutOfOrder: "السطر {{line}}: هذا الوقت أسبق من الوقت الذي قبله.",
+    errorPastEnd: "السطر {{line}}: هذا الوقت بعد نهاية الفيديو.",
   },
   thumbnailPicker: {
     failedCapture: "فشل في التقاط الإطار",
@@ -1567,6 +1595,8 @@ const messages = {
     builderGrantAskAdmin:
       "اطلب من مالك أو مسؤول ربط Builder.io مع صلاحية رفع المقاطع.",
     statusUnavailable: "تعذر التحقق من جاهزية تخزين الفيديو.",
+    hostedStorageUnavailable:
+      "تخزين Clips المستضاف غير متاح مؤقتًا. لم يتغير رصيد المقاطع المجانية؛ حاول الرفع مرة أخرى لاحقًا.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
     builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
@@ -1858,6 +1888,18 @@ const messages = {
     validWebUrl: "أدخل عنوان http:// أو https:// صالحًا.",
   },
   recordRoute: {
+    freeClipsLeft_zero: "لا توجد مقاطع مجانية متبقية ({{count}})",
+    freeClipsLeft_one: "متبقٍ {{count}} من المقاطع المجانية",
+    freeClipsLeft_two: "متبقيان ({{count}}) من المقاطع المجانية",
+    freeClipsLeft_few: "متبقية {{count}} مقاطع مجانية",
+    freeClipsLeft_many: "متبقٍ {{count}} مقطعًا مجانيًا",
+    freeClipsLeft_other: "متبقٍ {{count}} من المقاطع المجانية",
+    hostedClipsExhaustedTitle: "اربط Builder.io مجانًا لمواصلة التسجيل",
+    hostedClipsExhaustedDescription:
+      "استخدمت كل المقاطع المجانية المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع في مكتبتك.",
+    clipExceedsSizeLimit: "يتجاوز هذا المقطع حد حجم الرفع الحالي.",
+    clipExceedsMaxDuration: "يتجاوز هذا المقطع الحد الحالي لمدة التسجيل.",
+    maxClipDurationReached: "تم بلوغ الحد الأقصى لمدة المقطع. جارٍ حفظ التسجيل.",
     pageTitle: "New recording — Clips (مترجم)",
     uploadFailed: "Upload failed (مترجم)",
     uploadFailedAtChunk:
@@ -2090,6 +2132,9 @@ const messages = {
     vocabularyRemoveFailed: "تعذّرت إزالة المصطلح",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "امتلأت مساحة Clips المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع.",
+    hostedRecordingTakenDown: "تمت إزالة هذا التسجيل من مساحة Clips المستضافة.",
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
     selectAll: "تحديد الكل",
@@ -2120,6 +2165,7 @@ const messages = {
     viewsCount: "{{count}} مشاهدة",
     recordingMenu: "قائمة التسجيل",
     moveToFolder: "نقل إلى مجلد",
+    moveHere: "النقل إلى هنا",
     unarchive: "إلغاء الأرشفة",
     shareNamedMeeting: 'مشاركة "{{title}}"',
     shareMeeting: "مشاركة الاجتماع",

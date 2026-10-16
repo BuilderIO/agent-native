@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "Was ist das?",
     off: "Aus",
     none: "Keine",
+    noneExplanation:
+      "„Keine“ bedeutet, dass neue Clips keine frühere Bildschirmzeit enthalten. Rewind zeichnet deinen Bildschirm weiter auf, solange es eingeschaltet ist. Wähle unten „Ausschalten“, um die Aufnahme zu stoppen.",
     custom: "Benutzerdefiniert…",
     customLabel: "Benutzerdefinierte Dauer",
     customAmount: "Dauer",
@@ -33,13 +35,13 @@ const messages = {
       "Auf den Rewind-Speicher konnte nicht zugegriffen werden. Prüfe den freien Speicherplatz und die Ordnerberechtigungen und versuche es erneut.",
     rewindConsentTitle: "Rewind aktivieren?",
     rewindConsentBody:
-      "Clips zeichnet fortlaufend deinen Bildschirm auf und speichert ihn auf diesem Gerät. Agents erhalten Textauszüge, und Videos werden nur mit deiner Zustimmung geteilt.",
+      "Wenn Rewind eingeschaltet ist, zeichnet Clips deinen Bildschirm fortlaufend auf und speichert den aktuellen Verlauf auf diesem Gerät, bis dein Zeit- oder Speicherlimit erreicht ist. Wähle „Bildschirm + Audio“, um auch Mikrofon und Systemton aufzunehmen. Verbundene Agents können einzelne Bildschirmbilder direkt abrufen, ohne eine Clips-Freigabe; was danach mit den Bildern geschieht, hängt vom Agent ab. Die gewählte Dauer für frühere Bildschirmzeit fügt Clips automatisch jedem neuen Clip hinzu; dafür gelten dessen Freigabeeinstellungen. Anfragen, einen ausgewählten Zeitraum als Clip zu teilen, werden standardmäßig vor dem Senden geprüft. Deaktiviere die Prüfung vor dem Senden in den Rewind-Einstellungen, damit solche Anfragen automatisch gesendet werden. Ein Clip kann aufgenommenes Mikrofon- und Systemaudio enthalten. Rewind auszuschalten stoppt neue Aufnahmen, aber der gespeicherte Verlauf bleibt erhalten. Wenn Rewind aus ist, kann der Verlauf deine Zeit- oder Speicherlimits überschreiten, bis die Aufnahme wieder startet. Wähle „Alles löschen“, um ihn jetzt zu entfernen.",
     rewindConsentCancel: "Nicht jetzt",
     rewindConsentConfirm: "Rewind aktivieren",
     rewindConsentBusy: "Rewind wird aktiviert…",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
-      "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",
+      "Um frühere Bildschirmzeit einzuschließen, aktiviere zuerst Rewind. Wenn Rewind eingeschaltet ist, speichert es den aktuellen Bildschirmverlauf auf diesem Gerät innerhalb deiner Zeit- und Speicherlimits. Ist Rewind ausgeschaltet, kann gespeicherter Verlauf diese Limits überschreiten, bis die Aufnahme wieder startet. Öffne zum Löschen Settings > Rewind > Storage > On this device und wähle Delete all. Anfragen für einen Clip werden standardmäßig vor dem Senden geprüft, sofern du die Prüfung vor dem Senden in den Rewind-Einstellungen nicht deaktivierst.",
     requestFailed:
       "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
     localOnlyUnavailable:
@@ -659,6 +661,33 @@ const messages = {
     waiting: "Warten…",
     nativeSpeechPrimary:
       "Native Spracherkennung bleibt die primäre Transkriptionsquelle.",
+  },
+  transcriptImport: {
+    addFile: "Transkriptdatei hinzufügen",
+    imported: "Importiert",
+    replaceTitle: "Transkript ersetzen?",
+    replaceDescription: "{{fileName}} ersetzt das aktuelle Transkript.",
+    replace: "Ersetzen",
+    regenerateOverImportTitle: "Importiertes Transkript ersetzen?",
+    regenerateOverImportDescription:
+      "Ein neues Transkript aus dem Ton der Aufnahme ersetzt das aus einer Datei importierte.",
+    added: "Transkript hinzugefügt",
+    replaced: "Transkript ersetzt",
+    failed: "Transkript konnte nicht hinzugefügt werden",
+    invalidFile: "{{fileName}} konnte nicht gelesen werden",
+    errorEmpty: "Die Datei enthält keinen Transkripttext.",
+    errorTooLarge: "Die Datei ist zu groß für den Import.",
+    errorNotUtf8:
+      "Die Datei ist kein UTF-8-Text. Speichere sie als UTF-8 und versuche es erneut.",
+    errorMissingTiming:
+      "Zeile {{line}}: Erwartet wurde eine Zeitzeile für den Untertitel wie 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming:
+      "Zeile {{line}}: Die Zeitangabe des Untertitels konnte nicht gelesen werden.",
+    errorBadRange: "Zeile {{line}}: Der Untertitel endet, bevor er beginnt.",
+    errorMissingTimestamp:
+      "Zeile {{line}}: Erwartet wurde eine Startzeit wie 0:21 oder [0:21].",
+    errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
+    errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
   },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
@@ -1613,6 +1642,8 @@ const messages = {
       "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
     statusUnavailable:
       "Der Status des Videospeichers konnte nicht geprüft werden.",
+    hostedStorageUnavailable:
+      "Der Clips-Hostingspeicher ist vorübergehend nicht verfügbar. Dein kostenloses Clip-Kontingent bleibt unverändert. Versuche den Upload später erneut.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
@@ -1912,6 +1943,18 @@ const messages = {
     validWebUrl: "Gib eine gültige http://- oder https://-Adresse ein.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
+    freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    hostedClipsExhaustedTitle:
+      "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
+    hostedClipsExhaustedDescription:
+      "Du hast alle kostenlosen gehosteten Clips verwendet. Verbinde den Builder.io-Speicher, um weitere Clips in deiner Bibliothek zu speichern.",
+    clipExceedsSizeLimit:
+      "Dieser Clip überschreitet das aktuelle Upload-Größenlimit.",
+    clipExceedsMaxDuration:
+      "Dieser Clip überschreitet die aktuelle maximale Aufnahmedauer.",
+    maxClipDurationReached:
+      "Die maximale Cliplänge ist erreicht. Aufnahme wird gespeichert.",
     pageTitle: "New recording — Clips (Lokalisiert)",
     uploadFailed: "Upload failed (Lokalisiert)",
     uploadFailedAtChunk:
@@ -2153,6 +2196,10 @@ const messages = {
     vocabularyRemoveFailed: "Begriff konnte nicht entfernt werden",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Der gehostete Clips-Speicher ist voll. Verbinde den Builder.io-Speicher, um weiterhin Clips zu speichern.",
+    hostedRecordingTakenDown:
+      "Diese Aufnahme wurde aus dem gehosteten Clips-Speicher entfernt.",
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
     selectAll: "Alle auswählen",
@@ -2184,6 +2231,7 @@ const messages = {
     viewsCount: "{{count}} Aufrufe",
     recordingMenu: "Aufnahmemenü",
     moveToFolder: "In Ordner verschieben",
+    moveHere: "Hierher verschieben",
     unarchive: "Archivierung aufheben",
     shareNamedMeeting: "„{{title}}“ teilen",
     shareMeeting: "Meeting teilen",

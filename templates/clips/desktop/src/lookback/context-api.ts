@@ -2,6 +2,7 @@ import type { ScreenHistoryStatus } from "../../../shared/screen-history-context
 import {
   callClipsActionFor,
   ClipsActionError,
+  ClipsActionTimeoutError,
   type ClipsActionTarget,
 } from "../lib/clips-action";
 
@@ -9,6 +10,7 @@ import {
 export interface RecordingContextItem {
   id: string;
   recordingId: string;
+  capturedDeviceId?: string | null;
   kind: string;
   label: string | null;
   requestedSeconds: number;
@@ -21,12 +23,57 @@ export interface RecordingContextItem {
   // The footage the current 'processing' claim reserved. Only a ready write
   // naming this id can link it, so a worker reconciling its own write checks it.
   pendingMediaRecordingId: string | null;
+  includeMicrophone: boolean | null;
+  includeSystemAudio: boolean | null;
   durationMs: number | null;
   width: number | null;
   height: number | null;
   error: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PendingRecordingContextCursor {
+  afterCreatedAt: string;
+  afterId: string;
+}
+
+export interface PendingRecordingContextPage {
+  items: RecordingContextItem[];
+  nextCursor: PendingRecordingContextCursor | null;
+}
+
+export const LOOKBACK_ACTION_TIMEOUT_MS = 15_000;
+const RECORDING_CONTEXT_RETRY_INITIAL_DELAY_MS = 1_000;
+const RECORDING_CONTEXT_RETRY_MAX_DELAY_MS = 30_000;
+const RECORDING_CONTEXT_MAX_ATTEMPTS = 2;
+
+function callLookbackActionFor<T>(
+  target: ClipsActionTarget,
+  name: string,
+  body: Record<string, unknown>,
+  opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
+): Promise<T> {
+  return callClipsActionFor<T>(target, name, body, {
+    ...opts,
+    timeoutMs: LOOKBACK_ACTION_TIMEOUT_MS,
+  });
+}
+
+export function visitPendingRecordingContextPage(
+  page: PendingRecordingContextPage,
+  visitItem: (item: RecordingContextItem) => void,
+  onItemError?: (error: unknown, item: RecordingContextItem) => void,
+): PendingRecordingContextCursor | null {
+  for (const item of page.items) {
+    try {
+      visitItem(item);
+    } catch (error) {
+      if (!onItemError) throw error;
+      onItemError(error, item);
+    }
+  }
+  return page.nextCursor;
 }
 
 // A type alias, not an interface: the action body parameter is a
@@ -41,43 +88,137 @@ export type RecordingContextUpdate = {
   error?: string;
 };
 
+export type RecordingContextRequestInput = {
+  recordingId: string;
+  seconds: number;
+  endedAt: string;
+  deviceId: string;
+  includeMicrophone?: boolean;
+  includeSystemAudio?: boolean;
+};
+
 export function requestRecordingContext(
   target: ClipsActionTarget,
-  input: {
-    recordingId: string;
-    seconds: number;
-    endedAt: string;
-    deviceId: string;
-  },
+  input: RecordingContextRequestInput,
 ): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
+  return retryRecordingContextRequest(target, input);
+}
+
+export function requestRecordingContextOnce(
+  target: ClipsActionTarget,
+  input: RecordingContextRequestInput,
+): Promise<RecordingContextItem> {
+  return callLookbackActionFor<RecordingContextItem>(
     target,
     "request-recording-context",
     input,
   );
 }
 
-export function removeRecordingContext(
+async function retryRecordingContextRequest(
+  target: ClipsActionTarget,
+  input: RecordingContextRequestInput,
+): Promise<RecordingContextItem> {
+  let delayMs = RECORDING_CONTEXT_RETRY_INITIAL_DELAY_MS;
+  let attempt = 0;
+  while (attempt < RECORDING_CONTEXT_MAX_ATTEMPTS) {
+    attempt += 1;
+    try {
+      return await requestRecordingContextOnce(target, input);
+    } catch (error) {
+      if (
+        !isRetryableRecordingContextRequestFailure(error) ||
+        attempt >= RECORDING_CONTEXT_MAX_ATTEMPTS
+      ) {
+        throw error;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 2, RECORDING_CONTEXT_RETRY_MAX_DELAY_MS);
+    }
+  }
+  throw new Error("Recording context request exhausted its retry limit");
+}
+
+export function isTerminalRecordingContextRequestFailure(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof ClipsActionError &&
+    ((error.status === 400 &&
+      error.code === "recording_context_invalid_window") ||
+      (error.status === 404 && error.code === "recording_unavailable"))
+  );
+}
+
+function isRetryableRecordingContextRequestFailure(error: unknown): boolean {
+  if (error instanceof ClipsActionError) {
+    return (
+      error.status === 408 ||
+      error.status === 425 ||
+      error.status === 429 ||
+      error.status >= 500
+    );
+  }
+  return (
+    error instanceof ClipsActionTimeoutError ||
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      (error.message === "Action returned an empty response." ||
+        error.message === "Action returned an invalid JSON response."))
+  );
+}
+
+export function settleRecordingContextRequest<
+  T extends Pick<
+    RecordingContextItem,
+    "includeMicrophone" | "includeSystemAudio"
+  >,
+>(
+  request: Promise<T>,
+  recordingId: string,
+  forgetOrigin: (recordingId: string) => void,
+  onError: (error: unknown) => void,
+): Promise<T | null> {
+  return request.catch((error: unknown) => {
+    if (isRetryableRecordingContextRequestFailure(error)) {
+      onError(error);
+      throw error;
+    }
+    forgetOrigin(recordingId);
+    onError(error);
+    return null;
+  });
+}
+
+export async function removeRecordingContext(
   target: ClipsActionTarget,
   id: string,
-): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
-    target,
-    "remove-recording-context",
-    { id },
-  );
+): Promise<RecordingContextItem | null> {
+  try {
+    return await callLookbackActionFor<RecordingContextItem>(
+      target,
+      "remove-recording-context",
+      { id },
+    );
+  } catch (error) {
+    if (
+      error instanceof ClipsActionError &&
+      error.status === 404 &&
+      error.code === "recording_context_not_found"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function listRecordingContext(
   target: ClipsActionTarget,
   recordingId: string,
 ): Promise<RecordingContextItem[]> {
-  const result = await callClipsActionFor<{ items: RecordingContextItem[] }>(
-    target,
-    "list-recording-context",
-    { recordingId },
-    { method: "GET" },
-  );
+  const result = await callLookbackActionFor<{
+    items: RecordingContextItem[];
+  }>(target, "list-recording-context", { recordingId }, { method: "GET" });
   return result.items;
 }
 
@@ -110,22 +251,30 @@ export async function getRecordingContextItem(
 // another device captured.
 export async function listPendingRecordingContext(
   target: ClipsActionTarget,
-  input: { deviceId: string; excludeIds?: string[] },
-): Promise<RecordingContextItem[]> {
-  const result = await callClipsActionFor<{ items: RecordingContextItem[] }>(
+  input: {
+    deviceId: string;
+    excludeIds?: string[];
+    cursor?: PendingRecordingContextCursor | null;
+  },
+): Promise<PendingRecordingContextPage> {
+  return callLookbackActionFor<PendingRecordingContextPage>(
     target,
     "list-pending-recording-context",
-    { deviceId: input.deviceId, excludeIds: input.excludeIds },
+    {
+      deviceId: input.deviceId,
+      excludeIds: input.excludeIds,
+      afterCreatedAt: input.cursor?.afterCreatedAt,
+      afterId: input.cursor?.afterId,
+    },
     { method: "GET" },
   );
-  return result.items;
 }
 
 export function updateRecordingContext(
   target: ClipsActionTarget,
   input: RecordingContextUpdate,
 ): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
+  return callLookbackActionFor<RecordingContextItem>(
     target,
     "update-recording-context",
     input,
@@ -136,7 +285,7 @@ export function setRecordingContextWindow(
   target: ClipsActionTarget,
   input: { id: string; startedAt: string; endedAt: string },
 ): Promise<RecordingContextItem> {
-  return callClipsActionFor<RecordingContextItem>(
+  return callLookbackActionFor<RecordingContextItem>(
     target,
     "set-recording-context-window",
     input,

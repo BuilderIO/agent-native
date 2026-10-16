@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "O que é isto?",
     off: "Desativado",
     none: "Nenhum",
+    noneExplanation:
+      "“Nenhum” significa que novos Clips não incluirão o tempo de tela anterior. O Rewind continuará gravando sua tela enquanto estiver ligado. Selecione “Desativar” abaixo para parar.",
     custom: "Personalizado…",
     customLabel: "Duração personalizada",
     customAmount: "Duração",
@@ -33,13 +35,13 @@ const messages = {
       "Não foi possível acessar o armazenamento do Rewind. Confira o espaço em disco e as permissões da pasta e tente novamente.",
     rewindConsentTitle: "Ativar o Rewind?",
     rewindConsentBody:
-      "O Clips gravará sua tela continuamente e a manterá neste dispositivo. Os agentes recebem trechos de texto, e o vídeo só é compartilhado quando você aprova.",
+      "Enquanto o Rewind estiver ativado, o Clips grava a tela continuamente e mantém o histórico recente neste dispositivo até atingir o limite de tempo ou de armazenamento escolhido. Escolha “Tela + áudio” para gravar também o microfone e o áudio do sistema. Agentes conectados podem acessar imagens da tela diretamente, sem uma aprovação do Clips; o uso posterior depende do agente. O período de tela anterior escolhido é adicionado automaticamente a cada novo Clip, seguindo as configurações de compartilhamento dele. Por padrão, pedidos para compartilhar um intervalo selecionado como Clip são revisados antes do envio. Desative a revisão antes do envio nas configurações do Rewind para enviar esses pedidos automaticamente. Um Clip pode incluir áudio capturado do microfone e do sistema. Desativar o Rewind interrompe novas gravações, mas mantém o histórico salvo. Enquanto o Rewind estiver desativado, o histórico pode ultrapassar os limites de tempo ou armazenamento até a gravação recomeçar. Escolha “Excluir tudo” para apagá-lo agora.",
     rewindConsentCancel: "Agora não",
     rewindConsentConfirm: "Ativar o Rewind",
     rewindConsentBusy: "Ativando o Rewind…",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
-      "Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.",
+      "Para incluir tempo de tela anterior, ative primeiro o Rewind. Enquanto o Rewind estiver ativado, ele mantém o histórico recente da tela neste dispositivo dentro dos limites de tempo e armazenamento escolhidos. Quando estiver desativado, o histórico salvo pode ultrapassar esses limites até a gravação recomeçar. Para apagá-lo agora, abra Settings > Rewind > Storage > On this device e escolha Delete all. Por padrão, os pedidos para compartilhar um intervalo como Clip são revisados antes do envio, a menos que você desative essa revisão nas configurações do Rewind.",
     requestFailed:
       "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
     localOnlyUnavailable:
@@ -647,6 +649,33 @@ const messages = {
     waiting: "Esperando…",
     nativeSpeechPrimary:
       "A fala nativa continua sendo a principal fonte de transcrição.",
+  },
+  transcriptImport: {
+    addFile: "Adicionar arquivo de transcrição",
+    imported: "Importada",
+    replaceTitle: "Substituir a transcrição?",
+    replaceDescription: "{{fileName}} substituirá a transcrição atual.",
+    replace: "Substituir",
+    regenerateOverImportTitle: "Substituir a transcrição importada?",
+    regenerateOverImportDescription:
+      "Uma nova transcrição feita a partir do áudio da gravação substituirá a importada de um arquivo.",
+    added: "Transcrição adicionada",
+    replaced: "Transcrição substituída",
+    failed: "Não foi possível adicionar a transcrição",
+    invalidFile: "Não foi possível ler {{fileName}}",
+    errorEmpty: "O arquivo não tem texto de transcrição.",
+    errorTooLarge: "O arquivo é grande demais para importar.",
+    errorNotUtf8:
+      "O arquivo não está em texto UTF-8. Salve-o como UTF-8 e tente novamente.",
+    errorMissingTiming:
+      "Linha {{line}}: era esperada uma linha de tempo da legenda como 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "Linha {{line}}: não foi possível ler o tempo da legenda.",
+    errorBadRange: "Linha {{line}}: a legenda termina antes de começar.",
+    errorMissingTimestamp:
+      "Linha {{line}}: era esperado um horário de início como 0:21 ou [0:21].",
+    errorOutOfOrder:
+      "Linha {{line}}: este horário vem antes do horário anterior.",
+    errorPastEnd: "Linha {{line}}: este horário é posterior ao fim do vídeo.",
   },
   thumbnailPicker: {
     failedCapture: "Falha ao capturar o quadro",
@@ -1598,6 +1627,8 @@ const messages = {
       "Peça a um proprietário ou administrador para conectar o Builder.io com permissão para enviar clipes.",
     statusUnavailable:
       "Não foi possível verificar se o armazenamento de vídeo está pronto.",
+    hostedStorageUnavailable:
+      "O armazenamento hospedado do Clips está temporariamente indisponível. Sua cota gratuita de clipes não mudou; tente enviar novamente mais tarde.",
     checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
       "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",
@@ -1892,6 +1923,19 @@ const messages = {
     validWebUrl: "Insira um endereço http:// ou https:// válido.",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} clipe grátis restante",
+    freeClipsLeft_other: "{{count}} clipes grátis restantes",
+    freeClipsLeft_many: "{{count}} clipes grátis restantes",
+    hostedClipsExhaustedTitle:
+      "Conecte o Builder.io gratuitamente para continuar gravando",
+    hostedClipsExhaustedDescription:
+      "Você já usou todos os clipes hospedados gratuitos. Conecte o armazenamento do Builder.io para continuar salvando clipes na sua biblioteca.",
+    clipExceedsSizeLimit:
+      "Este clipe excede o limite atual de tamanho de envio.",
+    clipExceedsMaxDuration:
+      "Este clipe excede o limite atual de duração da gravação.",
+    maxClipDurationReached:
+      "O clipe atingiu a duração máxima. Salvando a gravação.",
     pageTitle: "New recording — Clips",
     uploadFailed: "Upload failed",
     uploadFailedAtChunk:
@@ -2128,6 +2172,10 @@ const messages = {
     vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "O armazenamento hospedado do Clips está cheio. Conecte o armazenamento do Builder.io para continuar salvando clipes.",
+    hostedRecordingTakenDown:
+      "Esta gravação foi removida do armazenamento hospedado do Clips.",
     splitAtPlayhead: "Dividir no cursor (S)",
     selectedCount: "{{count}} selecionados",
     selectAll: "Selecionar tudo",
@@ -2159,6 +2207,7 @@ const messages = {
     viewsCount: "{{count}} visualizações",
     recordingMenu: "Menu da gravação",
     moveToFolder: "Mover para pasta",
+    moveHere: "Mover para cá",
     unarchive: "Desarquivar",
     shareNamedMeeting: 'Compartilhar "{{title}}"',
     shareMeeting: "Compartilhar reunião",

@@ -24,7 +24,10 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
-import { isMediaKeyboardEvent } from "@/lib/slide-video";
+import {
+  isInteractiveKeyboardEvent,
+  isMediaKeyboardEvent,
+} from "@/lib/slide-video";
 import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
@@ -32,6 +35,7 @@ import { normalizeSlideTransition } from "../../../shared/slide-transitions";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
 import {
   annotateBuildSteps,
+  buildClickCount,
   findBuildStepElements,
   getBuildSteps,
   hasBuildSteps,
@@ -173,7 +177,7 @@ export default function PresentationView({
   }, [allBuildSteps, safeSlides]);
   const layout = useMemo<SlideNavigationLayout>(
     () => ({
-      stepCounts: allBuildSteps.map((build) => build.steps.length),
+      stepCounts: allBuildSteps.map((build) => buildClickCount(build.steps)),
       transitions: safeSlides.map((slide) =>
         normalizeSlideTransition(slide.transition),
       ),
@@ -376,7 +380,11 @@ export default function PresentationView({
   // The outgoing layer of a transition shows the slide fully built.
   const outgoingSlide = useMemo(
     () =>
-      annotateBuildSteps(currentSlide, currentSteps, currentSteps?.length ?? 0),
+      annotateBuildSteps(
+        currentSlide,
+        currentSteps,
+        buildClickCount(currentSteps),
+      ),
     [currentSlide, currentSteps],
   );
 
@@ -497,7 +505,7 @@ export default function PresentationView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (isMediaKeyboardEvent(e)) return;
+      if (isMediaKeyboardEvent(e) || isInteractiveKeyboardEvent(e)) return;
       // A held key auto-repeats keydown with repeat=true. Each one would step
       // again, so one physical press could advance two or more slides.
       if (e.repeat) return;

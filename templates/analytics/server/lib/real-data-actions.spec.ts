@@ -1,3 +1,4 @@
+import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -209,6 +210,76 @@ describe("analytics data request classification", () => {
       "i want a recurring job this is the .yml file",
     );
     expect(looksLikeAnalyticsDataRequest(text)).toBe(false);
+  });
+
+  it("ignores chat context items unless an app sends the request as REAL_DATA_REQUIRED context", () => {
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+    const ask = "Hide the setup incident on Setup completions per day.";
+    const onDashboard = appendAgentChatContextToMessage(ask, dashboardItem);
+
+    expect(stripInjectedAnalyticsGuardContext(onDashboard)).toBe(ask);
+    expect(looksLikeDashboardConstructionRequest(onDashboard)).toBe(false);
+    expect(
+      isTrivialTurn(appendAgentChatContextToMessage("thanks!", dashboardItem)),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        appendAgentChatContextToMessage(
+          "Signups by source",
+          "The user wants to create a new analytics dashboard. REAL_DATA_REQUIRED: query before presenting numbers.",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps context markup the user typed in the request and drops only the app's block", () => {
+    const ask = "<context>How many signups did we get last week?</context>";
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+
+    for (const typed of [
+      ask,
+      "Wrap it in <context> tags: how many signups did we get last week?",
+    ]) {
+      expect(stripInjectedAnalyticsGuardContext(typed)).toBe(typed);
+      expect(isNonDataTurn(typed)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(typed)).toBe(true);
+    }
+    expect(
+      stripInjectedAnalyticsGuardContext(
+        appendAgentChatContextToMessage(ask, dashboardItem),
+      ),
+    ).toBe(ask);
+  });
+
+  it("reads only the REAL_DATA_REQUIRED item when it shares the composer's context block", () => {
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+    const panelItem =
+      '## Active app context\nThe user wants to add a new panel to SQL dashboard "product-signups". REAL_DATA_REQUIRED: query before presenting numbers.';
+    const ask = "Signups by plan";
+    const staged = appendAgentChatContextToMessage(
+      ask,
+      `${dashboardItem}\n\n${panelItem}`,
+    );
+
+    expect(stripInjectedAnalyticsGuardContext(staged)).toBe(
+      `${ask}\n\n${panelItem}`,
+    );
+    expect(looksLikeDashboardConstructionRequest(staged)).toBe(false);
+  });
+
+  it("keeps the whole REAL_DATA_REQUIRED context an app sends, including its own headings", () => {
+    const rerun =
+      "This is a re-run of a legacy saved analysis. REAL_DATA_REQUIRED: query before saving.\n\nInstructions:\n\n## Steps\nCount signups by plan.";
+    const ask = "Re-run Signups by plan";
+
+    expect(
+      stripInjectedAnalyticsGuardContext(
+        appendAgentChatContextToMessage(ask, rerun),
+      ),
+    ).toBe(`${ask}\n\n${rerun}`);
   });
 
   it("does not treat GitHub Actions workflow migrations as analytics requests", () => {

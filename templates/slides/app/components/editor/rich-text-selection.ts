@@ -81,6 +81,27 @@ function stylePatchEntries(patch: InlineTextStylePatch) {
   });
 }
 
+// An empty value clears an override on the whole element, but on a partial
+// selection the surrounding spans still apply, so the selection is reset to
+// the neutral value instead.
+const NEUTRAL_INLINE_STYLE: InlineTextStylePatch = {
+  fontWeight: "400",
+  fontStyle: "normal",
+  textDecoration: "none",
+};
+
+export function selectionClearingPatch(
+  patch: InlineTextStylePatch,
+): InlineTextStylePatch {
+  return Object.fromEntries(
+    Object.entries(patch).flatMap(([key, value]) => {
+      if (value !== "") return [[key, value]];
+      const neutral = NEUTRAL_INLINE_STYLE[key as keyof InlineTextStylePatch];
+      return neutral ? [[key, neutral]] : [];
+    }),
+  );
+}
+
 function applyPatch(element: HTMLElement, patch: InlineTextStylePatch) {
   for (const [key, value] of stylePatchEntries(patch)) {
     element.style.setProperty(CSS_PROPERTY_NAMES[key], value);

@@ -10,6 +10,7 @@ import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import {
@@ -36,6 +37,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
+import {
+  AGENT_RUN_MIGRATIONS,
+  AGENT_RUN_MIGRATIONS_TABLE,
+} from "./run-migrations.js";
 import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
@@ -372,6 +377,7 @@ export const agentRunsStore = defineStore({
         await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
       },
     },
+    ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
   ],
 });
 

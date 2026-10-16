@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "これは何ですか？",
     off: "オフ",
     none: "なし",
+    noneExplanation:
+      "「なし」は、新しいClipに録画前の画面を含めないという意味です。Rewindがオンの間は画面を録画し続けます。停止するには、下の「オフにする」を選択してください。",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",
@@ -34,13 +36,13 @@ const messages = {
       "Rewindの保存領域にアクセスできません。ディスクの空き容量とフォルダのアクセス権を確認して、もう一度お試しください。",
     rewindConsentTitle: "Rewindをオンにしますか？",
     rewindConsentBody:
-      "Clipsは画面を継続的に録画し、このデバイスに保存します。エージェントにはテキストの抜粋が提供され、動画は承認した場合にのみ共有されます。",
+      "Rewindがオンの間、Clipsは画面を継続的に録画し、選択した時間またはストレージの上限に達するまで最近の履歴をこのデバイスに保存します。「画面 + 音声」を選ぶと、マイクとシステム音声も録音します。接続したエージェントはClipsの承認なしで画面画像に直接アクセスできます。その後の画像の扱いはエージェントによって異なります。設定した以前の画面時間は新しいClipごとに自動で追加され、そのClipの共有設定が適用されます。選択した時間をClipとして共有するリクエストは、既定で送信前に確認されます。Rewind設定で送信前の確認をオフにすると、リクエストは自動送信されます。Clipには録音済みのマイク音声やシステム音声が含まれることがあります。Rewindをオフにすると新しい録画は停止しますが、保存済みの履歴は残ります。オフの間、履歴は時間またはストレージの上限を超えて残ることがあり、録画を再開すると上限が適用されます。「すべて削除」を選ぶと今すぐ履歴を消去できます。",
     rewindConsentCancel: "今はしない",
     rewindConsentConfirm: "Rewindをオンにする",
     rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
-      "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
+      "以前の画面を含めるには、まずRewindをオンにしてください。Rewindがオンの間は、このデバイスに最近の画面履歴を保存し、時間とストレージの上限に合わせて整理します。Rewindがオフの間は、録画が再開されるまで履歴が上限を超えて残ることがあります。今すぐ削除するには、Settings > Rewind > Storage > On this deviceを開き、Delete allを選んでください。Clipの共有リクエストは既定で送信前に確認されますが、Rewind設定で送信前の確認をオフにすると自動送信されます。",
     requestFailed:
       "録画前の画面を含められませんでした。録画はそのまま続きます。",
     localOnlyUnavailable:
@@ -646,6 +648,34 @@ const messages = {
     groqKeysStart: "Groq キーは次で始まります",
     waiting: "待っている…",
     nativeSpeechPrimary: "ネイティブ音声が引き続き主な文字起こしソースです。",
+  },
+  transcriptImport: {
+    addFile: "トランスクリプトファイルを追加",
+    imported: "インポート済み",
+    replaceTitle: "トランスクリプトを置き換えますか？",
+    replaceDescription:
+      "{{fileName}} で現在のトランスクリプトが置き換えられます。",
+    replace: "置き換える",
+    regenerateOverImportTitle:
+      "インポートしたトランスクリプトを置き換えますか？",
+    regenerateOverImportDescription:
+      "録画の音声から作成した新しいトランスクリプトで、ファイルからインポートしたものが置き換えられます。",
+    added: "トランスクリプトを追加しました",
+    replaced: "トランスクリプトを置き換えました",
+    failed: "トランスクリプトを追加できませんでした",
+    invalidFile: "{{fileName}} を読み取れませんでした",
+    errorEmpty: "ファイルにトランスクリプトのテキストがありません。",
+    errorTooLarge: "ファイルが大きすぎるためインポートできません。",
+    errorNotUtf8:
+      "ファイルが UTF-8 のテキストではありません。UTF-8 で保存してから、もう一度お試しください。",
+    errorMissingTiming:
+      "{{line}} 行目: 00:00:01.000 --> 00:00:04.000 のような字幕のタイミング行が必要です。",
+    errorBadTiming: "{{line}} 行目: 字幕のタイミングを読み取れませんでした。",
+    errorBadRange: "{{line}} 行目: 字幕が開始前に終了しています。",
+    errorMissingTimestamp:
+      "{{line}} 行目: 0:21 や [0:21] のような開始時刻が必要です。",
+    errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
+    errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
   },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
@@ -1586,6 +1616,8 @@ const messages = {
     builderGrantAskAdmin:
       "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
     statusUnavailable: "動画ストレージの状態を確認できませんでした。",
+    hostedStorageUnavailable:
+      "Clips のホストストレージは一時的に利用できません。無料クリップの残り枠は変わりません。時間をおいて再度アップロードしてください。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
@@ -1884,6 +1916,16 @@ const messages = {
     validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
+    freeClipsLeft_one: "無料クリップの残り {{count}} 本",
+    freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
+    hostedClipsExhaustedDescription:
+      "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
+    clipExceedsSizeLimit:
+      "このクリップは現在のアップロード容量制限を超えています。",
+    clipExceedsMaxDuration: "このクリップは現在の録画時間制限を超えています。",
+    maxClipDurationReached:
+      "クリップの最大時間に達しました。録画を保存しています。",
     pageTitle: "New recording — Clips (ローカライズ済み)",
     uploadFailed: "Upload failed (ローカライズ済み)",
     uploadFailedAtChunk:
@@ -2127,6 +2169,10 @@ const messages = {
     vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips のホストストレージがいっぱいです。クリップを保存し続けるには Builder.io ストレージを接続してください。",
+    hostedRecordingTakenDown:
+      "この録画は Clips のホストストレージから削除されました。",
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
     selectAll: "すべて選択",
@@ -2157,6 +2203,7 @@ const messages = {
     viewsCount: "{{count}} 回表示",
     recordingMenu: "録画メニュー",
     moveToFolder: "フォルダーに移動",
+    moveHere: "ここに移動",
     unarchive: "アーカイブ解除",
     shareNamedMeeting: "「{{title}}」を共有",
     shareMeeting: "会議を共有",

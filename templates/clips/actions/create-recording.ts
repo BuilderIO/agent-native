@@ -1,6 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
+import { captureError } from "@agent-native/core/server";
+import { getRequestContext } from "@agent-native/core/server/request-context";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { eq } from "drizzle-orm";
@@ -9,6 +10,7 @@ import { createError } from "h3";
 import { getDb, schema } from "../server/db/index.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
+  hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
   trackRecordingFailure,
   type RecordingFailureCode,
@@ -21,21 +23,33 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { setResumableSession } from "../server/lib/resumable-session.js";
+import {
+  deleteResumableSession,
+  setResumableSession,
+  type StoredResumableSession,
+} from "../server/lib/resumable-session.js";
+import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
+import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
+  HOSTED_STORAGE_UNAVAILABLE_REASON,
+  releaseHostedClipRecording,
+  resolveClipsVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
 import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
 
 /** The `sourceAppName` the native mobile app (packages/mobile-app) sends. */
 const MOBILE_APP_SOURCE_NAME = "Agent-Native Mobile";
-import { validateRecordingScope } from "./lib/recording-scope.js";
 
-export function classifyInitialUploadFailure(error: unknown): {
+export function classifyInitialUploadFailure(
+  error: unknown,
+  options: { storageMode?: "own" | "hosted" } = {},
+): {
   failureCode: RecordingFailureCode;
   failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
@@ -64,6 +78,8 @@ export function classifyInitialUploadFailure(error: unknown): {
     (messageStatus ? Number(messageStatus) : undefined);
   const httpStatus =
     status && status >= 100 && status <= 599 ? status : undefined;
+  const hostedAuthFailure =
+    options.storageMode === "hosted" ? hostedStorageAuthFailure(error) : null;
   const failureStage =
     details.failureStage === "multipart_start" ||
     details.failureStage === "chunk_upload" ||
@@ -71,6 +87,15 @@ export function classifyInitialUploadFailure(error: unknown): {
       ? details.failureStage
       : "multipart_start";
   const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  if (hostedAuthFailure) {
+    return {
+      failureCode: "hosted_storage_unavailable",
+      failureStage,
+      ...(hostedAuthFailure.status
+        ? { httpStatus: hostedAuthFailure.status }
+        : {}),
+    };
+  }
   // A nested signed-URL response does not mean the account needs reauthorization.
   const storageSetupRequired =
     failureCode === "storage_setup_required" ||
@@ -146,29 +171,67 @@ export default defineAction({
 
     await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
-    await db.insert(schema.recordings).values({
-      id,
-      organizationId,
-      orgId: organizationId,
-      folderId: args.folderId ?? null,
-      spaceIds: stringifySpaceIds(spaceIds),
-      title,
-      titleSource,
-      sourceAppName: args.sourceAppName?.trim() || null,
-      recordingPlatform: recordingPlatform ?? "unknown",
-      sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
-      status: "uploading",
-      uploadProgress: 0,
-      uploadLeaseExpiresAt: uploadLeaseExpiry(),
-      hasAudio: args.hasAudio ?? true,
-      hasCamera: args.hasCamera ?? false,
-      visibility,
-      width: args.width ?? 0,
-      height: args.height ?? 0,
-      ownerEmail,
-      createdAt: now,
-      updatedAt: now,
+    const storage = await resolveClipsVideoStorage({
+      intent: "new",
+      recordingId: id,
+      email: ownerEmail,
+      requestHeaders: actionContext?.requestHeaders,
     });
+    if (storage.mode === "none") {
+      fail(STORAGE_SETUP_REQUIRED_REASON, {
+        errorCode: storage.denyReason ?? "storage_setup_required",
+        statusCode: storage.denyReason === "exhausted" ? 402 : 403,
+        details: storage.denyReason ? { denyReason: storage.denyReason } : {},
+      });
+    }
+    const storageMode = storage.mode;
+    const hostedUserId = getRequestContext()?.authUserId;
+    const releaseHostedReservation = async () => {
+      if (storageMode !== "hosted" || storage.reservationCreated === false)
+        return;
+      if (!hostedUserId) {
+        // guard:allow-bare-error — invariant: hosted mode is only returned after reserving against the authenticated user's stable id.
+        throw new Error(
+          "Hosted Clips reservation is missing its authenticated user id.",
+        );
+      }
+      await releaseHostedClipRecording({
+        recordingId: id,
+        userId: hostedUserId,
+      });
+    };
+    const maxUploadBytes =
+      storage.mode === "hosted" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
+
+    try {
+      await db.insert(schema.recordings).values({
+        id,
+        organizationId,
+        orgId: organizationId,
+        folderId: args.folderId ?? null,
+        spaceIds: stringifySpaceIds(spaceIds),
+        title,
+        titleSource,
+        sourceAppName: args.sourceAppName?.trim() || null,
+        recordingPlatform: recordingPlatform ?? "unknown",
+        sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
+        status: "uploading",
+        uploadProgress: 0,
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+        hasAudio: args.hasAudio ?? true,
+        hasCamera: args.hasCamera ?? false,
+        visibility,
+        width: args.width ?? 0,
+        height: args.height ?? 0,
+        ownerEmail,
+        storageMode,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (error) {
+      await releaseHostedReservation();
+      throw error;
+    }
 
     trackRecordingCreated({
       recordingId: id,
@@ -188,18 +251,32 @@ export default defineAction({
       hasCamera: args.hasCamera ?? false,
     });
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    await writeAppState(`recording-upload-${id}`, {
-      recordingId: id,
-      status: "uploading",
-      progress: 0,
-      startedAt: now,
-    });
+    try {
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState(`recording-upload-${id}`, {
+        recordingId: id,
+        status: "uploading",
+        progress: 0,
+        startedAt: now,
+      });
+    } catch (error) {
+      await releaseHostedReservation();
+      await db
+        .update(schema.recordings)
+        .set({
+          status: "failed",
+          failureCode: "upload_state_initialization_failed",
+          failureReason: "Recording upload state could not be initialized.",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.recordings.id, id));
+      throw error;
+    }
 
     console.log(`Created recording "${title}" (${id})`);
 
     let uploadMode: UploadMode = "buffered";
-    const uploadProvider = await getActiveFileUploadProviderForRequest();
+    const uploadProvider = storage.provider;
     const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
     const streamingEnabled = shouldEnableStreamingUpload({
       client: args.streamingUploadClient,
@@ -213,6 +290,7 @@ export default defineAction({
       failure: ReturnType<typeof classifyInitialUploadFailure> = {
         failureCode: "storage_setup_required",
       },
+      reservationCleanupConfirmed = true,
     ): Promise<never> => {
       const failedAt = new Date().toISOString();
       await db
@@ -224,6 +302,14 @@ export default defineAction({
           updatedAt: failedAt,
         })
         .where(eq(schema.recordings.id, id));
+      if (reservationCleanupConfirmed) {
+        await releaseHostedReservation();
+      } else if (storageMode === "hosted") {
+        console.error(
+          "[create-recording] hosted allowance remains reserved because upload cleanup was not confirmed",
+          { recordingId: id },
+        );
+      }
       trackRecordingFailure({
         recordingId: id,
         userId: ownerEmail,
@@ -241,7 +327,10 @@ export default defineAction({
       throw createError({
         statusCode: 503,
         statusMessage: reason,
-        data: { retryable: failure.failureCode !== "storage_setup_required" },
+        data: {
+          errorCode: failure.failureCode,
+          retryable: failure.failureCode !== "storage_setup_required",
+        },
       });
     };
 
@@ -257,6 +346,7 @@ export default defineAction({
       (args.requestStreaming === true || streamingRequired) &&
       uploadProvider?.resumable
     ) {
+      let startedSession: StoredResumableSession | null = null;
       try {
         const recordingMimeType =
           args.mimeType?.split(";")[0]?.trim() || "video/webm";
@@ -268,9 +358,9 @@ export default defineAction({
         const session = await uploadProvider.resumable.startSession(
           filename,
           recordingMimeType,
-          MAX_UPLOAD_BYTES,
+          maxUploadBytes,
         );
-        await setResumableSession(id, {
+        startedSession = {
           providerId: uploadProvider.id,
           sessionId: session.sessionId,
           meta: {
@@ -280,7 +370,8 @@ export default defineAction({
           },
           bytesUploaded: 0,
           lastCommittedIndex: -1,
-        });
+        };
+        await setResumableSession(id, startedSession);
         uploadMode = "streaming";
         console.log(
           `[create-recording] resumable session ready for ${id}: provider=${uploadProvider.id}`,
@@ -288,11 +379,58 @@ export default defineAction({
       } catch (err) {
         if (streamingRequired) {
           const reason = err instanceof Error ? err.message.trim() : "";
+          const cleanupConfirmed = startedSession
+            ? await abortResumableUploadSession(startedSession, {
+                provider: uploadProvider,
+                label: "create-recording",
+              })
+            : err instanceof S3MultipartStartError ||
+              /credentials are not configured/i.test(reason);
+          if (startedSession && cleanupConfirmed) {
+            await deleteResumableSession(id).catch((cleanupError: unknown) => {
+              console.warn(
+                "[create-recording] could not clear aborted resumable state:",
+                cleanupError instanceof Error
+                  ? cleanupError.message
+                  : String(cleanupError),
+              );
+            });
+          }
+          if (!cleanupConfirmed) {
+            console.error(
+              "[create-recording] could not confirm resumable upload cleanup",
+              { recordingId: id },
+            );
+          }
+          const failure = classifyInitialUploadFailure(err, { storageMode });
+          if (failure.failureCode === "hosted_storage_unavailable") {
+            try {
+              captureError(err, {
+                route: "/_agent-native/actions/create-recording",
+                errorMessagePolicy: "omit",
+                tags: {
+                  area: "clips-storage",
+                  source: "clips-hosted-storage",
+                  storageMode: "hosted",
+                  errorCode: "hosted_storage_unavailable",
+                  reportExpected: "true",
+                  ...(failure.httpStatus
+                    ? { providerStatus: String(failure.httpStatus) }
+                    : {}),
+                },
+              });
+            } catch {
+              // Error reporting must not mask the upload failure.
+            }
+          }
           await failUploadSetup(
-            reason
-              ? `Video storage could not start an upload: ${reason}`
-              : "Video storage could not start a resumable upload session. Refresh and try again.",
-            classifyInitialUploadFailure(err),
+            failure.failureCode === "hosted_storage_unavailable"
+              ? HOSTED_STORAGE_UNAVAILABLE_REASON
+              : reason
+                ? `Video storage could not start an upload: ${reason}`
+                : "Video storage could not start a resumable upload session. Refresh and try again.",
+            failure,
+            cleanupConfirmed,
           );
         }
         console.warn(
@@ -310,6 +448,10 @@ export default defineAction({
       abortUrl: `/api/uploads/${id}/abort`,
       uploadChunkUrlTemplate: `/api/uploads/${id}/chunk?index={index}&total={total}&isFinal={isFinal}`,
       uploadMode,
+      // Hosted-only per-take cap; the mode was decided above, so recorders
+      // need not trust a stale storage probe. Own storage is uncapped.
+      maxClipDurationMs:
+        storageMode === "hosted" ? storage.maxClipDurationMs : null,
     };
   },
 });

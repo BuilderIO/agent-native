@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.209.1",
+  "version": "0.209.2",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -25,6 +25,7 @@
     "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
+    "third-party-licenses",
     "src/eject",
     "src/integrations/eject",
     "src/assets/fonts/LICENSE_*",

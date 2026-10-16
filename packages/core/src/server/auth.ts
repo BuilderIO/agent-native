@@ -577,9 +577,17 @@ async function enrichLegacySessionIdentity(
       // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
       .catch(() => null);
   }
-  if (!existing) return session;
+  if (
+    !existing ||
+    existing.user.email.trim().toLowerCase() !==
+      session.email.trim().toLowerCase()
+  ) {
+    return session;
+  }
   return {
     ...session,
+    authUserId: session.authUserId ?? existing.user.id,
+    userId: session.userId ?? existing.user.id,
     ...(!session.name?.trim() && existing.user.name?.trim()
       ? { name: existing.user.name.trim() }
       : {}),
@@ -1201,14 +1209,25 @@ export async function getMcpOAuthBearerSession(
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
 
+  let identityVerificationUnavailableErrorClass:
+    | typeof import("../mcp/build-server.js").McpIdentityVerificationUnavailableError
+    | undefined;
+  let identityVerificationRefusedErrorClass:
+    | typeof import("../mcp/build-server.js").McpIdentityVerificationRefusedError
+    | undefined;
+  let connectUrl: string | undefined;
   try {
-    const [
-      { getMcpConnectUrl, getMcpOAuthAudiences },
-      { verifyAuth, resolveMcpIdentityOrgId },
-    ] = await Promise.all([
+    const [oauthRoute, mcp] = await Promise.all([
       import("../mcp/oauth-route.js"),
       import("../mcp/build-server.js"),
     ]);
+    connectUrl = oauthRoute.getMcpConnectUrl(event);
+    identityVerificationUnavailableErrorClass =
+      mcp.McpIdentityVerificationUnavailableError;
+    identityVerificationRefusedErrorClass =
+      mcp.McpIdentityVerificationRefusedError;
+    const { getMcpOAuthAudiences } = oauthRoute;
+    const { verifyAuth, resolveMcpIdentityOrgId } = mcp;
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1220,11 +1239,7 @@ export async function getMcpOAuthBearerSession(
     }
     if (!result.authed) {
       if (result.refusal) {
-        markBearerCredentialRefused(
-          event,
-          result.refusal,
-          getMcpConnectUrl(event),
-        );
+        markBearerCredentialRefused(event, result.refusal, connectUrl);
       }
       return null;
     }
@@ -1248,6 +1263,20 @@ export async function getMcpOAuthBearerSession(
       ...(orgId ? { orgId } : {}),
     };
   } catch (e) {
+    if (
+      identityVerificationRefusedErrorClass &&
+      e instanceof identityVerificationRefusedErrorClass
+    ) {
+      markBearerCredentialRefused(event, "invalid", connectUrl);
+      return null;
+    }
+    if (
+      identityVerificationUnavailableErrorClass &&
+      e instanceof identityVerificationUnavailableErrorClass
+    ) {
+      markCredentialMembershipUnavailable(event);
+      return null;
+    }
     console.error("[auth] MCP OAuth bearer verification error:", e);
     return null;
   }

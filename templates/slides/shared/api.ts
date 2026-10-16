@@ -96,11 +96,19 @@ export interface SharedSlideAnimationIssue {
   code: SharedAnimationIssueCode;
 }
 
+export const ANIMATION_TRIGGERS = ["on-click", "with-previous"] as const;
+export type AnimationTrigger = (typeof ANIMATION_TRIGGERS)[number];
+
+export function isAnimationTrigger(value: unknown): value is AnimationTrigger {
+  return (ANIMATION_TRIGGERS as readonly unknown[]).includes(value);
+}
+
 export interface SharedSlideAnimation {
   id: string;
   elementIndex: number;
   elementPath?: number[];
   byParagraph?: boolean;
+  trigger?: AnimationTrigger;
   type: SharedAnimationType;
 }
 
@@ -185,6 +193,7 @@ function normalizeSlideAnimation(
   const type = rawType as SharedAnimationType;
   const byParagraph =
     typeof value.byParagraph === "boolean" ? value.byParagraph : undefined;
+  const trigger = isAnimationTrigger(value.trigger) ? value.trigger : undefined;
 
   const resolvedElementIndex = hasElementIndex
     ? rawElementIndex
@@ -196,6 +205,7 @@ function normalizeSlideAnimation(
       elementIndex: resolvedElementIndex,
       ...(elementPath ? { elementPath } : {}),
       ...(byParagraph !== undefined ? { byParagraph } : {}),
+      ...(trigger ? { trigger } : {}),
       type,
     },
   };

@@ -3,11 +3,22 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-16
+
+### Fixed
+
+- Shift-drag keeps selected screens, screen nudges stay with the canvas selection, and Code refreshes when reopened.
+
 ## 2026-10-15
 
 ### Added
 
 - External Design agents can delete screens when you ask them.
+
+### Fixed
+
+- Empty inspector section titles stay compact
+- Fixed local screen, account, and storage setup when route or connection data is unavailable.
 
 ## 2026-10-14
 
@@ -16,6 +27,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Design Motion keeps supported React and HTML motion edits in sync with their source code.
 - Motion can import supported inline CSS keyframes and round-trip them through the timeline editor.
 - Motion timeline duration fields support keyboard stepping
+- Text motion presets now include editable direction, grouping, order, overlap, and space handling.
 - Show Figma fidelity warnings in Home URL imports
 
 ### Fixed
@@ -28,6 +40,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Motion source editing now refuses targets with dynamic styles, Alpine transitions, or inline CSS motion declarations that cannot be synchronized safely
 - Screen undo keeps the original order, deselected Screens clear from Layers, and clipboard pastes preserve placement across responsive previews.
 - Selection stays precise in deeply nested layers, and pasted content keeps its size, styling, and editing history
+- Text animations preserve whitespace layout, punctuation, legacy timing, and outgoing easing
+- Text animation edits preserve collapsed whitespace and reset ordering when grouping changes
 
 ## 2026-10-13
 
@@ -46,6 +60,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Dropping a layer in the empty end of an auto-layout row of buttons keeps it in the row as the last item
+- Layers dropped onto another screen, or beside an auto-layout frame they don't fit, land where they are released instead of the screen's top-left corner
+- Moving a layer in the Layers panel, including from the board into a screen, keeps it where it sits on the canvas
 - Home prompt suggestions stay hidden until AI is connected
 - Undo reliably restores screen positions after repeated keyboard nudges
 - Comment pins no longer show in Interact mode or paint over the editor panels.

@@ -14,6 +14,10 @@ import {
   finalizeContrastAudit,
 } from "../shared/contrast-audit.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 import { getCurrentRequestBrowserTabId } from "./_tab-state.js";
 
 const AUDIT_TIMEOUT_MS = 60_000;
@@ -61,7 +65,7 @@ export default defineAction({
     };
     const designSystemId = resolveDeckDesignSystemId(access.resource, data);
     const designSystemAccess = designSystemId
-      ? await resolveAccess("design-system", designSystemId)
+      ? await readDeckLinkedDesignSystem(access.resource, designSystemId)
       : null;
     const slides = Array.isArray(data.slides) ? data.slides : [];
     const requestedSlideIds = slideIds ? new Set(slideIds) : undefined;
@@ -81,7 +85,13 @@ export default defineAction({
       deckId,
       {
         designSystemId,
-        designSystemData: designSystemAccess?.resource.data ?? null,
+        // The client renders what get-design-system returned, so the render
+        // key must hash the same projection a deck-only reader receives.
+        designSystemData: designSystemAccess
+          ? designSystemAccess.viaDeck
+            ? projectRenderingDesignSystemData(designSystemAccess.resource.data)
+            : (designSystemAccess.resource.data ?? null)
+          : null,
         tweaks: data.tweaks,
         aspectRatio: data.aspectRatio,
         slides,
