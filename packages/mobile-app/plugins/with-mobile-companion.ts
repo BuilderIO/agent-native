@@ -175,8 +175,8 @@ ${supportedUrls}
     )
   }
 `,
-    anchor: /^class ReactNativeDelegate: ExpoReactNativeFactoryDelegate \{$/m,
-    offset: -2,
+    anchor: /^  \/\/ Linking API$/m,
+    offset: 0,
     comment: "//",
   }).contents;
 }

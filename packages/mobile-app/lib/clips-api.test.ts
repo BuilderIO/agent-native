@@ -26,7 +26,7 @@ vi.mock("expo-file-system", () => ({
         set offset(value: number) {
           offset = value;
         },
-        async readBytes(length: number) {
+        readBytes(length: number) {
           offset += length;
           return new Uint8Array(length);
         },

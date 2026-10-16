@@ -254,13 +254,10 @@
   "pnpm": {
     "overrides": {
       "react": "19.2.7",
-      "@agent-native/mobile-app>react": "19.3.0",
       "react-dom": "19.2.7",
-      "@agent-native/mobile-app>react-dom": "19.3.0",
       "@tanstack/react-query": "5.101.2",
       "@radix-ui/react-dismissable-layer": "^1.1.19",
-      "@types/react": "~19.2.14",
-      "@agent-native/mobile-app>@types/react": "~19.3.0",
+      "@types/react": "^19.2.14",
       "@types/react-dom": "^19.2.3",
       "rollup": ">=4.59.0",
       "multer": ">=2.1.1",
@@ -275,7 +272,7 @@
       "glob": ">=10.5.0",
       "@anthropic-ai/sdk": ">=0.90.0",
       "hono": ">=4.12.4",
-      "@expo/dom-webview@<58.0.0": "57.0.1",
+      "@expo/dom-webview": "57.0.1",
       "shell-quote": "1.9.0"
     }
   }

@@ -8,9 +8,8 @@ JavaScript bundles for both platforms and compiles an Android debug APK on
 Linux. It does not publish artifacts or require store credentials.
 
 The iOS pull-request lane stops at the production bundle. The app now uses
-Expo 58.0.10 and React Native 0.88.0. An iOS native compile lane has not been
-added to CI. A local simulator build compiled the app and all four extensions
-and rendered the signed-out Chat screen on iPhone 18 Pro with iOS 27.0.
+Expo 57.0.29 and React Native 0.86.3, with an unsigned Simulator build verified
+locally using Xcode 27.1. An iOS native compile lane has not been added to CI.
 
 The pull-request check disables remote-push entitlements and Apple app
 extensions so forks and contributors can run it without signing access. Use an
@@ -20,12 +19,12 @@ physical device. See `IOS_RELEASE.md` for the iOS credential bootstrap.
 
 ## Local iOS auth harness
 
-Expo SDK 58 generates `SceneDelegate.swift` using `ExpoAppSceneDelegate` and
-starts React Native through the UIKit scene lifecycle. The SDK 57
-`ios.enableSceneSupport` opt-in is no longer needed.
-See [Expo's scene lifecycle guidance](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md).
-No app-owned JSI interface cleanup hook is configured. Do not patch
-`node_modules` or add a pnpm dependency patch.
+The production app stays on Expo SDK 57 and enables `ios.enableSceneSupport`
+through `expo-build-properties`. A fresh prebuild uses Expo's built-in
+`EXExpoAppSceneDelegate` and moves React Native startup out of `AppDelegate`.
+See [Expo's SDK 57 scene migration guidance](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md#staying-on-sdk-57-with-xcode-27).
+The updated upstream dependencies build without an app-owned JSI interface
+cleanup hook. Do not patch `node_modules` or add a pnpm dependency patch.
 
 Earlier local parent-session and workspace-app fanout checks used an isolated temporary Expo project. That harness used Expo `~53.0.27`, React Native `0.79.6`, `expo-secure-store ~14.0.1`, and `expo-web-browser ~14.0.2`. It copied only the mobile auth modules into the temporary project and left the production app unchanged.
 
