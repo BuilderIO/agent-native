@@ -2655,7 +2655,8 @@ function sendAgentNativeAnalytics(
     typeof properties.userId === "string" ? properties.userId : undefined;
   const sessionId = getOrCreateSessionId();
   const timestamp = new Date().toISOString();
-  whenVisitorIdDecided((anonymousId) =>
+  afterConsentDecision((decided) => {
+    const anonymousId = decided ? getOrCreateAnonymousId() : undefined;
     postAgentNativeAnalytics(
       endpoint,
       JSON.stringify({
@@ -2671,22 +2672,20 @@ function sendAgentNativeAnalytics(
         sessionId,
         timestamp,
       }),
-    ),
-  );
+    );
+  });
 }
 
 let eventsAwaitingRegion: ((decided: boolean) => void)[] | null = null;
 
 /**
- * Hold an event until the server says whether the visitor id may go with it,
- * so the time zone's guess never sends one. Leaving the page first sends what
- * is held without the id rather than dropping it.
+ * Hold an event until the visitor's choice or the server's region is known,
+ * so the time zone's guess never sends what consent covers: `decided` is
+ * false when the page closes first, and the event goes out without it.
  */
-function whenVisitorIdDecided(
-  send: (anonymousId: string | undefined) => void,
-): void {
+function afterConsentDecision(send: (decided: boolean) => void): void {
   if (consentDecision("performance") !== null) {
-    send(getOrCreateAnonymousId());
+    send(true);
     return;
   }
   if (!eventsAwaitingRegion) {
@@ -2702,9 +2701,7 @@ function whenVisitorIdDecided(
     window.addEventListener("pagehide", onPageHide);
     void resolveConsentRegion().then(() => release(true));
   }
-  eventsAwaitingRegion.push((decided) =>
-    send(decided ? getOrCreateAnonymousId() : undefined),
-  );
+  eventsAwaitingRegion.push(send);
 }
 
 function postAgentNativeAnalytics(endpoint: string, body: string): void {
@@ -2746,13 +2743,23 @@ function emitBrowserTrackingEvent(
     sendGtag = true,
   } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
-  if (sendGtag && consentDecision("performance") === true) {
-    const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
-    gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+  if (sendGtag) {
+    afterConsentDecision(() => {
+      if (consentDecision("performance") !== true) return;
+      const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
+      gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+    });
   }
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);
-  } else if (_amplitudeApiKey && _amplitudeConsent !== "revoked") {
+  } else if (
+    _amplitudeApiKey &&
+    // Only while it loads after an accept, or before the region is known;
+    // the region's answer clears what's held if the visitor must choose.
+    (_amplitudeConsent === "granted" ||
+      (_amplitudeConsent !== "revoked" &&
+        consentDecision("performance") === null))
+  ) {
     if (_pendingAmplitudeEvents.length < 100) {
       _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }

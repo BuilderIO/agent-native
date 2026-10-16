@@ -249,6 +249,40 @@ describe("onboarding funnel metrics", () => {
     ]);
   }, 20_000);
 
+  it("bridges no session that holds signups for two different emails", async () => {
+    await createEventsTable();
+    const unconsented = {
+      email: null,
+      anonymousId: null,
+      authUserId: null,
+      sessionId: "shared-session",
+    };
+    await insertEvent("auth.signup_viewed", "anon", {}, unconsented);
+    for (const email of ["ana@example.com", "ben@example.com"]) {
+      await insertEvent(
+        "signup",
+        email,
+        { signup_method: "email" },
+        {
+          email,
+          userKey: email,
+          anonymousId: null,
+          authUserId: null,
+          sessionId: "shared-session",
+        },
+      );
+    }
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(result.rows[0]).toMatchObject({
+      stage: "Signup page viewed",
+      users: 0,
+    });
+  }, 20_000);
+
   it("bridges legacy signup email cohorts to a later auth ID", async () => {
     await createEventsTable();
     const anonymous = {

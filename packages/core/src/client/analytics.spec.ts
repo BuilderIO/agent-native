@@ -1303,6 +1303,32 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.init).not.toHaveBeenCalled();
   });
 
+  it("sends Amplitude nothing from before the visitor accepts", async () => {
+    const { session } = installBrowser();
+    session.set("an_consent_region", "consent");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+    // An earlier page in this tab already knew the region.
+    await (await import("./consent.js")).resolveConsentRegion();
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    const { setConsentChoice } = await import("./consent.js");
+
+    trackEvent("before_consent", {});
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+    trackEvent("after_consent", {});
+
+    expect(amplitudeMock.init).toHaveBeenCalledTimes(1);
+    expect(amplitudeMock.track.mock.calls.map(([name]) => name)).toEqual([
+      "after_consent",
+    ]);
+  });
+
   it("leaves Amplitude off when a reject lands while it loads", async () => {
     const { session } = installBrowser();
     session.set("an_consent_region", "consent");
@@ -1500,6 +1526,25 @@ describe("browser analytics pageviews", () => {
       expect.objectContaining({ value: "isolated" }),
     );
     expect(gtag).not.toHaveBeenCalled();
+  });
+
+  it("sends Google events held for the region once it allows them", async () => {
+    const { gtag, session } = installBrowser();
+    session.clear();
+    installFetch();
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("custom_ga_event", { value: "held" });
+    expect(gtag).not.toHaveBeenCalled();
+
+    await vi.waitFor(() =>
+      expect(gtag).toHaveBeenCalledWith(
+        "event",
+        "custom_ga_event",
+        expect.objectContaining({ value: "held" }),
+      ),
+    );
   });
 
   it("uses the configured native client platform for every pageview", async () => {

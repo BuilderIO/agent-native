@@ -1039,7 +1039,14 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
     AND NULLIF(e.session_id, '') IS NOT NULL
   GROUP BY NULLIF(e.session_id, '')
+  -- A session with two signups can't say whose visit it was.
   HAVING COUNT(DISTINCT NULLIF(e.properties::jsonb ->> 'auth_user_id', '')) <= 1
+    AND COUNT(
+      DISTINCT CASE
+        WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id
+        WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key
+      END
+    ) <= 1
 ), raw_funnel_events AS (
   SELECT e.*,
     COALESCE(
