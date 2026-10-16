@@ -199,6 +199,14 @@ test("passes the pull request title to the change-scope guard", () => {
   );
 });
 
+test("runs CI for pull requests into any base branch", () => {
+  const triggers = readFileSync(".github/workflows/ci.yml", "utf8").split(
+    /^jobs:/mu,
+  )[0];
+  assert.match(triggers, /^ {2}pull_request:\s*$/mu);
+  assert.doesNotMatch(triggers, /^\s*branches(?:-ignore)?:/mu);
+});
+
 test("selects Slides caret CI for exact package roots and Creative Context", () => {
   const filtersFor = (path: string) =>
     JSON.stringify(workspaceFiltersForPaths([path]));
@@ -768,7 +776,19 @@ test("routes CSS style helper changes to its importing Design E2E specs", () => 
   assert.equal(scope.checks.design_canvas_core_regression, true);
   assert.equal(scope.checks.design_canvas_broad_workflows, true);
   assert.deepEqual(scope.designCanvasE2eSpecs, routedSpecs);
+  assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, routedSpecs);
   assert.equal(scope.designCanvasE2eSpecCount, routedSpecs.length);
+
+  const renamedSpec = "templates/design/e2e/renamed.spec.ts";
+  const withRename = classifyChangedPaths(
+    [helperPath, renamedSpec],
+    [renamedSpec],
+  );
+  assert.deepEqual(withRename.designCanvasE2eSpecs, [
+    ...routedSpecs,
+    renamedSpec,
+  ]);
+  assert.deepEqual(withRename.designCanvasE2eDiagnosticSpecs, routedSpecs);
 });
 
 test("Design core and broad selectors cover the same on/off/full inputs", () => {
@@ -1278,7 +1298,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.equal(
     DESIGN_E2E_REGRESSION_PINS.length,
-    84,
+    86,
     "the title manifest must retain every fixed regression pin",
   );
 });
@@ -2650,6 +2670,14 @@ test("still runs changed root script tests when the change set is full", () => {
   ]);
 });
 
+test("selects deploy alert regression when the canary workflow changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/deploy-canary.yml"]);
+
+  assert.deepEqual(scope.scriptTests, [
+    "scripts/deploy-alerts-workflow.test.ts",
+  ]);
+});
+
 test("runs the change-scope test when the selector or its test changes", () => {
   for (const path of [
     "scripts/ci-change-scope.ts",
@@ -2816,10 +2844,12 @@ test(
       for (const path of [
         "package.json",
         "scripts/ci-change-scope.test.ts",
+        "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
         "scripts/guard-no-unbounded-table-reads.test.ts",
+        "scripts/deploy-alerts-workflow.test.ts",
         "scripts/package-release-workflow.test.ts",
         "scripts/qa-deploy-paths-lib.ts",
         "scripts/design-e2e-regression-pins.ts",
@@ -2864,6 +2894,7 @@ test(
           "--experimental-strip-types",
           "--test",
           "scripts/ci-change-scope.test.ts",
+          "scripts/ci-change-scope-renames.test.ts",
           "scripts/ci-build-workspaces.test.ts",
         ],
         {

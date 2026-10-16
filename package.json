@@ -42,7 +42,7 @@
     "test:modal-layer-integrity": "tsx --test scripts/guard-modal-layer-integrity.test.ts",
     "test:no-untracked-imports": "tsx --test scripts/guard-no-untracked-imports.test.ts",
     "test:mobile-build-paths": "tsx --test scripts/guard-mobile-build-paths.test.ts",
-    "test:ci-change-scope": "tsx --test scripts/ci-change-scope.test.ts",
+    "test:ci-change-scope": "tsx --test scripts/ci-change-scope.test.ts scripts/ci-change-scope-renames.test.ts",
     "test:ci-red-report": "node --experimental-strip-types --test scripts/ci-red-report.test.ts",
     "test:guard-test-title-production": "node --experimental-strip-types --test scripts/guard-test-title-production.test.ts",
     "ci:red-report": "node --experimental-strip-types scripts/ci-red-report.ts",

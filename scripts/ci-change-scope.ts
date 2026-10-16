@@ -47,6 +47,12 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const RELATED_SCRIPT_TESTS = new Map([
+  [
+    ".github/workflows/deploy-canary.yml",
+    "scripts/deploy-alerts-workflow.test.ts",
+  ],
+]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",
 ]);
@@ -235,6 +241,7 @@ export type CheckSelection = Record<CheckName, boolean>;
 export type ChangeScope = {
   changedPaths: string[];
   designCanvasE2eSpecs: string[];
+  designCanvasE2eDiagnosticSpecs: string[];
   designCanvasE2eSpecCount: number;
   docsOnly: boolean;
   full: boolean;
@@ -347,6 +354,8 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
+    const relatedTest = RELATED_SCRIPT_TESTS.get(path);
+    if (relatedTest && fileExists(relatedTest)) tests.add(relatedTest);
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
       continue;
@@ -782,9 +791,15 @@ function buildChecks(
   };
 }
 
-export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
+export function classifyChangedPaths(
+  paths: readonly string[],
+  sameDirectoryPureDesignSpecRenames: readonly string[] = [],
+): ChangeScope {
   const changedPaths = paths.map(normalizeChangedPath);
   const nonDocsPaths = changedPaths.filter((path) => !isDocsPath(path));
+  const sameDirectoryPureDesignSpecRenameSet = new Set(
+    sameDirectoryPureDesignSpecRenames.map(normalizeChangedPath),
+  );
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
   const workspaceFilters = workspaceFiltersForPaths(changedPaths);
   const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
@@ -814,10 +829,14 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
       ),
     ),
   ].sort();
+  const changedDesignDiagnosticSpecs = changedDesignSpecs.filter(
+    (path) => !sameDirectoryPureDesignSpecRenameSet.has(path),
+  );
 
   return {
     changedPaths,
     designCanvasE2eSpecs: changedDesignSpecs,
+    designCanvasE2eDiagnosticSpecs: changedDesignDiagnosticSpecs,
     designCanvasE2eSpecCount: changedDesignSpecs.length,
     docsOnly,
     full,
@@ -832,15 +851,89 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
   };
 }
 
-export function readChangedPaths(baseSha: string, headSha: string): string[] {
+export function readChangedPaths(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
     {
       encoding: "utf8",
+      cwd,
     },
   );
   return output.split("\0").filter(Boolean);
+}
+
+export function readSameDirectoryPureDesignSpecRenames(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
+  const output = execFileSync(
+    "git",
+    [
+      "diff",
+      "--raw",
+      "--no-abbrev",
+      "--find-renames=100%",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
+    {
+      encoding: "utf8",
+      cwd,
+    },
+  );
+  const fields = output.split("\0");
+  const renamedSpecs: string[] = [];
+
+  for (let index = 0; index < fields.length - 1; ) {
+    const header = fields[index++];
+    const match =
+      /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d*)$/u.exec(header);
+    if (!match) {
+      throw new Error(`Unexpected git diff --raw record: ${header}`);
+    }
+
+    const [, oldMode, newMode, oldBlob, newBlob, status, score] = match;
+    const oldPath = fields[index++];
+    if (oldPath === undefined || oldPath === "") {
+      throw new Error("Missing old path in git diff --raw output");
+    }
+    if (status !== "R") continue;
+
+    const newPath = fields[index++];
+    if (newPath === undefined || newPath === "") {
+      throw new Error("Missing new path in git diff --raw rename output");
+    }
+
+    const normalizedOldPath = normalizeChangedPath(oldPath);
+    const normalizedNewPath = normalizeChangedPath(newPath);
+    const oldDirectory = normalizedOldPath.slice(
+      0,
+      normalizedOldPath.lastIndexOf("/"),
+    );
+    const newDirectory = normalizedNewPath.slice(
+      0,
+      normalizedNewPath.lastIndexOf("/"),
+    );
+
+    if (
+      score === "100" &&
+      oldMode === newMode &&
+      oldBlob === newBlob &&
+      oldDirectory === newDirectory &&
+      isDesignCanvasE2eSpecPath(normalizedOldPath) &&
+      isDesignCanvasE2eSpecPath(normalizedNewPath)
+    ) {
+      renamedSpecs.push(normalizedNewPath);
+    }
+  }
+
+  return renamedSpecs.sort();
 }
 
 function writeOutputs(scope: ChangeScope): void {
@@ -851,6 +944,7 @@ function writeOutputs(scope: ChangeScope): void {
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
+      `design_canvas_e2e_diagnostic_specs=${JSON.stringify(scope.designCanvasE2eDiagnosticSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
@@ -879,6 +973,7 @@ function writeOutputs(scope: ChangeScope): void {
         `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
         `- Design E2E changed spec files: **${scope.designCanvasE2eSpecCount}**`,
+        `- Design E2E diagnostic spec files: **${scope.designCanvasE2eDiagnosticSpecs.length}**`,
         ...(preview.length > 0
           ? [
               "",
@@ -903,6 +998,8 @@ function main(): void {
   }
 
   const changedPaths = readChangedPaths(baseSha, headSha);
+  const sameDirectoryPureDesignSpecRenames =
+    readSameDirectoryPureDesignSpecRenames(baseSha, headSha);
   const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
     process.env.CI_PR_TITLE ?? "",
     changedPaths,
@@ -916,7 +1013,10 @@ function main(): void {
     );
   }
 
-  const scope = classifyChangedPaths(changedPaths);
+  const scope = classifyChangedPaths(
+    changedPaths,
+    sameDirectoryPureDesignSpecRenames,
+  );
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);
 }

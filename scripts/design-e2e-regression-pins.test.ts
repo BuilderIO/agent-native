@@ -33,6 +33,18 @@ import {
 
 const REQUIRED_CORE_COVERAGE = [
   {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard repeat paste moves relative roots 16px under an RTL containing block",
+  },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves relative roots without an anchor across screens",
+  },
+  {
     shard: "inspector-3a",
     file: "canvas-chords.spec.ts",
     title: "Keyboard repeat paste preserves mixed positioned and flow roots",
@@ -302,7 +314,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 84);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 86);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,
