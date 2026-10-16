@@ -545,6 +545,43 @@ describe("output outcomes on Postgres", () => {
     expect(result.omittedOutputs).toEqual({ r1: 1 });
   });
 
+  it("caps and counts a recording's outputs across the sessions it observed", async () => {
+    const madeAt = (i: number) =>
+      new Date(Date.parse(MADE) + i * 60_000).toISOString();
+    const decks = (session: string) =>
+      Array.from({ length: 6 }, (_, i) => `${session}-deck-${i}`);
+    await ingest([
+      ...decks("s-a").map((deck, i) => made("s-a", deck, madeAt(i))),
+      ...decks("s-b").map((deck, i) => made("s-b", deck, madeAt(i + 6))),
+    ]);
+    // Only s-b's newest deck goes unused.
+    await ingest(
+      [...decks("s-a"), ...decks("s-b").slice(0, -1)].map((deck) =>
+        presented(deck, "2026-10-03T10:00:00.000Z"),
+      ),
+    );
+    await addRecording("r1", "s-a");
+    for (const sessionId of ["s-a", "s-b"]) {
+      await client.query(
+        `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+         VALUES ($1, 'r1', $2)`,
+        [`association-${sessionId}`, sessionId],
+      );
+    }
+
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r1"],
+      AFTER_WINDOW,
+    );
+    const listed = result.outputs.r1 ?? [];
+    expect(listed).toHaveLength(MAX_OUTPUTS_PER_RECORDING);
+    expect(listed.filter((output) => output.status === "unused")).toMatchObject(
+      [{ outputId: "s-b-deck-5" }],
+    );
+    expect(result.omittedOutputs).toEqual({ r1: 2 });
+  });
+
   it("skips decks made before output tracking began", async () => {
     await ingest([made("s1", "deck-1")], "2026-10-01T12:00:00.000Z");
     await addRecording("r1", "s1");
