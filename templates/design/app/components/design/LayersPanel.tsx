@@ -310,11 +310,9 @@ function beginIconToggleDrag(
     activeIconToggleDrag = null;
     window.removeEventListener("mouseup", clear);
     window.removeEventListener("blur", clear);
-    window.removeEventListener("pointercancel", clear);
   };
   window.addEventListener("mouseup", clear, { once: true });
   window.addEventListener("blur", clear, { once: true });
-  window.addEventListener("pointercancel", clear, { once: true });
 }
 
 // Row height, left inset and type size; the Tokens panel lays its rows out with
