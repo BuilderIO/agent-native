@@ -476,4 +476,15 @@ describe("desktop voice dictation runs", () => {
       expect.anything(),
     );
   });
+
+  it("hides the flow bar when dictation is disposed", async () => {
+    const started = await startDictation("auto");
+    dispose = started.dispose;
+    tauri.invoke.mockClear();
+
+    started.dispose();
+    dispose = undefined;
+
+    expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
+  });
 });

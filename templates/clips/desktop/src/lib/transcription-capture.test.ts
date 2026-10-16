@@ -196,7 +196,15 @@ describe("local recording transcription", () => {
     await capture?.cancel();
   });
 
-  it("ignores transcript callbacks from an earlier capture run after resume", async () => {
+  it("accepts pause-settling finals from an earlier run after resume", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        setTimeout: (callback: () => void, ms: number) =>
+          setTimeout(callback, ms),
+      },
+    });
     let onFinal:
       | ((event: {
           text: string;
@@ -240,21 +248,17 @@ describe("local recording transcription", () => {
       .calls[1][0].runId as number;
     expect(resumedRunId).toBeGreaterThan(firstRunId);
 
+    emitFinal(firstRunId, "late final");
+    await vi.advanceTimersByTimeAsync(1_501);
     emitFinal(firstRunId, "stale words");
     emitFinal(resumedRunId, "after resume");
 
-    vi.useFakeTimers();
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: {
-        setTimeout: (callback: () => void, ms: number) =>
-          setTimeout(callback, ms),
-      },
-    });
     const stopping = capture?.stop();
     await vi.advanceTimersByTimeAsync(1_500);
     const result = await stopping;
-    expect(result?.text).toBe("Me: before pause\n\nMe: after resume");
+    expect(result?.text).toBe(
+      "Me: before pause\n\nMe: late final\n\nMe: after resume",
+    );
   });
 
   it("keeps the timeline live when the native pause fails", async () => {

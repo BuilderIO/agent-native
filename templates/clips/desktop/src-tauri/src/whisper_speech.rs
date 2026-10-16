@@ -994,9 +994,10 @@ mod macos {
         owner: SessionOwner,
         run_id: u64,
     ) -> bool {
-        if authority
-            .latest_run_id
-            .is_some_and(|latest| latest > run_id)
+        if active_run_owner_conflict(authority, owner, run_id).is_some()
+            || authority
+                .latest_run_id
+                .is_some_and(|latest| latest > run_id)
             || (authority.latest_run_id == Some(run_id) && authority.latest_owner != Some(owner))
         {
             return false;
@@ -1426,6 +1427,9 @@ mod macos {
             Ok(latest) => latest,
             Err(poisoned) => poisoned.into_inner(),
         };
+        let mut slot = session_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(run_id) = run_id {
             if replace_older {
                 if latest.latest_run_id != Some(run_id)
@@ -1437,46 +1441,32 @@ mod macos {
                 let Some(owner) = owner.or(latest.latest_owner) else {
                     return;
                 };
+                if slot
+                    .as_ref()
+                    .is_some_and(|current| current.owner != owner || current.run_id != Some(run_id))
+                {
+                    return;
+                }
                 if !cancel_run_authority(&mut latest, owner, run_id) {
                     return;
                 }
             }
         }
-        let session = match session_slot().lock() {
-            Ok(mut slot) => {
-                if !slot.as_ref().is_some_and(|current| {
-                    owner.map_or(true, |owner| current.owner == owner)
-                        && match (run_id, current.run_id) {
-                            (Some(id), Some(current_id)) => {
-                                current_id == id || (replace_older && current_id < id)
-                            }
-                            (Some(_), None) => false,
-                            (None, _) => true,
-                        }
-                }) {
-                    None
-                } else {
-                    slot.take()
+        let session = if slot.as_ref().is_some_and(|current| {
+            owner.map_or(true, |owner| current.owner == owner)
+                && match (run_id, current.run_id) {
+                    (Some(id), Some(current_id)) => {
+                        current_id == id || (replace_older && current_id < id)
+                    }
+                    (Some(_), None) => false,
+                    (None, _) => true,
                 }
-            }
-            Err(poisoned) => {
-                let mut slot = poisoned.into_inner();
-                if !slot.as_ref().is_some_and(|current| {
-                    owner.map_or(true, |owner| current.owner == owner)
-                        && match (run_id, current.run_id) {
-                            (Some(id), Some(current_id)) => {
-                                current_id == id || (replace_older && current_id < id)
-                            }
-                            (Some(_), None) => false,
-                            (None, _) => true,
-                        }
-                }) {
-                    None
-                } else {
-                    slot.take()
-                }
-            }
+        }) {
+            slot.take()
+        } else {
+            None
         };
+        drop(slot);
         drop(latest);
         let Some(mut session) = session else {
             return;
@@ -1606,6 +1596,26 @@ mod macos {
                 SessionOwner::Dictation,
                 11
             ));
+        }
+
+        #[test]
+        fn stopping_a_never_started_meeting_run_preserves_dictation_authority() {
+            let mut authority = RunAuthority::default();
+            assert!(begin_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                10
+            ));
+
+            assert!(!cancel_run_authority(
+                &mut authority,
+                SessionOwner::Meeting,
+                11
+            ));
+
+            assert!(run_is_current(&authority, SessionOwner::Dictation, 10));
+            assert_eq!(authority.latest_run_id, Some(10));
+            assert_eq!(authority.latest_owner, Some(SessionOwner::Dictation));
         }
 
         #[test]

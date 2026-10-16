@@ -493,6 +493,51 @@ describe("meeting microphone capture", () => {
     });
   });
 
+  it("does not fall back when dictation owns the speech engine", async () => {
+    const busyError = "speech-engine-busy-dictation";
+    invokeMock.mockRejectedValueOnce(busyError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "mic-1", label: "Built-in Microphone" },
+      }),
+    ).rejects.toBe(busyError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "audio_transcription_start",
+      expect.objectContaining({ owner: "meeting" }),
+    );
+  });
+
+  it("does not fall back if dictation takes ownership during the default-mic retry", async () => {
+    const busyError = "speech-engine-busy-dictation";
+    invokeMock
+      .mockRejectedValueOnce(
+        new Error(
+          "Selected microphone 'old-device-id' is not available to ScreenCaptureKit.",
+        ),
+      )
+      .mockRejectedValueOnce(busyError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "old-device-id", label: "Disconnected headset" },
+      }),
+    ).rejects.toBe(busyError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      2,
+      "audio_transcription_start",
+      expect.objectContaining({
+        owner: "meeting",
+        micDeviceId: null,
+        micDeviceLabel: null,
+      }),
+    );
+  });
+
   it("retries the macOS default input when a saved microphone is gone", async () => {
     invokeMock
       .mockRejectedValueOnce(

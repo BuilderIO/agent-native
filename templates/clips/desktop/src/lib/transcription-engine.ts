@@ -240,6 +240,11 @@ function isUnavailableSelectedMicrophoneError(error: unknown): boolean {
   return /selected microphone .+ is not available/i.test(message);
 }
 
+function isDictationOwnerBusyError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === "speech-engine-busy-dictation";
+}
+
 function transcriptionStartError(
   error: unknown,
   selectedMicrophoneUnavailable: boolean,
@@ -328,6 +333,8 @@ export async function startTranscriptionEngine(opts: {
     );
     return "whisper";
   } catch (err) {
+    if (isDictationOwnerBusyError(err)) throw err;
+
     let fallbackMic = opts.mic;
     assertCanContinue();
     const selectedMicrophoneUnavailable =
@@ -353,6 +360,8 @@ export async function startTranscriptionEngine(opts: {
         );
         return "whisper";
       } catch (defaultMicErr) {
+        if (isDictationOwnerBusyError(defaultMicErr)) throw defaultMicErr;
+
         console.warn(
           "[transcription] default mic+system capture failed, falling back to default mic-only:",
           defaultMicErr,
@@ -372,6 +381,8 @@ export async function startTranscriptionEngine(opts: {
       );
       return "macos-native";
     } catch (fallbackErr) {
+      if (isDictationOwnerBusyError(fallbackErr)) throw fallbackErr;
+
       throw transcriptionStartError(
         fallbackErr,
         selectedMicrophoneUnavailable ||

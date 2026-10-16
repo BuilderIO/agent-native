@@ -2326,5 +2326,6 @@ export function installDesktopVoiceDictation(
       forceStopSession(lingeringSession);
     }
     cleanup(session);
+    invoke("hide_flow_bar").catch(() => {});
   };
 }

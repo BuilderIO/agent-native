@@ -356,6 +356,7 @@ export async function startTranscriptionCapture(
   let transitioning = false;
   let pauseFinalsSettleUntil = 0;
   let transitionFailure: string | null = null;
+  const settlingRunDeadlines = new Map<number, number>();
   const unlistens: UnlistenFn[] = [];
   const timeline = createActiveTimeline();
 
@@ -382,7 +383,14 @@ export async function startTranscriptionCapture(
   try {
     unlistens.push(
       await onFinalTranscript((event) => {
-        if (disposed || event.runId !== activeRunId) return;
+        const receivedAt = Date.now();
+        for (const [runId, deadline] of settlingRunDeadlines) {
+          if (deadline < receivedAt) settlingRunDeadlines.delete(runId);
+        }
+        const isSettlingRun =
+          typeof event.runId === "number" &&
+          (settlingRunDeadlines.get(event.runId) ?? 0) >= receivedAt;
+        if (disposed || (event.runId !== activeRunId && !isSettlingRun)) return;
         appendFinalTranscript(event, lines);
       }),
     );
@@ -416,6 +424,7 @@ export async function startTranscriptionCapture(
         timeline.pause(pauseBoundaryMs);
         paused = true;
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
+        settlingRunDeadlines.set(activeRunId, pauseFinalsSettleUntil);
         console.log(`[clips-recorder] transcription paused (${engine})`);
       } else {
         const nextRunId = allocateVoiceRunId();
