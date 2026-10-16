@@ -428,6 +428,22 @@ describe("auditFlags", () => {
     assert.deepEqual(flags, ["no Builder reply"]);
   });
 
+  it("stops the reply clock when a PR goes back to draft", () => {
+    const backInDraft = (draftedAt: string) =>
+      auditFlags({
+        ...base,
+        draftedAt,
+        state: "OPEN",
+        closedAt: null,
+        mergedAt: null,
+        activity: [],
+      }).flags;
+    assert.deepEqual(backInDraft("2026-10-02T09:00:00.000Z"), []);
+    assert.deepEqual(backInDraft("2026-10-08T09:00:00.000Z"), [
+      "no Builder reply",
+    ]);
+  });
+
   it("times the first reply from when it left draft", () => {
     const { flags, firstReplyBusinessDays } = auditFlags({
       ...base,
@@ -822,6 +838,21 @@ describe("runCommunityPrsCli", () => {
         authors: { totalCount: 60, nodes: [{ user: { login: "someone" } }] },
       },
     });
+    const redrafted = pr(35, "veteran", "2026-10-01T09:00:00Z", {
+      isDraft: true,
+      timelineItems: {
+        nodes: [
+          {
+            __typename: "ReadyForReviewEvent",
+            createdAt: "2026-10-01T09:00:00Z",
+          },
+          {
+            __typename: "ConvertToDraftEvent",
+            createdAt: "2026-10-02T09:00:00Z",
+          },
+        ],
+      },
+    });
     // Search matches whole days; this one changed before the window opened.
     const earlier = pr(34, "veteran", "2026-09-20T09:00:00Z", {
       updatedAt: "2026-10-01T08:00:00Z",
@@ -839,9 +870,16 @@ describe("runCommunityPrsCli", () => {
           ? JSON.stringify({
               data: {
                 search: {
-                  issueCount: 5,
+                  issueCount: 6,
                   pageInfo: { hasNextPage: false, endCursor: "" },
-                  nodes: [draft, mentioned, rebuilt, crowded, earlier],
+                  nodes: [
+                    draft,
+                    mentioned,
+                    rebuilt,
+                    crowded,
+                    earlier,
+                    redrafted,
+                  ],
                 },
               },
             })
@@ -853,6 +891,7 @@ describe("runCommunityPrsCli", () => {
                   pr32: rebuilt,
                   pr33: crowded,
                   pr34: earlier,
+                  pr35: redrafted,
                 },
               },
             }),
@@ -873,7 +912,9 @@ describe("runCommunityPrsCli", () => {
     assert.match(rows[2]!, /closed 8d after our ask, with no ping/);
     assert.match(rows[2]!, /may have landed via #40, which credits the author/);
     assert.match(rows[3]!, /squash commit has more co-authors than read/);
-    assert.equal(rows.length, 4);
+    // Ready for a day, then back in draft: no reply was due yet.
+    assert.match(rows[4]!, /^\| \[#35\].*\| - \|$/);
+    assert.equal(rows.length, 5);
   });
 
   it("flags only the audited person's wording", () => {

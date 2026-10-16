@@ -803,20 +803,31 @@ function activityOf(pr: GqlPr, members: Membership): Activity[] {
  * The clock starts when a PR is first ready for review: at creation, or at its
  * first ready event if it opened as a draft. A PR back in draft has no clock,
  * and marking it ready again counts from that first ready time rather than
- * restarting. `everReady` is false for a PR that has only ever been a draft.
+ * restarting. `everReady` is false for a PR that has only ever been a draft;
+ * `draftedAt` is when a PR that's a draft now last went back to draft.
  */
-function readiness(pr: GqlPr): { readyAt?: string; everReady: boolean } {
-  const first = pr.timelineItems.nodes
+function readiness(pr: GqlPr): {
+  readyAt?: string;
+  everReady: boolean;
+  draftedAt?: string;
+} {
+  const events = pr.timelineItems.nodes
     .filter(
       (item) =>
         item.__typename === "ReadyForReviewEvent" ||
         item.__typename === "ConvertToDraftEvent",
     )
-    .sort((a, b) => a.createdAt!.localeCompare(b.createdAt!))[0];
+    .sort((a, b) => a.createdAt!.localeCompare(b.createdAt!));
+  const first = events[0];
   if (!first) return { everReady: !pr.isDraft };
+  const last = events.at(-1)!;
+  const draftedAt =
+    pr.isDraft && last.__typename === "ConvertToDraftEvent"
+      ? last.createdAt
+      : undefined;
   return first.__typename === "ReadyForReviewEvent"
-    ? { readyAt: first.createdAt, everReady: true }
-    : { everReady: true };
+    ? { readyAt: first.createdAt, everReady: true, draftedAt }
+    : { everReady: true, draftedAt };
 }
 
 type Outside = { pr: GqlPr; activity: Activity[] };
@@ -1247,6 +1258,7 @@ export function auditFlags(input: {
   createdAt: string;
   readyAt?: string;
   everReady?: boolean;
+  draftedAt?: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   closedAt: string | null;
   mergedAt: string | null;
@@ -1265,7 +1277,10 @@ export function auditFlags(input: {
       ? input.readyAt
       : input.createdAt;
   const replies = input.activity.filter(isReply);
-  const end = Date.parse(input.closedAt ?? input.now.toISOString());
+  // Back in draft, the clock stops where it went back.
+  const end = Date.parse(
+    input.closedAt ?? input.draftedAt ?? input.now.toISOString(),
+  );
   const first = replies.find(
     (reply) =>
       Date.parse(reply.at) >= Date.parse(start) && Date.parse(reply.at) <= end,
@@ -1279,10 +1294,8 @@ export function auditFlags(input: {
   if (
     clocked &&
     !first &&
-    businessDaysBetween(
-      new Date(start),
-      new Date(input.closedAt ?? input.now.toISOString()),
-    ) > FIRST_REPLY_BUSINESS_DAYS
+    businessDaysBetween(new Date(start), new Date(end)) >
+      FIRST_REPLY_BUSINESS_DAYS
   )
     flags.push("no Builder reply");
   const listed = input.listed ?? replies;
