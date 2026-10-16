@@ -239,10 +239,13 @@ names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
   Tightening it is an explicit admin act.
 - An unreadable record fails closed with a 503. Never map a read failure to
   "ungoverned" or "active".
-- `set-service-principal-policy` and `set-service-principal-lifecycle` are
-  owner/admin only and not agent tool-callable. Suspending or retiring also
-  aborts the principal's in-flight runs. Never let the agent or a service token
-  widen its own grant.
+- `create-org-service-token`, `set-service-principal-policy`, and
+  `set-service-principal-lifecycle` are owner/admin only and set
+  `agentTool: false`, which also keeps them off MCP. `toolCallable: false` only
+  blocks extensions and run-code; it does not take an action out of the
+  agent's tools. Suspending or retiring also aborts the principal's in-flight
+  runs. Never let the agent or a service token mint a credential or widen its
+  own grant.
 
 ## A2A Identity
 
