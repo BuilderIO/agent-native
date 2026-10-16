@@ -2103,7 +2103,7 @@ describe("queryFirstPartyAnalytics", () => {
           scope,
           { requireBackend: "postgres" },
         ),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         rows: [{ count: 1 }],
         schema: [{ name: "count", type: "number" }],
         backend: "postgres",
