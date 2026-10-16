@@ -646,6 +646,86 @@ export function changedPanelIdsForSqlValidation(
   return changedPanelIds;
 }
 
+function panelTimeScopeValidationInput(
+  panel: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = isDashboardRecord(panel.config) ? panel.config : {};
+  return {
+    ...panelSqlValidationInput(panel),
+    title: panel.title,
+    description: config.description,
+  };
+}
+
+export function changedPanelIdsForTimeScopeValidation(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): ReadonlySet<string> | undefined {
+  if (!baseline) return undefined;
+  if (
+    stableStringify(config.filters) !== stableStringify(baseline.filters) ||
+    stableStringify(config.variables) !== stableStringify(baseline.variables)
+  ) {
+    return undefined;
+  }
+
+  const previousPanels = Array.isArray(baseline.panels)
+    ? baseline.panels.filter(isDashboardRecord)
+    : [];
+  const nextPanels = Array.isArray(config.panels)
+    ? config.panels.filter(isDashboardRecord)
+    : [];
+  const previousById = new Map<string, Record<string, unknown>>();
+  for (const panel of previousPanels) {
+    if (typeof panel.id === "string") {
+      previousById.set(panel.id, panel);
+    }
+  }
+
+  const changedPanelIds = new Set<string>();
+  for (const panel of nextPanels) {
+    if (typeof panel.id !== "string") return undefined;
+    const previous = previousById.get(panel.id);
+    if (
+      !previous ||
+      stableStringify(panelTimeScopeValidationInput(panel)) !==
+        stableStringify(panelTimeScopeValidationInput(previous))
+    ) {
+      changedPanelIds.add(panel.id);
+    }
+  }
+  return changedPanelIds;
+}
+
+export function validateChangedPanelTimeScopes(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): string | null {
+  const panelIds = changedPanelIdsForTimeScopeValidation(config, baseline);
+  const panels = config.panels;
+  if (!Array.isArray(panels)) return null;
+
+  for (let index = 0; index < panels.length; index += 1) {
+    const panel = panels[index];
+    if (!isDashboardRecord(panel)) continue;
+    if (panelIds && (typeof panel.id !== "string" || !panelIds.has(panel.id))) {
+      continue;
+    }
+    if (
+      panel.source !== "first-party" ||
+      panel.chartType === "section" ||
+      panel.chartType === "extension" ||
+      typeof panel.sql !== "string" ||
+      !panel.sql.trim()
+    ) {
+      continue;
+    }
+    const error = validateFirstPartyDashboardTimeScope(panel, config, index);
+    if (error) return error;
+  }
+  return null;
+}
+
 export async function validatePanelSql(
   config: Record<string, unknown>,
   panelIds?: ReadonlySet<string>,
@@ -1010,6 +1090,11 @@ export default defineAction({
       assertValidDashboardConfig(args.config, {
         baseline: before ? before.config : null,
       });
+      const timeScopeError = validateChangedPanelTimeScopes(
+        args.config,
+        before ? before.config : null,
+      );
+      if (timeScopeError) fail(timeScopeError);
       const panelIdsToValidate = changedPanelIdsForSqlValidation(
         args.config,
         before ? before.config : null,
@@ -1189,6 +1274,8 @@ export default defineAction({
         }
 
         assertValidDashboardConfig(root, { baseline });
+        const timeScopeError = validateChangedPanelTimeScopes(root, baseline);
+        if (timeScopeError) fail(timeScopeError);
         if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
           const sqlError = await validatePanelSql(root);
           if (sqlError) fail(sqlError);

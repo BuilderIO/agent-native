@@ -37,8 +37,10 @@ vi.mock("../server/lib/bigquery", () => ({
 const {
   assertValidDashboardConfig,
   changedPanelIdsForSqlValidation,
+  changedPanelIdsForTimeScopeValidation,
   isAgentCaller,
   validateDashboardConfig,
+  validateChangedPanelTimeScopes,
 } = await import("./update-dashboard");
 const { applyDashboardMutationOperations, parseDashboardMutationScript } =
   await import("./dashboard-mutation-api");
@@ -513,5 +515,44 @@ describe("dashboard SQL validation scope", () => {
       new Set(["new"]),
     );
     expect(changedPanelIdsForSqlValidation(next, null)).toBeUndefined();
+  });
+});
+
+describe("dashboard time-scope validation scope", () => {
+  const baseline = {
+    name: "Usage",
+    filters: [] as unknown[],
+    variables: {} as Record<string, string>,
+    panels: [
+      panel("a", {
+        title: "Lifetime signups",
+        config: { timeScope: "all-time" },
+      }),
+    ],
+  };
+
+  it("rechecks an all-time panel when its title loses the lifetime label", () => {
+    const next = clone(baseline);
+    next.panels[0].title = "Signups";
+
+    expect(changedPanelIdsForTimeScopeValidation(next, baseline)).toEqual(
+      new Set(["a"]),
+    );
+    expect(validateChangedPanelTimeScopes(next, baseline)).toMatch(
+      /description or title.*lifetime/,
+    );
+  });
+
+  it("rechecks an all-time panel when its description loses the lifetime label", () => {
+    const labeledBaseline = clone(baseline);
+    labeledBaseline.panels[0].title = "All signups";
+    (labeledBaseline.panels[0].config as Record<string, unknown>).description =
+      "Lifetime signups across the full history.";
+    const next = clone(labeledBaseline);
+    (next.panels[0].config as Record<string, unknown>).description = "Signups";
+
+    expect(validateChangedPanelTimeScopes(next, labeledBaseline)).toMatch(
+      /description or title.*lifetime/,
+    );
   });
 });

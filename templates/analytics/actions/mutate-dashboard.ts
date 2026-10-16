@@ -53,6 +53,7 @@ import { compactDashboardResult } from "./dashboard-panel-order";
 import {
   assertValidDashboardConfig,
   isAgentCaller,
+  validateChangedPanelTimeScopes,
   validatePanelSql,
 } from "./update-dashboard";
 
@@ -434,8 +435,11 @@ function sqlValidationScope(
 async function validateMutationSql(
   config: Record<string, unknown>,
   operations: DashboardMutationOperation[],
+  baseline: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<string | null> {
+  const timeScopeError = validateChangedPanelTimeScopes(config, baseline);
+  if (timeScopeError) return timeScopeError;
   const scope = sqlValidationScope(operations);
   if (scope === null) return null;
   return validatePanelSql(config, scope === "all" ? undefined : scope, {
@@ -600,6 +604,7 @@ export default defineAction({
         const sqlError = await validateMutationSql(
           root,
           operations,
+          existing.config as Record<string, unknown>,
           actionContext?.signal,
         );
         if (sqlError) throw new Error(sqlError);
@@ -628,6 +633,7 @@ export default defineAction({
             const sqlError = await validateMutationSql(
               computed.nextRoot,
               computed.nextOperations,
+              existing.config as Record<string, unknown>,
               actionContext?.signal,
             );
             if (sqlError) throw new Error(sqlError);

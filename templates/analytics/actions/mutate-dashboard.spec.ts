@@ -1458,6 +1458,38 @@ describe("mutate-dashboard", () => {
         expect(mocks.dryRunQuery).not.toHaveBeenCalled();
       });
 
+      it("rejects a title edit that removes an all-time panel's lifetime label", async () => {
+        const baseConfig = dashboardConfig();
+        const config = {
+          ...baseConfig,
+          panels: [
+            {
+              ...panel("a", "first-party"),
+              title: "Lifetime signups",
+              config: { timeScope: "all-time" },
+            },
+            ...baseConfig.panels.slice(1),
+          ],
+        };
+        mocks.getDashboard.mockResolvedValue({ kind: "sql", config });
+
+        await expect(
+          mutateDashboard.run({
+            dashboardId: "traffic",
+            operations: [
+              {
+                op: "updatePanel",
+                panelId: "a",
+                patch: { title: "Signups" },
+              },
+            ],
+          }),
+        ).rejects.toThrow(/description or title.*lifetime/);
+
+        expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+        expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+      });
+
       it("counts a default filter that is already set as no change", async () => {
         mocks.getDashboard.mockResolvedValue({
           kind: "sql",
