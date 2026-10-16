@@ -372,6 +372,38 @@ describe("annotation writes", () => {
     ).toBe(CONNECT_UNDERCOUNT.updatedAt);
   });
 
+  it("sends an edit made during this tab's earlier save of it from the version that save wrote", async () => {
+    const opened = CONNECT_UNDERCOUNT.updatedAt;
+    const retitle = await owner(useSaveDataNote, {
+      id: CONNECT_UNDERCOUNT.id,
+      title: "Connect clicks undercounted",
+      expectedUpdatedAt: opened,
+    });
+    await owner(useSaveDataNote, {
+      id: CONNECT_UNDERCOUNT.id,
+      title: "Connect clicks undercounted",
+      status: "fixed",
+      expectedUpdatedAt: editedVersion(CONNECT_UNDERCOUNT.id, opened),
+    });
+    expect(mocks.run).toHaveBeenCalledTimes(1);
+    expect(notes()?.[1]).toMatchObject({ status: "fixed" });
+
+    await retitle.succeed({
+      ...CONNECT_UNDERCOUNT,
+      title: "Connect clicks undercounted",
+      updatedAt: "2026-10-16T10:00:00.000Z",
+    });
+
+    expect(mocks.run).toHaveBeenCalledTimes(2);
+    expect(mocks.run).toHaveBeenLastCalledWith(
+      "save-data-note",
+      expect.objectContaining({
+        status: "fixed",
+        expectedUpdatedAt: "2026-10-16T10:00:00.000Z",
+      }),
+    );
+  });
+
   it("keeps a key date's saved version while its edit is in flight", async () => {
     await owner(useSaveKeyDate, {
       id: LAUNCH.id,

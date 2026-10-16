@@ -91,6 +91,9 @@ export function editedVersion(id: string, openedAt: string): string {
   return version;
 }
 
+/** Each record's newest version-checked write still in flight, by id. */
+const checkedWrites = new WeakMap<QueryClient, Map<string, Promise<void>>>();
+
 function insertAt<T>(items: readonly T[], index: number, item: T): T[] {
   return [...items.slice(0, index), item, ...items.slice(index)];
 }
@@ -170,7 +173,25 @@ function useAnnotationWrite<TInput, Data extends { editable?: boolean }, Item>(
         write.reverts.set(hashKey(key), { key, revert });
       }
       writesShown<Item>(client, list.action).push(write);
-      return { write };
+      const checked = input as { id?: string; expectedUpdatedAt?: string };
+      if (!checked.id || !checked.expectedUpdatedAt) return { write };
+      let inFlight = checkedWrites.get(client);
+      if (!inFlight) checkedWrites.set(client, (inFlight = new Map()));
+      const earlier = inFlight.get(checked.id);
+      let done!: () => void;
+      const settled = new Promise<void>((resolve) => (done = resolve));
+      inFlight.set(checked.id, settled);
+      if (earlier) {
+        // Until this tab's earlier write lands, the version it will write is
+        // unknown, and the one it replaced would be refused. The request
+        // sends this same object once onMutate returns.
+        await earlier;
+        checked.expectedUpdatedAt = editedVersion(
+          checked.id,
+          checked.expectedUpdatedAt,
+        );
+      }
+      return { write, settled, done };
     },
     onSuccess: (result, input) => {
       const { id, expectedUpdatedAt } = input as {
@@ -187,7 +208,16 @@ function useAnnotationWrite<TInput, Data extends { editable?: boolean }, Item>(
       if (write) takeBack(write);
       toast.error(t(failure, { message: error.message }));
     },
-    onSettled: () => {
+    onSettled: (_result, _error, input, context) => {
+      const check = context as
+        | { settled?: Promise<void>; done?: () => void }
+        | undefined;
+      if (check?.settled && check.done) {
+        const { id } = input as { id: string };
+        const inFlight = checkedWrites.get(client);
+        if (inFlight?.get(id) === check.settled) inFlight.delete(id);
+        check.done();
+      }
       // The settling write still counts as pending here.
       if (client.isMutating({ mutationKey }) > 1) return;
       shownWrites.get(client)?.delete(list.action);

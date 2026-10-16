@@ -73,6 +73,8 @@ describe("sqlCountsEvent", () => {
       "WHERE event = 'builder_connect_failed'",
       "WHERE 'builder_connect_failed' = event",
       "SELECT SUM(CASE WHEN event = 'builder_connect_failed' THEN 1 ELSE 0 END)",
+      "SELECT COUNTIF(event = 'builder_connect_failed')",
+      "SELECT day, event = 'builder_connect_failed' AS failed FROM events",
       "SELECT COUNT(CASE event WHEN 'builder_connect_failed' THEN 1 END)",
       "WHERE event IN ('signup', 'builder_connect_failed', 'app_entered')",
       "WHERE event like 'builder_connect_failed'",
