@@ -3979,6 +3979,13 @@ export class McpIdentityVerificationUnavailableError extends Error {
   }
 }
 
+export class McpIdentityVerificationRefusedError extends Error {
+  constructor() {
+    super("MCP identity verification was refused");
+    this.name = "McpIdentityVerificationRefusedError";
+  }
+}
+
 async function verifyA2AJwtForMcp(
   token: string,
   resourceUrl?: string | string[],
@@ -4503,6 +4510,9 @@ export async function verifyAuth(
     if (error instanceof McpIdentityVerificationUnavailableError) {
       return { authed: false, unavailable: true };
     }
+    if (error instanceof McpIdentityVerificationRefusedError) {
+      return { authed: false, refusal: "invalid" };
+    }
     throw error;
   }
   if (payload) {
@@ -4600,7 +4610,7 @@ export async function resolveOrgIdFromDomain(
     throw new McpIdentityVerificationUnavailableError(cause);
   }
   if (result.status === "ambiguous") {
-    throw new Error("MCP caller organization domain is ambiguous");
+    throw new McpIdentityVerificationRefusedError();
   }
   return result.status === "found" ? result.org.orgId : undefined;
 }
@@ -4613,7 +4623,7 @@ export async function resolveMcpIdentityOrgId(
   if (identity?.orgDomain !== undefined) {
     const orgIdFromDomain = await resolveOrgIdFromDomain(identity.orgDomain);
     if (!orgIdFromDomain) {
-      throw new Error("MCP caller organization domain is not configured here");
+      throw new McpIdentityVerificationRefusedError();
     }
     return orgIdFromDomain;
   }

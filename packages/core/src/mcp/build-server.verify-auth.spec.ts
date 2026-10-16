@@ -55,6 +55,7 @@ vi.mock("../org/service-principal-guard.js", async (importActual) => ({
 
 const {
   McpIdentityVerificationUnavailableError,
+  McpIdentityVerificationRefusedError,
   resolveMcpIdentityOrgId,
   verifyAuth,
 } = await import("./build-server.js");
@@ -1733,7 +1734,7 @@ describe("resolveMcpIdentityOrgId", () => {
           userEmail: "alice@example.com",
           orgDomain: "example.com",
         }),
-      ).rejects.toThrow();
+      ).rejects.toBeInstanceOf(McpIdentityVerificationRefusedError);
 
       expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
       expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();

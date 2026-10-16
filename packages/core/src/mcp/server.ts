@@ -23,6 +23,7 @@ import {
   createMCPServerForRequest,
   verifyAuth,
   McpIdentityVerificationUnavailableError,
+  McpIdentityVerificationRefusedError,
   getAccessTokens,
   resolveOrgIdFromDomain,
   resolveMcpIdentityOrgId,
@@ -303,6 +304,19 @@ function identityVerificationUnavailable(event: H3Event): {
   };
 }
 
+function identityVerificationRefused(
+  event: H3Event,
+  routePath: string,
+): ReturnType<typeof buildUnauthorizedBody> {
+  setResponseStatus(event, 401);
+  setResponseHeader(
+    event,
+    "WWW-Authenticate",
+    buildMcpOAuthChallenge(event, routePath, "invalid"),
+  );
+  return buildUnauthorizedBody(event, routePath, "invalid");
+}
+
 // ---------------------------------------------------------------------------
 // handleMcpRequest — runtime-agnostic MCP request handler
 // ---------------------------------------------------------------------------
@@ -380,9 +394,13 @@ async function handleMcpRequestInternal(
       requestOrigin: getOrigin(event),
     });
   } catch (error) {
-    if (!(error instanceof McpIdentityVerificationUnavailableError))
-      throw error;
-    return identityVerificationUnavailable(event);
+    if (error instanceof McpIdentityVerificationUnavailableError) {
+      return identityVerificationUnavailable(event);
+    }
+    if (error instanceof McpIdentityVerificationRefusedError) {
+      return identityVerificationRefused(event, routePath);
+    }
+    throw error;
   }
   if (!authResult.authed && authResult.unavailable) {
     // The token is valid but its org membership could not be checked. No auth
@@ -416,9 +434,13 @@ async function handleMcpRequestInternal(
         identity: { ...authResult.identity, orgId },
       };
     } catch (error) {
-      if (!(error instanceof McpIdentityVerificationUnavailableError))
-        throw error;
-      return identityVerificationUnavailable(event);
+      if (error instanceof McpIdentityVerificationUnavailableError) {
+        return identityVerificationUnavailable(event);
+      }
+      if (error instanceof McpIdentityVerificationRefusedError) {
+        return identityVerificationRefused(event, routePath);
+      }
+      throw error;
     }
   }
 

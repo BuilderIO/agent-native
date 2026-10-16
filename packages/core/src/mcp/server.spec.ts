@@ -9013,6 +9013,45 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(result).toMatchObject({ error: "Service Unavailable" });
   });
 
+  it.each([
+    ["unknown", { status: "not-found" }],
+    ["ambiguous", { status: "ambiguous" }],
+  ] as const)(
+    "refuses an %s signed org domain as unauthorized instead of returning 500",
+    async (_label, resolution) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockResolvedValueOnce(resolution);
+
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
+
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(401);
+      expect(event._responseHeaders?.["www-authenticate"]).toContain(
+        'error="invalid_token"',
+      );
+      expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error: "Unauthorized",
+        reason: "invalid",
+      });
+    },
+  );
+
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {
     process.env.ACCESS_TOKEN = "secret-token";
     const event = makeWebEvent({

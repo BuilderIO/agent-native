@@ -17,7 +17,13 @@ import {
   keys as listKeys,
   set as setEntry,
 } from "idb-keyval";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
@@ -996,6 +1002,7 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     ? actionQueryCacheScope(session, clientBuildId())
     : null;
   const terminalUnauthenticated = status === "unauthenticated";
+  const [signedOutCacheCleared, setSignedOutCacheCleared] = useState(false);
   const bindAttempt = useMemo(
     () => ({
       trustPrebindResults:
@@ -1005,12 +1012,21 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
   );
   const [settledAttempt, setSettledAttempt] = useState<object | null>(null);
 
+  useLayoutEffect(() => {
+    if (!terminalUnauthenticated) {
+      setSignedOutCacheCleared(false);
+      return;
+    }
+    const clearing = clearActionQueryCache(queryClient);
+    setSignedOutCacheCleared(true);
+    void clearing.catch((error) =>
+      console.warn("Unable to clear cached action results", error),
+    );
+  }, [queryClient, terminalUnauthenticated]);
+
   useEffect(() => {
     // A transient session reread does not replace a same-scope cache binding.
     if (terminalUnauthenticated) {
-      clearActionQueryCache(queryClient).catch((error) =>
-        console.warn("Unable to clear cached action results", error),
-      );
       setSettledAttempt(bindAttempt);
       return;
     }
@@ -1041,6 +1057,8 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     !bindAttempt.trustPrebindResults;
   const holdUntrustedChildren =
     scope !== null && !bindAttempt.trustPrebindResults && restoring;
+  const holdSignedOutChildren =
+    terminalUnauthenticated && !signedOutCacheCleared;
   const trustedBindingPending =
     scope !== null &&
     settledAttempt !== bindAttempt &&
@@ -1050,7 +1068,7 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
       value={trustedBindingPending}
     >
       <IsRestoringProvider value={restoring}>
-        {holdUntrustedChildren ? null : children}
+        {holdUntrustedChildren || holdSignedOutChildren ? null : children}
       </IsRestoringProvider>
     </trustedActionQueryCacheBindingPendingContext.Provider>
   );
