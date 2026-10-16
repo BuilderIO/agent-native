@@ -710,6 +710,7 @@ type RegistrationWalkContext = {
   unknownExecutionContext: boolean;
   unknownCallbackIdentities: string[];
   conditions: string[];
+  insideSingletonLiteralForEach: boolean;
   activeHelpers: Set<TypeScript.Node>;
 };
 
@@ -927,6 +928,7 @@ type TestAlias = { kind: "test"; path: string[] } | { kind: "namespace" };
 type TestAliasResolver = {
   resolve(expression: TypeScript.Expression): string[];
   isAmbiguous(expression: TypeScript.Expression): boolean;
+  isKnownModifierReference(expression: TypeScript.Expression): boolean;
 };
 
 function isFunctionLikeNode(
@@ -996,6 +998,15 @@ function testImports(
     initializer: TypeScript.Expression;
     property?: string;
   }> = [];
+  const objectModifierAliasDeclarations: Array<{
+    scope: TypeScript.Node;
+    name: string;
+    initializer: TypeScript.Expression;
+  }> = [];
+  const knownModifierObjects = new WeakMap<
+    TypeScript.Node,
+    Map<string, Set<string>>
+  >();
   const writtenAliases = new WeakMap<TypeScript.Node, Set<string>>();
 
   const scopeBindings = (scope: TypeScript.Node) => {
@@ -1113,6 +1124,15 @@ function testImports(
           name: node.name.text,
           initializer: node.initializer,
         });
+        if (
+          ts.isObjectLiteralExpression(unwrapExpression(node.initializer, ts))
+        ) {
+          objectModifierAliasDeclarations.push({
+            scope,
+            name: node.name.text,
+            initializer: node.initializer,
+          });
+        }
       } else if (node.initializer && ts.isObjectBindingPattern(node.name)) {
         for (const element of node.name.elements) {
           if (!ts.isBindingElement(element) || !ts.isIdentifier(element.name))
@@ -1184,6 +1204,32 @@ function testImports(
             declaration.scope === scope && declaration.name === root.text,
         ) &&
         (writtenAliases.get(scope)?.has(root.text) ?? false)
+      );
+    },
+    isKnownModifierReference(expression) {
+      const candidate = unwrapExpression(expression, ts);
+      if (
+        ts.isElementAccessExpression(candidate) &&
+        candidate.argumentExpression &&
+        constantStringExpression(candidate.argumentExpression, ts) === undefined
+      ) {
+        const root = rootIdentifier(candidate.expression, ts);
+        if (!root) return false;
+        const scope = bindingScope(root.text, root);
+        return (
+          scope !== undefined &&
+          knownModifierObjects.get(scope)?.has(root.text) === true
+        );
+      }
+      const segments = propertyPath(expression, ts);
+      if (segments.length !== 2) return false;
+      const root = rootIdentifier(expression, ts);
+      if (!root) return false;
+      const scope = bindingScope(root.text, root);
+      return (
+        scope !== undefined &&
+        (knownModifierObjects.get(scope)?.get(root.text)?.has(segments[1]!) ??
+          false)
       );
     },
   };
@@ -1258,6 +1304,48 @@ function testImports(
       ) {
         bindings.set(name, undefined);
       }
+    }
+  }
+
+  for (const { scope, name, initializer } of objectModifierAliasDeclarations) {
+    if (
+      declarationCounts.get(scope)?.get(name) !== 1 ||
+      importedNames.get(scope)?.has(name) ||
+      writtenAliases.get(scope)?.has(name)
+    ) {
+      continue;
+    }
+    const object = unwrapExpression(initializer, ts);
+    if (!ts.isObjectLiteralExpression(object)) continue;
+    const properties = new Set<string>();
+    for (const member of object.properties) {
+      if (!ts.isPropertyAssignment(member)) continue;
+      const propertyName =
+        ts.isIdentifier(member.name) ||
+        ts.isStringLiteral(member.name) ||
+        ts.isNoSubstitutionTemplateLiteral(member.name)
+          ? member.name.text
+          : ts.isComputedPropertyName(member.name)
+            ? constantStringExpression(member.name.expression, ts)
+            : undefined;
+      if (!propertyName) continue;
+      const path = resolver.resolve(member.initializer);
+      if (
+        (path.length === 2 &&
+          path[0] === "test" &&
+          TEST_MODIFIERS.has(path[1]!)) ||
+        (path.length === 3 &&
+          path[0] === "test" &&
+          path[1] === "describe" &&
+          TEST_MODIFIERS.has(path[2]!))
+      ) {
+        properties.add(propertyName);
+      }
+    }
+    if (properties.size > 0) {
+      const aliases = knownModifierObjects.get(scope) ?? new Map();
+      aliases.set(name, properties);
+      knownModifierObjects.set(scope, aliases);
     }
   }
 
@@ -1382,6 +1470,13 @@ function testCallKind(
       uncertainty?: "playwright" | "test-info" | "unsupported-playwright";
     }
   | undefined {
+  if (aliases.isKnownModifierReference(call.expression)) {
+    return {
+      kind: "runtime",
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
   const segments = propertyPath(call.expression, ts);
   const testPath = aliases.resolve(call.expression);
   const expression = unwrapExpression(call.expression, ts);
@@ -1806,6 +1901,21 @@ function literalArrayForEachIterations(
   if (receiver.elements.some(ts.isSpreadElement)) return undefined;
   return receiver.elements.filter((element) => !ts.isOmittedExpression(element))
     .length;
+}
+
+function literalArrayForEachElement(
+  call: TypeScript.CallExpression,
+  ts: typeof TypeScript,
+): TypeScript.Expression | undefined {
+  if (literalArrayForEachIterations(call, ts) !== 1) return undefined;
+  const callee = unwrapExpression(call.expression, ts);
+  if (!ts.isPropertyAccessExpression(callee)) return undefined;
+  const receiver = unwrapExpression(callee.expression, ts);
+  if (!ts.isArrayLiteralExpression(receiver)) return undefined;
+  return receiver.elements.find(
+    (element): element is TypeScript.Expression =>
+      !ts.isOmittedExpression(element) && !ts.isSpreadElement(element),
+  );
 }
 
 function promiseCallbackArgumentIndices(
@@ -2529,6 +2639,185 @@ function localTestHelpers(
   };
 }
 
+function helperUsesTestModifierParameter(
+  helper: TypeScript.FunctionLikeDeclaration,
+  parameter: TypeScript.ParameterDeclaration,
+  aliases: TestInfoAliasResolver,
+  ts: typeof TypeScript,
+): boolean {
+  if (!helper.body) return false;
+  const parameterNames: TypeScript.Identifier[] = [];
+  const collectParameterNames = (name: TypeScript.BindingName) => {
+    if (ts.isIdentifier(name)) {
+      parameterNames.push(name);
+      return;
+    }
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) collectParameterNames(element.name);
+    }
+  };
+  collectParameterNames(parameter.name);
+  const parameterBindings = new Set(
+    parameterNames
+      .map((name) => aliases.bindingNode(name))
+      .filter((binding): binding is TypeScript.Node => binding !== undefined),
+  );
+  if (parameterBindings.size === 0) return false;
+  let found = false;
+  const inspect = (node: TypeScript.Node) => {
+    if (found) return;
+    if (
+      ts.isIdentifier(node) &&
+      parameterBindings.has(aliases.bindingNode(node) ?? node)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, inspect);
+  };
+  inspect(helper.body);
+  return found;
+}
+
+function isKnownPlaywrightAuthorityPath(path: string[]): boolean {
+  return (
+    (path.length === 1 && path[0] === "test") ||
+    (path.length === 2 &&
+      path[0] === "test" &&
+      (path[1] === "describe" || TEST_MODIFIERS.has(path[1]!))) ||
+    (path.length === 3 &&
+      path[0] === "test" &&
+      path[1] === "describe" &&
+      TEST_MODIFIERS.has(path[2]!)) ||
+    (path.length === 3 &&
+      path[0] === "test" &&
+      TEST_MODIFIERS.has(path[1]!) &&
+      path[2] === "bound") ||
+    (path.length === 4 &&
+      path[0] === "test" &&
+      path[1] === "describe" &&
+      TEST_MODIFIERS.has(path[2]!) &&
+      path[3] === "bound") ||
+    (path.length === 2 && path[0] === "test" && path[1] === "dynamic-bound")
+  );
+}
+
+function containsKnownPlaywrightAuthority(
+  expression: TypeScript.Expression,
+  aliases: TestAliasResolver,
+  ts: typeof TypeScript,
+): boolean {
+  let found = false;
+  const inspect = (node: TypeScript.Node) => {
+    if (found || isFunctionLikeNode(node, ts)) return;
+    const parent = node.parent;
+    const isAccessReceiver =
+      (parent &&
+        (ts.isPropertyAccessExpression(parent) ||
+          ts.isElementAccessExpression(parent)) &&
+        parent.expression === node) ??
+      false;
+    const isPropertyName =
+      parent && ts.isPropertyAccessExpression(parent) && parent.name === node;
+    const isDirectCallCallee =
+      (parent && ts.isCallExpression(parent) && parent.expression === node) ??
+      false;
+    const isAssertionArgument =
+      parent &&
+      ts.isCallExpression(parent) &&
+      parent.arguments.includes(node as TypeScript.Expression) &&
+      ["expect", "assert"].includes(
+        propertyPath(parent.expression, ts)[0] ?? "",
+      );
+    const isPlaywrightBindThisArgument =
+      parent &&
+      ts.isCallExpression(parent) &&
+      parent.arguments[0] === node &&
+      (() => {
+        const callee = unwrapExpression(parent.expression, ts);
+        if (
+          !ts.isPropertyAccessExpression(callee) ||
+          callee.name.text !== "bind"
+        )
+          return false;
+        const receiver = aliases.resolve(callee.expression);
+        return receiver[0] === "test" && receiver.length > 1;
+      })();
+    if (
+      ts.isIdentifier(node) ||
+      ts.isPropertyAccessExpression(node) ||
+      ts.isElementAccessExpression(node)
+    ) {
+      const candidate = node as TypeScript.Expression;
+      if (
+        !isAccessReceiver &&
+        !isPropertyName &&
+        !isDirectCallCallee &&
+        !isAssertionArgument &&
+        !isPlaywrightBindThisArgument &&
+        isKnownPlaywrightAuthorityPath(aliases.resolve(candidate))
+      ) {
+        found = true;
+        return;
+      }
+      const access = unwrapExpression(candidate, ts);
+      if (
+        !isAccessReceiver &&
+        !isPropertyName &&
+        !isDirectCallCallee &&
+        !isAssertionArgument &&
+        !isPlaywrightBindThisArgument &&
+        ts.isElementAccessExpression(access) &&
+        access.argumentExpression &&
+        constantStringExpression(access.argumentExpression, ts) === undefined
+      ) {
+        const receiver = aliases.resolve(access.expression);
+        if (
+          (receiver.length === 1 && receiver[0] === "test") ||
+          (receiver.length === 2 &&
+            receiver[0] === "test" &&
+            receiver[1] === "describe")
+        ) {
+          found = true;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(node, inspect);
+  };
+  inspect(expression);
+  return found;
+}
+
+function helperReturnsKnownPlaywrightAuthority(
+  helper: TestCallback,
+  aliases: TestAliasResolver,
+  ts: typeof TypeScript,
+): boolean {
+  if (!helper.body) return false;
+  const isKnownAuthority = (expression: TypeScript.Expression) =>
+    isKnownPlaywrightAuthorityPath(aliases.resolve(expression)) ||
+    containsKnownPlaywrightAuthority(expression, aliases, ts);
+  if (!ts.isBlock(helper.body)) {
+    return isKnownAuthority(helper.body);
+  }
+  let found = false;
+  const inspect = (node: TypeScript.Node) => {
+    if (found || (node !== helper.body && isFunctionLikeNode(node, ts))) return;
+    if (
+      ts.isReturnStatement(node) &&
+      node.expression &&
+      isKnownAuthority(node.expression)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, inspect);
+  };
+  inspect(helper.body);
+  return found;
+}
+
 function resolveTestCallback(
   expression: TypeScript.Expression,
   callbacks: Map<string, NamedTestCallback | undefined>,
@@ -2650,6 +2939,20 @@ export function findDesignE2ETestRegistrations(
   const printer = ts.createPrinter({ removeComments: true });
   const namedCallbacks = namedTestCallbacks(sourceFile, ts);
   const localHelpers = localTestHelpers(sourceFile, ts);
+  const helperCallReturnsKnownPlaywrightAuthority = (
+    expression: TypeScript.Expression,
+    at: TypeScript.Node,
+  ): boolean => {
+    const call = unwrapExpression(expression, ts);
+    if (!ts.isCallExpression(call)) return false;
+    const callee = unwrapExpression(call.expression, ts);
+    if (!ts.isIdentifier(callee)) return false;
+    const helper = localHelpers.resolve(callee.text, at);
+    return (
+      helper !== undefined &&
+      helperReturnsKnownPlaywrightAuthority(helper, aliases, ts)
+    );
+  };
   const resolveContextCallback = (
     expression: TypeScript.Expression,
     context: RegistrationWalkContext,
@@ -2842,6 +3145,18 @@ export function findDesignE2ETestRegistrations(
       }
     }
   };
+  const throwUnsupportedModifierEscape = (node: TypeScript.Node): never => {
+    const line =
+      sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line +
+      1;
+    const expression = node
+      .getText(sourceFile)
+      .replace(/\s+/g, " ")
+      .slice(0, 120);
+    throw new PinInspectionUnavailableError(
+      `${file || "Design E2E source"}:${line}: Unable to inspect unsupported Playwright modifier invocation through an escaped value (${expression})`,
+    );
+  };
   const callbackMayAffectPin = (
     callback: TestCallback,
     context: RegistrationWalkContext,
@@ -3014,6 +3329,33 @@ export function findDesignE2ETestRegistrations(
     visitFunctionBody = false,
   ) => {
     if (
+      ts.isVariableDeclaration(node) &&
+      node.initializer &&
+      (containsKnownPlaywrightAuthority(node.initializer, aliases, ts) ||
+        helperCallReturnsKnownPlaywrightAuthority(node.initializer, node))
+    ) {
+      const path = aliases.resolve(node.initializer);
+      const isTestApiDestructure =
+        ts.isObjectBindingPattern(node.name) &&
+        ((path.length === 1 && path[0] === "test") ||
+          (path.length === 2 &&
+            path[0] === "test" &&
+            path[1] === "describe")) &&
+        node.name.elements.every(
+          (element) =>
+            ts.isBindingElement(element) &&
+            !element.dotDotDotToken &&
+            !ts.isComputedPropertyName(element.propertyName ?? element.name),
+        );
+      if (
+        !isKnownPlaywrightAuthorityPath(path) ||
+        (!ts.isIdentifier(node.name) && !isTestApiDestructure)
+      ) {
+        throwUnsupportedModifierEscape(node);
+      }
+    }
+
+    if (
       !visitFunctionBody &&
       (ts.isArrowFunction(node) ||
         ts.isFunctionExpression(node) ||
@@ -3023,6 +3365,24 @@ export function findDesignE2ETestRegistrations(
         ts.isGetAccessorDeclaration(node) ||
         ts.isSetAccessorDeclaration(node))
     ) {
+      for (const parameter of node.parameters) {
+        if (
+          parameter.initializer &&
+          containsKnownPlaywrightAuthority(
+            parameter.initializer,
+            aliases,
+            ts,
+          ) &&
+          helperUsesTestModifierParameter(
+            node,
+            parameter,
+            testInfoAliasResolver,
+            ts,
+          )
+        ) {
+          throwUnsupportedModifierEscape(parameter.initializer);
+        }
+      }
       if (resolvedCallbacks.has(node) || reachableHelpers.has(node)) return;
       visit(
         node,
@@ -3235,13 +3595,26 @@ export function findDesignE2ETestRegistrations(
             );
           }
           callbackArguments.add(argument);
-          visit(callback, context, true);
+          let callbackContext = context;
+          const forEachElement =
+            index === 0 ? literalArrayForEachElement(node, ts) : undefined;
+          if (forEachElement) {
+            callbackContext = {
+              ...context,
+              insideSingletonLiteralForEach: true,
+            };
+          }
+          visit(callback, callbackContext, true);
         }
         visit(node.expression, context);
         for (const argument of node.arguments) {
           if (!callbackArguments.has(argument)) visit(argument, context);
         }
         return;
+      }
+
+      if (helperCallReturnsKnownPlaywrightAuthority(node.expression, node)) {
+        throwUnsupportedModifierEscape(node.expression);
       }
 
       const classification = testCallKind(
@@ -3252,6 +3625,36 @@ export function findDesignE2ETestRegistrations(
         context.testInfoMaybeBindings,
         ts,
       );
+      const authorityCallee = unwrapExpression(node.expression, ts);
+      const authorityHelper =
+        !classification && ts.isIdentifier(authorityCallee)
+          ? localHelpers.resolve(authorityCallee.text, node)
+          : undefined;
+      for (const [index, argument] of node.arguments.entries()) {
+        if (
+          !containsKnownPlaywrightAuthority(argument, aliases, ts) &&
+          !helperCallReturnsKnownPlaywrightAuthority(argument, node)
+        ) {
+          continue;
+        }
+        const path = aliases.resolve(argument);
+        const isApiObject =
+          (path.length === 1 && path[0] === "test") ||
+          (path.length === 2 && path[0] === "test" && path[1] === "describe");
+        if (
+          isApiObject &&
+          authorityHelper?.parameters[index] &&
+          !helperUsesTestModifierParameter(
+            authorityHelper,
+            authorityHelper.parameters[index]!,
+            testInfoAliasResolver,
+            ts,
+          )
+        ) {
+          continue;
+        }
+        throwUnsupportedModifierEscape(argument);
+      }
       if (
         classification?.uncertainty === "playwright" ||
         classification?.uncertainty === "unsupported-playwright"
@@ -3387,6 +3790,19 @@ export function findDesignE2ETestRegistrations(
           if (!titleArgument) {
             throw new Error(
               `${file}:${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}: test registration has no title`,
+            );
+          }
+          if (
+            context.insideSingletonLiteralForEach &&
+            !ts.isStringLiteral(titleArgument) &&
+            !ts.isNoSubstitutionTemplateLiteral(titleArgument)
+          ) {
+            const line =
+              sourceFile.getLineAndCharacterOfPosition(
+                node.getStart(sourceFile),
+              ).line + 1;
+            throw new PinInspectionUnavailableError(
+              `${file || "Design E2E source"}:${line}: Unable to inspect a registration title that depends on forEach item or is not a literal`,
             );
           }
           const identity = parseTestTitle(titleArgument, sourceFile, ts);
@@ -3711,6 +4127,7 @@ export function findDesignE2ETestRegistrations(
     unknownExecutionContext: false,
     unknownCallbackIdentities: [],
     conditions: [],
+    insideSingletonLiteralForEach: false,
     activeHelpers: new Set(),
   });
 

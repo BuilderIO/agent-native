@@ -556,22 +556,36 @@ test("editing a direct fixme callback does not change its suppression fingerprin
 });
 
 test("generated callback quarantines are recorded and require an exception", () => {
+  assert.throws(
+    () =>
+      findDesignE2ETestRegistrations(
+        '["one"].forEach((name) => { test.fixme(name, () => {}); });',
+        baseFixme.file,
+      ),
+    /Unable to inspect a registration title/,
+  );
   const generated = findDesignE2ETestRegistrations(
-    '["one"].forEach((name) => { test.fixme(name, () => {}); });',
+    '["one"].forEach(() => { test.fixme("one", () => {}); });',
     baseFixme.file,
   );
 
   assert.deepEqual(generated, [
     {
       file: baseFixme.file,
-      title: "expression:name",
-      dynamic: true,
+      title: "one",
+      dynamic: false,
       line: 1,
       modifier: "fixme",
       suppressionKind: "direct",
       suppressionReason: "Unable to inspect conditional test.fixme at line 1",
-      suppressionFingerprint:
-        '[{"scope":"direct","modifier":"fixme","callee":"test.fixme","arguments":["name"]}]',
+      suppressionFingerprint: JSON.stringify([
+        {
+          scope: "direct",
+          modifier: "fixme",
+          callee: "test.fixme",
+          arguments: ['"one"'],
+        },
+      ]),
     },
   ]);
   assert.match(

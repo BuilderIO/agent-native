@@ -871,6 +871,7 @@ test("Playwright fixture, step, info, timeout, and hook calls remain valid", () 
     "test.use({});",
     "test.setTimeout(1);",
     "test.beforeEach(() => {});",
+    "expect(test).toBeDefined();",
     'test("pinned behavior", async () => {',
     '  await test.step("child", () => {});',
     '  await test.step.bind(test)("bound child", () => {});',
@@ -882,7 +883,7 @@ test("Playwright fixture, step, info, timeout, and hook calls remain valid", () 
     "});",
   ].join("\n");
 
-  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 4);
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 5);
 });
 
 test("title-shaped text in comments, strings, templates, and regexes is ignored", () => {
@@ -1697,52 +1698,178 @@ test("unknown executed callbacks fail closed only when they can suppress a test"
   );
 });
 
-test("literal array forEach callbacks retain registration identities and fail closed when repeated", () => {
+test("escaped Playwright modifiers fail closed through objects and helper parameters", () => {
+  const objectAlias = [
+    "const api = { skip: test.skip };",
+    'api.skip("new test", () => {});',
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestRegistrations(objectAlias),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  for (const source of [
+    [
+      "const skip = test.skip;",
+      "const api = { skip };",
+      'api.skip("new test", () => {});',
+    ].join("\n"),
+    [
+      "const { skip } = { skip: test.skip };",
+      'skip("new test", () => {});',
+    ].join("\n"),
+    [
+      "const api = { ...{ skip: test.skip } };",
+      'api.skip("new test", () => {});',
+    ].join("\n"),
+    [
+      "const api = { nested: { skip: test.skip } };",
+      'api.nested.skip("new test", () => {});',
+    ].join("\n"),
+    [
+      "const api = { skip: test.skip };",
+      "declare const modifierName: string;",
+      'api[modifierName]("new test", () => {});',
+    ].join("\n"),
+    [
+      "function invoke(skip: typeof test.skip) { skip(true, 'helper skip'); }",
+      "invoke(test.skip);",
+    ].join("\n"),
+    [
+      "import { suppress } from 'external-runner';",
+      "suppress(test.skip);",
+    ].join("\n"),
+    [
+      "const getSkip = () => test.skip;",
+      "getSkip()(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "const getSkip = () => test.skip.bind(test);",
+      "getSkip()(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "function getSkip() { return test.skip; }",
+      "const skip = getSkip();",
+      "skip(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "function suppress(api: typeof test) { api.skip(true, 'helper skip'); }",
+      "suppress({ skip: test.skip });",
+    ].join("\n"),
+    [
+      "function suppress(api = test) { api.skip(true, 'helper skip'); }",
+      "suppress();",
+    ].join("\n"),
+    [
+      "function suppress({ skip } = test) { skip(true, 'helper skip'); }",
+      "suppress();",
+    ].join("\n"),
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestRegistrations(source),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      source,
+    );
+  }
+
+  const helperAlias = [
+    "function suppress(api: typeof test) {",
+    '  api.skip(true, "helper skip");',
+    "}",
+    "suppress(test);",
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(helperAlias, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  const shadowedHelperParameter = [
+    "function inspect(api: typeof test) {",
+    "  function inner(api: { skip: () => void }) { api.skip(); }",
+    "  inner({ skip: () => {} });",
+    "}",
+    "inspect(test);",
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(shadowedHelperParameter, "pinned behavior"),
+    6,
+  );
+
+  const unrelatedObjectModifierName = [
+    "const api = { skip: (value: string) => value };",
+    'api.skip("ordinary method");',
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(unrelatedObjectModifierName, "pinned behavior"),
+    3,
+  );
+});
+
+test("literal array forEach callbacks reject iteration-dependent titles and retain constant titles", () => {
   const generatedActive = [
     '["one"].forEach((name) => test(name, () => {}));',
   ].join("\n");
-  assert.deepEqual(
-    findDesignE2ETestRegistrations(generatedActive).map(
-      ({ title, dynamic, suppressionKind }) => [
-        title,
-        dynamic,
-        suppressionKind,
-      ],
-    ),
-    [["expression:name", true, null]],
+  assert.throws(
+    () => findDesignE2ETestRegistrations(generatedActive),
+    /registration title that depends on forEach item/,
   );
 
   const generatedQuarantine = [
     '["one"].forEach((name) => { test.fixme(name, () => {}); });',
   ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestRegistrations(generatedQuarantine),
+    /registration title that depends on forEach item/,
+  );
+
+  for (const source of [
+    '["one"].forEach((name) => { const title = name; test(title, () => {}); });',
+    '["one"].forEach((name) => { let title; title = name; test(title, () => {}); });',
+    '["one"].forEach((name) => { function titleForName() { return name; } test(titleForName(), () => {}); });',
+    '["one"].forEach((name) => { function register(title) { test(title, () => {}); } register(name); });',
+    '["one"].forEach((name) => test(`behavior ${name}`, () => {}));',
+    '["one"].forEach((name, index) => test(String(index), () => {}));',
+    '["one"].forEach((name) => test(name, (_fixtures, info) => info.skip(true, "why")));',
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestRegistrations(source),
+      /registration title that depends on forEach item/,
+      source,
+    );
+  }
+
+  const constantTitle = findDesignE2ETestRegistrations(
+    '["one"].forEach((name) => test("pinned behavior", () => {}));',
+  )[0];
   assert.deepEqual(
-    findDesignE2ETestRegistrations(generatedQuarantine).map(
-      ({
-        title,
-        dynamic,
-        modifier,
-        suppressionKind,
-        suppressionReason,
-        suppressionFingerprint,
-      }) => [
-        title,
-        dynamic,
-        modifier,
-        suppressionKind,
-        suppressionReason,
-        suppressionFingerprint,
-      ],
-    ),
+    [constantTitle?.title, constantTitle?.dynamic],
+    ["pinned behavior", false],
+  );
+
+  const constantQuarantine = findDesignE2ETestRegistrations(
+    '["one"].forEach((name) => test.fixme("pinned behavior", () => {}));',
+  )[0];
+  assert.deepEqual(
     [
-      [
-        "expression:name",
-        true,
-        "fixme",
-        "direct",
-        "Unable to inspect conditional test.fixme at line 1",
-        '[{"scope":"direct","modifier":"fixme","callee":"test.fixme","arguments":["name"]}]',
-      ],
+      constantQuarantine?.title,
+      constantQuarantine?.modifier,
+      constantQuarantine?.suppressionKind,
     ],
+    ["pinned behavior", "fixme", "direct"],
+  );
+
+  assert.throws(
+    () =>
+      findDesignE2ETestRegistrations(
+        "[1].forEach((name) => test(name, () => {}));",
+      ),
+    /registration title that depends on forEach item/,
   );
 
   assert.deepEqual(
