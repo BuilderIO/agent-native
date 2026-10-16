@@ -191,6 +191,24 @@ async function history(id: string) {
     );
 }
 
+/** Moves a page's History rows past the typing interval. */
+async function ageHistory(id: string) {
+  const rows = await getDb()
+    .select({
+      id: schema.documentVersions.id,
+      createdAt: schema.documentVersions.createdAt,
+    })
+    .from(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, id));
+  for (const row of rows) {
+    const earlier = new Date(Date.parse(row.createdAt) - 3_000).toISOString();
+    await getDb()
+      .update(schema.documentVersions)
+      .set({ createdAt: earlier, updatedAt: earlier })
+      .where(eq(schema.documentVersions.id, row.id));
+  }
+}
+
 async function collabVersion(id: string): Promise<number | undefined> {
   const { rows } = await getDbExec().execute({
     sql: "SELECT version FROM _collab_docs WHERE doc_id = ?",
@@ -475,7 +493,7 @@ describe("writes through a switched page's live copy", () => {
     expect((await page("uncaused")).content).toBe("Hello there");
   });
 
-  it("derives the page from editor updates and keeps one History row per typing interval, holding its last state", async () => {
+  it("derives the page from editor updates and writes History at most once per typing interval, never rewriting a row", async () => {
     await switchedPage("editor", "Hello there");
     const type = (email: string, text: string) =>
       runWithRequestContext({ userEmail: email }, async () =>
@@ -495,7 +513,7 @@ describe("writes through a switched page's live copy", () => {
       collabBodyRevision: 5,
       liveCopyVersion: await collabVersion("editor"),
     });
-    // B landed inside A's interval: one row, now holding B.
+    // B landed inside A's interval: no row, and A's row still holds A.
     let live = (await history("editor")).filter(
       (r) => r.operation === "live-copy-update",
     );
@@ -507,28 +525,15 @@ describe("writes through a switched page's live copy", () => {
       }),
       expect.objectContaining({
         checkpointKind: "after",
-        content: "Hello there\nA\nB",
-        bodyRevision: 5,
+        content: "Hello there\nA",
+        bodyRevision: 4,
         groupKind: "human_session",
         actorEmail: OWNER,
       }),
     ]);
 
-    // Past the interval, the session gets a new row and the old one keeps B.
-    const rows = await getDb()
-      .select({
-        id: schema.documentVersions.id,
-        createdAt: schema.documentVersions.createdAt,
-      })
-      .from(schema.documentVersions)
-      .where(eq(schema.documentVersions.documentId, "editor"));
-    for (const row of rows) {
-      const earlier = new Date(Date.parse(row.createdAt) - 3_000).toISOString();
-      await getDb()
-        .update(schema.documentVersions)
-        .set({ createdAt: earlier, updatedAt: earlier })
-        .where(eq(schema.documentVersions.id, row.id));
-    }
+    // Past the interval, the session's next row records B, which it replaces.
+    await ageHistory("editor");
     await type(OWNER, "C");
     // Another collaborator starts their own session; B and C stay the owner's.
     await type(OTHER, "D");
@@ -537,12 +542,18 @@ describe("writes through a switched page's live copy", () => {
       (r) => r.operation === "live-copy-update",
     );
     expect(
-      live.map((r) => [r.checkpointKind, r.actorEmail, r.content]),
+      live.map((r) => [
+        r.checkpointKind,
+        r.actorEmail,
+        r.content,
+        r.bodyRevision,
+      ]),
     ).toEqual([
-      ["before", OWNER, "Hello there"],
-      ["after", OWNER, "Hello there\nA\nB"],
-      ["after", OWNER, "Hello there\nA\nB\nC"],
-      ["after", OTHER, "Hello there\nA\nB\nC\nD"],
+      ["before", OWNER, "Hello there", 3],
+      ["after", OWNER, "Hello there\nA", 4],
+      ["before", OWNER, "Hello there\nA\nB", 5],
+      ["after", OWNER, "Hello there\nA\nB\nC", 6],
+      ["after", OTHER, "Hello there\nA\nB\nC\nD", 7],
     ]);
   });
 
@@ -1320,34 +1331,117 @@ describe("edit-document on a switched page", () => {
     expect(await collabVersion("retarget")).toBe(version);
   });
 
-  it("refuses an edit whose base History no longer holds, as on a legacy page", async () => {
-    await switchedPage("base-gone", "Alice: approved\n\nBob: pending");
-    await typeInTab("base-gone", "Alice: approved\n\nBob: pending\n\nDraft");
-    const loaded = await page("base-gone");
-    // A second commit in the same typing interval replaces the base's row.
-    await typeInTab("base-gone", "Alice: denied\n\nBob: approved\n\nDraft two");
+  /** Whether History holds the exact body `loaded` was read at. */
+  async function historyHolds(
+    id: string,
+    loaded: { bodyRevision: number; content: string },
+  ) {
     const { findDocumentBodyBase } =
       await import("../lib/document-body-intents.js");
     const { documentContentHash } =
       await import("../../actions/_document-edit-mutation.js");
-    await expect(
-      findDocumentBodyBase({
+    return (
+      (await findDocumentBodyBase({
         db: getDb(),
         ownerEmail: OWNER,
-        documentId: "base-gone",
+        documentId: id,
         contentHash: documentContentHash(loaded.content),
         revision: loaded.bodyRevision,
-      }),
-    ).resolves.toBeNull();
-    const typed = (await page("base-gone")).content;
+      })) !== null
+    );
+  }
+
+  it("applies an edit whose base a typing interval passed before History recorded it", async () => {
+    await switchedPage("unrecorded", "First\n\nSecond");
+    await typeInTab("unrecorded", "First\n\nSecond B");
+    // Inside the interval: the base an agent reads gets no row.
+    await typeInTab("unrecorded", "First\n\nSecond BC");
+    const loaded = await page("unrecorded");
+    await typeInTab("unrecorded", "First\n\nSecond BCD");
+    expect(await historyHolds("unrecorded", loaded)).toBe(false);
+    const typed = (await page("unrecorded")).content;
+
+    const result = await agentEdit("unrecorded", loaded, [
+      { find: "First", replace: "First A" },
+    ]);
+
+    expect(result.receipt.outcome).toBe("applied");
+    expect((await page("unrecorded")).content).toBe(
+      typed.replace("First", "First A"),
+    );
+    // The row the interval opened with still holds its own body.
+    expect(
+      (await history("unrecorded")).some(
+        (row) => row.content === "First\nSecond B",
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses an edit whose unrecorded base the recorded bodies either side of it read differently at", async () => {
+    await switchedPage("unrecorded-typed", "First\n\nSecond");
+    await typeInTab("unrecorded-typed", "First\n\nSecond B");
+    await typeInTab("unrecorded-typed", "First\n\nSecond BC");
+    const loaded = await page("unrecorded-typed");
+    await typeInTab("unrecorded-typed", "First\n\nSecond BCD");
+    expect(await historyHolds("unrecorded-typed", loaded)).toBe(false);
+    const typed = (await page("unrecorded-typed")).content;
+    const version = await collabVersion("unrecorded-typed");
+
+    // The tab is typing in the paragraph the edit changes.
+    await expect(
+      agentEdit("unrecorded-typed", loaded, [
+        { find: "Second", replace: "Next" },
+      ]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+    // Text only the unrecorded base had can't be placed at all.
+    await expect(
+      agentEdit(
+        "unrecorded-typed",
+        loaded,
+        [{ find: "Second BC", replace: "Next" }],
+        "unrecorded-typed-only-base",
+      ),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("unrecorded-typed")).content).toBe(typed);
+    expect(await collabVersion("unrecorded-typed")).toBe(version);
+  });
+
+  it("refuses an edit whose unrecorded base the recorded bodies either side of it place differently", async () => {
+    await switchedPage("placed", "P: $10\n\nNote");
+    await typeInTab("placed", "P: $10\n\nNote x");
+    await typeInTab("placed", "P: $10\n\nNote xy");
+    // The agent reads the only "$10" in P's line.
+    const loaded = await page("placed");
+    // Still inside the interval, the tab moves it to a new line.
+    await typeInTab("placed", "Note xy\n\nC: $10");
+    await ageHistory("placed");
+    // Past it, the tab puts P's line back; History records the moved state.
+    await typeInTab("placed", "P: $10\n\nNote xy\n\nC: $10");
+    expect(await historyHolds("placed", loaded)).toBe(false);
+    const typed = (await page("placed")).content;
+
+    // Made on the later recorded body, the edit would change C's line.
+    await expect(
+      agentEdit("placed", loaded, [{ find: "$10", replace: "$15" }]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("placed")).content).toBe(typed);
+  });
+
+  it("refuses an edit whose revision History holds with another body", async () => {
+    await switchedPage("other-body", "First\n\nSecond");
+    const loaded = await page("other-body");
+    await typeInTab("other-body", "First\n\nSecond B");
+    const typed = (await page("other-body")).content;
 
     await expect(
-      agentEdit("base-gone", loaded, [
-        { find: "approved", replace: "revoked" },
+      agentEdit("other-body", { ...loaded, content: "Forged" }, [
+        { find: "First", replace: "First A" },
       ]),
     ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
 
-    expect((await page("base-gone")).content).toBe(typed);
+    expect((await page("other-body")).content).toBe(typed);
   });
 
   it("refuses an edit whose Markdown the parser would drop part of", async () => {

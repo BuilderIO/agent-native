@@ -15,6 +15,7 @@ import {
 } from "../server/lib/document-attribution.js";
 import {
   findDocumentBodyBase,
+  findSupersededBodyBase,
   preserveDocumentBodyIntent,
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
@@ -31,6 +32,7 @@ import {
   liveCopyRebaseConflict,
   liveCopyWriteLeftPath,
   unrepresentableBodyError,
+  type ContentLiveCopyRebaseInput,
 } from "../server/live-copy/write.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import {
@@ -867,20 +869,52 @@ async function mutateLiveCopyDocumentBody(input: {
         contentHash: base.contentHash,
         revision: base.revision,
       });
-  if (baseContent === null) {
-    conflict("STALE_BASE_REVISION", "The exact edit base is unavailable.", {
-      expectedRevision: baseRevision,
-      currentRevision,
-    });
+  let resolved: {
+    content: string;
+    ranges: ReadonlyArray<{ start: number; end: number }>;
+  };
+  let rebase: ContentLiveCopyRebaseInput;
+  if (baseContent !== null) {
+    ({ resolved } = validateDocumentEditSnapshot(
+      document,
+      base,
+      baseRevision,
+      edits,
+      input.initializeContent,
+      baseContent,
+    ));
+    rebase = { base: baseContent, candidate: resolved.content };
+  } else {
+    // A typing interval can move past a base before History records it.
+    // The edit is then made on the recorded bodies either side of it.
+    const between = edits
+      ? await findSupersededBodyBase({
+          db,
+          ownerEmail: document.ownerEmail,
+          documentId,
+          revision: base.revision,
+          currentRevision: document.bodyRevision,
+        })
+      : null;
+    const after = between ? (between.after ?? current) : undefined;
+    const onAfter =
+      after === undefined ? undefined : resolveDocumentTextEdits(after, edits!);
+    const onBefore = between
+      ? resolveDocumentTextEdits(between.before, edits!)
+      : undefined;
+    if (!onAfter?.ok || !onBefore?.ok) {
+      conflict("STALE_BASE_REVISION", "The exact edit base is unavailable.", {
+        expectedRevision: baseRevision,
+        currentRevision,
+      });
+    }
+    resolved = onAfter;
+    rebase = {
+      base: after!,
+      candidate: onAfter.content,
+      earlier: { base: between!.before, candidate: onBefore.content },
+    };
   }
-  const { resolved } = validateDocumentEditSnapshot(
-    document,
-    base,
-    baseRevision,
-    edits,
-    input.initializeContent,
-    baseContent,
-  );
   const creativeContext = await input.resolveCreativeContext();
   let result: DocumentEditMutationResult | undefined;
   try {
@@ -898,7 +932,7 @@ async function mutateLiveCopyDocumentBody(input: {
         },
       },
       edit: CONTENT_LIVE_COPY_EDITS.rebaseBody,
-      input: { base: baseContent, candidate: resolved.content },
+      input: rebase,
       persist: async (tx) => {
         const txDb = drizzleOverExec(tx);
         // A concurrent call with this key committed first; the caller
