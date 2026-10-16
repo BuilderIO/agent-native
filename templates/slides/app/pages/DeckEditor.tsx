@@ -27,6 +27,7 @@ import {
 } from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import {
@@ -150,7 +151,6 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { useUndoSelection } from "@/hooks/use-undo-selection";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
@@ -1123,7 +1123,9 @@ export default function DeckEditor() {
   }, []);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const storageQuery = useSlideFileStorageStatus();
+  // Image and video uploads go through core `uploadFile`; the slides
+  // `/api/uploads/status` flag covers reference files and is always true locally.
+  const storageQuery = useFileUploadStatus();
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
   const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
@@ -5437,6 +5439,7 @@ export default function DeckEditor() {
             }}
             onDropImage={uploadAndApplyImage}
             onDropVideo={uploadAndApplyVideo}
+            fileStorageConfigured={fileStorageConfigured}
             onDropImageUrl={dropImageUrlOnSlide}
             onToggleObjectFit={toggleObjectFit}
             onChangeObjectPosition={updateObjectPosition}

@@ -1187,6 +1187,8 @@ interface SlideEditorProps {
     position?: SlideImageDropPosition,
   ) => void;
   onDropVideo?: (file: File, position?: SlideImageDropPosition) => void;
+  /** False disables the toolbar's Image/video insert; uploads need storage. */
+  fileStorageConfigured?: boolean;
   /** Fired when an image is dragged from elsewhere in the app (e.g. a
    *  generated-image preview in the agent chat panel) and dropped on the
    *  slide canvas, instead of a native OS file drop. */
@@ -1736,6 +1738,17 @@ type SlidePlacementGesture = {
   color?: string;
 };
 
+/** Shared by the placed shape and its drag preview so they cannot drift. */
+const SLIDE_SHAPE_CLIP_PATH: Partial<Record<SlideShapeType, string>> = {
+  arrow:
+    "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)",
+  triangle: "polygon(50% 0%, 100% 100%, 0% 100%)",
+};
+
+function slideShapeBorderRadius(type: SlideShapeType): string {
+  return type === "circle" ? "50%" : type === "line" ? "999px" : "4px";
+}
+
 function PlacementShapePreview({
   rect,
   viewportRect,
@@ -1761,20 +1774,15 @@ function PlacementShapePreview({
     style.top = (start.y + end.y) / 2 - 2;
     style.width = length;
     style.height = 4;
-    style.borderRadius = 999;
     style.transform = `rotate(${(Math.atan2(dy, dx) * 180) / Math.PI}deg)`;
   } else {
     style.left = rect.x;
     style.top = rect.y;
     style.width = rect.w;
     style.height = rect.h;
-    if (type === "circle") style.borderRadius = "50%";
-    else if (type === "rectangle") style.borderRadius = 4;
-    else if (type === "arrow") {
-      style.clipPath =
-        "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
-    } else style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
   }
+  style.borderRadius = slideShapeBorderRadius(type);
+  style.clipPath = SLIDE_SHAPE_CLIP_PATH[type];
   return (
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={47}>
       <div data-slide-placement-shape={type} style={style} />
@@ -1909,6 +1917,7 @@ export default function SlideEditor({
   onUploadImage,
   onDropImage,
   onDropVideo,
+  fileStorageConfigured = true,
   onDropImageUrl,
   onToggleObjectFit,
   onChangeObjectPosition,
@@ -6228,14 +6237,9 @@ export default function SlideEditor({
       shape.style.backgroundColor = color;
       shape.style.border =
         type === "rectangle" || type === "circle" ? `2px solid ${color}` : "0";
-      shape.style.borderRadius =
-        type === "circle" ? "50%" : type === "line" ? "999px" : "4px";
-      if (type === "arrow") {
-        shape.style.clipPath =
-          "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
-      } else if (type === "triangle") {
-        shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
-      }
+      shape.style.borderRadius = slideShapeBorderRadius(type);
+      const clipPath = SLIDE_SHAPE_CLIP_PATH[type];
+      if (clipPath) shape.style.clipPath = clipPath;
       shape.style.opacity = "0.85";
       if (lineRotationDeg) setSlideObjectRotation(shape, lineRotationDeg);
       positioningLayer.appendChild(shape);
@@ -11023,6 +11027,11 @@ export default function SlideEditor({
                         : null
                   }
                   onInsert={insertFloatingTool}
+                  mediaDisabledReason={
+                    fileStorageConfigured
+                      ? null
+                      : t("floatingToolbar.mediaNeedsStorage")
+                  }
                   transitionsOpen={animationsOpen}
                   transitionValue={
                     animationTarget

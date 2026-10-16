@@ -106,6 +106,8 @@ const INSERT_ITEMS: MenuItem<FloatingToolbarInsertTool>[] = [
   },
 ];
 
+const MEDIA_ONLY: readonly FloatingToolbarInsertTool[] = ["media"];
+
 const TRANSITION_ITEMS: MenuItem<FloatingToolbarTransition>[] = [
   {
     value: "none",
@@ -311,6 +313,8 @@ export interface FloatingToolbarProps {
   /** The Insert row matching the armed placement tool, if any. */
   insertValue?: FloatingToolbarInsertTool | null;
   onInsert?: (tool: FloatingToolbarInsertTool) => void;
+  /** Why Image/video cannot be inserted right now; set disables the row. */
+  mediaDisabledReason?: string | null;
   /** True while the animations panel is open. */
   transitionsOpen?: boolean;
   /** The selected element's animation; "none" when it has none. */
@@ -337,6 +341,7 @@ export const FloatingToolbar = memo(function FloatingToolbar({
   onSelectMoveTool,
   insertValue = null,
   onInsert,
+  mediaDisabledReason = null,
   transitionsOpen = false,
   transitionValue = null,
   transitionsDisabledReason = null,
@@ -383,6 +388,8 @@ export const FloatingToolbar = memo(function FloatingToolbar({
         active={insertValue !== null}
         openMenuOnActivate
         onSelect={onInsert}
+        disabledValues={mediaDisabledReason ? MEDIA_ONLY : undefined}
+        disabledReason={mediaDisabledReason ?? undefined}
       />
       <ToolGroup
         icon={IconBolt}

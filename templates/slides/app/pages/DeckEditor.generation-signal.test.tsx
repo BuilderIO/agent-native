@@ -303,8 +303,8 @@ vi.mock("@/hooks/use-deck-role", () => ({
 vi.mock("@/hooks/use-slide-comments", () => ({
   useSlideComments: () => ({ data: [] }),
 }));
-vi.mock("@/hooks/use-slide-file-storage-status", () => ({
-  useSlideFileStorageStatus: () => ({
+vi.mock("@agent-native/core/client/uploads", () => ({
+  useFileUploadStatus: () => ({
     data: { configured: true },
     isError: false,
     isLoading: false,

@@ -234,6 +234,7 @@ const messages = {
     ellipse: "Ellipse",
     triangle: "Triangle",
     media: "Image/video…",
+    mediaNeedsStorage: "Configure storage to upload images and videos.",
     transitions: "Transitions",
     transitionsMenu: "Transition options",
     transitionsReadOnly: "This deck is read-only.",
