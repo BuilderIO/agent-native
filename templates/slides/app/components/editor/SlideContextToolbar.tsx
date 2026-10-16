@@ -904,9 +904,9 @@ export function SlideContextToolbar({
         label={t("contextToolbar.removeFormatting")}
         onClick={() =>
           onChange({
-            fontWeight: "400",
-            fontStyle: "normal",
-            textDecoration: "none",
+            fontWeight: "",
+            fontStyle: "",
+            textDecoration: "",
           })
         }
       >
