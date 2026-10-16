@@ -44,6 +44,12 @@ export const AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL = {
 
 export const AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approval_policies_scope
   ON agent_tool_approval_policies(owner_email, org_id, tool_name, enabled)`;
+// Nullable so rows written before revisions existed keep matching entries
+// that declare none.
+export const AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL = `ALTER TABLE agent_tool_approvals ADD COLUMN IF NOT EXISTS tool_revision TEXT`;
+
+export const AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL = `ALTER TABLE agent_tool_approval_policies ADD COLUMN IF NOT EXISTS tool_revision TEXT`;
+
 export const AGENT_TOOL_APPROVAL_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,

@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { withMigrationRuntime } from "@agent-native/core/db";
 import {
   loadActionsFromStaticRegistry,
   runFrameworkReleaseMigrations,
@@ -142,7 +143,7 @@ beforeAll(async () => {
   getDb = database.getDb;
   schema = database.schema;
   if (databaseUrl.startsWith("postgres")) {
-    await runFrameworkReleaseMigrations(undefined);
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   }
   await (await import("../server/plugins/db.js")).default(undefined as never);
   const { provisionContentSpaces } = await import("./_content-spaces.js");

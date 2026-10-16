@@ -627,6 +627,27 @@ it("does not auto-attach the default design system to a fresh prompt", async () 
 });
 
 describe("Index skip to editor", () => {
+  it("hides home suggestions when AI is unavailable and restores them after connection", async () => {
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).toBeNull();
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
+    expect(container.textContent).toContain("Connect AI");
+
+    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Generated dashboard");
+  });
+
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
     const suggestion = Array.from(container.querySelectorAll("button")).find(
@@ -859,16 +880,13 @@ describe("Index skip to editor", () => {
     ).toBe(false);
   });
 
-  it("reserves the suggestion slot while provider setup is missing", async () => {
+  it("hides the suggestion slot while provider setup is missing", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
-    expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
-    ).toHaveLength(3);
+    expect(bar).toBeNull();
     expect(container.textContent).not.toContain("Generated dashboard");
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
@@ -967,7 +985,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
 
-  it("keeps the suggestion slot while readiness recovers", async () => {
+  it("shows the suggestion slot only after readiness recovers", async () => {
     await act(async () => root.render(null));
     mocks.agentEngine = {
       state: "unavailable",
@@ -977,10 +995,8 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
 
     expect(
-      container
-        .querySelector('[aria-label="home.suggestedPrompts"]')
-        ?.getAttribute("aria-busy"),
-    ).toBe("true");
+      container.querySelector('[aria-label="home.suggestedPrompts"]'),
+    ).toBeNull();
     expect(mocks.suggestionPending).toBe(false);
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
@@ -1105,7 +1121,7 @@ describe("Index skip to editor", () => {
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(bar).toBeNull();
     expect(container.textContent).not.toContain("Cached dashboard");
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
@@ -1162,7 +1178,7 @@ describe("Index skip to editor", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "keeps the suggestion slot reserved for $state (missing=$missing)",
+    "shows the suggestion slot only when chat is ready for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       await act(async () => root.render(null));
       mocks.agentEngine = { state, missing, canChat: ready };
@@ -1185,11 +1201,8 @@ describe("Index skip to editor", () => {
       const suggestionBar = container.querySelector<HTMLElement>(
         '[aria-label="home.suggestedPrompts"]',
       );
-      const loading = !ready;
-      expect(Boolean(suggestionBar)).toBe(true);
-      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
-        loading ? "true" : null,
-      );
+      expect(Boolean(suggestionBar)).toBe(ready);
+      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBeNull();
       expect(container.textContent?.includes("Generated dashboard")).toBe(
         ready,
       );

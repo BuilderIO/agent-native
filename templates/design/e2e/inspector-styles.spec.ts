@@ -16,14 +16,14 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
-const CENTERS = {
-  heading: { x: 240, y: 70, name: "Heading" },
-  para: { x: 240, y: 132, name: "Paragraph" },
-  button: { x: 110, y: 202, name: "Button" },
-  card: { x: 140, y: 320, name: "Card" },
+const LAYER_NAMES = {
+  heading: "Heading",
+  para: "Paragraph",
+  button: "Button",
+  card: "Card",
 } as const;
 
-type NodeKey = keyof typeof CENTERS;
+type NodeKey = keyof typeof LAYER_NAMES;
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -34,11 +34,17 @@ async function openInspector(app: App) {
   return id;
 }
 
-/** Selects a layer with a plain canvas click at its centre. */
 async function select(app: App, key: NodeKey) {
-  const { x, y, name } = CENTERS[key];
-  const point = await app.pagePoint(x, y);
-  await app.page.mouse.click(point.x, point.y);
+  const name = LAYER_NAMES[key];
+  const node = app.node(key);
+  await expect(node, `${name} is visible on the canvas`).toBeVisible();
+  const box = await node.boundingBox();
+  if (box === null) {
+    throw new Error(`${name} has no rendered canvas bounds`);
+  }
+  expect(box.width).toBeGreaterThan(0);
+  expect(box.height).toBeGreaterThan(0);
+  await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect.poll(() => app.selectedLayers()).toEqual([name]);
 }
 

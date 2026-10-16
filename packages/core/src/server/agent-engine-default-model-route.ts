@@ -10,7 +10,7 @@ import {
   recordDefaultAgentEngineRefusal,
   resolveDefaultAgentEngineAuthority,
 } from "../agent/default-agent-engine.js";
-import { getOrgContext } from "../org/context.js";
+import { resolveAgentRunOrgScope } from "./agent-run-context.js";
 import { getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -38,8 +38,24 @@ export function createAgentEngineDisconnectHandler() {
       // Not caught separately: an unreadable org context must not downgrade an
       // org member's clear to a personal one that answers "ok" and changes
       // nothing.
-      const orgCtx = await getOrgContext(event);
-      const ctx = { userEmail: session.email, orgId: orgCtx.orgId };
+      const orgScope = await resolveAgentRunOrgScope({
+        event,
+        ownerContext: { owner: session.email, anonymous: false },
+      });
+      if (!orgScope.orgId && orgScope.orgScope !== "personal") {
+        setResponseStatus(event, 503);
+        return {
+          ok: false,
+          error: "Organization scope is temporarily unavailable.",
+        };
+      }
+      const ctx = {
+        userEmail: session.email,
+        orgId: orgScope.orgId,
+        ...(orgScope.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+      };
       const meta = {
         actionName: AGENT_ENGINE_DISCONNECT_ACTION_NAME,
         caller: "http" as const,
@@ -125,20 +141,37 @@ export async function selectDefaultModelForSavedKey(
     const session = await getSession(event);
     const userEmail = session?.email;
     if (!userEmail) return { status: "skipped", reason: "not-allowed" };
-    let orgId: string | null;
+    let orgId: string | undefined;
+    let orgScope: "personal" | undefined;
     if (input.keyScope === "org") {
       orgId = input.keyScopeId;
     } else {
-      orgId = (await getOrgContext(event)).orgId;
+      const resolved = await resolveAgentRunOrgScope({
+        event,
+        ownerContext: { owner: userEmail, anonymous: false },
+      });
+      orgId = resolved.orgId;
+      orgScope = resolved.orgScope;
+      if (!orgId && orgScope !== "personal") {
+        return { status: "skipped", reason: "not-allowed" };
+      }
       if (orgId) return { status: "skipped", reason: "personal-key" };
     }
-    const ctx = { userEmail, orgId };
+    const ctx = {
+      userEmail,
+      orgId: orgId ?? null,
+      ...(orgScope ? { orgScope } : {}),
+    };
     // Loaded here so the key-save route doesn't pull the engine registry into
     // its module graph for saves that don't touch the default.
     const { selectDefaultAgentEngine } =
       await import("../scripts/agent-engines/set-agent-engine.js");
     const result = await runWithRequestContext(
-      { userEmail, ...(orgId ? { orgId } : {}) },
+      {
+        userEmail,
+        ...(orgId ? { orgId } : {}),
+        ...(orgScope ? { orgScope } : {}),
+      },
       () =>
         selectDefaultAgentEngine(
           input.request,

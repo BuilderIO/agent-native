@@ -74,7 +74,7 @@ export interface DesignFile {
   filename: string;
   fileType: string;
   content: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
 }
 

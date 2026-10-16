@@ -77,6 +77,7 @@ vi.mock("../components/live-waveform", () => ({ LiveWaveform: () => null }));
 describe("completion card actions", () => {
   let host: HTMLDivElement;
   let root: Root;
+  let resizeObserverCallbacks: Array<() => void> = [];
   const url = "https://example.test/r/example-clip";
 
   beforeEach(async () => {
@@ -87,6 +88,7 @@ describe("completion card actions", () => {
     tauriEvents.listen.mockClear();
     tauriCore.invoke.mockClear();
     tauriWindow.close.mockClear();
+    resizeObserverCallbacks = [];
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
     const storage = {
@@ -112,6 +114,12 @@ describe("completion card actions", () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallbacks.push(() =>
+            callback([], this as unknown as ResizeObserver),
+          );
+        }
+
         observe() {}
         disconnect() {}
       },
@@ -322,6 +330,60 @@ describe("completion card actions", () => {
       tauriEvents.emit("clips:tray-stop-request", undefined),
     );
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
+  });
+
+  it("re-measures the completion card after a resize during the native layout guard", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    localStorage.setItem(
+      "clips-finalizing-result",
+      JSON.stringify({ recordingId: "example-clip", viewUrl: url, ok: false }),
+    );
+    await act(async () => button("Stop recording").click());
+
+    const card = host.querySelector<HTMLElement>(
+      "[data-tw-surface] > div:nth-child(2)",
+    );
+    expect(card).not.toBeNull();
+    if (!card) throw new Error("Completion card was not rendered");
+    expect(card.textContent).toContain("Upload paused");
+
+    let contentHeight = 180;
+    Object.defineProperty(card, "offsetWidth", {
+      configurable: true,
+      get: () => 340,
+    });
+    Object.defineProperty(card, "offsetHeight", {
+      configurable: true,
+      get: () => contentHeight,
+    });
+    const notifyResize =
+      resizeObserverCallbacks[resizeObserverCallbacks.length - 1];
+    expect(notifyResize).toBeDefined();
+
+    // Model the earlier-screen row arriving while the initial short window is guarded.
+    contentHeight = 240;
+    await act(async () => {
+      notifyResize?.();
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(tauriCore.invoke).not.toHaveBeenCalledWith(
+      "toolbar_set_bounds",
+      expect.objectContaining({ height: 240 }),
+    );
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_200));
+    expect(tauriCore.invoke).toHaveBeenCalledWith(
+      "toolbar_set_bounds",
+      expect.objectContaining({ width: 340, height: 240 }),
+    );
   });
 
   it("keeps a new toolbar open if it starts during copied feedback", async () => {

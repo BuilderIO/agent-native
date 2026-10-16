@@ -151,6 +151,10 @@ describe("SqlChart refresh feedback", () => {
       updatingNotice()?.getAttribute("data-dashboard-report-updating"),
     ).toBe("refresh");
     expect(updatingNotice()?.textContent).toContain("sqlDashboard.updating");
+    expect(
+      updatingNotice()?.querySelector("svg")?.getAttribute("aria-hidden"),
+    ).toBe("true");
+    expect(updatingNotice()?.querySelector('[role="status"]')).toBeNull();
 
     mocks.query.isFetching = false;
     await act(async () => {

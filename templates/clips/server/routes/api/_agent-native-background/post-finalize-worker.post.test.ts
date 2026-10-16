@@ -12,6 +12,7 @@ const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
+const mockNe = vi.hoisted(() => vi.fn((..._args: unknown[]) => "ne"));
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => {
     const builder = {
@@ -48,6 +49,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(() => "eq"),
   isNull: vi.fn(() => "isNull"),
   lt: vi.fn(() => "lt"),
+  ne: (...args: unknown[]) => mockNe(...args),
   or: vi.fn(() => "or"),
 }));
 
@@ -93,6 +95,7 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
       status: "recordings.status",
+      failureCode: "recordings.failureCode",
       uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
       loomImportClaimId: "recordings.loomImportClaimId",
@@ -116,6 +119,7 @@ vi.mock("../../../../actions/export-to-brain.js", () => ({
   default: { run: vi.fn() },
 }));
 
+import requestTranscript from "../../../../actions/request-transcript.js";
 import handler from "./post-finalize-worker.post";
 
 describe("post-finalize worker", () => {
@@ -211,6 +215,36 @@ describe("post-finalize worker", () => {
     });
   });
 
+  it("hands a regenerate the import it was accepted against", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "transcript",
+      token: "valid-token",
+      regenerate: true,
+      replaceImportId: "import-1",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          { id: "rec-1", ownerEmail: "owner@example.test", status: "ready" },
+        ]),
+      };
+      return builder;
+    });
+
+    await handler({} as any);
+
+    expect(requestTranscript.run).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      force: true,
+      retryAttempt: undefined,
+      regenerate: true,
+      replaceImportId: "import-1",
+    });
+  });
+
   it("claims a Loom import before running its side effects", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",
@@ -230,6 +264,26 @@ describe("post-finalize worker", () => {
       ownerEmail: "owner@example.test",
       claimId: expect.any(String),
     });
+  });
+
+  it("does not claim a taken-down Loom import", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "loom-import",
+      token: "valid-token",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "loom-import",
+      skipped: true,
+      reason: "loom-import-already-running",
+    });
+
+    expect(mockNe).toHaveBeenCalledWith("recordings.failureCode", "taken_down");
+    expect(mockRunLoomImportJob).not.toHaveBeenCalled();
   });
 
   it("re-enters finalization with the processing row generation", async () => {

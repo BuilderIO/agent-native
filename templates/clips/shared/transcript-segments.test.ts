@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCaptionSegmentsFromText,
+  nextTranscriptBoundaryMs,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "./transcript-segments.js";
@@ -70,27 +71,80 @@ describe("normalizeTranscriptSegments", () => {
     }
   });
 
-  it("preserves source and speaker when a single long segment is resynthesized from fullText", () => {
+  it("keeps a lone short segment where it is in the clip", () => {
+    const cue = {
+      startMs: 30_000,
+      endMs: 34_000,
+      text: "The chart shows three bugs.",
+    };
+    expect(
+      normalizeTranscriptSegments({
+        segments: [cue],
+        fullText: cue.text,
+        durationMs: 120_000,
+      }),
+    ).toEqual([cue]);
+  });
+
+  it("splits a lone long segment inside its own span", () => {
     const longText =
       "This is a fairly long sentence spoken by the recording owner into their microphone during the call.";
     const result = normalizeTranscriptSegments({
       segments: [
         {
-          startMs: 0,
-          endMs: 10_000,
+          startMs: 30_000,
+          endMs: 40_000,
           text: longText,
           source: "mic",
           speaker: "Me",
         },
       ],
       fullText: longText,
+      durationMs: 120_000,
     });
 
     expect(result.length).toBeGreaterThan(1);
+    expect(result[0].startMs).toBe(30_000);
+    expect(result[result.length - 1].endMs).toBe(40_000);
     for (const segment of result) {
       expect(segment.source).toBe("mic");
       expect(segment.speaker).toBe("Me");
     }
+  });
+
+  it("spreads text with no segments across the clip", () => {
+    const result = normalizeTranscriptSegments({
+      segments: [],
+      fullText: "Hello there, this transcript arrived without any timing.",
+      durationMs: 20_000,
+    });
+
+    expect(result[0].startMs).toBe(0);
+    expect(result[result.length - 1].endMs).toBe(20_000);
+  });
+
+  const thirtyWords = Array.from({ length: 30 }, (_, i) => `word${i}`).join(
+    " ",
+  );
+
+  it("gives every caption of a long, short cue a span of its own", () => {
+    const result = normalizeTranscriptSegments({
+      segments: [{ startMs: 5000, endMs: 6000, text: thirtyWords }],
+    });
+
+    expect(result.length).toBeGreaterThan(1);
+    expect(result[0].startMs).toBe(5000);
+    expect(result[result.length - 1].endMs).toBe(6000);
+    result.forEach((segment, index) => {
+      expect(segment.endMs).toBeGreaterThan(segment.startMs);
+      if (index > 0) expect(segment.startMs).toBe(result[index - 1].endMs);
+    });
+    expect(result.map((segment) => segment.text).join(" ")).toBe(thirtyWords);
+  });
+
+  it("keeps a cue whole when it is too short to split", () => {
+    const cue = { startMs: 5000, endMs: 5003, text: thirtyWords };
+    expect(normalizeTranscriptSegments({ segments: [cue] })).toEqual([cue]);
   });
 });
 
@@ -116,5 +170,30 @@ describe("buildCaptionSegmentsFromText", () => {
       expect(segment.source).toBeUndefined();
       expect(segment.speaker).toBeUndefined();
     }
+  });
+});
+
+describe("nextTranscriptBoundaryMs", () => {
+  const segments = [
+    { startMs: 350, endMs: 6040 },
+    { startMs: 6040, endMs: 9000 },
+    { startMs: 11_250, endMs: 17_010 },
+  ];
+
+  it("returns the next start while a segment is showing", () => {
+    expect(nextTranscriptBoundaryMs(segments, 0)).toBe(350);
+    expect(nextTranscriptBoundaryMs(segments, 2000)).toBe(6040);
+  });
+
+  it("returns the moment just past an end when a gap follows", () => {
+    expect(nextTranscriptBoundaryMs(segments, 8000)).toBe(9001);
+    expect(nextTranscriptBoundaryMs(segments, 9001)).toBe(11_250);
+  });
+
+  it("returns infinity after the last segment", () => {
+    expect(nextTranscriptBoundaryMs(segments, 17_010)).toBe(17_011);
+    expect(nextTranscriptBoundaryMs(segments, 17_011)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
   });
 });

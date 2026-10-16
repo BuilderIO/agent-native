@@ -9,6 +9,7 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
@@ -74,12 +75,23 @@ export default defineAction({
       title: recordingTitle,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
+      // Meeting recordings are captured by the desktop app's native macOS
+      // transcript stream; it is this action's only caller.
+      recordingPlatform: "desktop",
       status: "uploading",
       ownerEmail,
       orgId: orgId ?? null,
       visibility: meeting.visibility,
       createdAt: nowIso,
       updatedAt: nowIso,
+    });
+    trackRecordingCreated({
+      recordingId,
+      userId: ownerEmail,
+      platform: "desktop",
+      source: "meeting",
+      hasAudio: args.hasAudio ?? true,
+      hasCamera: args.hasCamera ?? false,
     });
 
     await db

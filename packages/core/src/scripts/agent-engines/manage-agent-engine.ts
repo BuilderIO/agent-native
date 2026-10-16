@@ -19,6 +19,7 @@ import {
 import type { ActionTool } from "../../agent/types.js";
 import { defaultModelMessagesForUser } from "../../localization/default-model-messages.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
@@ -74,11 +75,17 @@ export const tool: ActionTool = {
   },
 };
 
-function currentContext(): { userEmail?: string; orgId?: string | null } {
+function currentContext(): {
+  userEmail?: string;
+  orgId?: string | null;
+  orgScope?: "personal";
+} {
   try {
+    const context = getRequestContext();
     return {
       userEmail: getRequestUserEmail(),
       orgId: getRequestOrgId(),
+      ...(context?.orgScope === "personal" ? { orgScope: "personal" } : {}),
     };
   } catch {
     return {};
@@ -97,6 +104,7 @@ async function runGetAppDefault(args: Record<string, string>): Promise<string> {
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
     ctx.userEmail,
     ctx.orgId,
+    ctx.orgScope,
   );
   return JSON.stringify({ ok: true, ...settings, canUpdate }, null, 2);
 }
@@ -112,6 +120,9 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!model) return "Error: model is required";
 
   const ctx = currentContext();
+  if (!ctx.orgId && ctx.orgScope !== "personal") {
+    return "Error: Organization scope could not be resolved.";
+  }
   if (engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
     if (ctx.orgId) {
       return "Error: ChatGPT plan access is personal and cannot be selected as an organization default.";
@@ -143,6 +154,7 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
     ctx.userEmail,
     ctx.orgId,
+    ctx.orgScope,
   );
   if (!canUpdate) {
     return ctx.orgId
@@ -188,6 +200,7 @@ async function runResetAppDefault(
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
     ctx.userEmail,
     ctx.orgId,
+    ctx.orgScope,
   );
   if (!canUpdate) {
     return ctx.orgId

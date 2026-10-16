@@ -610,8 +610,8 @@ pub(crate) mod macos {
         if error != AX_ERROR_SUCCESS || raw_value.is_null() {
             return None;
         }
-        let value = (CFGetTypeID(raw_value) == CFBooleanGetTypeID())
-            .then_some(raw_value == kCFBooleanTrue);
+        let value =
+            (CFGetTypeID(raw_value) == CFBooleanGetTypeID()).then_some(raw_value == kCFBooleanTrue);
         CFRelease(raw_value);
         value
     }
@@ -795,9 +795,10 @@ pub(crate) mod macos {
 
     fn frontmost_application() -> Option<AppInfo> {
         use objc2::msg_send;
+        use objc2::rc::autoreleasepool;
         use objc2::runtime::{AnyClass, AnyObject};
 
-        unsafe {
+        autoreleasepool(|_| unsafe {
             let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
             let cls: &AnyClass = AnyClass::get(&class_name)?;
             let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
@@ -814,14 +815,15 @@ pub(crate) mod macos {
                 app_name: ns_string_to_owned(app_name),
                 bundle_id: ns_string_to_owned(bundle_id),
             })
-        }
+        })
     }
 
     fn application_for_pid(pid: i32) -> Option<AppInfo> {
         use objc2::msg_send;
+        use objc2::rc::autoreleasepool;
         use objc2::runtime::{AnyClass, AnyObject};
 
-        unsafe {
+        autoreleasepool(|_| unsafe {
             let class_name = std::ffi::CString::new("NSRunningApplication").ok()?;
             let cls: &AnyClass = AnyClass::get(&class_name)?;
             let app: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
@@ -834,7 +836,7 @@ pub(crate) mod macos {
                 app_name: ns_string_to_owned(app_name),
                 bundle_id: ns_string_to_owned(bundle_id),
             })
-        }
+        })
     }
 
     fn dict_string(dict: &CFDictionary<CFString, CFType>, key: &'static str) -> Option<String> {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const executeMock = vi.hoisted(() => vi.fn());
@@ -21,6 +22,7 @@ vi.mock("../../resources/store.js", () => ({
   resourceList: resourceListMock,
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
   resourceDelete: resourceDeleteMock,
 }));
 
@@ -59,6 +61,14 @@ describe("automation actions", () => {
     resourceListMock.mockResolvedValue([]);
     resourceGetByPathMock.mockResolvedValue(null);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        id: "automation-1",
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     resourceDeleteMock.mockResolvedValue(true);
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
@@ -294,10 +304,12 @@ describe("automation actions", () => {
       },
       ctx,
     );
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      "alice@example.com",
-      "jobs/digest.md",
-      expect.stringContaining("enabled: false"),
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "alice@example.com",
+        path: "jobs/digest.md",
+        content: expect.stringContaining("enabled: false"),
+      }),
     );
 
     await manageAutomation.run(
@@ -351,10 +363,12 @@ describe("automation actions", () => {
       { ...ctx, orgId: "org-1", appId: "mail" },
     );
 
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "jobs/digest.md",
-      expect.stringContaining("runAs: creator"),
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "__organization__:org-1",
+        path: "jobs/digest.md",
+        content: expect.stringContaining("runAs: creator"),
+      }),
     );
   });
 });

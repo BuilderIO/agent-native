@@ -381,7 +381,7 @@ describe("BuilderConnectPopover", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  it("keeps the chooser busy during activation and available after it finishes", () => {
+  it("keeps the chooser busy during activation and closes after it succeeds", () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
@@ -390,7 +390,7 @@ describe("BuilderConnectPopover", () => {
       start: vi.fn(),
       statusResolved: true,
       agentNativeProvisioningEnabled: true,
-      accountExists: true,
+      accountExists: false,
     };
     const renderPopover = () =>
       render(
@@ -414,7 +414,7 @@ describe("BuilderConnectPopover", () => {
     expect(consent?.textContent).toContain(
       "Create a new account to activate free credits, or continue with an existing account.",
     );
-    expect(consent?.textContent).toContain(
+    expect(consent?.textContent).not.toContain(
       "You already have a Builder.io account",
     );
     expect(consent?.querySelector("[data-testid='create']")?.textContent).toBe(
@@ -440,15 +440,10 @@ describe("BuilderConnectPopover", () => {
     flow.connecting = false;
     flow.configured = true;
     renderPopover();
-    click(
-      document.querySelector(
-        "[data-testid='consent'] [data-testid='sign-in']",
-      ) as HTMLElement,
-    );
-    expect(onConnect).toHaveBeenLastCalledWith(false);
+    expect(document.querySelector("[data-testid='consent']")).toBeNull();
   });
 
-  it("reopens the same two choices after activation finds an existing account", () => {
+  it("offers only sign-in after activation finds an existing account", () => {
     const flow = {
       connecting: false,
       start: vi.fn(),
@@ -481,10 +476,20 @@ describe("BuilderConnectPopover", () => {
     );
 
     const consent = document.querySelector("[data-testid='consent']");
-    expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
-    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
-    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
-    expect(flow.start).toHaveBeenLastCalledWith({ provisionAccount: true });
+    const existingAccount = consent?.querySelector<HTMLButtonElement>(
+      "[data-testid='create']",
+    );
+    expect(existingAccount?.textContent).toBe("I have a Builder.io account");
+    expect(consent?.textContent).not.toContain("Create and activate");
+    expect(consent?.querySelector("[data-testid='sign-in']")).toBeNull();
+    expect(existingAccount?.getAttribute("aria-describedby")).toBe(
+      "builder-connect-popover-account-exists",
+    );
+    expect(
+      document.getElementById("builder-connect-popover-description"),
+    ).toBeNull();
+    click(existingAccount!);
+    expect(flow.start).toHaveBeenLastCalledWith({ provisionAccount: false });
   });
 
   it("shows included services collapsed and stacks both choices above the terms", () => {

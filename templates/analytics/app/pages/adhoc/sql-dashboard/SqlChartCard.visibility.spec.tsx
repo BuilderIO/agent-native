@@ -17,8 +17,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
+vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
   useSession: () => mocks.session,
   useDemoModeStatus: () => ({
@@ -31,21 +30,18 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  useFormatters: () => ({
-    formatDate: (value: string) => value,
-    formatNumber: (value: number) => String(value),
-  }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("@/lib/cost-tracker", () => ({
-  addBytesProcessed: vi.fn(),
-  recordQueryCost: vi.fn(),
+vi.mock("@agent-native/toolkit/app/extensions", () => ({
+  EmbeddedExtension: () => null,
+  ExtensionSlot: () => null,
 }));
+
+vi.mock("@/lib/cost-tracker", () => ({ addBytesProcessed: vi.fn() }));
 
 vi.mock("@dnd-kit/core", () => ({
   useDraggable: () => ({
@@ -371,6 +367,145 @@ describe("SqlChartCard visibility", () => {
 
     expect(mocks.callAction).not.toHaveBeenCalled();
     expect(text()).toContain("rows for A");
+  });
+
+  it.each([false, true])(
+    "waits for visibility after incomplete A → B → A (cancel first: %s)",
+    async (cancelFirst) => {
+      let signal: AbortSignal | undefined;
+      mocks.callAction.mockImplementation((_name, _args, options) => {
+        signal = options.signal;
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal?.reason), {
+            once: true,
+          });
+        });
+      });
+      await render({ sql: "A" });
+      await setVisible(true);
+      await vi.waitFor(() => expect(callsFor("A")).toHaveLength(1));
+      await setVisible(false);
+      expect(signal?.aborted).toBe(false);
+
+      if (cancelFirst) {
+        await act(async () => {
+          await queryClient.cancelQueries({ queryKey: ["sql-chart"] });
+        });
+      }
+      await render({ sql: "B" });
+      expect(signal?.aborted).toBe(true);
+      answers();
+      await render({ sql: "A" });
+      expect(callsFor("A")).toHaveLength(1);
+      expect(callsFor("B")).toHaveLength(0);
+
+      await setVisible(true);
+      await vi.waitFor(() => expect(text()).toContain("rows for A"));
+      expect(callsFor("A")).toHaveLength(2);
+    },
+  );
+
+  it.each([
+    { email: "b@example.com", userId: "user-b", orgId: "org-1" },
+    { email: "a@example.com", userId: "user-a", orgId: "org-2" },
+  ])(
+    "waits for visibility after switching to %j with the same SQL",
+    async (session) => {
+      answers();
+      await loadVisible("A");
+      await setVisible(false);
+      mocks.callAction.mockClear();
+
+      mocks.session.session = session;
+      await render({ sql: "A" });
+      expect(mocks.callAction).not.toHaveBeenCalled();
+      expect(text()).not.toContain("rows for A");
+
+      await setVisible(true);
+      await vi.waitFor(() => expect(text()).toContain("rows for A"));
+      expect(callsFor("A")).toHaveLength(1);
+    },
+  );
+
+  it.each(["eager", "section", "extension"] as const)(
+    "waits for a new observer before loading after leaving %s mode",
+    async (mode) => {
+      answers();
+      await render({
+        sql: "A",
+        eagerLoad: mode === "eager",
+        panel: { ...panel, chartType: mode === "eager" ? "metric" : mode },
+      });
+      if (mode === "eager") {
+        await vi.waitFor(() => expect(text()).toContain("rows for A"));
+      }
+      mocks.callAction.mockClear();
+
+      await render({ sql: "B" });
+      expect(mocks.callAction).not.toHaveBeenCalled();
+      await setVisible(false);
+      expect(mocks.callAction).not.toHaveBeenCalled();
+
+      await setVisible(true);
+      await vi.waitFor(() => expect(text()).toContain("rows for B"));
+      expect(callsFor("B")).toHaveLength(1);
+    },
+  );
+
+  it("does not reuse an observation from before an eager-mode round trip", async () => {
+    answers();
+    await loadVisible("A");
+    const previousObserver = observer();
+    await render({ sql: "A", eagerLoad: true });
+    expect(previousObserver.disconnected).toBe(true);
+    mocks.callAction.mockClear();
+
+    await render({ sql: "B" });
+    await act(async () => previousObserver.emit(true));
+    expect(mocks.callAction).not.toHaveBeenCalled();
+
+    await setVisible(true);
+    await vi.waitFor(() => expect(text()).toContain("rows for B"));
+    expect(callsFor("B")).toHaveLength(1);
+  });
+
+  it.each(["section", "extension"] as const)(
+    "does not inherit permission for the same SQL from %s mode",
+    async (chartType) => {
+      answers();
+      await render({ sql: "A", panel: { ...panel, chartType } });
+      expect(mocks.callAction).not.toHaveBeenCalled();
+
+      await render({ sql: "A" });
+      expect(mocks.callAction).not.toHaveBeenCalled();
+      await setVisible(false);
+      expect(mocks.callAction).not.toHaveBeenCalled();
+
+      await setVisible(true);
+      await vi.waitFor(() => expect(text()).toContain("rows for A"));
+      expect(callsFor("A")).toHaveLength(1);
+    },
+  );
+
+  it("lets an eager query finish after returning to normal mode offscreen", async () => {
+    const pending = deferred<{ rows: unknown[]; schema: [] }>();
+    let signal: AbortSignal | undefined;
+    mocks.callAction.mockImplementation((_name, _args, options) => {
+      signal = options.signal;
+      return pending.promise;
+    });
+    await render({ sql: "A", eagerLoad: true });
+    await vi.waitFor(() => expect(callsFor("A")).toHaveLength(1));
+
+    await render({ sql: "A" });
+    await setVisible(false);
+    expect(signal?.aborted).toBe(false);
+    await act(async () =>
+      pending.resolve({ rows: [{ value: "rows for A" }], schema: [] }),
+    );
+    await vi.waitFor(() => expect(text()).toContain("rows for A"));
+    await setVisible(true);
+    expect(callsFor("A")).toHaveLength(1);
   });
 
   it("does not let another panel or dashboard inherit the card's permission", async () => {

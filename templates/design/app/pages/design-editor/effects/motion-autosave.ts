@@ -51,6 +51,18 @@ function motionAutosaveErrorMessage(error: unknown): string {
   return "Motion changes could not be saved.";
 }
 
+function isStaleMotionSourceError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("errorCode" in error)) {
+    return false;
+  }
+  return (
+    typeof error.errorCode === "string" &&
+    /^motion_(?:html|local|react|text)_source_stale_(?:source|preview|timeline)$/.test(
+      error.errorCode,
+    )
+  );
+}
+
 export interface MotionAutosaveArgs {
   activeCanvasSourceType: string;
   activeCodeLayerProjection: CodeLayerProjection;
@@ -100,6 +112,12 @@ export interface MotionAutosaveArgs {
   motionTracks: MotionDockTrack[];
   motionTextDocument: MotionTextDocument | null;
   motionTracksDirty: boolean;
+  motionSourceVersionHashRef: { current: string | null };
+  motionSourceVersionCapturedRef: { current: boolean };
+  motionSourceConflictRef: RefObject<boolean>;
+  motionSourceConflictMessage: string;
+  motionReloadFromSourceLabel: string;
+  motionFileActivationEpochRef: RefObject<number>;
   previousMotionFileIdRef: RefObject<string | null>;
   queryClient: QueryClient;
   requestLocalhostWrite: (opts: {
@@ -155,6 +173,12 @@ export function runMotionAutosave({
   motionTracks,
   motionTextDocument,
   motionTracksDirty,
+  motionSourceVersionHashRef,
+  motionSourceVersionCapturedRef,
+  motionSourceConflictRef,
+  motionSourceConflictMessage,
+  motionReloadFromSourceLabel,
+  motionFileActivationEpochRef,
   previousMotionFileIdRef,
   queryClient,
   requestLocalhostWrite,
@@ -170,6 +194,7 @@ export function runMotionAutosave({
     clearMotionAutosaveTimer();
     return;
   }
+  if (motionSourceConflictRef.current) return;
   if (!id || !activeFile?.id || !motionTracksDirty) return;
   if (motionAutosavePending) return;
   if (removeMotionTimelineMutation.isPending) return;
@@ -181,6 +206,10 @@ export function runMotionAutosave({
     fileIdAtSchedule,
     fileRevisionAtSchedule ?? null,
   ]);
+  const activationEpochAtSchedule = motionFileActivationEpochRef.current;
+  const isCurrentActivation = () =>
+    motionFileActivationEpochRef.current === activationEpochAtSchedule &&
+    previousMotionFileIdRef.current === fileIdAtSchedule;
   const localConnectionId =
     activeCanvasSourceType === "localhost"
       ? activeCodeLayerProjection.source.connectionId?.trim()
@@ -201,16 +230,56 @@ export function runMotionAutosave({
       retry: () => void;
     },
   ) => {
-    if (motionAutosaveRevisionRef.current === motionAutosaveRevision) {
+    const isCurrentFile = isCurrentActivation();
+    if (
+      isCurrentFile &&
+      motionAutosaveRevisionRef.current === motionAutosaveRevision
+    ) {
       motionAutosaveFailedRevisionRef.current = motionAutosaveRevision;
       lastScheduledMotionAutosaveRevisionRef.current = 0;
+    }
+    if (isStaleMotionSourceError(error)) {
+      if (!isCurrentFile) return;
+      motionSourceConflictRef.current = true;
+      toast.error(motionSourceConflictMessage, {
+        duration: Number.POSITIVE_INFINITY,
+        action: {
+          label: motionReloadFromSourceLabel,
+          onClick: async () => {
+            if (!isCurrentActivation()) return;
+            const queryKey = [
+              "action",
+              "get-motion-timeline",
+              { designId: id, sourceRef: fileIdAtSchedule },
+            ] as const;
+            const timelineQuery = queryClient
+              .getQueryCache()
+              .find({ queryKey, exact: true });
+            if (!timelineQuery?.isActive()) return;
+            try {
+              await queryClient.refetchQueries(
+                { queryKey, exact: true, type: "active" },
+                { throwOnError: true },
+              );
+            } catch (reloadError) {
+              reportError(reloadError);
+              return;
+            }
+            if (!isCurrentActivation()) return;
+            motionSourceConflictRef.current = false;
+            setMotionHydrationFingerprint(null);
+            setMotionTracksDirty(false);
+          },
+        },
+      });
+      return;
     }
     if (
       !options.allowConsentRetry ||
       !localConnectionId ||
       !isLocalhostWriteConsentError(error) ||
       motionAutosaveRevisionRef.current !== motionAutosaveRevision ||
-      previousMotionFileIdRef.current !== fileIdAtSchedule
+      !isCurrentActivation()
     ) {
       reportError(error);
       return;
@@ -224,7 +293,7 @@ export function runMotionAutosave({
         if (
           retryStarted ||
           motionAutosaveRevisionRef.current !== motionAutosaveRevision ||
-          previousMotionFileIdRef.current !== fileIdAtSchedule ||
+          !isCurrentActivation() ||
           motionAutosaveFailedRevisionRef.current !== motionAutosaveRevision
         ) {
           return;
@@ -264,21 +333,36 @@ export function runMotionAutosave({
       designId: id,
       timelineId: timelineIdAtSchedule,
       fileId: activeFile.id,
+      ...(activeCanvasSourceType === "localhost" &&
+      motionSourceVersionHashRef.current
+        ? { timelineVersionHash: motionSourceVersionHashRef.current }
+        : {}),
     };
     const removeWithConsentRetry = (allowConsentRetry: boolean) =>
       removeMotionTimeline(removeArgs, {
         onSuccess: () => {
-          if (motionAutosaveFailedRevisionRef.current === revisionAtSchedule) {
+          const isCurrent = isCurrentActivation();
+          if (
+            isCurrent &&
+            motionAutosaveFailedRevisionRef.current === revisionAtSchedule
+          ) {
             motionAutosaveFailedRevisionRef.current = null;
           }
-          setMotionTimelineId((current) =>
-            current === timelineIdAtSchedule ? null : current,
-          );
-          setMotionHydrationFingerprint(null);
+          if (isCurrent) {
+            setMotionTimelineId((current) =>
+              current === timelineIdAtSchedule ? null : current,
+            );
+            setMotionHydrationFingerprint(null);
+          }
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-motion-timeline"],
           });
-          if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
+          if (
+            !isCurrent ||
+            motionAutosaveRevisionRef.current !== revisionAtSchedule
+          ) {
+            return;
+          }
           setMotionTracksDirty(false);
         },
         onError: (error: unknown) =>
@@ -356,18 +440,30 @@ export function runMotionAutosave({
         ])
       : null;
     const connectionId = activeCodeLayerProjection.source.connectionId?.trim();
-    if (isLocalReactSource && (!localSourceProof || !connectionId)) {
+    const timelineVersionHash = motionSourceVersionHashRef.current;
+    if (
+      isLocalReactSource &&
+      (!localSourceProof ||
+        !connectionId ||
+        !motionSourceVersionCapturedRef.current ||
+        !timelineVersionHash)
+    ) {
       motionAutosaveFailedRevisionRef.current = revisionAtSchedule;
       lastScheduledMotionAutosaveRevisionRef.current = 0;
       toast.error(sourceWriteUnavailableMessage);
       return;
     }
     const localSource =
-      isLocalReactSource && localSourceProof && connectionId
+      isLocalReactSource &&
+      localSourceProof &&
+      connectionId &&
+      motionSourceVersionCapturedRef.current &&
+      timelineVersionHash
         ? {
             connectionId,
             modulePath: localSourceProof.modulePath,
             moduleVersionHash: localSourceProof.moduleVersionHash,
+            timelineVersionHash,
             renderedNodeIds: localSourceProof.renderedNodeIds,
           }
         : undefined;
@@ -394,7 +490,10 @@ export function runMotionAutosave({
     const applyWithConsentRetry = (allowConsentRetry: boolean) =>
       applyMotionEdit(applyArgs, {
         onSuccess: (result) => {
-          if (motionAutosaveFailedRevisionRef.current === revisionAtSchedule) {
+          if (
+            isCurrentActivation() &&
+            motionAutosaveFailedRevisionRef.current === revisionAtSchedule
+          ) {
             motionAutosaveFailedRevisionRef.current = null;
           }
           const response = result as {
@@ -404,9 +503,13 @@ export function runMotionAutosave({
             compiledHash?: unknown;
             contentPatched?: unknown;
             filePath?: unknown;
+            versionHash?: unknown;
           };
-          const isStillActiveFile =
-            previousMotionFileIdRef.current === fileIdAtSchedule;
+          const isStillActiveFile = isCurrentActivation();
+          if (typeof response.versionHash === "string" && isStillActiveFile) {
+            motionSourceVersionHashRef.current = response.versionHash;
+            motionSourceVersionCapturedRef.current = true;
+          }
           if (typeof response.timelineId === "string" && isStillActiveFile) {
             setMotionTimelineId(response.timelineId);
           }
@@ -443,6 +546,10 @@ export function runMotionAutosave({
                 defaultEase: motionDefaultEase,
                 compiledHash: expectedHash,
                 cssHash: contentPatched ? expectedHash : null,
+                sourceVersionHash:
+                  typeof response.versionHash === "string"
+                    ? response.versionHash
+                    : null,
                 source: "stored",
                 createdAt: null,
                 updatedAt:
@@ -456,6 +563,7 @@ export function runMotionAutosave({
           if (
             typeof response.fileId === "string" &&
             response.fileId === fileIdAtSchedule &&
+            isStillActiveFile &&
             response.contentPatched !== false
           ) {
             const freshContent = isStillActiveFile

@@ -708,6 +708,15 @@ const messages = {
     noSlides: "No slides to present",
     previousSlide: "Previous slide",
     nextSlide: "Next slide",
+    voiceNavigation: "Voice navigation",
+    voiceNavigationNextCommand: "Next slide",
+    voiceNavigationPreviousCommand: "Previous slide",
+    voiceNavigationHint: "Say “{{next}}” or “{{previous}}” to navigate.",
+    voiceNavigationListening: "Listening for “{{next}}” or “{{previous}}”.",
+    voiceNavigationUnavailable:
+      "Voice navigation isn't available in this browser.",
+    voiceNavigationError:
+      "Voice navigation stopped. Check microphone permission and connection, then try again.",
     exitPresentation: "Exit presentation",
     enterFullscreen: "Enter fullscreen",
     clickToEnterFullscreen: "Click to enter fullscreen",
@@ -798,6 +807,8 @@ const messages = {
       "Slides weren't created. Check the chat for details, then try again.",
     generationOutcomeUnresolved:
       "We couldn't confirm whether slides were created. Check the deck before trying again.",
+    generationOutcomeUnresolvedWithSlides:
+      "We couldn't confirm that slide creation finished. Review the slides shown here before continuing.",
     partialGenerationFailed:
       "We couldn't finish creating your slides. Review the slides already here and your original request before continuing.",
     originalPrompt: "You asked for",
@@ -820,6 +831,10 @@ const messages = {
     leaveWithoutSaving: "Exit without saving",
     editorMarkupNotSaved:
       "This edit wasn't saved because it would have added editor markup to the slide.",
+    historyStepConflict:
+      "This history step was skipped because it conflicts with the current presentation.",
+    historyStepFailed:
+      "This history step was skipped because it could not be applied.",
     textEditConflictNotSaved:
       "Your text edit wasn't saved because the same text was changed elsewhere at the same time.",
   },
