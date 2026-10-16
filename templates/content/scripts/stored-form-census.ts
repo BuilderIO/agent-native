@@ -92,10 +92,24 @@ export function parseCensusArgs(argv: readonly string[]): CensusOptions {
       `--max-ids must be a whole number from 0 to 100000`,
     );
   }
+  // Both labels are printed before connecting, so neither may take the shape
+  // of a URL or credential; the refusal does not print them.
+  const neonProject = values.get("neon-project") || null;
+  if (neonProject && !/^[a-z0-9][a-z0-9-]{0,63}$/i.test(neonProject)) {
+    throw new CensusRefusal(
+      `--neon-project takes a Neon project ID: letters, digits and -`,
+    );
+  }
+  const neonBranch = values.get("neon-branch") || null;
+  if (neonBranch && !/^\w[\w./-]{0,255}$/.test(neonBranch)) {
+    throw new CensusRefusal(
+      `--neon-branch takes a Neon branch name: letters, digits, _, ., / and -`,
+    );
+  }
   return {
     databaseUrlEnv,
-    neonProject: values.get("neon-project") || null,
-    neonBranch: values.get("neon-branch") || null,
+    neonProject,
+    neonBranch,
     maxIds: Number(rawMaxIds),
   };
 }

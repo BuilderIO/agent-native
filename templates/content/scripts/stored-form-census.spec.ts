@@ -507,6 +507,30 @@ describe("stored-form census guards (SF-09)", () => {
     expect(cleanupFailure).not.toContain(decoded);
   });
 
+  it("refuses a Neon label shaped like a URL or credential, without printing it", async () => {
+    const pasted = "pasted-secret-not-real";
+    for (const [flag, value] of [
+      ["neon-project", targetUrl("reader", BRANCH_HOST, "neondb", pasted)],
+      ["neon-project", `project-${pasted}=1`],
+      ["neon-branch", `reader:${pasted}@census`],
+      ["neon-branch", `census?token=${pasted}`],
+    ]) {
+      const argv = BRANCH_ARGS.filter((arg) => !arg.startsWith(`--${flag}=`));
+      const { run, events } = cli(
+        [...argv, `--${flag}=${value}`],
+        {
+          CENSUS_URL: targetUrl("reader", BRANCH_HOST, "neondb"),
+          [PRODUCTION_HOSTS_ENV]: PRODUCTION_HOST,
+        },
+        neverConnect,
+      );
+      expect(await run, value).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1]).toContain(`--${flag} takes a Neon`);
+      expect(events.join("\n")).not.toContain(pasted);
+    }
+  });
+
   it("refuses a page ID count that is not written in digits", async () => {
     for (const value of ["", "1e3", "0x10", "-1", "2.5", "100001"]) {
       const { run, events } = cli(
