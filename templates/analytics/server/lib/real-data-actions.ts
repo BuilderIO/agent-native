@@ -1257,6 +1257,18 @@ export function isSuccessfulPayload(
   );
 }
 
+// bigquery returns the raw query result on success (a rows array) and throws on
+// failure or timeout, so the result shape is the success evidence. Telemetry
+// fields such as query_status are not part of the tool result.
+export function isBigQueryRowsPayload(content: unknown): boolean {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    Array.isArray((parsed as { rows?: unknown }).rows)
+  );
+}
+
 export function isSuccessfulDbtMetricResult(content: unknown): boolean {
   return isSuccessfulPayload(content, "status");
 }

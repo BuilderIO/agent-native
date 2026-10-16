@@ -339,6 +339,21 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
         ["get-dbt-connection", "bigquery"],
         [...readiness, warehouseRead(true)],
       ),
+      // A completed, non-error result without rows is not a warehouse read.
+      transcript(
+        DISCLOSED,
+        ["get-dbt-connection", "bigquery"],
+        [
+          ...readiness,
+          {
+            name: "bigquery",
+            input: {},
+            completed: true,
+            isError: false,
+            result: JSON.stringify({ query_status: "timeout" }),
+          },
+        ],
+      ),
     ]) {
       const { report, reason } = await scoreCase(unconnectedCase, output);
       expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });

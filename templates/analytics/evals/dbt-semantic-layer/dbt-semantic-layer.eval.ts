@@ -80,7 +80,7 @@ function warehouseQueryRan(run: AgentRunOutput): boolean {
       WAREHOUSE_QUERY_TOOLS.has(call.name) &&
       call.completed === true &&
       call.isError !== true &&
-      parsePayload(call.result).query_status === "success",
+      Array.isArray(parsePayload(call.result).rows),
   );
 }
 

@@ -852,10 +852,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     isError: false,
     content: JSON.stringify({ query_status: "success", rows: [{ n: 10 }] }),
   };
+  // bigquery throws on timeout, so the tool result is an error, not a rows payload.
   const bigQueryTimedOut = {
     name: "bigquery",
-    isError: false,
-    content: JSON.stringify({ query_status: "timeout", rows: [] }),
+    isError: true,
+    content: JSON.stringify({ error: "BigQuery query timed out" }),
   };
   const dbtNotReadyStatus = {
     name: "data-source-status",
@@ -897,7 +898,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("requires the fallback disclosure when dbt is unavailable but BigQuery answers", () => {
+  it("does not force a disclosure retry on a readiness status alone, without a dbt metric attempt", () => {
     const result = realDataFinalGuard(
       guardContext({
         userText: "What were active accounts last month?",
@@ -906,14 +907,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(result).toMatchObject({
-      maxRetries: 1,
-      retryMessage: expect.stringContaining("warehouse-derived from BigQuery"),
-      fallbackMessage: expect.stringContaining(
-        "not the owner-approved Semantic Layer definition",
-      ),
-      exhaustedDraftPrefix: expect.stringContaining("Semantic Layer page"),
-    });
+    expect(result).toBeNull();
   });
 
   it("accepts the fallback answer once it discloses the source", () => {
