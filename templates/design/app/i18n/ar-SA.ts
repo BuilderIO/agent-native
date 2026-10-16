@@ -954,6 +954,14 @@ export default {
         toTopRight: "إلى أعلى اليمين",
         toBottomLeft: "إلى أسفل اليسار",
         toBottomRight: "إلى أسفل اليمين",
+        fromLeft: "من اليسار",
+        fromRight: "من اليمين",
+        fromTop: "من الأعلى",
+        fromBottom: "من الأسفل",
+        fromTopLeft: "من أعلى اليسار",
+        fromTopRight: "من أعلى اليمين",
+        fromBottomLeft: "من أسفل اليسار",
+        fromBottomRight: "من أسفل اليمين",
         clockwise: "مع عقارب الساعة",
         counterclockwise: "عكس عقارب الساعة",
         easingPresets: {
@@ -1003,6 +1011,8 @@ export default {
         save: "حفظ النمط",
         createDescription:
           "احفظ مسارات حركة الهدف المحدد كنمط قابل لإعادة الاستخدام.",
+        unsupportedSequence:
+          "يتعذر تطبيق هذا النمط لأن المقاطع التي تحرّك الخاصية نفسها متداخلة أو غير متصلة.",
         tooMany: "يمكن أن يتضمن النمط ما يصل إلى 24 حركة.",
         limit: "وصل هذا التصميم إلى حد 64 نمط حركة.",
       },
@@ -1035,8 +1045,13 @@ export default {
       timelineDescription:
         "مخطط الإطارات الرئيسية. {{tracks}} مسارات و{{keyframes}} إطارات رئيسية. استخدم مفاتيح الأسهم أو Space + السحب للتمرير، والقرص أو Cmd/Ctrl + عجلة الفأرة للتكبير، واسحب لتحريك الإطارات، واستخدم Shift/Cmd للتحديد المتعدد، وانقر مرتين للإضافة.",
       size: "الحجم",
+      sourceReadUnavailable:
+        "يتعذر على Motion قراءة هذا التحريك دون تغيير سلوكه.",
       sourceWriteUnavailable:
         "يمكن حاليًا كتابة كود Motion في تصميمات HTML المضمنة فقط.",
+      sourceConflict:
+        "تغيّر مصدر Motion أثناء وجود تعديلات غير محفوظة في المخطط الزمني. أعد تحميل الكود للتخلي عن تلك التعديلات واستخدام المصدر الحالي.",
+      reloadFromSource: "إعادة تحميل الكود",
       dockLabel: "لوحة الحركة",
       collapseDock: "طي لوحة الحركة",
       expandAllTracks: "توسيع كل المسارات",

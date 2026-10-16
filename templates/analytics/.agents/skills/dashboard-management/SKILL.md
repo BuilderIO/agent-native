@@ -12,17 +12,17 @@ Dashboards are the canonical SQL-backed Analytics resources. New dashboards, sav
 
 Current storage:
 
-| Table              | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `dashboards`       | Explorer and SQL dashboard records           |
-| `dashboard_folders` | Personal and shared SQL dashboard folders  |
-| `dashboard_views`  | Saved filter presets per dashboard           |
-| `dashboard_shares` | Standard framework share grants              |
-| `dashboard_folder_shares` | Standard folder share grants          |
-| `dashboard_revisions` | Bounded dashboard history snapshots       |
-| `analyses`         | Saved ad-hoc analysis records                |
-| `analysis_revisions` | Bounded analysis history snapshots        |
-| `analysis_shares`  | Standard framework share grants for analyses |
+| Table                     | Purpose                                      |
+| ------------------------- | -------------------------------------------- |
+| `dashboards`              | Explorer and SQL dashboard records           |
+| `dashboard_folders`       | Personal and shared SQL dashboard folders    |
+| `dashboard_views`         | Saved filter presets per dashboard           |
+| `dashboard_shares`        | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants                 |
+| `dashboard_revisions`     | Bounded dashboard history snapshots          |
+| `analyses`                | Saved ad-hoc analysis records                |
+| `analysis_revisions`      | Bounded analysis history snapshots           |
+| `analysis_shares`         | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
@@ -61,6 +61,13 @@ current state first, then syncs open dashboard editors.
 
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
+
+Dashboards open in View mode. An editor switches the header toggle to Edit
+before drags, renames, and column edits on the page save for everyone; the chat
+context reports the current mode. A table column width dragged in View mode is
+stored only in that person's browser, so "widen this column for me" is a drag
+in View mode, not a dashboard change. `config.columns[].width` is the shared
+width everyone sees; set it only when asked to change the dashboard itself.
 
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
@@ -123,7 +130,7 @@ those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
 reference or literal date bound — not just the final `SELECT` or one sibling
 CTE. A CTE that computes something like "this user's first-ever active day"
 by scanning `analytics_events` with no bound at all will full-table-scan on
-every render even though the panel *looks* time-bound overall (root cause of
+every render even though the panel _looks_ time-bound overall (root cause of
 a 2026-07-25 production incident: several dashboards had exactly this shape).
 Server validation checks each top-level CTE independently now, so this fails
 at save time — but write it right the first time: bound every CTE, or use
@@ -209,18 +216,53 @@ flattens into the baseline and reads as "no data."
 - Scheduled email reports render the same two scales, so a dual-axis panel is
   safe to put on a subscribed dashboard.
 
+## Key-Date Event Markers
+
+Mark a launch, release, or incident on a `line`, `area`, `bar`, or `combo`
+chart with a date x-axis using `config.events`. Do not add a fake series or an
+extension for this.
+
+```json
+"config": {
+  "events": [
+    { "date": "2026-10-14", "time": "00:01", "timeZone": "America/Los_Angeles", "label": "Product Hunt live" },
+    { "date": "2026-10-14", "time": "12:00", "timeZone": "America/New_York", "label": "Launch posts on X, LinkedIn" }
+  ]
+}
+```
+
+- Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  multiple are allowed. `date` is the calendar date in the event's own zone.
+  Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
+  zone and needs a `time`. Without a zone, the time is UTC.
+- A badge sits on the x-axis at the date with a faint dashed guide line.
+  Hovering the badge lists every event on that day with its time, shown in the
+  event's own zone ("12:01 AM PT"). It adds no legend entry and does not change
+  the series tooltip.
+- Events on the same day share one badge; on an hourly axis each timed event
+  sits in its own hour, and an event without a time sits on the first hour
+  shown for its date.
+- On a daily or coarser axis, a date missing from the data snaps to the nearest
+  x value. On an hourly axis, an event without a time whose date has no hours
+  shown is hidden. A date outside the visible range is hidden; a non-date
+  x-axis shows nothing.
+- `mutate-dashboard` rejects malformed events and other chart types.
+- Scheduled email reports draw the guide line, badge, and label text, including
+  on combo charts. Labels sit in rows above the plot: same-day labels join, a
+  long one wraps at words, and days that find no room are counted, not cut.
+
 ## Reusable Native Dashboard Patterns
 
 The recent extension-backed dashboards in Builder Analytics cluster into a few
 repeatable compositions. Prefer these native panels, with a real SQL or Data
 Program result behind each one, when creating a replacement or a new dashboard:
 
-| Pattern | Native composition |
-| --- | --- |
-| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
-| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
-| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
-| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+| Pattern                          | Native composition                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative            |
+| Account engagement / outreach    | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts                  |
+| GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
+| Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
@@ -235,20 +277,26 @@ catalog template. Existing dashboards remain readable while the native
 replacement is validated. Bespoke interaction flows, arbitrary layouts, and
 visualizations outside these contracts may remain Custom Blocks.
 
-## Sigma workbook preview
+## Sigma workbook import
 
-The Sigma workbook flow is preview-only until Analytics can verify the source
-project mapping. The current Sigma connection API reports provider type and
-metadata but does not expose a BigQuery project identifier, so inspection blocks
-all Sigma BigQuery SQL and the import action stays hidden from the agent and
-disabled in the UI. Do not call `migrate-sigma-workbook` or treat an Analytics
-BigQuery credential as proof that it targets the Sigma project. Users can list
-workbooks with `list-sigma-workbooks` and preview one with
+The dashboard menu opens the Sigma import flow, where users can browse and
+preview workbooks. Imports remain disabled for elements whose source project
+Analytics cannot verify: Sigma's connection API reports provider type and
+metadata but does not expose a BigQuery project identifier. Do not call
+`migrate-sigma-workbook` for an unverified source or treat an Analytics
+BigQuery credential as proof that it targets Sigma's project. Users can list
+workbooks with `list-sigma-workbooks` and inspect one with
 `inspect-sigma-workbook`. The feature is controlled by
-`analytics.sigma-dashboard-migration` and requires a granted Sigma connection.
-The Dispatch setup link can create a Sigma workspace connection from
-Vault-backed client ID and client secret references and grant Analytics access;
-never copy their values into Analytics settings.
+`analytics.sigma-dashboard-migration` and requires a Sigma connection granted
+to Analytics.
+
+Use an existing Dispatch Sigma connection when it is granted to Analytics; the
+import flow discovers accessible connections without copying their Vault
+values. If direct setup is needed, an organization owner or admin can enter
+Sigma client credentials in the Analytics dialog. Analytics saves those values
+under Analytics-specific encrypted organization secrets and links them to an
+Analytics-only connection. Credential values must never pass through agent chat,
+action arguments, logs, source, or screenshots.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source
@@ -375,6 +423,8 @@ Use conditional blocks for optional filters:
 ```
 
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
+
+To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter.
 
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 

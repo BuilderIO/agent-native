@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -39,6 +40,7 @@ import {
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
+import { devServerListeningUrl } from "./dev-server-url.ts";
 import {
   CHROME_SELECTOR,
   installInPageHelpers,
@@ -597,6 +599,8 @@ async function startServer(): Promise<{
   const port = await freePort();
   const logPath = path.join(outRoot, "server.log");
   const log = openSync(logPath, "a");
+  // The log is appended across runs; only this server's banner counts.
+  const logStart = fstatSync(log).size;
   // Scratch PGlite from claude-launch, wiped when the launcher exits.
   const child: ChildProcess = spawn(
     "pnpm",
@@ -654,11 +658,26 @@ async function startServer(): Promise<{
       }
     }
   };
-  const base = `http://localhost:${port}`;
+  let base: string | undefined;
   const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
     if (exited !== null) {
       throw new CouldNotRun(`dev server exited with ${exited}; see ${logPath}`);
+    }
+    // --port is only a request: the server moves to the next free port when it
+    // loses the bind, so poll the URL it prints rather than the one we asked for.
+    base ??= devServerListeningUrl(
+      readFileSync(logPath).subarray(logStart).toString("utf8"),
+    );
+    if (!base) {
+      await sleep(1000);
+      continue;
+    }
+    if (!LOCAL_HOSTS.has(new URL(base).hostname)) {
+      await stop();
+      throw new CouldNotRun(
+        `dev server listens on ${base}, not localhost; refusing (this harness writes decks)`,
+      );
     }
     try {
       const controller = new AbortController();
@@ -678,7 +697,9 @@ async function startServer(): Promise<{
   }
   await stop();
   throw new CouldNotRun(
-    `dev server did not answer on ${base} within 240s; see ${logPath}`,
+    base
+      ? `dev server did not answer on ${base} within 240s; see ${logPath}`
+      : `dev server (requested port ${port}) never printed its listening URL within 240s; see ${logPath}`,
   );
 }
 

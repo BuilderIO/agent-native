@@ -16,6 +16,7 @@ import {
   isPersonalProviderKeyUseRestricted,
   readOrgMemberRole,
 } from "../../server/personal-provider-key-policy.js";
+import { getRequestContext } from "../../server/request-context.js";
 import {
   readDefaultAgentEngineSettingDetailed,
   resolveDefaultAgentEngineAuthority,
@@ -257,8 +258,20 @@ export default defineAction({
       orgId
         ? isPersonalProviderKeyUseRestricted({ email, orgId, role })
         : Promise.resolve(false),
-      readDefaultAgentEngineSettingDetailed({ userEmail: email, orgId }),
-      resolveDefaultAgentEngineAuthority({ userEmail: email, orgId }),
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: email,
+        orgId,
+        ...(getRequestContext()?.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+      }),
+      resolveDefaultAgentEngineAuthority({
+        userEmail: email,
+        orgId,
+        ...(getRequestContext()?.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+      }),
       Promise.all(
         AGENT_PROVIDER_CATALOG.map(async (option) => {
           const engine = getAgentEngineEntry(option.engine);

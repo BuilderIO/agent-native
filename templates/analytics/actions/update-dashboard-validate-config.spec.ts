@@ -315,4 +315,90 @@ describe("validateDashboardConfig multi-select options", () => {
       "__empty__",
     );
   });
+
+  describe("presets", () => {
+    const withPresets = (presets: unknown, type = "multi-select") => {
+      const base = withOptions(["clips", "slides", "design", "mail"]);
+      return { ...base, filters: [{ ...base.filters[0], type, presets }] };
+    };
+
+    it("accepts presets made of configured options", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([
+            { label: "Launch apps", values: ["clips", "slides", "design"] },
+            { label: "Mail", values: ["mail"] },
+          ]),
+        ),
+      ).toBeNull();
+    });
+
+    it("rejects presets on a filter that is not a multi-select", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([{ label: "Mail", values: ["mail"] }], "select"),
+        ),
+      ).toContain("only multi-select filters take presets");
+    });
+
+    it("rejects presets that are not an array", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets({ label: "Mail", values: ["mail"] }),
+        ),
+      ).toContain("must be an array");
+    });
+
+    it("rejects a preset without a label or values, which the dropdown cannot show or apply", () => {
+      for (const preset of [
+        null,
+        { values: ["mail"] },
+        { label: " ", values: ["mail"] },
+        { label: "Mail" },
+        { label: "Mail", values: [] },
+        { label: "Mail", values: [1] },
+      ]) {
+        expect(validateDashboardConfig(withPresets([preset]))).toContain(
+          "presets[0] must be an object with a non-empty label",
+        );
+      }
+    });
+
+    it("rejects a repeated preset label", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([
+            { label: "Mail", values: ["mail"] },
+            { label: "Mail", values: ["clips"] },
+          ]),
+        ),
+      ).toContain("repeats an earlier preset");
+    });
+
+    it("rejects a preset value that is not one of the configured options", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([{ label: "Launch apps", values: ["clips", "forms"] }]),
+        ),
+      ).toContain('"forms"');
+    });
+
+    it("bounds how many presets a filter has and how many values each names", () => {
+      const many = Array.from({ length: 21 }, (_, n) => ({
+        label: `Group ${n}`,
+        values: ["mail"],
+      }));
+      expect(
+        validateDashboardConfig(withPresets(many.slice(0, 20))),
+      ).toBeNull();
+      expect(validateDashboardConfig(withPresets(many))).toContain(
+        "presets[20] is past the limit of 20 presets",
+      );
+      expect(
+        validateDashboardConfig(
+          withPresets([{ label: "Mail", values: Array(101).fill("mail") }]),
+        ),
+      ).toContain("has more than 100 values");
+    });
+  });
 });

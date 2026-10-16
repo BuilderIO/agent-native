@@ -2692,7 +2692,7 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
   });
 
-  it("shows short selected names and full versioned model names", () => {
+  it("shows friendly selected names and full versioned model names", () => {
     function Harness({ configured }: { configured: boolean }) {
       const runtime = useLocalRuntime(emptyChatModelAdapter);
       return React.createElement(
@@ -2744,11 +2744,7 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       container.querySelector('[data-agent-composer-slot="model-button"]')
         ?.textContent,
-    ).toContain("Luna");
-    expect(
-      container.querySelector('[data-agent-composer-slot="model-button"]')
-        ?.textContent,
-    ).not.toContain("GPT-5.6 Luna");
+    ).toContain("GPT-5.6 Luna");
     expect(
       container
         .querySelector('[data-agent-composer-slot="model-button"]')
@@ -2819,9 +2815,10 @@ describe("createTiptapComposerExtensions", () => {
     const modelButton = container.querySelector<HTMLButtonElement>(
       '[data-agent-composer-slot="model-button"]',
     );
-    expect(modelButton?.textContent).toContain("Luna");
-    expect(modelButton?.textContent).not.toContain("GPT-6 Luna");
+    expect(modelButton?.textContent).toContain("GPT-6 Luna");
+    expect(modelButton?.textContent).not.toContain("OpenAI");
     expect(modelButton?.getAttribute("aria-label")).toContain("GPT-6 Luna");
+    expect(modelButton?.getAttribute("aria-label")).not.toContain("OpenAI");
 
     act(() => modelButton?.click());
     const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
@@ -2930,10 +2927,12 @@ describe("createTiptapComposerExtensions", () => {
     const modelButton = container.querySelector<HTMLButtonElement>(
       '[data-agent-composer-slot="model-button"]',
     );
-    expect(modelButton?.textContent).toContain("DeepSeek V4 Pro · Builder");
+    expect(modelButton?.textContent).toContain("DeepSeek V4 Pro");
+    expect(modelButton?.textContent).not.toContain("Builder");
     expect(modelButton?.getAttribute("aria-label")).toContain(
-      "DeepSeek V4 Pro · Builder",
+      "DeepSeek V4 Pro",
     );
+    expect(modelButton?.getAttribute("aria-label")).not.toContain("Builder");
   });
 
   it("chooses the newest tier version regardless of catalog order", () => {
@@ -2979,8 +2978,8 @@ describe("createTiptapComposerExtensions", () => {
     const modelButton = container.querySelector<HTMLButtonElement>(
       '[data-agent-composer-slot="model-button"]',
     );
-    expect(modelButton?.textContent).toContain("Flash");
-    expect(modelButton?.textContent).not.toContain("Gemini 3.8 Flash");
+    expect(modelButton?.textContent).toContain("Gemini 3.8 Flash");
+    expect(modelButton?.textContent).not.toContain("OpenRouter");
 
     act(() => modelButton?.click());
     const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(

@@ -7,11 +7,9 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabState } from "@agent-native/core/client/labs";
-import { CLIPS_LOOKBACK_CONTEXT } from "@shared/labs";
 import { IconArrowsMaximize, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { toast } from "sonner";
 
@@ -47,6 +45,7 @@ import {
 } from "./recording-context-model";
 
 const CONTEXT_POLL_MS = 3000;
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
 const CONTEXT_SYNC_ACTIONS = new Set([
   "request-recording-context",
   "update-recording-context",
@@ -62,46 +61,125 @@ export function isAuthenticatedRecordingPath(
 }
 
 // Same route the editor and the Rewind extension use for a recording's own video.
-export function contextVideoSrc(mediaRecordingId: string): string {
-  return `${appBasePath()}/api/video/${encodeURIComponent(mediaRecordingId)}`;
+export function contextVideoSrc(
+  mediaRecordingId: string,
+  accessToken?: string,
+): string {
+  const src = `${appBasePath()}/api/video/${encodeURIComponent(mediaRecordingId)}`;
+  return accessToken ? `${src}?t=${encodeURIComponent(accessToken)}` : src;
+}
+
+type MediaAccessTokenClaims =
+  | { kind: "valid"; resourceId: string; exp: number }
+  | { kind: "invalid" };
+
+function mediaAccessTokenClaims(
+  token: string | undefined,
+): MediaAccessTokenClaims | undefined {
+  if (!token) return undefined;
+  const payload = token.split(".", 1)[0];
+  if (!payload) return { kind: "invalid" };
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4));
+    const claims = JSON.parse(decoded) as Record<string, unknown>;
+    return typeof claims.resourceId === "string" &&
+      typeof claims.exp === "number"
+      ? { kind: "valid", resourceId: claims.resourceId, exp: claims.exp }
+      : { kind: "invalid" };
+  } catch {
+    return { kind: "invalid" };
+  }
+}
+
+function shouldReplacePinnedAccessToken(
+  currentToken: string | undefined,
+  incomingToken: string | undefined,
+): boolean {
+  if (!incomingToken || currentToken === incomingToken) return false;
+  if (!currentToken) return true;
+  const current = mediaAccessTokenClaims(currentToken);
+  const incoming = mediaAccessTokenClaims(incomingToken);
+  if (incoming?.kind !== "valid") return false;
+  if (current?.kind !== "valid") return true;
+  return (
+    current.resourceId !== incoming.resourceId ||
+    current.exp * 1000 <= Date.now() + ACCESS_TOKEN_REFRESH_SKEW_MS
+  );
+}
+
+// A trashed Clip answers non-owner viewers 404 recording_not_found. That is
+// "no context to show", not a failed load.
+function isClipUnavailableError(error: unknown): boolean {
+  const { status, errorCode } = (error ?? {}) as {
+    status?: unknown;
+    errorCode?: unknown;
+  };
+  return status === 404 && errorCode === "recording_not_found";
 }
 
 export function useRecordingContextItems(
   recordingId: string | undefined,
   enabled: boolean,
+  accessToken?: string,
+  canPollUnclaimedPending = false,
 ) {
+  // Keep the query key stable across player-data refetches, but adopt a new
+  // grant when its resource scope changes or the pinned grant is expiring.
+  const pinned = useRef<{ recordingId?: string; token?: string }>({});
+  if (pinned.current.recordingId !== recordingId) {
+    pinned.current = { recordingId, token: accessToken };
+  } else if (
+    shouldReplacePinnedAccessToken(pinned.current.token, accessToken)
+  ) {
+    pinned.current.token = accessToken;
+  }
+  const stableToken = pinned.current.token;
   return useActionQuery<ListRecordingContextResult>(
     "list-recording-context",
-    { recordingId: recordingId ?? "" },
+    {
+      recordingId: recordingId ?? "",
+      ...(stableToken ? { accessToken: stableToken } : {}),
+    },
     {
       enabled: enabled && Boolean(recordingId),
+      // A share viewer has no realtime channel, so context attached after the
+      // page opened appears when they come back to the tab.
+      // request-storm-allow: one small query per open clip view, and the 30s
+      // staleTime default skips a refetch on a quick refocus.
+      refetchOnWindowFocus: true,
       refetchInterval: (query) =>
-        hasUnfinishedContextItems(query.state.data?.items ?? [])
+        hasUnfinishedContextItems(
+          query.state.data?.items ?? [],
+          canPollUnclaimedPending,
+        )
           ? CONTEXT_POLL_MS
           : false,
     },
   );
 }
 
-// The Transcript tab's entry point. Renders nothing unless the lab is on and the
-// clip has context items, so clips without earlier screen time look unchanged.
-// Pass the definition to useLabState, not its bare key: a key reads as on until
-// the server answers.
+// The Transcript tab's entry point. Renders nothing unless the clip has context
+// items, so clips without earlier screen time look unchanged. It is shown to
+// every viewer of the clip: earlier screen time is shared with the clip.
 export function RecordingContextSection({
   recordingId,
+  canManage = true,
+  accessToken,
 }: {
   recordingId: string | undefined;
+  canManage?: boolean;
+  accessToken?: string;
 }) {
-  const lab = useLabState(CLIPS_LOOKBACK_CONTEXT);
   const location = useLocation();
   const { session } = useSession();
   const queryClient = useQueryClient();
+  const canPollUnclaimedPending =
+    canManage && isAuthenticatedRecordingPath(location.pathname, !!session);
   useDbSync({
     queryClient,
     realtime:
-      isAuthenticatedRecordingPath(location.pathname, !!session) &&
-      lab.enabled &&
-      recordingId
+      isAuthenticatedRecordingPath(location.pathname, !!session) && recordingId
         ? {
             reason: "desktop finishes earlier screen time",
           }
@@ -118,25 +196,50 @@ export function RecordingContextSection({
           CONTEXT_SYNC_ACTIONS.has(event.key),
       ),
   });
-  const itemsQuery = useRecordingContextItems(recordingId, lab.enabled);
+  const itemsQuery = useRecordingContextItems(
+    recordingId,
+    true,
+    accessToken,
+    canPollUnclaimedPending,
+  );
   const { isError, error } = itemsQuery;
+  const clipUnavailable = isError && isClipUnavailableError(error);
   useEffect(() => {
-    if (isError) captureClientException(error);
-  }, [error, isError]);
+    if (isError && !clipUnavailable) captureClientException(error);
+  }, [clipUnavailable, error, isError]);
 
-  if (!recordingId || !lab.enabled || !itemsQuery.data?.items.length) {
+  const hasItems = Boolean(itemsQuery.data?.items.length);
+  if (!recordingId || (!hasItems && (!isError || clipUnavailable))) {
     return null;
   }
-  return <RecordingContextPanel recordingId={recordingId} />;
+  return (
+    <RecordingContextPanel
+      recordingId={recordingId}
+      canManage={canManage}
+      accessToken={accessToken}
+      canPollUnclaimedPending={canPollUnclaimedPending}
+    />
+  );
 }
 
 export function RecordingContextPanel({
   recordingId,
+  canManage = true,
+  accessToken,
+  canPollUnclaimedPending = canManage,
 }: {
   recordingId: string;
+  canManage?: boolean;
+  accessToken?: string;
+  canPollUnclaimedPending?: boolean;
 }) {
   const t = useT();
-  const itemsQuery = useRecordingContextItems(recordingId, true);
+  const itemsQuery = useRecordingContextItems(
+    recordingId,
+    true,
+    accessToken,
+    canPollUnclaimedPending,
+  );
   // Hides an item as soon as its removal lands, without waiting for the refetch.
   const [removedIds, setRemovedIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -160,7 +263,12 @@ export function RecordingContextPanel({
         <ul className="flex flex-col gap-5">
           {items.map((item) => (
             <li key={item.id}>
-              <ContextItemCard item={item} onRemoved={markRemoved} />
+              <ContextItemCard
+                item={item}
+                canManage={canManage}
+                accessToken={accessToken}
+                onRemoved={markRemoved}
+              />
             </li>
           ))}
         </ul>
@@ -178,7 +286,7 @@ export function RecordingContextPanel({
   return (
     <div className="max-h-80 shrink-0 overflow-y-auto border-b border-border px-4 py-4">
       {content}
-      {visibleCount > 0 ? (
+      {visibleCount > 0 && canManage ? (
         <p className="mt-4 text-xs text-muted-foreground">
           {t("lookbackContext.editHint")}
         </p>
@@ -204,9 +312,13 @@ function ContextPanelSkeleton() {
 
 function ContextItemCard({
   item,
+  canManage,
+  accessToken,
   onRemoved,
 }: {
   item: RecordingContextItem;
+  canManage: boolean;
+  accessToken?: string;
   onRemoved: (id: string) => void;
 }) {
   const t = useT();
@@ -221,7 +333,7 @@ function ContextItemCard({
   });
   const src =
     item.status === "ready" && item.mediaRecordingId
-      ? contextVideoSrc(item.mediaRecordingId)
+      ? contextVideoSrc(item.mediaRecordingId, accessToken)
       : null;
   // Only a pending item waits on its device. A processing item is already
   // claimed by that device, so it keeps the saving text.
@@ -264,7 +376,7 @@ function ContextItemCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {item.status === "failed" ? (
+          {item.status === "failed" && canManage ? (
             <Button
               type="button"
               variant="outline"
@@ -286,15 +398,17 @@ function ContextItemCard({
               {t("lookbackContext.larger")}
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="outline-destructive"
-            size="sm"
-            onClick={() => setRemoveOpen(true)}
-          >
-            <IconTrash className="size-4" aria-hidden="true" />
-            {t("lookbackContext.removeAction")}
-          </Button>
+          {canManage ? (
+            <Button
+              type="button"
+              variant="outline-destructive"
+              size="sm"
+              onClick={() => setRemoveOpen(true)}
+            >
+              <IconTrash className="size-4" aria-hidden="true" />
+              {t("lookbackContext.removeAction")}
+            </Button>
+          ) : null}
         </div>
       </div>
       <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>

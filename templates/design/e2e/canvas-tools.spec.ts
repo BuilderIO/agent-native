@@ -1638,8 +1638,7 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   await expectIframePaintStable(page, "overview-navigation-stable");
 });
 
-// fixme: product bug: Alpha dropped in the row's empty end leaves the row (saved row children are just [beta]).
-test.fixme("selection, same-screen move, text and style edits, undo redo, and zoom never paint a blank focused frame", async ({
+test("selection, same-screen move, text and style edits, undo redo, and zoom never paint a blank focused frame", async ({
   app,
   page,
 }) => {
@@ -2381,8 +2380,7 @@ test("dragging a rectangle between screens moves it across files", async ({
   await expectStableIframeIdentity();
 });
 
-// fixme: product bug: Alpha leaves the row (reparented into Main), as the grader saw: saved row children stay [beta].
-test.fixme("dragging within an auto-layout row reorders at the visual insertion point and persists", async ({
+test("dragging within an auto-layout row reorders at the visual insertion point and persists", async ({
   app,
   page,
 }) => {

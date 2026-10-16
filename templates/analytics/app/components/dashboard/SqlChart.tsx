@@ -123,6 +123,7 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+import { renderEventMarkers } from "./event-markers";
 
 export { limitChartRows };
 
@@ -1221,6 +1222,13 @@ interface SqlChartProps {
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   /** Passing this makes a table's columns editable; omit it for read-only tables. */
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
+  /** One viewer's own column widths, drawn over the panel's saved ones. */
+  columnWidths?: Record<string, number>;
+  /**
+   * Passing this lets a viewer drag column widths for themselves; the drag
+   * calls this instead of `onSaveColumns`, and null resets the column.
+   */
+  onColumnWidthChange?: (columnKey: string, width: number | null) => void;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1238,6 +1246,8 @@ export function SqlChart({
   onExportCsvChange,
   onCopyTableChange,
   onSaveColumns,
+  columnWidths,
+  onColumnWidthChange,
   dashboardId,
   extensionContext,
 }: SqlChartProps) {
@@ -1469,6 +1479,8 @@ export function SqlChart({
         onExportCsvChange={onExportCsvChange}
         onCopyTableChange={onCopyTableChange}
         onSaveColumns={onSaveColumns}
+        columnWidths={columnWidths}
+        onColumnWidthChange={onColumnWidthChange}
       />,
     );
   }
@@ -1936,20 +1948,26 @@ function TableRenderer({
   onExportCsvChange,
   onCopyTableChange,
   onSaveColumns,
+  columnWidths,
+  onColumnWidthChange,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
+  columnWidths?: Record<string, number>;
+  onColumnWidthChange?: (columnKey: string, width: number | null) => void;
 }) {
   const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false;
   const editable = onSaveColumns !== undefined;
+  const personalResize = onColumnWidthChange !== undefined;
+  const resizable = editable || personalResize;
   const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
 
-  const columns = useMemo<TableColumnConfig[]>(() => {
+  const savedColumns = useMemo<TableColumnConfig[]>(() => {
     if (config?.columns?.length) {
       const configured = config.columns.filter(
         (c) => !c.hidden && rowKeys.has(c.key),
@@ -1958,6 +1976,18 @@ function TableRenderer({
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
   }, [config?.columns, rows, rowKeys]);
+
+  // A viewer's own widths are drawn over the saved ones but never saved:
+  // edits start from `editableColumns`, which reads the panel config.
+  const columns = useMemo<TableColumnConfig[]>(
+    () =>
+      columnWidths
+        ? savedColumns.map((c) =>
+            columnWidths[c.key] ? { ...c, width: columnWidths[c.key] } : c,
+          )
+        : savedColumns,
+    [savedColumns, columnWidths],
+  );
 
   // Edits start from the persisted list, hidden entries included, so a change
   // never drops a key the agent configured. Visible keys missing from it (the
@@ -2060,7 +2090,9 @@ function TableRenderer({
       MIN_TABLE_COLUMN_WIDTH,
       Math.round(resize.startWidth + event.clientX - resize.startX),
     );
-    if (width !== resize.startWidth) updateColumn(resize.key, { width });
+    if (width === resize.startWidth) return;
+    if (personalResize) onColumnWidthChange(resize.key, width);
+    else updateColumn(resize.key, { width });
   };
 
   const renderHeaderCell = (col: TableColumnConfig) => {
@@ -2112,7 +2144,7 @@ function TableRenderer({
         }
         className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
           sortable ? "cursor-pointer select-none hover:text-foreground" : ""
-        } ${editable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
+        } ${resizable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
         onClick={(event) => {
           // The second click of a double-click renames the column and must not
           // toggle the sort a second time.
@@ -2165,18 +2197,31 @@ function TableRenderer({
             </>
           )}
         </span>
-        {editable &&
+        {resizable &&
         !isRenaming &&
         col.key !== columns[columns.length - 1]?.key ? (
           <span
             role="separator"
             aria-orientation="vertical"
             aria-label={t("sqlDashboard.columnResize")}
+            title={
+              personalResize
+                ? t("dashboardMode.columnResizePersonal")
+                : t("dashboardMode.columnResizeShared")
+            }
             className="absolute inset-y-0 end-0 w-1.5 cursor-col-resize hover:bg-border"
             onPointerDown={(event) => handleResizeStart(col.key, event)}
             onPointerMove={handleResizeMove}
             onPointerUp={handleResizeEnd}
             onClick={(event) => event.stopPropagation()}
+            onDoubleClick={
+              personalResize
+                ? (event) => {
+                    event.stopPropagation();
+                    onColumnWidthChange(col.key, null);
+                  }
+                : undefined
+            }
           />
         ) : null}
       </th>
@@ -2709,6 +2754,7 @@ function BarRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2753,6 +2799,7 @@ function BarRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2782,6 +2829,13 @@ function BarRenderer({
               isAnimationActive={false}
             />
           ))}
+          {renderEventMarkers(
+            panel.config?.events,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </BarChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -2814,6 +2868,7 @@ function ComboRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2859,6 +2914,7 @@ function ComboRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2898,6 +2954,13 @@ function ComboRenderer({
               />
             ),
           )}
+          {renderEventMarkers(
+            panel.config?.events,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </ComposedChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -2929,6 +2992,7 @@ function TimeSeriesRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
@@ -2982,6 +3046,7 @@ function TimeSeriesRenderer({
               vertical={false}
             />
             <Tooltip
+              active={eventHovered ? false : undefined}
               {...CHART_TOOLTIP_PROPS}
               labelFormatter={xTooltipLabelFormatter}
               content={
@@ -3024,6 +3089,13 @@ function TimeSeriesRenderer({
                   isAnimationActive={false}
                 />
               ) : null,
+            )}
+            {renderEventMarkers(
+              panel.config?.events,
+              chartRows,
+              xKey,
+              dualAxis.enabled ? "left" : undefined,
+              setEventHovered,
             )}
           </LineChart>
         </ChartResponsiveContainer>
@@ -3085,6 +3157,7 @@ function TimeSeriesRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={xTooltipLabelFormatter}
             content={
@@ -3132,6 +3205,13 @@ function TimeSeriesRenderer({
                 isAnimationActive={false}
               />
             ) : null,
+          )}
+          {renderEventMarkers(
+            panel.config?.events,
+            chartRows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
           )}
         </AreaChart>
       </ChartResponsiveContainer>

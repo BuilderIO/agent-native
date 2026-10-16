@@ -1734,6 +1734,12 @@ export function renderDesignEditorView({
               currentTimeMs: motionPlayhead * motionDurationMs,
               timelineDurationMs: motionDurationMs,
             });
+            if (result.unsupportedSequenceProperty) {
+              toast.error(
+                t("designEditor.motion.animationStyles.unsupportedSequence"),
+              );
+              return;
+            }
             if (result.tracks.length === 0) {
               toast.info(
                 t("designEditor.motion.trackExists", {
@@ -1761,6 +1767,8 @@ export function renderDesignEditorView({
           }
         : undefined,
     motionWriteUnavailable: !canWriteMotion,
+    motionWriteUnavailableReason:
+      editorContentAndComponents.motionSourceReadUnavailableReason ?? undefined,
     motionAudioClips,
     onMotionAudioClipsChange: canWriteMotion
       ? handleMotionAudioClipsChange

@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
@@ -19,6 +20,14 @@ import {
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
+
+/**
+ * Carries an action's execution-frame key across `{ ...entry, run }` wrappers
+ * and the registry rebuilds that copy named fields (`preserveActionFlags`).
+ */
+export const ACTION_EXECUTION_KEY = Symbol.for(
+  "agent-native.action.executionKey",
+);
 
 export type ActionCaller =
   | "tool"
@@ -443,6 +452,18 @@ interface DefineActionWithSchema<
     result: TReturn,
   ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
+  /**
+   * Re-running this write after an error or a lost result cannot duplicate or
+   * corrupt data: it validates before it writes, or it sets an end state
+   * (replace-by-id, search-and-replace that fails loudly on a second run). The
+   * agent loop then lets the model correct its arguments and retry instead of
+   * ending the run as `write_tool_outcome_unknown`. Pass a predicate when only
+   * some inputs qualify. Do not set it on an action that appends, sends, or
+   * charges.
+   */
+  retrySafe?:
+    | boolean
+    | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -525,6 +546,8 @@ interface DefineActionWithParams<
     result: TReturn,
   ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
+  /** See `ActionDefinition.retrySafe`. */
+  retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -573,6 +596,7 @@ export interface ActionDefinition<TInput, TReturn> {
     result: TReturn,
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
+  readonly retrySafe?: boolean | ((input: TInput) => boolean);
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -733,6 +757,11 @@ export function defineAction(options: any) {
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const retrySafe =
+    typeof options.retrySafe === "boolean" ||
+    typeof options.retrySafe === "function"
+      ? options.retrySafe
+      : undefined;
   const endsTurn: boolean | undefined =
     typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
   const dedupe: boolean | undefined =
@@ -773,7 +802,7 @@ export function defineAction(options: any) {
   })();
   const chatUI = normalizeActionChatUIConfig(options.chatUI);
 
-  return {
+  const entry = {
     tool: {
       ...(typeof options.title === "string" && options.title.trim()
         ? { title: options.title.trim() }
@@ -821,6 +850,7 @@ export function defineAction(options: any) {
       ? { changeResource: options.changeResource }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
+    ...(retrySafe !== undefined ? { retrySafe } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
@@ -857,6 +887,15 @@ export function defineAction(options: any) {
     ...(auditConfig ? { audit: auditConfig } : {}),
     ...(options.access ? { access: options.access } : {}),
   };
+  // Enumerable on purpose: an app that wraps `run` with `{ ...entry, run }`
+  // keeps the key, so the loop can still tell a pre-handler refusal from a
+  // handler failure. Without it the wrapper's own frame never becomes the
+  // action's frame and every validation error reads as an unknown write.
+  Object.defineProperty(entry, ACTION_EXECUTION_KEY, {
+    value: executionKey,
+    enumerable: true,
+  });
+  return entry;
 }
 
 export function isActionExposedToExternalAgents(entry: {
@@ -1294,76 +1333,6 @@ function zodDefToJsonSchema(def: any): any {
   return { type: "string" };
 }
 
-const NO_COERCE = Symbol("no-coerce");
-
-function coerceStringToSchemaType(raw: string, types: string[]): unknown {
-  const trimmed = raw.trim();
-  if (types.includes("boolean")) {
-    if (trimmed === "true") return true;
-    if (trimmed === "false") return false;
-  }
-  if (
-    (types.includes("array") &&
-      trimmed.startsWith("[") &&
-      trimmed.endsWith("]")) ||
-    (types.includes("object") &&
-      trimmed.startsWith("{") &&
-      trimmed.endsWith("}"))
-  ) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (types.includes("array") && Array.isArray(parsed)) return parsed;
-      if (
-        types.includes("object") &&
-        parsed &&
-        typeof parsed === "object" &&
-        !Array.isArray(parsed)
-      ) {
-        return parsed;
-      }
-    } catch {
-      // fall through — leave the original so validation reports the real error
-    }
-  }
-  if (
-    (types.includes("number") || types.includes("integer")) &&
-    trimmed !== "" &&
-    Number.isFinite(Number(trimmed))
-  ) {
-    const n = Number(trimmed);
-    if (types.includes("number") || Number.isInteger(n)) return n;
-  }
-  return NO_COERCE;
-}
-
-function coerceGatewayStringifiedArgs(
-  args: unknown,
-  parameters?: ActionTool["parameters"],
-): unknown {
-  const properties = parameters?.properties as
-    | Record<string, { type?: string | string[] }>
-    | undefined;
-  if (!properties) return args;
-  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
-  let out: Record<string, unknown> | null = null;
-  for (const [key, raw] of Object.entries(args as Record<string, unknown>)) {
-    if (typeof raw !== "string") continue;
-    const spec = properties[key];
-    if (!spec) continue;
-    const types = Array.isArray(spec.type)
-      ? spec.type
-      : spec.type
-        ? [spec.type]
-        : [];
-    if (types.length === 0 || types.includes("string")) continue;
-    const coerced = coerceStringToSchemaType(raw, types);
-    if (coerced === NO_COERCE) continue;
-    if (!out) out = { ...(args as Record<string, unknown>) };
-    out[key] = coerced;
-  }
-  return out ?? args;
-}
-
 const MAX_SIGNATURE_DEPTH = 4;
 const MAX_SIGNATURE_LENGTH = 1200;
 
@@ -1459,7 +1428,8 @@ function wrapRunWithExecutionBoundary(
     if (!actionExecutionStorage) return run(args, ctx);
     const parent = actionExecutionStorage.getStore();
     const frame: ActionExecutionFrame =
-      parent?.frame?.boundaryPending && parent.frame.run === boundaryRun
+      parent?.frame?.boundaryPending &&
+      (parent.frame.run === boundaryRun || parent.frame.key === key)
         ? parent.frame
         : {
             key,
@@ -1495,13 +1465,19 @@ export async function runActionWithExecutionOutcome(
   args: unknown,
   ctx: ActionRunContext | undefined,
   outcome: { refused: boolean },
+  entry?: object,
 ): Promise<any> {
   outcome.refused = false;
   // A mutable async stack cannot safely attribute overlapping invocations.
   if (!actionExecutionStorage) return run(args, ctx);
   const parent = actionExecutionStorage.getStore();
+  const entryKey = entry
+    ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]
+    : undefined;
   const frame: ActionExecutionFrame = {
-    key: {},
+    // The entry's own key lets its boundary adopt this frame when an app has
+    // wrapped `run`; an unkeyed entry gets a placeholder nothing can match.
+    key: entryKey !== null && typeof entryKey === "object" ? entryKey : {},
     run,
     parent: parent?.frame,
     handlerEntered: true,
@@ -1521,10 +1497,15 @@ export async function runActionWithExecutionOutcome(
           ? state.failures.get(error)
           : undefined;
       // Error types cannot prove non-execution once the handler has entered.
+      // A keyed entry whose boundary was never entered threw in an app
+      // wrapper around `run`, before any handler could start.
       outcome.refused =
         !frame.descendantWriteEntered &&
-        !frame.handlerEntered &&
-        failure === frame;
+        ((!frame.handlerEntered && failure === frame) ||
+          (frame.key !== undefined &&
+            frame.boundaryPending === true &&
+            entryKey !== null &&
+            typeof entryKey === "object"));
       throw error;
     }
   });
