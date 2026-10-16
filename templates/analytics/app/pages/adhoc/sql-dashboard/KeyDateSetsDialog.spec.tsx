@@ -165,8 +165,9 @@ describe("KeyDateSetsDialog", () => {
     const blurOnRemove = vi
       .spyOn(Node.prototype, "removeChild")
       .mockImplementation(function <T extends Node>(this: Node, child: T) {
-        if (child === document.activeElement) {
-          child.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+        const node: Node = child;
+        if (node === document.activeElement) {
+          node.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
         }
         return removeChild.call(this, child) as T;
       });

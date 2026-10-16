@@ -80,6 +80,7 @@ function MenuWithDialog() {
       <AnnotationsMenu
         dashboardId="dash"
         panels={[]}
+        editing
         onAddKeyDate={() => setDraft({})}
         onEditKeyDates={vi.fn()}
         onAddDataNote={vi.fn()}
