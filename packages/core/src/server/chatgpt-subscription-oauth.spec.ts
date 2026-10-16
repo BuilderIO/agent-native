@@ -9,14 +9,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../labs/store.js", () => mocks);
-vi.mock("../settings/store.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../settings/store.js")>()),
-  getSetting: vi.fn().mockResolvedValue(null),
-}));
-vi.mock("../settings/user-settings.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
-  getUserSetting: vi.fn().mockResolvedValue(null),
-}));
 
 import {
   getChatGPTSubscriptionAccess,

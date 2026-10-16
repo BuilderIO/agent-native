@@ -13,6 +13,7 @@ import {
   browserDocsLocale,
   docsLocaleFromSegment,
   docsLocaleOptionLabel,
+  isCampaignPathname,
   sitePathForLocale,
   type DocsLocale,
 } from "../../docs-locale";
@@ -20,12 +21,6 @@ import {
 interface LanguagePickerProps {
   openUpward?: boolean;
   dimBorder?: boolean;
-}
-
-function isCampaignPathname(pathname: string) {
-  const segments = pathname.split("/").filter(Boolean);
-  const root = docsLocaleFromSegment(segments[0]) ? segments[1] : segments[0];
-  return root === "articles" || root === "use-cases";
 }
 
 function preferenceLabel(preference: string) {

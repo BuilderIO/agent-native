@@ -2703,6 +2703,23 @@ describe("public campaign frontend", () => {
       expect(load).toThrow(expect.objectContaining({ status: 404 }));
   });
 
+  it("resolves catalog placeholders in index meta descriptions", () => {
+    const descriptions = [campaignRoute0.meta(), campaignRoute2.meta()].map(
+      (meta) => meta.find((tag) => "name" in tag && tag.name === "description"),
+    );
+    expect(descriptions).toEqual([
+      {
+        name: "description",
+        content:
+          "Pick the job you do again and again, or browse the articles for templates and how-tos.",
+      },
+      {
+        name: "description",
+        content: expect.not.stringContaining("{{"),
+      },
+    ]);
+  });
+
   it("uses locale-aware canonicals on indexes, use cases, topics and pagination, with existing unknown-locale fallback", () => {
     const params = { locale: "fr-fr" };
     const cases = [

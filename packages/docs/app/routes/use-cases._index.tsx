@@ -10,7 +10,10 @@ import { campaignMeta } from "../lib/campaign-seo";
 export const meta = ({ params }: { params?: { locale?: string } } = {}) =>
   campaignMeta(
     enUS.campaign.useCases,
-    enUS.campaign.useCasesIntro,
+    enUS.campaign.useCasesIntro.replace(
+      "{{articles}}",
+      enUS.campaign.articlesLink,
+    ),
     USE_CASES_BASE,
     "website",
     params?.locale,
