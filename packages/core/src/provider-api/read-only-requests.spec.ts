@@ -50,6 +50,8 @@ describe("isReadOnlyProviderPost", () => {
     ["gong", "/calls"],
     ["notion", "/pages"],
     ["slack", "/chat.postMessage"],
+    // Forwards to SQL data sources, which may accept DML.
+    ["grafana", "/api/ds/query"],
     ["my-custom-api", "/crm/v3/objects/contacts/search"],
     // A listed path on a host the rule does not own is not that endpoint.
     ["hubspot", "https://evil.example.com/crm/v3/objects/contacts/search"],

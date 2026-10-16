@@ -98,12 +98,6 @@ const READ_ONLY_POST_RULES: readonly ReadOnlyPostRule[] = [
     path: /^\/api\/v1\/(?:query|query_range|series|labels)$/,
   },
   {
-    provider: "grafana",
-    basePath: "",
-    hostSuffixes: [],
-    path: /^\/api\/ds\/query$/,
-  },
-  {
     provider: "google_calendar",
     basePath: "/calendar/v3",
     hostSuffixes: ["www.googleapis.com"],
