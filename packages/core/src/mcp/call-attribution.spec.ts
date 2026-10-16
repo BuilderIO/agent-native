@@ -15,7 +15,7 @@ describe("mcpCallAttribution", () => {
         },
         envelope: { [CLIENT_INFO]: { name: "from-envelope", version: "2.0" } },
         oauthClientId: "client-123",
-        approved: true,
+        clientAccepted: true,
       }),
     ).toEqual({
       mcpClient: {
@@ -23,7 +23,7 @@ describe("mcpCallAttribution", () => {
         version: "2.0",
         oauthClientId: "client-123",
       },
-      mcpApproved: true,
+      mcpClientAccepted: true,
     });
   });
 
@@ -37,7 +37,7 @@ describe("mcpCallAttribution", () => {
         },
         envelope: undefined,
         oauthClientId: undefined,
-        approved: false,
+        clientAccepted: false,
       }),
     ).toEqual({ mcpClient: { name: "cursor", version: "1" } });
   });
@@ -48,7 +48,7 @@ describe("mcpCallAttribution", () => {
         request: { params: { name: "list-forms" } },
         envelope: {},
         oauthClientId: undefined,
-        approved: false,
+        clientAccepted: false,
       }),
     ).toEqual({});
   });

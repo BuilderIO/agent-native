@@ -30,7 +30,7 @@ export interface AuditRunContextLike {
   networkPeer?: string;
   approvedToolCallKey?: string;
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
-  mcpApproved?: true;
+  mcpClientAccepted?: true;
 }
 
 export interface RecordActionAuditInput {
@@ -114,7 +114,7 @@ function approvalEvidence(
   ctx: AuditRunContextLike | undefined,
 ): AuditApproval | null {
   if (ctx?.approvedToolCallKey) return "agent-chat";
-  if (ctx?.mcpApproved === true) return "mcp-elicitation";
+  if (ctx?.mcpClientAccepted === true) return "mcp-client-accepted";
   return null;
 }
 

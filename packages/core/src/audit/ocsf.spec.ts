@@ -150,14 +150,14 @@ describe("auditEventToOcsf", () => {
         reportedClientName: "Claude Code",
         reportedClientVersion: "2.1.0",
         oauthClientId: "client-123",
-        approval: "mcp-elicitation",
+        approval: "mcp-client-accepted",
       }),
     );
     expect(out.unmapped).toMatchObject({
       reported_client_name: "Claude Code",
       reported_client_version: "2.1.0",
       oauth_client_id: "client-123",
-      approval: "mcp-elicitation",
+      approval: "mcp-client-accepted",
     });
     expect(out.actor).toEqual({
       user: {

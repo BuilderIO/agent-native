@@ -4928,7 +4928,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect.objectContaining({
           caller: "mcp",
           userEmail: "oauth@example.com",
-          mcpApproved: true,
+          mcpClientAccepted: true,
           mcpClient: {
             name: "agent-native-server-spec",
             version: "1.0.0",
@@ -5206,7 +5206,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
       expect(ordinaryRun).toHaveBeenCalledWith(
         {},
-        expect.not.objectContaining({ mcpApproved: expect.anything() }),
+        expect.not.objectContaining({
+          mcpClientAccepted: expect.anything(),
+        }),
       );
 
       await expect(

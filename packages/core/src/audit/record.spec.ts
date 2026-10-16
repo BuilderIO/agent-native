@@ -160,7 +160,7 @@ describe("recordActionAudit attribution", () => {
           version: "2.1.0",
           oauthClientId: "client-123",
         },
-        mcpApproved: true,
+        mcpClientAccepted: true,
       },
       status: "success",
     });
@@ -171,7 +171,7 @@ describe("recordActionAudit attribution", () => {
       reportedClientName: "Claude Code",
       reportedClientVersion: "2.1.0",
       oauthClientId: "client-123",
-      approval: "mcp-elicitation",
+      approval: "mcp-client-accepted",
     });
   });
 

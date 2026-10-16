@@ -7,8 +7,8 @@ export interface McpCallAttributionInput {
   /** `ctx.mcpReq.envelope`: the reserved `_meta` keys the SDK lifted out. */
   envelope: unknown;
   oauthClientId: string | undefined;
-  /** The call consumed an approved MCP approval grant. */
-  approved: boolean;
+  /** The call consumed a grant after the MCP client accepted its elicitation. */
+  clientAccepted: boolean;
 }
 
 /**
@@ -18,7 +18,7 @@ export interface McpCallAttributionInput {
  */
 export function mcpCallAttribution(
   input: McpCallAttributionInput,
-): Pick<ActionRunContext, "mcpClient" | "mcpApproved"> {
+): Pick<ActionRunContext, "mcpClient" | "mcpClientAccepted"> {
   // 2026-07-28 requests carry clientInfo in the envelope, which the SDK
   // removes from the `_meta` the handler sees. Older requests leave it there.
   const lifted = readClientInfoFromRequest({
@@ -40,6 +40,6 @@ export function mcpCallAttribution(
   };
   return {
     ...(Object.keys(mcpClient).length > 0 ? { mcpClient } : {}),
-    ...(input.approved ? { mcpApproved: true as const } : {}),
+    ...(input.clientAccepted ? { mcpClientAccepted: true as const } : {}),
   };
 }

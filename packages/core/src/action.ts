@@ -86,8 +86,8 @@ export interface ActionRunContext {
    * credential was issued to.
    */
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
-  /** The MCP client approved this exact call through the approval elicitation. */
-  mcpApproved?: true;
+  /** The MCP client accepted this exact call's approval elicitation. */
+  mcpClientAccepted?: true;
 }
 
 export type ActionAuthorize<TArgs> = (

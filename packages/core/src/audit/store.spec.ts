@@ -382,7 +382,7 @@ describe("app, date range, and paging", () => {
       reportedClientName: "Claude Code",
       reportedClientVersion: "2.1.0",
       oauthClientId: "client-123",
-      approval: "mcp-elicitation",
+      approval: "mcp-client-accepted",
     });
     await insertAuditEvent(makeEvent({ id: "legacy", caller: "mcp" }));
     const scope = { userEmail: "alice@x.com" };
@@ -398,7 +398,7 @@ describe("app, date range, and paging", () => {
       reportedClientName: "Claude Code",
       reportedClientVersion: "2.1.0",
       oauthClientId: "client-123",
-      approval: "mcp-elicitation",
+      approval: "mcp-client-accepted",
     };
     expect(attribution(listed.find((e) => e.id === "approved"))).toEqual(
       expected,

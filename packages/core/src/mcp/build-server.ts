@@ -2938,8 +2938,10 @@ export async function createMCPServerForRequest(
   }
 
   // Distinct from `undefined` (no approval needed) so the audit row records
-  // approval evidence only when a person actually approved the call.
-  const MCP_ACTION_APPROVED = Symbol("mcp-action-approved");
+  // that the MCP client accepted this call's elicitation.
+  const MCP_ACTION_ELICITATION_ACCEPTED = Symbol(
+    "mcp-action-elicitation-accepted",
+  );
 
   async function requireMcpActionApproval(
     entry: ActionEntry,
@@ -2949,7 +2951,7 @@ export async function createMCPServerForRequest(
   ): Promise<
     | CallToolResult
     | InputRequiredResult
-    | typeof MCP_ACTION_APPROVED
+    | typeof MCP_ACTION_ELICITATION_ACCEPTED
     | undefined
   > {
     const verifiedState =
@@ -2999,7 +3001,7 @@ export async function createMCPServerForRequest(
       if (approval?.decision !== "approve") {
         return actionApprovalError(`${name} was not approved.`);
       }
-      return MCP_ACTION_APPROVED;
+      return MCP_ACTION_ELICITATION_ACCEPTED;
     }
 
     if (entry.needsApproval === undefined) return undefined;
@@ -3468,8 +3470,10 @@ export async function createMCPServerForRequest(
             (args as Record<string, unknown>) ?? {},
             ctx,
           );
-          const approved = approvalResult === MCP_ACTION_APPROVED;
-          if (approvalResult !== undefined && !approved) return approvalResult;
+          const clientAccepted =
+            approvalResult === MCP_ACTION_ELICITATION_ACCEPTED;
+          if (approvalResult !== undefined && !clientAccepted)
+            return approvalResult;
 
           const result = await entry.run(
             (args as Record<string, string>) ?? {},
@@ -3483,7 +3487,7 @@ export async function createMCPServerForRequest(
                 request,
                 envelope: ctx.mcpReq.envelope,
                 oauthClientId: effectiveIdentity?.oauthClientId,
-                approved,
+                clientAccepted,
               }),
             },
           );

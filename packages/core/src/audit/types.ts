@@ -3,12 +3,11 @@ export type AuditStatus = "success" | "error" | "denied";
 export type AuditActorKind = "agent" | "human" | "service" | "system";
 
 /**
- * How a person approved this exact call before it ran. `agent-chat` is the
- * agent's approval prompt (`approvedToolCalls`). `mcp-elicitation` is an MCP
- * client accepting the approval elicitation; who answered in that client is
- * not verified.
+ * Source of the accepted authorization signal. `agent-chat` records a
+ * person's approval in agent chat. `mcp-client-accepted` records an accepted
+ * MCP elicitation response; the server cannot verify who responded.
  */
-export type AuditApproval = "agent-chat" | "mcp-elicitation";
+export type AuditApproval = "agent-chat" | "mcp-client-accepted";
 
 /**
  * Who can read an event besides its owner.
@@ -87,10 +86,8 @@ export interface AuditEvent {
   reportedClientVersion?: string | null;
   /** The OAuth client the MCP credential was issued to, when it has one. */
   oauthClientId?: string | null;
-  /**
-   * Set only when a person approved this exact call before it ran. Rows
-   * written before the column existed are null whether or not they were
-   * approved.
+  /** Source of the accepted authorization signal. MCP client acceptance does
+   * not verify who responded. Rows written before the column existed are null.
    */
   approval?: AuditApproval | null;
 }

@@ -83,10 +83,12 @@ minimum useful addition is `target: () => ({ type, id })`.
   `reportedClientVersion` are the MCP client's self-reported `clientInfo` for
   that individual `tools/call`; `initialize`-only values are not carried
   forward. `oauthClientId` is the OAuth client its credential was issued to.
-  `approval` (`agent-chat` or `mcp-elicitation`) is set only when a person
-  approved that exact call; the recorder reads it from
-  `ctx.approvedToolCallKey` or `ctx.mcpApproved`. Never infer approval from
-  the email, and never backfill these fields on older rows.
+  `approval` (`agent-chat` or `mcp-client-accepted`) records the authorization
+  signal for that call. `agent-chat` is a person's approval in agent chat;
+  `mcp-client-accepted` means the MCP client accepted its elicitation, and the
+  server cannot verify who responded. The recorder reads these from
+  `ctx.approvedToolCallKey` or `ctx.mcpClientAccepted`. Never infer approval
+  from the email, and never backfill these fields on older rows.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).
 
