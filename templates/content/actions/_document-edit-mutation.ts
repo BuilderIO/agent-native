@@ -15,11 +15,11 @@ import {
 } from "../server/lib/document-attribution.js";
 import {
   findDocumentBodyBase,
-  findSupersededBodyBase,
   preserveDocumentBodyIntent,
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
+import { rebuildDocumentBodyBase } from "../server/lib/document-body-steps.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
@@ -860,70 +860,38 @@ async function mutateLiveCopyDocumentBody(input: {
       { currentRevision },
     );
   }
+  // A tab's commits can move past the base inside one History interval, so
+  // no row holds it; the commits' body steps rebuild it exactly.
   const baseContent = hasCurrentBase
     ? current
-    : await findDocumentBodyBase({
+    : ((await findDocumentBodyBase({
         db,
         ownerEmail: document.ownerEmail,
         documentId,
         contentHash: base.contentHash,
         revision: base.revision,
-      });
-  let resolved: {
-    content: string;
-    ranges: ReadonlyArray<{ start: number; end: number }>;
+      })) ??
+      (await rebuildDocumentBodyBase({
+        db,
+        ownerEmail: document.ownerEmail,
+        documentId,
+        contentHash: base.contentHash,
+        revision: base.revision,
+        current: { revision: document.bodyRevision, content: current },
+      })));
+  const { beforeContent, resolved } = validateDocumentEditSnapshot(
+    document,
+    base,
+    baseRevision,
+    edits,
+    input.initializeContent,
+    baseContent ?? undefined,
+  );
+  const rebase: ContentLiveCopyRebaseInput = {
+    base: beforeContent,
+    candidate: resolved.content,
+    authored: resolved.ranges,
   };
-  let rebase: ContentLiveCopyRebaseInput;
-  if (baseContent !== null) {
-    ({ resolved } = validateDocumentEditSnapshot(
-      document,
-      base,
-      baseRevision,
-      edits,
-      input.initializeContent,
-      baseContent,
-    ));
-    rebase = {
-      base: baseContent,
-      candidate: resolved.content,
-      authored: resolved.ranges,
-    };
-  } else {
-    // A typing interval can move past a base before History records it.
-    // The edit is then made on the recorded bodies either side of it.
-    const between = edits
-      ? await findSupersededBodyBase({
-          db,
-          ownerEmail: document.ownerEmail,
-          documentId,
-          revision: base.revision,
-          currentRevision: document.bodyRevision,
-        })
-      : null;
-    const after = between ? (between.after ?? current) : undefined;
-    const onAfter =
-      after === undefined ? undefined : resolveDocumentTextEdits(after, edits!);
-    const onBefore = between
-      ? resolveDocumentTextEdits(between.before, edits!)
-      : undefined;
-    if (!onAfter?.ok || !onBefore?.ok) {
-      conflict("STALE_BASE_REVISION", "The exact edit base is unavailable.", {
-        expectedRevision: baseRevision,
-        currentRevision,
-      });
-    }
-    resolved = onAfter;
-    rebase = {
-      base: after!,
-      candidate: onAfter.content,
-      authored: onAfter.ranges,
-      earlier: {
-        base: between!.before,
-        candidate: onBefore.content,
-        authored: onBefore.ranges,
-      },
-    };
-  }
   const creativeContext = await input.resolveCreativeContext();
   let result: DocumentEditMutationResult | undefined;
   try {
@@ -953,6 +921,11 @@ async function mutateLiveCopyDocumentBody(input: {
             { idempotencyKey: input.idempotencyKey },
           );
         }
+        await assertAccess("document", documentId, "editor", {
+          userEmail: input.ctx.userEmail,
+          orgId: input.ctx.orgId ?? undefined,
+          transaction: tx,
+        });
         // guard:allow-unscoped — reads the page row this transaction locked.
         const [row] = await txDb
           .select({

@@ -1469,6 +1469,22 @@ export const runContentMigrations = runMigrations(
       name: "content-live-copy-version",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
     },
+    {
+      version: 124,
+      name: "content-document-body-steps",
+      sql: `CREATE TABLE IF NOT EXISTS document_body_steps (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          body_revision INTEGER NOT NULL,
+          start_offset INTEGER NOT NULL,
+          end_offset INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS document_body_steps_document_revision_idx
+          ON document_body_steps (document_id, body_revision)`,
+    },
   ],
   { table: "content_migrations" },
 );

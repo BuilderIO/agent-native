@@ -20,6 +20,7 @@ import {
   documentEditAttribution,
 } from "../lib/document-attribution.js";
 import { recordDocumentBodyIntent } from "../lib/document-body-intents.js";
+import { recordDocumentBodyStep } from "../lib/document-body-steps.js";
 import {
   recordDocumentHistoryTransition,
   type DocumentHistoryCause,
@@ -84,10 +85,11 @@ export class LiveBodyConversionError extends Error {
 }
 
 // A typing session sends a commit every few hundred milliseconds. History
-// writes at most one row per this interval, and never rewrites one: an
-// agent's edit finds its base by the row's revision. A commit inside the
-// interval writes none, and the next row written records the state it
-// replaces, so a session's final state reaches History with the next commit.
+// writes at most one row per this interval, and never rewrites one. A commit
+// inside the interval writes none, and the next row written records the state
+// it replaces, so a session's final state reaches History with the next
+// commit. An agent's edit made on a body no row holds finds it from the
+// commits' body steps.
 const LIVE_COPY_HISTORY_INTERVAL_MS = 2_000;
 
 const pageColumns = {
@@ -476,6 +478,15 @@ async function writeBody(args: {
 
   let softDeletedDatabaseIds: string[] = [];
   if (changed) {
+    await recordDocumentBodyStep({
+      db,
+      ownerEmail: page.ownerEmail,
+      documentId,
+      bodyRevision: page.bodyRevision,
+      before: page.content,
+      after: text,
+      now: updatedAt,
+    });
     for (const field of blocksFields) {
       await persistBlocksFieldIdentity({
         db,
