@@ -349,6 +349,7 @@ test.describe("mobile app build", () => {
           return properties.map((property) => [
             property,
             element.style.getPropertyValue(property).trim(),
+            element.style.getPropertyPriority(property),
           ]);
         }),
       [
@@ -367,7 +368,7 @@ test.describe("mobile app build", () => {
     for (const [index, style] of normalizedStyles.slice(1).entries()) {
       expect(
         style,
-        `copy ${index + 1} keeps every inline CSS declaration`,
+        `copy ${index + 1} keeps every inline CSS declaration and priority`,
       ).toEqual(normalizedStyles[0]);
     }
     expectOnlyChanged(before, after, [...copies, ...copiedTitles]);
