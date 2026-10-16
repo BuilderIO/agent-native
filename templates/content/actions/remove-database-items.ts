@@ -22,6 +22,27 @@ import {
   withPositionLock,
 } from "./_position-utils.js";
 
+/**
+ * Takes the collection, then every membership in id order. Locking only the
+ * removed memberships first would hold one ahead of a sibling with a lower id,
+ * which renumbering, restore and Blocks-field locks take in id order.
+ */
+async function lockCollectionMemberships(tx: any, databaseId: string) {
+  await lockContentDatabaseMutation(
+    tx as unknown as ReturnType<typeof getDb>,
+    databaseId,
+  );
+  await lockDatabaseMemberships(
+    tx,
+    (
+      await tx
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
+    ).map((item: { id: string }) => item.id),
+  );
+}
+
 export default defineAction({
   description:
     "Remove one or more page memberships from a content collection in one atomic batch without deleting the pages. Use this once for two or more selected or named rows instead of looping page operations.",
@@ -39,21 +60,7 @@ export default defineAction({
       const now = new Date().toISOString();
       await withPositionLock(databaseItemsPositionScope(database.id), () =>
         db.transaction(async (tx) => {
-          // Restore locks the collection, then all its memberships in id
-          // order; deleting a membership first would hold one out of order.
-          await lockContentDatabaseMutation(
-            tx as unknown as ReturnType<typeof getDb>,
-            database.id,
-          );
-          await lockDatabaseMemberships(
-            tx,
-            (
-              await tx
-                .select({ id: schema.contentDatabaseItems.id })
-                .from(schema.contentDatabaseItems)
-                .where(eq(schema.contentDatabaseItems.databaseId, database.id))
-            ).map((item) => item.id),
-          );
+          await lockCollectionMemberships(tx, database.id);
           if (removedItemIds.length > 0) {
             await tx
               .delete(schema.contentDatabaseItems)
@@ -100,10 +107,7 @@ export default defineAction({
 
     await withPositionLock(databaseItemsPositionScope(database.id), () =>
       db.transaction(async (tx) => {
-        await lockContentDatabaseMutation(
-          tx as unknown as ReturnType<typeof getDb>,
-          database.id,
-        );
+        await lockCollectionMemberships(tx, database.id);
         await touchContentDatabase(
           tx as unknown as ReturnType<typeof getDb>,
           database.id,

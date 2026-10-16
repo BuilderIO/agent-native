@@ -43,6 +43,7 @@ let compareRowIds: typeof import("./_row-lock-order.js").compareRowIds;
 let lockDocumentRows: typeof import("./_row-lock-order.js").lockDocumentRows;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let lockPrimaryBlocksFields: typeof import("./_blocks-field-identity.js").lockPrimaryBlocksFields;
+let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
 let configurationRevision: typeof import("./_database-setup-mutation.js").configurationRevision;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let importedStateFingerprint: typeof import("../server/lib/content-import.js").importedStateFingerprint;
@@ -78,6 +79,8 @@ beforeAll(async () => {
   ({ lockContentDatabaseMutation } =
     await import("./_content-database-mutation-lock.js"));
   ({ lockPrimaryBlocksFields } = await import("./_blocks-field-identity.js"));
+  ({ lockDatabaseMemberships } =
+    await import("./_database-membership-lock.js"));
   ({ configurationRevision } = await import("./_database-setup-mutation.js"));
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   ({ importedStateFingerprint } =
@@ -967,6 +970,31 @@ describe.skipIf(!POSTGRES_URL)(
         ]);
       });
 
+      it("removing a collection row", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return {
+            rows: seed.rows,
+            run: () =>
+              asOwner(() =>
+                removeDatabaseItems.run({
+                  databaseId: seed.ids.collection,
+                  itemIds: [seed.ids.rowItem],
+                }),
+              ),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "collection",
+          "row membership",
+          "later membership",
+          "earlier membership",
+          "later page",
+          "earlier page",
+        ]);
+      });
+
       it("move to a new position among siblings", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedPageTree();
@@ -1206,6 +1234,25 @@ describe.skipIf(!POSTGRES_URL)(
                 rollbackSlashDocument.run({
                   id: seed.ids.child,
                   parentId: seed.ids.parent,
+                }),
+              ),
+          };
+        });
+      }, 120_000);
+
+      it("removing a collection row against a Blocks-field lock on its siblings", async () => {
+        await runCycle(async () => {
+          const seed = await seedCollection();
+          return {
+            // Deleting another collection's primary Blocks property locks
+            // its pages' memberships here, in id order.
+            first: (tx) => lockDatabaseMemberships(tx, [seed.ids.laterItem]),
+            second: (tx) => lockDatabaseMemberships(tx, [seed.ids.rowItem]),
+            run: () =>
+              asOwner(() =>
+                removeDatabaseItems.run({
+                  databaseId: seed.ids.collection,
+                  itemIds: [seed.ids.rowItem],
                 }),
               ),
           };
