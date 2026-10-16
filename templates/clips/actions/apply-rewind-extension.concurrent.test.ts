@@ -26,6 +26,9 @@ vi.mock("../server/db/index.js", async () => ({
 }));
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: async (key: string) => mocks.appState.get(key) ?? null,
@@ -208,5 +211,65 @@ describe("apply-rewind-extension", () => {
     expect(
       await value(`SELECT video_url FROM recordings WHERE id = 'rec_1'`),
     ).toBe("https://storage.example/rec_1/rewind.mp4");
+  });
+
+  it("shifts an edit saved while the apply was checking instead of dropping it", async () => {
+    mocks.isBound.mockImplementation(async () => {
+      await client.query(`
+        UPDATE recordings SET
+          edits_json = '{"version":1,"trims":[{"startMs":1000,"endMs":2000,"excluded":true}],"blurs":[]}',
+          chapters_json = '[{"startMs":2000,"title":"Made-up chapter"},{"startMs":7000,"title":"Added meanwhile"}]'
+        WHERE id = 'rec_1'
+      `);
+      return true;
+    });
+
+    await apply("https://storage.example/rec_1/rewind.mp4");
+
+    expect(
+      JSON.parse(
+        String(
+          await value(
+            `SELECT chapters_json FROM recordings WHERE id = 'rec_1'`,
+          ),
+        ),
+      ),
+    ).toMatchObject([
+      { startMs: 32_000 },
+      { startMs: 37_000, title: "Added meanwhile" },
+    ]);
+    expect(
+      JSON.parse(
+        String(
+          await value(`SELECT edits_json FROM recordings WHERE id = 'rec_1'`),
+        ),
+      ).trims,
+    ).toMatchObject([{ startMs: 31_000, endMs: 32_000, excluded: true }]);
+  });
+
+  it("stops before touching the pre-roll when the Clip is gone by the transaction", async () => {
+    mocks.isBound.mockImplementation(async () => {
+      await client.query(`DELETE FROM recordings WHERE id = 'rec_1'`);
+      return true;
+    });
+
+    await expect(
+      apply("https://storage.example/rec_1/rewind.mp4"),
+    ).rejects.toMatchObject({
+      message: "The Clip or its local Rewind pre-roll is unavailable.",
+      errorCode: "recording_not_found",
+      statusCode: 404,
+    });
+    expect(
+      await value(`SELECT trashed_at FROM recordings WHERE id = 'pre_1'`),
+    ).toBeNull();
+    expect(
+      await value(
+        `SELECT video_timestamp_ms FROM recording_comments WHERE id = 'c_1'`,
+      ),
+    ).toBe(5_000);
+    expect(mocks.appState.get(rewindExtensionKey("rec_1"))).toMatchObject({
+      status: "ready",
+    });
   });
 });

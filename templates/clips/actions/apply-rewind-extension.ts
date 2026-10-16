@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -152,20 +152,6 @@ export default defineAction({
       throw new Error("The Rewind upload is not bound to its recording.");
     }
 
-    const edits = parseEdits(recording.editsJson);
-    edits.trims = edits.trims.map((trim) => ({
-      ...trim,
-      startMs: trim.startMs + args.addedMs,
-      endMs: trim.endMs + args.addedMs,
-    }));
-    edits.blurs = edits.blurs.map((blur) => ({
-      ...blur,
-      startMs: blur.startMs + args.addedMs,
-      endMs: blur.endMs + args.addedMs,
-    }));
-    edits.rewindOriginalStartMs = args.addedMs;
-    edits.mediaStorageLayout = "external";
-    edits.rewindRequestId = args.requestId;
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)
@@ -183,15 +169,37 @@ export default defineAction({
     await db.transaction(async (tx) => {
       // Two applies of one request can both pass the checks above. Locked,
       // the second waits for the first and then finds the request in the
-      // edits, so it shifts nothing a second time.
+      // edits, so it shifts nothing a second time. Reading the edits and
+      // chapters here, not above, also keeps an edit saved meanwhile.
       const [locked] = await tx
-        .select({ editsJson: schema.recordings.editsJson })
+        .select({
+          editsJson: schema.recordings.editsJson,
+          chaptersJson: schema.recordings.chaptersJson,
+        })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId))
         .for("update");
-      if (parseEdits(locked?.editsJson).rewindRequestId === args.requestId) {
-        return;
+      if (!locked) {
+        fail("The Clip or its local Rewind pre-roll is unavailable.", {
+          errorCode: "recording_not_found",
+          statusCode: 404,
+        });
       }
+      const edits = parseEdits(locked.editsJson);
+      if (edits.rewindRequestId === args.requestId) return;
+      edits.trims = edits.trims.map((trim) => ({
+        ...trim,
+        startMs: trim.startMs + args.addedMs,
+        endMs: trim.endMs + args.addedMs,
+      }));
+      edits.blurs = edits.blurs.map((blur) => ({
+        ...blur,
+        startMs: blur.startMs + args.addedMs,
+        endMs: blur.endMs + args.addedMs,
+      }));
+      edits.rewindOriginalStartMs = args.addedMs;
+      edits.mediaStorageLayout = "external";
+      edits.rewindRequestId = args.requestId;
       await tx
         .update(schema.recordings)
         .set({
@@ -201,7 +209,7 @@ export default defineAction({
           ...(args.width !== undefined ? { width: args.width } : {}),
           ...(args.height !== undefined ? { height: args.height } : {}),
           editsJson: serializeEdits(edits),
-          chaptersJson: shiftedJsonArray(recording.chaptersJson, args.addedMs, [
+          chaptersJson: shiftedJsonArray(locked.chaptersJson, args.addedMs, [
             "startMs",
           ]),
           thumbnailUrl: null,
