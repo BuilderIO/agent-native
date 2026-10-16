@@ -51,6 +51,11 @@ export type CollaborativeDocSyncResult =
   | { status: "failed"; error: Error }
   | { status: "unavailable" };
 
+export type CollabPeerDiscoveryResult =
+  | { status: "ready" }
+  | { status: "failed"; error: Error }
+  | { status: "unavailable" };
+
 export interface UseCollaborativeDocResult {
   ydoc: Y.Doc | null;
   awareness: Awareness | null;
@@ -59,6 +64,12 @@ export interface UseCollaborativeDocResult {
   initialization: CollabInitializationState;
   retry: () => void;
   requestSync: () => Promise<CollaborativeDocSyncResult>;
+  /**
+   * Exchanges presence with the server once, outside the poll a hidden tab
+   * skips. Resolves `ready` after the collaborators' awareness states are
+   * applied, so a caller can learn who else holds the document before acting.
+   */
+  discoverPeers: () => Promise<CollabPeerDiscoveryResult>;
   /**
    * Sends every local edit the server has not yet acknowledged. Resolves `true`
    * once none are outstanding and `false` when delivery failed (offline), so a
@@ -248,6 +259,9 @@ const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
   Promise.resolve({ status: "unavailable" });
 
+const discoverPeersUnavailable = (): Promise<CollabPeerDiscoveryResult> =>
+  Promise.resolve({ status: "unavailable" });
+
 // Nothing is outstanding without a connection.
 const flushUpdatesUnavailable = (): Promise<boolean> => Promise.resolve(true);
 
@@ -284,6 +298,7 @@ class CollabDocConnection {
   private pollActivityBaselineReady = false;
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
+  private peerDiscovery: Promise<CollabPeerDiscoveryResult> | null = null;
   private sseActive = false;
   private sseAwarenessCovered = false;
   private ssePollLive = false;
@@ -692,6 +707,95 @@ class CollabDocConnection {
     return this.performStateVectorFetch();
   };
 
+  discoverPeers = (): Promise<CollabPeerDiscoveryResult> => {
+    if (this.peerDiscovery) return this.peerDiscovery;
+    if (
+      this.disposed ||
+      this.subscribers.size === 0 ||
+      this.snapshot.initialization.status !== "ready" ||
+      !this.awareness.getLocalState()
+    ) {
+      return Promise.resolve({ status: "unavailable" });
+    }
+    const request = this.performPeerDiscovery();
+    this.peerDiscovery = request;
+    void request.finally(() => {
+      if (this.peerDiscovery === request) this.peerDiscovery = null;
+    });
+    return request;
+  };
+
+  private async performPeerDiscovery(): Promise<CollabPeerDiscoveryResult> {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      STATE_VECTOR_FETCH_TIMEOUT_MS,
+    );
+    try {
+      const exchanged = await this.exchangeAwareness(controller.signal);
+      return exchanged && !this.disposed
+        ? { status: "ready" }
+        : { status: "unavailable" };
+    } catch (error) {
+      if (this.disposed) return { status: "unavailable" };
+      return {
+        status: "failed",
+        error:
+          error instanceof Error
+            ? error
+            : new Error("Awareness request failed"),
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Throws when the request fails; false when there was nothing to exchange. */
+  private async exchangeAwareness(signal?: AbortSignal): Promise<boolean> {
+    const localState = this.awareness.getLocalState();
+    if (!localState || this.disposed) return false;
+    const response = await fetch(`${this.baseUrl}/${this.docId}/awareness`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: this.ydoc.clientID,
+        state: JSON.stringify(localState),
+      }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Awareness request failed: HTTP ${response.status}`);
+    }
+    const awarenessData = (await response.json()) as {
+      states?: Array<{ clientId: number; state: string }>;
+    };
+    if (this.disposed) return false;
+    const remoteStates: RemoteAwarenessSnapshot[] = [];
+    for (const remote of awarenessData.states || []) {
+      try {
+        remoteStates.push({
+          clientId: Number(remote.clientId),
+          state: JSON.parse(remote.state),
+        });
+      } catch {
+        // Invalid state — skip
+      }
+    }
+    const changes = reconcileRemoteAwarenessStates(
+      this.awareness.getStates() as Map<number, unknown>,
+      this.ydoc.clientID,
+      remoteStates,
+    );
+    if (
+      changes.added.length ||
+      changes.updated.length ||
+      changes.removed.length
+    ) {
+      this.awareness.emit("change", [changes, "remote"]);
+    }
+    return true;
+  }
+
   flushUpdates = async (): Promise<boolean> => {
     while (!this.disposed && this.pendingUpdates.length > 0) {
       if (this.updateInFlight) {
@@ -1090,52 +1194,12 @@ class CollabDocConnection {
         await this.fetchStateVector();
       }
 
-      const localState = this.awareness.getLocalState();
-      if (localState && !this.disposed) {
-        try {
-          const awarenessRes = await fetch(
-            `${this.baseUrl}/${this.docId}/awareness`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                clientId: this.ydoc.clientID,
-                state: JSON.stringify(localState),
-              }),
-            },
-          );
-          if (awarenessRes.ok && !this.disposed) {
-            const awarenessData = await awarenessRes.json();
-            const remoteStates: RemoteAwarenessSnapshot[] = [];
-            for (const remote of awarenessData.states || []) {
-              try {
-                const remoteState = JSON.parse(remote.state);
-                remoteStates.push({
-                  clientId: Number(remote.clientId),
-                  state: remoteState,
-                });
-              } catch {
-                // Invalid state — skip
-              }
-            }
-            if (this.disposed) return;
-            const changes = reconcileRemoteAwarenessStates(
-              this.awareness.getStates() as Map<number, unknown>,
-              this.ydoc.clientID,
-              remoteStates,
-            );
-            if (
-              changes.added.length ||
-              changes.updated.length ||
-              changes.removed.length
-            ) {
-              this.awareness.emit("change", [changes, "remote"]);
-            }
-          }
-        } catch {
-          // Awareness sync failure is non-fatal
-        }
+      try {
+        await this.exchangeAwareness();
+      } catch {
+        // Awareness sync failure is non-fatal
       }
+      if (this.disposed) return;
     } catch {
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
@@ -1358,6 +1422,7 @@ export function useCollaborativeDoc(
         }
       : () => {},
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
+    discoverPeers: conn ? conn.discoverPeers : discoverPeersUnavailable,
     flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,

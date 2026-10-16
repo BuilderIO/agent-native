@@ -935,6 +935,110 @@ describe("useCollaborativeDoc connection registry", () => {
     });
   });
 
+  it("discovers peers with one presence request while hidden, when no poll runs", async () => {
+    const { mock: fallback } = makeFetchMock();
+    let presenceRequests = 0;
+    const peer = {
+      user: { name: "Peer", email: "peer@example.com", color: "peer-color" },
+      reconciledRevision: "body:1:abc",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/awareness") && init?.method === "POST") {
+          presenceRequests += 1;
+          return new Response(
+            JSON.stringify({
+              states: [{ clientId: 77, state: JSON.stringify(peer) }],
+            }),
+          );
+        }
+        return fallback(input);
+      }),
+    );
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    try {
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-discover"
+          onResult={(next) => (result = next)}
+          user={{
+            name: "Local",
+            email: "local@example.com",
+            color: "local-color",
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result?.awareness?.getStates().has(77)).toBe(false);
+      expect(presenceRequests).toBe(0);
+
+      let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+        null;
+      await act(async () => {
+        discovery = await result!.discoverPeers();
+      });
+
+      expect(discovery).toEqual({ status: "ready" });
+      expect(result?.awareness?.getStates().get(77)).toEqual(peer);
+      expect(presenceRequests).toBe(1);
+    } finally {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
+  it("reports a failed presence request as failed, not as no peers", async () => {
+    const { mock: fallback } = makeFetchMock();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/awareness") && init?.method === "POST") {
+          return new Response(null, { status: 503 });
+        }
+        return fallback(input);
+      }),
+    );
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="doc-discover-failed"
+        onResult={(next) => (result = next)}
+        user={{ name: "Local", email: "local@example.com", color: "c" }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+      null;
+    await act(async () => {
+      discovery = await result!.discoverPeers();
+    });
+
+    expect(discovery).toMatchObject({
+      status: "failed",
+      error: expect.objectContaining({
+        message: "Awareness request failed: HTTP 503",
+      }),
+    });
+  });
+
+  it("reports discovery unavailable without a document", async () => {
+    let result: UseCollaborativeDocResult | undefined;
+    mount(<Probe docId={null} onResult={(next) => (result = next)} />);
+    await expect(result!.discoverPeers()).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+
   it("does not re-broadcast local awareness state when a REMOTE awareness event arrives (no storm)", async () => {
     const { mock } = makeFetchMock();
     vi.stubGlobal("fetch", mock);

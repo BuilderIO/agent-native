@@ -3351,6 +3351,7 @@ function PageEditorSessionBody({
     awareness,
     isSynced: collabSynced,
     requestSync: requestCollabSync,
+    discoverPeers: discoverCollabPeers,
     flushUpdates: flushCollabUpdates,
     initialization: collabInitialization,
     activeUsers,
@@ -9355,6 +9356,7 @@ function PageEditorSessionBody({
                                   : document.collabContentRevision
                               }
                               requestCollabSync={requestCollabSync}
+                              discoverCollabPeers={discoverCollabPeers}
                               onChange={
                                 isSuggesting
                                   ? handleSuggestionDraftChange
