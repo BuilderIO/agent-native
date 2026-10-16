@@ -99,9 +99,13 @@ describe("deploy-path alerts go to #qa-agent-native", () => {
       assertReporter(report, "deploy-canary-report-");
     });
 
-    it("labels the multi-provider host matrix accurately in both reports", () => {
+    it("labels the path and host matrices accurately in both reports", () => {
       const write = steps(report).find(
         (step) => step.name === "Write the report",
+      );
+      assert.match(
+        String(write?.run),
+        /Node\.js and Docker guides plus Netlify\/Vercel presets: \$paths_result/,
       );
       assert.match(
         String(write?.run),
@@ -110,6 +114,10 @@ describe("deploy-path alerts go to #qa-agent-native", () => {
 
       const [post] = slackSteps(report);
       const payload = (post?.with as Record<string, unknown>)?.payload;
+      assert.match(
+        String(payload),
+        /Node\.js and Docker guides plus Netlify\/Vercel presets: \$\{\{ needs\.paths\.result \}\}/,
+      );
       assert.match(
         String(payload),
         /Netlify and Vercel hosts: \$\{\{ needs\.hosts\.result \}\}/,

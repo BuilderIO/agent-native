@@ -644,19 +644,14 @@ describe("AgentEngine registry", () => {
     });
 
     it("prefers a current app default model over the global model", async () => {
-      const getUserSetting = vi.fn(async (email: string, key: string) =>
-        email === "owner@example.com" &&
-        key === "agent-app-model-default:analytics"
+      const getAppDefault = vi.fn(async (appId: string | undefined) =>
+        appId === "analytics"
           ? { engine: "builder", model: "gemini-3-1-pro" }
           : null,
       );
-      vi.doMock("../../server/request-context.js", () => ({
-        getRequestContext: () => ({ orgScope: "personal" }),
-        getRequestUserEmail: () => "owner@example.com",
-        getRequestOrgId: () => undefined,
-      }));
-      vi.doMock("../../settings/user-settings.js", () => ({
-        getUserSetting,
+      vi.doMock("../app-model-defaults.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../app-model-defaults.js")>()),
+        getAgentAppModelDefaultForCurrentRequest: getAppDefault,
       }));
       vi.doMock("../../settings/store.js", async (importOriginal) => ({
         ...(await importOriginal<typeof import("../../settings/store.js")>()),
@@ -669,10 +664,7 @@ describe("AgentEngine registry", () => {
       expect(
         await getStoredModelForEngine("builder", { appId: "analytics" }),
       ).toBe("gemini-3-1-pro");
-      expect(getUserSetting).toHaveBeenCalledWith(
-        "owner@example.com",
-        "agent-app-model-default:analytics",
-      );
+      expect(getAppDefault).toHaveBeenCalledWith("analytics");
     });
   });
 
@@ -1250,6 +1242,15 @@ describe("AgentEngine registry", () => {
   });
 
   it("resolveEngine honors a usable app default before the global setting", async () => {
+    const getAppDefault = vi.fn(async (appId: string | undefined) =>
+      appId === "analytics"
+        ? { engine: "app-engine", model: "app-model" }
+        : null,
+    );
+    vi.doMock("../app-model-defaults.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../app-model-defaults.js")>()),
+      getAgentAppModelDefaultForCurrentRequest: getAppDefault,
+    }));
     vi.doMock("../../server/request-context.js", () => ({
       getRequestContext: () => ({ orgScope: "personal" }),
       getRequestUserEmail: () => "owner@example.com",
@@ -1258,9 +1259,6 @@ describe("AgentEngine registry", () => {
     vi.doMock("../../settings/store.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../settings/store.js")>()),
       getSetting: vi.fn(async (key: string) => {
-        if (key === "u:owner@example.com:agent-app-model-default:analytics") {
-          return { engine: "app-engine", model: "app-model" };
-        }
         if (key === "agent-engine") {
           return { engine: "global-engine", model: "global-model" };
         }
@@ -1315,6 +1313,7 @@ describe("AgentEngine registry", () => {
     await expect(
       getConfiguredEngineNameForRequest({ appId: "analytics" }),
     ).resolves.toBe("app-engine");
+    expect(getAppDefault).toHaveBeenCalledWith("analytics");
     expect(appCreate).toHaveBeenCalled();
     expect(globalCreate).not.toHaveBeenCalled();
     expect(resolved).toBe(appEngine);
