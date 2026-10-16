@@ -1370,14 +1370,18 @@ export async function runQuery(
     };
 
     if (cacheFence) {
-      const persisted = await finishCacheQuery(
-        cacheKey,
-        cacheableSql,
-        result,
-        cacheFence,
-      );
-      if (persisted) setL1(cacheKey, result, persisted);
-      else await releaseCacheQuery(cacheKey, cacheFence);
+      if (result.partial) {
+        await releaseCacheQuery(cacheKey, cacheFence);
+      } else {
+        const persisted = await finishCacheQuery(
+          cacheKey,
+          cacheableSql,
+          result,
+          cacheFence,
+        );
+        if (persisted) setL1(cacheKey, result, persisted);
+        else await releaseCacheQuery(cacheKey, cacheFence);
+      }
     }
 
     return result;

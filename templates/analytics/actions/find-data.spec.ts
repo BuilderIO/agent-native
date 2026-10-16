@@ -79,6 +79,12 @@ describe("find-data scan coverage", () => {
     expect(result.guidance).toContain(
       "exclude aggregates and snapshots as member sources",
     );
+    expect(result.guidance).toContain(
+      "A related metric is a lead, not a substitute",
+    );
+    expect(result.guidance).toContain(
+      "report the gap instead of using a nearby metric's value",
+    );
   });
 
   it("keeps missing legacy scan counts unavailable instead of reporting zero", async () => {

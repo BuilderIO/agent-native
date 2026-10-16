@@ -27,6 +27,7 @@ const providerBoundary = vi.hoisted(() => ({
   searchAnalyticsQueryCatalog: vi.fn(),
   runQuery: vi.fn(),
   getBigQueryProjectId: vi.fn(),
+  bigQueryGet: vi.fn(),
   listBigQueryTablesPage: vi.fn(),
   getBigQueryTableMetadata: vi.fn(),
   recoverFromSchemaMiss: vi.fn(),
@@ -57,6 +58,7 @@ vi.mock(
 vi.mock("../../server/lib/bigquery", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../server/lib/bigquery")>()),
   getBigQueryProjectId: providerBoundary.getBigQueryProjectId,
+  bigQueryGet: providerBoundary.bigQueryGet,
   listBigQueryTablesPage: providerBoundary.listBigQueryTablesPage,
   getBigQueryTableMetadata: providerBoundary.getBigQueryTableMetadata,
   runQuery: providerBoundary.runQuery,
@@ -238,6 +240,82 @@ const cases: readonly Case[] = [
         !output?.toolCalls.some((name) =>
           ["bigquery", "query-dbt-semantic-metric"].includes(name),
         )
+      );
+    },
+  },
+  {
+    key: "synthetic-content-api-requests-not-visual-views",
+    prompt:
+      "SYNTHETIC: How many synthetic Content API requests happened in September? Visual Views is a different measure; do not substitute its number.",
+    actionAllowlist: [
+      "find-data",
+      "search-bigquery-schema",
+      "bigquery",
+      "tool-search",
+    ],
+    steps: [
+      { name: "tool-search", input: { names: ["find-data"] } },
+      {
+        name: "find-data",
+        input: {
+          question: "synthetic Content API requests in September",
+          limit: 8,
+        },
+      },
+      {
+        name: "tool-search",
+        input: { names: ["search-bigquery-schema"] },
+      },
+      {
+        name: "search-bigquery-schema",
+        input: { search: "synthetic API request logs", includeColumns: true },
+      },
+      {
+        name: "bigquery",
+        input: {
+          sql: "SELECT SUM(total_requests) AS content_api_requests FROM synthetic_warehouse.synthetic_api_request_logs WHERE api_family = 'content_api' AND request_date >= '2026-09-01' AND request_date <= '2026-09-30'",
+        },
+      },
+    ],
+    finalText:
+      "The synthetic warehouse returned 42 Content API requests for September 2026. The Visual Views reference measures page views, so it is not an API-request count. I verified the request-log schema and filtered to the synthetic content_api family. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const catalog = actionResults.find(
+        (_result, index) => actionCalls[index]?.name === "find-data",
+      ) as
+        | {
+            results?: Array<{ metric?: string; definition?: string }>;
+            guidance?: string;
+          }
+        | undefined;
+      const schema = actionResults.find(
+        (_result, index) =>
+          actionCalls[index]?.name === "search-bigquery-schema",
+      );
+      const query = actionCalls.find((call) => call.name === "bigquery");
+      const schemaText = JSON.stringify(schema);
+      const sql = String(query?.input.sql ?? "").toLowerCase();
+      const text = output?.text.toLowerCase() ?? "";
+      return (
+        catalog?.results?.length === 1 &&
+        catalog.results[0]?.metric === "Synthetic Visual Views" &&
+        catalog.results[0]?.definition?.includes("page views") === true &&
+        catalog.guidance?.includes(
+          "A related metric is a lead, not a substitute",
+        ) === true &&
+        schemaText.includes("synthetic_api_request_logs") &&
+        schemaText.includes("api_family") &&
+        schemaText.includes("total_requests") &&
+        sql.includes("synthetic_warehouse.synthetic_api_request_logs") &&
+        sql.includes("api_family = 'content_api'") &&
+        sql.includes("sum(total_requests)") &&
+        output?.toolCalls.includes("find-data") === true &&
+        output.toolCalls.includes("search-bigquery-schema") === true &&
+        output.toolCalls.includes("bigquery") === true &&
+        text.includes("42 content api requests") &&
+        text.includes("visual views") &&
+        text.includes("not an api-request count") &&
+        text.includes("synthetic fixture")
       );
     },
   },
@@ -857,6 +935,7 @@ async function runCase(
   providerBoundary.searchAnalyticsQueryCatalog.mockReset();
   providerBoundary.runQuery.mockReset();
   providerBoundary.getBigQueryProjectId.mockReset();
+  providerBoundary.bigQueryGet.mockReset();
   providerBoundary.listBigQueryTablesPage.mockReset();
   providerBoundary.getBigQueryTableMetadata.mockReset();
   providerBoundary.recoverFromSchemaMiss.mockReset();
@@ -865,42 +944,63 @@ async function runCase(
   providerBoundary.executeProviderApiRequest.mockReset();
   const catalogFixture = {
     candidates:
-      testCase.key === "synthetic-latest-skill-event-taxonomy"
+      testCase.key === "synthetic-content-api-requests-not-visual-views"
         ? [
             {
-              metric: "Synthetic skill invoked event",
+              metric: "Synthetic Visual Views",
               definition:
-                "Synthetic event with skill_name and workspace_id properties.",
-              origin: "approved-dictionary",
-              approved: true,
-              status: "approved",
-              grain: "one row per skill invocation",
-              source: "synthetic instrumentation dictionary",
-            },
-          ]
-        : [
-            {
-              metric: "Synthetic Workspace Seats",
-              definition: "Current synthetic workspace roster membership.",
-              origin: "approved-dictionary",
-              approved: true,
-              status: "approved",
-              grain: "one row per synthetic user and workspace",
-              source: "synthetic dbt model",
-            },
-            {
-              metric: "Synthetic Weekly Active Product Users",
-              definition:
-                "Weekly unique synthetic actors with a product event.",
+                "Synthetic page views generated when content is rendered.",
               origin: "source-index",
               approved: false,
               status: "unapproved",
-              grain: "one row per synthetic user and week",
-              source: "synthetic application instrumentation",
+              grain: "one row per rendered page view",
+              source: "synthetic visual-view instrumentation",
             },
-          ],
-    searched: testCase.key === "synthetic-latest-skill-event-taxonomy" ? 1 : 2,
-    of: testCase.key === "synthetic-latest-skill-event-taxonomy" ? 1 : 2,
+          ]
+        : testCase.key === "synthetic-latest-skill-event-taxonomy"
+          ? [
+              {
+                metric: "Synthetic skill invoked event",
+                definition:
+                  "Synthetic event with skill_name and workspace_id properties.",
+                origin: "approved-dictionary",
+                approved: true,
+                status: "approved",
+                grain: "one row per skill invocation",
+                source: "synthetic instrumentation dictionary",
+              },
+            ]
+          : [
+              {
+                metric: "Synthetic Workspace Seats",
+                definition: "Current synthetic workspace roster membership.",
+                origin: "approved-dictionary",
+                approved: true,
+                status: "approved",
+                grain: "one row per synthetic user and workspace",
+                source: "synthetic dbt model",
+              },
+              {
+                metric: "Synthetic Weekly Active Product Users",
+                definition:
+                  "Weekly unique synthetic actors with a product event.",
+                origin: "source-index",
+                approved: false,
+                status: "unapproved",
+                grain: "one row per synthetic user and week",
+                source: "synthetic application instrumentation",
+              },
+            ],
+    searched:
+      testCase.key === "synthetic-latest-skill-event-taxonomy" ||
+      testCase.key === "synthetic-content-api-requests-not-visual-views"
+        ? 1
+        : 2,
+    of:
+      testCase.key === "synthetic-latest-skill-event-taxonomy" ||
+      testCase.key === "synthetic-content-api-requests-not-visual-views"
+        ? 1
+        : 2,
     truncated: false,
     nextPage: null,
     searchedDashboardCount: 0,
@@ -912,7 +1012,11 @@ async function runCase(
     dashboardPanelReferenceOf: 0,
     dashboardPanelReferenceNextPage: null,
     dashboardSearchStatus: "available",
-    searchedDictionaryEntryCount: 2,
+    searchedDictionaryEntryCount:
+      testCase.key === "synthetic-latest-skill-event-taxonomy" ||
+      testCase.key === "synthetic-content-api-requests-not-visual-views"
+        ? 1
+        : 2,
     dictionarySearchTruncated: false,
     dictionarySearchStatus: "available",
     sourceIndexStatus: "available",
@@ -952,35 +1056,77 @@ async function runCase(
         : catalogFixture,
   );
   providerBoundary.getBigQueryProjectId.mockResolvedValue("synthetic-project");
-  providerBoundary.listBigQueryTablesPage.mockResolvedValue({
-    tables: [
+  providerBoundary.bigQueryGet.mockResolvedValue({
+    datasets: [
       {
-        projectId: "synthetic-project",
-        datasetId: "synthetic_warehouse",
-        tableId: "fixture_workspace_memberships",
-        friendlyName: "Synthetic workspace membership counts",
+        datasetReference: {
+          projectId: "synthetic-project",
+          datasetId: "synthetic_warehouse",
+        },
       },
     ],
     totalItems: 1,
   });
-  providerBoundary.getBigQueryTableMetadata.mockResolvedValue({
-    tableReference: {
-      projectId: "synthetic-project",
-      datasetId: "synthetic_warehouse",
-      tableId: "fixture_workspace_memberships",
-    },
-    friendlyName: "Synthetic workspace membership counts",
-    description: "Synthetic membership counts grouped by role and day.",
-    type: "TABLE",
-    schema: {
-      fields: [
-        { name: "workspace_id", type: "STRING" },
-        { name: "role_code", type: "STRING" },
-        { name: "member_count", type: "INT64" },
-        { name: "day", type: "DATE" },
-      ],
-    },
+  const apiRequestCase =
+    testCase.key === "synthetic-content-api-requests-not-visual-views";
+  const schemaTable = apiRequestCase
+    ? {
+        projectId: "synthetic-project",
+        datasetId: "synthetic_warehouse",
+        tableId: "synthetic_api_request_logs",
+        friendlyName: "Synthetic API request logs",
+      }
+    : {
+        projectId: "synthetic-project",
+        datasetId: "synthetic_warehouse",
+        tableId: "fixture_workspace_memberships",
+        friendlyName: "Synthetic workspace membership counts",
+      };
+  providerBoundary.listBigQueryTablesPage.mockResolvedValue({
+    tables: [schemaTable],
+    totalItems: 1,
   });
+  providerBoundary.getBigQueryTableMetadata.mockImplementation(
+    async ({ tableId }: { tableId: string }) =>
+      tableId === "synthetic_api_request_logs"
+        ? {
+            tableReference: {
+              projectId: "synthetic-project",
+              datasetId: "synthetic_warehouse",
+              tableId: "synthetic_api_request_logs",
+            },
+            friendlyName: "Synthetic API request logs",
+            description:
+              "Synthetic request counts grouped by organization, day, and API family.",
+            type: "TABLE",
+            schema: {
+              fields: [
+                { name: "organization_id", type: "STRING" },
+                { name: "api_family", type: "STRING" },
+                { name: "request_date", type: "DATE" },
+                { name: "total_requests", type: "INT64" },
+              ],
+            },
+          }
+        : {
+            tableReference: {
+              projectId: "synthetic-project",
+              datasetId: "synthetic_warehouse",
+              tableId: "fixture_workspace_memberships",
+            },
+            friendlyName: "Synthetic workspace membership counts",
+            description: "Synthetic membership counts grouped by role and day.",
+            type: "TABLE",
+            schema: {
+              fields: [
+                { name: "workspace_id", type: "STRING" },
+                { name: "role_code", type: "STRING" },
+                { name: "member_count", type: "INT64" },
+                { name: "day", type: "DATE" },
+              ],
+            },
+          },
+  );
   providerBoundary.recoverFromSchemaMiss.mockResolvedValue({
     didYouMean: ["role_code"],
     didYouMeanTables: [],
@@ -988,6 +1134,16 @@ async function runCase(
   });
   providerBoundary.runQuery.mockImplementation(async (sql: string) => {
     providerBoundary.bigquerySql.push(sql);
+    if (apiRequestCase) {
+      return {
+        rows: [{ content_api_requests: 42 }],
+        totalRows: 1,
+        bytesProcessed: 0,
+        cached: false,
+        truncated: false,
+        partial: false,
+      };
+    }
     if (testCase.key === "synthetic-bigquery-partial-warning-disclosed") {
       return {
         rows: [{ synthetic_activation_count: 12 }],
