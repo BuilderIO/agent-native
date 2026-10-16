@@ -10,7 +10,7 @@ pending close. Track release/runtime gaps separately.
 
 Before claiming an issue, check comments for handoffs. If someone offers a PR,
 or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
-ship, reply, or close it. A direct request overrides this.
+ship, reply, or close it. Only a direct request from this invocation overrides this.
 
 Fix root causes or ask what's blocking; triage human issues, not automated
 finding mirrors covered by QA rollups. Feature requests and
