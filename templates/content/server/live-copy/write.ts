@@ -21,13 +21,20 @@ import {
  * A server writer's replace names the body it was built from. Core retries
  * an edit a peer's commit overtook, and a replace without `expected` would
  * silently overwrite the peer's text on that retry. A rebase names the body
- * its edit was made on.
+ * its edit was made on, or, with `earlier`, the recorded bodies after and
+ * before a base History no longer holds.
  */
+export type ContentLiveCopyRebaseInput = {
+  base: string;
+  candidate: string;
+  earlier?: { base: string; candidate: string };
+};
+
 type ContentLiveCopyEditInput<Edit extends string> =
   typeof CONTENT_LIVE_COPY_EDITS.replaceBody extends Edit
     ? { content: string; expected: string }
     : typeof CONTENT_LIVE_COPY_EDITS.rebaseBody extends Edit
-      ? { base: string; candidate: string }
+      ? ContentLiveCopyRebaseInput
       : unknown;
 
 function replaceBodyInput(
@@ -51,12 +58,20 @@ function replaceBodyInput(
 function rebaseBodyInput(input: unknown): {
   base: unknown;
   candidate: unknown;
+  earlier?: { base: unknown; candidate: unknown };
 } {
-  const { base, candidate } = (input ?? {}) as {
+  const { base, candidate, earlier } = (input ?? {}) as {
     base?: unknown;
     candidate?: unknown;
+    earlier?: { base?: unknown; candidate?: unknown };
   };
-  return { base, candidate };
+  return earlier === undefined
+    ? { base, candidate }
+    : {
+        base,
+        candidate,
+        earlier: { base: earlier?.base, candidate: earlier?.candidate },
+      };
 }
 
 /**

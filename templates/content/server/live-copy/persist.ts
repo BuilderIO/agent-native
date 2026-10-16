@@ -82,9 +82,10 @@ export class LiveBodyConversionError extends Error {
 }
 
 // A typing session sends a commit every few hundred milliseconds. History
-// keeps one row per this interval, and each commit inside it updates that
-// row, so a session's last row always holds its final state. A row changes
-// only within the interval after it was created.
+// writes at most one row per this interval, and never rewrites one: an
+// agent's edit finds its base by the row's revision. A commit inside the
+// interval writes none, and the next row written records the state it
+// replaces, so a session's final state reaches History with the next commit.
 const LIVE_COPY_HISTORY_INTERVAL_MS = 2_000;
 
 const pageColumns = {
@@ -303,11 +304,11 @@ async function assertInlineDatabasesLocked(
 
 type EditorHistory =
   | { kind: "record"; cause: DocumentHistoryCause }
-  | { kind: "update"; versionId: string };
+  | { kind: "skip" };
 
 /**
  * History for a commit no server writer caused: the editor's own updates.
- * They join the actor's open session, one row per interval.
+ * They join the actor's open session, at most one row per interval.
  */
 async function editorHistory(
   db: ContentDb,
@@ -318,7 +319,6 @@ async function editorHistory(
 ): Promise<EditorHistory> {
   const [latest] = await db
     .select({
-      id: schema.documentVersions.id,
       groupId: schema.documentVersions.groupId,
       groupKind: schema.documentVersions.groupKind,
       checkpointKind: schema.documentVersions.checkpointKind,
@@ -357,7 +357,7 @@ async function editorHistory(
       Date.parse(now) - Date.parse(latest.createdAt) <
         LIVE_COPY_HISTORY_INTERVAL_MS
     ) {
-      return { kind: "update", versionId: latest.id };
+      return { kind: "skip" };
     }
     return {
       kind: "record",
@@ -365,7 +365,6 @@ async function editorHistory(
         ...base,
         groupId: latest.groupId,
         groupKind: "human_session",
-        skipBeforeCheckpoint: true,
       },
     };
   }
@@ -507,22 +506,6 @@ async function writeBody(args: {
         cause: history.cause,
         now: updatedAt,
       });
-    } else {
-      await db
-        .update(schema.documentVersions)
-        .set({
-          title: page.title,
-          content: text,
-          bodyRevision,
-          updatedAt,
-        })
-        .where(
-          and(
-            eq(schema.documentVersions.id, history.versionId),
-            eq(schema.documentVersions.ownerEmail, page.ownerEmail),
-            eq(schema.documentVersions.documentId, documentId),
-          ),
-        );
     }
     await assertInlineDatabasesLocked(
       db,

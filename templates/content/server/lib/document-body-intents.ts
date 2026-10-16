@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, asc, desc, eq, gt, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, lte } from "drizzle-orm";
 
 import type { PriorDocumentBodyIntent } from "../../shared/document-intent-merge.js";
 import type { DocumentBodyIntent } from "../../shared/document-intent-order.js";
@@ -87,6 +87,59 @@ export async function findDocumentBodyBase(args: {
           .digest("hex")}` === args.contentHash,
     )?.content ?? null
   );
+}
+
+/**
+ * The recorded bodies either side of a base revision History holds no row
+ * for, as when a switched page's typing interval moved past it before a row
+ * was written. Null when History holds that revision, whose body then isn't
+ * the base, or holds nothing before it. `after` is null when nothing after
+ * it is recorded yet.
+ */
+export async function findSupersededBodyBase(args: {
+  db: ContentDb;
+  ownerEmail: string;
+  documentId: string;
+  revision: number;
+  currentRevision: number;
+}): Promise<{ before: string; after: string | null } | null> {
+  if (args.revision >= args.currentRevision) return null;
+  const page = and(
+    eq(schema.documentVersions.ownerEmail, args.ownerEmail),
+    eq(schema.documentVersions.documentId, args.documentId),
+  );
+  const [held] = await args.db
+    .select({ id: schema.documentVersions.id })
+    .from(schema.documentVersions)
+    .where(and(page, eq(schema.documentVersions.bodyRevision, args.revision)))
+    .limit(1);
+  if (held) return null;
+  const [before] = await args.db
+    .select({ content: schema.documentVersions.content })
+    .from(schema.documentVersions)
+    .where(and(page, lt(schema.documentVersions.bodyRevision, args.revision)))
+    .orderBy(
+      desc(schema.documentVersions.bodyRevision),
+      desc(schema.documentVersions.createdAt),
+    )
+    .limit(1);
+  if (!before) return null;
+  const [after] = await args.db
+    .select({ content: schema.documentVersions.content })
+    .from(schema.documentVersions)
+    .where(
+      and(
+        page,
+        gt(schema.documentVersions.bodyRevision, args.revision),
+        lte(schema.documentVersions.bodyRevision, args.currentRevision),
+      ),
+    )
+    .orderBy(
+      asc(schema.documentVersions.bodyRevision),
+      asc(schema.documentVersions.createdAt),
+    )
+    .limit(1);
+  return { before: before.content, after: after?.content ?? null };
 }
 
 export async function preserveDocumentBodyIntent(args: {
