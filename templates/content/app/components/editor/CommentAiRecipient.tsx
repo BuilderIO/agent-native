@@ -1,3 +1,4 @@
+import type { EngineModelGroup } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentMark } from "@agent-native/toolkit/app/shared";
 import { IconCheck, IconChevronDown } from "@tabler/icons-react";
@@ -24,6 +25,34 @@ export interface CommentAiSelection {
 
 export const commentAiSelectionKey = (selection: CommentAiSelection) =>
   `${selection.engine}:${selection.model}`;
+
+/**
+ * One selection per model name. With Builder.io connected, a provider key
+ * adds its own group, and the two name one model differently ("gpt-5-4",
+ * "gpt-5.4"), so ids alone can't dedupe them. The current choice wins, then
+ * its engine, then the first group listed.
+ */
+export function commentAiSelections(
+  groups: readonly Pick<EngineModelGroup, "engine" | "label" | "models">[],
+  current: { model: string; engine: string },
+): CommentAiSelection[] {
+  const rank = (selection: CommentAiSelection) =>
+    selection.engine !== current.engine
+      ? 0
+      : selection.model === current.model
+        ? 2
+        : 1;
+  const byName = new Map<string, CommentAiSelection>();
+  for (const group of groups) {
+    for (const model of group.models) {
+      const selection = { model, engine: group.engine, provider: group.label };
+      const name = modelDisplayName(model);
+      const kept = byName.get(name);
+      if (!kept || rank(selection) > rank(kept)) byName.set(name, selection);
+    }
+  }
+  return [...byName.values()];
+}
 
 /** Words a person might type after `@` to find a model, e.g. "Sonnet". */
 export function modelAliases(model: string): string[] {
