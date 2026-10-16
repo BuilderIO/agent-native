@@ -3205,8 +3205,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     expect(onGeometryChange).toHaveBeenCalledTimes(1);
     expect(onGeometryCommit).toHaveBeenCalledTimes(1);
+    expect(onGeometryCommit.mock.calls[0]?.[0]).toMatchObject({
+      "screen-a": { width: 320, height: 200 },
+    });
     expect(onGeometryCommit.mock.calls[0]?.[1]).toMatchObject({
-      "screen-a": { width: 370, height: 1200 },
+      "screen-a": { width: 370, height: 200 },
     });
   });
 

@@ -8754,13 +8754,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const targetIds = currentSelectedIds.includes(id)
         ? currentSelectedIds
         : [id];
-      const originEntries = getCurrentFrameEntries()
-        .filter((entry) => targetIds.includes(entry.id))
-        .map((entry) => ({
-          ...entry,
-          geometry:
-            renderedFrameGeometryRef.current[entry.id] ?? entry.geometry,
-        }));
+      const savedEntries = getCurrentFrameEntries().filter((entry) =>
+        targetIds.includes(entry.id),
+      );
+      const originEntries = savedEntries.map((entry) => ({
+        ...entry,
+        geometry: renderedFrameGeometryRef.current[entry.id] ?? entry.geometry,
+      }));
       const originBounds = getFrameGroupBounds(originEntries);
       if (!originBounds || originEntries.length === 0) return;
       updateSelectedIds((current) => (current.includes(id) ? current : [id]));
@@ -8787,6 +8787,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         originClient: { x: e.clientX, y: e.clientY },
         originFrames: Object.fromEntries(
           originEntries.map((entry) => [entry.id, entry.geometry]),
+        ) as FrameGeometryById,
+        savedFrames: Object.fromEntries(
+          savedEntries.map((entry) => [entry.id, entry.geometry]),
         ) as FrameGeometryById,
         originBounds: frameBoundsToGeometry(originBounds),
         targetIds: originEntries.map((entry) => entry.id),
@@ -8973,6 +8976,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         if (state?.type === "resize" && state.hasMoved) {
           const after = cloneFrameGeometryById(frameGeometryRef.current);
+          // A content-fit screen resizes from its rendered height; a side
+          // drag must not save that height in place of the authored one.
+          if (state.handle === "e" || state.handle === "w") {
+            state.targetIds.forEach((screenId) => {
+              const saved = state.savedFrames[screenId];
+              const resized = after[screenId];
+              if (!saved || !resized) return;
+              after[screenId] = {
+                ...resized,
+                y: saved.y,
+                height: saved.height,
+              };
+            });
+          }
           const kScaleStyleChangesByFrameId: KScaleStyleChangesByFrameId = {};
           let missingKScaleTarget = false;
           if (state.scaleContents) {
@@ -8995,7 +9012,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               kScaleStyleChangesByFrameId[screenId] = changes;
             });
           }
-          const before = frameGeometryWithOverrides(after, state.originFrames);
+          const before = frameGeometryWithOverrides(after, state.savedFrames);
           const committed = missingKScaleTarget
             ? false
             : onGeometryCommitRef.current?.(

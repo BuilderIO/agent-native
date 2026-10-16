@@ -868,6 +868,7 @@ export interface ResizeDragState {
   type: "resize";
   originClient: Point;
   originFrames: FrameGeometryById;
+  savedFrames: FrameGeometryById;
   originBounds: FrameGeometry;
   targetIds: string[];
   handle: ResizeHandle;

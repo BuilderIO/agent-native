@@ -334,17 +334,11 @@ test("resizing a screen from its left edge moves its left side and keeps its hei
   expect(await savedFrame(), "precondition: Home opens 800x600").toEqual([
     0, 0, 800, 600,
   ]);
-  const { scale } = await app.pagePoint(0, 0);
-  const renderedHeight = async () =>
-    Math.round(
-      (await page.locator("[data-screen-card]").first().boundingBox())!.height /
-        scale,
-    );
-  const heightBefore = await renderedHeight();
   const before = await app.savedNodes(id);
 
   const handle = page.locator('[data-resize-handle="w"]');
   const box = (await handle.boundingBox())!;
+  const { scale } = await app.pagePoint(0, 0);
   const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -355,10 +349,9 @@ test("resizing a screen from its left edge moves its left side and keeps its hei
   await expectWithinAPagePixel(
     app,
     await savedFrame(),
-    [-60, 0, 860, heightBefore],
-    "saved screen frame keeps the height Home rendered at",
+    [-60, 0, 860, 600],
+    "saved screen frame",
   );
-  expect(await renderedHeight()).toBe(heightBefore);
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
