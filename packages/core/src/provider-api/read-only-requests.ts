@@ -140,7 +140,9 @@ export function isReadOnlyProviderPost(request: ProviderRequestShape): boolean {
       pathname = absolute.pathname;
     } else {
       if (!rule.provider || request.provider !== rule.provider) return false;
-      pathname = joinBasePath(rule.basePath, rawPath.split(/[?#]/, 1)[0]);
+      const resolved = resolveRelativePath(rule.basePath, rawPath);
+      if (resolved === null) return false;
+      pathname = resolved;
     }
     if (!rule.path.test(pathname)) return false;
     if (!rule.body) return true;
@@ -162,6 +164,22 @@ function parseAbsoluteUrl(rawPath: string): URL | null {
 function hostMatches(url: URL, suffix: string): boolean {
   const host = url.hostname.toLowerCase();
   return host === suffix || host.endsWith(`.${suffix}`);
+}
+
+/**
+ * The pathname the runtime will actually request. URL parsing resolves dot
+ * segments, so `/objects/contacts/search/..` must be classified as the
+ * create endpoint it reaches, not the search endpoint it spells.
+ */
+function resolveRelativePath(basePath: string, rawPath: string): string | null {
+  try {
+    return new URL(joinBasePath(basePath, rawPath), "https://provider.invalid")
+      .pathname;
+  } catch {
+    // coercion-ok: an unresolvable path matches no read-only rule, so the
+    // request keeps its conservative write classification.
+    return null;
+  }
 }
 
 /** Mirrors the runtime's join: a path already carrying the base path keeps it. */

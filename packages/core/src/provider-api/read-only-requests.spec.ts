@@ -54,6 +54,16 @@ describe("isReadOnlyProviderPost", () => {
     // A listed path on a host the rule does not own is not that endpoint.
     ["hubspot", "https://evil.example.com/crm/v3/objects/contacts/search"],
     ["prometheus", "https://prometheus.example.com/api/v1/query"],
+    // Dot segments resolve before the request is sent.
+    ["hubspot", "/crm/v3/objects/../search"],
+    ["notion", "/databases/%2e%2e/query"],
+    ["hubspot", "/crm/v3/objects/contacts/search/.."],
+    ["hubspot", "/crm/v3/objects/contacts/search/%2e%2e"],
+    ["ga4", "/properties/1:runReport/../2:audienceExports"],
+    [
+      "hubspot",
+      "https://api.hubapi.com/crm/v3/objects/contacts/search/../batch/create",
+    ],
   ])("keeps %s POST %s a write", (provider, path) => {
     expect(isReadOnlyProviderPost(post(provider, path))).toBe(false);
   });
