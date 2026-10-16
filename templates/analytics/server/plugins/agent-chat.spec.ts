@@ -1393,7 +1393,7 @@ describe("realDataFinalGuard", () => {
   it("validates both sides of numeric rolling-window comparisons", () => {
     const runStartedAt = Date.UTC(2026, 9, 1, 23, 59);
     const recent = { startDate: "2026-07-01", endDate: "2026-10-01" };
-    const previous = { startDate: "2026-04-01", endDate: "2026-06-30" };
+    const previous = { startDate: "2026-03-30", endDate: "2026-06-30" };
     const recentCall = dbtMetricCall(recent, [], "recent");
     const previousCall = dbtMetricCall(previous, [], "previous");
     const recentResult = dbtMetricResult(
@@ -1411,11 +1411,11 @@ describe("realDataFinalGuard", () => {
     const evaluate = (
       toolCalls: AgentLoopFinalResponseGuardContext["toolCalls"],
       toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+      userText = "Compare activation rate over the last 3 months vs the previous 3 months.",
     ) =>
       realDataFinalGuard(
         guardContext({
-          userText:
-            "Compare activation rate over the last 3 months vs the previous 3 months.",
+          userText,
           draftText:
             "The activation rate was 42% in the recent period and 39% before.",
           runStartedAt,
@@ -1423,6 +1423,125 @@ describe("realDataFinalGuard", () => {
           toolResults,
         }),
       );
+
+    expect(
+      evaluate([recentCall, previousCall], [recentResult, previousResult]),
+    ).toBeNull();
+    expect(
+      evaluate([previousCall, recentCall], [previousResult, recentResult]),
+    ).toBeNull();
+    expect(evaluate([recentCall], [recentResult])).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        [recentCall, previousCall],
+        [recentResult, previousResult],
+        "Compare activation rate over the last 3 months vs the previous 2 months.",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    const unequalPrevious = {
+      startDate: "2026-04-01",
+      endDate: "2026-06-30",
+    };
+    expect(
+      evaluate(
+        [recentCall, dbtMetricCall(unequalPrevious, [], "unequal-previous")],
+        [
+          recentResult,
+          dbtMetricResult(
+            { groupBy: [], timeRange: unequalPrevious },
+            undefined,
+            {},
+            "unequal-previous",
+          ),
+        ],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        [recentCall, previousCall],
+        [recentResult, previousResult],
+        "Compare activation rate over the last 3 months vs the previous 3 months and prior 3 months.",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+
+    const yearBoundaryNow = Date.UTC(2027, 0, 1, 23, 59);
+    const yearBoundaryCurrent = {
+      startDate: "2026-10-01",
+      endDate: "2027-01-01",
+    };
+    const yearBoundaryPrevious = {
+      startDate: "2026-06-30",
+      endDate: "2026-09-30",
+    };
+    const yearBoundaryResult = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Compare activation rate over the last 3 months vs the previous 3 months.",
+        draftText:
+          "The activation rate was 42% in the recent period and 39% before.",
+        runStartedAt: yearBoundaryNow,
+        toolCalls: [
+          dbtMetricCall(yearBoundaryCurrent, [], "current-year-boundary"),
+          dbtMetricCall(yearBoundaryPrevious, [], "previous-year-boundary"),
+        ],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [], timeRange: yearBoundaryCurrent },
+            undefined,
+            {},
+            "current-year-boundary",
+          ),
+          dbtMetricResult(
+            { groupBy: [], timeRange: yearBoundaryPrevious },
+            undefined,
+            {},
+            "previous-year-boundary",
+          ),
+        ],
+      }),
+    );
+    expect(yearBoundaryResult).toBeNull();
+  });
+
+  it("validates both explicit date ranges in a comparison", () => {
+    const recent = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const previous = { startDate: "2026-06-01", endDate: "2026-06-07" };
+    const evaluate = (
+      toolCalls: AgentLoopFinalResponseGuardContext["toolCalls"],
+      toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+    ) =>
+      realDataFinalGuard(
+        guardContext({
+          userText:
+            "Compare activation rate 2026-07-01 through 2026-07-07 vs 2026-06-01 through 2026-06-07.",
+          draftText: "The activation rate was 42% in July and 39% in June.",
+          toolCalls,
+          toolResults,
+        }),
+      );
+
+    const recentCall = dbtMetricCall(recent, [], "explicit-recent");
+    const previousCall = dbtMetricCall(previous, [], "explicit-previous");
+    const recentResult = dbtMetricResult(
+      { groupBy: [], timeRange: recent },
+      undefined,
+      {},
+      "explicit-recent",
+    );
+    const previousResult = dbtMetricResult(
+      { groupBy: [], timeRange: previous },
+      undefined,
+      {},
+      "explicit-previous",
+    );
 
     expect(
       evaluate([recentCall, previousCall], [recentResult, previousResult]),

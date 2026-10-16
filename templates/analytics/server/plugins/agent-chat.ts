@@ -1156,15 +1156,20 @@ function boundedPeriodRequest(userText: string): boolean {
   );
 }
 
+function requestedExplicitDateRanges(userText: string): DbtMetricTimeRange[] {
+  return [
+    ...userText.matchAll(
+      /\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/gi,
+    ),
+  ].flatMap((match) =>
+    match[1] && match[2] ? [{ startDate: match[1], endDate: match[2] }] : [],
+  );
+}
+
 function requestedExplicitDateRange(
   userText: string,
 ): DbtMetricTimeRange | null {
-  const match = userText.match(
-    /\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/i,
-  );
-  return match?.[1] && match[2]
-    ? { startDate: match[1], endDate: match[2] }
-    : null;
+  return requestedExplicitDateRanges(userText)[0] ?? null;
 }
 
 function dateRange(start: Date, end: Date): DbtMetricTimeRange {
@@ -1428,44 +1433,49 @@ function requestedComparisonCalendarRanges(
   );
   const [currentWindow] = currentWindows;
   const [previousWindow] = previousWindows;
-  if (
-    rollingWindows.length !== 2 ||
-    currentWindows.length !== 1 ||
-    previousWindows.length !== 1 ||
-    !currentWindow ||
-    !previousWindow ||
-    currentWindow.count !== previousWindow.count ||
-    currentWindow.unit !== previousWindow.unit ||
-    !Number.isSafeInteger(currentWindow.count) ||
-    currentWindow.count < 1
-  ) {
-    return null;
+  if (rollingWindows.length >= 2) {
+    if (
+      rollingWindows.length !== 2 ||
+      currentWindows.length !== 1 ||
+      previousWindows.length !== 1 ||
+      !currentWindow ||
+      !previousWindow ||
+      currentWindow.count !== previousWindow.count ||
+      currentWindow.unit !== previousWindow.unit ||
+      !Number.isSafeInteger(currentWindow.count) ||
+      currentWindow.count < 1
+    ) {
+      return [];
+    }
+
+    const currentRange = requestedCalendarRange(currentWindow.phrase, now);
+    if (!currentRange) return [];
+    const currentStart = new Date(`${currentRange.startDate}T00:00:00.000Z`);
+    const currentEnd = new Date(`${currentRange.endDate}T00:00:00.000Z`);
+    const inclusiveDays =
+      Math.floor((currentEnd.getTime() - currentStart.getTime()) / 86_400_000) +
+      1;
+    const previousRange = dateRange(
+      addUtcDays(currentStart, -inclusiveDays),
+      addUtcDays(currentStart, -1),
+    );
+    return [currentRange, previousRange];
   }
 
-  const currentRange = requestedCalendarRange(currentWindow.phrase, now);
-  if (!currentRange) return null;
-  const currentStart = new Date(`${currentRange.startDate}T00:00:00.000Z`);
-  const previousEnd = addUtcDays(currentStart, -1);
-  const previousStart =
-    currentWindow.unit === "day" || currentWindow.unit === "week"
-      ? addUtcDays(
-          currentStart,
-          -currentWindow.count * (currentWindow.unit === "week" ? 7 : 1),
-        )
-      : addUtcMonths(
-          currentStart,
-          -currentWindow.count *
-            (currentWindow.unit === "quarter"
-              ? 3
-              : currentWindow.unit === "year"
-                ? 12
-                : 1),
-        );
-  const previousRange = dateRange(previousStart, previousEnd);
-  return `${currentRange.startDate}/${currentRange.endDate}` ===
-    `${previousRange.startDate}/${previousRange.endDate}`
-    ? null
-    : [currentRange, previousRange];
+  const explicitDateRanges = requestedExplicitDateRanges(userText);
+  if (explicitDateRanges.length > 1) {
+    const distinctRanges = new Map(
+      explicitDateRanges.map((range) => [
+        `${range.startDate}/${range.endDate}`,
+        range,
+      ]),
+    );
+    return distinctRanges.size === explicitDateRanges.length
+      ? explicitDateRanges
+      : [];
+  }
+
+  return null;
 }
 
 function dbtMetricTimeScopeMismatch(
@@ -1482,6 +1492,7 @@ function dbtMetricTimeScopeMismatch(
     userText,
     new Date(context.runStartedAt ?? Date.now()),
   );
+  if (expectedComparisonRanges?.length === 0) return true;
   const toolCalls = context.toolCalls ?? [];
   const toolResults = context.toolResults ?? [];
   const queryResultIndexes = toolResults.flatMap((result, index) =>
