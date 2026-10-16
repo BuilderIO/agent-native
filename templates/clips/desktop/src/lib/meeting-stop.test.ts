@@ -4,10 +4,28 @@ import { ClipsActionError } from "./clips-action";
 import {
   isTerminalMeetingStopError,
   isTerminalTranscriptSaveError,
+  isTerminalTranscriptSaveResult,
+  shouldHoldQuitForTranscriptRecovery,
   stopMeetingBeforeTranscriptFlush,
 } from "./meeting-stop";
 
 describe("stopMeetingBeforeTranscriptFlush", () => {
+  it("identifies terminal transcript saves that must stay recoverable", () => {
+    const result = {
+      status: "terminal" as const,
+      error: new ClipsActionError("Access denied", 403, "forbidden"),
+    };
+
+    expect(isTerminalTranscriptSaveResult(result)).toBe(true);
+    expect(shouldHoldQuitForTranscriptRecovery(true, result)).toBe(true);
+    expect(shouldHoldQuitForTranscriptRecovery(false, result)).toBe(false);
+    expect(
+      isTerminalTranscriptSaveResult({
+        status: "confirmed",
+      }),
+    ).toBe(false);
+  });
+
   it("persists the terminal meeting state before transcript work", async () => {
     const events: string[] = [];
 

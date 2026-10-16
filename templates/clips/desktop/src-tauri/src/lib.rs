@@ -560,7 +560,7 @@ pub fn run() {
                     .unwrap_or(false);
                 let teardown_state =
                     clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst);
-                if teardown_state == clips::QUIT_TEARDOWN_PENDING {
+                if clips::quit_teardown_blocks_exit(teardown_state) {
                     api.prevent_exit();
                 } else if meeting_active && teardown_state == 0 {
                     if let Some(quit_attempt) = clips::begin_quit_teardown() {

@@ -891,9 +891,21 @@ export async function reapExpiredUploads(
                   AND t.status = 'ready'
                   AND BTRIM(t.full_text) <> ''
               )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM application_state retry_state
+                WHERE retry_state.key = $1 || r.id
+                  AND (
+                    retry_state.value::jsonb ->> 'status' = 'exhausted'
+                    OR (
+                      retry_state.value::jsonb ->> 'status' = 'scheduled'
+                      AND (retry_state.value::jsonb ->> 'nextAttemptAt')::timestamptz > $2
+                    )
+                  )
+              )
             ORDER BY r.id
             LIMIT ${limit}`,
-      args: [],
+      args: [MEETING_FINALIZATION_RETRY_STATE_PREFIX, nowIso],
     });
     const dispatchCandidates = new Map<string, Record<string, unknown>>();
     for (const row of terminatedRows) {

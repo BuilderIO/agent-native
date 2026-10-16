@@ -648,6 +648,63 @@ describe("upload lease", () => {
     });
   });
 
+  it("filters backed-off meetings before limiting retry candidates", async () => {
+    for (const recordingId of [
+      "meeting-dispatch-a-waiting",
+      "meeting-dispatch-b-exhausted",
+      "meeting-dispatch-z-new",
+    ]) {
+      await insertRecording({ id: recordingId, status: "failed" });
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+              VALUES (?, ?, ?, ?, 'failed', '')`,
+        args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
+    }
+    await execute(client, {
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: [
+        "clips-meeting-finalize-retry-meeting-dispatch-a-waiting",
+        JSON.stringify({
+          recordingId: "meeting-dispatch-a-waiting",
+          ownerEmail: "owner@example.com",
+          status: "scheduled",
+          attempts: 1,
+          updatedAt: iso(0),
+          nextAttemptAt: iso(5 * 60_000),
+        }),
+      ],
+    });
+    await execute(client, {
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: [
+        "clips-meeting-finalize-retry-meeting-dispatch-b-exhausted",
+        JSON.stringify({
+          recordingId: "meeting-dispatch-b-exhausted",
+          ownerEmail: "owner@example.com",
+          status: "exhausted",
+          attempts: 5,
+          updatedAt: iso(0),
+          nextAttemptAt: iso(5 * 60_000),
+        }),
+      ],
+    });
+
+    await reapExpiredUploads({ now: NOW, limit: 1 });
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledOnce();
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
+      recordingId: "meeting-dispatch-z-new",
+      ownerEmail: "owner@example.com",
+    });
+  });
+
   it("retries hosted reservation release after confirmed cleanup", async () => {
     await insertRecording({
       id: "hosted-release-retry",

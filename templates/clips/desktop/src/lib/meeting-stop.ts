@@ -42,6 +42,21 @@ export function isTerminalTranscriptSaveError(
   );
 }
 
+export function isTerminalTranscriptSaveResult(
+  result: StopMeetingBeforeTranscriptFlushResult,
+): boolean {
+  return (
+    result.status === "terminal" && isTerminalTranscriptSaveError(result.error)
+  );
+}
+
+export function shouldHoldQuitForTranscriptRecovery(
+  quitTeardownPending: boolean,
+  result: StopMeetingBeforeTranscriptFlushResult,
+): boolean {
+  return quitTeardownPending && isTerminalTranscriptSaveResult(result);
+}
+
 export async function stopMeetingBeforeTranscriptFlush({
   stopRecording,
   isStopped,

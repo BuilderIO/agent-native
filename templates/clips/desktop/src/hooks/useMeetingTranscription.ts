@@ -8,6 +8,8 @@ import { withMeetingActionTimeout } from "../lib/meeting-action-timeout";
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import {
   isTerminalMeetingStopError,
+  isTerminalTranscriptSaveResult,
+  shouldHoldQuitForTranscriptRecovery,
   stopMeetingBeforeTranscriptFlush,
 } from "../lib/meeting-stop";
 import { subscribeAutoStop } from "../lib/silence-events";
@@ -97,6 +99,10 @@ const MEETING_ENDED_POLL_MS = 30_000;
 const MEETING_ACTION_TIMEOUT_MS = 10_000;
 const RECOVERY_RETRY_INITIAL_MS = 3_000;
 const RECOVERY_RETRY_MAX_MS = 30_000;
+
+type StopTranscriptionResult =
+  | { completed: true }
+  | { completed: false; holdQuit: boolean; error: ClipsActionError };
 
 function unlistenAll(unlisteners: Array<() => void>): void {
   for (const unlisten of unlisteners) {
@@ -199,7 +205,7 @@ export function useMeetingTranscription({
     }
   }, [callClipsAction]);
 
-  const stopInFlightRef = useRef<Promise<void> | null>(null);
+  const stopInFlightRef = useRef<Promise<StopTranscriptionResult> | null>(null);
 
   const stopTranscription = useCallback(
     async (reason: string = "manual") => {
@@ -210,6 +216,7 @@ export function useMeetingTranscription({
       }
       if (session.stopping) {
         await stopInFlightRef.current;
+        if (session.stopRecovery?.source === "transcript") return;
         await acknowledgeQuitTeardown();
         return;
       }
@@ -271,6 +278,35 @@ export function useMeetingTranscription({
               };
             },
           });
+          if (
+            result.status === "terminal" &&
+            isTerminalTranscriptSaveResult(result)
+          ) {
+            session.stopRecovery = {
+              status: "terminal",
+              source: "transcript",
+              error: result.error,
+            };
+            session.stopPending = true;
+            session.pendingStopReason = stopReason;
+            await invoke("set_recording_state", { active: false }).catch(
+              () => {},
+            );
+            await emit("meetings:transcription-error", {
+              meetingId: session.meetingId,
+              error: result.error.message,
+              terminal: true,
+            }).catch(() => {});
+            session.stopping = false;
+            return {
+              completed: false as const,
+              holdQuit: shouldHoldQuitForTranscriptRecovery(
+                quitTeardownPendingRef.current,
+                result,
+              ),
+              error: result.error,
+            };
+          }
           if (result.status === "terminal") {
             terminalStopError = result.error;
           }
@@ -356,10 +392,15 @@ export function useMeetingTranscription({
             terminal: true,
           }).catch(() => {});
         }
+        return { completed: true as const };
       })();
       stopInFlightRef.current = run;
       try {
-        await run;
+        const completed = await run;
+        if (!completed.completed) {
+          if (completed.holdQuit) return;
+          throw completed.error;
+        }
         recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
         if (!pendingStartRef.current && recoveryRetryTimerRef.current) {
           window.clearTimeout(recoveryRetryTimerRef.current);
