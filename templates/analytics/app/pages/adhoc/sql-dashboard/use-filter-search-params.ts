@@ -63,7 +63,6 @@ export function useFilterSearchParams() {
       let accepted: Draft | undefined;
       startTransition(() => {
         const navigation = navigate({
-          pathname: location.pathname,
           search: `?${params}`,
           hash: location.hash,
         });

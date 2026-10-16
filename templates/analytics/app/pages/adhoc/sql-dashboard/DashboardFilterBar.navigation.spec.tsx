@@ -113,6 +113,7 @@ async function render(
   initialEntry = "/dashboards/test?tab=activity",
   initialEntries = [initialEntry],
   keepBarMountedOnError = false,
+  { basename = "/", synchronous = false } = {},
 ) {
   loads = [];
   committedQueries = [];
@@ -122,15 +123,17 @@ async function render(
       new Promise<void>((resolve) => {
         submission = { resolve, signal: request.signal };
       }),
-    loader: ({ request }: { request: Request }) =>
-      new Promise<void | Response>((resolve, reject) => {
-        loads.push({
-          pathname: new URL(request.url).pathname,
-          search: new URL(request.url).search,
-          resolve,
-          reject,
-        });
-      }),
+    loader: synchronous
+      ? undefined
+      : ({ request }: { request: Request }) =>
+          new Promise<void | Response>((resolve, reject) => {
+            loads.push({
+              pathname: new URL(request.url).pathname,
+              search: new URL(request.url).search,
+              resolve,
+              reject,
+            });
+          }),
     element: <QueryProbe />,
     errorElement: <p role="alert">Navigation failed</p>,
   };
@@ -158,7 +161,7 @@ async function render(
             ),
           },
         ],
-    { initialEntries },
+    { initialEntries, basename },
   );
   await act(async () => {
     root.render(
@@ -174,7 +177,7 @@ async function render(
         </TooltipProvider>
       </AgentNativeI18nProvider>,
     );
-    loads[0].resolve();
+    if (!synchronous) loads[0].resolve();
   });
 }
 
@@ -270,6 +273,33 @@ describe("dashboard filter feedback during navigation", () => {
     queryClient.clear();
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("preserves a mounted basename on a synchronous filter edit", async () => {
+    await render(
+      "/analytics/dashboards/test?id=selected&tab=activity#details",
+      undefined,
+      false,
+      { basename: "/analytics", synchronous: true },
+    );
+    act(() => button("Off").click());
+    expect(router.state.navigation.state).toBe("idle");
+    expect(router.state.location.pathname).toBe("/analytics/dashboards/test");
+    expect(router.state.location.search).toBe(
+      "?id=selected&tab=activity&f_staff=true",
+    );
+    expect(router.state.location.hash).toBe("#details");
+    expect(router.state.errors).toBeNull();
+    expect(button("On")).toBeDefined();
+    expect(filterBarMounts).toBe(1);
+    await act(async () => {});
+    expect(committedQueries).toEqual([
+      "?id=selected&tab=activity",
+      "?id=selected&tab=activity&f_staff=true",
+    ]);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
   });
 
   it("displays the selection before the loader finishes without starting panel queries", async () => {
@@ -692,6 +722,59 @@ describe("dashboard filter feedback during navigation", () => {
       }
     },
   );
+
+  it("preserves a mounted basename while composing a pending same-dashboard view and hash", async () => {
+    await render(
+      "/analytics/dashboards/test?id=selected&tab=activity#old",
+      undefined,
+      false,
+      { basename: "/analytics" },
+    );
+    act(() => {
+      void router.navigate(
+        "/dashboards/test?id=selected&tab=other&view=staff&keep=one&keep=two&f_app=slides#target",
+      );
+    });
+    expect(router.state.navigation.location?.pathname).toBe(
+      "/analytics/dashboards/test",
+    );
+    const externalKey = router.state.navigation.location?.key;
+    act(() => button("Off").click());
+    const expected =
+      "?id=selected&tab=other&view=staff&keep=one&keep=two&f_app=slides&f_staff=true";
+    expect(router.state.location.pathname).toBe("/analytics/dashboards/test");
+    expect(router.state.errors).toBeNull();
+    expect(router.state.navigation.location?.pathname).toBe(
+      "/analytics/dashboards/test",
+    );
+    expect(router.state.navigation.location?.search).toBe(expected);
+    expect(router.state.navigation.location?.hash).toBe("#target");
+    expect(router.state.navigation.location?.key).not.toBe(externalKey);
+    expect(loads[2].pathname).toBe("/analytics/dashboards/test");
+    expect(loads[2].search).toBe(expected);
+    expect(appTrigger().textContent).toBe("Slides");
+    expect(button("On")).toBeDefined();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    select(0, "Only .edu");
+    expect(loads[3].search).toBe(`${expected}&f_edu=only`);
+    await act(async () => loads[1].resolve());
+    expect(router.state.navigation.state).toBe("loading");
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await settle();
+    await act(async () => loads[2].resolve());
+    expect(router.state.location.pathname).toBe("/analytics/dashboards/test");
+    expect(router.state.location.search).toBe(`${expected}&f_edu=only`);
+    expect(router.state.location.hash).toBe("#target");
+    expect(router.state.errors).toBeNull();
+    expect(filterBarMounts).toBe(1);
+    expect(committedQueries).toEqual([
+      "?id=selected&tab=activity",
+      `${expected}&f_edu=only`,
+    ]);
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual(
+      committedQueries,
+    );
+  });
 
   it("merges edits into a pending external tab/view/search/hash target and keeps the newer draft", async () => {
     await render("/dashboards/test?id=selected&tab=activity#old");
