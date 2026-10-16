@@ -37,6 +37,7 @@ export function AnnotationsMenu({
   dashboardId,
   panels,
   annotations,
+  editing,
   onAnnotationsChange,
   onAddKeyDate,
   onEditKeyDates,
@@ -46,7 +47,9 @@ export function AnnotationsMenu({
   dashboardId: string;
   panels: readonly SqlPanel[];
   annotations?: DashboardAnnotations;
-  /** Absent when the viewer can't edit this dashboard. */
+  /** Every change here shows for everyone, so outside Edit mode the menu only lists. */
+  editing: boolean;
+  /** Absent outside Edit mode. */
   onAnnotationsChange?: (next: DashboardAnnotations) => void;
   onAddKeyDate: () => void;
   onEditKeyDates: () => void;
@@ -67,8 +70,8 @@ export function AnnotationsMenu({
   );
   // Writes wait for the lists: a shared dashboard's annotations are its
   // organization's, and a write before that's known would land in the viewer's.
-  const keyDatesEditable = keyDateData?.editable === true;
-  const notesEditable = dataNoteData?.editable === true;
+  const keyDatesEditable = editing && keyDateData?.editable === true;
+  const notesEditable = editing && dataNoteData?.editable === true;
   const returningFocus = useRef(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const sets = keyDateData?.sets ?? [];

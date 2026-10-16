@@ -23,7 +23,7 @@ function render(
   persist: (updated: SqlDashboardConfig) => void,
   editing = true,
 ) {
-  let actions!: DataNoteActions;
+  let actions: DataNoteActions | undefined;
   function Editor() {
     actions = useAnnotationEditing({
       dashboardId: "dash",
@@ -53,7 +53,7 @@ describe("useAnnotationEditing", () => {
 
   it("refuses to save a note the server hasn't confirmed into the dashboard", () => {
     const persist = vi.fn();
-    const actions = render(persist);
+    const actions = render(persist)!;
 
     expect(() => actions.hide!("pending-1", "signups")).toThrow(/pending-1/);
     expect(persist).not.toHaveBeenCalled();
@@ -69,12 +69,7 @@ describe("useAnnotationEditing", () => {
     });
   });
 
-  it("offers no hide in View mode, where notes are still added and edited", () => {
-    const actions = render(vi.fn(), false);
-
-    expect(actions.hide).toBeUndefined();
-    expect(actions.add).toBeTypeOf("function");
-    expect(actions.edit).toBeTypeOf("function");
-    expect(actions.markFixed).toBeTypeOf("function");
+  it("gives charts no note actions in View mode", () => {
+    expect(render(vi.fn(), false)).toBeUndefined();
   });
 });

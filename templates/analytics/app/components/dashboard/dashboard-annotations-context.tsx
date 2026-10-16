@@ -17,13 +17,12 @@ import type {
   SqlPanel,
 } from "@/pages/adhoc/sql-dashboard/types";
 
-/** What a chart's data-note card offers; absent outside an editable dashboard. */
+/** What a chart's data-note card offers; absent outside Edit mode. */
 export interface DataNoteActions {
   /** Starts a note pinned to this chart. Absent, like edit and markFixed, when the notes belong to another organization. */
   add?(panelId: string): void;
   edit?(note: DataNote): void;
   markFixed?(note: DataNote): void;
-  /** Absent when the viewer can't edit this dashboard. */
   hide?(noteId: string, panelId: string): void;
 }
 
