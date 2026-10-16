@@ -173,6 +173,13 @@ export function authoringFuzzBrowserSessionResponse(
   return null;
 }
 
+export function redactBrowserSessionRequestPath(pathname: string) {
+  return pathname.replace(
+    /^\/_agent-native\/browser-sessions\/[^/]+(?=\/|$)/,
+    "/_agent-native/browser-sessions/:session",
+  );
+}
+
 export function authoringFuzzBrowserSessionCorsHeaders(
   origin?: string,
 ): Record<string, string> {
@@ -1454,7 +1461,7 @@ export function createRetiredBrowserSessionErrorCorrelator() {
 }
 
 export function isFirefoxBrowserSessionConsoleError(message: string) {
-  return /^\[Agent-Native browser session\] (?:poll|heartbeat) failed: JSHandle@object$/.test(
+  return /^\[Agent-Native browser session\] (?:poll|heartbeat) failed: (?:JSHandle@object|Error)$/.test(
     message,
   );
 }
@@ -1474,7 +1481,7 @@ export async function normalizeFirefoxBrowserSessionConsoleError(
 ) {
   const text = message.text();
   const match =
-    /^\[Agent-Native browser session\] (poll|heartbeat) failed: JSHandle@object$/.exec(
+    /^\[Agent-Native browser session\] (poll|heartbeat) failed: (?:JSHandle@object|Error)$/.exec(
       text,
     );
   if (!match) return text;
@@ -1485,7 +1492,18 @@ export async function normalizeFirefoxBrowserSessionConsoleError(
     const prefix = `[Agent-Native browser session] ${match[1]} failed:`;
     const [loggedPrefix, detail] = await Promise.all([
       args[0].jsonValue(),
-      args[1].evaluate((error) => String(error)),
+      args[1].evaluate((error) => {
+        if (error && typeof error === "object") {
+          const value = error as { name?: unknown; message?: unknown };
+          const name =
+            typeof value.name === "string" && value.name.length > 0
+              ? value.name
+              : "Error";
+          const detail = typeof value.message === "string" ? value.message : "";
+          return detail ? `${name}: ${detail}` : name;
+        }
+        return String(error);
+      }),
     ]);
     if (loggedPrefix !== prefix) return text;
     return typeof detail === "string" ? `${prefix} ${detail}` : text;
@@ -6593,10 +6611,6 @@ export async function runAuthoringFuzz(
           await typeText("/example.com ");
           await typeText("/");
           const listbox = await waitForControlledSlashListbox();
-          await listbox
-            .locator('[role="option"]')
-            .first()
-            .waitFor({ state: "visible", timeout: 5000 });
           const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Escape");
           await waitForSlashMenuHidden(listboxId);
@@ -8102,6 +8116,13 @@ export async function runAuthoringFuzz(
     };
     // Keep one real shortcut per direction; replay the rest in-page to avoid thousands of protocol round trips.
     const historyReplayYieldBudgetMs = 50;
+    const forwardHistoryProgress = (message: any) => {
+      if (message.type() !== "debug") return;
+      const text = message.text();
+      if (text.startsWith("[edit-fidelity] authoring history progress:"))
+        console.log(text);
+    };
+    page.on("console", forwardHistoryProgress);
     const runHistoryBatch = (options: {
       direction: "undo" | "redo";
       maxCalls: number;
@@ -8127,6 +8148,8 @@ export async function runAuthoringFuzz(
           let calls = 0;
           let maxSliceDurationMs = 0;
           let maxEventDurationMs = 0;
+          const batchStartedAt = performance.now();
+          let lastProgressAt = batchStartedAt;
           let sliceStartedAt = performance.now();
           const historyDepth = (root: HTMLElement) => {
             const stats = (
@@ -8199,6 +8222,17 @@ export async function runAuthoringFuzz(
             calls += 1;
             const eventDurationMs = performance.now() - eventStartedAt;
             maxEventDurationMs = Math.max(maxEventDurationMs, eventDurationMs);
+            const progressAt = performance.now();
+            if (
+              calls === 1 ||
+              calls % 100 === 0 ||
+              progressAt - lastProgressAt >= 10_000
+            ) {
+              console.debug(
+                `[edit-fidelity] authoring history progress: ${state.direction} ${calls}/${state.maxCalls}; depth ${nextDepth}; elapsed ${(progressAt - batchStartedAt).toFixed(0)}ms; last event ${eventDurationMs.toFixed(1)}ms`,
+              );
+              lastProgressAt = progressAt;
+            }
             const sliceDurationMs = performance.now() - sliceStartedAt;
             maxSliceDurationMs = Math.max(maxSliceDurationMs, sliceDurationMs);
             if (sliceDurationMs >= yieldBudgetMs) {

@@ -22,6 +22,7 @@ import {
   browserSessionIdAfterRequest,
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
+  redactBrowserSessionRequestPath,
   authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
   authoringFuzzUnavailableExitCode,
@@ -1183,6 +1184,20 @@ it("captures failed browser-session registration and subroute requests", () => {
     false,
   );
   expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
+});
+
+it("redacts browser-session ids from request paths", () => {
+  expect(
+    redactBrowserSessionRequestPath(
+      "/_agent-native/browser-sessions/private-session-id/requests/claim",
+    ),
+  ).toBe("/_agent-native/browser-sessions/:session/requests/claim");
+  expect(
+    redactBrowserSessionRequestPath("/_agent-native/browser-sessions"),
+  ).toBe("/_agent-native/browser-sessions");
+  expect(
+    redactBrowserSessionRequestPath("/_agent-native/browser-sessions-extra"),
+  ).toBe("/_agent-native/browser-sessions-extra");
 });
 
 it("isolates authoring fuzz from the unrelated browser-session service", () => {
@@ -3697,8 +3712,13 @@ it("keeps poll errors visible when a new claim starts after reload navigation", 
 });
 
 it("normalizes only Firefox browser-session errors with the expected console arguments", async () => {
-  const makeMessage = (prefix: unknown, error: unknown, args = 2) => ({
-    text: () => "[Agent-Native browser session] poll failed: JSHandle@object",
+  const makeMessage = (
+    prefix: unknown,
+    error: unknown,
+    args = 2,
+    rendered = "JSHandle@object",
+  ) => ({
+    text: () => `[Agent-Native browser session] poll failed: ${rendered}`,
     args: () =>
       Array.from({ length: args }, (_, index) => ({
         jsonValue: async () => (index === 0 ? prefix : undefined),
@@ -3712,6 +3732,14 @@ it("normalizes only Firefox browser-session errors with the expected console arg
       "[Agent-Native browser session] heartbeat failed: JSHandle@object",
     ),
   ).toBe(true);
+  expect(
+    isFirefoxBrowserSessionConsoleError(
+      "[Agent-Native browser session] heartbeat failed: Error",
+    ),
+  ).toBe(true);
+  expect(
+    isFirefoxBrowserSessionConsoleError("[Another app] save failed: Error"),
+  ).toBe(false);
   expect(
     isFirefoxBrowserSessionConsoleError(
       "[Agent-Native browser session] poll failed: TypeError: Load failed",
@@ -3750,6 +3778,16 @@ it("normalizes only Firefox browser-session errors with the expected console arg
     await normalizeFirefoxBrowserSessionConsoleError(
       makeMessage(
         "[Agent-Native browser session] poll failed:",
+        new TypeError("Load failed"),
+        2,
+        "Error",
+      ),
+    ),
+  ).toBe("[Agent-Native browser session] poll failed: TypeError: Load failed");
+  expect(
+    await normalizeFirefoxBrowserSessionConsoleError(
+      makeMessage(
+        "[Agent-Native browser session] poll failed:",
         "TypeError: unrelated failure",
       ),
     ),
@@ -3761,6 +3799,12 @@ it("normalizes only Firefox browser-session errors with the expected console arg
       makeMessage("some other console prefix", "TypeError: Load failed"),
     ),
   ).toBe("[Agent-Native browser session] poll failed: JSHandle@object");
+  expect(
+    await normalizeFirefoxBrowserSessionConsoleError({
+      text: () => "[Another app] save failed: Error",
+      args: () => [],
+    }),
+  ).toBe("[Another app] save failed: Error");
   expect(
     await normalizeFirefoxBrowserSessionConsoleError(
       makeMessage(

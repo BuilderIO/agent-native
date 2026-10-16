@@ -39,6 +39,7 @@ import {
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
   recordCleanupRequestOutcome,
+  redactBrowserSessionRequestPath,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -7689,13 +7690,20 @@ async function main() {
             request.method() === "POST" && request.postData()
               ? request.postDataJSON()
               : undefined;
+          const pathname = new URL(request.url()).pathname;
           const response = authoringFuzzBrowserSessionResponse(
             request.method(),
-            new URL(request.url()).pathname,
+            pathname,
             requestBody,
           );
+          const status = response ? (response.ok ? 200 : 400) : 501;
+          if (!response) {
+            console.error(
+              `[edit-fidelity] unexpected browser-session mock request: ${request.method()} ${redactBrowserSessionRequestPath(pathname)} (${status})`,
+            );
+          }
           await route.fulfill({
-            status: response ? (response.ok ? 200 : 400) : 501,
+            status,
             contentType: "application/json",
             headers: corsHeaders,
             body: JSON.stringify(
