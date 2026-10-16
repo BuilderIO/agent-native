@@ -235,7 +235,7 @@ export function assertOwnTransaction(docId: string, path: string): void {
   throw new LiveCopyError(
     "write_refused",
     docId,
-    `${path} was called for live copy ${docId} inside a database transaction. Call it outside the transaction and write the app's rows in the binding's persist hook.`,
+    `${path} was called for live copy ${docId} inside a database transaction. Call it outside the transaction, and write the app's rows in the binding's persist hook, or in mutateLiveCopy's persist option for rows that belong to one edit.`,
     { reason: "caller_transaction" },
   );
 }
