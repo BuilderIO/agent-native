@@ -64,7 +64,7 @@ pinned worktree and use fresh paths for every reproduction:
 
 ```sh
 BASELINE_SHA=3215556c9c955b5e37ff359708f4ef527d019c4e
-CANDIDATE_SHA=f899416ee99fcd0d82253729de97a12d79ba003b
+CANDIDATE_SHA=183ed110e7e149916ddfcf76b1f7de2159d21a2b
 RUN_ID="$(date +%s)-$$"
 BASELINE_DIR=".tmp/analytics-eval-baseline-$RUN_ID"
 CANDIDATE_DIR=".tmp/analytics-eval-candidate-$RUN_ID"
