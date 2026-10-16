@@ -418,7 +418,12 @@ describe("output outcomes on Postgres", () => {
       [OWNER],
     );
 
-    expect(await unusedRecordings(AFTER_WINDOW, other)).toEqual(["r-other"]);
+    expect(
+      await unusedRecordings(AFTER_WINDOW, {
+        userEmail: other.ownerEmail,
+        orgId: other.orgId,
+      }),
+    ).toEqual(["r-other"]);
     expect(await unusedRecordings(AFTER_WINDOW)).toEqual([]);
     const result = await getSessionRecordingOutputs(
       SCOPE,
