@@ -279,8 +279,9 @@ function describePanels(
     }
     if (!sameValue(previous.width, next.width)) resized.push(id);
   }
-  // Adding or removing a panel rebalances the widths of its row, so width
-  // changes alongside one are the reflow, not a resize anyone asked for.
+  // Adding, removing or moving a panel rebalances the widths of every row it
+  // leaves or joins (`rebalanceRowWidths`), so width changes alongside one are
+  // the reflow, not a resize anyone asked for.
   if (rearranged) {
     changes.push({ kind: "layout-changed" });
   } else if (!addedOrRemoved) {

@@ -229,13 +229,21 @@ describe("describeDashboardChanges", () => {
     ).toEqual([{ kind: "layout-changed" }]);
   });
 
-  it("leaves out the width reflow that comes with adding or removing a panel", () => {
+  it("leaves out the width reflow that comes with adding, removing or moving a panel", () => {
     expect(
       describeDashboardChanges(
         dashboard(),
         dashboard({ panels: [panel("dau", { width: 2 })] }),
       ),
     ).toEqual([{ kind: "panel-removed", title: "WAU" }]);
+    expect(
+      describeDashboardChanges(
+        dashboard(),
+        dashboard({
+          panels: [panel("wau", { width: 2 }), panel("dau", { width: 2 })],
+        }),
+      ),
+    ).toEqual([{ kind: "layout-changed" }]);
   });
 
   it("names added, changed, and removed filters by label", () => {
