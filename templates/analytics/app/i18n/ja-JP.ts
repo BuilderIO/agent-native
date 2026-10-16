@@ -2175,6 +2175,8 @@ export default {
     dbtDisabled: "無効",
     dbtAdminOnly: "この接続を変更できるのは組織の管理者のみです。",
     dbtReadFailed: "dbt 接続を読み込めませんでした。",
+    dbtSeveralConnections:
+      "Analytics に複数の dbt 接続が許可されているため、このパネルでは編集できません。設定 → 連携 で余分な接続を削除し、1 つだけ残してください。",
     dbtSave: "接続を保存",
     dbtChecking: "確認中",
     dbtSaveFailed: "dbt 接続を保存できませんでした。",

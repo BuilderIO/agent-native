@@ -2185,6 +2185,8 @@ export default {
     dbtAdminOnly:
       "Somente administradores da organização podem alterar esta conexão.",
     dbtReadFailed: "Não foi possível carregar a conexão com o dbt.",
+    dbtSeveralConnections:
+      "Várias conexões dbt estão concedidas ao Analytics, então este painel não pode editar nenhuma delas. Remova as conexões extras em Configurações → Integrações para manter apenas uma.",
     dbtSave: "Salvar conexão",
     dbtChecking: "Verificando",
     dbtSaveFailed: "Não foi possível salvar a conexão com o dbt.",

@@ -2212,6 +2212,8 @@ export default {
     dbtAdminOnly:
       "Nur Organisationsadministratoren können diese Verbindung ändern.",
     dbtReadFailed: "Die dbt-Verbindung konnte nicht geladen werden.",
+    dbtSeveralConnections:
+      "Mehrere dbt-Verbindungen sind für Analytics freigegeben, daher kann dieses Panel keine davon bearbeiten. Entfernen Sie die zusätzlichen Verbindungen unter Einstellungen → Integrationen, um eine zu behalten.",
     dbtSave: "Verbindung speichern",
     dbtChecking: "Wird geprüft",
     dbtSaveFailed: "Die dbt-Verbindung konnte nicht gespeichert werden.",

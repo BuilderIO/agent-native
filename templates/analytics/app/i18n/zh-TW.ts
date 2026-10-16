@@ -2034,6 +2034,8 @@ export default {
     dbtDisabled: "已停用",
     dbtAdminOnly: "只有組織管理員可以變更此連線。",
     dbtReadFailed: "無法載入 dbt 連線。",
+    dbtSeveralConnections:
+      "Analytics 已獲授權多個 dbt 連線，因此此面板無法編輯其中任何一個。請在設定 → 整合中移除多餘的連線，只保留一個。",
     dbtSave: "儲存連線",
     dbtChecking: "檢查中",
     dbtSaveFailed: "無法儲存 dbt 連線。",

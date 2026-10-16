@@ -2124,6 +2124,8 @@ export default {
     dbtDisabled: "사용 안 함",
     dbtAdminOnly: "조직 관리자만 이 연결을 변경할 수 있습니다.",
     dbtReadFailed: "dbt 연결을 불러올 수 없습니다.",
+    dbtSeveralConnections:
+      "Analytics에 여러 dbt 연결이 허용되어 있어 이 패널에서 하나를 편집할 수 없습니다. 설정 → 통합에서 추가 연결을 제거하고 하나만 남기세요.",
     dbtSave: "연결 저장",
     dbtChecking: "확인 중",
     dbtSaveFailed: "dbt 연결을 저장할 수 없습니다.",
