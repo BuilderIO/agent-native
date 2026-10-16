@@ -12,7 +12,12 @@ const mockUpdateWhere = vi.hoisted(() =>
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
-const mockInsertValues = vi.hoisted(() => vi.fn(async () => undefined));
+const mockInsertOnConflict = vi.hoisted(() =>
+  vi.fn(async (_: unknown) => undefined),
+);
+const mockInsertValues = vi.hoisted(() =>
+  vi.fn((_: unknown) => ({ onConflictDoUpdate: mockInsertOnConflict })),
+);
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
     from: vi.fn(() => ({
@@ -121,6 +126,9 @@ vi.mock("../../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mockDispatchPostFinalizeJob(...args),
 }));
+vi.mock("./imported-transcript.js", () => ({
+  notImportedTranscript: () => "not-imported-transcript",
+}));
 vi.mock("./loom-transcript.js", () => ({
   fetchLoomTranscript: mockFetchLoomTranscript,
   loomTranscriptUnavailableMessage: () => "Loom transcript unavailable",
@@ -141,6 +149,7 @@ describe("runLoomImportJob", () => {
     mockReturning.mockResolvedValue([{ id: "updated-recording" }]);
     mockUpdateSet.mockClear();
     mockInsertValues.mockClear();
+    mockInsertOnConflict.mockClear();
     mockWriteAppState.mockClear();
     mockUploadFile.mockReset();
     mockHostedUpload.mockReset();
@@ -518,7 +527,6 @@ describe("runLoomImportJob", () => {
       id: "asset_1",
     });
     mockFetchLoomTranscript.mockResolvedValue(null);
-    mockSelectRows.queue.push([]);
 
     const result = await runLoomImportJob({
       recordingId: "rec_1",
@@ -538,6 +546,9 @@ describe("runLoomImportJob", () => {
         videoUrl: "https://cdn.example.com/rec_1.mp4",
         failureReason: null,
       }),
+    );
+    expect(mockInsertOnConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ setWhere: "not-imported-transcript" }),
     );
     expect(mockQueueBuilderMediaCompression).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -775,7 +786,6 @@ describe("runLoomImportJob", () => {
     ]);
     mockDownloadLoomVideo.mockRejectedValue(new LoomVideoUnavailableError());
     mockFetchLoomTranscript.mockResolvedValue(null);
-    mockSelectRows.queue.push([]);
 
     const result = await runLoomImportJob({
       recordingId: "rec_embed",
@@ -861,8 +871,9 @@ describe("runLoomImportJob", () => {
       id: "asset_4",
     });
     mockFetchLoomTranscript.mockResolvedValue(null);
-    mockSelectRows.queue.push([]);
-    mockInsertValues.mockRejectedValueOnce(new Error("database unavailable"));
+    mockInsertOnConflict.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
 
     const result = await runLoomImportJob({
       recordingId: "rec_4",

@@ -1723,6 +1723,8 @@ export default {
     tweaksPlaceholder: "Akzentoptionen, Dichte, Radius, Dunkelmodus...",
     designExport: "Design-Export",
     designPreview: "Design-Vorschau",
+    preview: "Vorschau",
+    publish: "Veröffentlichen",
     presentMode: "Gegenwartsmodus",
     useThisDirection: "Benutzen Sie diese Richtung",
     variantHandoffHelp:

@@ -605,6 +605,8 @@ const messages = {
     addTransition: "전환 추가",
     effect: "효과",
     onClick: "클릭 시",
+    withPrevious: "이전과 함께",
+    trigger: "시작",
     byParagraph: "단락별",
     expand: "전환 펼치기",
     collapse: "전환 접기",
@@ -704,6 +706,16 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
+    voiceNavigation: "음성 탐색",
+    voiceNavigationNextCommand: "다음 슬라이드",
+    voiceNavigationPreviousCommand: "이전 슬라이드",
+    voiceNavigationHint:
+      "탐색하려면 “{{next}}” 또는 “{{previous}}”라고 말하세요.",
+    voiceNavigationListening: "“{{next}}” 또는 “{{previous}}”를 듣고 있습니다.",
+    voiceNavigationUnavailable:
+      "이 브라우저에서는 음성 탐색을 사용할 수 없습니다.",
+    voiceNavigationError:
+      "음성 탐색이 중지되었습니다. 마이크 권한과 연결을 확인한 후 다시 시도해 주세요.",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
@@ -818,6 +830,9 @@ const messages = {
     leaveWithoutSaving: "저장하지 않고 나가기",
     editorMarkupNotSaved:
       "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
+    historyStepConflict:
+      "현재 프레젠테이션과 충돌하여 이 기록 단계를 건너뛰었습니다.",
+    historyStepFailed: "이 기록 단계는 적용할 수 없어 건너뛰었습니다.",
     textEditConflictNotSaved:
       "같은 텍스트가 동시에 다른 곳에서 변경되어 텍스트 편집이 저장되지 않았습니다.",
   },

@@ -3,6 +3,8 @@ import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
+
 const DOCS_PATH_PREFIXES = [
   "docs/",
   "packages/core/docs/",
@@ -153,6 +155,7 @@ const CHECK_NAMES = [
   "trusted_acceptance",
   "scaffold",
   "builder_code_starter_scaffold",
+  "deploy_paths",
   "ssr_boot",
   "guards",
   "qa_static",
@@ -501,6 +504,12 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+// The deploy-path check runs the commands these guides print, so an edit to a
+// guide has to reach it even when the change is docs-only.
+function isDeployGuidePath(path: string): boolean {
+  return DEPLOY_GUIDE_PATHS.includes(normalizeChangedPath(path));
+}
+
 function isDesignCanvasE2eSpecPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
@@ -717,6 +726,17 @@ function buildChecks(
       hasPath(changedPaths, "templates/dispatch/"),
     // The bundled Builder Code starter is a layer in core over templates/chat.
     builder_code_starter_scaffold: coreChanged || chatChanged,
+    // Installs the packages a standalone Chat app depends on, so a change to
+    // any of them can break a deploy path.
+    deploy_paths:
+      coreChanged ||
+      toolkitChanged ||
+      agentkitChanged ||
+      sharedAppConfigChanged ||
+      hasPath(changedPaths, "packages/otel/") ||
+      hasPath(changedPaths, "packages/recap-cli/") ||
+      chatChanged ||
+      changedPaths.some(isDeployGuidePath),
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
@@ -766,6 +786,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
           name,
           name === "lint" ||
             (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
       ) as CheckSelection)

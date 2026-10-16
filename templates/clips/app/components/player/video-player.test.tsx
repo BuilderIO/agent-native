@@ -723,6 +723,63 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
+  it("syncs time on the frame playback crosses a caption boundary", () => {
+    const onTimeUpdate = vi.fn();
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            transcriptSegments={[
+              { startMs: 0, endMs: 1_000, text: "First line." },
+              { startMs: 1_000, endMs: 2_000, text: "Second line." },
+            ]}
+            onTimeUpdate={onTimeUpdate}
+          />
+        </TooltipProvider>,
+      );
+    });
+    const video = getVideo();
+    act(() => {
+      getPlayerSurface().click();
+    });
+    expect(video.paused).toBe(false);
+    onTimeUpdate.mockClear();
+
+    video.currentTime = 0.5;
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(onTimeUpdate).not.toHaveBeenCalled();
+
+    video.currentTime = 1.02;
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(onTimeUpdate).toHaveBeenCalledWith(1020, 10_000);
+
+    video.currentTime = 2.5;
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    const frames = vi.spyOn(window, "requestAnimationFrame");
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(frames).not.toHaveBeenCalled();
+
+    video.currentTime = 0.5;
+    act(() => {
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(frames).toHaveBeenCalled();
+  });
+
   it("shows the edited duration without exposing cut ranges", () => {
     act(() => {
       root.render(

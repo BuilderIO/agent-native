@@ -140,7 +140,7 @@ import {
 } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
-import { ShareExportMenu } from "./view/share-export-menu";
+import { ShareCopyLinkButton } from "./view/share-copy-link-button";
 import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
@@ -1110,13 +1110,9 @@ export function renderDesignEditorView({
             shareSegmentClassName,
           )}
         />
-        <ShareExportMenu
+        <ShareCopyLinkButton
           editorCore={editorCore}
-          editorGenerationAndAccess={editorGenerationAndAccess}
-          editorFilesAndSaving={editorFilesAndSaving}
-          editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
-          editorExportAndHandoff={editorExportAndHandoff}
-          editorLayerActions={editorLayerActions}
+          shareUrl={editorShareUrl}
           className={cn(
             dense
               ? "h-[var(--design-control-height)]"
