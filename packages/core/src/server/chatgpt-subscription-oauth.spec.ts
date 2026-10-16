@@ -6,9 +6,16 @@ import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
   getUserLabEnabled: vi.fn(),
+  getUserSetting: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+vi.mock("../settings/user-settings.js", () => ({
+  getUserSetting: mocks.getUserSetting,
+  mutateUserSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+  deleteUserSetting: vi.fn(),
+}));
 
 import {
   getChatGPTSubscriptionAccess,
@@ -29,6 +36,7 @@ const NONCE = "fresh-test-nonce";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getUserLabEnabled.mockResolvedValue(false);
+  mocks.getUserSetting.mockResolvedValue(null);
   _resetLabRegistryForTests();
   registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
