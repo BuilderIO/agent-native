@@ -119,6 +119,7 @@ function define(
   options: Partial<import("./live-copy.js").LiveCopyOptions> = {},
 ) {
   const binding = live.defineLiveCopy({
+    name: "spec",
     appliesTo: (docId) => docId.startsWith("live:"),
     runner,
     ...options,
@@ -1177,6 +1178,35 @@ describe("mutateLiveCopy", () => {
         manager.mutateLiveCopy(binding, "plain:doc", { edit: "append" }),
       ),
     ).toMatchObject({ code: "not_live_copy" });
+  });
+});
+
+describe("defineLiveCopy", () => {
+  it("replaces a binding defined again under its name", async () => {
+    const persisted: string[] = [];
+    const stale = define({
+      persist: async () => {
+        persisted.push("stale");
+      },
+    });
+    const fresh = define({
+      persist: async () => {
+        persisted.push("fresh");
+      },
+    });
+    await manager.applyUpdate(
+      "live:doc",
+      clientEdit(new Uint8Array(0), appendParagraph("x")),
+    );
+    expect(persisted).toEqual(["fresh"]);
+
+    live.releaseLiveCopy(stale);
+    expect(await rejection(manager.getDoc("live:doc"))).toMatchObject({
+      code: "read_refused",
+    });
+    live.releaseLiveCopy(fresh);
+    expect(live.liveCopiesDefined()).toBe(false);
+    expect(() => define({ name: "" })).toThrow(TypeError);
   });
 });
 

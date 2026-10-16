@@ -100,6 +100,12 @@ export interface LiveCopyOutcome {
 }
 
 export interface LiveCopyOptions {
+  /**
+   * Stable identity. Defining a binding under the same name again, as a dev
+   * server does when it evaluates the app's module again, replaces the old
+   * one.
+   */
+  name: string;
   /** Which collab documents are live copies. Checked on every write. */
   appliesTo(docId: string): boolean | Promise<boolean>;
   /**
@@ -126,6 +132,7 @@ export interface LiveCopyOptions {
 }
 
 export interface LiveCopyBinding {
+  readonly name: string;
   readonly appliesTo: (docId: string) => boolean | Promise<boolean>;
   readonly runner: BoundedTaskRunner;
   readonly field: string;
@@ -136,12 +143,14 @@ export interface LiveCopyBinding {
   ) => Promise<void | LiveCopyPersistOutcome>;
 }
 
-const LIVE_COPY_BINDINGS_KEY = "__agentNativeLiveCopyBindings__";
+const LIVE_COPY_BINDINGS_KEY = "__agentNativeLiveCopies__";
 const bindingsGlobal = globalThis as typeof globalThis & {
-  [LIVE_COPY_BINDINGS_KEY]?: Set<LiveCopyBinding>;
+  [LIVE_COPY_BINDINGS_KEY]?: Map<string, LiveCopyBinding>;
 };
-const bindings = (bindingsGlobal[LIVE_COPY_BINDINGS_KEY] ??=
-  new Set<LiveCopyBinding>());
+const bindings = (bindingsGlobal[LIVE_COPY_BINDINGS_KEY] ??= new Map<
+  string,
+  LiveCopyBinding
+>());
 
 /**
  * Declares which collab documents are live copies and how their text is
@@ -150,6 +159,9 @@ const bindings = (bindingsGlobal[LIVE_COPY_BINDINGS_KEY] ??=
  * documents it covers.
  */
 export function defineLiveCopy(options: LiveCopyOptions): LiveCopyBinding {
+  if (typeof options.name !== "string" || options.name.length === 0) {
+    throw new TypeError("defineLiveCopy needs a name");
+  }
   if (typeof options.appliesTo !== "function") {
     throw new TypeError("defineLiveCopy needs an appliesTo(docId) function");
   }
@@ -161,13 +173,14 @@ export function defineLiveCopy(options: LiveCopyOptions): LiveCopyBinding {
     throw new RangeError("defineLiveCopy maxStateBytes must be positive");
   }
   const binding: LiveCopyBinding = Object.freeze({
+    name: options.name,
     appliesTo: options.appliesTo,
     runner: options.runner,
     field: options.field ?? LIVE_COPY_DEFAULT_FIELD,
     maxStateBytes,
     ...(options.persist ? { persist: options.persist } : {}),
   });
-  bindings.add(binding);
+  bindings.set(binding.name, binding);
   return binding;
 }
 
@@ -176,16 +189,19 @@ export function liveCopiesDefined(): boolean {
   return bindings.size > 0;
 }
 
-/** Removes a binding so its documents take ordinary collab writes again. */
+/**
+ * Removes a binding so its documents take ordinary collab writes again. A
+ * binding already replaced under its name leaves the replacement in place.
+ */
 export function releaseLiveCopy(binding: LiveCopyBinding): void {
-  bindings.delete(binding);
+  if (bindings.get(binding.name) === binding) bindings.delete(binding.name);
 }
 
 export async function liveCopyBindingFor(
   docId: string,
 ): Promise<LiveCopyBinding | null> {
   if (bindings.size === 0) return null;
-  for (const binding of bindings) {
+  for (const binding of bindings.values()) {
     if (await binding.appliesTo(docId)) return binding;
   }
   return null;
