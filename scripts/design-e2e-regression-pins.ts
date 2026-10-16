@@ -3378,6 +3378,19 @@ export function findDesignE2ETestRegistrations(
     visitFunctionBody = false,
   ) => {
     if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      if (
+        containsKnownPlaywrightAuthority(node.right, aliases, ts) ||
+        containsKnownPlaywrightModifierAuthority(node.right, aliases, ts)
+      ) {
+        throwUnsupportedModifierEscape(node);
+      }
+    }
+
+    if (
       ts.isVariableDeclaration(node) &&
       node.initializer &&
       (containsKnownPlaywrightAuthority(node.initializer, aliases, ts) ||

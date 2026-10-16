@@ -1775,6 +1775,72 @@ test("escaped Playwright modifiers fail closed through objects and helper parame
       "[test.fixme][0]('hidden', () => {});",
       'test("pinned behavior", () => {});',
     ].join("\n"),
+    [
+      "let skip;",
+      "skip = test.skip;",
+      "skip(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "let skip;",
+      "({ skip } = { skip: test.skip });",
+      "skip(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "let skip;",
+      "[skip] = [test.skip];",
+      "skip(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "let api;",
+      "api = test;",
+      "api.skip(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "let skip;",
+      "({ skip } = test);",
+      "skip(true, 'helper skip');",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "let api;",
+      "api = test.describe;",
+      'api.skip("hidden", () => {});',
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "const holder = {};",
+      "holder.api = test;",
+      "holder.api.skip(true, 'reason');",
+      "test('pin', () => {});",
+    ].join("\n"),
+    [
+      "const holder = {};",
+      "holder.api = test.describe;",
+      "holder.api.skip('hidden', () => {});",
+      "test('pin', () => {});",
+    ].join("\n"),
+    [
+      "const holder = {};",
+      "[holder.api] = [test];",
+      "holder.api.skip(true, 'reason');",
+      "test('pin', () => {});",
+    ].join("\n"),
+    [
+      "const holder = {};",
+      "holder.api = [test];",
+      "holder.api[0].skip(true, 'reason');",
+      "test('pin', () => {});",
+    ].join("\n"),
+    [
+      "const holder = {};",
+      "[holder.api] = [test.describe];",
+      "holder.api.skip('hidden', () => {});",
+      "test('pin', () => {});",
+    ].join("\n"),
   ]) {
     assert.throws(
       () => findDesignE2ETestRegistrations(source),
