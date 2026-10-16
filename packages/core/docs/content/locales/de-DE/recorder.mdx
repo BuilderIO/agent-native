@@ -146,7 +146,7 @@ Eine Funktion, die einen Fehler wirft, wird als `{ unreadable: "<message>" }` ge
 
 ### `recorder.onReport()` {#on-report}
 
-`recorder.onReport()` sendet Berichte an ein Ziel. Es akzeptiert einen Listener und gibt eine Funktion zurück, die ihn wieder entfernt. Der Listener erhält jeden Bericht, der mit einem anderen Grund als `"manual"` erstellt wurde. Das umfasst „Problem melden“ (`"user"`), nicht abgefangene Fehler (`"error"`) und Tests (`"test"`).
+`recorder.onReport()` sendet Berichte an ein Ziel. Es akzeptiert einen Listener und gibt eine Funktion zurück, die ihn wieder entfernt. Der Listener erhält jeden Bericht, der mit einem anderen Grund als `"manual"` erstellt wurde. Das umfasst nicht abgefangene Fehler (`"error"`) und Tests (`"test"`). Eine App kann weiterhin einen Bericht mit dem Grund `"user"` auslösen, wenn sie `ReportProblemDialog` direkt einbindet.
 
 ```ts
 recorder.onReport((report) => posthog.capture("problem_report", report));
@@ -211,16 +211,6 @@ Ein Zeitfenster oder eine Obergrenze, die keine positive Zahl ist, wirft einen `
 
 ## Ziele {#destinations}
 
-### Problem melden {#report-a-problem}
-
-Jede App hat **Problem melden**. Es befindet sich unten in der Seitenleiste, im Optionsmenü des Agent-Panels und im Befehlsmenü (⌘K).
-
-- Es fragt, ob angehängt werden soll, was die App in den letzten zwei Minuten getan hat, und zeigt eine Vorschau der Anzahlen, der Fehler und der ersten Ereignisse. Es fragt jedes Mal.
-- Stimmt der Benutzer zu, wird der vollständige Bericht als private Datei gespeichert, die nur dieser Benutzer lesen kann. Der Agent der App erhält eine kurze Zusammenfassung mit einem Verweis auf die Datei.
-- Der Agent liest mehr vom Bericht mit der Aktion `read-problem-report`, gefiltert nach Ereignistyp oder Zeit.
-- Hat die Seite keinen Agent-Chat, kopiert die Schaltfläche stattdessen die Zusammenfassung und den Verweis.
-- Der Bericht benötigt Dateispeicher. Ohne ihn meldet der Dialog, dass der Bericht nicht angehängt wurde, und es wird nichts gesendet.
-
 ### Sentry {#sentry}
 
 Wenn eine App Sentry im Browser über Agent-Native konfiguriert hat (siehe [Fehlerberichterstattung](/docs/observability#sentry)), erhält jedes Sentry-Fehlerereignis:
@@ -242,7 +232,7 @@ Sind die Entwicklerprotokolle aktiviert, liest die Clips-Erweiterung es im aufge
 
 ## Datenschutz {#privacy}
 
-- **Alles bleibt im Browser.** Ein Bericht verlässt den Browser nur, wenn ein Ziel ihn sendet: „Problem melden“ nach Zustimmung des Benutzers, eine vom Benutzer gestartete Clips-Aufnahme, Sentry oder ein vom Entwickler registrierter Listener.
+- **Alles bleibt im Browser.** Ein Bericht verlässt den Browser nur, wenn ein Ziel ihn sendet: eine vom Benutzer gestartete Clips-Aufnahme, Sentry oder ein vom Entwickler registrierter Listener.
 - **Geheimnisse werden entfernt.** Ein Feld, dessen Name nach einem Geheimnis aussieht (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`), erscheint als `"[redacted]"`. Text, der wie ein Token aussieht, wird in jedem Wert ebenfalls durch `[redacted]` ersetzt, etwa JWTs, Bearer-Tokens und API-Schlüssel von Anbietern. Das sind dieselben Schwärzungsfunktionen, die Core für Fehlerberichte nutzt.
 - **Werte sind begrenzt.** Strings werden bei 200 Zeichen gekürzt und jedes Ereignis bei etwa 2 KB. Eine Kürzung gibt an, was entfernt wurde. Request- und Response-Bodys werden nie aufgezeichnet.
 - **Er vergisst.** Er behält nur das Zeitfenster, bis zu seinen Obergrenzen. Beim Neuladen und beim Abmelden wird er geleert.
