@@ -138,6 +138,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Line Height Enter returns a real Text-tool range to the editor",
   },
   {
+    shard: "inspector-4b",
+    file: "text-range-visibility.spec.ts",
+    title:
+      "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both",
+  },
+  {
     shard: "drag-1a",
     file: "corner-radius-handle-drag.spec.ts",
     title:
@@ -170,6 +176,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "shift+click adds an unselected object, then removes it on a second shift+click",
   },
   {
+    shard: "drag-1b",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen",
+  },
+  {
     shard: "drag-2a",
     file: "drag-and-drop.moving-by-drag.spec.ts",
     title: "Alt+drag leaves the original and creates a copy",
@@ -190,6 +202,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "drag-2a",
     file: "interaction-selection.spec.ts",
     title: "a marquee over Card selects Card only, not its children",
+  },
+  {
+    shard: "drag-2a",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "drawing two shapes then undo removes only the frame, and redo restores it selected",
   },
   {
     shard: "drag-2b",
@@ -304,6 +322,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "position-3",
     file: "position-alignment.spec.ts",
     title: "Align uses a Group's bounds while Position stays Frame-relative",
+  },
+  {
+    shard: "position-3",
+    file: "pasted-svg-image-inspector.spec.ts",
+    title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },
   {
     shard: "inspector-1a",

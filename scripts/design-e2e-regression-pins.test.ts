@@ -73,6 +73,18 @@ const REQUIRED_CORE_COVERAGE = [
     title: "clicking a child inside Card selects Card, not Kid A",
   },
   {
+    shard: "drag-1b",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen",
+  },
+  {
+    shard: "drag-2a",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "drawing two shapes then undo removes only the frame, and redo restores it selected",
+  },
+  {
     shard: "inspector-3b",
     file: "interaction-selection.spec.ts",
     title: "double-click after selecting Card drills into the clicked child",
@@ -93,6 +105,12 @@ const REQUIRED_CORE_COVERAGE = [
     shard: "inspector-4b",
     file: "text-range-visibility.spec.ts",
     title: "Line Height Enter returns a real Text-tool range to the editor",
+  },
+  {
+    shard: "inspector-4b",
+    file: "text-range-visibility.spec.ts",
+    title:
+      "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both",
   },
   {
     shard: "position-2b",
@@ -187,6 +205,11 @@ const REQUIRED_CORE_COVERAGE = [
     file: "paste-svg-into-selected-frame.spec.ts",
     title:
       "Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it",
+  },
+  {
+    shard: "position-3",
+    file: "pasted-svg-image-inspector.spec.ts",
+    title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },
   {
     shard: "inspector-3a",
@@ -293,7 +316,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 84);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 88);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,
