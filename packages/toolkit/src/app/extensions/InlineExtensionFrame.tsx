@@ -418,7 +418,7 @@ export function InlineExtensionFrame({
     );
   }, [extension, iframeMetaCsp, isTransient]);
 
-  useOpenUrlLatchDocument(
+  const frameKey = useOpenUrlLatchDocument(
     openUrl,
     `${resolvedId}|${extension?.updatedAt ?? "inline"}|${isTransient}|${iframeSrc ?? ""}|${srcDoc ?? ""}`,
   );
@@ -690,7 +690,7 @@ export function InlineExtensionFrame({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}`}
+        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}-${frameKey}`}
         src={iframeSrc}
         srcDoc={srcDoc}
         title={extension.name}

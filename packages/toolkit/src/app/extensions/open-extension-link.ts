@@ -18,17 +18,10 @@ export function readOpenUrlToken(message: unknown): string | null {
     : null;
 }
 
-// Tells the shell this host opens links, so it starts routing them here. The
-// token is echoed back because the frame's window outlives its documents: a
-// queued binding from the previous document can latch after a reset, and its
-// reply then reaches the new one, which must ignore it rather than route
-// clicks the host would reject.
-export function announceOpenUrlSupport(
-  source: MessageEventSource | null,
-  token: string,
-) {
+// Tells the shell this host opens links, so it starts routing them here.
+export function announceOpenUrlSupport(source: MessageEventSource | null) {
   (source as Window | null)?.postMessage?.(
-    { type: EXTENSION_OPEN_URL_READY_MESSAGE, token },
+    { type: EXTENSION_OPEN_URL_READY_MESSAGE },
     "*",
   );
 }
@@ -80,7 +73,7 @@ export function useOpenUrlLatch() {
         if (latchedRef.current) return;
         latchedRef.current = true;
         tokenRef.current = enabled ? readOpenUrlToken(message) : null;
-        if (tokenRef.current) announceOpenUrlSupport(source, tokenRef.current);
+        if (tokenRef.current) announceOpenUrlSupport(source);
       },
       open(message: unknown) {
         return openExtensionLink(message, tokenRef.current);
@@ -94,14 +87,22 @@ export function useOpenUrlLatch() {
   );
 }
 
-// Resets the latch when `documentIdentity` (whatever determines the frame's
-// document: its key, src or srcdoc) changes. A layout effect, so it runs
-// before the new document can post its binding.
+let frameDocuments = 0;
+
+// Returns a key to put in the iframe's `key`, and resets the latch, whenever
+// `documentIdentity` (whatever determines the frame's document: its src,
+// srcdoc or key) changes. The frame's window outlives its documents, so
+// event.source alone can't tell a message from the previous document, or
+// from a page it navigated to, from the new document's. A new element is a
+// new window, so those messages fail the hosts' event.source check instead.
 export function useOpenUrlLatchDocument(
   openUrl: ReturnType<typeof useOpenUrlLatch>,
   documentIdentity: string,
-) {
+): string {
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new document is what makes a new key
+  const frameKey = useMemo(() => `doc-${++frameDocuments}`, [documentIdentity]);
   useLayoutEffect(() => {
     openUrl.reset();
-  }, [openUrl, documentIdentity]);
+  }, [openUrl, frameKey]);
+  return frameKey;
 }

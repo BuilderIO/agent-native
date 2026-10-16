@@ -658,11 +658,7 @@ export function buildExtensionHtml(
       window.addEventListener('message', function(event) {
         if (event.source !== window.parent) return;
         var msg = event.data;
-        // The host echoes the token it latched. A reply carrying another
-        // token answered an earlier document in this frame; stay native.
-        if (msg && msg.type === 'agent-native-extension-open-url-ready' && msg.token === token) {
-          hostOpensLinks = true;
-        }
+        if (msg && msg.type === 'agent-native-extension-open-url-ready') hostOpensLinks = true;
       });
       function linkOf(e) {
         var path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];

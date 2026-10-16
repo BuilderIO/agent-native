@@ -188,7 +188,6 @@ describe("ExtensionViewer MCP embeds", () => {
     });
     expect(replies).toContainEqual({
       type: "agent-native-extension-open-url-ready",
-      token,
     });
 
     // A page the iframe navigated to can't re-announce or guess the token.
@@ -244,11 +243,9 @@ describe("ExtensionViewer MCP embeds", () => {
       token,
     });
 
-    expect(
-      replies.some(
-        (reply: any) => reply?.type === "agent-native-extension-open-url-ready",
-      ),
-    ).toBe(false);
+    expect(replies).not.toContainEqual({
+      type: "agent-native-extension-open-url-ready",
+    });
     expect(open).not.toHaveBeenCalled();
   });
 
@@ -309,11 +306,18 @@ describe("ExtensionViewer MCP embeds", () => {
     await act(async () => {
       resolveSources(Response.json(displaySourcesResponse));
     });
+    // The real document gets a fresh iframe element (a new window), so look
+    // it up again rather than reusing the blank frame's.
+    const loadedFrame = () =>
+      container.querySelector("iframe") as HTMLIFrameElement;
     await vi.waitFor(() => {
-      expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+      expect(loadedFrame().getAttribute("srcdoc")).toContain(
+        "Star history chart",
+      );
     });
+    expect(spinner()).toBeTruthy();
     await act(async () => {
-      iframe.dispatchEvent(new Event("load"));
+      loadedFrame().dispatchEvent(new Event("load"));
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
     expect(spinner()).toBeNull();

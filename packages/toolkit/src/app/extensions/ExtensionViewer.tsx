@@ -1075,7 +1075,7 @@ export function ExtensionViewer({
     return buildExtensionViewerSrcDoc(extension, isDark, iframeMetaCsp);
   }, [extension, iframeMetaCsp, isDark, usesSrcDoc]);
 
-  useOpenUrlLatchDocument(
+  const frameKey = useOpenUrlLatchDocument(
     openUrl,
     `${extensionId}|${extension?.updatedAt}|${refreshKey}|${usesSrcDoc ? "" : iframeSrc}|${iframeSrcDoc ?? ""}`,
   );
@@ -1306,7 +1306,7 @@ export function ExtensionViewer({
           <iframe
             {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
-            key={`${extension.updatedAt}-${refreshKey}`}
+            key={`${extension.updatedAt}-${refreshKey}-${frameKey}`}
             src={usesSrcDoc ? undefined : iframeSrc}
             srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"

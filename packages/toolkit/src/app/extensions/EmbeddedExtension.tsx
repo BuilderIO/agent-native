@@ -204,7 +204,7 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
-  useOpenUrlLatchDocument(
+  const frameKey = useOpenUrlLatchDocument(
     openUrl,
     `${extensionId}|${extension?.updatedAt ?? ""}|${iframeSrc}`,
   );
@@ -466,7 +466,7 @@ export function EmbeddedExtension({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${extensionId}-${extension.updatedAt ?? ""}`}
+        key={`${extensionId}-${extension.updatedAt ?? ""}-${frameKey}`}
         src={iframeSrc}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}

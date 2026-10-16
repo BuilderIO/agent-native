@@ -353,14 +353,38 @@ describe("InlineExtensionFrame", () => {
 
     // The frame navigated to another page, then a host-only re-render reset
     // the binding latch. That page's binding must not latch a new token.
+    const firstFrame = container.querySelector("iframe");
     await render({ initialHeight: 320 });
+    expect(container.querySelector("iframe")).toBe(firstFrame);
     bind("b".repeat(32));
     openWith("b".repeat(32));
     expect(open).not.toHaveBeenCalled();
 
-    // New content is a new document from the host: its token latches.
+    // New content is a new document from the host, in a fresh iframe element.
+    // A binding still queued from the previous document's window is ignored,
+    // and the new document's token latches.
+    // (Browsers keep one window per iframe element across its documents, so
+    // the element itself must be new; happy-dom swaps windows on srcdoc
+    // changes regardless, which is why this checks the element.)
+    const previousFrame = container.querySelector("iframe");
+    const previousWindow = previousFrame?.contentWindow;
     await render({ content: "<a href='https://example.com/'>y</a>" });
+    expect(container.querySelector("iframe")).not.toBe(previousFrame);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: previousWindow,
+          data: {
+            type: "agent-native-extension-binding",
+            binding: { role: "owner", isAuthor: true },
+            openUrlToken: "d".repeat(32),
+          },
+        }),
+      );
+    });
     bind("c".repeat(32));
+    openWith("d".repeat(32));
+    expect(open).not.toHaveBeenCalled();
     openWith("c".repeat(32));
     expect(open).toHaveBeenCalledTimes(1);
   });
