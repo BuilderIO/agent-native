@@ -160,6 +160,22 @@ describe("slide image replacement", () => {
     expect(frame.style.left).toBe("90px");
   });
 
+  it("preserves a live frame move when reconciling an unchanged source", () => {
+    const previousContent =
+      '<div class="fmd-slide"><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"><img src="image.png"></div></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    frame.style.left = "120px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(frame.style.left).toBe("120px");
+  });
+
   it("keeps live slide nodes when the saved image geometry already matches", () => {
     const previousContent =
       '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';

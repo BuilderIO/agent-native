@@ -843,14 +843,9 @@ export function swapImageSourcesInPlace(
   previousFrames.forEach((frame, index) => {
     const nextFrame = nextFrames[index]!;
     const liveFrame = liveFrames[index]!;
-    const previousSource = frame.querySelector("img")?.getAttribute("src");
-    const nextSource = nextFrame.querySelector("img")?.getAttribute("src");
     // A source update can race with a live move. Restore the snapshot geometry
     // only when the live frame still matches the snapshot being replaced.
-    if (
-      previousSource === nextSource ||
-      hasSameImageGeometryStyles(liveFrame, frame)
-    ) {
+    if (hasSameImageGeometryStyles(liveFrame, frame)) {
       applyImageGeometryStyles(liveFrame, nextFrame);
     }
   });
