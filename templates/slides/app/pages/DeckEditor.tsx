@@ -449,7 +449,12 @@ type EmptyGenerationRecovery =
       restoreSearchParams?: string;
     }
   | { kind: "retry_accepted"; retryAttemptId: string }
-  | { kind: "generation_failure"; attemptId: string; failureCode: string };
+  | {
+      kind: "generation_failure";
+      attemptId: string;
+      failureCode: string;
+      failureSlidesFingerprint?: string | null;
+    };
 
 function parseEmptyGenerationRecovery(
   serialized: string,
@@ -493,12 +498,18 @@ function parseEmptyGenerationRecovery(
   if (
     record.kind === "generation_failure" &&
     typeof record.attemptId === "string" &&
-    typeof record.failureCode === "string"
+    typeof record.failureCode === "string" &&
+    (record.failureSlidesFingerprint === undefined ||
+      record.failureSlidesFingerprint === null ||
+      typeof record.failureSlidesFingerprint === "string")
   ) {
     return {
       kind: "generation_failure",
       attemptId: record.attemptId,
       failureCode: record.failureCode,
+      ...(record.failureSlidesFingerprint !== undefined
+        ? { failureSlidesFingerprint: record.failureSlidesFingerprint }
+        : {}),
     };
   }
   return null;
@@ -1171,13 +1182,22 @@ export default function DeckEditor() {
       emptyGenerationRecoveryRef.current = serializedRecovery;
       if (
         generationContext.generationFailureCode !== recovery.failureCode ||
-        generationContext.generationFailureAttemptId !== recovery.attemptId
+        generationContext.generationFailureAttemptId !== recovery.attemptId ||
+        (recovery.failureSlidesFingerprint !== undefined &&
+          generationContext.generationFailureSlidesFingerprint !==
+            recovery.failureSlidesFingerprint)
       ) {
         updateDeck(id, {
           generationContext: {
             ...generationContext,
             generationFailureCode: recovery.failureCode,
             generationFailureAttemptId: recovery.attemptId,
+            ...(recovery.failureSlidesFingerprint !== undefined
+              ? {
+                  generationFailureSlidesFingerprint:
+                    recovery.failureSlidesFingerprint,
+                }
+              : {}),
           },
         });
       }
@@ -1987,7 +2007,9 @@ export default function DeckEditor() {
     }
     generationSettlingAttemptRef.current = generationAttemptId;
     let pausedForQuestionOrRun = false;
-    const persistUnresolvedGuidedQuestionCheck = async () => {
+    const persistUnresolvedGuidedQuestionCheck = async (
+      refreshedSlides: readonly Slide[] | null,
+    ) => {
       trackEvent("generation_outcome_unresolved", {
         app_name: "slides",
         template_name: "slides",
@@ -2008,40 +2030,39 @@ export default function DeckEditor() {
       if (!generationContext) return;
 
       const failureCode = "outcome_unresolved";
-      const currentSlides = getDeckLatest(id)?.slides ?? deck?.slides ?? [];
-      const emptyDeckConfirmed =
-        slideCountRef.current === 0 && currentSlides.length === 0;
+      const failureSlidesFingerprint =
+        refreshedSlides === null
+          ? null
+          : partialGenerationFailureSlidesFingerprint(refreshedSlides);
       updateDeck(id, {
         generationContext: {
           ...generationContext,
           generationFailureCode: failureCode,
           generationFailureAttemptId: generationAttemptId,
-          generationFailureSlidesFingerprint:
-            partialGenerationFailureSlidesFingerprint(currentSlides),
+          generationFailureSlidesFingerprint: failureSlidesFingerprint,
         },
       });
 
       let serializedRecovery: string | null = null;
-      if (emptyDeckConfirmed) {
-        const recovery: EmptyGenerationRecovery = {
-          kind: "generation_failure",
-          attemptId: generationAttemptId,
-          failureCode,
-        };
-        serializedRecovery = JSON.stringify(recovery);
-        if (retryRecoveryStorageKey) {
-          try {
-            window.localStorage.setItem(
-              retryRecoveryStorageKey,
-              serializedRecovery,
-            );
-            emptyGenerationRecoveryRef.current = serializedRecovery;
-          } catch (error) {
-            console.error(
-              "Failed to store Slides generation recovery data.",
-              error,
-            );
-          }
+      const recovery: EmptyGenerationRecovery = {
+        kind: "generation_failure",
+        attemptId: generationAttemptId,
+        failureCode,
+        failureSlidesFingerprint,
+      };
+      serializedRecovery = JSON.stringify(recovery);
+      if (retryRecoveryStorageKey) {
+        try {
+          window.localStorage.setItem(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          );
+          emptyGenerationRecoveryRef.current = serializedRecovery;
+        } catch (error) {
+          console.error(
+            "Failed to store Slides generation recovery data.",
+            error,
+          );
         }
       }
       try {
@@ -2061,7 +2082,8 @@ export default function DeckEditor() {
     };
     void (async () => {
       try {
-        await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
+        const initialOutcomeRefreshResult =
+          await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
@@ -2076,7 +2098,11 @@ export default function DeckEditor() {
           return;
         }
         if (pendingQuestionCheck.status === "error") {
-          await persistUnresolvedGuidedQuestionCheck();
+          await persistUnresolvedGuidedQuestionCheck(
+            initialOutcomeRefreshResult.status === "ready"
+              ? initialOutcomeRefreshResult.deck.slides
+              : null,
+          );
           return;
         }
         if (
@@ -2114,7 +2140,13 @@ export default function DeckEditor() {
           return;
         }
         if (finalPendingQuestionCheck.status === "error") {
-          await persistUnresolvedGuidedQuestionCheck();
+          await persistUnresolvedGuidedQuestionCheck(
+            outcomeRefreshResult.status === "ready"
+              ? outcomeRefreshResult.deck.slides
+              : initialOutcomeRefreshResult.status === "ready"
+                ? initialOutcomeRefreshResult.deck.slides
+                : null,
+          );
           return;
         }
         if (
@@ -2158,40 +2190,43 @@ export default function DeckEditor() {
                 : "deck_not_visible_after_refresh",
           });
           const failureCode = "outcome_unresolved";
-          const currentSlides = getDeckLatest(id)?.slides ?? deck?.slides ?? [];
-          const emptyDeckConfirmed =
-            slideCountRef.current === 0 && currentSlides.length === 0;
+          const refreshedSlides =
+            initialOutcomeRefreshResult.status === "ready"
+              ? initialOutcomeRefreshResult.deck.slides
+              : null;
+          const failureSlidesFingerprint =
+            refreshedSlides === null
+              ? null
+              : partialGenerationFailureSlidesFingerprint(refreshedSlides);
           if (generationContext) {
             updateDeck(id, {
               generationContext: {
                 ...generationContext,
                 generationFailureCode: failureCode,
                 generationFailureAttemptId: generationAttemptId,
-                generationFailureSlidesFingerprint:
-                  partialGenerationFailureSlidesFingerprint(currentSlides),
+                generationFailureSlidesFingerprint: failureSlidesFingerprint,
               },
             });
             let serializedRecovery: string | null = null;
-            if (emptyDeckConfirmed) {
-              const recovery: EmptyGenerationRecovery = {
-                kind: "generation_failure",
-                attemptId: generationAttemptId,
-                failureCode,
-              };
-              serializedRecovery = JSON.stringify(recovery);
-              if (retryRecoveryStorageKey) {
-                try {
-                  window.localStorage.setItem(
-                    retryRecoveryStorageKey,
-                    serializedRecovery,
-                  );
-                  emptyGenerationRecoveryRef.current = serializedRecovery;
-                } catch (error) {
-                  console.error(
-                    "Failed to store Slides generation recovery data.",
-                    error,
-                  );
-                }
+            const recovery: EmptyGenerationRecovery = {
+              kind: "generation_failure",
+              attemptId: generationAttemptId,
+              failureCode,
+              failureSlidesFingerprint,
+            };
+            serializedRecovery = JSON.stringify(recovery);
+            if (retryRecoveryStorageKey) {
+              try {
+                window.localStorage.setItem(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                );
+                emptyGenerationRecoveryRef.current = serializedRecovery;
+              } catch (error) {
+                console.error(
+                  "Failed to store Slides generation recovery data.",
+                  error,
+                );
               }
             }
             try {
@@ -2244,26 +2279,27 @@ export default function DeckEditor() {
             },
           });
           let serializedRecovery: string | null = null;
-          if (settledSlideCount === 0) {
-            const recovery: EmptyGenerationRecovery = {
-              kind: "generation_failure",
-              attemptId: generationAttemptId,
-              failureCode,
-            };
-            serializedRecovery = JSON.stringify(recovery);
-            if (retryRecoveryStorageKey) {
-              try {
-                window.localStorage.setItem(
-                  retryRecoveryStorageKey,
-                  serializedRecovery,
-                );
-                emptyGenerationRecoveryRef.current = serializedRecovery;
-              } catch (error) {
-                console.error(
-                  "Failed to store Slides generation recovery data.",
-                  error,
-                );
-              }
+          const recovery: EmptyGenerationRecovery = {
+            kind: "generation_failure",
+            attemptId: generationAttemptId,
+            failureCode,
+            failureSlidesFingerprint: partialGenerationFailureSlidesFingerprint(
+              outcomeRefreshResult.deck.slides,
+            ),
+          };
+          serializedRecovery = JSON.stringify(recovery);
+          if (retryRecoveryStorageKey) {
+            try {
+              window.localStorage.setItem(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              );
+              emptyGenerationRecoveryRef.current = serializedRecovery;
+            } catch (error) {
+              console.error(
+                "Failed to store Slides generation recovery data.",
+                error,
+              );
             }
           }
           try {
@@ -2434,18 +2470,22 @@ export default function DeckEditor() {
         );
         clearStartedGenerationAttempt(attemptId, id);
         const failureCode = "start_timeout";
+        const currentSlides = getDeckLatest(id)?.slides ?? deck?.slides ?? [];
+        const failureSlidesFingerprint =
+          partialGenerationFailureSlidesFingerprint(currentSlides);
         updateDeck(id, {
           generationContext: {
             ...generationContext,
             generationFailureCode: failureCode,
             generationFailureAttemptId: attemptId,
-            generationFailureSlidesFingerprint: null,
+            generationFailureSlidesFingerprint: failureSlidesFingerprint,
           },
         });
         const recovery: EmptyGenerationRecovery = {
           kind: "generation_failure",
           attemptId,
           failureCode,
+          failureSlidesFingerprint,
         };
         const serializedRecovery = JSON.stringify(recovery);
         if (retryRecoveryStorageKey) {
@@ -2508,6 +2548,8 @@ export default function DeckEditor() {
   const generationRetryPending =
     retryEmptyGenerationPending ||
     retryAwaitingStartAttemptId === generationAttemptId ||
+    (generationContext?.generationFailureCode === "outcome_unresolved" &&
+      generationContext.generationFailureSlidesFingerprint === null) ||
     (typeof generationContext?.generationFailureAttemptId === "string" &&
       generationContext.generationFailureAttemptId !== generationAttemptId);
   const generationState = {
@@ -2559,6 +2601,55 @@ export default function DeckEditor() {
   const clearPartialGenerationFailure = shouldClearPartialGenerationFailure(
     partialGenerationFailureState,
   );
+  const unresolvedFailureSnapshotUnknown =
+    generationContext?.generationFailureCode === "outcome_unresolved" &&
+    generationContext.generationFailureAttemptId === generationAttemptId &&
+    generationContext.generationFailureSlidesFingerprint === null;
+  useEffect(() => {
+    if (!id || !deck || !unresolvedFailureSnapshotUnknown) return;
+    let cancelled = false;
+    void refreshDeckForGenerationOutcome(refreshOpenDeck, id).then((result) => {
+      if (cancelled || result.status !== "ready") return;
+      const latestDeck = getDeckLatest(id);
+      const latestContext = latestDeck?.generationContext;
+      if (
+        !latestDeck ||
+        !latestContext ||
+        typeof latestContext !== "object" ||
+        Array.isArray(latestContext) ||
+        latestContext.generationFailureCode !== "outcome_unresolved" ||
+        latestContext.generationFailureAttemptId !== generationAttemptId ||
+        latestContext.generationFailureSlidesFingerprint !== null
+      ) {
+        return;
+      }
+      updateDeck(id, {
+        generationContext: {
+          ...latestContext,
+          generationFailureSlidesFingerprint:
+            partialGenerationFailureSlidesFingerprint(latestDeck.slides),
+        },
+      });
+      void flushDeckSave(id).catch((error) => {
+        console.error(
+          "Failed to save the refreshed Slides generation outcome.",
+          error,
+        );
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    deck,
+    flushDeckSave,
+    generationAttemptId,
+    getDeckLatest,
+    id,
+    refreshOpenDeck,
+    unresolvedFailureSnapshotUnknown,
+    updateDeck,
+  ]);
   useEffect(() => {
     if (!id || !clearPartialGenerationFailure) return;
     const latestDeck = getDeckLatest(id);

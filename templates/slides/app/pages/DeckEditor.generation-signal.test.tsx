@@ -7,6 +7,8 @@ import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { partialGenerationFailureSlidesFingerprint } from "../lib/generation-state";
+
 const mocks = vi.hoisted(() => ({
   deck: {
     id: "deck-1",
@@ -861,16 +863,17 @@ describe("DeckEditor generation signal wiring", () => {
       originalPrompt,
     });
     expect(
-      window.localStorage.getItem(
-        "slides:empty-generation-retry-recovery:deck-1",
+      JSON.parse(
+        window.localStorage.getItem(
+          "slides:empty-generation-retry-recovery:deck-1",
+        )!,
       ),
-    ).toBe(
-      JSON.stringify({
-        kind: "generation_failure",
-        attemptId: "attempt-1",
-        failureCode: "outcome_unresolved",
-      }),
-    );
+    ).toMatchObject({
+      kind: "generation_failure",
+      attemptId: "attempt-1",
+      failureCode: "outcome_unresolved",
+      failureSlidesFingerprint: expect.any(String),
+    });
     expect(trackEvent).not.toHaveBeenCalledWith(
       "generation_failed",
       expect.anything(),
@@ -926,6 +929,102 @@ describe("DeckEditor generation signal wiring", () => {
     });
     expect(mocks.toastError).toHaveBeenCalledWith(
       "deckEditor.generationOutcomeUnresolved",
+    );
+  });
+
+  it("restores a partial-deck prompt when the first deck refresh failed", async () => {
+    const originalPrompt = "Make a deck about sustainable product design.";
+    const persistedGenerationContext = {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
+      generationMode: undefined,
+      originalPrompt,
+    };
+    mocks.deck.slides = [];
+    mocks.deck.generationContext = { ...persistedGenerationContext };
+    mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+    mocks.guidedQuestionRefetchPending.mockResolvedValue({
+      status: "error",
+      error: new Error("question check failed"),
+    });
+    let refreshCount = 0;
+    const partialSlides = [{ id: "slide-1", content: "<p>First slide</p>" }];
+    mocks.refreshOpenDeck.mockImplementation(async () => {
+      refreshCount += 1;
+      if (refreshCount < 3) throw new Error("deck refresh failed");
+      mocks.deck.slides = partialSlides;
+      return mocks.deck;
+    });
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <div>Decks home</div> },
+      ],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(
+        (mocks.deck.generationContext as Record<string, unknown>)
+          .generationFailureCode,
+      ).toBe("outcome_unresolved"),
+    );
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    const serializedRecovery = window.localStorage.getItem(recoveryKey);
+    expect(serializedRecovery).not.toBeNull();
+    expect(JSON.parse(serializedRecovery ?? "{}")).toMatchObject({
+      kind: "generation_failure",
+      attemptId: "attempt-1",
+      failureCode: "outcome_unresolved",
+      failureSlidesFingerprint: null,
+    });
+
+    await act(async () => {
+      void router?.navigate("/home");
+    });
+    await waitFor(() => expect(router?.state.location.pathname).toBe("/home"));
+    mocks.deck.generationContext = { ...persistedGenerationContext };
+    mocks.deck.slides = partialSlides;
+
+    await act(async () => {
+      void router?.navigate("/deck/deck-1");
+    });
+    await waitFor(() => expect(screen.getByText(originalPrompt)).toBeTruthy());
+    expect(
+      (mocks.deck.generationContext as Record<string, unknown>)
+        .generationFailureAttemptId,
+    ).toBe("attempt-1");
+    expect(
+      screen.getByText("deckEditor.generationOutcomeUnresolvedWithSlides"),
+    ).toBeTruthy();
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureSlidesFingerprint:
+        partialGenerationFailureSlidesFingerprint(partialSlides),
+    });
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
     );
   });
 
@@ -2761,10 +2860,11 @@ describe("DeckEditor generation signal wiring", () => {
     await waitFor(() =>
       expect(
         JSON.parse(window.localStorage.getItem(recoveryKey) ?? "null"),
-      ).toEqual({
+      ).toMatchObject({
         kind: "generation_failure",
         attemptId: "attempt-1",
         failureCode: "no_output",
+        failureSlidesFingerprint: expect.any(String),
       }),
     );
 
