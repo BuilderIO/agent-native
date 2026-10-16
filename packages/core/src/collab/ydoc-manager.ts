@@ -24,6 +24,7 @@ import {
   readStoredLiveCopy,
   liveCopyWriteRefused,
   refuseLiveCopyWrite,
+  sameStamp,
   seedLiveCopyState,
   type LiveCopyBinding,
   type LiveCopyOutcome,
@@ -168,6 +169,9 @@ async function withDocWriteLock<T>(
       if (binding && refusePath !== undefined) {
         throw liveCopyWriteRefused(docId, refusePath);
       }
+      // Before waiting: from a binding's persist, which runs in its commit's
+      // transaction, this write would wait on the lock that commit holds.
+      if (binding) assertOwnTransaction(docId, "This write");
       if (binding && ahead > binding.maxWaitingWrites) {
         throw new LiveCopyError(
           "build_failed",
@@ -505,6 +509,8 @@ interface LiveCopyCacheEntry {
   catchUp: LiveCopyCatchUp;
   /** The row the bytes came from; null when the copy was absent. */
   stamp: YDocStamp | null;
+  /** derive(state); null when the copy is absent or unseeded. */
+  text: string | null;
   lastAccess: number;
 }
 
@@ -517,6 +523,7 @@ async function cacheLiveCopyState(
   docId: string,
   stored: { state: Uint8Array; version: number } | null,
   catchUp: LiveCopyCatchUp,
+  text: string | null,
 ): Promise<LiveCopyCacheEntry> {
   const entry: LiveCopyCacheEntry = {
     binding,
@@ -526,6 +533,7 @@ async function cacheLiveCopyState(
       version: stored.version,
       digest: await collabStateDigest(stored.state),
     },
+    text,
     lastAccess: Date.now(),
   };
   const stale = _cache.get(docId);
@@ -560,22 +568,28 @@ function servedState(state: Uint8Array): Uint8Array {
  * The digest matters as much as the version: a row deleted and inserted
  * again, by any instance, starts back at version 0.
  */
-async function cachedLiveCopy(
+function cachedLiveCopy(
   binding: LiveCopyBinding,
   docId: string,
-): Promise<LiveCopyCacheEntry | undefined> {
+  stamp: YDocStamp | null,
+): LiveCopyCacheEntry | undefined {
   const cached = _liveCopyCache.get(docId);
-  if (cached?.binding !== binding) return undefined;
-  const stamp = await loadYDocStamp(docId);
-  if (
-    stamp?.version !== cached.stamp?.version ||
-    stamp?.digest !== cached.stamp?.digest
-  ) {
+  if (cached?.binding !== binding || !sameStamp(cached.stamp, stamp)) {
     return undefined;
   }
   cached.lastAccess = Date.now();
   return cached;
 }
+
+/** Cache misses being filled, shared by readers that saw the same row. */
+const _liveCopyLoads = new Map<
+  string,
+  {
+    binding: LiveCopyBinding;
+    stamp: YDocStamp | null;
+    load: Promise<LiveCopyCacheEntry>;
+  }
+>();
 
 /**
  * The stored copy to change. When this instance cached the stored row, its
@@ -586,7 +600,7 @@ async function loadLiveCopyState(
   binding: LiveCopyBinding,
   docId: string,
 ): Promise<StoredLiveCopy> {
-  const cached = await cachedLiveCopy(binding, docId);
+  const cached = cachedLiveCopy(binding, docId, await loadYDocStamp(docId));
   if (cached) {
     return cached.stamp === null
       ? { kind: "absent" }
@@ -609,21 +623,40 @@ function stampOf(stored: StoredLiveCopy): YDocStamp | null {
 async function liveCopyStateForRead(
   binding: LiveCopyBinding,
   docId: string,
-): Promise<{ state: Uint8Array; catchUp: LiveCopyCatchUp }> {
+): Promise<LiveCopyCacheEntry> {
   await ensureTable();
-  const cached = await cachedLiveCopy(binding, docId);
+  const stamp = await loadYDocStamp(docId);
+  const cached = cachedLiveCopy(binding, docId, stamp);
   if (cached) return cached;
+  // One runner task per row, however many editors open it at once; the
+  // load reads the row again, so a joiner never gets older bytes than it saw.
+  const pending = _liveCopyLoads.get(docId);
+  if (pending?.binding === binding && sameStamp(pending.stamp, stamp)) {
+    return pending.load;
+  }
+  const load = loadLiveCopyForRead(binding, docId).finally(() => {
+    if (_liveCopyLoads.get(docId)?.load === load) _liveCopyLoads.delete(docId);
+  });
+  _liveCopyLoads.set(docId, { binding, stamp, load });
+  return load;
+}
+
+async function loadLiveCopyForRead(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<LiveCopyCacheEntry> {
   const stored = await readStoredLiveCopy(binding, getDbExec(), docId);
   if (stored.kind === "absent") {
-    return cacheLiveCopyState(binding, docId, null, EMPTY_CATCH_UP);
+    return cacheLiveCopyState(binding, docId, null, EMPTY_CATCH_UP, null);
   }
-  const { catchUp } = await readLiveCopyState(
+  const read = await readLiveCopyState(binding, docId, stored.state, true);
+  return cacheLiveCopyState(
     binding,
     docId,
-    stored.state,
-    false,
+    stored,
+    read.catchUp,
+    read.kind === "live" ? read.text : null,
   );
-  return cacheLiveCopyState(binding, docId, stored, catchUp);
 }
 
 async function commitLiveCopyUpdate(
@@ -664,6 +697,7 @@ async function commitLiveCopyUpdate(
       docId,
       { state: result.state, version },
       result.catchUp,
+      result.text,
     );
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
     return outcome;
@@ -691,19 +725,20 @@ export async function readLiveCopy(
   docId: string,
 ): Promise<LiveCopyRead> {
   await assertLiveCopy(binding, docId);
-  await ensureTable();
-  const stored = await loadLiveCopyState(binding, docId);
-  if (stored.kind === "absent") return { kind: "absent" };
-  const result = await readLiveCopyState(binding, docId, stored.state, true);
-  const state = servedState(stored.state);
-  if (result.kind === "unseeded") {
-    return { kind: "unseeded", version: stored.version, state };
+  const { stamp, state, text } = await liveCopyStateForRead(binding, docId);
+  if (stamp === null) return { kind: "absent" };
+  if (text === null) {
+    return {
+      kind: "unseeded",
+      version: stamp.version,
+      state: servedState(state),
+    };
   }
   return {
     kind: "live",
-    version: stored.version,
-    state,
-    text: result.text as string,
+    version: stamp.version,
+    state: servedState(state),
+    text,
   };
 }
 
@@ -802,6 +837,7 @@ export async function mutateLiveCopy(
         if (
           callPersist &&
           !(await persistLiveCopyCall(
+            binding,
             docId,
             { version: stored.version, digest: stored.digest },
             (tx) =>
@@ -849,6 +885,7 @@ export async function mutateLiveCopy(
         docId,
         { state: result.state, version },
         result.catchUp,
+        result.text,
       );
       emitCollabUpdate(
         docId,
@@ -953,6 +990,7 @@ export async function seedLiveCopy(
         docId,
         { state: result.state, version },
         result.catchUp,
+        result.text,
       );
       emitCollabUpdate(
         docId,
@@ -1405,9 +1443,16 @@ export function saveYDocState(
   state: Uint8Array,
   textSnapshot: string,
 ): Promise<void> {
-  const refusal = refuseLiveCopyWrite(docId, "saveYDocState");
-  if (!refusal) return saveStoredYDocState(docId, state, textSnapshot);
-  return refusal.then(() => saveStoredYDocState(docId, state, textSnapshot));
+  if (!liveCopiesDefined()) {
+    return saveStoredYDocState(docId, state, textSnapshot);
+  }
+  // Refused under the lock: checked outside it, a seed that makes the
+  // document a live copy could land between the check and this overwrite.
+  return withDocWriteLock(
+    docId,
+    () => saveStoredYDocState(docId, state, textSnapshot),
+    "saveYDocState",
+  );
 }
 
 export function releaseDoc(docId: string): void {

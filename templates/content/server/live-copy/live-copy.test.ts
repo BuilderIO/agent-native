@@ -134,15 +134,23 @@ function peerCommitsAfterBuild(id: string, content: string) {
         task,
         { ...(input as object), input: { content } },
         ...rest,
-      )) as { state: Uint8Array; text: string };
+      )) as { state?: Uint8Array; text?: string };
       await inTransaction(async (tx) => {
+        // A peer update that leaves the body as it was still moves the version.
+        await tx.execute(
+          peer.state
+            ? {
+                sql: "UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1 WHERE doc_id = ?",
+                args: [collab.uint8ArrayToBase64(peer.state), peer.text, id],
+              }
+            : {
+                sql: "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
+                args: [id],
+              },
+        );
         await tx.execute({
-          sql: "UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1 WHERE doc_id = ?",
-          args: [collab.uint8ArrayToBase64(peer.state), peer.text, id],
-        });
-        await tx.execute({
-          sql: "UPDATE documents SET content = ?, body_revision = body_revision + 1, collab_body_revision = body_revision + 1, live_copy_version = live_copy_version + 1 WHERE id = ?",
-          args: [peer.text, id],
+          sql: "UPDATE documents SET content = COALESCE(?, content), body_revision = body_revision + 1, collab_body_revision = body_revision + 1, live_copy_version = live_copy_version + 1 WHERE id = ?",
+          args: [peer.text ?? null, id],
         });
       });
       return result;
@@ -747,7 +755,7 @@ describe("a page whose write path changes mid-write", () => {
         writer.editContentLiveCopy("server-flip", {
           cause: { operation: "test-flip" },
           edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-          input: { content: "After" },
+          input: { content: "After", expected: "Before" },
         }),
       ).rejects.toMatchObject({
         errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
@@ -884,7 +892,7 @@ describe("server writers through editContentLiveCopy", () => {
     await writer.editContentLiveCopy("intent", {
       cause: { operation: "test-intent", intent: intent("op-changed") },
       edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-      input: { content: "After" },
+      input: { content: "After", expected: "Before" },
     });
 
     expect(await bodyIntents("intent")).toEqual([
@@ -904,7 +912,7 @@ describe("server writers through editContentLiveCopy", () => {
     const result = await writer.editContentLiveCopy("intent-same", {
       cause: { operation: "test-intent", intent: intent("op-same", 2) },
       edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-      input: { content: "Same" },
+      input: { content: "Same", expected: "Same" },
     });
 
     expect(result).toMatchObject({ changed: false, liveCopy: "unchanged" });
@@ -922,31 +930,37 @@ describe("server writers through editContentLiveCopy", () => {
   for (const unchanged of [false, true]) {
     it(`retries ${unchanged ? "an unchanged" : "a changed"} edit a peer's commit overtook, rather than refusing it`, async () => {
       await switchedPage("overtaken", "Same");
-      const spy = peerCommitsAfterBuild("overtaken", "Peer");
+      // The peer's commit leaves the body the edit was built from.
+      const spy = peerCommitsAfterBuild("overtaken", "Same");
       try {
         await expect(
           writer.editContentLiveCopy("overtaken", {
             cause: { operation: "test-overtaken", intent: intent("op-mine") },
             edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-            input: { content: unchanged ? "Same" : "Mine" },
+            input: { content: unchanged ? "Same" : "Mine", expected: "Same" },
           }),
-        ).resolves.toMatchObject({ attempts: 2, liveCopy: "derived" });
+        ).resolves.toMatchObject({
+          attempts: 2,
+          liveCopy: unchanged ? "unchanged" : "derived",
+        });
       } finally {
         spy.mockRestore();
       }
 
+      // An unchanged edit commits nothing past the peer's revision.
+      const revision = unchanged ? 4 : 5;
       const row = await page("overtaken");
       expect(row).toMatchObject({
         content: unchanged ? "Same" : "Mine",
-        bodyRevision: 5,
-        collabBodyRevision: 5,
+        bodyRevision: revision,
+        collabBodyRevision: revision,
         liveCopyVersion: await collabVersion("overtaken"),
       });
       expect(await bodyIntents("overtaken")).toEqual([
         expect.objectContaining({
           operationId: "op-mine",
           authoredBaseRevision: 4,
-          committedRevision: 5,
+          committedRevision: revision,
         }),
       ]);
       await expect(gateFor("overtaken")).resolves.toEqual({
@@ -954,6 +968,46 @@ describe("server writers through editContentLiveCopy", () => {
       });
     });
   }
+
+  it("refuses a replace whose base a peer's commit changed, and keeps the peer's text", async () => {
+    await switchedPage("overtaken-changed", "Same");
+    const spy = peerCommitsAfterBuild("overtaken-changed", "Peer");
+    try {
+      await expect(
+        writer.editContentLiveCopy("overtaken-changed", {
+          cause: { operation: "test-overtaken", intent: intent("op-mine") },
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "Mine", expected: "Same" },
+        }),
+      ).rejects.toMatchObject({
+        name: "LiveCopyError",
+        reason: "base_changed",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("overtaken-changed")).content).toBe("Peer");
+    expect(await bodyIntents("overtaken-changed")).toEqual([]);
+    await expect(gateFor("overtaken-changed")).resolves.toEqual({
+      writePath: "live_copy",
+    });
+  });
+
+  it("refuses a replace that names no base body before it reaches the live copy", async () => {
+    await switchedPage("no-base", "Before");
+    const version = await collabVersion("no-base");
+
+    await expect(
+      writer.editContentLiveCopy("no-base", {
+        cause: { operation: "test-no-base" },
+        edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+        input: { content: "After" } as never,
+      }),
+    ).rejects.toThrow(/must name the body it was built from/);
+    expect(await collabVersion("no-base")).toBe(version);
+    expect((await page("no-base")).content).toBe("Before");
+  });
 
   it("takes an intent's hash and changed blocks from the commit when the writer leaves them out", async () => {
     await switchedPage("derived-intent", "First\n\nSecond");
@@ -968,7 +1022,10 @@ describe("server writers through editContentLiveCopy", () => {
         },
       },
       edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-      input: { content: "First\n\nChanged" },
+      input: {
+        content: "First\n\nChanged",
+        expected: (await page("derived-intent")).content,
+      },
     });
 
     const { content } = await page("derived-intent");
@@ -995,7 +1052,7 @@ describe("server writers through editContentLiveCopy", () => {
         writer.editContentLiveCopy("same-flip", {
           cause: { operation: "test-intent", intent: intent("op-flip") },
           edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-          input: { content: "Same" },
+          input: { content: "Same", expected: "Same" },
         }),
       ).rejects.toMatchObject({
         errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
@@ -1014,7 +1071,7 @@ describe("server writers through editContentLiveCopy", () => {
       writer.editContentLiveCopy("actor", {
         cause: { operation: "test-actor" },
         edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-        input: { content: "After" },
+        input: { content: "After", expected: "Before" },
       }),
     );
 
