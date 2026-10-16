@@ -108,13 +108,17 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
         expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
         expect(mocks.getUserSetting).not.toHaveBeenCalled();
+        // Status reads account summaries once the lab is enabled, even though
+        // this request is not local loopback. Pin that read and its empty result.
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
           supported: false,
           localLoopback: false,
           supportReason: "requires_local_loopback",
+          accounts: [],
         });
+        expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");
