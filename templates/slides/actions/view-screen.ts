@@ -362,6 +362,8 @@ export default defineAction({
         panels?.layersOpen ? "layers" : null,
         panels?.animationsOpen ? "animations" : null,
       ].filter(Boolean);
+      lines.push(``);
+      lines.push(`### Editor panels`);
       lines.push(`openPanels: ${openPanels.join(", ") || "none"}`);
 
       const selection = (await readAppStateForCurrentTab("slides-selection", {

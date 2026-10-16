@@ -1013,13 +1013,11 @@ export default function DeckEditor() {
   }, [layersOpen]);
 
   useEffect(() => {
-    const state = { layersOpen, animationsOpen };
-    for (const key of [
+    setClientAppState(
       appStateKeyForBrowserTab("slides-panels", TAB_ID),
-      "slides-panels",
-    ]) {
-      setClientAppState(key, state, { requestSource: TAB_ID }).catch(() => {});
-    }
+      { layersOpen, animationsOpen },
+      { requestSource: TAB_ID },
+    ).catch(() => {});
   }, [layersOpen, animationsOpen]);
 
   const toggleDrawMode = useCallback(() => {
