@@ -118,6 +118,7 @@ import {
   updateRecordingBackupMeta,
   type LocalRecorderPlatform,
 } from "@/lib/recording-backup";
+import { isPolicyPermissionError } from "@/lib/recording-error-classification";
 import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import {
   buildCaptureTitle,
@@ -422,12 +423,6 @@ function isPermissionError(message: string): boolean {
     );
   if (isDeviceBusy && !hasPermissionKeyword) return false;
   return /screen|camera|microphone|mic|permission|blocked|denied|not allowed|privacy/i.test(
-    message,
-  );
-}
-
-function isPolicyPermissionError(message: string): boolean {
-  return /permissions-policy|app frame|embedding frame|frame that allows/i.test(
     message,
   );
 }
