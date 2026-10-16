@@ -1052,6 +1052,55 @@ test("TestInfo const aliases resolve lexically without leaking through shadows",
   );
 });
 
+test("mutable TestInfo aliases are tracked or fail closed after reassignment", () => {
+  for (const keyword of ["let", "var"]) {
+    const source = [
+      'test("mutable alias skip", (_fixtures, testInfo) => {',
+      `  ${keyword} info = testInfo;`,
+      '  info.skip(true, "mutable alias");',
+      "});",
+    ].join("\n");
+    assert.equal(
+      findDesignE2ETestRegistrations(source)[0]?.suppressionKind,
+      "runtime",
+      `${keyword} aliases initialized from TestInfo remain recognized`,
+    );
+  }
+
+  for (const declaration of [
+    "let info; info = testInfo;",
+    "let info = testInfo; info = {};",
+    "let info; [info] = [testInfo];",
+    "let info; ({ info } = { info: testInfo });",
+  ]) {
+    const source = [
+      'test("ambiguous mutable alias", (_fixtures, testInfo) => {',
+      `  ${declaration}`,
+      '  info.skip(true, "ambiguous alias");',
+      "});",
+    ].join("\n");
+    assert.throws(
+      () => findDesignE2ETestLine(source, "ambiguous mutable alias"),
+      /Unable to inspect ambiguous TestInfo alias/,
+      declaration,
+    );
+  }
+
+  const shadowed = [
+    'test("shadowed mutable alias stays active", (_fixtures, testInfo) => {',
+    "  let info = testInfo;",
+    "  {",
+    "    let info = {};",
+    '    info.skip(true, "shadowed object");',
+    "  }",
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(shadowed, "shadowed mutable alias stays active"),
+    1,
+  );
+});
+
 test("awaited Promise and test.step callbacks keep runtime skips on the test", () => {
   const cases = [
     [
@@ -1108,6 +1157,166 @@ test("awaited Promise and test.step callbacks keep runtime skips on the test", (
       kind,
     );
   }
+});
+
+test("non-awaited Promise callbacks keep runtime suppressions on the test", () => {
+  for (const statement of [
+    'Promise.resolve().then(() => testInfo.skip(true, "then metadata"));',
+    'Promise.reject(new Error("expected")).catch(() => testInfo.fixme(true, "catch metadata"));',
+    'Promise.resolve().finally(() => testInfo.skip(true, "finally metadata"));',
+  ]) {
+    const source = [
+      'test("non-awaited callback suppression", (_fixtures, testInfo) => {',
+      `  ${statement}`,
+      "});",
+    ].join("\n");
+    assert.equal(
+      findDesignE2ETestRegistrations(source)[0]?.suppressionKind,
+      "runtime",
+      statement,
+    );
+    assert.throws(
+      () => findDesignE2ETestLine(source, "non-awaited callback suppression"),
+      /must run without/,
+      statement,
+    );
+  }
+
+  const activeSource = [
+    'test("non-awaited active callback", () => {',
+    "  Promise.resolve().then(() => expect(true).toBe(true));",
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(activeSource, "non-awaited active callback"),
+    1,
+  );
+});
+
+test("directly invoked local helper callbacks retain test context", () => {
+  const source = [
+    'test("helper callback suppression", (_fixtures, testInfo) => {',
+    "  function invoke(callback: () => void) { callback(); }",
+    '  invoke(() => testInfo.skip(true, "invoked callback"));',
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestRegistrations(source)[0]?.suppressionKind,
+    "runtime",
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(source, "helper callback suppression"),
+    /must run without/,
+  );
+});
+
+test("unused helper callbacks and uncalled helpers do not suppress a test", () => {
+  const source = [
+    'test("unused helper callback stays active", (_fixtures, testInfo) => {',
+    "  function invoke(_callback: () => void) {}",
+    '  invoke(() => testInfo.skip(true, "unused callback"));',
+    '  function uncalled() { testInfo.fixme(true, "uncalled helper"); }',
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestRegistrations(source)[0]?.suppressionKind,
+    null,
+  );
+  assert.equal(
+    findDesignE2ETestLine(source, "unused helper callback stays active"),
+    1,
+  );
+
+  const omittedOptionalCallback = [
+    'test("omitted optional callback stays active", () => {',
+    "  function maybeRun(callback?: () => void) { callback?.(); }",
+    "  maybeRun(undefined);",
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(
+      omittedOptionalCallback,
+      "omitted optional callback stays active",
+    ),
+    1,
+  );
+
+  const nullDefaultCallback = [
+    'test("null default callback stays active", () => {',
+    "  function maybeRun(callback: (() => void) | null = null) { callback?.(); }",
+    "  maybeRun();",
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(
+      nullDefaultCallback,
+      "null default callback stays active",
+    ),
+    1,
+  );
+
+  const functionDefaultCallback = [
+    'test("function default callback suppresses", (_fixtures, testInfo) => {',
+    '  function maybeRun(callback: () => void = () => testInfo.skip(true, "default callback")) { callback(); }',
+    "  maybeRun();",
+    "});",
+  ].join("\n");
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(
+        functionDefaultCallback,
+        "function default callback suppresses",
+      ),
+    /must run without/,
+  );
+});
+
+test("unknown executed callbacks fail closed only when they can suppress a test", () => {
+  const suppressed = [
+    'test("unknown callback suppression", (_fixtures, testInfo) => {',
+    '  externalRunner(() => testInfo.skip(true, "unknown callback"));',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(suppressed, "unknown callback suppression"),
+    /Unable to inspect callback effects passed to externalRunner/,
+  );
+
+  const active = [
+    'test("unknown callback active", () => {',
+    "  externalRunner(() => expect(true).toBe(true));",
+    "});",
+  ].join("\n");
+  assert.equal(findDesignE2ETestLine(active, "unknown callback active"), 1);
+
+  const generated = [
+    '["one"].forEach(() => test.fixme("generated callback registration", () => {}));',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(generated).map(
+      ({ title, suppressionKind }) => [title, suppressionKind],
+    ),
+    [["generated callback registration", "direct"]],
+  );
+
+  const fileRuntimeSkip = [
+    'externalRunner(() => test.skip(true, "file runtime skip"));',
+    'test("file runtime target", () => {});',
+  ].join("\n");
+  const suiteRuntimeSkip = [
+    'test.describe("suite", () => {',
+    "  externalRunner(() => test.skip(isMobile, REASON));",
+    '  test("suite runtime target", () => {});',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(fileRuntimeSkip, "file runtime target"),
+    /Unable to inspect callback effects passed to externalRunner/,
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(suiteRuntimeSkip, "suite runtime target"),
+    /Unable to inspect callback effects passed to externalRunner/,
+  );
 });
 
 test("called helper registrations are counted once per call site", () => {

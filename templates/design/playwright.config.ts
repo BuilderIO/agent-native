@@ -133,7 +133,10 @@ const config = defineConfig({
     ...(process.env.E2E_LOG_TEST_PROGRESS === "1" ? [["line"] as const] : []),
     [
       path.join(import.meta.dirname, "e2e", "retry-failure-reporter.ts"),
-      { markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker") },
+      {
+        markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker"),
+        requiredPinSelectors: process.env.E2E_REQUIRED_PIN_SELECTORS,
+      },
     ],
   ],
   globalSetup: path.join(import.meta.dirname, "e2e", "global-setup.ts"),
