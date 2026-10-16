@@ -514,7 +514,7 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(ruleText("real-data")).toContain("live data-source query");
     expect(ruleText("real-data")).toContain(
-      "A matching aggregate does not prove a filter or policy",
+      "Matching totals do not prove exclusions",
     );
     expect(ruleText("sources")).toContain("authoritative for the turn");
     expect(ruleText("sources")).toContain("load `data-source-status`");
@@ -1519,12 +1519,88 @@ describe("realDataFinalGuard", () => {
         ],
       }),
     );
+    const overlappingAlias = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "Activation was 42% by organization.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range, [{ name: "org_id" }])],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [{ name: "org_id" }], timeRange: range },
+            undefined,
+            {
+              metric: {
+                name: "activation_rate",
+                dimensions: [
+                  { name: "org_id", description: "Organization ID" },
+                  {
+                    name: "workspace_org_id",
+                    description: "Owning organization",
+                  },
+                ],
+              },
+            },
+          ),
+        ],
+      }),
+    );
 
     expect(scalar).toMatchObject({
       retryMessage: expect.stringContaining("requested grouping"),
     });
     expect(correct).toBeNull();
+    expect(overlappingAlias).toBeNull();
     expect(ambiguous).toMatchObject({
+      retryMessage: expect.stringContaining("requested grouping"),
+    });
+  });
+
+  it("uses a validated selected dbt dimension when the definition summary is truncated", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const visibleDimensions = Array.from({ length: 30 }, (_, index) => ({
+      name: `dimension_${index}`,
+      description: `Dimension ${index}`,
+    }));
+    const metric = {
+      name: "activation_rate",
+      dimensions: visibleDimensions,
+      dimensionsCount: 31,
+      dimensionsTruncated: true,
+    };
+    const groupBy = [{ name: "organization_id" }];
+    const valid = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "Activation was 42% by organization.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range, groupBy)],
+        toolResults: [
+          dbtMetricResult({ groupBy, timeRange: range }, undefined, { metric }),
+        ],
+      }),
+    );
+    const mismatched = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "Activation was 42% by organization.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range, [{ name: "source_name" }])],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [{ name: "source_name" }], timeRange: range },
+            undefined,
+            { metric },
+          ),
+        ],
+      }),
+    );
+
+    expect(valid).toBeNull();
+    expect(mismatched).toMatchObject({
       retryMessage: expect.stringContaining("requested grouping"),
     });
   });

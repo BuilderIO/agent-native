@@ -8,6 +8,10 @@ export interface QueryMetricsResult {
   rows: Record<string, unknown>[];
   error?: string;
   schema?: { name: string; type: string }[];
+  totalRows?: number;
+  partial?: boolean;
+  truncated?: boolean;
+  warnings?: Array<{ message: string; reason?: string }>;
 }
 
 export function queryRunTelemetry(
@@ -15,8 +19,11 @@ export function queryRunTelemetry(
   queryError?: unknown,
 ) {
   const failed = Boolean(result?.error || queryError);
+  const incomplete = Boolean(
+    result?.partial || result?.truncated || result?.warnings?.length,
+  );
   return {
-    query_status: failed ? "error" : "success",
+    query_status: failed ? "error" : incomplete ? "partial" : "success",
     row_count: failed ? 0 : (result?.rows.length ?? 0),
     column_count: failed ? 0 : (result?.schema?.length ?? 0),
     ...(failed ? { error_category: "query_error" } : {}),
@@ -60,6 +67,10 @@ export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   let data: {
     rows?: Record<string, unknown>[];
     schema?: { name: string; type: string }[];
+    totalRows?: unknown;
+    partial?: unknown;
+    truncated?: unknown;
+    warnings?: unknown;
     bytesProcessed?: unknown;
     cached?: unknown;
     providerCacheHit?: unknown;
@@ -88,6 +99,16 @@ export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   return {
     rows: data.rows ?? [],
     schema: data.schema,
+    ...(typeof data.totalRows === "number"
+      ? { totalRows: data.totalRows }
+      : {}),
+    ...(typeof data.partial === "boolean" ? { partial: data.partial } : {}),
+    ...(typeof data.truncated === "boolean"
+      ? { truncated: data.truncated }
+      : {}),
+    ...(Array.isArray(data.warnings)
+      ? { warnings: data.warnings as QueryMetricsResult["warnings"] }
+      : {}),
   };
 }
 

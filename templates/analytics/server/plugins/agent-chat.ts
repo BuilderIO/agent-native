@@ -288,7 +288,7 @@ export interface AnalyticsPromptRule {
 export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   {
     id: "real-data",
-    text: "REAL DATA — Present metrics, counts, trends, or source-record conclusions only from a live data-source query that ran this turn; a catalog or dictionary hit, `data-source-status`, `get-sql-dashboard`, and dry-run validation are not data queries. Never substitute a fabricated number for a failed query or unavailable provider; report the exact gap. A matching aggregate does not prove a filter or policy: verify exclusions from the model or metric definition, tests, or exact saved query, and leave unsupported claims unverified. Non-data tasks (greetings, general knowledge, math, writing, coding, workflow or settings help, conceptual planning) need no data call and never get the no-grounded-data fallback.",
+    text: "REAL DATA — Present metrics, counts, trends, or source-record conclusions only from a live data-source query that ran this turn; a catalog or dictionary hit, `data-source-status`, `get-sql-dashboard`, and dry-run validation are not data queries. Never substitute a fabricated number for a failed query or unavailable provider; report the exact gap. Matching totals do not prove exclusions. Verify them in the model or metric definition, tests, or saved SQL; label unsupported claims. Non-data tasks (greetings, general knowledge, math, writing, coding, workflow or settings help, conceptual planning) need no data call and never get the no-grounded-data fallback.",
   },
   {
     id: "references",
@@ -1859,14 +1859,16 @@ function dbtMetricTimeScopeMismatch(
         return parsed.kind === "record" ? parsed.record : {};
       })
     : [];
-  if (
-    !outputMetric ||
+  if (!outputMetric) return true;
+  const dimensionsTruncated =
     outputMetric.dimensionsTruncated === true ||
     (Number.isSafeInteger(outputMetric.dimensionsCount) &&
-      Number(outputMetric.dimensionsCount) > dimensions.length)
-  ) {
-    return true;
-  }
+      Number(outputMetric.dimensionsCount) > dimensions.length);
+  const selectedDimensions = new Set(
+    (querySpec.groupBy as Array<Record<string, unknown>>).map(({ name }) =>
+      String(name),
+    ),
+  );
   const requestedTimeGrain = breakdownClause
     .match(/\b(day|week|month|quarter|year)s?\b/i)?.[1]
     ?.toUpperCase();
@@ -1920,16 +1922,29 @@ function dbtMetricTimeScopeMismatch(
       requestedDimensionMatches.add("metric_time");
       continue;
     }
-    const matches = dimensions.filter((dimension) => {
-      const evidence =
-        `${String(dimension.name ?? "")} ${String(dimension.description ?? "")}`.replace(
-          /[_-]/g,
-          " ",
-        );
-      return pattern.test(evidence);
-    });
-    if (matches.length !== 1) return true;
-    requestedDimensionMatches.add(String(matches[0]?.name ?? ""));
+    const matchingNames = dimensions
+      .filter((dimension) => {
+        const evidence =
+          `${String(dimension.name ?? "")} ${String(dimension.description ?? "")}`.replace(
+            /[_-]/g,
+            " ",
+          );
+        return pattern.test(evidence);
+      })
+      .map((dimension) => String(dimension.name ?? ""))
+      .filter(Boolean);
+    const selectedMatches = dimensionsTruncated
+      ? [...selectedDimensions].filter((name) =>
+          pattern.test(name.replace(/[_-]/g, " ")),
+        )
+      : [];
+    const matchingSelectedNames = [
+      ...new Set([...matchingNames, ...selectedMatches]),
+    ].filter((name) => selectedDimensions.has(name));
+    if (matchingSelectedNames.length === 0) return true;
+    for (const name of matchingSelectedNames) {
+      requestedDimensionMatches.add(name);
+    }
   }
   if (requestedDimensionMatches.size === 0) {
     const normalizedRequest = breakdownClause
@@ -1938,29 +1953,38 @@ function dbtMetricTimeScopeMismatch(
       .replace(/[^a-z0-9 ]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const exactMatches = dimensions.filter(
-      (dimension) =>
-        String(dimension.name ?? "")
-          .toLowerCase()
-          .replace(/[_-]/g, " ")
-          .replace(/[^a-z0-9 ]/g, " ")
-          .replace(/\s+/g, " ")
-          .trim() === normalizedRequest,
+    const exactMatches = new Set(
+      dimensions
+        .filter(
+          (dimension) =>
+            String(dimension.name ?? "")
+              .toLowerCase()
+              .replace(/[_-]/g, " ")
+              .replace(/[^a-z0-9 ]/g, " ")
+              .replace(/\s+/g, " ")
+              .trim() === normalizedRequest,
+        )
+        .map((dimension) => String(dimension.name ?? "")),
     );
-    if (exactMatches.length !== 1) return true;
-    requestedDimensionMatches.add(String(exactMatches[0]?.name ?? ""));
-  }
-  const selectedDimensions = new Set(
-    (querySpec.groupBy as Array<Record<string, unknown>>).map(({ name }) =>
-      String(name),
-    ),
-  );
-  if (
-    [...requestedDimensionMatches].some(
-      (dimension) => !selectedDimensions.has(dimension),
-    )
-  ) {
-    return true;
+    if (dimensionsTruncated) {
+      for (const name of selectedDimensions) {
+        if (
+          name
+            .toLowerCase()
+            .replace(/[_-]/g, " ")
+            .replace(/[^a-z0-9 ]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim() === normalizedRequest
+        ) {
+          exactMatches.add(name);
+        }
+      }
+    }
+    const selectedExactMatches = [...exactMatches].filter((name) =>
+      selectedDimensions.has(name),
+    );
+    if (selectedExactMatches.length !== 1) return true;
+    requestedDimensionMatches.add(selectedExactMatches[0]!);
   }
   return (
     requestedTimeGrain !== undefined &&

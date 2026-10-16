@@ -14,6 +14,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Explorer flags incomplete query results
 - Dashboard update status remains visible for sources without fetch-time or cache metadata
 - Normalize typed date literals in first-party BigQuery queries
 - Treat incomplete schema and truncated BigQuery results as partial evidence

@@ -100,6 +100,36 @@ describe("queryMetrics cost accounting", () => {
     expect(getUnknownScans()).toBe(1);
   });
 
+  it("returns incomplete-result metadata while accounting for the query as run", async () => {
+    const warnings = [{ message: "One source shard was unavailable" }];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          rows: [{ count: 2 }],
+          schema: [{ name: "count", type: "number" }],
+          totalRows: 4,
+          partial: true,
+          truncated: true,
+          warnings,
+          bytesProcessed: 4096,
+        }),
+      ),
+    );
+
+    await expect(queryMetrics("SELECT 1")).resolves.toMatchObject({
+      rows: [{ count: 2 }],
+      totalRows: 4,
+      partial: true,
+      truncated: true,
+      warnings,
+    });
+    expect(mocks.recordQueryCost).toHaveBeenCalledExactlyOnceWith({
+      status: "success",
+      bytesProcessed: 4096,
+    });
+  });
+
   it.each([
     [{ cached: false }, 1],
     [{ providerCacheHit: false }, 1],
@@ -220,6 +250,39 @@ describe("queryRunTelemetry", () => {
       error_category: "query_error",
     });
     expect(queryRunTelemetry(undefined, new Error("network detail"))).toEqual({
+      query_status: "error",
+      row_count: 0,
+      column_count: 0,
+      error_category: "query_error",
+    });
+  });
+
+  it.each([
+    { partial: true },
+    { truncated: true },
+    { warnings: [{ message: "Source warning" }] },
+  ])("does not label incomplete results as clean successes: %j", (state) => {
+    expect(
+      queryRunTelemetry({
+        rows: [{ count: 2 }],
+        schema: [{ name: "count", type: "number" }],
+        ...state,
+      }),
+    ).toEqual({
+      query_status: "partial",
+      row_count: 1,
+      column_count: 1,
+    });
+  });
+
+  it("keeps failures ahead of partial result state", () => {
+    expect(
+      queryRunTelemetry({
+        rows: [{ count: 2 }],
+        partial: true,
+        error: "query failed",
+      }),
+    ).toEqual({
       query_status: "error",
       row_count: 0,
       column_count: 0,

@@ -1156,6 +1156,8 @@ export default {
     addEventToSeeResults: "添加事件并选择它以查看结果",
     queryError: "Query error: {{message}}",
     noDataReturned: "没有返回数据",
+    incompleteResultsWarning:
+      "此结果可能不完整。缺失的行或源数据可能会影响总计。",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "过滤依据",
     pickPropertyToFilter: "选择要过滤的属性",

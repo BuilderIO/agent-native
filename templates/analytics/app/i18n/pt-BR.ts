@@ -1243,6 +1243,8 @@ export default {
       "Adicione um evento e selecione-o para ver os resultados",
     queryError: "Query error: {{message}}",
     noDataReturned: "Nenhum dado retornado",
+    incompleteResultsWarning:
+      "Este resultado pode estar incompleto. Linhas ou dados de origem ausentes podem afetar os totais.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrar por",
     pickPropertyToFilter: "Escolha uma propriedade para filtrar",

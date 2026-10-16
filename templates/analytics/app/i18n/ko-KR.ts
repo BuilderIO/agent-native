@@ -1206,6 +1206,8 @@ export default {
     addEventToSeeResults: "이벤트를 추가하고 선택하여 결과를 확인하세요.",
     queryError: "Query error: {{message}}",
     noDataReturned: "데이터가 반환되지 않았습니다.",
+    incompleteResultsWarning:
+      "이 결과는 불완전할 수 있습니다. 누락된 행이나 원본 데이터가 합계에 영향을 줄 수 있습니다.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "필터링 기준",
     pickPropertyToFilter: "필터링할 속성을 선택하세요.",

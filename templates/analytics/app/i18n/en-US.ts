@@ -850,6 +850,8 @@ export default {
     addEventToSeeResults: "Add an event and select it to see results",
     queryError: "Query error: {{message}}",
     noDataReturned: "No data returned",
+    incompleteResultsWarning:
+      "This result may be incomplete. Missing rows or source data can affect totals.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filter by",
     pickPropertyToFilter: "Pick a property to filter",

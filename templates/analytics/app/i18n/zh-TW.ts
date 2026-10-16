@@ -1240,6 +1240,8 @@ export default {
     addEventToSeeResults: "新增事件並選取它以檢視結果",
     queryError: "查詢錯誤：{{message}}",
     noDataReturned: "未傳回資料",
+    incompleteResultsWarning:
+      "此結果可能不完整。缺少的資料列或來源資料可能會影響總計。",
     rowsRange: "{{total}} 筆中的 {{start}}-{{end}}",
     filterBy: "過濾依據",
     pickPropertyToFilter: "選取要過濾的屬性",

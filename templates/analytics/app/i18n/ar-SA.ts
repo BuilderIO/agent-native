@@ -1203,6 +1203,8 @@ export default {
     addEventToSeeResults: "أضف حدثًا وحدده لرؤية النتائج",
     queryError: "Query error: {{message}}",
     noDataReturned: "لم يتم إرجاع أية بيانات",
+    incompleteResultsWarning:
+      "قد تكون هذه النتيجة غير مكتملة. قد تؤثر الصفوف أو بيانات المصدر المفقودة في الإجماليات.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "تصفية حسب",
     pickPropertyToFilter: "اختر خاصية لتصفيتها",

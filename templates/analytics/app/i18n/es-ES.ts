@@ -1248,6 +1248,8 @@ export default {
       "Añade un evento y selecciónalo para ver los resultados.",
     queryError: "Query error: {{message}}",
     noDataReturned: "No se devolvieron datos",
+    incompleteResultsWarning:
+      "Este resultado puede estar incompleto. La falta de filas o datos de origen puede afectar los totales.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrar por",
     pickPropertyToFilter: "Elige una propiedad para filtrar",

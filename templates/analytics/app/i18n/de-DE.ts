@@ -1258,6 +1258,8 @@ export default {
       "Fügen Sie ein Ereignis hinzu und wählen Sie es aus, um Ergebnisse anzuzeigen",
     queryError: "Query error: {{message}}",
     noDataReturned: "Es wurden keine Daten zurückgegeben",
+    incompleteResultsWarning:
+      "Dieses Ergebnis ist möglicherweise unvollständig. Fehlende Zeilen oder Quelldaten können Summen beeinflussen.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtern nach",
     pickPropertyToFilter: "Wählen Sie eine Eigenschaft zum Filtern aus",
