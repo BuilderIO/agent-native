@@ -14,7 +14,7 @@ function sh(cmd) {
 
 function getBaseSha() {
   if (process.env.GITHUB_BASE_REF) {
-    sh(`git fetch origin ${process.env.GITHUB_BASE_REF} --depth=50`);
+    sh(`git fetch origin ${process.env.GITHUB_BASE_REF}`);
     return sh(`git rev-parse origin/${process.env.GITHUB_BASE_REF}`);
   }
   return sh("git rev-parse origin/main");
