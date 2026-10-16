@@ -1,11 +1,11 @@
 import {
-  IconArtboard,
   IconCode,
   IconChevronDown,
   IconChevronRight,
+  IconHash,
+  IconLetterCase,
   IconPhoto,
   IconSquare,
-  IconTypography,
   IconVectorBezier2,
   IconVideo,
   IconX,
@@ -67,32 +67,6 @@ function dropPlacement(event: DragEvent<HTMLElement>): SlidesLayerPlacement {
   return position < 0.3 ? "after" : position > 0.7 ? "before" : "inside";
 }
 
-function LayerRowIndentSlots({
-  depth,
-  control,
-}: {
-  depth: number;
-  control?: ReactNode;
-}) {
-  return (
-    <span
-      data-layer-row-indents
-      className="flex h-full shrink-0 items-center"
-      aria-hidden={control ? undefined : true}
-    >
-      {Array.from({ length: depth + 1 }, (_, index) => (
-        <span
-          key={index}
-          data-layer-row-indent
-          className={`flex size-4 shrink-0 items-center justify-center ${index < depth ? "mr-2" : ""}`}
-        >
-          {index === depth ? control : null}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 function LayerGlyph({
   kind,
   hasChildren,
@@ -103,7 +77,7 @@ function LayerGlyph({
   const className = "size-4";
   switch (kind) {
     case "text":
-      return <IconTypography className={className} />;
+      return <IconLetterCase className={className} />;
     case "image":
       return <IconPhoto className={className} />;
     case "video":
@@ -115,10 +89,10 @@ function LayerGlyph({
     case "shape":
       return <IconSquare className={className} />;
     case "container":
-      return <IconArtboard className={className} />;
+      return <IconHash className={className} />;
     default:
       return hasChildren ? (
-        <IconArtboard className={className} />
+        <IconHash className={className} />
       ) : (
         <IconSquare className={className} />
       );
@@ -171,8 +145,9 @@ function LayerRow({
     <div
       data-layer-row-content
       data-layer-depth={depth}
+      style={{ paddingLeft: 16 + depth * 24 }}
       data-layer-selection={selected ? "primary" : undefined}
-      className={`group flex h-8 w-max min-w-full items-center pr-1 text-[12px] text-foreground/90 transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
+      className={`group flex h-8 w-full items-center gap-2 pr-12 text-[11px] font-[450] leading-4 tracking-[0.055px] text-foreground transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
       onMouseEnter={() => onHoverLayer?.(node.id)}
       onMouseLeave={() => onLeaveLayer?.(node.id)}
       onDragOver={(event) => event.preventDefault()}
@@ -180,25 +155,20 @@ function LayerRow({
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
     >
-      <LayerRowIndentSlots
-        depth={depth}
-        control={
-          children.length ? (
-            <button
-              type="button"
-              className="flex size-4 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-              aria-label={expanded ? labels.collapse : labels.expand}
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded ? (
-                <IconChevronDown className="size-4" />
-              ) : (
-                <IconChevronRight className="size-4" />
-              )}
-            </button>
-          ) : undefined
-        }
-      />
+      {children.length ? (
+        <button
+          type="button"
+          className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+          aria-label={expanded ? labels.collapse : labels.expand}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? (
+            <IconChevronDown className="size-4" />
+          ) : (
+            <IconChevronRight className="size-4" />
+          )}
+        </button>
+      ) : null}
       <button
         type="button"
         data-layer-row-button
@@ -297,25 +267,21 @@ export function SlidesLayersPanel({
       className="flex h-full w-full min-w-0 flex-col bg-background"
       aria-label={labels.title}
     >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-        <h2 className="text-sm font-semibold text-foreground">
+      <header className="flex h-10 shrink-0 items-center justify-between border-t border-border pl-4 pr-2">
+        <h2 className="text-[11px] font-[550] leading-4 tracking-[0.055px] text-foreground">
           {labels.title}
         </h2>
         <button
           type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           onClick={onClose}
           aria-label={labels.close}
         >
-          <IconX className="size-4" />
+          <IconX className="size-3" />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2">
-        <div
-          className="w-max min-w-full px-2"
-          role="tree"
-          aria-label={labels.title}
-        >
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="w-full" role="tree" aria-label={labels.title}>
           {[...layers].reverse().map((node) => (
             <LayerRow
               key={node.id}

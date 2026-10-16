@@ -5464,7 +5464,7 @@ export default function DeckEditor() {
               <div
                 ref={setLayersPanelSlot}
                 data-layers-panel-host="true"
-                className="flex h-1/2 w-48 shrink-0 flex-col overflow-hidden border-t border-border empty:hidden sm:w-52"
+                className="flex h-1/2 w-48 shrink-0 flex-col overflow-hidden empty:hidden sm:w-52"
               />
             </div>
           </>
