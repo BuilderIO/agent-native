@@ -1,6 +1,11 @@
 import { type Page } from "@playwright/test";
 
-import { appPath, expandAllLayers, pickFrameMode } from "./helpers";
+import {
+  appPath,
+  expandAllLayers,
+  pickFrameMode,
+  selectionState,
+} from "./helpers";
 import {
   childrenOf,
   expect,
@@ -82,28 +87,6 @@ async function canvasFrames(app: App, designId: string) {
 
 async function filenames(app: App, designId: string) {
   return (await app.savedRecord(designId)).files.map((file) => file.filename);
-}
-
-/** This tab's selection: parallel workers share one user, so the global key is anyone's. */
-async function selectionState(page: Page) {
-  const tabId = await page.evaluate(() =>
-    sessionStorage.getItem("agent-native:browser-tab-id"),
-  );
-  expect(tabId).toBeTruthy();
-  const response = await page.request.get(
-    appPath(
-      `/_agent-native/application-state/${encodeURIComponent(`design-selection:${tabId}`)}`,
-    ),
-  );
-  expect(response.ok()).toBe(true);
-  // An empty body: the editor has not written a selection yet.
-  const body = await response.text();
-  return body
-    ? (JSON.parse(body) as {
-        selectedScreenIds?: string[];
-        selectedElement?: { sourceId?: string } | null;
-      })
-    : null;
 }
 
 async function selectedScreenIds(page: Page): Promise<string[]> {

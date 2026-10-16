@@ -8,6 +8,7 @@ import {
   designFrame,
   expandAllLayers,
   gotoEditor,
+  selectionState,
   selectTool,
 } from "./helpers";
 import {
@@ -250,15 +251,7 @@ async function fileIdFor(
 }
 
 async function selectionContext(page: Page) {
-  const response = await page.request.get(
-    appPath("/_agent-native/application-state/design-selection"),
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `could not read design selection: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
+  return (await selectionState(page)) ?? {};
 }
 
 function layerRow(page: Page, name: string) {
