@@ -183,12 +183,13 @@ describe("PresentationView keyboard shortcuts", () => {
     }
   });
 
-  it("preserves typeahead keys on focused selects and comboboxes", () => {
+  it("preserves focused select and combobox keyboard behavior", () => {
     const openPresenter = vi.spyOn(window, "open").mockReturnValue(null);
     try {
       const view = render(
-        <MemoryRouter>
+        <MemoryRouter initialEntries={["/presentation"]}>
           <PresentationView slides={slides} deckId="deck-1" />
+          <CurrentLocation />
         </MemoryRouter>,
       );
       const select = document.createElement("select");
@@ -199,15 +200,18 @@ describe("PresentationView keyboard shortcuts", () => {
 
       for (const control of [select, combobox]) {
         control.focus();
-        for (const key of ["f", "s"]) {
-          const typeaheadKey = new KeyboardEvent("keydown", {
+        for (const key of ["f", "s", "Escape"]) {
+          const keyEvent = new KeyboardEvent("keydown", {
             key,
             bubbles: true,
             cancelable: true,
           });
-          control.dispatchEvent(typeaheadKey);
+          control.dispatchEvent(keyEvent);
 
-          expect(typeaheadKey.defaultPrevented).toBe(false);
+          expect(keyEvent.defaultPrevented).toBe(false);
+          expect(screen.getByTestId("current-location").textContent).toBe(
+            "/presentation",
+          );
         }
       }
       expect(openPresenter).not.toHaveBeenCalled();

@@ -17,9 +17,9 @@ export function hasVoiceNavigationPartialExpired(
 function normalizeVoicePhrase(value: string): string {
   return value
     .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
+    .replace(/(\p{Script=Latin})\p{M}+/gu, "$1")
     .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
 }

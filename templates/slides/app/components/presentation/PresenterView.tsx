@@ -414,18 +414,22 @@ export default function PresenterView({
           >
             <IconMicrophone className="h-4 w-4" aria-hidden="true" />
           </button>
-          {(voiceActive || voiceError || !voiceSupported) && (
-            <span role="status" className={voiceStatusClassName}>
-              {voiceError
-                ? t("presentation.voiceNavigationError")
-                : voiceActive
-                  ? t("presentation.voiceNavigationListening", {
-                      next: nextVoiceCommand,
-                      previous: previousVoiceCommand,
-                    })
-                  : t("presentation.voiceNavigationUnavailable")}
-            </span>
-          )}
+          <span
+            role="status"
+            aria-live="polite"
+            className={voiceStatusClassName}
+          >
+            {voiceError
+              ? t("presentation.voiceNavigationError")
+              : voiceActive
+                ? t("presentation.voiceNavigationListening", {
+                    next: nextVoiceCommand,
+                    previous: previousVoiceCommand,
+                  })
+                : !voiceSupported
+                  ? t("presentation.voiceNavigationUnavailable")
+                  : ""}
+          </span>
           <button
             onClick={goPrev}
             disabled={!canCommand(navState, presenterLayout, "prev")}

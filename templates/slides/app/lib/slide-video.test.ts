@@ -361,6 +361,13 @@ describe("slide video helpers", () => {
     });
     select.dispatchEvent(modifiedShortcut);
     expect(isInteractiveKeyboardEvent(modifiedShortcut)).toBe(true);
+    const selectEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    select.dispatchEvent(selectEscape);
+    expect(isInteractiveKeyboardEvent(selectEscape)).toBe(true);
     select.remove();
 
     const combobox = document.createElement("div");
@@ -377,6 +384,13 @@ describe("slide video helpers", () => {
       combobox.dispatchEvent(event);
       expect(isInteractiveKeyboardEvent(event)).toBe(true);
     }
+    const comboboxEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    combobox.dispatchEvent(comboboxEscape);
+    expect(isInteractiveKeyboardEvent(comboboxEscape)).toBe(true);
     combobox.remove();
   });
 });

@@ -219,7 +219,10 @@ export function isInteractiveKeyboardEvent(event: KeyboardEvent): boolean {
         target instanceof Element && Boolean(target.closest(selector)),
     );
 
-  if (event.key.length === 1 && matches('select, [role="combobox"]')) {
+  if (
+    (event.key.length === 1 || event.key === "Escape") &&
+    matches('select, [role="combobox"]')
+  ) {
     return true;
   }
   if (

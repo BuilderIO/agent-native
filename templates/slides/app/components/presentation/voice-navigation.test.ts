@@ -23,6 +23,18 @@ describe("matchVoiceNavigationPhrase", () => {
     });
   });
 
+  it("preserves meaningful vowel marks in Hindi commands", () => {
+    const hindiPhrases = { next: "अगली स्लाइड", previous: "पिछली स्लाइड" };
+
+    expect(matchVoiceNavigationPhrase("अगली स्लाइड", hindiPhrases)).toEqual({
+      type: "command",
+      command: "next",
+    });
+    expect(matchVoiceNavigationPhrase("अगला स्लाइड", hindiPhrases)).toEqual({
+      type: "ignore",
+    });
+  });
+
   it("keeps a partial phrase so recognition can finish it in another result", () => {
     expect(matchVoiceNavigationPhrase("Nächste", phrases)).toEqual({
       type: "partial",

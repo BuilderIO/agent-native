@@ -300,6 +300,25 @@ describe("PresenterView after the audience leaves", () => {
 });
 
 describe("PresenterView without an audience", () => {
+  it("keeps the voice status live region mounted before it has a message", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const status = within(presenter.container).getByRole("status");
+
+    expect(status.textContent).toBe("");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+
+    expect(within(presenter.container).getByRole("status")).toBe(status);
+    expect(status.textContent).toBe(
+      "Listening for “Next slide” or “Previous slide”.",
+    );
+  });
+
   it("moves itself once per press and says so to no one", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
     const [presenterChannel] = bus.peers;
