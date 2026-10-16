@@ -78,7 +78,9 @@ export function placeMarkdownSuggestion(
   const after = markdownPayload(operation.after, "after");
   if (
     typeof before.changedText !== "string" ||
-    typeof after.changedText !== "string"
+    typeof after.changedText !== "string" ||
+    // Saved as a whole before and after, it has no place but that before-state.
+    operation.anchor == null
   ) {
     return null;
   }

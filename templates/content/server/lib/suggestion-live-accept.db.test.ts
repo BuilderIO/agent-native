@@ -465,20 +465,26 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
     expect((await stored(documentId)).content).toBe(after.text);
   });
 
-  /** A proposal of a whole-page member and a ranged one, in `order`. */
+  /**
+   * A proposal of a whole-page member and a ranged one, in `order`. With
+   * `changedText`, the whole-page member names the whole page as its change.
+   */
   async function decideWholePageProposal(
     documentId: string,
     order: "whole page first" | "range first",
+    { changedText = false } = {},
   ) {
     const document = await getDocumentAction.run({ id: documentId }, ctx);
     const before = document.content;
+    const payload = (markdown: string) =>
+      changedText ? { markdown, changedText: markdown } : { markdown };
     const wholePage = {
       ordinal: 0,
       kind: "replace_text",
       targetId: "body",
       schemaVersion: 1,
-      before: { markdown: before },
-      after: { markdown: before.replace("sets the scene", "opens") },
+      before: payload(before),
+      after: payload(before.replace("sets the scene", "opens")),
       anchor: null,
     };
     const [ranged] = markdownSuggestionOperationsForFindReplace({
@@ -541,17 +547,18 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
     },
   );
 
-  ownerIt(
-    "refuses a whole-page member once a sibling changed the page, and writes nothing",
-    async () => {
-      const documentId = await seedPage(page);
-      const before = await liveCopy(documentId);
-      await expect(
-        decideWholePageProposal(documentId, "range first"),
-      ).rejects.toMatchObject({ errorCode: "suggestion_stale" });
-      expect(await liveCopy(documentId)).toEqual(before);
-    },
-  );
+  for (const changedText of [false, true])
+    ownerIt(
+      `refuses a whole-page member${changedText ? " that names its changed text" : ""} once a sibling changed the page, and writes nothing`,
+      async () => {
+        const documentId = await seedPage(page);
+        const before = await liveCopy(documentId);
+        await expect(
+          decideWholePageProposal(documentId, "range first", { changedText }),
+        ).rejects.toMatchObject({ errorCode: "suggestion_stale" });
+        expect(await liveCopy(documentId)).toEqual(before);
+      },
+    );
 
   ownerIt(
     "moves the stored anchor of a comment on text after the change",
