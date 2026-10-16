@@ -725,6 +725,15 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Navegación por voz",
+    voiceNavigationNextCommand: "Siguiente diapositiva",
+    voiceNavigationPreviousCommand: "Diapositiva anterior",
+    voiceNavigationHint: "Di «{{next}}» o «{{previous}}» para navegar.",
+    voiceNavigationListening: "Escuchando «{{next}}» o «{{previous}}».",
+    voiceNavigationUnavailable:
+      "La navegación por voz no está disponible en este navegador.",
+    voiceNavigationError:
+      "La navegación por voz se detuvo. Comprueba el permiso y la conexión del micrófono y vuelve a intentarlo.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",

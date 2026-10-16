@@ -228,6 +228,41 @@ describe("data-notes store", () => {
       });
     });
 
+    it("refuses an edit made from a copy someone has saved over since", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+        const opened = await store.saveDataNote(alice, incident);
+        vi.setSystemTime(new Date("2026-10-14T12:05:00Z"));
+        await store.saveDataNote(bob, {
+          id: opened.id,
+          status: "fixed",
+          endDate: "2026-10-13",
+          expectedUpdatedAt: opened.updatedAt,
+        });
+
+        await expect(
+          store.saveDataNote(alice, {
+            id: opened.id,
+            title: "Setup failures",
+            status: "open",
+            endDate: null,
+            expectedUpdatedAt: opened.updatedAt,
+          }),
+        ).rejects.toMatchObject({
+          statusCode: 409,
+          errorCode: "annotation_conflict",
+        });
+        expect((await store.listDataNotes(alice))[0]).toMatchObject({
+          title: incident.title,
+          status: "fixed",
+          endDate: "2026-10-13",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("checks an edit against the note the previous edit left", async () => {
       const added = await store.saveDataNote(alice, incident);
       const [fixed, cleared] = await Promise.allSettled([

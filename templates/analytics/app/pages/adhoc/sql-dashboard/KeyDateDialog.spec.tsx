@@ -185,6 +185,7 @@ describe("KeyDateDialog", () => {
     save();
     expect(mocks.save).toHaveBeenCalledWith({
       id: "launch",
+      expectedUpdatedAt: "2026-10-14T12:00:00.000Z",
       setId: LAUNCHES.id,
       date: "2026-10-01",
       label: "Product Hunt launch",

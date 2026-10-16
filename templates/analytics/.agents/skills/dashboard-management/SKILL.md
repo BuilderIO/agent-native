@@ -263,8 +263,8 @@ for this. They live in two places:
 
 A dashboard leaves sets off its charts with `config.annotations`, set through
 `mutate-dashboard`'s `setDashboard({ annotations: { hiddenKeyDateSets: [setId, ...] } })`.
-The patch replaces the whole `annotations` object, so include the sets and
-data notes already hidden. In Edit mode, people do the same from the dashboard
+The list replaces the sets already hidden, so include those that stay hidden;
+the hidden data notes are kept. In Edit mode, people do the same from the dashboard
 header's Annotations menu, which also adds and edits key dates and sets.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
@@ -330,7 +330,7 @@ its owner organization's. Read them with `list-data-notes`, passing
   aren't dates.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
-  keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
+  listing the notes already hidden that stay hidden; `hiddenKeyDateSets` is kept.
 - In Edit mode, people add a note from a chart's menu ("Add data note", pinned
   to that chart) or the Annotations menu; a note's hover card offers Edit, Mark
   fixed, and Hide on this chart, and the chart's menu offers Hide for each of

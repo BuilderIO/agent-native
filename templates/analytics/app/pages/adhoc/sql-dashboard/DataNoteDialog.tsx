@@ -13,6 +13,7 @@ import { IconX } from "@tabler/icons-react";
 import { useId, useMemo, useRef, useState } from "react";
 
 import {
+  editedVersion,
   useDeleteDataNote,
   useSaveDataNote,
   type DataNoteInput,
@@ -227,7 +228,12 @@ function DataNoteForm({
   const handleSave = () => {
     if (!canSave) return;
     const input: DataNoteInput = {
-      ...(existing ? { id: existing.id } : {}),
+      ...(existing
+        ? {
+            id: existing.id,
+            expectedUpdatedAt: editedVersion(existing.id, existing.updatedAt),
+          }
+        : {}),
       kind: form.kind,
       title: form.title.trim(),
       note: form.note.trim(),

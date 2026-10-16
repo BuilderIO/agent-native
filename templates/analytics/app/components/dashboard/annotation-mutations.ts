@@ -75,6 +75,22 @@ const pendingId = () => `${PENDING_PREFIX}${++pendingCount}`;
 export const isPendingAnnotation = (id: string) =>
   id.startsWith(PENDING_PREFIX);
 
+/**
+ * What each of this tab's own edits replaced, by `${id}@${updatedAt}`. A
+ * dialog opened before its own earlier save came back holds the version that
+ * save replaced, and that save isn't someone else's change to refuse.
+ */
+const ownSaves = new Map<string, string>();
+
+/** The version an edit is made from: the one opened, past this tab's own saves since. */
+export function editedVersion(id: string, openedAt: string): string {
+  let version = openedAt;
+  for (let next; (next = ownSaves.get(`${id}@${version}`)); ) {
+    version = next;
+  }
+  return version;
+}
+
 function insertAt<T>(items: readonly T[], index: number, item: T): T[] {
   return [...items.slice(0, index), item, ...items.slice(index)];
 }
@@ -156,6 +172,16 @@ function useAnnotationWrite<TInput, Data extends { editable?: boolean }, Item>(
       writesShown<Item>(client, list.action).push(write);
       return { write };
     },
+    onSuccess: (result, input) => {
+      const { id, expectedUpdatedAt } = input as {
+        id?: string;
+        expectedUpdatedAt?: string;
+      };
+      const saved = (result as { updatedAt?: string } | undefined)?.updatedAt;
+      if (id && expectedUpdatedAt && saved) {
+        ownSaves.set(`${id}@${expectedUpdatedAt}`, saved);
+      }
+    },
     onError: (error, _input, context) => {
       const write = (context as { write: ShownWrite<Item> } | undefined)?.write;
       if (write) takeBack(write);
@@ -180,12 +206,15 @@ export type DataNoteInput = Partial<
   startDate?: string | null;
   endDate?: string | null;
   fix?: string | null;
+  expectedUpdatedAt?: string;
 };
 
 function patchNote(note: DataNote, input: DataNoteInput): DataNote {
   const next: Record<string, unknown> = { ...note };
   for (const [key, value] of Object.entries(input)) {
-    if (key === "id" || value === undefined) continue;
+    if (key === "id" || key === "expectedUpdatedAt" || value === undefined) {
+      continue;
+    }
     if (value === null) delete next[key];
     else next[key] = value;
   }
@@ -248,6 +277,7 @@ export type KeyDateInput = {
   time?: string | null;
   timeZone?: string | null;
   label: string;
+  expectedUpdatedAt?: string;
 };
 
 type PlacedKeyDate = { date: KeyDate; index: number };
@@ -283,7 +313,15 @@ function withKeyDate(
   input: KeyDateInput,
   ids: { date: string; newSet: string },
 ): KeyDateSet[] {
-  const { id: _id, setId, setName, time, timeZone, ...fields } = input;
+  const {
+    id: _id,
+    expectedUpdatedAt: _expected,
+    setId,
+    setName,
+    time,
+    timeZone,
+    ...fields
+  } = input;
   const saved = findKeyDate(sets, ids.date)?.date;
   // The server's rules, so the optimistic date matches what it will save.
   const keptTime = time === undefined ? saved?.time : (time ?? undefined);

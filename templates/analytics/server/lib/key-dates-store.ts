@@ -7,6 +7,7 @@ import type { KeyDate, KeyDateSet } from "../../shared/key-dates.js";
 import { panelEventProblem } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
+  failIfChangedSince,
   inAnnotationScope,
   writeInAnnotationScope,
   requireAnnotationScope,
@@ -193,6 +194,8 @@ export type SaveKeyDateInput = {
   time?: string | null;
   timeZone?: string | null;
   label: string;
+  /** The updatedAt the edit was made from; a later save refuses it. */
+  expectedUpdatedAt?: string;
 };
 
 type StoredKeyDate = {
@@ -290,6 +293,13 @@ export async function saveKeyDate(
     const stored = input.id
       ? await findKeyDate(tx, scope, input.id)
       : undefined;
+    if (stored) {
+      failIfChangedSince(
+        "key date",
+        input.expectedUpdatedAt,
+        stored.date.updatedAt,
+      );
+    }
     const event = validKeyDate(keyDateEvent(input, label, stored));
     const set = await resolveSet(tx, scope, input, stored);
     const now = new Date().toISOString();

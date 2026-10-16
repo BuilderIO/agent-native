@@ -96,6 +96,12 @@ export default defineAction({
       .describe(
         "Dashboard to check the note against, usually the one on screen; not stored",
       ),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "The note's updatedAt from list-data-notes when the edit was made; refuses the edit if it changed since",
+      ),
   }),
   run: async ({ dashboardId, ...input }) => {
     const scope = requireDataNoteScope();

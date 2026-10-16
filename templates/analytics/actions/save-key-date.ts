@@ -49,6 +49,12 @@ export default defineAction({
       .describe(
         "Dashboard to check the date against, usually the one on screen; not stored",
       ),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "The date's updatedAt from list-key-dates when the edit was made; refuses the edit if it changed since",
+      ),
   }),
   run: async ({ dashboardId, ...input }) => {
     const scope = requireKeyDateScope();

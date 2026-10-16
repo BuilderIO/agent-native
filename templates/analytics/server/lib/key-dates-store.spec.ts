@@ -269,6 +269,38 @@ describe("key-dates store", () => {
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
+  it("refuses an edit made from a copy someone has saved over since", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+      const opened = await store.saveKeyDate(alice, productHunt);
+      vi.setSystemTime(new Date("2026-10-14T12:05:00Z"));
+      await store.saveKeyDate(bob, {
+        id: opened.id,
+        date: "2026-10-14",
+        label: "Product Hunt launch",
+        expectedUpdatedAt: opened.updatedAt,
+      });
+
+      await expect(
+        store.saveKeyDate(alice, {
+          id: opened.id,
+          date: "2026-10-15",
+          label: "Product Hunt live",
+          expectedUpdatedAt: opened.updatedAt,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "annotation_conflict",
+      });
+      expect((await store.listKeyDateSets(alice))[0].dates).toMatchObject([
+        { id: opened.id, date: "2026-10-14", label: "Product Hunt launch" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps a date's time and zone when an edit leaves them out", async () => {
     const saved = await store.saveKeyDate(alice, productHunt);
 
