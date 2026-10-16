@@ -626,6 +626,11 @@ test("routes Design pin attestation inputs to core regression", () => {
       broad: false,
     },
     {
+      path: "scripts/design-e2e-regression-pin-identities.ts",
+      full: true,
+      broad: true,
+    },
+    {
       path: "scripts/guard-design-e2e-regression-pins.ts",
       full: false,
       broad: false,
@@ -654,6 +659,13 @@ test("routes Design pin attestation inputs to core regression", () => {
   assert.equal(selectorTest.checks.guards, true);
   assert.deepEqual(selectorTest.scriptTests, [
     "scripts/design-e2e-regression-pins.test.ts",
+  ]);
+
+  const identityHelper = classifyChangedPaths([
+    "scripts/design-e2e-regression-pin-identities.ts",
+  ]);
+  assert.deepEqual(identityHelper.scriptTests, [
+    "scripts/design-e2e-regression-pin-identities.test.ts",
   ]);
 
   const config = classifyChangedPaths([
@@ -1343,6 +1355,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     regressionCases,
+    /required_pin_identities_json="\$\(node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pin-identities\.ts "\$\{\{ matrix\.shard \}\}"\)"/,
+    "each required reporter outcome must carry its exact manifest title identity",
+  );
+  assert.match(
+    regressionCases,
     /mapfile -d '' -t focused_specs < "\$focused_specs_file"/,
     "the resolver output must become the Playwright selector list",
   );
@@ -1350,6 +1367,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     regressionCases,
     /pnpm exec playwright test "\$\{focused_specs\[@\]\}" --workers=1/,
     "resolved fixed regression selectors must run serially",
+  );
+  assert.match(
+    regressionCases,
+    /E2E_REQUIRED_PIN_IDENTITIES="\$required_pin_identities_json"/,
+    "the reporter must attest each resolved selector against its manifest title",
   );
   assert.equal(
     DESIGN_E2E_REGRESSION_PINS.length,
@@ -1413,6 +1435,11 @@ test("runs fixed Design regression pins even when their spec files changed", () 
     regressionCases,
     /^          node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pins\.ts "\$\{\{ matrix\.shard \}\}"/m,
     "fixed behavior pins must resolve in their dedicated shard regardless of changed files",
+  );
+  assert.match(
+    regressionCases,
+    /^          required_pin_identities_json="\$\(node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pin-identities\.ts "\$\{\{ matrix\.shard \}\}"\)"/m,
+    "fixed behavior attestations must include the exact manifest title",
   );
   assert.doesNotMatch(
     regressionCases,
@@ -2903,6 +2930,7 @@ test(
         "scripts/ci-change-scope.ts",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/design-e2e-regression-pin-identities.test.ts",
         "scripts/design-e2e-regression-pins.test.ts",
         "scripts/guard-no-unbounded-table-reads.test.ts",
         "scripts/deploy-alerts-workflow.test.ts",

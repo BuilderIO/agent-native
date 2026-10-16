@@ -535,8 +535,8 @@ jobs:
             echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
             exit 2
           fi
-          required_pin_selectors_json="$(node -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' "${focused_specs[@]}")"
-          E2E_REQUIRED_PIN_SELECTORS="$required_pin_selectors_json" pnpm exec playwright test "${focused_specs[@]}" --workers=1
+          required_pin_identities_json="$(node --experimental-strip-types ../../scripts/design-e2e-regression-pin-identities.ts "${{ matrix.shard }}")"
+          E2E_REQUIRED_PIN_IDENTITIES="$required_pin_identities_json" pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
       - name: Detect retried Design test failures
         id: retry-artifacts

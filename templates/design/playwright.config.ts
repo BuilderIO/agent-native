@@ -135,7 +135,7 @@ const config = defineConfig({
       path.join(import.meta.dirname, "e2e", "retry-failure-reporter.ts"),
       {
         markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker"),
-        requiredPinSelectors: process.env.E2E_REQUIRED_PIN_SELECTORS,
+        requiredPinIdentities: process.env.E2E_REQUIRED_PIN_IDENTITIES,
       },
     ],
   ],

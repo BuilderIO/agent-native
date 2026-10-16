@@ -1767,6 +1767,14 @@ test("escaped Playwright modifiers fail closed through objects and helper parame
       "function suppress({ skip } = test) { skip(true, 'helper skip'); }",
       "suppress();",
     ].join("\n"),
+    [
+      "(0, test.fixme)('hidden', () => {});",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      "[test.fixme][0]('hidden', () => {});",
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
   ]) {
     assert.throws(
       () => findDesignE2ETestRegistrations(source),

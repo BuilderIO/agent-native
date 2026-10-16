@@ -2702,6 +2702,26 @@ function isKnownPlaywrightAuthorityPath(path: string[]): boolean {
   );
 }
 
+function isKnownPlaywrightModifierAuthorityPath(path: string[]): boolean {
+  return (
+    (path.length === 2 && path[0] === "test" && TEST_MODIFIERS.has(path[1]!)) ||
+    (path.length === 3 &&
+      path[0] === "test" &&
+      path[1] === "describe" &&
+      TEST_MODIFIERS.has(path[2]!)) ||
+    (path.length === 3 &&
+      path[0] === "test" &&
+      TEST_MODIFIERS.has(path[1]!) &&
+      path[2] === "bound") ||
+    (path.length === 4 &&
+      path[0] === "test" &&
+      path[1] === "describe" &&
+      TEST_MODIFIERS.has(path[2]!) &&
+      path[3] === "bound") ||
+    (path.length === 2 && path[0] === "test" && path[1] === "dynamic-bound")
+  );
+}
+
 function containsKnownPlaywrightAuthority(
   expression: TypeScript.Expression,
   aliases: TestAliasResolver,
@@ -2781,6 +2801,35 @@ function containsKnownPlaywrightAuthority(
           found = true;
           return;
         }
+      }
+    }
+    ts.forEachChild(node, inspect);
+  };
+  inspect(expression);
+  return found;
+}
+
+function containsKnownPlaywrightModifierAuthority(
+  expression: TypeScript.Expression,
+  aliases: TestAliasResolver,
+  ts: typeof TypeScript,
+): boolean {
+  let found = false;
+  const inspect = (node: TypeScript.Node) => {
+    if (found || isFunctionLikeNode(node, ts)) return;
+    if (
+      ts.isIdentifier(node) ||
+      ts.isPropertyAccessExpression(node) ||
+      ts.isElementAccessExpression(node) ||
+      ts.isCallExpression(node)
+    ) {
+      const candidate = node as TypeScript.Expression;
+      if (
+        isKnownPlaywrightModifierAuthorityPath(aliases.resolve(candidate)) ||
+        aliases.isKnownModifierReference(candidate)
+      ) {
+        found = true;
+        return;
       }
     }
     ts.forEachChild(node, inspect);
@@ -3625,6 +3674,12 @@ export function findDesignE2ETestRegistrations(
         context.testInfoMaybeBindings,
         ts,
       );
+      if (
+        !classification &&
+        containsKnownPlaywrightModifierAuthority(node.expression, aliases, ts)
+      ) {
+        throwUnsupportedModifierEscape(node.expression);
+      }
       const authorityCallee = unwrapExpression(node.expression, ts);
       const authorityHelper =
         !classification && ts.isIdentifier(authorityCallee)

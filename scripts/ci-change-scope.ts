@@ -49,6 +49,10 @@ const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
 const RELATED_SCRIPT_TESTS = new Map([
   [
+    "scripts/design-e2e-regression-pin-identities.ts",
+    "scripts/design-e2e-regression-pin-identities.test.ts",
+  ],
+  [
     ".github/workflows/deploy-canary.yml",
     "scripts/deploy-alerts-workflow.test.ts",
   ],
@@ -121,6 +125,7 @@ const DESIGN_CANVAS_E2E_SHARED_HELPER_SPECS = new Map([
 ]);
 
 const DESIGN_CANVAS_PIN_ATTESTATION_FILES = new Set([
+  "scripts/design-e2e-regression-pin-identities.ts",
   "scripts/design-e2e-regression-pins.ts",
   "scripts/guard-design-e2e-regression-pins.ts",
   "templates/design/e2e/retry-failure-reporter.ts",

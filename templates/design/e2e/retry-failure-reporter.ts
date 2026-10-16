@@ -16,6 +16,17 @@ type PinOutcome = {
   expectedStatus: TestCase["expectedStatus"];
 };
 
+type RequiredPinIdentity = {
+  selector: string;
+  title: string;
+};
+
+type RequiredPin = RequiredPinIdentity & { expectedCount: number };
+
+function pinIdentityKey(selector: string, title: string): string {
+  return JSON.stringify([selector, title]);
+}
+
 function maybeDesignRelativeFile(file: string): string | undefined {
   const absolute = path.isAbsolute(file)
     ? path.resolve(file)
@@ -61,48 +72,66 @@ function normalizePinSelector(selector: string): string {
   return `${normalizedFile}:${line}`;
 }
 
-function parseRequiredPinSelectors(source: string): Map<string, number> {
+function parseRequiredPinIdentities(source: string): Map<string, RequiredPin> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
   } catch (error) {
     throw new Error(
-      `E2E_REQUIRED_PIN_SELECTORS must be JSON: ${error instanceof Error ? error.message : String(error)}`,
+      `E2E_REQUIRED_PIN_IDENTITIES must be JSON: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error("E2E_REQUIRED_PIN_SELECTORS must be a non-empty array");
+    throw new Error("E2E_REQUIRED_PIN_IDENTITIES must be a non-empty array");
   }
 
-  const counts = new Map<string, number>();
-  for (const selector of parsed) {
-    if (typeof selector !== "string") {
-      throw new Error("E2E_REQUIRED_PIN_SELECTORS entries must be strings");
+  const required = new Map<string, RequiredPin>();
+  for (const identity of parsed) {
+    if (
+      !identity ||
+      typeof identity !== "object" ||
+      Array.isArray(identity) ||
+      typeof (identity as RequiredPinIdentity).selector !== "string" ||
+      typeof (identity as RequiredPinIdentity).title !== "string" ||
+      !(identity as RequiredPinIdentity).title.trim()
+    ) {
+      throw new Error(
+        "E2E_REQUIRED_PIN_IDENTITIES entries must include a selector and non-empty title",
+      );
     }
-    const normalized = normalizePinSelector(selector);
-    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+    const { title } = identity as RequiredPinIdentity;
+    const selector = normalizePinSelector(
+      (identity as RequiredPinIdentity).selector,
+    );
+    const key = pinIdentityKey(selector, title);
+    const existing = required.get(key);
+    required.set(key, {
+      selector,
+      title,
+      expectedCount: (existing?.expectedCount ?? 0) + 1,
+    });
   }
-  return counts;
+  return required;
 }
 
 export default class RetryFailureReporter implements Reporter {
   private error?: Error;
   private readonly markerPath?: string;
   private readonly pinAttestationEnabled: boolean;
-  private readonly requiredPinSelectors?: Map<string, number>;
+  private readonly requiredPinIdentities?: Map<string, RequiredPin>;
   private readonly pinOutcomes = new Map<string, Map<string, PinOutcome>>();
   private readonly pinAttestationErrors: string[] = [];
 
   constructor(
-    options: { markerPath?: string; requiredPinSelectors?: string } = {},
+    options: { markerPath?: string; requiredPinIdentities?: string } = {},
   ) {
     this.markerPath = options.markerPath;
     if (!this.markerPath) this.error = new Error("markerPath is required");
-    this.pinAttestationEnabled = options.requiredPinSelectors !== undefined;
-    if (options.requiredPinSelectors !== undefined) {
+    this.pinAttestationEnabled = options.requiredPinIdentities !== undefined;
+    if (options.requiredPinIdentities !== undefined) {
       try {
-        this.requiredPinSelectors = parseRequiredPinSelectors(
-          options.requiredPinSelectors,
+        this.requiredPinIdentities = parseRequiredPinIdentities(
+          options.requiredPinIdentities,
         );
       } catch (error) {
         this.pinAttestationErrors.push(
@@ -113,19 +142,20 @@ export default class RetryFailureReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
-    if (this.pinAttestationEnabled && this.requiredPinSelectors) {
+    if (this.pinAttestationEnabled && this.requiredPinIdentities) {
       const line = test.location?.line;
       if (Number.isSafeInteger(line) && line > 0) {
         const file = maybeDesignRelativeFile(test.location.file);
         if (file?.startsWith("e2e/")) {
           const selector = `${file}:${line}`;
-          if (this.requiredPinSelectors.has(selector)) {
-            const outcomes = this.pinOutcomes.get(selector) ?? new Map();
+          const key = pinIdentityKey(selector, test.title);
+          if (this.requiredPinIdentities.has(key)) {
+            const outcomes = this.pinOutcomes.get(key) ?? new Map();
             outcomes.set(test.id, {
               status: result.status,
               expectedStatus: test.expectedStatus,
             });
-            this.pinOutcomes.set(selector, outcomes);
+            this.pinOutcomes.set(key, outcomes);
           }
         }
       }
@@ -170,13 +200,13 @@ export default class RetryFailureReporter implements Reporter {
   }
 
   private verifyRequiredPinOutcomes(): void {
-    if (!this.requiredPinSelectors) return;
+    if (!this.requiredPinIdentities) return;
 
-    for (const [selector, expectedCount] of this.requiredPinSelectors) {
-      const outcomes = [...(this.pinOutcomes.get(selector)?.values() ?? [])];
-      if (outcomes.length < expectedCount) {
+    for (const [key, pin] of this.requiredPinIdentities) {
+      const outcomes = [...(this.pinOutcomes.get(key)?.values() ?? [])];
+      if (outcomes.length < pin.expectedCount) {
         this.pinAttestationErrors.push(
-          `required Design pin did not produce a result (${outcomes.length}/${expectedCount}): ${selector}`,
+          `required Design pin did not produce a result (${outcomes.length}/${pin.expectedCount}): ${pin.selector} / ${JSON.stringify(pin.title)}`,
         );
       }
       for (const outcome of outcomes) {
@@ -185,7 +215,7 @@ export default class RetryFailureReporter implements Reporter {
           outcome.expectedStatus !== "passed"
         ) {
           this.pinAttestationErrors.push(
-            `required Design pin did not finish as passed (status=${outcome.status}, expectedStatus=${outcome.expectedStatus}): ${selector}`,
+            `required Design pin did not finish as passed (status=${outcome.status}, expectedStatus=${outcome.expectedStatus}): ${pin.selector} / ${JSON.stringify(pin.title)}`,
           );
         }
       }
