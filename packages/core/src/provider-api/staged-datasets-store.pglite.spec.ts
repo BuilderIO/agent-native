@@ -253,6 +253,7 @@ describe("staged dataset quotas on Postgres", () => {
       "bea_oldest",
     ]);
     expect(await removedReason("ada_0")).toBe("capacity");
+    expect((await storedBytes("ada_0")).byteSize).toBe(0);
     expect(await rowCount("ada_0")).toBe(0);
   });
 
@@ -280,6 +281,7 @@ describe("staged dataset quotas on Postgres", () => {
 
     expect(await liveIds()).toEqual(["cy_fresh", "dee_new"]);
     expect(await removedReason("cy_stale")).toBe("stale");
+    expect((await storedBytes("cy_stale")).byteSize).toBe(0);
     expect(await rowCount("cy_stale")).toBe(0);
     const { rows: marker } = await pglite.query(
       `SELECT id FROM staged_datasets WHERE id = 'cy_old_marker'`,
@@ -918,6 +920,27 @@ describe("deleteStagedDataset on Postgres", () => {
     expect(log.some((e) => /DELETE FROM staged_dataset_rows/.test(e.sql))).toBe(
       false,
     );
+  });
+
+  it("deletes the marker of a removed dataset and reports it deleted", async () => {
+    await seed("ada_evicted", "ada@example.com", MB, Date.now() - DAY, {
+      removedAt: Date.now(),
+      removedReason: "capacity",
+      rowCount: 0,
+    });
+
+    await expect(
+      deleteStagedDataset({
+        id: "ada_evicted",
+        appId: APP,
+        ownerEmail: "ada@example.com",
+      }),
+    ).resolves.toBe(true);
+
+    const { rows } = await pglite.query(
+      `SELECT id FROM staged_datasets WHERE id = 'ada_evicted'`,
+    );
+    expect(rows).toEqual([]);
   });
 
   it("reports false for a dataset that is already gone", async () => {

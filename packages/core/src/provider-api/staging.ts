@@ -397,7 +397,9 @@ export async function stagingExecuteRequest(
           truncated,
           lastCursor,
         }
-      : {}),
+      : truncated
+        ? { rows: allRows.length, truncated }
+        : {}),
     provider: providerMeta,
     request: requestMeta,
     guidance:

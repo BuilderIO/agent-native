@@ -545,6 +545,27 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     ).rejects.toThrow(/cut at the response size limit/);
   });
 
+  it("reports truncation at the row cap when the request has no pagination", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: Array.from({ length: MAX_ROWS_PER_OWNER + 1 }, () => ({})),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const result = await stagingExecuteRequest(
+      { provider: "stripe", path: "/charges", stageAs: "stripe_charges" },
+      makeExecutor(),
+      { appId: "testapp", ownerEmail: "ada@example.com" },
+    );
+
+    expect(result.dataset.rowCount).toBe(MAX_ROWS_PER_OWNER);
+    expect(result.rows).toBe(MAX_ROWS_PER_OWNER);
+    expect(result.truncated).toBe(true);
+  });
+
   it("can send next cursors through a POST body path", async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     const fetchMock = vi

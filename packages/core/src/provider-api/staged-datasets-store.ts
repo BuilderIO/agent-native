@@ -217,7 +217,8 @@ async function lockStagedDatasetApp(tx: DbExec, appId: string): Promise<void> {
 
 // Runs on every write, not only over-quota ones, so data nobody has touched in
 // the max age stops counting against anyone before it is needed. The markers
-// left behind expire after another max age.
+// left behind keep zero counts, so a writer that predates them does not charge
+// them to the quota, and they expire after another max age.
 async function removeStaleStagedDatasets(
   tx: DbExec,
   appId: string,
@@ -226,7 +227,7 @@ async function removeStaleStagedDatasets(
   staleBefore: number,
 ): Promise<void> {
   await tx.execute({
-    sql: `UPDATE staged_datasets SET removed_at = ?, removed_reason = 'stale' WHERE app_id = ? AND removed_at IS NULL AND updated_at < ? AND id <> ?`,
+    sql: `UPDATE staged_datasets SET removed_at = ?, removed_reason = 'stale', row_count = 0, byte_size = 0 WHERE app_id = ? AND removed_at IS NULL AND updated_at < ? AND id <> ?`,
     args: [now, appId, staleBefore, writingId],
   });
   await tx.execute({
@@ -451,7 +452,7 @@ export async function upsertStagedDataset(
     await removeStaleStagedDatasets(tx, options.appId, id, now, staleBefore);
     // The timestamp marker lets older writers be corrected without rescanning
     // stored payloads on every write. Returning a quota failure commits this
-    // one-time normalization while leaving all datasets intact.
+    // one-time normalization and the stale cleanup above, but evicts nothing.
     await backfillLegacyByteSizes(tx, options.appId);
     const excluded = supersededId ? [id, supersededId] : [id];
     const excludedSql = excluded.map(() => " AND id <> ?").join("");
@@ -525,7 +526,7 @@ export async function upsertStagedDataset(
         args: [victimId],
       });
       await tx.execute({
-        sql: `UPDATE staged_datasets SET removed_at = ?, removed_reason = 'capacity' WHERE id = ? AND app_id = ?`,
+        sql: `UPDATE staged_datasets SET removed_at = ?, removed_reason = 'capacity', row_count = 0, byte_size = 0 WHERE id = ? AND app_id = ?`,
         args: [now, victimId, options.appId],
       });
     }
@@ -659,7 +660,7 @@ export async function deleteStagedDataset(options: {
   return withDbTransaction(db, async (tx) => {
     await lockStagedDatasetApp(tx, options.appId);
     const removed = await tx.execute({
-      sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ? AND removed_at IS NULL`,
+      sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
       args: [options.id, options.appId, options.ownerEmail],
     });
     if (removed.rowsAffected === 0) return false;
