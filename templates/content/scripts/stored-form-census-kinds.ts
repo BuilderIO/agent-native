@@ -1,0 +1,587 @@
+import { createHash } from "node:crypto";
+
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+
+import { canonicalizeNfm, nfmToDoc, type PMNode } from "../shared/nfm.js";
+
+// Pure classification for the stored-form census: what kind of difference
+// separates a stored body from `canonicalizeNfm(body)`, and whether
+// canonicalizing would lose anything. Nothing here returns page text.
+
+export type BodyClassification =
+  | { status: "canonical"; losses: string[] }
+  | { status: "failed" }
+  | {
+      status: "non-canonical";
+      canonical: string;
+      kinds: string[];
+      losses: string[];
+      idempotence: "idempotent" | "changes" | "throws";
+    };
+
+type Normalizer = { kind: string; apply: (text: string) => string };
+
+const PIPE_ROW = /^\s*\|.*\|\s*$/;
+
+// Order matters only for which kinds a hunk is first tried with; every hunk
+// is pruned to the smallest set of these that still explains it. Line-shape
+// rules run before inline ones so `___` reads as a divider, not emphasis.
+const NORMALIZERS: Normalizer[] = [
+  {
+    kind: "trailing-whitespace",
+    apply: (text) => text.replace(/[ \t]+$/gm, ""),
+  },
+  {
+    kind: "blank-lines",
+    apply: (text) => text.replace(/^[ \t]*\n/gm, ""),
+  },
+  {
+    kind: "thematic-break",
+    apply: (text) =>
+      text.replace(/^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, "---"),
+  },
+  {
+    kind: "code-fence",
+    apply: (text) => text.replace(/^([ \t]*)~{3,}/gm, "$1```"),
+  },
+  {
+    kind: "list-markers",
+    apply: (text) =>
+      text
+        .replace(/^([ \t]*)[*+](?=[ \t])/gm, "$1-")
+        .replace(/^([ \t]*)\d{1,9}([.)])(?=[ \t])/gm, "$11."),
+  },
+  {
+    // The body escaped a character Content does not treat as escapable, so
+    // the canonical form keeps the backslash as text and escapes it.
+    kind: "escape-kept-as-backslash",
+    apply: (text) => text.replace(/\\\\/g, "\\"),
+  },
+  {
+    kind: "backslash-escapes",
+    apply: (text) => text.replace(/\\([!-/:-@[-`{-~])/g, "$1"),
+  },
+  {
+    kind: "indentation",
+    apply: (text) => text.replace(/^[ \t]+/gm, ""),
+  },
+  {
+    kind: "table-cell-spacing",
+    apply: (text) =>
+      text
+        .split("\n")
+        .map((line) =>
+          PIPE_ROW.test(line) ? line.replace(/[ \t]*\|[ \t]*/g, "|") : line,
+        )
+        .join("\n"),
+  },
+  {
+    kind: "emphasis-markers",
+    apply: (text) =>
+      text
+        .replace(/__(?=\S)([^_\n]*?\S)__/g, "**$1**")
+        .replace(/(^|[^\w*])_(?=\S)([^_\n]*?\S)_(?![\w])/g, "$1*$2*"),
+  },
+  {
+    kind: "html-entities",
+    apply: (text) =>
+      text
+        .replace(/&nbsp;/g, " ")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, "&"),
+  },
+  {
+    kind: "inline-spacing",
+    apply: (text) => text.replace(/(\S)[ \t]{2,}(?=\S)/g, "$1 "),
+  },
+];
+
+type Hunk = { removed: string[]; added: string[] };
+
+const MAX_DIFF_CELLS = 4_000_000;
+
+/** Line hunks between two texts; a middle too large to align is one hunk. */
+export function diffLineHunks(before: string[], after: string[]): Hunk[] {
+  let start = 0;
+  while (
+    start < before.length &&
+    start < after.length &&
+    before[start] === after[start]
+  )
+    start += 1;
+  let endBefore = before.length;
+  let endAfter = after.length;
+  while (
+    endBefore > start &&
+    endAfter > start &&
+    before[endBefore - 1] === after[endAfter - 1]
+  ) {
+    endBefore -= 1;
+    endAfter -= 1;
+  }
+  const a = before.slice(start, endBefore);
+  const b = after.slice(start, endAfter);
+  if (a.length === 0 && b.length === 0) return [];
+  if (a.length === 0 || b.length === 0 || a.length * b.length > MAX_DIFF_CELLS)
+    return [{ removed: a, added: b }];
+
+  const width = b.length + 1;
+  const lcs = new Uint32Array((a.length + 1) * width);
+  for (let i = a.length - 1; i >= 0; i -= 1) {
+    for (let j = b.length - 1; j >= 0; j -= 1) {
+      lcs[i * width + j] =
+        a[i] === b[j]
+          ? lcs[(i + 1) * width + j + 1] + 1
+          : Math.max(lcs[(i + 1) * width + j], lcs[i * width + j + 1]);
+    }
+  }
+  const hunks: Hunk[] = [];
+  let current: Hunk | null = null;
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      current = null;
+      i += 1;
+      j += 1;
+      continue;
+    }
+    current ??= hunks[hunks.push({ removed: [], added: [] }) - 1];
+    if (
+      j >= b.length ||
+      (i < a.length && lcs[(i + 1) * width + j] >= lcs[i * width + j + 1])
+    ) {
+      current.removed.push(a[i]);
+      i += 1;
+    } else {
+      current.added.push(b[j]);
+      j += 1;
+    }
+  }
+  return hunks;
+}
+
+function applyOnce(normalizers: readonly Normalizer[], text: string): string {
+  return normalizers.reduce(
+    (value, normalizer) => normalizer.apply(value),
+    text,
+  );
+}
+
+// Kinds are tried greedily first and, when that fails, as every small subset,
+// because one kind can block another (`~~~` turned into a fence hides that
+// the canonical form escaped it). Each normalizer runs once: repeating them
+// would let `backslash-escapes` unescape its own output and swallow
+// `escape-kept-as-backslash`.
+const MAX_SEARCHED_KINDS = 3;
+const MAX_SEARCHED_HUNK_CHARS = 20_000;
+
+function* subsetsOfSize(size: number, from = 0): Generator<Normalizer[]> {
+  if (size === 0) {
+    yield [];
+    return;
+  }
+  for (let index = from; index <= NORMALIZERS.length - size; index += 1) {
+    for (const rest of subsetsOfSize(size - 1, index + 1))
+      yield [NORMALIZERS[index], ...rest];
+  }
+}
+
+/** The smallest set of difference kinds that turns `removed` into `added`. */
+export function explainHunk(hunk: Hunk): string[] {
+  // Each line keeps its terminator so a hunk that only drops blank lines
+  // still differs from an empty one.
+  const removed = hunk.removed.map((line) => `${line}\n`).join("");
+  const added = hunk.added.map((line) => `${line}\n`).join("");
+  if (
+    hunk.removed.some((line) => PIPE_ROW.test(line)) &&
+    hunk.added.some((line) => /<table\b/.test(line))
+  ) {
+    return ["gfm-pipe-table-to-content-table"];
+  }
+  const explains = (normalizers: readonly Normalizer[]) =>
+    applyOnce(normalizers, removed) === applyOnce(normalizers, added);
+
+  let a = removed;
+  let b = added;
+  const used: Normalizer[] = [];
+  for (const normalizer of NORMALIZERS) {
+    if (a === b) break;
+    const nextA = normalizer.apply(a);
+    const nextB = normalizer.apply(b);
+    if (nextA === a && nextB === b) continue;
+    used.push(normalizer);
+    a = nextA;
+    b = nextB;
+  }
+  if (a === b) {
+    for (const normalizer of [...used]) {
+      const rest = used.filter((candidate) => candidate !== normalizer);
+      if (explains(rest)) used.splice(used.indexOf(normalizer), 1);
+    }
+    return used.map((normalizer) => normalizer.kind);
+  }
+  if (removed.length + added.length > MAX_SEARCHED_HUNK_CHARS)
+    return ["unclassified-too-large-to-search"];
+  for (let size = 1; size <= MAX_SEARCHED_KINDS; size += 1) {
+    for (const subset of subsetsOfSize(size))
+      if (explains(subset)) return subset.map((normalizer) => normalizer.kind);
+  }
+  return ["unclassified"];
+}
+
+export function differenceKinds(body: string, canonical: string): string[] {
+  const kinds = new Set<string>();
+  let source = body;
+  if (/\r/.test(source)) {
+    kinds.add("line-endings");
+    source = source.replace(/\r\n?/g, "\n");
+  }
+  for (const hunk of diffLineHunks(source.split("\n"), canonical.split("\n"))) {
+    for (const kind of explainHunk(hunk)) kinds.add(kind);
+  }
+  return [...kinds].sort();
+}
+
+type MdNode = {
+  type: string;
+  depth?: number;
+  value?: string;
+  children?: MdNode[];
+  position?: { start: { offset?: number } };
+};
+
+/**
+ * What one reader sees in a body. Marks count runs, not text nodes, and code
+ * counts fenced blocks only: Content writes indented children with tabs,
+ * which a GFM reader would otherwise count as indented code.
+ */
+type ReadProfile = {
+  tokens: Map<string, number>;
+  backslashes: number;
+  marks: Record<(typeof MARKS)[number], number>;
+  listItems: number;
+  nestedListItems: number;
+  headings: number;
+  tables: number;
+  fencedCode: number;
+  blockquotes: number;
+  images: number;
+};
+
+const MARKS = ["strong", "emphasis", "delete", "inlineCode", "link"] as const;
+
+const NFM_MARK: Record<string, (typeof MARKS)[number]> = {
+  bold: "strong",
+  italic: "emphasis",
+  strike: "delete",
+  code: "inlineCode",
+  link: "link",
+};
+
+const TOKEN = /[\p{L}\p{N}]+/gu;
+
+function emptyProfile(): ReadProfile {
+  return {
+    tokens: new Map(),
+    backslashes: 0,
+    marks: Object.fromEntries(
+      MARKS.map((mark) => [mark, 0]),
+    ) as ReadProfile["marks"],
+    listItems: 0,
+    nestedListItems: 0,
+    headings: 0,
+    tables: 0,
+    fencedCode: 0,
+    blockquotes: 0,
+    images: 0,
+  };
+}
+
+function addTokens(profile: ReadProfile, text: string) {
+  for (const token of text.matchAll(TOKEN)) {
+    const key = token[0].toLowerCase();
+    profile.tokens.set(key, (profile.tokens.get(key) ?? 0) + 1);
+  }
+}
+
+function addText(profile: ReadProfile, text: string) {
+  addTokens(profile, text);
+  profile.backslashes += text.split("\\").length - 1;
+}
+
+const gfmReader = unified().use(remarkParse).use(remarkGfm);
+
+// Content's own syntax, which no agent writes as prose: tags such as
+// `<callout>` or `<table_of_contents/>` and trailing `{color="red"}` block
+// attributes. A GFM reader would count their names as words Content dropped.
+// A line holding only tags becomes an HTML comment rather than a blank line,
+// so the tab-indented children after it cannot continue a list above it.
+const NFM_TAG = String.raw`<\/?[A-Za-z][\w-]*(?:\s+[\w-]+(?:="[^"]*")?)*\s*\/?>`;
+const NFM_TAG_LINE = new RegExp(
+  String.raw`^([ \t]*)(?:${NFM_TAG}[ \t]*)+$`,
+  "gm",
+);
+const NFM_INLINE_TAG = new RegExp(NFM_TAG, "g");
+const NFM_BLOCK_ATTRIBUTES =
+  /(^|[^\\])[ \t]*\{[a-z][\w-]*="[^"]*"(?:[ \t]+[a-z][\w-]*="[^"]*")*\}[ \t]*$/gm;
+
+/** What a GitHub-flavored Markdown reader sees, which is how agents write. */
+function gfmProfile(body: string): ReadProfile {
+  const markdown = body
+    .replace(NFM_TAG_LINE, "$1<!-- -->")
+    .replace(NFM_INLINE_TAG, " ")
+    .replace(NFM_BLOCK_ATTRIBUTES, "$1");
+  const profile = emptyProfile();
+  const walk = (node: MdNode, listDepth: number) => {
+    if (
+      node.type !== "link" &&
+      (MARKS as readonly string[]).includes(node.type)
+    )
+      profile.marks[node.type as (typeof MARKS)[number]] += 1;
+    switch (node.type) {
+      case "text":
+      case "inlineCode":
+        addText(profile, node.value ?? "");
+        break;
+      case "link":
+      case "linkReference": {
+        // A bare URL that GFM links by itself is a display choice, not markup
+        // the writer chose, so only `[text](url)`, `[text][ref]` and `<url>`
+        // count.
+        const first = markdown[node.position?.start.offset ?? 0];
+        if (first === "[" || first === "<") profile.marks.link += 1;
+        break;
+      }
+      case "code": {
+        addText(profile, node.value ?? "");
+        const offset = node.position?.start.offset ?? 0;
+        if (/^[ \t]*(?:`{3,}|~{3,})/.test(markdown.slice(offset, offset + 64)))
+          profile.fencedCode += 1;
+        break;
+      }
+      case "html":
+        if (/<table\b/i.test(node.value ?? "")) profile.tables += 1;
+        break;
+      case "heading": {
+        // `Text` over `---` is how Content writes a paragraph then a divider.
+        const offset = node.position?.start.offset ?? 0;
+        const isSetextTwo =
+          node.depth === 2 &&
+          !/^[ \t]*#/.test(markdown.slice(offset, offset + 8));
+        if (!isSetextTwo) profile.headings += 1;
+        break;
+      }
+      case "table":
+        profile.tables += 1;
+        break;
+      case "blockquote":
+        profile.blockquotes += 1;
+        break;
+      case "image":
+      case "imageReference":
+        profile.images += 1;
+        break;
+      case "listItem":
+        profile.listItems += 1;
+        if (listDepth > 1) profile.nestedListItems += 1;
+        break;
+    }
+    const childDepth = node.type === "list" ? listDepth + 1 : listDepth;
+    for (const child of node.children ?? []) walk(child, childDepth);
+  };
+  walk(gfmReader.parse(markdown) as MdNode, 0);
+  return profile;
+}
+
+/**
+ * What Content's own reader keeps of a body. Words held in attributes, such
+ * as a toggle's summary or an equation's LaTeX, count as kept.
+ */
+function nfmProfile(document: PMNode): ReadProfile {
+  const profile = emptyProfile();
+  const addAttributeWords = (attrs: Record<string, unknown> | undefined) => {
+    for (const value of Object.values(attrs ?? {}))
+      if (typeof value === "string") addTokens(profile, value);
+  };
+  const walk = (node: PMNode, listDepth: number) => {
+    if (typeof node.text === "string") addText(profile, node.text);
+    addAttributeWords(node.attrs);
+    for (const mark of node.marks ?? []) addAttributeWords(mark.attrs);
+    switch (node.type) {
+      case "heading":
+        profile.headings += 1;
+        break;
+      case "notionToggle":
+        if (node.attrs?.headingLevel) profile.headings += 1;
+        break;
+      case "table":
+        profile.tables += 1;
+        break;
+      case "codeBlock":
+        profile.fencedCode += 1;
+        break;
+      case "blockquote":
+        profile.blockquotes += 1;
+        break;
+      case "image":
+        profile.images += 1;
+        break;
+      case "listItem":
+      case "taskItem":
+        profile.listItems += 1;
+        if (listDepth > 1) profile.nestedListItems += 1;
+        break;
+    }
+    const children = node.content ?? [];
+    let open = new Set<(typeof MARKS)[number]>();
+    for (const child of children) {
+      const present = new Set(
+        (child.marks ?? []).flatMap((mark) =>
+          NFM_MARK[mark.type] ? [NFM_MARK[mark.type]] : [],
+        ),
+      );
+      for (const mark of present) if (!open.has(mark)) profile.marks[mark] += 1;
+      open = present;
+    }
+    const isList = ["bulletList", "orderedList", "taskList"].includes(
+      node.type,
+    );
+    for (const child of children)
+      walk(child, isList ? listDepth + 1 : listDepth);
+  };
+  walk(document, 0);
+  return profile;
+}
+
+function editorText(document: PMNode): string {
+  // Comment anchors are captured from this text: every text node joined with
+  // no separator, the way the editor's buildDocText reads the document.
+  let text = "";
+  const walk = (node: PMNode) => {
+    if (typeof node.text === "string") text += node.text;
+    node.content?.forEach(walk);
+  };
+  walk(document);
+  return text;
+}
+
+/**
+ * What canonicalizing `body` would lose. `gfm-*` losses are content a
+ * GitHub-flavored reader sees in the stored body, which is how agents write
+ * it, that Content's reading of the canonical form does not keep; a body can
+ * be byte-for-byte canonical and still lose this. They are counts, not an
+ * alignment, so they err toward missing a loss rather than inventing one.
+ * `nfm-*` losses are changes canonicalizing makes to the document Content's
+ * own reader parsed.
+ */
+export function canonicalizationLosses(
+  body: string,
+  canonical: string,
+): string[] {
+  const losses: string[] = [];
+  const parsedCanonical = nfmToDoc(canonical);
+  if (canonical !== body) {
+    const parsedBody = nfmToDoc(body);
+    if (JSON.stringify(parsedBody) !== JSON.stringify(parsedCanonical)) {
+      losses.push(
+        editorText(parsedBody) === editorText(parsedCanonical)
+          ? "nfm-structure-changed"
+          : "nfm-text-changed",
+      );
+    }
+  }
+  const meant = gfmProfile(body);
+  const kept = nfmProfile(parsedCanonical);
+  for (const [token, count] of meant.tokens) {
+    if ((kept.tokens.get(token) ?? 0) < count) {
+      losses.push("gfm-text-dropped");
+      break;
+    }
+  }
+  if (kept.backslashes > meant.backslashes)
+    losses.push("gfm-escape-shown-literally");
+  for (const mark of MARKS) {
+    if (kept.marks[mark] < meant.marks[mark])
+      losses.push(`gfm-${mark}-dropped`);
+  }
+  if (kept.nestedListItems < meant.nestedListItems)
+    losses.push("gfm-list-nesting-lost");
+  if (kept.listItems < meant.listItems) losses.push("gfm-list-items-lost");
+  if (kept.headings < meant.headings) losses.push("gfm-headings-lost");
+  if (kept.tables < meant.tables) losses.push("gfm-tables-lost");
+  if (kept.fencedCode < meant.fencedCode) losses.push("gfm-code-blocks-lost");
+  if (kept.blockquotes < meant.blockquotes) losses.push("gfm-blockquotes-lost");
+  if (kept.images < meant.images) losses.push("gfm-images-lost");
+  return losses;
+}
+
+export function classifyBody(body: string): BodyClassification {
+  let canonical: string;
+  try {
+    canonical = canonicalizeNfm(body);
+  } catch {
+    return { status: "failed" };
+  }
+  const losses = canonicalizationLosses(body, canonical);
+  if (canonical === body) return { status: "canonical", losses };
+  let idempotence: "idempotent" | "changes" | "throws";
+  try {
+    idempotence =
+      canonicalizeNfm(canonical) === canonical ? "idempotent" : "changes";
+  } catch {
+    idempotence = "throws";
+  }
+  return {
+    status: "non-canonical",
+    canonical,
+    kinds: differenceKinds(body, canonical),
+    losses,
+    idempotence,
+  };
+}
+
+/** Whether a comment's quote can still be found in the page's editor text. */
+export function quoteAnchors(markdown: string): (quote: string) => boolean {
+  const text = editorText(nfmToDoc(markdown));
+  return (quote) => text.includes(quote);
+}
+
+const CANONICALIZER_PROBES = [
+  "Plain paragraph",
+  "snake\\_case and \\*stars\\*",
+  "__bold__ and _em_ and *em*",
+  "- a\n    - four-space child\n  - two-space child",
+  "* star\n+ plus\n3. three",
+  "| a | b |\n|---|---|\n|  edge  | x |",
+  "Price $60 and 50%",
+  "Line one\r\nLine two\r\n",
+  "~~~\ncode\n~~~",
+  "***",
+  "<https://example.com>",
+  "Heading\n=======",
+  "a  b",
+];
+
+/**
+ * Identifies the canonicalizer behavior a report was made with, so a re-run
+ * after a canonicalizer change can be told apart from one before it.
+ */
+export function canonicalizerFingerprint(): string {
+  const hash = createHash("sha256");
+  for (const probe of CANONICALIZER_PROBES) {
+    let output: string;
+    try {
+      output = canonicalizeNfm(probe);
+    } catch (error) {
+      output = `!${error instanceof Error ? error.name : "error"}`;
+    }
+    hash.update(`${probe}\u0000${output}\u0000`);
+  }
+  return hash.digest("hex").slice(0, 16);
+}
