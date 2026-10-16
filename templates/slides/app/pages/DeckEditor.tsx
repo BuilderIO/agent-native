@@ -827,6 +827,9 @@ export default function DeckEditor() {
     waitingOnQuestions: false,
     generating: false,
   });
+  const generationLifecycleEpochRef = useRef(0);
+  const [generationSettlementRevision, setGenerationSettlementRevision] =
+    useState(0);
   if (isNewDeckGenerationRoute) {
     wasNewDeckCreation.current = true;
   }
@@ -2065,6 +2068,13 @@ export default function DeckEditor() {
   const waitingOnNewDeckQuestions =
     showQuestionFlow || questionContinuationPending;
   useLayoutEffect(() => {
+    const previous = generationLifecyclePauseRef.current;
+    if (
+      (waitingOnNewDeckQuestions && !previous.waitingOnQuestions) ||
+      (newDeckGenerationSignal && !previous.generating)
+    ) {
+      generationLifecycleEpochRef.current += 1;
+    }
     generationLifecyclePauseRef.current = {
       waitingOnQuestions: waitingOnNewDeckQuestions,
       generating: newDeckGenerationSignal,
@@ -2108,6 +2118,8 @@ export default function DeckEditor() {
       return;
     }
     generationSettlingAttemptRef.current = generationAttemptId;
+    const settlementLifecycleEpoch =
+      generationLifecycleEpochRef.current + generationSettlementRevision;
     let pausedForQuestionOrRun = false;
     const getGenerationFailureContext = () => {
       const latestDeck = getDeckLatest(id);
@@ -2130,8 +2142,12 @@ export default function DeckEditor() {
     const getGenerationFailurePrompt = (context: unknown) =>
       getOriginalGenerationPrompt(context, generationRetryPrompt);
     const pauseSettlementForQuestionOrRun = (pendingQuestionCheck = false) => {
+      const lifecycleResumed =
+        generationLifecycleEpochRef.current + generationSettlementRevision !==
+        settlementLifecycleEpoch;
       if (
         !pendingQuestionCheck &&
+        !lifecycleResumed &&
         !generationLifecyclePauseRef.current.waitingOnQuestions &&
         !generationLifecyclePauseRef.current.generating
       ) {
@@ -2141,9 +2157,13 @@ export default function DeckEditor() {
       generationSettlingAttemptRef.current = null;
       return true;
     };
-    const persistUnresolvedGuidedQuestionCheck = async (
-      refreshedSlides: readonly Slide[] | null,
-    ) => {
+    const resumeSettlementAfterPausedSave = () => {
+      if (!pauseSettlementForQuestionOrRun()) return;
+      generationTerminalAttemptRef.current = null;
+      wasNewDeckCreation.current = true;
+      setGenerationSettlementRevision((revision) => revision + 1);
+    };
+    const persistUnresolvedGuidedQuestionCheck = async () => {
       trackEvent("generation_outcome_unresolved", {
         app_name: "slides",
         template_name: "slides",
@@ -2164,10 +2184,7 @@ export default function DeckEditor() {
       const contextForFailure = getGenerationFailureContext();
 
       const failureCode = "outcome_unresolved";
-      const failureSlidesFingerprint =
-        refreshedSlides === null
-          ? null
-          : partialGenerationFailureSlidesFingerprint(refreshedSlides);
+      const failureSlidesFingerprint = null;
       const originalPrompt = getGenerationFailurePrompt(contextForFailure);
       updateDeck(id, {
         generationContext: {
@@ -2220,8 +2237,7 @@ export default function DeckEditor() {
     };
     void (async () => {
       try {
-        const initialOutcomeRefreshResult =
-          await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
+        await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
@@ -2243,12 +2259,8 @@ export default function DeckEditor() {
           return;
         }
         if (pendingQuestionCheck.status === "error") {
-          await persistUnresolvedGuidedQuestionCheck(
-            initialOutcomeRefreshResult.status === "ready"
-              ? initialOutcomeRefreshResult.deck.slides
-              : null,
-          );
-          pauseSettlementForQuestionOrRun();
+          await persistUnresolvedGuidedQuestionCheck();
+          resumeSettlementAfterPausedSave();
           return;
         }
         const outcomeRefreshResult = await refreshDeckForGenerationOutcome(
@@ -2277,12 +2289,8 @@ export default function DeckEditor() {
           return;
         }
         if (finalPendingQuestionCheck.status === "error") {
-          await persistUnresolvedGuidedQuestionCheck(
-            outcomeRefreshResult.status === "ready"
-              ? outcomeRefreshResult.deck.slides
-              : null,
-          );
-          pauseSettlementForQuestionOrRun();
+          await persistUnresolvedGuidedQuestionCheck();
+          resumeSettlementAfterPausedSave();
           return;
         }
         const generationEndedAt = Date.now();
@@ -2367,6 +2375,7 @@ export default function DeckEditor() {
           } catch {
             toast.error(t("editorSidebar.newSlideSaveFailed"));
           }
+          resumeSettlementAfterPausedSave();
           return;
         }
         const settledSlideCount = outcomeRefreshResult.deck.slides.length;
@@ -2515,6 +2524,7 @@ export default function DeckEditor() {
     attemptRunError,
     attemptStopReason,
     attemptTimedOut,
+    generationSettlementRevision,
     id,
     newDeckGenerationSignal,
     refreshOpenDeck,

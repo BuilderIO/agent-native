@@ -887,18 +887,6 @@ describe("DeckEditor generation signal wiring", () => {
       generationFailureAttemptId: "attempt-1",
       originalPrompt,
     });
-    expect(
-      JSON.parse(
-        window.localStorage.getItem(
-          "slides:empty-generation-retry-recovery:deck-1",
-        )!,
-      ),
-    ).toMatchObject({
-      kind: "generation_failure",
-      attemptId: "attempt-1",
-      failureCode: "outcome_unresolved",
-      failureSlidesFingerprint: expect.any(String),
-    });
     expect(trackEvent).not.toHaveBeenCalledWith(
       "generation_failed",
       expect.anything(),
@@ -957,11 +945,235 @@ describe("DeckEditor generation signal wiring", () => {
     );
   });
 
+  it("rechecks guided questions when the generation run resumes during recovery saving", async () => {
+    const originalPrompt = "Make a deck about sustainable product design.";
+    let resolveFailureSave!: () => void;
+    const failureSave = new Promise<void>((resolve) => {
+      resolveFailureSave = resolve;
+    });
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
+    mocks.flushDeckSave.mockImplementationOnce(() => failureSave);
+    mocks.guidedQuestionRefetchPending
+      .mockImplementationOnce(async () => ({
+        status: "error",
+        error: new Error("question check failed"),
+      }))
+      .mockImplementation(async () => ({ status: "none" }));
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+    mocks.attemptGenerating = true;
+    act(publishAgentGeneratingChange);
+    expect(screen.getByTestId("generating-preview")).toBeTruthy();
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mocks.clearStartedGenerationAttempt).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveFailureSave();
+      await failureSave;
+    });
+
+    await waitFor(() =>
+      expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(3),
+    );
+    await waitFor(() =>
+      expect(mocks.clearStartedGenerationAttempt).toHaveBeenCalledWith(
+        "attempt-1",
+        "deck-1",
+      ),
+    );
+  });
+
+  it("uses a fresh slide baseline when the guided-question check fails after slides arrive", async () => {
+    const originalPrompt = "Make a deck about sustainable product design.";
+    const earlierSlides = [{ id: "earlier-slide", content: "Old snapshot" }];
+    const currentSlides = [{ id: "current-slide", content: "New snapshot" }];
+    let resolveQuestionCheck!: (result: {
+      status: "error";
+      error: Error;
+    }) => void;
+    const questionCheck = new Promise<{
+      status: "error";
+      error: Error;
+    }>((resolve) => {
+      resolveQuestionCheck = resolve;
+    });
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
+    mocks.refreshOpenDeck.mockResolvedValueOnce({
+      ...mocks.deck,
+      slides: earlierSlides,
+    });
+    mocks.guidedQuestionRefetchPending.mockImplementationOnce(
+      () => questionCheck,
+    );
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(1),
+    );
+    mocks.deck.slides = currentSlides;
+    await act(async () => {
+      resolveQuestionCheck({
+        status: "error",
+        error: new Error("question check failed"),
+      });
+      await questionCheck;
+    });
+
+    const currentFingerprint =
+      partialGenerationFailureSlidesFingerprint(currentSlides);
+    const earlierFingerprint =
+      partialGenerationFailureSlidesFingerprint(earlierSlides);
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        originalPrompt,
+        generationFailureCode: "outcome_unresolved",
+        generationFailureSlidesFingerprint: currentFingerprint,
+      }),
+    );
+    expect(mocks.deck.generationContext).not.toMatchObject({
+      generationFailureSlidesFingerprint: earlierFingerprint,
+    });
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+  });
+
+  it("re-settles a run that resumed while an unknown outcome save was pending", async () => {
+    const originalPrompt = "Make a deck about sustainable product design.";
+    let resolveFailureSave!: () => void;
+    const failureSave = new Promise<void>((resolve) => {
+      resolveFailureSave = resolve;
+    });
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
+    mocks.refreshOpenDeck.mockRejectedValue(
+      new Error("deck refresh unavailable"),
+    );
+    mocks.flushDeckSave.mockImplementationOnce(() => failureSave);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    mocks.attemptRunError = true;
+    mocks.attemptRunErrorCode = "write_tool_outcome_unknown";
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+    expect(mocks.deck.generationContext).toMatchObject({
+      originalPrompt,
+      generationFailureCode: "outcome_unresolved",
+    });
+    await waitFor(() => expect(router?.state.location.search).toBe(""));
+
+    mocks.attemptGenerating = true;
+    mocks.attemptRunError = false;
+    mocks.attemptRunErrorCode = null;
+    act(publishAgentGeneratingChange);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: "deckEditor.checkedDeckTryAgain",
+        }),
+      ).toBeNull(),
+    );
+    expect(screen.getByTestId("generating-preview")).toBeTruthy();
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveFailureSave();
+      await failureSave;
+    });
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mocks.clearStartedGenerationAttempt).toHaveBeenCalledWith(
+        "attempt-1",
+        "deck-1",
+      ),
+    );
+  });
+
   it("keeps the prompt recoverable when context is missing and saving fails", async () => {
     const originalPrompt = "Make a deck about sustainable product design.";
     mocks.deck.generationContext =
       null as unknown as typeof mocks.deck.generationContext;
     mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+    mocks.refreshOpenDeck.mockRejectedValue(
+      new Error("deck refresh unavailable"),
+    );
     mocks.guidedQuestionRefetchPending.mockResolvedValue({
       status: "error",
       error: new Error("question check failed"),
@@ -2039,7 +2251,9 @@ describe("DeckEditor generation signal wiring", () => {
   it("retries an unknown snapshot refresh so the saved-prompt retry can proceed", async () => {
     vi.useFakeTimers();
     const staleSlides = [{ id: "pre-refresh-slide", content: "Old snapshot" }];
-    const refreshedSlides: typeof mocks.deck.slides = [];
+    const refreshedSlides: Parameters<
+      typeof partialGenerationFailureSlidesFingerprint
+    >[0] = [];
     mocks.broadGenerating = false;
     mocks.deck.generationContext = {
       ...mocks.deck.generationContext,
