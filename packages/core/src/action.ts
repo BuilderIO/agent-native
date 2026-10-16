@@ -1,10 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
   actionCallReadOnly,
   actionOutputEffect,
 } from "./action-call-classification.js";
+import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
   buildActionMcpOutputContract,
   describeOutputContractIssue,
