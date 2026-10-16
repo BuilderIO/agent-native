@@ -135,6 +135,41 @@ describe("pending lookback cleanup intents", () => {
     expect(state.pendingRecordingIds.size).toBe(0);
   });
 
+  it("recovers at most one missing context ID per poll", async () => {
+    const storage = memoryStorage();
+    persistPendingLookbackCleanupIntent(storage, serverUrl, account, request);
+    persistPendingLookbackCleanupIntent(storage, serverUrl, account, {
+      ...request,
+      recordingId: "recording-2",
+    });
+    const requestItem = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "context-1" })
+      .mockResolvedValueOnce({ id: "context-2" });
+
+    const firstPoll = await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      requestItem,
+    });
+
+    expect(requestItem).toHaveBeenCalledOnce();
+    expect(firstPoll.pendingRecordingIds).toEqual(new Set(["recording-2"]));
+
+    const secondPoll = await retryPendingLookbackCleanupIntents({
+      storage,
+      serverUrl,
+      account,
+      target: { serverUrl, authToken: "current-token" },
+      requestItem,
+    });
+
+    expect(requestItem).toHaveBeenCalledTimes(2);
+    expect(secondPoll.pendingRecordingIds.size).toBe(0);
+  });
+
   it("keeps the intent and warning when request recovery fails", async () => {
     const storage = memoryStorage();
     persistPendingLookbackCleanupIntent(storage, serverUrl, account, request);

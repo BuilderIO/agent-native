@@ -511,8 +511,8 @@ describe("native recording startup", () => {
       "rewind-suspended",
       "screen-warm",
       "microphone",
-      "capture-start-requested",
       "begin",
+      "capture-start-requested",
     ]);
     const origin = getRewindClipOrigin(recordingId);
     if (!origin) throw new Error("recording origin was not saved");
@@ -715,7 +715,7 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
   });
 
-  it("marks Rewind capture as requested before its start IPC resolves", async () => {
+  it("marks Rewind capture as requested after its start IPC resolves", async () => {
     const rewindStart = deferred<void>();
     nativeCommands.set("rewind_clip_status", async () => ({
       compatibility: "compatible",
@@ -733,10 +733,11 @@ describe("native recording startup", () => {
     await flush();
 
     expect(calls("rewind_clip_start")).toHaveLength(1);
-    expect(onCaptureStartRequested).toHaveBeenCalledWith(createdRecordingId());
+    expect(onCaptureStartRequested).not.toHaveBeenCalled();
 
     rewindStart.resolve();
     const handle = await pending;
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(createdRecordingId());
     await handle.cancel();
   });
 
@@ -1096,7 +1097,7 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
   });
 
-  it("marks native begin as requested before its IPC response arrives", async () => {
+  it("marks native capture as requested after its begin IPC response arrives", async () => {
     const begin = deferred<void>();
     nativeCommands.set(
       "native_fullscreen_recording_begin",
@@ -1108,13 +1109,14 @@ describe("native recording startup", () => {
     await vi.advanceTimersByTimeAsync(3_600);
 
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(onCaptureStartRequested).not.toHaveBeenCalled();
+
+    begin.resolve();
+    const handle = await pending;
     expect(onCaptureStartRequested).toHaveBeenCalledWith(
       createdRecordingId(),
       createdRecordingId(),
     );
-
-    begin.resolve();
-    const handle = await pending;
     await handle.cancel();
   });
 

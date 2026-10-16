@@ -127,6 +127,31 @@ describe("requestRecordingContext", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("bounds temporary retries so failed-stop cleanup can recover on a later poll", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "Temporary failure" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = requestRecordingContext(target, {
+      recordingId: "rec1",
+      seconds: 30,
+      endedAt: "2026-10-09T10:00:00.000Z",
+      deviceId: "device-1",
+    });
+    const rejected = expect(request).rejects.toMatchObject({ status: 503 });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejected;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps cleanup retries bounded to the caller's persisted schedule", async () => {
     const fetchMock = stubFetch({ error: "Temporary failure" }, 503);
 

@@ -13,6 +13,7 @@ import {
 } from "./pending-lookback-removal";
 
 const STORAGE_KEY_PREFIX = "clips:lookback-pending-cleanup-intents:v1";
+const MAX_CONTEXT_REQUEST_RECOVERIES_PER_POLL = 1;
 
 export interface PendingLookbackCleanupIntent {
   request: RecordingContextRequestInput;
@@ -258,6 +259,7 @@ export async function retryPendingLookbackCleanupIntents(input: {
   );
   if (initial.status === "unreadable") return initial;
 
+  let contextRequestRecoveries = 0;
   for (const intent of initial.intents) {
     const recordingId = intent.request.recordingId;
     if (input.skipRecordingIds?.has(recordingId)) continue;
@@ -268,6 +270,12 @@ export async function retryPendingLookbackCleanupIntents(input: {
     try {
       let itemId = intent.itemId;
       if (!itemId) {
+        if (
+          contextRequestRecoveries >= MAX_CONTEXT_REQUEST_RECOVERIES_PER_POLL
+        ) {
+          continue;
+        }
+        contextRequestRecoveries += 1;
         let item: { id: string };
         try {
           item = await input.requestItem(input.target, intent.request);

@@ -246,6 +246,7 @@ export interface StartParams {
   pendingTranscriptionTeardown?: Promise<void> | null;
   countdownAttemptId?: string;
   onCaptureIdentityAvailable?: (captureIdentity: string) => void;
+  onCaptureStartAttempted?: (recordingId: string | null) => void;
   onCaptureStartRequested?: (
     recordingId: string | null,
     captureIdentity?: string | null,
@@ -3300,14 +3301,17 @@ async function tryStartRewindFullscreenRecording(
       async activate(preparedRecording) {
         throwIfRecordingStartAborted(params.signal);
         const activationStarted = performance.now();
+        params.onCaptureStartAttempted?.(
+          localOnly ? null : preparedRecording.id || null,
+        );
         const startPromise =
           invoke<RewindClipBackendStatus>("rewind_clip_start");
+        await guardRecordingStart(startPromise, { signal: params.signal });
         if (localOnly) {
           params.onCaptureStartRequested?.(null, preparedRecording.id || null);
         } else {
           params.onCaptureStartRequested?.(preparedRecording.id || null);
         }
-        await guardRecordingStart(startPromise, { signal: params.signal });
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
@@ -3920,8 +3924,8 @@ async function startNativeFullscreenRecording(
 
     await countdownPromise;
     assertStartupActive();
-    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     const beginStartedAt = Date.now();
+    params.onCaptureStartAttempted?.(localOnly ? null : id || null);
     const beginPromise = invoke("native_fullscreen_recording_begin", {
       recordingId: id,
       ...captureParams,
@@ -3930,6 +3934,7 @@ async function startNativeFullscreenRecording(
     });
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();
+    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );
@@ -4586,6 +4591,9 @@ export async function startRecording(
     {
       ...recordingParams,
       signal: startController.signal,
+      onCaptureStartAttempted: (recordingId) => {
+        requestedRecordingId = recordingId;
+      },
       onCaptureStartRequested: (recordingId, captureIdentity) => {
         requestedRecordingId = recordingId;
         if (recordingId) rememberRewindClipOriginForStart(recordingId, params);

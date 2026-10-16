@@ -46,6 +46,7 @@ export interface PendingRecordingContextPage {
 export const LOOKBACK_ACTION_TIMEOUT_MS = 15_000;
 const RECORDING_CONTEXT_RETRY_INITIAL_DELAY_MS = 1_000;
 const RECORDING_CONTEXT_RETRY_MAX_DELAY_MS = 30_000;
+const RECORDING_CONTEXT_MAX_ATTEMPTS = 2;
 
 function callLookbackActionFor<T>(
   target: ClipsActionTarget,
@@ -119,15 +120,23 @@ async function retryRecordingContextRequest(
   input: RecordingContextRequestInput,
 ): Promise<RecordingContextItem> {
   let delayMs = RECORDING_CONTEXT_RETRY_INITIAL_DELAY_MS;
-  while (true) {
+  let attempt = 0;
+  while (attempt < RECORDING_CONTEXT_MAX_ATTEMPTS) {
+    attempt += 1;
     try {
       return await requestRecordingContextOnce(target, input);
     } catch (error) {
-      if (!isRetryableRecordingContextRequestFailure(error)) throw error;
+      if (
+        !isRetryableRecordingContextRequestFailure(error) ||
+        attempt >= RECORDING_CONTEXT_MAX_ATTEMPTS
+      ) {
+        throw error;
+      }
       await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       delayMs = Math.min(delayMs * 2, RECORDING_CONTEXT_RETRY_MAX_DELAY_MS);
     }
   }
+  throw new Error("Recording context request exhausted its retry limit");
 }
 
 export function isTerminalRecordingContextRequestFailure(
