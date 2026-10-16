@@ -471,6 +471,27 @@ describe("defineAction — PostgreSQL transaction conflicts", () => {
     },
   );
 
+  it("reports a conflict in an authorize check the same way", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "Writes a row",
+      authorize: async () => {
+        throw new Error("Failed query: select ...", {
+          cause: Object.assign(new Error("deadlock detected"), {
+            code: "40P01",
+          }),
+        });
+      },
+      run,
+    });
+    await expect(action.run({})).rejects.toMatchObject({
+      errorCode: "transaction_conflict",
+      statusCode: 409,
+      details: { sqlState: "40P01" },
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("leaves other database errors and contract errors as they were", async () => {
     const uniqueViolation = Object.assign(new Error("duplicate key"), {
       code: "23505",

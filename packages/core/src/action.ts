@@ -692,16 +692,20 @@ export function defineAction(options: any) {
           parent.descendantWriteEntered = true;
       }
     }
+    return options.run(args, ctx);
+  };
+  const accessCheckedRun =
+    typeof options.authorize === "function" || options.access
+      ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
+      : handlerRun;
+  // Access checks query the database too, so they convert the same way.
+  const guardedRun = async (args: any, ctx?: ActionRunContext) => {
     try {
-      return await options.run(args, ctx);
+      return await accessCheckedRun(args, ctx);
     } catch (error) {
       throw transactionConflictError(error) ?? error;
     }
   };
-  const guardedRun =
-    typeof options.authorize === "function" || options.access
-      ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
-      : handlerRun;
   const uiOnlyGuardedRun =
     options.uiOnly === true
       ? async (args: any, ctx?: ActionRunContext) => {
