@@ -2248,6 +2248,7 @@ export default function DeckEditor() {
               ? initialOutcomeRefreshResult.deck.slides
               : null,
           );
+          pauseSettlementForQuestionOrRun();
           return;
         }
         const outcomeRefreshResult = await refreshDeckForGenerationOutcome(
@@ -2281,6 +2282,7 @@ export default function DeckEditor() {
               ? outcomeRefreshResult.deck.slides
               : null,
           );
+          pauseSettlementForQuestionOrRun();
           return;
         }
         const generationEndedAt = Date.now();
@@ -2776,7 +2778,7 @@ export default function DeckEditor() {
         return;
       }
       const failureSlidesFingerprint =
-        partialGenerationFailureSlidesFingerprint(latestDeck.slides);
+        partialGenerationFailureSlidesFingerprint(result.deck.slides);
       const originalPrompt = getOriginalGenerationPrompt(
         latestContext,
         generationRetryPrompt,
