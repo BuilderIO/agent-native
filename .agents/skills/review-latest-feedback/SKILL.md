@@ -104,7 +104,8 @@ For eligible items, use one disposition per row; record it in the recap and, if
 unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
 **Clustered**; do not mark duplicate non-owners separately. Give a distinct
-question or update its own reaction and reply.
+question or update its own reaction and reply. If a duplicate is discovered
+after claiming, follow the reply reference for its one **Clustered** reply.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,

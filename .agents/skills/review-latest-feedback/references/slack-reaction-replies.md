@@ -23,7 +23,14 @@ earlier “looking into this” does not count.
 Identify known duplicates before claiming them. Represent duplicate non-owner
 threads by permalink and **Clustered** in one owner-thread reply. Do not react
 or reply in a non-owner thread unless a distinct question or update needs its
-own disposition.
+own disposition. If a duplicate is discovered after this run adds `👀` but
+before its disposition reply, keep the eye and use that reply to say
+**Clustered** with the owner permalink.
+
+For an open package PR, say publication follows merge without an ETA. If the
+first reply is after merge, link the PR and state verified package availability;
+if publication is pending or failed, name the next action/owner without an
+ETA. Do not post a routine second reply just to announce package publication.
 
 Read back each reaction and reply as the invoking identity before recording the
 item as replied.
