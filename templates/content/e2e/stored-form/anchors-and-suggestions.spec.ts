@@ -763,10 +763,10 @@ test.describe(
         // bytes as sent, so no lane flips this arm before the old path goes.
         off: { lane: "unowned", outcome: "SF-05", reason: AGENT_FORM_LOSS },
         on: {
-          lane: "L3",
+          lane: "L7",
           outcome: "SF-05",
           reason:
-            "On a switched page the comments stay anchored and the suggestion paints, but accepting it fails with a 500: decide-resource-suggestion writes through withPreparedYDocMutation, which refuses a live copy.",
+            "On a switched page the comments stay anchored and the suggestion paints, but until L7 accepting it fails with a 500: decide-resource-suggestion writes through withPreparedYDocMutation, which refuses a live copy.",
         },
       }),
       async ({ page, context }) => {
