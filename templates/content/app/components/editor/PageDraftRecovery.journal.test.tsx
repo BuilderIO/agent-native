@@ -217,6 +217,50 @@ describe("Page browser journal recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
+  it("leaves a SQL draft whose editor is open in another tab to that tab", async () => {
+    state.entries = [entry("other-tab", "Typed in the other tab")];
+    state.live.mockResolvedValue(new Set(["other-tab"]));
+    state.draft = {
+      version: 1,
+      title: "Saved",
+      content: "Typed in the other tab",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "other-tab",
+      editGeneration: 1,
+    };
+
+    await act(async () => render());
+
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.entries).toHaveLength(1);
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("holds a closed tab's entry behind a SQL draft whose editor is open in another tab", async () => {
+    state.entries = [
+      entry("other-tab", "Typed in the other tab"),
+      entry("closed-tab", "Typed before closing"),
+    ];
+    state.live.mockResolvedValue(new Set(["other-tab"]));
+    state.draft = {
+      version: 1,
+      title: "Saved",
+      content: "Typed in the other tab",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "other-tab",
+      editGeneration: 1,
+    };
+
+    await act(async () => render());
+
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.upsert).not.toHaveBeenCalled();
+    expect(state.entries).toHaveLength(2);
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
   it("replays a closed tab's entry past one whose editor is still open", async () => {
     state.entries = [
       entry("other-tab", "Typed in the other tab"),

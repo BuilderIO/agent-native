@@ -247,7 +247,7 @@ describe("document sidebar create recovery", () => {
       values.clear();
     });
 
-    it("skips a draft whose editor is open in another tab", async () => {
+    function writeDrafts() {
       vi.stubGlobal("window", {
         localStorage: {
           get length() {
@@ -288,11 +288,27 @@ describe("document sidebar create recovery", () => {
         snapshot: { ...snapshot, content: "Orphaned draft" },
       });
       now.mockRestore();
+    }
+
+    it("skips a draft whose editor is open in another tab", async () => {
+      writeDrafts();
       holdPageDraftWriter("open-tab");
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const read = await readReplayableDraft(scope);
-      expect(read()?.snapshot.content).toBe("Orphaned draft");
+      const read = readReplayableDraft(scope);
+      expect((await read())?.snapshot.content).toBe("Orphaned draft");
+    });
+
+    it("asks again which editors are open on each read", async () => {
+      writeDrafts();
+      const read = readReplayableDraft(scope);
+      expect((await read())?.snapshot.content).toBe("Open editor's draft");
+
+      // The editor opens while the page is being created.
+      holdPageDraftWriter("open-tab");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect((await read())?.snapshot.content).toBe("Orphaned draft");
     });
   });
 });

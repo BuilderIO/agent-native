@@ -137,6 +137,11 @@ export function PageDraftRecovery({
     drafts.data.draft.editorSessionId === liveEditorSessionId
       ? null
       : drafts.data?.draft;
+  // So does an editor open in another tab; settling its draft here would move
+  // text it is still saving to History.
+  const draftOpenElsewhere = Boolean(
+    draft?.editorSessionId && skippedWriterIds?.has(draft.editorSessionId),
+  );
   // No scope until the session read returns; the session cache expires, so a
   // page opened later can mount before then. Unverified until it does.
   const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
@@ -727,6 +732,7 @@ export function PageDraftRecovery({
     if (
       !draft ||
       !hasEditIdentity ||
+      draftOpenElsewhere ||
       busy ||
       failure ||
       journalState === "checking" ||
@@ -773,6 +779,7 @@ export function PageDraftRecovery({
     busy,
     document,
     draft,
+    draftOpenElsewhere,
     failure,
     hasEditIdentity,
     journalState,
@@ -836,7 +843,7 @@ export function PageDraftRecovery({
         }
       />
     );
-  if (!draft) return withNotice(null);
+  if (!draft || draftOpenElsewhere) return withNotice(null);
   // Legacy drafts are preserved automatically; that path toasts once.
   if (!hasEditIdentity && !failure) return withNotice(null);
   if (!failure)

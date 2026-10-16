@@ -254,23 +254,25 @@ export function readCreateRecoveryDraft(
   }
 }
 
+type DraftRead = () =>
+  | PageDraftJournalEntry
+  | null
+  | Promise<PageDraftJournalEntry | null>;
+
 export async function retryCreateAfterDraftRead<T>(
-  read: () => PageDraftJournalEntry | null,
+  read: DraftRead,
   create: () => Promise<T>,
 ): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
-  const beforeCreate = readCreateRecoveryDraft(read);
-  if (beforeCreate.kind === "unreadable") throw beforeCreate.error;
-
+  // An unreadable journal stops the create before it starts.
+  await read();
   const created = await create();
-  const afterCreate = readCreateRecoveryDraft(read);
-  if (afterCreate.kind === "unreadable") throw afterCreate.error;
-  return { created, draft: afterCreate.entry };
+  return { created, draft: await read() };
 }
 
 export function retryCreateAfterIntentWrite<T>(
   scope: DocumentCreateIntentScope,
   intent: DocumentCreateIntent,
-  read: () => PageDraftJournalEntry | null,
+  read: DraftRead,
   create: () => Promise<T>,
 ): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
   writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
@@ -280,13 +282,14 @@ export function retryCreateAfterIntentWrite<T>(
 /**
  * Reads the draft to replay into a page this tab creates for a pending intent.
  * An editor open in another tab saves its own draft, and replaying that draft
- * here would race its save, so its entries are skipped.
+ * here would race its save, so its entries are skipped. Each read asks again
+ * which editors are open: one can open while the page is being created.
  */
-export async function readReplayableDraft(
+export function readReplayableDraft(
   scope: Parameters<typeof readPageDraftJournal>[0],
-): Promise<() => PageDraftJournalEntry | null> {
-  const liveWriters = await liveDraftWriterIds();
-  return () => readPageDraftJournal(scope, liveWriters ?? undefined);
+): () => Promise<PageDraftJournalEntry | null> {
+  return async () =>
+    readPageDraftJournal(scope, (await liveDraftWriterIds()) ?? undefined);
 }
 
 export async function readDocumentBeforeCreateDiscard(
@@ -2237,7 +2240,7 @@ export function DocumentSidebar({
                   showRetry();
                   return;
                 }
-                const read = await readReplayableDraft(draftScope);
+                const read = readReplayableDraft(draftScope);
                 const { created, draft } = await retryCreateAfterIntentWrite(
                   scope,
                   currentIntent,
@@ -2321,7 +2324,7 @@ export function DocumentSidebar({
                     clearPageDraftJournal(draft.scope, draft.snapshot);
                   }
                 }
-                const remainingDraft = read();
+                const remainingDraft = await read();
                 confirmedDocument = mergeCreatedDocumentWithDraft(
                   confirmedDocument,
                   remainingDraft,
