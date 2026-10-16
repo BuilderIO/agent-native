@@ -464,7 +464,9 @@ describe("defineAction — PostgreSQL transaction conflicts", () => {
         errorCode: "transaction_conflict",
         statusCode: 409,
         details: { sqlState },
-        message: expect.stringContaining("Nothing was saved"),
+        message: expect.stringContaining(
+          "rolled back this action's transaction",
+        ),
       });
     },
   );

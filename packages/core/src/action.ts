@@ -153,8 +153,10 @@ export function fail(message: string, options: FailOptions = {}): never {
 /**
  * PostgreSQL breaks a deadlock (40P01) or a serializable conflict (40001) by
  * rolling back one whole transaction. Drivers and Drizzle surface that as an
- * untyped "Failed query", which reads as a bug and hides that nothing was
- * written, so an action reports it as a conflict the caller can retry.
+ * untyped "Failed query", which reads as a bug and hides the rollback, so an
+ * action reports it as a typed conflict. The message must not claim nothing
+ * was saved: an action can commit an earlier transaction or an external write
+ * before the one that rolled back.
  */
 const TRANSACTION_CONFLICT_SQLSTATES = new Set(["40P01", "40001"]);
 
@@ -166,7 +168,7 @@ function transactionConflictError(error: unknown): ActionContractError | null {
     const code = (cause as { code?: unknown }).code;
     if (typeof code === "string" && TRANSACTION_CONFLICT_SQLSTATES.has(code)) {
       return new ActionContractError(
-        "Another write to the same records ran at the same time, and the database rolled this one back. Nothing was saved; retry it.",
+        "The database rolled back this action's transaction because another write to the same records ran at the same time. Read the current state, then retry.",
         {
           errorCode: "transaction_conflict",
           statusCode: 409,
