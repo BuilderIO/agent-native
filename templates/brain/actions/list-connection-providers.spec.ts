@@ -344,6 +344,27 @@ describe("list-connection-providers", () => {
     ).toEqual({ userEmail: "owner@example.test", orgId: "org-1" });
   });
 
+  it("reports organization-scoped Gong keys ready for a non-admin member", async () => {
+    mocks.isBrainAdmin = false;
+    mocks.availableKeys.add("GONG_ACCESS_KEY");
+    mocks.availableKeys.add("GONG_ACCESS_SECRET");
+
+    const result = await action.run({});
+    const gong = result.providers.find((provider) => provider.id === "gong");
+
+    expect(gong).toMatchObject({
+      configured: true,
+      setupLink: undefined,
+      providerHealth: { status: "ready" },
+      rawProviderApi: { available: true },
+    });
+    expect(
+      mocks.credentialChecks
+        .filter((check) => check.provider === "gong")
+        .every((check) => check.ctx.credentialScope === "org"),
+    ).toBe(true);
+  });
+
   it("reports missing Gong organization API keys without requesting a personal seat", async () => {
     mocks.availableKeys.add("GONG_ACCESS_KEY");
 
