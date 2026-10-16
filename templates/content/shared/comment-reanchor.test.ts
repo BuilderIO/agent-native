@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  commentAnchorHoldsOn,
   commentAnchorText,
   commentQuoteFollower,
   rebaselinedCommentQuote,
   reanchoredCommentQuote,
+  type CommentQuoteAnchor,
 } from "./comment-reanchor";
 
 const before =
@@ -286,7 +288,7 @@ describe("commentQuoteFollower", () => {
       "Keep the plan here. Shift the plan there.",
       "Move the plan there. Shift the plan there.",
     ];
-    let anchor = second;
+    let anchor: CommentQuoteAnchor = second;
     for (const [index, next] of steps.slice(1).entries()) {
       const outcome = commentQuoteFollower(steps[index]!, next)(anchor);
       if (outcome.kind !== "moved") throw new Error(JSON.stringify(outcome));
@@ -305,5 +307,29 @@ describe("commentQuoteFollower", () => {
     expect(commentQuoteFollower(text, text)(second)).toEqual({
       kind: "unchanged",
     });
+  });
+});
+
+describe("commentAnchorHoldsOn", () => {
+  const text = "Keep the plan here. Move the plan there.";
+  const second = {
+    quotedText: "the plan",
+    prefix: "Keep the plan here. Move ",
+    suffix: " there.",
+    startOffset: 25,
+  };
+
+  it("holds where the quote and its context sit at its offset", () => {
+    expect(commentAnchorHoldsOn(second, text)).toBe(true);
+  });
+
+  it("doesn't hold once the text around the offset changed", () => {
+    expect(commentAnchorHoldsOn(second, `Intro. ${text}`)).toBe(false);
+    expect(commentAnchorHoldsOn(second, text.replace("Move", "Shift"))).toBe(
+      false,
+    );
+    expect(commentAnchorHoldsOn({ ...second, startOffset: null }, text)).toBe(
+      false,
+    );
   });
 });

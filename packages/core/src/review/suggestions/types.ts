@@ -74,6 +74,11 @@ export interface SuggestionDecisionContext {
   operations: SuggestionOperation[];
   decision: SuggestionDecision;
   proposalDecision?: boolean;
+  /**
+   * The members a proposal decision decides, in the order it calls `apply`
+   * for them. `suggestion` is the first.
+   */
+  proposalMemberIds?: string[];
   access: SuggestionAccess;
   ctx?: Record<string, unknown>;
 }

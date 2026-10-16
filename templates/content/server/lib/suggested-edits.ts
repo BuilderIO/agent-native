@@ -8,6 +8,7 @@ import { getDbExec, type DbExec } from "@agent-native/core/db";
 import type {
   ResourceSuggestion,
   SuggestionAdapter,
+  SuggestionContext,
   SuggestionOperation,
 } from "@agent-native/core/review";
 import {
@@ -29,7 +30,11 @@ import {
 } from "../../actions/_document-edit-mutation.js";
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
-import { reanchoredCommentQuote } from "../../shared/comment-reanchor.js";
+import {
+  commentAnchorHoldsOn,
+  commentAnchorText,
+  reanchoredCommentQuote,
+} from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
 import {
@@ -38,11 +43,11 @@ import {
   parseSuggestionMarkdown,
   suggestionEditorSchema,
   supportedSuggestionStructure,
-  type MarkdownRange,
 } from "../../shared/suggestion-apply.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { schema } from "../db/index.js";
+import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
@@ -52,6 +57,11 @@ import {
   liveBodyWriterPageColumns,
 } from "./live-body-writer.js";
 import { syncPrivateCalloutReferences } from "./private-icon-references.js";
+import {
+  acceptedRangesOnSameText,
+  isLiveCopyDecision,
+  type LiveCopyDecision,
+} from "./suggestion-live-accept.js";
 
 export { applyMarkdownSuggestionOperation } from "../../shared/suggestion-apply.js";
 
@@ -90,47 +100,6 @@ function validateOperations(
     throw new Error("A suggestion must change the Page body");
   }
   return operations;
-}
-
-// Suggestions saved separately from the same Page text don't list each other
-// as siblings, so accepting one can remove the context another is anchored
-// to. Each accepted one is a range of that shared text whose bytes may now
-// differ; every other byte must still match for the placement to succeed.
-// Match on the operation's full before-text, not the base revision token:
-// the same text recurs under many body revisions, and Comment AI suggestions
-// carry the Page's updatedAt instead of a body token.
-async function acceptedRangesOnSameText(
-  tx: DbExec,
-  suggestion: { id: string; resourceId: string },
-  beforeMarkdown: string,
-): Promise<MarkdownRange[]> {
-  const rows = (
-    await tx.execute({
-      sql: `SELECT o.anchor_json FROM agent_review_suggestions s
-            INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
-            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
-              AND s.status = 'accepted' AND s.id <> ?
-              AND (o.before_json::jsonb ->> 'markdown') = ?`,
-      args: [
-        suggestion.resourceId,
-        CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
-        suggestion.id,
-        beforeMarkdown,
-      ],
-    })
-  ).rows;
-  return rows.flatMap((row) => {
-    const anchor = JSON.parse(
-      String(row.anchor_json),
-    ) as Partial<MarkdownRange>;
-    return Number.isInteger(anchor.from) &&
-      Number.isInteger(anchor.to) &&
-      anchor.from! >= 0 &&
-      anchor.from! <= anchor.to! &&
-      anchor.to! <= beforeMarkdown.length
-      ? [{ from: anchor.from!, to: anchor.to! }]
-      : [];
-  });
 }
 
 function documentFromContext(ctx: Record<string, unknown> | undefined) {
@@ -305,6 +274,20 @@ function replacePreparedCollabContent(
   );
 }
 
+const STALE_ACCEPT_MESSAGE =
+  "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.";
+const UNSUPPORTED_ACCEPT_MESSAGE =
+  "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.";
+const INLINE_DATABASE_ACCEPT_MESSAGE =
+  "Pages containing inline databases cannot accept suggestions yet.";
+
+/** Core turns this into a 409 `suggestion_stale` and keeps it pending. */
+function suggestionStaleError(message: string) {
+  const error = new Error(message);
+  error.name = "SuggestionStaleError";
+  return error;
+}
+
 function failBeforeStateConflict(): never {
   fail(
     "The suggestion before-state does not match the Page; refresh before saving this suggestion",
@@ -362,6 +345,8 @@ async function proposalOnStoredBody(
 /**
  * Accepting an AI suggestion leaves the comment that asked for it open, so its
  * quote follows the rewritten text instead of losing its highlight.
+ * `followedOnto` is the body a live-copy commit already moved the anchors of
+ * intact quotes onto; such an anchor no longer describes `before`.
  */
 async function reanchorSourceComment(
   tx: DbExec,
@@ -370,6 +355,7 @@ async function reanchorSourceComment(
   before: string,
   after: string,
   now: string,
+  followedOnto?: string,
 ) {
   const threadId = suggestion.metadata?.sourceThreadId;
   // Only a request-bound thread was checked against the request on create.
@@ -385,19 +371,21 @@ async function reanchorSourceComment(
     })
   ).rows[0];
   if (!root || root.quoted_text == null) return;
-  const next = reanchoredCommentQuote(
-    {
-      quotedText: String(root.quoted_text),
-      prefix: root.anchor_prefix == null ? null : String(root.anchor_prefix),
-      suffix: root.anchor_suffix == null ? null : String(root.anchor_suffix),
-      startOffset:
-        root.anchor_start_offset == null
-          ? null
-          : Number(root.anchor_start_offset),
-    },
-    before,
-    after,
-  );
+  const quote = {
+    quotedText: String(root.quoted_text),
+    prefix: root.anchor_prefix == null ? null : String(root.anchor_prefix),
+    suffix: root.anchor_suffix == null ? null : String(root.anchor_suffix),
+    startOffset:
+      root.anchor_start_offset == null
+        ? null
+        : Number(root.anchor_start_offset),
+  };
+  if (
+    followedOnto !== undefined &&
+    commentAnchorHoldsOn(quote, commentAnchorText(followedOnto))
+  )
+    return;
+  const next = reanchoredCommentQuote(quote, before, after);
   if (!next) return;
   await tx.execute({
     sql: "UPDATE document_comments SET quoted_text = ?, anchor_prefix = ?, anchor_suffix = ?, anchor_start_offset = ?, updated_at = ? WHERE id = ?",
@@ -410,6 +398,138 @@ async function reanchorSourceComment(
       String(root.id),
     ],
   });
+}
+
+function failLiveCopyRefusal(reason: ApplySuggestionRefusalReason): never {
+  switch (reason) {
+    case "suggestion_stale":
+      throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
+    case "suggestion_structure_unsupported":
+      fail(UNSUPPORTED_ACCEPT_MESSAGE, { statusCode: 422, errorCode: reason });
+    case "suggestion_body_unavailable":
+      fail(INLINE_DATABASE_ACCEPT_MESSAGE, {
+        statusCode: 409,
+        errorCode: reason,
+      });
+    case "suggestion_unmappable":
+      fail(
+        "This suggestion can't be placed without changing other parts of the Page, so it was not accepted. It's still pending: reject it, or suggest the edit again.",
+        { statusCode: 409, errorCode: reason },
+      );
+  }
+}
+
+function failDecisionMoved(): never {
+  fail(
+    "The suggestion changed while it was being accepted; refresh before deciding",
+    { statusCode: 409, errorCode: "suggestion_conflict" },
+  );
+}
+
+/**
+ * Accepts one suggestion inside the commit of the live-copy edit that placed
+ * it. The body persist has already written the Page. This checks that the
+ * decided suggestion is the one the edit placed and that the Page may take it,
+ * then re-anchors the comment that asked for it.
+ */
+async function applyOnLiveCopy(
+  context: SuggestionContext,
+  coordination: LiveCopyDecision,
+) {
+  if (coordination.liveCopy === "replaying") failDecisionMoved();
+  if (coordination.liveCopy === "refused")
+    failLiveCopyRefusal(coordination.reason);
+  validateOperations(context.operations);
+  const step = coordination.steps.get(context.suggestion.id);
+  if (
+    !step ||
+    JSON.stringify(step.operation) !== JSON.stringify(context.operations[0])
+  )
+    failDecisionMoved();
+  const tx = context.transaction as DbExec;
+  const current = (
+    await tx.execute({
+      sql: "SELECT content,body_revision,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ? FOR UPDATE",
+      args: [context.resourceId],
+    })
+  ).rows[0];
+  if (!current) throw new Error("Document not found");
+  if (
+    current.source_mode ||
+    current.source_kind ||
+    current.source_path ||
+    current.trashed_at
+  ) {
+    throw new Error("This Page can no longer accept suggestions");
+  }
+  const sourceLink = await tx.execute({
+    sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+    args: [context.resourceId],
+  });
+  if (sourceLink.rows.length) {
+    throw new Error("Externally linked Pages cannot accept suggestions yet");
+  }
+  await assertSuggestionBodyTarget(tx, context.resourceId);
+
+  const content = String(current.content);
+  const { commit } = coordination;
+  if (commit && content !== commit.after)
+    throw new Error("The Page's body is not the one its live copy committed");
+  const before = coordination.text ?? commit?.before ?? content;
+  const placed = applyMarkdownSuggestionWithSiblings(
+    before,
+    step.operation,
+    step.acceptedSiblingRanges,
+  );
+  if (placed === null) {
+    if (commit)
+      throw new Error(
+        "The live copy placed a suggestion its committed body cannot hold",
+      );
+    throw suggestionStaleError(
+      "The Page changed while accepting this suggestion",
+    );
+  }
+  coordination.text = placed;
+  coordination.applied.push(context.suggestion.id);
+
+  if (!commit) {
+    // The edit changed nothing because the live copy already read as the
+    // result, so the Page's body must too.
+    if (
+      coordination.applied.length === coordination.steps.size &&
+      canonicalizeNfm(placed) !== content
+    )
+      throw suggestionStaleError(
+        "The Page changed while accepting this suggestion",
+      );
+    const bodyRevision = Number(current.body_revision);
+    const revision = documentRevisionToken(bodyRevision, content);
+    return {
+      resourceId: context.resourceId,
+      updatedAt: String(current.updated_at),
+      revision,
+      baseRevision: revision,
+      bodyRevision,
+    };
+  }
+  await reanchorSourceComment(
+    tx,
+    context.resourceId,
+    context.suggestion,
+    before,
+    placed,
+    commit.updatedAt,
+    commit.after,
+  );
+  const revision = documentRevisionToken(commit.bodyRevision, commit.after);
+  return {
+    resourceId: context.resourceId,
+    updatedAt: commit.updatedAt,
+    revision,
+    baseRevision: revision,
+    bodyRevision: commit.bodyRevision,
+  };
 }
 
 export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
@@ -588,6 +708,8 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return result;
   },
   async finalizeProposalDecision(context) {
+    // The live-copy edit's commit has written the body already.
+    if (isLiveCopyDecision(context.coordination)) return;
     const coordination = context.coordination as
       | ContentDecisionCoordination
       | undefined;
@@ -602,6 +724,8 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     await coordination.sync.persist(tx);
   },
   async apply(context) {
+    if (isLiveCopyDecision(context.coordination))
+      return applyOnLiveCopy(context, context.coordination);
     const operations = validateOperations(context.operations);
     const operation = operations[0]!;
     const tx = context.transaction as DbExec;
@@ -647,20 +771,14 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         markdownPayload(operation.before, "before").markdown,
       ),
     );
-    if (nextContent === null) {
-      const error = new Error(
-        "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.",
-      );
-      error.name = "SuggestionStaleError";
-      throw error;
-    }
+    if (nextContent === null) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
     const nextDocument = validateSuggestionStructure(
       currentContent,
       nextContent,
-      "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
+      UNSUPPORTED_ACCEPT_MESSAGE,
     );
     if (currentContent.includes("<InlineDatabase")) {
-      fail("Pages containing inline databases cannot accept suggestions yet.", {
+      fail(INLINE_DATABASE_ACCEPT_MESSAGE, {
         statusCode: 409,
         errorCode: "suggestion_body_unavailable",
       });
@@ -840,13 +958,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         }
       },
     });
-    if (!applied) {
-      const error = new Error(
+    if (!applied)
+      throw suggestionStaleError(
         "The Page changed while accepting this suggestion",
       );
-      error.name = "SuggestionStaleError";
-      throw error;
-    }
     return {
       resourceId: context.resourceId,
       updatedAt: now,

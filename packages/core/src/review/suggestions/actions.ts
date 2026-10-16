@@ -1239,6 +1239,7 @@ export const decideResourceSuggestionProposal = defineAction({
           operations: initial.operations,
           decision: args.decision,
           proposalDecision: true,
+          proposalMemberIds: members.map((member) => member.id),
           access,
           ctx: { ...(ctx as any), suggestionAccess: access },
         },

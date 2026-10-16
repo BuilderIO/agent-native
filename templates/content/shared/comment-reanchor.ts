@@ -212,6 +212,19 @@ function sameAnchor(left: CommentQuoteAnchor, right: CommentQuoteAnchor) {
   );
 }
 
+/**
+ * Whether a quote's stored context is exactly the text around its offset in
+ * `text`, as `commentQuoteFollower` leaves the quotes it moves.
+ */
+export function commentAnchorHoldsOn(quote: CommentQuoteAnchor, text: string) {
+  if (!quote.quotedText || quote.startOffset == null) return false;
+  const { startOffset } = quote;
+  return sameAnchor(
+    anchorAt(text, startOffset, startOffset + quote.quotedText.length),
+    quote,
+  );
+}
+
 export type CommentQuoteFollow =
   | { kind: "unchanged" }
   /** The quote's text is intact; its context or position moved. */
