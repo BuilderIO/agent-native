@@ -1441,10 +1441,9 @@ export function SqlChart({
     ]),
     completedToken: completedManualRefreshToken,
   });
-  const reportedCache =
-    !isSection && !isExtension && !error && !showsSkeleton
-      ? shownFreshness?.cache
-      : undefined;
+  const canReportFreshness =
+    !isSection && !isExtension && !resultOverride && !error && !showsSkeleton;
+  const reportedCache = shownFreshness?.cache;
   const reportedFetchedAt = shownFreshness?.fetchedAt;
   const reportedStatus: PanelFreshness["status"] = isUpdating
     ? isShowingPreviousFilters
@@ -1460,16 +1459,22 @@ export function SqlChart({
   useEffect(() => {
     if (!onFreshnessChange) return;
     onFreshnessChange(
-      reportedCache
+      canReportFreshness && (reportedCache || reportedStatus)
         ? {
             fetchedAt: reportedFetchedAt,
-            cache: reportedCache,
+            cache: reportedCache ?? "unknown",
             ...(reportedStatus ? { status: reportedStatus } : {}),
           }
         : null,
     );
     return () => onFreshnessChange(null);
-  }, [onFreshnessChange, reportedCache, reportedFetchedAt, reportedStatus]);
+  }, [
+    onFreshnessChange,
+    canReportFreshness,
+    reportedCache,
+    reportedFetchedAt,
+    reportedStatus,
+  ]);
 
   if (isSection) {
     return (

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { STALE_RESULT_AGE_MS } from "@/lib/sql-query-freshness";
+import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 type Freshness = {
   fetchedAt?: string;
@@ -26,10 +27,28 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSession: () => ({
+    session: { userId: "test-user", orgId: "test-org" },
+    status: "authenticated",
+  }),
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
     isLoading: false,
+  }),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@dnd-kit/core", () => ({
+  useDraggable: () => ({
+    attributes: {},
+    listeners: {},
+    setActivatorNodeRef: () => {},
+    setNodeRef: () => {},
   }),
 }));
 
@@ -63,6 +82,9 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
 }));
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { SqlChartCard } from "@/pages/adhoc/sql-dashboard/SqlChartCard";
 
 import { SqlChart } from "./SqlChart";
 
@@ -313,6 +335,108 @@ describe("SqlChart freshness", () => {
       expect(last()).toEqual({ fetchedAt: undefined, cache: "unknown" });
     });
 
+    it.each([
+      "ga4",
+      "amplitude",
+      "prometheus",
+      "demo",
+      "program",
+    ] satisfies DataSourceType[])(
+      "reports %s presentation status without inventing freshness or confirming an unsupported refresh",
+      async (source) => {
+        const props = { panel: { ...panel, source }, onFreshnessChange };
+        await render(props);
+        expect(last()).toBeNull();
+        const body = container.querySelector(
+          "[data-dashboard-report-chart-body]",
+        );
+        await render({ ...props, refreshToken: 1 });
+        mocks.query.isFetching = true;
+        await render({ ...props, refreshToken: 1 });
+        expect(last()).toEqual({
+          fetchedAt: undefined,
+          cache: "unknown",
+          status: "updating",
+        });
+        mocks.query.isPlaceholderData = true;
+        await render({ ...props, refreshToken: 1 });
+        expect(last()).toEqual({
+          fetchedAt: undefined,
+          cache: "unknown",
+          status: "previous-filters-updating",
+        });
+        mocks.query.isFetching = false;
+        await render({
+          ...props,
+          refreshToken: 1,
+          loadData: false,
+          retainWhileOffscreen: true,
+        });
+        expect(last()).toEqual({
+          fetchedAt: undefined,
+          cache: "unknown",
+          status: "previous-filters",
+        });
+        mocks.query.isPlaceholderData = false;
+        await render({ ...props, refreshToken: 1 });
+        expect(last()).toBeNull();
+        expect(
+          container.querySelector("[data-dashboard-report-chart-body]"),
+        ).toBe(body);
+        expect(
+          container.querySelector("[data-dashboard-report-standalone-status]"),
+        ).toBeNull();
+      },
+    );
+
+    it("reports a confirmed completion without metadata only when the query supplies its own token", async () => {
+      await render({ onFreshnessChange });
+      await render({ onFreshnessChange, refreshToken: 1 });
+      mocks.query.completedManualRefreshToken = 1;
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last()).toEqual({
+        fetchedAt: undefined,
+        cache: "unknown",
+        status: "refreshed",
+      });
+      await advance(2_999);
+      expect(last()?.status).toBe("refreshed");
+      await advance(1);
+      expect(last()).toBeNull();
+    });
+
+    it.each(["section", "extension"] as const)(
+      "does not report status for a %s even if the query retains an updating result",
+      async (chartType) => {
+        mocks.query.isFetching = true;
+        await render({ panel: { ...panel, chartType }, onFreshnessChange });
+        expect(last()).toBeNull();
+      },
+    );
+
+    it("suppresses a prior confirmed status for a supplied result, skeleton, or error", async () => {
+      await render({ onFreshnessChange });
+      await render({ onFreshnessChange, refreshToken: 1 });
+      mocks.query.completedManualRefreshToken = 1;
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last()?.status).toBe("refreshed");
+      await render({
+        onFreshnessChange,
+        refreshToken: 1,
+        resultOverride: { rows: [{ value: 1 }] },
+      });
+      expect(last()).toBeNull();
+      mocks.query.data = undefined as never;
+      mocks.query.isLoading = true;
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last()).toBeNull();
+      mocks.query.isLoading = false;
+      mocks.query.data = { rows: [] };
+      mocks.query.error = new Error("query failed");
+      await render({ onFreshnessChange, refreshToken: 1 });
+      expect(last()).toBeNull();
+    });
+
     it("reports nothing for a source that reports nothing, and null on unmount", async () => {
       await render({ onFreshnessChange });
       expect(last()).toBeNull();
@@ -409,6 +533,61 @@ describe("SqlChart freshness", () => {
       expect(last()).toBeNull();
     });
   });
+
+  it.each([
+    "ga4",
+    "amplitude",
+    "prometheus",
+    "demo",
+    "program",
+  ] satisfies DataSourceType[])(
+    "keeps the real %s card and title tracks while its metadata-free clock appears and clears",
+    async (source) => {
+      const renderCard = () =>
+        act(async () => {
+          root.render(
+            <TooltipProvider>
+              <SqlChartCard
+                panel={{ ...panel, source }}
+                dashboardId="metadata-free"
+                eagerLoad
+                onRemove={() => {}}
+              />
+            </TooltipProvider>,
+          );
+        });
+      const clock = () =>
+        container.querySelector("[data-dashboard-report-freshness]");
+      await renderCard();
+      const header = container.querySelector(".dashboard-panel-header")!;
+      const tracks = Array.from(header.children);
+      const body = container.querySelector(
+        "[data-dashboard-report-chart-body]",
+      );
+      expect(tracks).toHaveLength(3);
+      expect(clock()).toBeNull();
+      mocks.query.isFetching = true;
+      await renderCard();
+      expect(clock()?.getAttribute("aria-label")).toBe(
+        "sqlDashboard.updating · sqlDashboard.fetchTimeUnknown · sqlDashboard.cacheUnknown",
+      );
+      expect(clock()?.getAttribute("data-dashboard-report-freshness")).toBe(
+        "unknown",
+      );
+      expect(tracks[1]!.contains(clock())).toBe(true);
+      expect(
+        container.querySelector("[data-dashboard-report-standalone-status]"),
+      ).toBeNull();
+      mocks.query.isFetching = false;
+      await renderCard();
+      expect(clock()).toBeNull();
+      expect(Array.from(header.children)).toEqual(tracks);
+      expect(
+        container.querySelector("[data-dashboard-report-chart-body]"),
+      ).toBe(body);
+      expect(body?.textContent).toBe("42");
+    },
+  );
 
   it("saves results only for a plain dashboard panel", async () => {
     await render();
