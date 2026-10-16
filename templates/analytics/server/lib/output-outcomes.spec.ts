@@ -18,12 +18,14 @@ vi.mock("../db/index.js", async () => {
   return { ...actual, getDb: getDbMock };
 });
 
+import { MAX_OUTPUTS_PER_RECORDING } from "../../shared/output-use";
 import { schema } from "../db/index.js";
 import {
   __resetOutputOutcomesForTests,
   aggregateOutputOutcomeRows,
   getSessionRecordingOutputs,
   pruneOutputOutcomes,
+  recordLostOutputBatch,
   recordOutputOutcomes,
   unusedOutputConditions,
 } from "./output-outcomes";
@@ -392,6 +394,71 @@ describe("output outcomes on Postgres", () => {
     expect(result.outputs.r1?.[0]?.status).toBe("unmeasured");
   });
 
+  it("reads a deck whose use was in a batch ingest lost as unmeasured, never unused", async () => {
+    await ingest([made("s1", "deck-1")]);
+    await addRecording("r1", "s1");
+    // The tracker does not resend a batch the server failed to store.
+    await recordLostOutputBatch(
+      db,
+      [exported("deck-1", "2026-10-03T10:00:00.000Z")],
+      "2026-10-03T10:00:01.000Z",
+    );
+
+    expect(await unusedRecordings(AFTER_WINDOW)).toEqual([]);
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r1"],
+      AFTER_WINDOW,
+    );
+    expect(result.outputs.r1?.[0]?.status).toBe("unmeasured");
+  });
+
+  it("records nothing for a lost batch no rule reads", async () => {
+    await recordLostOutputBatch(
+      db,
+      [event("pageview", "s1", "2026-10-03T10:00:00.000Z", {})],
+      "2026-10-03T10:00:01.000Z",
+    );
+
+    const gaps = await client.query(
+      "SELECT count(*)::int AS count FROM analytics_output_outcome_gaps",
+    );
+    expect(gaps.rows[0].count).toBe(0);
+  });
+
+  it("lists a session's unused deck first when it made more than a recording lists", async () => {
+    const decks = Array.from(
+      { length: MAX_OUTPUTS_PER_RECORDING + 1 },
+      (_, i) => `deck-${String(i).padStart(2, "0")}`,
+    );
+    const madeAt = (i: number) =>
+      new Date(Date.parse(MADE) + i * 60_000).toISOString();
+    await ingest(decks.map((deck, i) => made("s1", deck, madeAt(i))));
+    // Every deck but the newest is used.
+    await ingest(
+      decks
+        .slice(0, -1)
+        .map((deck) => presented(deck, "2026-10-03T10:00:00.000Z")),
+    );
+    await addRecording("r1", "s1");
+
+    expect(await unusedRecordings(AFTER_WINDOW)).toEqual(["r1"]);
+    const result = await getSessionRecordingOutputs(
+      SCOPE,
+      ["r1"],
+      AFTER_WINDOW,
+    );
+    const listed = result.outputs.r1 ?? [];
+    expect(listed).toHaveLength(MAX_OUTPUTS_PER_RECORDING);
+    expect(listed.filter((output) => output.status === "unused")).toEqual([
+      expect.objectContaining({ outputId: decks[decks.length - 1] }),
+    ]);
+    expect(listed.map((output) => output.madeAt)).toEqual(
+      [...listed.map((output) => output.madeAt)].sort(),
+    );
+    expect(result.omittedOutputs).toEqual({ r1: 1 });
+  });
+
   it("skips decks made before output tracking began", async () => {
     await ingest([made("s1", "deck-1")], "2026-10-01T12:00:00.000Z");
     await addRecording("r1", "s1");
@@ -403,7 +470,8 @@ describe("output outcomes on Postgres", () => {
       AFTER_WINDOW,
     );
     expect(result).toEqual({
-      outputs: {},
+      outputs: { r1: [] },
+      omittedOutputs: {},
       coverageStartedAt: "2026-10-01T12:00:00.000Z",
     });
   });
@@ -430,6 +498,8 @@ describe("output outcomes on Postgres", () => {
       ["r-other"],
       AFTER_WINDOW,
     );
+    // Recordings honor user shares only inside the viewer's org, so this
+    // cross-org share grants nothing to read.
     expect(result.outputs).toEqual({});
   });
 
@@ -442,7 +512,11 @@ describe("output outcomes on Postgres", () => {
     expect(await unusedRecordings(AFTER_WINDOW)).toEqual([]);
     expect(
       await getSessionRecordingOutputs(SCOPE, ["r1"], AFTER_WINDOW),
-    ).toEqual({ outputs: {}, coverageStartedAt: null });
+    ).toEqual({
+      outputs: { r1: [] },
+      omittedOutputs: {},
+      coverageStartedAt: null,
+    });
   });
 
   it("prunes outcomes only after their replays and use window expire", async () => {

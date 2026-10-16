@@ -2473,6 +2473,7 @@ export interface SessionRecordingPage {
    * when the viewer's output tracking began, or null before it has.
    */
   outputs?: SessionRecordingOutputs["outputs"];
+  omittedOutputs?: SessionRecordingOutputs["omittedOutputs"];
   outputCoverageStartedAt?: string | null;
 }
 
@@ -2787,6 +2788,7 @@ export async function listSessionRecordingsPage(
     ...(outputs
       ? {
           outputs: outputs.outputs,
+          omittedOutputs: outputs.omittedOutputs,
           outputCoverageStartedAt: outputs.coverageStartedAt,
         }
       : {}),

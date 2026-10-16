@@ -143,7 +143,7 @@ type Page = {
   /** Present when a speed filter applied; null: nothing measured yet. */
   performanceCoverageStartedAt?: string | null;
   /** Present when the unused filter applied, by recording id. */
-  outputs?: Record<string, SessionOutput[]>;
+  outputs?: Record<string, SessionOutput[] | null>;
   /** Present when the unused filter applied; null: nothing tracked yet. */
   outputCoverageStartedAt?: string | null;
 };

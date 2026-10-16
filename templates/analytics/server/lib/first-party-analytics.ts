@@ -69,7 +69,10 @@ import {
   boundedIdentity,
   boundedText,
 } from "./indexed-text.js";
-import { recordOutputOutcomes } from "./output-outcomes.js";
+import {
+  recordLostOutputBatch,
+  recordOutputOutcomes,
+} from "./output-outcomes.js";
 import { parseIngestBody, requestError } from "./request-errors.js";
 import {
   recordEventCatalog,
@@ -961,6 +964,7 @@ export async function recordAnalyticsEvents(
       }
     } catch (error) {
       persistenceError = error;
+      await recordLostOutputBatch(db, rows, receivedAt);
     }
   }
   if (rows.length && !persistenceError) {

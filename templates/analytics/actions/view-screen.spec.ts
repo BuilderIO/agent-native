@@ -68,9 +68,10 @@ const getSessionRecordingPerformance = vi.fn(
     coverageStartedAt: "2026-09-20T00:00:00.000Z" as string | null,
   }),
 );
+const getSessionReplaySummary = vi.fn(async (): Promise<unknown> => null);
 vi.mock("../server/lib/session-replay.js", () => ({
   getSessionRecordingPerformance,
-  getSessionReplaySummary: vi.fn(async () => null),
+  getSessionReplaySummary,
   listSessionRecordings: vi.fn(async () => []),
   listSessionRecordingsPage,
   replayRangeToIso: vi.fn((range: string) =>
@@ -82,8 +83,27 @@ const getSessionFrictionDetails = vi.fn(
   async (_scope: unknown, recordings: Array<{ id: string }>) =>
     new Map(recordings.map((recording) => [recording.id, { score: 3 }])),
 );
+const listRecordingFriction = vi.fn(
+  async (_scope: unknown, recordingIds: string[]) =>
+    Object.fromEntries(recordingIds.map((id) => [id, { score: 2 }])),
+);
 vi.mock("../server/lib/session-friction.js", () => ({
   getSessionFrictionDetails,
+  listRecordingFriction,
+}));
+
+const getSessionRecordingOutputs = vi.fn(
+  async (_scope: unknown, recordingIds: string[]) => ({
+    outputs: Object.fromEntries(recordingIds.map((id) => [id, []])) as Record<
+      string,
+      unknown[] | null
+    >,
+    omittedOutputs: {} as Record<string, number>,
+    coverageStartedAt: null as string | null,
+  }),
+);
+vi.mock("../server/lib/output-outcomes.js", () => ({
+  getSessionRecordingOutputs,
 }));
 
 const isSessionsTriageLabEnabled = vi.fn(async () => false);
@@ -640,7 +660,8 @@ describe("view-screen Sessions context", () => {
       recordings: [{ id: "recording-0" }, { id: "recording-1" }],
       total: 2,
       appCounts: [],
-      outputs: { "recording-0": [output] },
+      outputs: { "recording-0": [output], "recording-1": [] },
+      omittedOutputs: { "recording-0": 2 },
       outputCoverageStartedAt: "2026-10-01T00:00:00.000Z",
     } as never);
     const url = { pathname: "/sessions", searchParams: { unused: "slides" } };
@@ -653,9 +674,11 @@ describe("view-screen Sessions context", () => {
       expect.anything(),
       expect.objectContaining({ unused: "slides" }),
     );
-    expect(on.sessionReplays.map((row: any) => row.outputs)).toEqual([
-      [output],
-      [],
+    expect(
+      on.sessionReplays.map((row: any) => [row.outputs, row.omittedOutputs]),
+    ).toEqual([
+      [[output], 2],
+      [[], undefined],
     ]);
     expect(on.activeFilters).toMatchObject({ unused: "slides" });
     expect(on.sessionReplayPage.outputCoverageStartedAt).toBe(
@@ -680,6 +703,45 @@ describe("view-screen Sessions context", () => {
     );
     expect(off.sessionReplayPage.unusedFilterNotApplied).toBe("slides");
     expect(off.sessionReplayPage.outputCoverageStartedAt).toBeUndefined();
+  });
+
+  it("gives a replay the friction, speed, and outputs its page shows while the Lab is on", async () => {
+    const summary = {
+      id: "recording-9",
+      ownerEmail: "user@example.test",
+      orgId: "org-1",
+    };
+    const output = { app: "slides", outputId: "deck-1", status: "unused" };
+    getSessionReplaySummary.mockResolvedValue(summary);
+    getSessionRecordingOutputs.mockResolvedValueOnce({
+      outputs: { "recording-9": [output] },
+      omittedOutputs: {},
+      coverageStartedAt: "2026-10-01T00:00:00.000Z",
+    });
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen(
+      { view: "sessions", recordingId: "recording-9" },
+      { pathname: "/sessions/recording-9" },
+    );
+
+    const on = await runScreen();
+
+    expect(on.page).toBe("session-replay-detail");
+    expect(on.sessionReplay).toEqual({
+      ...summary,
+      friction: { score: 2 },
+      performance: { slowRequests: 1 },
+      performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
+      outputs: [output],
+      outputCoverageStartedAt: "2026-10-01T00:00:00.000Z",
+    });
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(off.sessionReplay).toEqual(summary);
+    getSessionReplaySummary.mockReset();
+    getSessionReplaySummary.mockResolvedValue(null);
   });
 
   it("reads each row's speed hints beside the list the way the page shows them while the Lab is on", async () => {

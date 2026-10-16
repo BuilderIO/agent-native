@@ -14,8 +14,12 @@ const getSessionReplaySummary = vi.hoisted(() =>
   })),
 );
 const getSessionRecordingOutputs = vi.hoisted(() =>
-  vi.fn(async () => ({
-    outputs: {} as Record<string, unknown[]>,
+  vi.fn(async (_scope: unknown, recordingIds: string[]) => ({
+    outputs: Object.fromEntries(recordingIds.map((id) => [id, []])) as Record<
+      string,
+      unknown[] | null
+    >,
+    omittedOutputs: {} as Record<string, number>,
     coverageStartedAt: null as string | null,
   })),
 );
@@ -501,22 +505,36 @@ describe("Sessions triage Lab guard on event actions", () => {
     const output = { app: "slides", outputId: "deck-1", status: "unused" };
     getSessionRecordingOutputs.mockResolvedValueOnce({
       outputs: { r1: [output] },
+      omittedOutputs: { r1: 3 },
       coverageStartedAt: "2026-10-01T00:00:00.000Z",
     });
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toMatchObject({
       outputs: [output],
+      omittedOutputs: 3,
       outputCoverageStartedAt: "2026-10-01T00:00:00.000Z",
     });
 
     // A share grants the recording, not its tenant's outputs.
-    getSessionReplaySummary.mockResolvedValueOnce({
-      ...SUMMARY,
-      ownerEmail: "other@example.test",
-      orgId: "org-2",
+    getSessionRecordingOutputs.mockResolvedValueOnce({
+      outputs: { r1: null },
+      omittedOutputs: {},
+      coverageStartedAt: "2026-10-01T00:00:00.000Z",
     });
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toMatchObject({
       outputs: null,
     });
+
+    // A read that leaves the recording out is not "made nothing".
+    getSessionRecordingOutputs.mockResolvedValueOnce({
+      outputs: {},
+      omittedOutputs: {},
+      coverageStartedAt: "2026-10-01T00:00:00.000Z",
+    });
+    const skipped = await getSummary.run({ recordingId: "r1" });
+    expect(skipped).toMatchObject({
+      outputsError: "Outputs read skipped this recording",
+    });
+    expect(skipped).not.toHaveProperty("outputs");
 
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const failure = new Error("outputs failed");

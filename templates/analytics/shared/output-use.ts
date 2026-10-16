@@ -10,6 +10,8 @@ export const OUTPUT_USE_WINDOW_DAYS = 7;
 export const OUTPUT_USE_WINDOW_MS = OUTPUT_USE_WINDOW_DAYS * 24 * 60 * 60_000;
 /** A presentation shorter than this was a look, not a talk. */
 export const MIN_PRESENTATION_MS = 30_000;
+/** The most outputs one recording lists; the rest are counted, not listed. */
+export const MAX_OUTPUTS_PER_RECORDING = 10;
 /** Output ids are skipped past this length, never cut, like session ids. */
 export const MAX_OUTPUT_ID_LENGTH = 256;
 /** The Sessions URL param naming the app whose unused outputs to find. */
@@ -143,8 +145,19 @@ export interface SessionOutput {
 }
 
 export interface SessionRecordingOutputs {
-  /** By recording id; absent when the recording made no measured output. */
-  outputs: Record<string, SessionOutput[]>;
+  /**
+   * By recording id, for each requested recording the viewer can read: its
+   * outputs, [] when it made none since coverage began, or null when it was
+   * shared from another tenant, whose events a share does not grant. Ids the
+   * viewer cannot read are absent.
+   */
+  outputs: Record<string, SessionOutput[] | null>;
+  /**
+   * How many more outputs a recording made than `outputs` lists, by
+   * recording id; absent when none were left out. Unused outputs are listed
+   * first.
+   */
+  omittedOutputs: Record<string, number>;
   /** When the viewer's output tracking began, or null before it has. */
   coverageStartedAt: string | null;
 }

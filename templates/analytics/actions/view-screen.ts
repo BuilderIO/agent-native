@@ -15,6 +15,7 @@ import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
 import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
+import { withSessionsTriage } from "../server/lib/session-replay-triage.js";
 import {
   getSessionRecordingPerformance,
   getSessionReplaySummary,
@@ -261,9 +262,10 @@ export default defineAction({
         const scope = { userEmail: email, orgId: getRequestOrgId() || null };
         try {
           if (nav?.recordingId) {
-            screen.sessionReplay = await getSessionReplaySummary(
-              nav.recordingId,
+            screen.sessionReplay = await withSessionsTriage(
+              await getSessionReplaySummary(nav.recordingId, scope),
               scope,
+              "[view-screen]",
             );
           } else {
             const params = url?.searchParams ?? {};
@@ -403,7 +405,14 @@ export default defineAction({
                   ? { performance: speed.value.performance[recording.id] }
                   : {}),
                 ...(result.outputs
-                  ? { outputs: result.outputs[recording.id] ?? [] }
+                  ? {
+                      outputs: result.outputs[recording.id],
+                      ...(result.omittedOutputs?.[recording.id]
+                        ? {
+                            omittedOutputs: result.omittedOutputs[recording.id],
+                          }
+                        : {}),
+                    }
                   : {}),
               }));
             }

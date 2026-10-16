@@ -99,7 +99,11 @@ function OutputLink({ output }: { output: SessionOutput }) {
 }
 
 // A link cannot nest inside the row's replay link, so this sits beside it.
-export function UnusedOutputLink({ outputs }: { outputs?: SessionOutput[] }) {
+export function UnusedOutputLink({
+  outputs,
+}: {
+  outputs?: SessionOutput[] | null;
+}) {
   const t = useT();
   const unusedOutputs = (outputs ?? []).filter(
     (output) => output.status === "unused",
@@ -146,16 +150,16 @@ export function SessionOutputsButton({ recordingId }: { recordingId: string }) {
   }
   const outputs = query.data?.outputs[recordingId];
   if (!outputs?.length) return null;
+  const omitted = query.data?.omittedOutputs[recordingId] ?? 0;
+  const total = outputs.length + omitted;
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="h-8 font-normal">
           <IconPackage />
           {t(
-            outputs.length === 1
-              ? "sessions.deckCountSingular"
-              : "sessions.deckCount",
-            { count: String(outputs.length) },
+            total === 1 ? "sessions.deckCountSingular" : "sessions.deckCount",
+            { count: String(total) },
           )}
         </Button>
       </PopoverTrigger>
@@ -183,6 +187,11 @@ export function SessionOutputsButton({ recordingId }: { recordingId: string }) {
             </li>
           ))}
         </ul>
+        {omitted ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {t("sessions.moreOutputs", { count: String(omitted) })}
+          </p>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

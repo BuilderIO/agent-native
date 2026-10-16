@@ -1,8 +1,18 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import { type AnyColumn, and, asc, eq, inArray, lt, sql } from "drizzle-orm";
+import {
+  type AnyColumn,
+  and,
+  asc,
+  eq,
+  inArray,
+  lt,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import {
+  MAX_OUTPUTS_PER_RECORDING,
   OUTPUT_USE_APPS,
   OUTPUT_USE_EVENT_NAMES,
   OUTPUT_USE_WINDOW_DAYS,
@@ -37,13 +47,13 @@ import {
  * `shared/output-use.ts`, and when each was first used. Ingest derives them
  * inside the transaction that stores the events, whatever the sink, so no
  * view reads raw events or BigQuery. A write that fails rolls back to a
- * savepoint and records the event-time span its batch covered. An output
+ * savepoint, and a batch ingest fails to store is lost; either records the
+ * event-time span the batch covered. An output
  * whose use window overlaps such a span is unmeasured, never unused: the
  * lost batch could have held its use.
  */
 
 const OUTPUT_OUTCOME_RETENTION_BUFFER_DAYS = 2;
-const MAX_OUTPUTS_PER_RECORDING = 10;
 const SESSION_ID_BATCH_SIZE = 1_000;
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -286,6 +296,32 @@ export async function recordOutputOutcomes(
   }
 }
 
+/**
+ * Ingest rejected or failed to store a batch, and the tracker does not resend
+ * it, so any use it held is gone. Records its span outside the rolled-back
+ * transaction so outputs it could have used read as unmeasured, not unused.
+ */
+export async function recordLostOutputBatch(
+  db: any,
+  rows: readonly SessionEventIndexInputRow[],
+  receivedAt: string,
+): Promise<void> {
+  const ruleRows = outputRuleRows(rows);
+  if (!ruleRows.length) return;
+  try {
+    if (!(await outputOutcomesReady(db))) return;
+    await db
+      .insert(schema.analyticsOutputOutcomeGaps)
+      .values(outputGapRows(ruleRows, receivedAt))
+      .onConflictDoNothing();
+  } catch (error) {
+    console.error(
+      "[first-party-analytics] A failed batch's output span was not recorded; a use it held may read as unused:",
+      error,
+    );
+  }
+}
+
 /** An output stored in `o` that was made but not used once its window closed. */
 function unusedOutputSql(
   o: typeof schema.analyticsOutputOutcomes,
@@ -405,8 +441,10 @@ function outputStatus(
 /**
  * The outputs each recording's sessions made, for recordings the viewer can
  * read, such as one list page's rows. A share grants the recording, not its
- * tenant's events, so a recording shared from another tenant is absent, as is
- * one that made no output since its tenant's coverage began.
+ * tenant's events, so a recording shared from another tenant reads as null.
+ * Each recording lists at most `MAX_OUTPUTS_PER_RECORDING`, unused ones
+ * first, so a row the unused filter matched always lists the output it
+ * matched on; the rest are counted in `omittedOutputs`.
  */
 export async function getSessionRecordingOutputs(
   scope: SessionEventScope,
@@ -416,43 +454,47 @@ export async function getSessionRecordingOutputs(
   const ids = [...new Set(recordingIds)];
   const db = getDb() as any;
   const coverageStartedAt = await getOutputCoverageStart(scope);
-  if (!ids.length || coverageStartedAt === null) {
-    return { outputs: {}, coverageStartedAt };
-  }
+  const outputs: Record<string, SessionOutput[] | null> = {};
+  const omittedOutputs: Record<string, number> = {};
+  if (!ids.length) return { outputs, omittedOutputs, coverageStartedAt };
   const r = schema.sessionRecordings;
   const viewerTenants = new Set(viewerTenantKeys(scope));
-  const recordings: Array<{
+  const readable: Array<{
     id: string;
     sessionId: string;
     ownerEmail: string;
     orgId: string | null;
     firstUrl: string | null;
-  }> = (
-    await db
-      .select({
-        id: r.id,
-        sessionId: r.sessionId,
-        ownerEmail: r.ownerEmail,
-        orgId: r.orgId,
-        firstUrl: r.firstUrl,
-      })
-      .from(r)
-      .where(
-        and(
-          accessFilter(r, schema.sessionRecordingShares, {
-            userEmail: scope.userEmail,
-            orgId: scope.orgId ?? undefined,
-          }),
-          inArray(r.id, ids),
-        ),
-      )
-      .limit(ids.length)
-  ).filter((recording: { ownerEmail: string; orgId: string | null }) =>
-    viewerTenants.has(
+  }> = await db
+    .select({
+      id: r.id,
+      sessionId: r.sessionId,
+      ownerEmail: r.ownerEmail,
+      orgId: r.orgId,
+      firstUrl: r.firstUrl,
+    })
+    .from(r)
+    .where(
+      and(
+        accessFilter(r, schema.sessionRecordingShares, {
+          userEmail: scope.userEmail,
+          orgId: scope.orgId ?? undefined,
+        }),
+        inArray(r.id, ids),
+      ),
+    )
+    .limit(ids.length);
+  const recordings: typeof readable = [];
+  for (const recording of readable) {
+    const own = viewerTenants.has(
       sessionEventTenantKey(recording.ownerEmail, recording.orgId),
-    ),
-  );
-  if (!recordings.length) return { outputs: {}, coverageStartedAt };
+    );
+    outputs[recording.id] = own ? [] : null;
+    if (own) recordings.push(recording);
+  }
+  if (!recordings.length || coverageStartedAt === null) {
+    return { outputs, omittedOutputs, coverageStartedAt };
+  }
 
   const sessionIdsByRecording = new Map<string, string[]>();
   if (await sessionRecordingAssociationsReady(db)) {
@@ -482,10 +524,12 @@ export async function getSessionRecordingOutputs(
     sessionIdsByTenant.set(tenantKey, tenantSessionIds);
   }
 
+  const nowIso = now.toISOString();
   const o = schema.analyticsOutputOutcomes;
   const coverage = schema.analyticsOutputOutcomeCoverage;
   const gaps = schema.analyticsOutputOutcomeGaps;
   const stored: StoredOutput[] = [];
+  const madeBySession = new Map<string, number>();
   for (const [tenantKey, tenantSessionIds] of sessionIdsByTenant) {
     const sessionIds = [...tenantSessionIds];
     for (
@@ -494,7 +538,9 @@ export async function getSessionRecordingOutputs(
       offset += SESSION_ID_BATCH_SIZE
     ) {
       const batch = sessionIds.slice(offset, offset + SESSION_ID_BATCH_SIZE);
-      const rows = await db
+      // Each session's outputs are ranked unused first and cut in SQL, so a
+      // session that made thousands reads no more than a recording can list.
+      const ranked = db
         .select({
           tenantKey: o.tenantKey,
           app: o.app,
@@ -510,7 +556,15 @@ export async function getSessionRecordingOutputs(
             where ${gaps.tenantKey} = ${o.tenantKey}
               and ${gaps.firstAt} <= ${o.useBy}
               and ${gaps.lastAt} >= ${o.madeAt}
-          )`,
+          )`.as("has_gap"),
+          sessionRank: sql<number>`row_number() over (
+            partition by ${o.madeSessionId}
+            order by case when ${unusedOutputSql(o, nowIso)} then 0 else 1 end, ${o.madeAt}, ${o.outputId}
+          )`.as("session_rank"),
+          sessionMade:
+            sql<number>`count(*) over (partition by ${o.madeSessionId})`.as(
+              "session_made",
+            ),
         })
         .from(o)
         .where(
@@ -522,12 +576,21 @@ export async function getSessionRecordingOutputs(
             sql`${o.madeAt} >= (select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${o.tenantKey})`,
           ),
         )
-        .orderBy(asc(o.madeAt), asc(o.outputId));
-      stored.push(...rows);
+        .as("ranked_outputs");
+      const rows = await db
+        .select()
+        .from(ranked)
+        .where(lte(ranked.sessionRank, MAX_OUTPUTS_PER_RECORDING));
+      for (const row of rows) {
+        stored.push(row);
+        madeBySession.set(
+          JSON.stringify([row.tenantKey, row.madeSessionId]),
+          Number(row.sessionMade),
+        );
+      }
     }
   }
 
-  const nowIso = now.toISOString();
   const outputsBySession = new Map<string, StoredOutput[]>();
   for (const output of stored) {
     const key = JSON.stringify([output.tenantKey, output.madeSessionId]);
@@ -535,44 +598,50 @@ export async function getSessionRecordingOutputs(
     values.push(output);
     outputsBySession.set(key, values);
   }
-  const outputs: Record<string, SessionOutput[]> = {};
   for (const recording of recordings) {
     const tenantKey = sessionEventTenantKey(
       recording.ownerEmail,
       recording.orgId,
     );
-    const seen = new Set<string>();
+    // An output has one making session, so distinct sessions never list the
+    // same output twice.
     const made: StoredOutput[] = [];
-    for (const sessionId of sessionIdsByRecording.get(recording.id)!) {
-      for (const output of outputsBySession.get(
-        JSON.stringify([tenantKey, sessionId]),
-      ) ?? []) {
-        const key = JSON.stringify([output.app, output.outputId]);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        made.push(output);
-      }
+    let madeCount = 0;
+    for (const sessionId of new Set(sessionIdsByRecording.get(recording.id))) {
+      const key = JSON.stringify([tenantKey, sessionId]);
+      made.push(...(outputsBySession.get(key) ?? []));
+      madeCount += madeBySession.get(key) ?? 0;
     }
-    if (!made.length) continue;
-    outputs[recording.id] = made
-      .sort((a, b) => a.madeAt.localeCompare(b.madeAt))
+    const listed = made
+      .map((output) => ({ output, status: outputStatus(output, nowIso) }))
+      .sort(
+        (a, b) =>
+          Number(b.status === "unused") - Number(a.status === "unused") ||
+          a.output.madeAt.localeCompare(b.output.madeAt) ||
+          a.output.outputId.localeCompare(b.output.outputId),
+      )
       .slice(0, MAX_OUTPUTS_PER_RECORDING)
-      .map((output) => {
-        const status = outputStatus(output, nowIso);
-        return {
-          app: output.app as OutputUseApp,
-          outputType: output.outputType,
-          outputId: output.outputId,
-          madeAt: output.madeAt,
-          useBy: output.useBy,
-          status,
-          usedEvent: status === "used" ? output.usedEvent : null,
-          usedAt: status === "used" ? output.firstUsedAt : null,
-          url: outputUrl(output.app, output.outputId, recording.firstUrl),
-        };
-      });
+      .sort(
+        (a, b) =>
+          a.output.madeAt.localeCompare(b.output.madeAt) ||
+          a.output.outputId.localeCompare(b.output.outputId),
+      );
+    if (madeCount > listed.length) {
+      omittedOutputs[recording.id] = madeCount - listed.length;
+    }
+    outputs[recording.id] = listed.map(({ output, status }) => ({
+      app: output.app as OutputUseApp,
+      outputType: output.outputType,
+      outputId: output.outputId,
+      madeAt: output.madeAt,
+      useBy: output.useBy,
+      status,
+      usedEvent: status === "used" ? output.usedEvent : null,
+      usedAt: status === "used" ? output.firstUsedAt : null,
+      url: outputUrl(output.app, output.outputId, recording.firstUrl),
+    }));
   }
-  return { outputs, coverageStartedAt };
+  return { outputs, omittedOutputs, coverageStartedAt };
 }
 
 /**

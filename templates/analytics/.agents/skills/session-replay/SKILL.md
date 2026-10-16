@@ -335,8 +335,10 @@ agent answers about browser recordings in the Analytics template.
   every sink mode, so views never read raw events or BigQuery. Each
   `analytics_output_outcomes` row keeps the earliest making, its session, and
   the earliest qualifying use; the upsert merges batches in any order. A failed
-  write records the batch's event-time span per tenant in
-  `analytics_output_outcome_gaps`; an output whose window overlaps one is
+  outcome write records the batch's event-time span per tenant in
+  `analytics_output_outcome_gaps`, and so does `recordLostOutputBatch` when
+  ingest fails to store a batch at all (volume limit, raw insert, index), since
+  the tracker does not resend it. An output whose window overlaps a gap is
   `unmeasured`, never `unused`, since the lost batch could hold its use.
   Outputs made before the tenant's coverage start are skipped. Before the
   migration creates `analytics_output_outcome_coverage` (created last), ingest
@@ -345,16 +347,24 @@ agent answers about browser recordings in the Analytics template.
 - `unused` on `list-session-recordings` matches recordings whose own
   tenant's session made an output whose window has closed unused; a recording
   shared from another tenant never matches. It returns the paginated shape
-  with `outputs` by recording id and `outputCoverageStartedAt`. Statuses are
-  `used`, `unused`, `open` (window still open), and `unmeasured`; `url` is
-  the recording's app origin plus the rule's `outputPath`, and the app checks
-  access when it opens. `list-session-outputs` and `outputs` on
-  `get-session-replay-summary` give the same per recording: `[]` is none,
-  null is a recording shared from another tenant, and `outputsError` is a
-  failed read.
+  with `outputs` and `omittedOutputs` by recording id and
+  `outputCoverageStartedAt`. Statuses are `used`, `unused`, `open` (window
+  still open), and `unmeasured`; `url` is the recording's app origin plus the
+  rule's `outputPath`, and the app checks access when it opens.
+- `getSessionRecordingOutputs` is the one reader. Per readable recording it
+  gives `[]` for none, null for a recording from another tenant (a share grants
+  the recording, not its events), and at most `MAX_OUTPUTS_PER_RECORDING`
+  outputs, ranked unused first in SQL so a matched row always lists what it
+  matched on; `omittedOutputs` counts the rest. Ids the viewer cannot read are
+  absent. `list-session-outputs` returns that shape and rejects a failed read.
+  `get-session-replay-summary` and `view-screen` on a replay both use
+  `withSessionsTriage`, which puts one recording's `outputs` (and
+  `omittedOutputs` when some were left out) beside its friction and speed, and
+  returns `outputsError` instead when the read fails or skips the recording.
 - All of it is behind the Sessions triage Lab (`outputs` in its 403). Rows
   link the first unused output beside the replay link, never inside it, and
-  the replay header lists every output with its status.
+  the replay header lists the recording's outputs with their status and says
+  how many more it left out.
 
 ## Agent Diagnostics Surface
 
