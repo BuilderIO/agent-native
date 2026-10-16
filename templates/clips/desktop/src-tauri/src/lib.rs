@@ -30,6 +30,7 @@ mod sentry_report;
 mod shortcuts;
 mod silence_detector;
 mod state;
+mod step_capture;
 mod system_audio;
 mod tray;
 mod tray_meetings;
@@ -349,6 +350,9 @@ pub fn run() {
             accessibility::read_focused_field_text,
             accessibility::accessibility_check_permission,
             accessibility::accessibility_request_permission,
+            step_capture::step_capture_start,
+            step_capture::step_capture_stop,
+            step_capture::step_capture_status,
             system_audio::system_audio_request_permission,
             system_audio::system_audio_version_status,
             system_audio::system_audio_open_privacy_settings,

@@ -1775,6 +1775,99 @@ fn display_for_window<'a>(
         .map(|(_, display)| display)
 }
 
+/// The display a still was taken from, in global top-left points.
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StillDisplay {
+    pub id: u32,
+    pub frame: CGRect,
+    /// Backing pixels per point.
+    pub scale: f64,
+}
+
+/// Save a PNG of the whole display under a global top-left point, cursor
+/// included and Clips' own windows left out. The display is reported even
+/// when the still itself fails, so callers can keep both facts.
+#[cfg(target_os = "macos")]
+pub(crate) fn capture_display_still_at(
+    x: f64,
+    y: f64,
+    path: &Path,
+) -> (Option<StillDisplay>, Result<(u32, u32), String>) {
+    if !has_screen_capture_permission() {
+        return (
+            None,
+            Err(screen_capture_permission_message("capturing a step")),
+        );
+    }
+    let content = match SCShareableContent::get() {
+        Ok(content) => content,
+        Err(error) => {
+            return (
+                None,
+                Err(format!("shareable content lookup failed: {error:?}")),
+            )
+        }
+    };
+    let displays = content.displays();
+    let Some(display) = display_for_window(&displays, CGRect::new(x, y, 1.0, 1.0)) else {
+        return (None, Err("No display contains the click.".to_string()));
+    };
+    let frame = display.frame();
+    let scale = CGDisplay::new(display.display_id())
+        .display_mode()
+        .map(|mode| mode.pixel_width() as f64 / frame.width.max(1.0))
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or(1.0);
+    let still_display = StillDisplay {
+        id: display.display_id(),
+        frame,
+        scale,
+    };
+
+    let process_id = i32::try_from(std::process::id()).ok();
+    let own_windows = content
+        .windows()
+        .into_iter()
+        .filter(|window| {
+            window
+                .owning_application()
+                .is_some_and(|application| Some(application.process_id()) == process_id)
+        })
+        .collect::<Vec<_>>();
+    let own_window_refs = own_windows.iter().collect::<Vec<_>>();
+    let filter = SCContentFilter::create()
+        .with_display(display)
+        .with_excluding_windows(&own_window_refs)
+        .build();
+    let config = SCStreamConfiguration::new()
+        .with_width((frame.width * scale).round().max(1.0) as u32)
+        .with_height((frame.height * scale).round().max(1.0) as u32)
+        .with_shows_cursor(true);
+
+    let saved = (|| {
+        let image = screencapturekit::screenshot_manager::SCScreenshotManager::capture_image(
+            &filter, &config,
+        )
+        .map_err(|error| {
+            let error = format!("{error:?}");
+            if looks_like_screen_capture_permission_error(&error) {
+                screen_capture_permission_message("capturing a step")
+            } else {
+                format!("screenshot failed: {error}")
+            }
+        })?;
+        let path_text = path
+            .to_str()
+            .ok_or_else(|| format!("{} is not a UTF-8 path", path.display()))?;
+        image
+            .save_png(path_text)
+            .map_err(|error| format!("could not save {}: {error:?}", path.display()))?;
+        Ok((image.width() as u32, image.height() as u32))
+    })();
+    (Some(still_display), saved)
+}
+
 #[cfg(target_os = "macos")]
 fn display_local_capture_rect(
     window_frame: CGRect,
