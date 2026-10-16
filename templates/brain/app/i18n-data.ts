@@ -452,6 +452,7 @@ const enUS = {
       "Every hour, Brain imports transcripts only from the approved series. Other meetings in the Zoom account are never downloaded. Changing the list re-scans the lookback window.",
     zoomAdminOnly:
       "Only organization owners and admins can change Zoom settings. You can still rename this source.",
+    updatingSource: "Updating…",
     approvedRepositories: "Approved repositories",
     githubRepositoriesDescription:
       "Brain imports bounded issue and pull request context from these repositories using the workspace GitHub credential.",
@@ -7237,6 +7238,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "كل ساعة، يستورد Brain النصوص من السلاسل المعتمدة فقط. لا يتم تنزيل أي اجتماعات أخرى في حساب Zoom. يؤدي تغيير القائمة إلى إعادة فحص فترة الرجوع.",
       zoomAdminOnly:
         "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير إعدادات Zoom. لا يزال بإمكانك إعادة تسمية هذا المصدر.",
+      updatingSource: "جارٍ التحديث…",
     },
   },
   "de-DE": {
@@ -7251,6 +7253,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "Brain importiert stündlich Transkripte nur aus den freigegebenen Serien. Andere Meetings im Zoom-Konto werden nie heruntergeladen. Eine Änderung der Liste durchsucht den Rückblickzeitraum erneut.",
       zoomAdminOnly:
         "Nur Organisationsinhaber und -administratoren können Zoom-Einstellungen ändern. Du kannst diese Quelle weiterhin umbenennen.",
+      updatingSource: "Wird aktualisiert…",
     },
   },
   "es-ES": {
@@ -7265,6 +7268,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "Cada hora, Brain importa transcripciones solo de las series aprobadas. Nunca se descargan otras reuniones de la cuenta de Zoom. Al cambiar la lista se vuelve a revisar el periodo hacia atrás.",
       zoomAdminOnly:
         "Solo los propietarios y administradores de la organización pueden cambiar la configuración de Zoom. Aún puedes cambiar el nombre de esta fuente.",
+      updatingSource: "Actualizando…",
     },
   },
   "fr-FR": {
@@ -7279,6 +7283,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "Chaque heure, Brain importe les transcriptions uniquement des séries approuvées. Les autres réunions du compte Zoom ne sont jamais téléchargées. Modifier la liste réanalyse la période d'historique.",
       zoomAdminOnly:
         "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier les paramètres Zoom. Vous pouvez toujours renommer cette source.",
+      updatingSource: "Mise à jour…",
     },
   },
   "hi-IN": {
@@ -7293,6 +7298,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "Brain हर घंटे केवल स्वीकृत सीरीज़ से ट्रांसक्रिप्ट आयात करता है। Zoom खाते की अन्य मीटिंग कभी डाउनलोड नहीं होतीं। सूची बदलने पर पीछे देखने की अवधि फिर से स्कैन होती है।",
       zoomAdminOnly:
         "केवल संगठन के मालिक और एडमिन Zoom सेटिंग्स बदल सकते हैं। आप अब भी इस स्रोत का नाम बदल सकते हैं।",
+      updatingSource: "अपडेट हो रहा है…",
     },
   },
   "ja-JP": {
@@ -7307,6 +7313,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "Brain は 1 時間ごとに、承認済みの定期ミーティングからのみ文字起こしを取り込みます。Zoom アカウント内のほかのミーティングはダウンロードしません。一覧を変更すると、さかのぼる期間を再スキャンします。",
       zoomAdminOnly:
         "Zoom の設定を変更できるのは組織のオーナーと管理者のみです。このソースの名前は引き続き変更できます。",
+      updatingSource: "更新中…",
     },
   },
   "ko-KR": {
@@ -7321,6 +7328,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "Brain은 매시간 승인된 시리즈에서만 대본을 가져옵니다. Zoom 계정의 다른 회의는 다운로드하지 않습니다. 목록을 변경하면 조회 기간을 다시 검사합니다.",
       zoomAdminOnly:
         "조직 소유자와 관리자만 Zoom 설정을 변경할 수 있습니다. 이 소스의 이름은 계속 변경할 수 있습니다.",
+      updatingSource: "업데이트 중…",
     },
   },
   "pt-BR": {
@@ -7335,6 +7343,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "A cada hora, o Brain importa transcrições somente das séries aprovadas. Outras reuniões da conta do Zoom nunca são baixadas. Alterar a lista verifica novamente o período de retrospectiva.",
       zoomAdminOnly:
         "Somente proprietários e administradores da organização podem alterar as configurações do Zoom. Você ainda pode renomear esta fonte.",
+      updatingSource: "Atualizando…",
     },
   },
   "zh-CN": {
@@ -7349,6 +7358,7 @@ const zoomSourceLocalizationOverrides: Partial<
         "Brain 每小时仅从已批准的系列导入转录。Zoom 账户中的其他会议绝不会被下载。更改列表会重新扫描回溯期。",
       zoomAdminOnly:
         "只有组织所有者和管理员可以更改 Zoom 设置。你仍然可以重命名此来源。",
+      updatingSource: "正在更新…",
     },
   },
 };

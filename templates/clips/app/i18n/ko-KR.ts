@@ -1564,6 +1564,8 @@ const messages = {
     builderGrantAskAdmin:
       "소유자 또는 관리자에게 클립 업로드 권한으로 Builder.io를 연결해 달라고 요청하세요.",
     statusUnavailable: "비디오 저장소 상태를 확인할 수 없습니다.",
+    hostedStorageUnavailable:
+      "Clips 호스팅 저장소를 일시적으로 사용할 수 없습니다. 무료 클립 할당량은 그대로 유지됩니다. 나중에 다시 업로드해 주세요.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout:
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
@@ -1858,6 +1860,14 @@ const messages = {
     validWebUrl: "유효한 http:// 또는 https:// 주소를 입력하세요.",
   },
   recordRoute: {
+    freeClipsLeft_one: "무료 클립 {{count}}개 남음",
+    freeClipsLeft_other: "무료 클립 {{count}}개 남음",
+    hostedClipsExhaustedTitle: "Builder.io에 무료로 연결하고 계속 녹화하세요",
+    hostedClipsExhaustedDescription:
+      "무료 호스팅 클립을 모두 사용했습니다. Builder.io 저장소를 연결하면 라이브러리에 클립을 계속 저장할 수 있습니다.",
+    clipExceedsSizeLimit: "이 클립이 현재 업로드 크기 제한을 초과합니다.",
+    clipExceedsMaxDuration: "이 클립이 현재 녹화 시간 제한을 초과합니다.",
+    maxClipDurationReached: "클립 최대 길이에 도달했습니다. 녹화를 저장합니다.",
     pageTitle: "New recording — Clips (현지화됨)",
     uploadFailed: "Upload failed (현지화됨)",
     uploadFailedAtChunk:
@@ -2093,6 +2103,10 @@ const messages = {
     vocabularyRemoveFailed: "용어를 삭제하지 못했습니다",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 호스팅 저장 공간이 가득 찼습니다. 클립을 계속 저장하려면 Builder.io 저장소를 연결하세요.",
+    hostedRecordingTakenDown:
+      "이 녹화는 Clips 호스팅 저장 공간에서 삭제되었습니다.",
     splitAtPlayhead: "재생 위치에서 분할 (S)",
     selectedCount: "{{count}}개 선택됨",
     selectAll: "모두 선택",

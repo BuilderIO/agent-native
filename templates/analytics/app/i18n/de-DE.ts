@@ -30,7 +30,7 @@ export default {
     view: "Ansehen",
     edit: "Bearbeiten",
     viewHint:
-      "Ansehen, ohne etwas zu ändern. Spaltenbreiten, die Sie ziehen, gelten nur für Sie.",
+      "Bearbeiten ist deaktiviert. Spaltenbreiten, die Sie ziehen, gelten nur für Sie.",
     editHint: "Änderungen werden für alle gespeichert",
     columnResizePersonal:
       "Ziehen, um die Breite nur für Sie zu ändern. Doppelklick zum Zurücksetzen.",
@@ -1406,6 +1406,14 @@ export default {
       "Die ersten {{shown}} von {{total}} Punkten werden angezeigt",
     chartPointLimitLast:
       "Die letzten {{shown}} von {{total}} Punkten werden angezeigt",
+    funnelCompleted: "Abgeschlossen",
+    funnelSkipped: "Übersprungen",
+    funnelMovedOn: "Ohne beides weiter",
+    funnelLeft: "App verlassen",
+    funnelLeftHere: "Hier die App verlassen",
+    funnelOptional: "Optional",
+    funnelShown: "{{count}} angezeigt",
+    funnelShownLabel: "Angezeigt",
     exportToGoogleSheets: "Nach Google Sheets exportieren",
     exportingToGoogleSheets: "Export nach Google Sheets...",
     googleSheetsExported: "Nach Google Sheets exportiert",

@@ -33,10 +33,10 @@ export const createRecordingSchema = z.object({
     .optional()
     .describe("Recorder platform"),
   recordingSource: z
-    .enum(["recorder", "file_upload", "local_copy_upload"])
+    .enum(["recorder", "file_upload", "local_copy_upload", "agent_upload"])
     .optional()
     .describe(
-      "How the clip reached Clips: a live recording, an uploaded file, or a local copy recorded without storage. Analytics only.",
+      "How the clip reached Clips: a live recording, an uploaded file, a local copy recorded without storage, or a file an agent uploaded. Analytics only.",
     ),
   recordingAttemptId: z
     .string()

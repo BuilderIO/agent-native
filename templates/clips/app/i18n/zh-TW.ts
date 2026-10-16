@@ -1496,6 +1496,8 @@ const messages = {
     builderGrantAskAdmin:
       "請擁有者或管理員連線具有片段上傳權限的 Builder.io 帳戶。",
     statusUnavailable: "無法檢查影片儲存是否就緒。",
+    hostedStorageUnavailable:
+      "Clips 託管儲存空間暫時無法使用。您的免費片段額度不變，請稍後再試上傳。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
     builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
@@ -1778,6 +1780,14 @@ const messages = {
     validWebUrl: "請輸入有效的 http:// 或 https:// 位址。",
   },
   recordRoute: {
+    freeClipsLeft_one: "還剩 {{count}} 個免費片段",
+    freeClipsLeft_other: "還剩 {{count}} 個免費片段",
+    hostedClipsExhaustedTitle: "免費連接 Builder.io，繼續錄製",
+    hostedClipsExhaustedDescription:
+      "免費託管錄製次數已用完。連接 Builder.io 儲存空間，即可繼續將片段儲存到資料庫。",
+    clipExceedsSizeLimit: "此片段超出目前上傳大小限制。",
+    clipExceedsMaxDuration: "此片段超出目前錄製時長限制。",
+    maxClipDurationReached: "已達片段時長上限。正在儲存錄製內容。",
     pageTitle: "新增錄製 · Clips",
     uploadFailed: "上傳失敗",
     uploadFailedAtChunk: "第 {{chunk}}/{{total}} 個區塊上傳失敗：{{message}}",
@@ -1993,6 +2003,9 @@ const messages = {
     vocabularyRemoveFailed: "無法移除詞彙",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 託管儲存空間已滿。請連接 Builder.io 儲存空間以繼續儲存片段。",
+    hostedRecordingTakenDown: "這段錄影已從 Clips 託管儲存空間移除。",
     splitAtPlayhead: "在播放頭處分割 (S)",
     selectedCount: "已選取 {{count}} 項",
     selectAll: "全選",

@@ -53,44 +53,59 @@ import type { DashboardFilter, FilterPreset } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
-export interface DashboardDefaultView {
+export interface DashboardSavedView {
   id: string;
   filters: Record<string, string>;
+  isDefault?: boolean;
 }
 
+// Reset returns to the saved view open in the URL (filter edits keep `view`), so
+// editing a view and resetting lands back on it. With no view open it goes where
+// a fresh load does: the default view, otherwise each filter's own default.
+export function resetTargetView(
+  views: readonly DashboardSavedView[],
+  searchParams: URLSearchParams,
+): DashboardSavedView | undefined {
+  const viewId = searchParams.get("view");
+  return (
+    views.find((view) => view.id === viewId) ??
+    views.find((view) => view.isDefault)
+  );
+}
+
+const NO_VIEWS: readonly DashboardSavedView[] = [];
+
 // Compare resolved values, not param presence: a URL that spells out a default
-// (f_timeRange=30d) is still at the defaults.
-export function filtersAtDefaults(
+// (f_timeRange=30d) still matches.
+export function filtersMatchView(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
-  defaultView: DashboardDefaultView | undefined,
+  view: DashboardSavedView | undefined,
 ): boolean {
   const current = resolveFilterVars(
     filters,
     (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
   );
-  const defaults = resolveFilterVars(
+  const target = resolveFilterVars(
     filters,
-    (key) => defaultView?.filters[FILTER_PARAM_PREFIX + key] ?? "",
+    (key) => view?.filters[FILTER_PARAM_PREFIX + key] ?? "",
   );
-  return Object.keys(defaults).every((key) => current[key] === defaults[key]);
+  return Object.keys(target).every((key) => current[key] === target[key]);
 }
 
-// A fresh load lands on the default view when the dashboard has one, so a
-// reset goes there too; otherwise every filter falls back to its own default.
 export function resetFilterParams(
   prev: URLSearchParams,
-  defaultView: DashboardDefaultView | undefined,
+  view: DashboardSavedView | undefined,
 ): URLSearchParams {
   const next = new URLSearchParams(prev);
   for (const key of Array.from(next.keys())) {
     if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
   }
-  if (defaultView) {
-    for (const [key, value] of Object.entries(defaultView.filters)) {
+  if (view) {
+    for (const [key, value] of Object.entries(view.filters)) {
       if (value) next.set(key, value);
     }
-    next.set("view", defaultView.id);
+    next.set("view", view.id);
   } else {
     next.delete("view");
   }
@@ -126,7 +141,8 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
-  defaultView?: DashboardDefaultView;
+  // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
+  views?: readonly DashboardSavedView[] | null;
   onSaveView?: (
     name: string,
     filters: Record<string, string>,
@@ -136,7 +152,7 @@ interface DashboardFilterBarProps {
 
 export function DashboardFilterBar({
   filters,
-  defaultView,
+  views = NO_VIEWS,
   onSaveView,
 }: DashboardFilterBarProps) {
   const t = useT();
@@ -188,8 +204,11 @@ export function DashboardFilterBar({
   );
 
   const resetFilters = useCallback(() => {
-    setSearchParams((prev) => resetFilterParams(prev, defaultView));
-  }, [defaultView, setSearchParams]);
+    if (!views) return;
+    setSearchParams((prev) =>
+      resetFilterParams(prev, resetTargetView(views, prev)),
+    );
+  }, [views, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
     if (!viewName.trim() || !onSaveView || savingView) return;
@@ -227,10 +246,17 @@ export function DashboardFilterBar({
     [uniqueFilters, getParam],
   );
 
-  const filtersChanged = !filtersAtDefaults(
+  const canReset =
+    views !== null &&
+    !filtersMatchView(
+      uniqueFilters,
+      searchParams,
+      resetTargetView(views, searchParams),
+    );
+  const filtersChanged = !filtersMatchView(
     uniqueFilters,
     searchParams,
-    defaultView,
+    views?.find((view) => view.isDefault),
   );
 
   return (
@@ -296,7 +322,7 @@ export function DashboardFilterBar({
               </CollapsibleTrigger>
             </div>
             {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
-            {filtersChanged && (
+            {canReset && (
               <Button
                 variant="ghost"
                 size="sm"

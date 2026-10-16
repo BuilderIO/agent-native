@@ -14,6 +14,7 @@ import {
 } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { stepVideoFrame } from "@/lib/video-frame-stepping";
 
 import {
   clampSeek,
@@ -36,6 +37,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
   callAction: vi.fn(),
 }));
+
+vi.mock("@/lib/video-frame-stepping", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/video-frame-stepping")>();
+  return { ...actual, stepVideoFrame: vi.fn(actual.stepVideoFrame) };
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -194,6 +201,58 @@ describe("VideoPlayer playback", () => {
     expect(video.playbackRate).toBe(1.5);
     expect(video.paused).toBe(true);
     expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs queued frame steps in order instead of netting them", async () => {
+    const video = getVideo();
+
+    // A step back from the first frame can't move, so , , . ends one in.
+    await act(async () => {
+      handleRef.current?.stepFrame(-1);
+      handleRef.current?.stepFrame(-1);
+      handleRef.current?.stepFrame(1);
+    });
+
+    expect(video.currentTime).toBeCloseTo(1 / 30, 2);
+  });
+
+  it("drops queued frame steps once another seek takes over", async () => {
+    const video = getVideo();
+    vi.mocked(stepVideoFrame).mockImplementationOnce(async () => {
+      // The viewer scrubs while the first step is in flight.
+      handleRef.current?.seek(2000);
+      return false;
+    });
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+      handleRef.current?.stepFrame(1);
+    });
+
+    expect(video.currentTime).toBe(2);
+  });
+
+  it("only pauses while the key that paused playback is held", async () => {
+    const video = getVideo();
+    // A known duration keeps the pause from probing for one by seeking.
+    Object.defineProperty(video, "duration", { value: 10, configurable: true });
+    act(() => {
+      getPlayerSurface().click();
+    });
+    const playingAt = video.currentTime;
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+      handleRef.current?.stepFrame(1, true);
+      handleRef.current?.stepFrame(1, true);
+    });
+    expect(video.paused).toBe(true);
+    expect(video.currentTime).toBe(playingAt);
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+    });
+    expect(video.currentTime).toBeCloseTo(playingAt + 1 / 30, 2);
   });
 
   it("keeps playback errors above the player controls", () => {

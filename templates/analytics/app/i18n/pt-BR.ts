@@ -30,7 +30,7 @@ export default {
     view: "Ver",
     edit: "Editar",
     viewHint:
-      "Veja sem alterar nada. As larguras de coluna que você arrastar ficam só para você.",
+      "A edição está desativada. As larguras de coluna que você arrastar ficam só para você.",
     editHint: "As alterações são salvas para todos",
     columnResizePersonal:
       "Arraste para redimensionar só para você. Clique duas vezes para redefinir.",
@@ -1389,6 +1389,14 @@ export default {
     chartPointLimitFirst:
       "Mostrando os primeiros {{shown}} de {{total}} pontos",
     chartPointLimitLast: "Mostrando os últimos {{shown}} de {{total}} pontos",
+    funnelCompleted: "Concluíram",
+    funnelSkipped: "Pularam",
+    funnelMovedOn: "Seguiram sem nenhum dos dois",
+    funnelLeft: "Saíram do app",
+    funnelLeftHere: "Saíram do app aqui",
+    funnelOptional: "Opcional",
+    funnelShown: "{{count}} viram",
+    funnelShownLabel: "Viram",
     exportToGoogleSheets: "Exportar para o Google Sheets",
     exportingToGoogleSheets: "Exportando para o Google Sheets...",
     googleSheetsExported: "Exportado para o Google Sheets",

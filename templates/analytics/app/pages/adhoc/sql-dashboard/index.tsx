@@ -1037,6 +1037,31 @@ function SqlDashboardPageContent({
   const skipFilterPreferenceSave =
     useRef<DashboardFilterPreferenceSaveGuard | null>(null);
 
+  // Edit mode, unfinished edits and open dialogs belong to the dashboard,
+  // account and organization they were opened in; kept, they would reappear
+  // and act on the next one. They reset during render, not in the effect below: the
+  // first render after a switch would otherwise show them under the next
+  // dashboard's id, and a save from that render would write the old config
+  // there. The scope is URI-encoded, so it never contains the separator.
+  const draftsOwner = `${dashboardScope}/${dashboardId ?? ""}`;
+  const [draftsOwnerShown, setDraftsOwnerShown] = useState(draftsOwner);
+  if (draftsOwnerShown !== draftsOwner) {
+    setDraftsOwnerShown(draftsOwner);
+    setEditMode(false);
+    setEditingName(false);
+    setEditingDescription(false);
+    setActiveDropSlot(null);
+    setActiveDragPanelId(null);
+    setEditorOpen(false);
+    setEditingPanel(null);
+    setDashboardActionsOpen(false);
+    setOpenDeleteAfterMenuClose(false);
+    setConfirmDeleteOpen(false);
+    setEmailReportOpen(false);
+    setHistoryOpen(false);
+    setContextSheetOpen(false);
+  }
+
   useEffect(() => {
     filterRestoreProgress.current = { status: "pending" };
     skipFilterPreferenceSave.current = null;
@@ -1051,21 +1076,6 @@ function SqlDashboardPageContent({
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
-    setEditMode(false);
-    // Unfinished edits and open dialogs belong to the dashboard they were
-    // opened on; kept, they would reappear and act on the next one.
-    setEditingName(false);
-    setEditingDescription(false);
-    setActiveDropSlot(null);
-    setActiveDragPanelId(null);
-    setEditorOpen(false);
-    setEditingPanel(null);
-    setDashboardActionsOpen(false);
-    setOpenDeleteAfterMenuClose(false);
-    setConfirmDeleteOpen(false);
-    setEmailReportOpen(false);
-    setHistoryOpen(false);
-    setContextSheetOpen(false);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
@@ -2779,7 +2789,7 @@ function SqlDashboardPageContent({
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
             filters={dashboard.filters}
-            defaultView={defaultView}
+            views={dashboardViewsLoaded ? views : null}
             onSaveView={canEdit ? handleSaveView : undefined}
           />
         )}

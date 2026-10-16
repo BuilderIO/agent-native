@@ -29,8 +29,7 @@ export default {
     label: "ダッシュボードのモード",
     view: "表示",
     edit: "編集",
-    viewHint:
-      "何も変更せずに閲覧します。ドラッグした列の幅はあなただけに適用されます。",
+    viewHint: "編集はオフです。ドラッグした列の幅はあなただけに適用されます。",
     editHint: "変更は全員に保存されます",
     columnResizePersonal:
       "ドラッグしてあなただけの列幅に変更します。ダブルクリックでリセットします。",
@@ -1372,6 +1371,14 @@ export default {
       "{{total}} 件中、最初の {{shown}} 件のポイントを表示しています",
     chartPointLimitLast:
       "{{total}} 件中、最後の {{shown}} 件のポイントを表示しています",
+    funnelCompleted: "完了",
+    funnelSkipped: "スキップ",
+    funnelMovedOn: "どちらもせずに次へ",
+    funnelLeft: "アプリを離脱",
+    funnelLeftHere: "ここでアプリを離脱",
+    funnelOptional: "任意",
+    funnelShown: "{{count}} 人に表示",
+    funnelShownLabel: "表示",
     exportToGoogleSheets: "Google スプレッドシートにエクスポート",
     exportingToGoogleSheets: "Google スプレッドシートにエクスポート中...",
     googleSheetsExported: "Google スプレッドシートにエクスポートしました",

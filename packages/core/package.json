@@ -25,6 +25,7 @@
     "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
+    "third-party-licenses",
     "src/eject",
     "src/integrations/eject",
     "src/assets/fonts/LICENSE_*",
