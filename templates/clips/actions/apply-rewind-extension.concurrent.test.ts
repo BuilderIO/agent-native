@@ -48,11 +48,18 @@ vi.mock("../server/lib/recordings.js", async () => {
 vi.mock("../server/lib/s3-upload-provider.js", () => ({
   isS3ObjectUrlBoundToRecording: mocks.isBound,
 }));
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn(async () => ({ role: "owner" })),
+}));
+vi.mock("./lib/native-media.js", () => ({
+  assertNativeRecordingMedia: vi.fn(),
+}));
 vi.mock("./make-recording-private-for-rewind.js", () => ({
   assertNoDirectRecordingShares: vi.fn(async () => undefined),
 }));
 
 import action from "./apply-rewind-extension.js";
+import clearEdits from "./clear-edits.js";
 import { rewindExtensionKey } from "./request-rewind-extension.js";
 
 async function createTable(table: PgTable) {
@@ -311,5 +318,18 @@ describe("apply-rewind-extension", () => {
     expect(mocks.appState.get(rewindExtensionKey("rec_1"))).toMatchObject({
       status: "ready",
     });
+  });
+
+  it("finishes the retry when the edits were cleared before it", async () => {
+    mocks.dispatch.mockRejectedValueOnce(new Error("worker down"));
+    await expect(
+      apply("https://storage.example/rec_1/rewind.mp4"),
+    ).rejects.toThrow("worker down");
+    await clearEdits.run({ recordingId: "rec_1" });
+
+    const result = await apply("https://storage.example/rec_1/rewind.mp4");
+
+    expect(result.request.status).toBe("applied");
+    await expectShiftedOnce();
   });
 });
