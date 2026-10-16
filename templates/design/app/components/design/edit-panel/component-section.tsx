@@ -989,7 +989,7 @@ export function ComponentSection({
     };
   }, [refetch]);
 
-  if (isLoading || !componentDetailsReady) {
+  if (isLoading || (!componentDetailsReady && !data)) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
         <div className="flex min-h-[var(--design-section-height)] items-center gap-2 px-2">
