@@ -246,6 +246,7 @@ export function SqlChartCard({
       : {};
   const breakdowns =
     panel.chartType === "table" &&
+    !panel.config?.pivot &&
     isValidPanelBreakdowns(panel.config?.breakdowns)
       ? panel.config.breakdowns
       : null;
@@ -308,10 +309,12 @@ export function SqlChartCard({
   // New filters, a refresh or another account change every number in the open
   // row. A row opened under other ones is closed in the same render, before the
   // sheet could start a breakdown query, and dropped so returning to the old
-  // filters does not reopen it.
+  // filters does not reopen it. The filters count on their own, since a filter
+  // used only inside the breakdown block leaves the panel's SQL unchanged.
   const breakdownScope = JSON.stringify([
     session?.email ?? null,
     resolvedSql ?? null,
+    filters ?? {},
     refreshToken,
   ]);
   if (openBreakdown && openBreakdown.scope !== breakdownScope) {

@@ -441,6 +441,22 @@ export function unknownPanelConfigKeys(
         });
       }
     }
+    // A breakdown reruns the panel's SQL and matches its raw rows, which a
+    // pivoted table no longer shows.
+    if (
+      panel.config.breakdowns != null &&
+      panel.config.pivot != null &&
+      (changedConfig("breakdowns", panel.config) ||
+        changedConfig("pivot", panel.config))
+    ) {
+      issues.push({
+        panelId,
+        path: "config.breakdowns",
+        key: "breakdowns",
+        kind: "invalid-value",
+        message: `${label} config.breakdowns does not work with config.pivot: a breakdown matches the panel's raw rows, not pivoted ones. Remove one of them.`,
+      });
+    }
   }
   return issues;
 }

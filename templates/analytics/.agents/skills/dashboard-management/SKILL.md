@@ -425,7 +425,8 @@ Desktop. Rows match their breakdown on every column that is not a number, so
 give a numeric column that names rows (a week, a year, an ID) `format: "text"`
 or `"date"` in `config.columns`; unformatted numbers count as measures. The
 first `format: "number"` column is the group size that sorts, mutes and folds
-groups, so make it a count such as people, not an average or a rate. The
+groups, so make it a count such as people, not an average or a rate.
+Breakdowns don't work on a pivoted table (`config.pivot`). The
 open breakdown is in `view-screen` as `rowBreakdown`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,
