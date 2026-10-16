@@ -1693,6 +1693,78 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("prefers explicit comparison connectors and parses periods introduced by with", () => {
+    const january2025 = {
+      startDate: "2025-01-01",
+      endDate: "2025-01-31",
+    };
+    const january2024 = {
+      startDate: "2024-01-01",
+      endDate: "2024-01-31",
+    };
+    const evaluate = (
+      userText: string,
+      ranges: Array<{ startDate: string; endDate: string }>,
+    ) => {
+      const toolCalls = ranges.map((range, index) =>
+        dbtMetricCall(range, [], `named-period-${index}`),
+      );
+      const toolResults = ranges.map((range, index) =>
+        dbtMetricResult(
+          { groupBy: [], timeRange: range },
+          undefined,
+          {},
+          `named-period-${index}`,
+        ),
+      );
+      return realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText:
+            "The activation rate was 42% in the current period and 39% before.",
+          runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+          toolCalls,
+          toolResults,
+        }),
+      );
+    };
+
+    expect(
+      evaluate(
+        "Show activation rate with Jan 2025 vs the same period last year.",
+        [january2025, january2024],
+      ),
+    ).toBeNull();
+    expect(
+      evaluate(
+        "Show activation rate with Jan 2025 vs the same period last year.",
+        [january2024],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate("Compare activation rate for Jan 2025 with Jan 2024.", [
+        january2025,
+        january2024,
+      ]),
+    ).toBeNull();
+    expect(
+      evaluate("Compare activation rate for Jan 2025 with Jan 2024.", [
+        january2025,
+      ]),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate("Compare activation rate for Q3 2026 with last year.", [
+        { startDate: "2026-07-01", endDate: "2026-09-30" },
+      ]),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
   it("fails closed on invalid explicit dates in a year-ago comparison", () => {
     const result = realDataFinalGuard(
       guardContext({

@@ -1439,14 +1439,50 @@ function requestedFirstComparisonRange(
   userText: string,
   now: Date,
 ): DbtMetricTimeRange | null {
-  const comparisonConnector = userText.match(
-    /\b(?:vs\.?|versus|against|compared\s+to|with)\b/i,
-  );
+  const comparisonConnector = requestedComparisonConnector(userText);
   if (comparisonConnector?.index === undefined) return null;
   return requestedCalendarRange(
     userText.slice(0, comparisonConnector.index),
     now,
   );
+}
+
+function requestedComparisonConnector(
+  userText: string,
+): RegExpMatchArray | null {
+  const explicitConnector = userText.match(
+    /\b(?:vs\.?|versus|against|compared\s+to)\b/i,
+  );
+  if (explicitConnector) return explicitConnector;
+  for (const connector of userText.matchAll(/\bwith\b/gi)) {
+    const suffix = userText.slice((connector.index ?? 0) + connector[0].length);
+    if (
+      /^\s+(?:(?:the\s+)?(?:same|equivalent|comparable)\s+period\b|(?:one|1)\s+year\s+ago\b|(?:this|current|last|previous|prior)\s+(?:week|month|quarter|year)\b|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2}\b|(?:q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|quarter\s+[1-4])\s+(?:of\s+)?(?:19|20)\d{2}\b|(?:19|20)\d{2}-\d{2}-\d{2}\b)/i.test(
+        suffix,
+      )
+    ) {
+      return connector;
+    }
+  }
+  return null;
+}
+
+function requestedNamedPeriodRanges(
+  userText: string,
+  now: Date,
+): DbtMetricTimeRange[] {
+  const matches = [
+    ...userText.matchAll(
+      /\b(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+(?:19|20)\d{2}\b/gi,
+    ),
+    ...userText.matchAll(
+      /\b(?:q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|quarter\s+[1-4])\s+(?:of\s+)?(?:19|20)\d{2}\b/gi,
+    ),
+  ].sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+  return matches.flatMap(([phrase]) => {
+    const range = requestedCalendarRange(phrase, now);
+    return range ? [range] : [];
+  });
 }
 
 function requestedComparisonCalendarRanges(
@@ -1549,9 +1585,20 @@ function requestedComparisonCalendarRanges(
       : [];
   }
 
-  const comparisonConnector = userText.match(
-    /\b(?:vs\.?|versus|against|compared\s+to|with)\b/i,
-  );
+  const namedPeriodRanges = requestedNamedPeriodRanges(userText, now);
+  if (namedPeriodRanges.length > 1) {
+    const distinctRanges = new Map(
+      namedPeriodRanges.map((range) => [
+        `${range.startDate}/${range.endDate}`,
+        range,
+      ]),
+    );
+    return distinctRanges.size === namedPeriodRanges.length
+      ? namedPeriodRanges
+      : [];
+  }
+
+  const comparisonConnector = requestedComparisonConnector(userText);
   const comparisonSuffix =
     comparisonConnector?.index !== undefined
       ? userText.slice(
