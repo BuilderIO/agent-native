@@ -265,7 +265,7 @@ export function buildExtensionExternalLinkBootstrap(): string {
         var destination = new URL(link.href, document.baseURI);
         if (
           (destination.protocol === 'http:' || destination.protocol === 'https:') &&
-          destination.origin !== window.location.origin
+          destination.origin !== new URL(document.baseURI).origin
         ) {
           if (!externalLinkPort) return;
           event.preventDefault();

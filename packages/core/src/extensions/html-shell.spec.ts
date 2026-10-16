@@ -79,6 +79,9 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("event.preventDefault()");
     expect(html).toContain("externalLinkPort.postMessage({");
     expect(html).toContain("event.stopImmediatePropagation()");
+    expect(html).toContain(
+      "destination.origin !== new URL(document.baseURI).origin",
+    );
     expect(html).toContain(`type: '${EXTENSION_EXTERNAL_LINK_MESSAGE_TYPE}'`);
     expect(html).not.toContain("link.setAttribute('target', '_top')");
     expect(html).toContain("document.addEventListener('click'");
