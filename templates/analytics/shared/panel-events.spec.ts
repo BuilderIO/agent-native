@@ -6,6 +6,7 @@ import {
   groupPanelEvents,
   isIsoCalendarDate,
   isValidPanelEvent,
+  isValidTimeZone,
   panelEventInstant,
   panelEventProblem,
   resolvePanelEvents,
@@ -58,9 +59,52 @@ describe("resolvePanelEvents", () => {
   it("skips rows whose x is not a date and keeps their row positions", () => {
     const [event] = resolvePanelEvents(
       [{ date: "2026-10-14", label: "Launch" }],
-      ["2026-10-12", null, "2026-10-14", "Total"],
+      ["2026-13-01", "2026-10-12", null, "2026-10-14", "Total"],
     );
-    expect(event).toMatchObject({ index: 2, x: "2026-10-14" });
+    expect(event).toMatchObject({ index: 3, x: "2026-10-14" });
+  });
+
+  it("snaps a date halfway between two points to the one written first", () => {
+    const launch = [{ date: "2026-10-13", label: "Launch" }];
+    expect(
+      resolvePanelEvents(launch, ["2026-10-12", "2026-10-14", "2026-10-16"]),
+    ).toMatchObject([{ index: 0, x: "2026-10-12" }]);
+    expect(
+      resolvePanelEvents(launch, ["2026-10-16", "2026-10-14", "2026-10-12"]),
+    ).toMatchObject([{ index: 1, x: "2026-10-14" }]);
+  });
+
+  it("drops a long list's dates outside the chart before validating them", () => {
+    const chartDays = Array.from({ length: 14 }, (_, day) =>
+      new Date(Date.UTC(2026, 9, 1 + day)).toISOString().slice(0, 10),
+    );
+    const longAgo = Array.from({ length: 990 }, (_, day) => ({
+      date: new Date(Date.UTC(2023, 0, 1 + day)).toISOString().slice(0, 10),
+      label: `Old change ${day}`,
+    }));
+    const recent = chartDays.slice(2, 12).map((date) => ({
+      date,
+      time: "12:00",
+      timeZone: "America/New_York",
+      label: `Launch ${date}`,
+    }));
+    const validated = new Set<string>();
+    const watched = [...longAgo, ...recent].map(
+      (event) =>
+        new Proxy(event, {
+          get(target, key, receiver) {
+            if (key !== "date") validated.add(target.date);
+            return Reflect.get(target, key, receiver);
+          },
+        }),
+    );
+
+    const resolved = resolvePanelEvents(watched, chartDays);
+
+    expect(resolved.map(({ x, label }) => [x, label])).toEqual(
+      recent.map(({ date, label }) => [date, label]),
+    );
+    expect([...validated]).toEqual(recent.map((event) => event.date));
   });
 
   it("keeps a daily axis of local midnights daily across a daylight-saving change", () => {
@@ -162,6 +206,16 @@ describe("event time of day", () => {
     expect(instant("2026-10-25", "02:30", "Europe/Berlin")).toBe(
       "2026-10-25T00:30:00.000Z",
     );
+  });
+
+  it("reads a zone written in any letter case as that zone", () => {
+    const instant = (timeZone: string) =>
+      new Date(
+        panelEventInstant({ date: "2026-11-01", time: "01:30", timeZone }),
+      ).toISOString();
+    expect(instant("america/new_york")).toBe("2026-11-01T05:30:00.000Z");
+    expect(instant("AMERICA/NEW_YORK")).toBe(instant("America/New_York"));
+    expect(isValidTimeZone("europe/berlin")).toBe(true);
   });
 
   it("puts both launch moments on the same day of a daily axis", () => {

@@ -1096,13 +1096,17 @@ async function markRecordingReady(params: {
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, id));
   if (!existingTranscript) {
-    await db.insert(schema.recordingTranscripts).values({
-      recordingId: id,
-      ownerEmail,
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-    });
+    // A transcript import can create the row after the read above; keep it.
+    await db
+      .insert(schema.recordingTranscripts)
+      .values({
+        recordingId: id,
+        ownerEmail,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: schema.recordingTranscripts.recordingId });
   }
 
   await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {

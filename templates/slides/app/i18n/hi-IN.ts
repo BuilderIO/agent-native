@@ -602,6 +602,8 @@ const messages = {
     addTransition: "ट्रांज़िशन जोड़ें",
     effect: "प्रभाव",
     onClick: "क्लिक पर",
+    withPrevious: "पिछले के साथ",
+    trigger: "शुरुआत",
     byParagraph: "पैराग्राफ़ के अनुसार",
     expand: "ट्रांज़िशन फैलाएं",
     collapse: "ट्रांज़िशन समेटें",
@@ -703,6 +705,14 @@ const messages = {
     noSlides: "प्रस्तुत करने के लिए कोई स्लाइड नहीं",
     previousSlide: "पिछली स्लाइड",
     nextSlide: "अगली स्लाइड",
+    voiceNavigation: "आवाज़ से नेविगेशन",
+    voiceNavigationNextCommand: "अगली स्लाइड",
+    voiceNavigationPreviousCommand: "पिछली स्लाइड",
+    voiceNavigationHint: "नेविगेट करने के लिए “{{next}}” या “{{previous}}” कहें।",
+    voiceNavigationListening: "“{{next}}” या “{{previous}}” सुन रहा है।",
+    voiceNavigationUnavailable: "इस ब्राउज़र में आवाज़ से नेविगेशन उपलब्ध नहीं है।",
+    voiceNavigationError:
+      "आवाज़ से नेविगेशन रुक गया। माइक्रोफ़ोन की अनुमति और कनेक्शन जाँचें, फिर दोबारा कोशिश करें।",
     exitPresentation: "प्रस्तुति से बाहर निकलें",
     enterFullscreen: "फ़ुलस्क्रीन में जाएं",
     clickToEnterFullscreen: "फ़ुलस्क्रीन में जाने के लिए क्लिक करें",
@@ -815,6 +825,9 @@ const messages = {
     leaveWithoutSaving: "बिना सहेजे बाहर निकलें",
     editorMarkupNotSaved:
       "यह संपादन सहेजा नहीं गया, क्योंकि इससे स्लाइड में एडिटर मार्कअप जुड़ जाता।",
+    historyStepConflict:
+      "मौजूदा प्रस्तुति से टकराव के कारण इतिहास का यह चरण छोड़ दिया गया।",
+    historyStepFailed: "यह इतिहास चरण लागू नहीं हो सका, इसलिए इसे छोड़ दिया गया।",
     textEditConflictNotSaved:
       "आपका टेक्स्ट संपादन सहेजा नहीं गया, क्योंकि उसी समय वही टेक्स्ट कहीं और बदला गया।",
   },

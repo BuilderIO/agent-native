@@ -86,6 +86,22 @@ export function buildCaptionSegmentsFromText(
   });
 }
 
+/**
+ * The first time after `ms` at which a different segment becomes current:
+ * the next start, or the moment just past a segment's (inclusive) end.
+ */
+export function nextTranscriptBoundaryMs(
+  segments: Pick<TranscriptSegment, "startMs" | "endMs">[],
+  ms: number,
+): number {
+  let next = Number.POSITIVE_INFINITY;
+  for (const segment of segments) {
+    if (segment.startMs > ms) next = Math.min(next, segment.startMs);
+    if (segment.endMs + 1 > ms) next = Math.min(next, segment.endMs + 1);
+  }
+  return next;
+}
+
 export function normalizeTranscriptSegments({
   segments,
   fullText,
@@ -98,19 +114,11 @@ export function normalizeTranscriptSegments({
   const validSegments = segments.filter((segment) => segment.text.trim());
   if (!shouldRechunkSegments(validSegments, fullText)) return validSegments;
 
-  const sourceText =
-    fullText?.trim() ||
-    validSegments
-      .map((segment) => segment.text.trim())
-      .join(" ")
-      .trim();
-  if (validSegments.length <= 1) {
-    return buildCaptionSegmentsFromText(
-      sourceText,
-      durationMs,
-      validSegments[0]?.source,
-      validSegments[0]?.speaker,
-    );
+  // Only text with no segments at all is spread across the clip. A lone
+  // segment keeps its own span: an imported one-cue file at 0:30 must not
+  // play from 0:00.
+  if (validSegments.length === 0) {
+    return buildCaptionSegmentsFromText(fullText?.trim() ?? "", durationMs);
   }
 
   return validSegments.flatMap(splitTimedSegmentIntoCaptions);
@@ -148,15 +156,19 @@ function splitTimedSegmentIntoCaptions(
   segment: TranscriptSegment,
 ): TranscriptSegment[] {
   const chunks = splitIntoCaptionChunks(segment.text);
-  if (chunks.length <= 1) return [segment];
+  // Every caption needs a positive span inside the cue: one that ends at its
+  // start is dropped on the next parse, and its words with it.
+  const spanMs = segment.endMs - segment.startMs;
+  if (chunks.length <= 1 || spanMs < chunks.length) return [segment];
 
   const totalWords =
     chunks.reduce((sum, chunk) => sum + countWords(chunk), 0) || 1;
-  const durationMs = Math.max(MIN_CAPTION_MS, segment.endMs - segment.startMs);
+  const durationMs = Math.max(MIN_CAPTION_MS, spanMs);
+  const reserveMs = Math.min(250, Math.floor(spanMs / chunks.length));
   const minChunkMs =
     durationMs >= chunks.length * MIN_CAPTION_MS
       ? MIN_CAPTION_MS
-      : Math.max(250, Math.floor(durationMs / chunks.length));
+      : Math.max(reserveMs, Math.floor(durationMs / chunks.length));
   let cursorMs = segment.startMs;
 
   return chunks.map((chunk, index) => {
@@ -165,7 +177,7 @@ function splitTimedSegmentIntoCaptions(
       (durationMs * countWords(chunk)) / totalWords,
     );
     const remainingChunks = chunks.length - index - 1;
-    const latestEndMs = segment.endMs - remainingChunks * 250;
+    const latestEndMs = segment.endMs - remainingChunks * reserveMs;
     const endMs = isLast
       ? segment.endMs
       : Math.min(
@@ -189,10 +201,7 @@ function shouldRechunkSegments(
   fullText: string | null | undefined,
 ): boolean {
   if (segments.length === 0) return Boolean(fullText?.trim());
-  if (
-    segments.some((segment) => countWords(segment.text) > MAX_WORDS_PER_CAPTION)
-  )
-    return true;
-  if (segments.length === 1 && countWords(segments[0].text) > 3) return true;
-  return false;
+  return segments.some(
+    (segment) => countWords(segment.text) > MAX_WORDS_PER_CAPTION,
+  );
 }

@@ -65,6 +65,7 @@
     "qa:agentkit-chat-acceptance": "pnpm build:agentkit-chat-acceptance && pnpm test:agentkit-acceptance-transport && tsx --test scripts/qa-standalone-chat-dev-smoke-prompt.test.ts scripts/qa-standalone-chat-dev-smoke-readiness.test.ts && tsx scripts/qa-standalone-chat-dev-smoke.ts",
     "qa:agentkit-release-acceptance": "pnpm qa:agentkit-packages && pnpm qa:agentkit-chat-acceptance",
     "qa:standalone-chat-dev": "pnpm qa:agentkit-chat-acceptance",
+    "qa:deploy-paths": "tsx scripts/qa-deploy-paths.ts",
     "qa:composer-geometry": "tsx scripts/qa-composer-geometry-smoke.ts",
     "qa:dispatch-workspace-resources": "tsx scripts/qa-dispatch-workspace-resources-smoke.ts",
     "qa:dispatch-automations": "tsx scripts/qa-dispatch-automations-smoke.ts",

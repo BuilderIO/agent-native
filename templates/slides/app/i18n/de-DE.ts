@@ -613,6 +613,8 @@ const messages = {
     addTransition: "Übergang hinzufügen",
     effect: "Effekt",
     onClick: "Bei Klick",
+    withPrevious: "Mit vorheriger",
+    trigger: "Start",
     byParagraph: "Nach Absatz",
     expand: "Übergang erweitern",
     collapse: "Übergang einklappen",
@@ -722,6 +724,16 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Sprachnavigation",
+    voiceNavigationNextCommand: "Nächste Folie",
+    voiceNavigationPreviousCommand: "Vorherige Folie",
+    voiceNavigationHint:
+      "Sagen Sie „{{next}}“ oder „{{previous}}“, um zu navigieren.",
+    voiceNavigationListening: "Höre auf „{{next}}“ oder „{{previous}}“.",
+    voiceNavigationUnavailable:
+      "Sprachsteuerung ist in diesem Browser nicht verfügbar.",
+    voiceNavigationError:
+      "Die Sprachnavigation wurde gestoppt. Prüfen Sie die Mikrofonberechtigung und Verbindung und versuchen Sie es erneut.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -843,6 +855,10 @@ const messages = {
     leaveWithoutSaving: "Ohne Speichern beenden",
     editorMarkupNotSaved:
       "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
+    historyStepConflict:
+      "Dieser Verlaufsschritt wurde übersprungen, weil er mit der aktuellen Präsentation in Konflikt steht.",
+    historyStepFailed:
+      "Dieser Verlaufsschritt wurde übersprungen, weil er nicht angewendet werden konnte.",
     textEditConflictNotSaved:
       "Deine Textänderung wurde nicht gespeichert, weil derselbe Text gleichzeitig an anderer Stelle geändert wurde.",
   },

@@ -1710,6 +1710,8 @@ export default {
     tweaksPlaceholder: "Opções de destaque, densidade, raio, modo escuro...",
     designExport: "Exportação de Design",
     designPreview: "Visualização Design",
+    preview: "Visualizar",
+    publish: "Publicar",
     presentMode: "Modo Presente",
     useThisDirection: "Use esta direção",
     variantHandoffHelp:

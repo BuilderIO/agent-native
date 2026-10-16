@@ -43,6 +43,7 @@ import {
   downloadDirectVideo,
   isCandidateDirectVideoUrl,
 } from "./lib/direct-video.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
 import {
   enqueueFirstImportEmailIfEligible,
   failLoomImport,
@@ -846,22 +847,16 @@ export default defineAction({
         "Transcript import isn't available for direct video links yet. Use request-transcript to transcribe the uploaded media.",
       updatedAt: now,
     };
-    const [existingTranscript] = await db
-      .select({ recordingId: schema.recordingTranscripts.recordingId })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, id));
-    if (existingTranscript) {
-      await db
-        .update(schema.recordingTranscripts)
-        .set(transcriptValues)
-        .where(eq(schema.recordingTranscripts.recordingId, id));
-    } else {
-      await db.insert(schema.recordingTranscripts).values({
-        recordingId: id,
-        ...transcriptValues,
-        createdAt: now,
+    // An import can create the row at any point, so this is one guarded
+    // upsert rather than a read and then an insert.
+    await db
+      .insert(schema.recordingTranscripts)
+      .values({ recordingId: id, ...transcriptValues, createdAt: now })
+      .onConflictDoUpdate({
+        target: schema.recordingTranscripts.recordingId,
+        set: transcriptValues,
+        setWhere: notImportedTranscript(),
       });
-    }
 
     try {
       await enqueueFirstImportEmailIfEligible(

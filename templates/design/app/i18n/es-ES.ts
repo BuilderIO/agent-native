@@ -1713,6 +1713,8 @@ export default {
     tweaksPlaceholder: "Opciones de acento, densidad, radio, modo oscuro...",
     designExport: "Exportación de Design",
     designPreview: "Vista previa de Design",
+    preview: "Vista previa",
+    publish: "Publicar",
     presentMode: "Modo presente",
     useThisDirection: "Usa esta dirección",
     variantHandoffHelp:

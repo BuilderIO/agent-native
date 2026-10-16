@@ -118,6 +118,45 @@ describe("PresentationView keyboard shortcuts", () => {
     expect(screen.getByText("2 / 3")).toBeTruthy();
   });
 
+  it("keeps Space as a deck shortcut after a mouse-focused button", () => {
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+
+    const previous = screen.getByRole("button", {
+      name: "presentation.previousSlide",
+    });
+    fireEvent.click(previous);
+    previous.focus();
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+
+    const nativeMatches = previous.matches.bind(previous);
+    const focusVisible = vi
+      .spyOn(previous, "matches")
+      .mockImplementation((selector) =>
+        selector === ":focus-visible" ? false : nativeMatches(selector),
+      );
+    const space = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, space);
+
+    expect(space.defaultPrevented).toBe(true);
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+    focusVisible.mockRestore();
+  });
+
   it("keeps fullscreen, presenter, and exit shortcuts available to focused video", () => {
     render(
       <MemoryRouter>
@@ -181,6 +220,66 @@ describe("PresentationView keyboard shortcuts", () => {
         Reflect.deleteProperty(document.documentElement, "requestFullscreen");
       }
     }
+  });
+
+  it("preserves focused select and combobox keyboard behavior", () => {
+    const openPresenter = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      const view = render(
+        <MemoryRouter initialEntries={["/presentation"]}>
+          <PresentationView slides={slides} deckId="deck-1" />
+          <CurrentLocation />
+        </MemoryRouter>,
+      );
+      const select = document.createElement("select");
+      const combobox = document.createElement("div");
+      combobox.setAttribute("role", "combobox");
+      combobox.tabIndex = 0;
+      view.container.append(select, combobox);
+
+      for (const control of [select, combobox]) {
+        control.focus();
+        for (const key of ["f", "s", "Escape"]) {
+          const keyEvent = new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+          });
+          control.dispatchEvent(keyEvent);
+
+          expect(keyEvent.defaultPrevented).toBe(false);
+          expect(screen.getByTestId("current-location").textContent).toBe(
+            "/presentation",
+          );
+        }
+      }
+      expect(openPresenter).not.toHaveBeenCalled();
+      expect(screen.getByText("1 / 2")).toBeTruthy();
+    } finally {
+      openPresenter.mockRestore();
+    }
+  });
+
+  it("keeps Escape-to-exit available while a presentation button is focused", () => {
+    render(
+      <MemoryRouter initialEntries={["/presentation"]}>
+        <PresentationView slides={slides} deckId="deck-1" />
+        <CurrentLocation />
+      </MemoryRouter>,
+    );
+
+    screen.getByRole("button", { name: "presentation.nextSlide" }).focus();
+    const exitKey = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, exitKey);
+
+    expect(exitKey.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("current-location").textContent).toBe(
+      "/deck/deck-1?slide=1",
+    );
   });
 });
 
