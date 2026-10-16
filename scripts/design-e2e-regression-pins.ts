@@ -324,7 +324,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Align uses a Group's bounds while Position stays Frame-relative",
   },
   {
-    shard: "position-3",
+    shard: "inspector-1a",
     file: "pasted-svg-image-inspector.spec.ts",
     title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },

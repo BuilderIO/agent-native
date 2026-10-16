@@ -207,7 +207,7 @@ const REQUIRED_CORE_COVERAGE = [
       "Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it",
   },
   {
-    shard: "position-3",
+    shard: "inspector-1a",
     file: "pasted-svg-image-inspector.spec.ts",
     title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },

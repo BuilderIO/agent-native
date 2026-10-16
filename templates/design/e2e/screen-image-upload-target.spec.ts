@@ -138,6 +138,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   );
   const uploadTimeline: Array<Record<string, unknown>> = [];
   const timelineStart = Date.now();
+  let observedRequestSequence = 0;
   page.on("request", (request) => {
     const url = request.url();
     if (!url.includes("/_agent-native/actions/")) return;
@@ -145,6 +146,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     if (action === "get-design") {
       uploadTimeline.push({
         ms: Date.now() - timelineStart,
+        sequence: observedRequestSequence++,
         event: "browser-get-design-request",
       });
       return;
@@ -160,6 +162,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     const content = typeof body.content === "string" ? body.content : "";
     uploadTimeline.push({
       ms: Date.now() - timelineStart,
+      sequence: observedRequestSequence++,
       event: "browser-update-file-request",
       fileId: body.id,
       expectedVersionHash: body.expectedVersionHash ?? null,
@@ -198,6 +201,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       return;
     }
     if (!url.includes("/_agent-native/actions/get-design")) return;
+    const sequence = observedRequestSequence++;
     void response
       .json()
       .then((body: DesignRecord) => {
@@ -205,6 +209,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         if (!file) return;
         uploadTimeline.push({
           ms: Date.now() - timelineStart,
+          sequence,
           event: "browser-get-design-response",
           screenAHasConcurrentMarker: file.content.includes(
             "Screen A source updated during upload",
@@ -451,22 +456,27 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         { exact: true },
       ),
     ).toBeVisible();
+    const staleUploadSave = uploadTimeline.find(
+      (event) =>
+        event.event === "browser-update-file-request" &&
+        event.fileId === screenAId &&
+        event.hasUploadUrl === true,
+    );
+    expect(staleUploadSave).toBeDefined();
+    expect(staleUploadSave?.hasConcurrentMarker).toBe(false);
+    expect(typeof staleUploadSave?.expectedVersionHash).toBe("string");
+    const staleUploadSaveSequence = staleUploadSave?.sequence;
+    expect(typeof staleUploadSaveSequence).toBe("number");
     expect(
       uploadTimeline.some(
         (event) =>
           event.event === "browser-get-design-response" &&
-          event.screenAHasConcurrentMarker === true,
+          event.screenAHasConcurrentMarker === true &&
+          typeof event.sequence === "number" &&
+          typeof staleUploadSaveSequence === "number" &&
+          event.sequence < staleUploadSaveSequence,
       ),
     ).toBe(false);
-    expect(
-      uploadTimeline.some(
-        (event) =>
-          event.event === "browser-update-file-request" &&
-          event.fileId === screenAId &&
-          event.hasConcurrentMarker === false &&
-          typeof event.expectedVersionHash === "string",
-      ),
-    ).toBe(true);
     releaseScreenACollabPoll();
     await screenACollabPollCompleted;
     await expect
