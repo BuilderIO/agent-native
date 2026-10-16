@@ -277,7 +277,10 @@ replaces the old binding, so a dev reload never leaves a stale one in front.
 Then:
 
 - A live copy's Yjs work (merge, derive, seed, edits) runs only in the
-  binding's `createBoundedTaskRunner`, never on the request thread. Its module
+  binding's `createBoundedTaskRunner`, never on the request thread. Writes to
+  one document wait their turn ahead of that runner, so the binding's
+  `maxWaitingWrites` (default 16), not the runner's queue, bounds them; past
+  it a write fails with `build_failed` / `queue_full`, a 503. Its module
   exports `tasks = defineLiveCopyTasks({ derive, seed, edits })` from
   `@agent-native/core/collab/live-copy-tasks` and is imported as
   `./tasks.ts?bounded-task`, which the app's Vite build, server build and

@@ -1143,6 +1143,58 @@ describe("mutateLiveCopy", () => {
     expect(calls).toBe(1);
   });
 
+  it("refuses writes beyond maxWaitingWrites instead of holding them", async () => {
+    let entered!: () => void;
+    const inRunner = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let hold = false;
+    const binding = define({
+      maxWaitingWrites: 1,
+      runner: intercepted(async (task) => {
+        if (task !== "liveCopy.edit" || !hold) return;
+        hold = false;
+        entered();
+        await gate;
+      }),
+    });
+    const seeded = await manager.seedLiveCopy(binding, "live:doc", {
+      source: "base",
+    });
+    hold = true;
+    const holder = manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "held" },
+    });
+    await inRunner;
+
+    const waiting = manager.applyUpdate(
+      "live:doc",
+      clientEdit(seeded.state, appendParagraph("waits")),
+    );
+    const refused = manager.applyUpdate(
+      "live:doc",
+      clientEdit(seeded.state, appendParagraph("refused")),
+    );
+    expect(await rejection(refused)).toMatchObject({
+      code: "build_failed",
+      reason: "queue_full",
+    });
+    open();
+    await holder;
+    await waiting;
+    expect((await row("live:doc"))?.text_snapshot.split("\n").sort()).toEqual([
+      "base",
+      "held",
+      "waits",
+    ]);
+    expect(() => define({ maxWaitingWrites: -1 })).toThrow(RangeError);
+  });
+
   it("keeps a row recreated at the same version while an edit runs", async () => {
     let recreate = false;
     const binding = define({

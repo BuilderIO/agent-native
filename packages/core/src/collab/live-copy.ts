@@ -32,6 +32,7 @@ import {
 
 export const LIVE_COPY_DEFAULT_FIELD = "default";
 const DEFAULT_MAX_STATE_BYTES = 4 * 1024 * 1024;
+const DEFAULT_MAX_WAITING_WRITES = 16;
 
 export type LiveCopyErrorCode =
   | "not_live_copy"
@@ -121,6 +122,12 @@ export interface LiveCopyOptions {
   /** Encoded state above this is refused. Default 4 MiB. */
   maxStateBytes?: number;
   /**
+   * Writes to one document allowed to wait while another commits. Beyond
+   * this, a write fails with `build_failed` / `queue_full` instead of
+   * holding its payload until its turn. Default 16.
+   */
+  maxWaitingWrites?: number;
+  /**
    * Writes the app's derived stores inside the commit transaction. It runs
    * before core updates `_collab_docs`, so app row locks are always taken
    * first. A throw rolls the commit back and reaches the caller unchanged.
@@ -140,6 +147,7 @@ export interface LiveCopyBinding {
   readonly runner: BoundedTaskRunner;
   readonly field: string;
   readonly maxStateBytes: number;
+  readonly maxWaitingWrites: number;
   readonly persist?: (
     tx: DbExec,
     commit: LiveCopyCommit,
@@ -175,12 +183,20 @@ export function defineLiveCopy(options: LiveCopyOptions): LiveCopyBinding {
   if (!Number.isFinite(maxStateBytes) || maxStateBytes <= 0) {
     throw new RangeError("defineLiveCopy maxStateBytes must be positive");
   }
+  const maxWaitingWrites =
+    options.maxWaitingWrites ?? DEFAULT_MAX_WAITING_WRITES;
+  if (!Number.isSafeInteger(maxWaitingWrites) || maxWaitingWrites < 0) {
+    throw new RangeError(
+      "defineLiveCopy maxWaitingWrites must be a non-negative integer",
+    );
+  }
   const binding: LiveCopyBinding = Object.freeze({
     name: options.name,
     appliesTo: options.appliesTo,
     runner: options.runner,
     field: options.field ?? LIVE_COPY_DEFAULT_FIELD,
     maxStateBytes,
+    maxWaitingWrites,
     ...(options.persist ? { persist: options.persist } : {}),
   });
   bindings.set(binding.name, binding);

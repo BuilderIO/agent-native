@@ -106,6 +106,8 @@ interface CacheEntry {
 
 const _cache = new Map<string, CacheEntry>();
 const _writeLocks = new Map<string, Promise<void>>();
+/** Writes holding or waiting for each document's lock. */
+const _writesPending = new Map<string, number>();
 const _refreshLocks = new Map<string, Promise<void>>();
 const _loadLocks = new Map<string, Promise<Y.Doc>>();
 
@@ -132,11 +134,38 @@ function evictIfNeeded(): void {
   }
 }
 
-async function withDocWriteLock<T>(
+/**
+ * Runs `fn` alone among this instance's writes to `docId`. A live copy's
+ * writes queue here, ahead of its runner, so the runner's own queue never
+ * sees them; the binding bounds them instead.
+ */
+function withDocWriteLock<T>(
   docId: string,
   fn: () => Promise<T>,
   refusePath?: string,
 ): Promise<T> {
+  // Synchronous when no binding exists, so writes keep their call order.
+  if (!liveCopiesDefined()) return enterDocWriteLock(docId, fn, refusePath);
+  return liveCopyBindingFor(docId).then((binding) => {
+    const pending = _writesPending.get(docId) ?? 0;
+    if (binding && pending > binding.maxWaitingWrites) {
+      throw new LiveCopyError(
+        "build_failed",
+        docId,
+        `Live copy ${docId} already has ${binding.maxWaitingWrites} writes waiting; try again shortly.`,
+        { reason: "queue_full" },
+      );
+    }
+    return enterDocWriteLock(docId, fn, refusePath);
+  });
+}
+
+async function enterDocWriteLock<T>(
+  docId: string,
+  fn: () => Promise<T>,
+  refusePath?: string,
+): Promise<T> {
+  _writesPending.set(docId, (_writesPending.get(docId) ?? 0) + 1);
   const previous = _writeLocks.get(docId) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -158,6 +187,9 @@ async function withDocWriteLock<T>(
     if (_writeLocks.get(docId) === chained) {
       _writeLocks.delete(docId);
     }
+    const pending = (_writesPending.get(docId) ?? 1) - 1;
+    if (pending > 0) _writesPending.set(docId, pending);
+    else _writesPending.delete(docId);
   }
 }
 
