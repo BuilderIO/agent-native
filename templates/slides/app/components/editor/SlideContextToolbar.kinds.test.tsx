@@ -83,7 +83,7 @@ describe("contextual toolbar kinds", () => {
     expect(screen.queryByRole("button", { name: "Insert" })).toBeNull();
   });
 
-  it("offers text quick picks without opening the agent panel", async () => {
+  it("opens the agent panel and offers text quick picks", async () => {
     const onOpenAgent = vi.fn();
     const onAgentQuickPick = vi.fn();
     renderToolbar({
@@ -94,7 +94,7 @@ describe("contextual toolbar kinds", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Edit with agent" }), {
       key: "Enter",
     });
-    expect(onOpenAgent).not.toHaveBeenCalled();
+    expect(onOpenAgent).toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Polish" }));
     expect(onAgentQuickPick).toHaveBeenCalledWith("polish");
   });
