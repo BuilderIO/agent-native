@@ -43,6 +43,7 @@ import {
 } from "@/lib/thumbnail-capture";
 import {
   editedToOriginal,
+  editedMarkerMs,
   effectiveDuration,
   getExcludedRanges,
   isExcluded,
@@ -425,18 +426,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       useState(false);
     const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
     const scrubberTimeline = useMemo(() => {
-      const mapMarker = (originalMs: number): number | null => {
-        if (!Number.isFinite(originalMs) || isExcluded(originalMs, edits)) {
-          return null;
-        }
-        return originalToEdited(originalMs, edits);
-      };
-
       return {
         durationMs: effectiveDuration(resolvedDurationMs, edits),
         currentMs: originalToEdited(currentMs, edits),
         comments: (comments ?? []).flatMap((comment) => {
-          const editedMs = mapMarker(comment.videoTimestampMs);
+          const editedMs = editedMarkerMs(comment.videoTimestampMs, edits);
           return editedMs === null
             ? []
             : [
@@ -450,14 +444,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               ];
         }),
         chapters: (chapters ?? []).flatMap((chapter) => {
-          const editedMs = mapMarker(chapter.startMs);
+          const editedMs = editedMarkerMs(chapter.startMs, edits);
           return editedMs === null
             ? []
             : [{ startMs: editedMs, title: chapter.title }];
         }),
         reactions: [
           ...(reactions ?? []).flatMap((reaction) => {
-            const editedMs = mapMarker(reaction.videoTimestampMs);
+            const editedMs = editedMarkerMs(reaction.videoTimestampMs, edits);
             return editedMs === null
               ? []
               : [
@@ -469,7 +463,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 ];
           }),
           ...optimisticReactions.flatMap((reaction) => {
-            const editedMs = mapMarker(reaction.videoTimestampMs);
+            const editedMs = editedMarkerMs(reaction.videoTimestampMs, edits);
             return editedMs === null
               ? []
               : [
