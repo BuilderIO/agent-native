@@ -15,9 +15,12 @@ export {
   getAppConfig,
   resolveAppHomePath,
   resetAppConfigForTests,
+  resolveClipsHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsHostedStorageConfig,
+  type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
 export { platformWaitUntil } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
@@ -247,6 +250,10 @@ export {
   runBetterAuthMigrations,
 } from "./better-auth-migrations.js";
 export { runFrameworkReleaseMigrations } from "./release-migrations.js";
+export {
+  runAppReleaseMigrations,
+  type AppReleaseMigrationResult,
+} from "./app-release-migrations.js";
 export {
   initServerSentry,
   isServerSentryEnabled,

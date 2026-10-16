@@ -974,6 +974,14 @@ export default {
         toTopRight: "Hacia arriba a la derecha",
         toBottomLeft: "Hacia abajo a la izquierda",
         toBottomRight: "Hacia abajo a la derecha",
+        fromLeft: "Desde la izquierda",
+        fromRight: "Desde la derecha",
+        fromTop: "Desde arriba",
+        fromBottom: "Desde abajo",
+        fromTopLeft: "Desde arriba a la izquierda",
+        fromTopRight: "Desde arriba a la derecha",
+        fromBottomLeft: "Desde abajo a la izquierda",
+        fromBottomRight: "Desde abajo a la derecha",
         clockwise: "En sentido horario",
         counterclockwise: "En sentido antihorario",
         easingPresets: {
@@ -1023,6 +1031,8 @@ export default {
         save: "Guardar estilo",
         createDescription:
           "Guarda las pistas de movimiento del objetivo seleccionado como un estilo reutilizable.",
+        unsupportedSequence:
+          "No se puede aplicar este estilo porque los segmentos de una misma propiedad se solapan o no se conectan.",
         tooMany: "Un estilo puede incluir hasta 24 animaciones.",
         limit: "Este diseño alcanzó el límite de 64 estilos de animación.",
       },
@@ -1055,8 +1065,13 @@ export default {
       timelineDescription:
         "Línea de tiempo de fotogramas clave. {{tracks}} pistas, {{keyframes}} fotogramas clave. Usa las flechas o Espacio + arrastrar para desplazarte, pellizca o usa Cmd/Ctrl + rueda para ampliar, arrastra para mover fotogramas clave, usa Mayús/Cmd para seleccionar varios y haz doble clic para añadirlos.",
       size: "Tamaño",
+      sourceReadUnavailable:
+        "Motion no puede leer esta animación sin cambiar su comportamiento.",
       sourceWriteUnavailable:
         "Por ahora, el código de movimiento solo se puede escribir en diseños HTML integrados.",
+      sourceConflict:
+        "El código de Motion cambió mientras esta línea de tiempo tenía cambios sin guardar. Recarga el código para descartar esos cambios y usar la fuente actual.",
+      reloadFromSource: "Volver a cargar el código",
       dockLabel: "Panel de movimiento",
       collapseDock: "Contraer panel de movimiento",
       expandAllTracks: "Expandir todas las pistas",
@@ -1191,17 +1206,15 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Importar tokens",
-      importTitle: "Importar tokens",
-      importHint:
-        "Usa design.md, CSS, archivos de tema o el diseño actual antes de añadir tokens a mano.",
-      files: "Archivos",
-      folder: "Carpeta",
-      current: "Actual",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Importar tokens pegados",
+      importDtcg: "Archivo DTCG…",
+      importCssOrTailwind: "Archivo CSS o Tailwind…",
+      importClipboard: "Pegar desde el portapapeles",
+      importFromDesign: "Generar desde el diseño",
+      importFailed: "No se pudieron importar los tokens: {{message}}",
+      clipboardBlocked:
+        "No se pudo leer el portapapeles. Permite el acceso e inténtalo de nuevo.",
+      clipboardEmpty: "El portapapeles está vacío",
       importedCount: "{{count}} tokens importados",
       importing: "Importando tokens…",
       importedWithSkipped:
@@ -1220,6 +1233,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "No se pudo añadir el token: {{message}}",
+      types: {
+        color: "Color",
+        fontFamily: "Familia tipográfica",
+        fontWeight: "Grosor de fuente",
+        fontSize: "Tamaño de fuente",
+        lineHeight: "Altura de línea",
+        letterSpacing: "Espaciado entre letras",
+        spacing: "Espaciado",
+        container: "Contenedor",
+        breakpoint: "Punto de corte",
+        radius: "Radio",
+        shadow: "Sombra",
+        opacity: "Opacidad",
+      },
       editColor: "Editar el color de {{name}}",
     },
     import: {
@@ -1685,6 +1713,8 @@ export default {
     tweaksPlaceholder: "Opciones de acento, densidad, radio, modo oscuro...",
     designExport: "Exportación de Design",
     designPreview: "Vista previa de Design",
+    preview: "Vista previa",
+    publish: "Publicar",
     presentMode: "Modo presente",
     useThisDirection: "Usa esta dirección",
     variantHandoffHelp:

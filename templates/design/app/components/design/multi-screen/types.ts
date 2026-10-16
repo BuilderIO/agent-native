@@ -359,7 +359,7 @@ export interface MultiScreenCanvasProps {
       row: number;
       rowEnd: number;
     };
-    targetAnchorRect?: CrossScreenHitTestAnchorRect;
+    targetAbsoluteOrigin?: CrossScreenHitTestOrigin;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
     targetOutsideBoardContentBounds?: boolean;
@@ -1025,6 +1025,11 @@ export interface CrossScreenHitTestAnchorRect {
   height: number;
 }
 
+export interface CrossScreenHitTestOrigin {
+  left: number;
+  top: number;
+}
+
 export interface CrossScreenHitTestResult {
   targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
@@ -1037,6 +1042,7 @@ export interface CrossScreenHitTestResult {
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
   guideRect?: CrossScreenHitTestAnchorRect;
+  absoluteOrigin?: CrossScreenHitTestOrigin;
   gridPlacement?: {
     column: number;
     columnEnd: number;

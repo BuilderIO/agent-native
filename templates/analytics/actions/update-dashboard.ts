@@ -11,6 +11,8 @@ import { z } from "zod";
 
 import {
   FILTER_TYPES,
+  filterPresetIssues,
+  MAX_FILTER_OPTIONS,
   MULTI_SELECT_EMPTY,
   normalizeMultiSelectValue,
 } from "../app/pages/adhoc/sql-dashboard/filter-vars";
@@ -48,6 +50,7 @@ import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-part
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
+import { dashboardAnnotationsIssue } from "../shared/key-dates";
 import { panelLabel, stableStringify } from "../shared/panel-render-contract";
 import {
   applyPanelOrder,
@@ -283,6 +286,8 @@ function collectDashboardConfigIssues(
       );
     }
   }
+  const annotationsIssue = dashboardAnnotationsIssue(config.annotations);
+  if (annotationsIssue) return dashboardIssue(annotationsIssue);
   const filters = config.filters;
   if (filters !== undefined && !Array.isArray(filters)) {
     return dashboardIssue("config.filters must be an array");
@@ -307,9 +312,9 @@ function collectDashboardConfigIssues(
         );
       }
       // The read path (isDashboardFilter) rejects more than 100 options, so a save that passes here would make the dashboard unreadable.
-      if (Array.isArray(f.options) && f.options.length > 100) {
+      if (Array.isArray(f.options) && f.options.length > MAX_FILTER_OPTIONS) {
         return dashboardIssue(
-          `config.filters[${i}].options can have at most 100 entries`,
+          `config.filters[${i}].options can have at most ${MAX_FILTER_OPTIONS} entries`,
         );
       }
       // isDashboardFilter rejects these shapes for every filter type, so a save that passes here would drop the whole filter set on read.
@@ -366,6 +371,24 @@ function collectDashboardConfigIssues(
               `config.filters[${i}].default names "${unknown}", which is not one of its options`,
             );
           }
+        }
+      }
+      if (f.presets !== undefined) {
+        // isDashboardFilter rejects a malformed preset, so a save that passes here would drop the whole filter set on read.
+        if (f.type !== "multi-select" || !Array.isArray(f.presets)) {
+          return dashboardIssue(
+            `config.filters[${i}].presets must be an array, and only multi-select filters take presets`,
+          );
+        }
+        const optionValues = new Set(
+          options.map((option) => (option as { value: string }).value),
+        );
+        const issues = filterPresetIssues(f.presets, optionValues);
+        const j = issues.findIndex((issue) => issue !== null);
+        if (j !== -1) {
+          return dashboardIssue(
+            `config.filters[${i}].presets[${j}] ${issues[j]}`,
+          );
         }
       }
       if (seen.has(id)) continue;
@@ -878,6 +901,10 @@ export default defineAction({
       height: 680,
     }),
   },
+  // Only `ops` edits by array index, which a replay shifts. `config` replaces
+  // the whole config and `panelOrder` moves listed ids to the front, so both
+  // reach the same end state when re-run; a call naming no mode fails first.
+  retrySafe: (input) => input.ops === undefined,
   run: async (args, actionContext) => {
     const dashboardId = resolveDashboardId(args);
     const modeCount = [args.ops, args.panelOrder, args.config].filter(
@@ -966,17 +993,28 @@ export default defineAction({
       );
       const panelCount = countPanels(args.config);
       trackDashboardSaved(dashboardId, args.config, actionContext);
-      return dashboardResult(
-        dashboardId,
-        args.config,
-        0,
-        `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
-        [],
-        args.returnConfig === true,
-        saved.updatedAt,
-        verdict,
-        agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
-      );
+      return {
+        ...dashboardResult(
+          dashboardId,
+          args.config,
+          0,
+          `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
+          [],
+          args.returnConfig === true,
+          saved.updatedAt,
+          verdict,
+          agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
+        ),
+        // The page's save toast undoes this save by restoring this revision,
+        // and names the change history records on it.
+        ...(outcome.revisionId ? { revisionId: outcome.revisionId } : {}),
+        ...(outcome.changeSummary
+          ? {
+              changes: outcome.changeSummary.changes,
+              omittedChanges: outcome.changeSummary.omitted,
+            }
+          : {}),
+      };
     }
 
     if (args.panelOrder) {

@@ -926,9 +926,12 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/agent-chat",
         "@agent-native/core/client/error-reporting",
         "@agent-native/core/client/feedback-context",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/problem-report",
+        "@agent-native/core/client/recorder",
         "@agent-native/core/client/use-session"
       ]
     },

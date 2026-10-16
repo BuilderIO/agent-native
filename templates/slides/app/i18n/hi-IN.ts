@@ -2,6 +2,33 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 const messages = {
   composer: { menu: { integrations: "इंटीग्रेशन" } },
+  appMenu: {
+    label: "ऐप मेनू",
+    actions: "कार्रवाइयाँ…",
+    backToDashboard: "डैशबोर्ड पर वापस जाएँ",
+    file: "फ़ाइल",
+    edit: "संपादित करें",
+    view: "देखें",
+    preferences: "प्राथमिकताएँ",
+    help: "सहायता",
+    importFile: "फ़ाइल आयात करें…",
+    export: "निर्यात करें…",
+    saveLocalCopy: "लोकल कॉपी सहेजें…",
+    versionHistory: "संस्करण इतिहास",
+    duplicateSelection: "चयन की प्रतिलिपि बनाएँ",
+    deleteSelection: "चयन हटाएँ",
+    zoomIn: "ज़ूम इन करें",
+    zoomOut: "ज़ूम आउट करें",
+    previousSlide: "पिछली स्लाइड",
+    nextSlide: "अगली स्लाइड",
+    appearance: "रूप-रंग…",
+    themeLight: "लाइट",
+    themeDark: "डार्क",
+    themeSystem: "सिस्टम",
+    documentation: "दस्तावेज़",
+    whatsNew: "नया क्या है",
+    sendFeedback: "फ़ीडबैक भेजें…",
+  },
   templatesPage: {
     actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
     previewAction: "पूर्वावलोकन",
@@ -602,6 +629,8 @@ const messages = {
     addTransition: "ट्रांज़िशन जोड़ें",
     effect: "प्रभाव",
     onClick: "क्लिक पर",
+    withPrevious: "पिछले के साथ",
+    trigger: "शुरुआत",
     byParagraph: "पैराग्राफ़ के अनुसार",
     expand: "ट्रांज़िशन फैलाएं",
     collapse: "ट्रांज़िशन समेटें",
@@ -703,6 +732,14 @@ const messages = {
     noSlides: "प्रस्तुत करने के लिए कोई स्लाइड नहीं",
     previousSlide: "पिछली स्लाइड",
     nextSlide: "अगली स्लाइड",
+    voiceNavigation: "आवाज़ से नेविगेशन",
+    voiceNavigationNextCommand: "अगली स्लाइड",
+    voiceNavigationPreviousCommand: "पिछली स्लाइड",
+    voiceNavigationHint: "नेविगेट करने के लिए “{{next}}” या “{{previous}}” कहें।",
+    voiceNavigationListening: "“{{next}}” या “{{previous}}” सुन रहा है।",
+    voiceNavigationUnavailable: "इस ब्राउज़र में आवाज़ से नेविगेशन उपलब्ध नहीं है।",
+    voiceNavigationError:
+      "आवाज़ से नेविगेशन रुक गया। माइक्रोफ़ोन की अनुमति और कनेक्शन जाँचें, फिर दोबारा कोशिश करें।",
     exitPresentation: "प्रस्तुति से बाहर निकलें",
     enterFullscreen: "फ़ुलस्क्रीन में जाएं",
     clickToEnterFullscreen: "फ़ुलस्क्रीन में जाने के लिए क्लिक करें",
@@ -791,6 +828,8 @@ const messages = {
     generationFailed: "स्लाइड नहीं बन पाईं। चैट में विवरण देखें और फिर से कोशिश करें।",
     generationOutcomeUnresolved:
       "हम पुष्टि नहीं कर पाए कि स्लाइड बनी हैं या नहीं। दोबारा कोशिश करने से पहले डेक देखें।",
+    generationOutcomeUnresolvedWithSlides:
+      "हम पुष्टि नहीं कर पाए कि स्लाइड बनाना पूरा हुआ या नहीं। आगे बढ़ने से पहले यहाँ दिखाई गई स्लाइड देखें।",
     partialGenerationFailed:
       "हम स्लाइड बनाना पूरा नहीं कर पाए। आगे बढ़ने से पहले, यहाँ मौजूद स्लाइड और अपना मूल अनुरोध देख लें।",
     originalPrompt: "आपका अनुरोध",
@@ -813,6 +852,9 @@ const messages = {
     leaveWithoutSaving: "बिना सहेजे बाहर निकलें",
     editorMarkupNotSaved:
       "यह संपादन सहेजा नहीं गया, क्योंकि इससे स्लाइड में एडिटर मार्कअप जुड़ जाता।",
+    historyStepConflict:
+      "मौजूदा प्रस्तुति से टकराव के कारण इतिहास का यह चरण छोड़ दिया गया।",
+    historyStepFailed: "यह इतिहास चरण लागू नहीं हो सका, इसलिए इसे छोड़ दिया गया।",
     textEditConflictNotSaved:
       "आपका टेक्स्ट संपादन सहेजा नहीं गया, क्योंकि उसी समय वही टेक्स्ट कहीं और बदला गया।",
   },

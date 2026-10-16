@@ -1,0 +1,259 @@
+---
+title: "Recorder"
+description: "The recorder is a short, redacted, in-memory record of what an app just did. It turns into a report for the app's agent, Clips, Sentry, or any destination you register."
+---
+
+# Recorder
+
+The recorder is a short, redacted, in-memory record of what an Agent-Native app just did. Every app records its actions, `application_state` writes, route changes, errors, and error toasts from the last two minutes, with no app code. When something goes wrong, that record becomes a report that the app's agent, a Clips recording, Sentry, or your own destination can read.
+
+```ts
+import { recorder } from "@agent-native/core/client/recorder";
+
+const report = recorder.report();
+```
+
+Nothing is stored on the server and nothing leaves the browser until a report is sent somewhere. The recorder makes no network requests of its own.
+
+## What it captures {#captured}
+
+| Type     | Source                                                                                                                    | Example                                                                                   |
+| -------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `action` | Every `useActionQuery()`, `useActionMutation()`, and `callAction()` call. Each action in a batched read is its own event. | `list-folders` failed with `403` and `forbidden_scope` inside a batch that returned `200` |
+| `state`  | Every `application_state` write and delete, including the ones that failed or were cancelled                              | `design-selection` changed `state` from `hover` to `focus`                                |
+| `nav`    | Route changes. Only the path is kept.                                                                                     | `/design/d_8f2c1a`                                                                        |
+| `error`  | Uncaught errors and unhandled promise rejections, with the first stack frame                                              | `TypeError` at `/app/pages/design-editor/commands/undo.ts:1715`                           |
+| `toast`  | Error and warning toasts the user saw                                                                                     | `This screen changed elsewhere. Your edit was not saved.`                                 |
+| `log`    | Events the app adds with `recorder.log()`                                                                                 | `screen.restored` from `f_1` to `f_9`                                                     |
+
+Each event has the same fields:
+
+| Field       | Meaning                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `t`         | Seconds before the report was made. It is negative.                                              |
+| `at`        | Epoch milliseconds. Clips diagnostics use the same clock.                                        |
+| `type`      | `action`, `state`, `nav`, `error`, `toast`, or `log`                                             |
+| `name`      | The action name, state key, route path, error type, toast level, or log name                     |
+| `ok`        | Whether an action or state write succeeded                                                       |
+| `status`    | The HTTP status, when there was one                                                              |
+| `errorCode` | The action's error code. A call or write the app cancelled has `errorCode: "cancelled"`.         |
+| `ms`        | How long an action or state write took                                                           |
+| `requestId` | The server's request id, which also appears in its logs and in its Sentry event                  |
+| `data`      | Redacted, bounded details. An action has its HTTP method and, when it failed, its error message. |
+
+A state write records only what changed since the last value that key saved. The first write of a key records `data.value`. Later writes record `data.changed`, where a removed field reads `"[removed]"`. A write that changed nothing records `data.unchanged`, and a delete records `data.deleted`. A failed write also has `data.error`, and the next write is still compared with the last value that saved.
+
+## Reports {#reports}
+
+A report is the events in the window plus the values the app watches and the work still in flight.
+
+```json
+{
+  "app": "design",
+  "build": "59929e9",
+  "url": "/design/d_8f2c1a?file=[redacted]",
+  "at": "2026-10-14T16:20:05.120Z",
+  "reason": "user",
+  "windowSeconds": 120,
+  "events": [
+    {
+      "t": -12.4,
+      "at": 1791994792720,
+      "type": "state",
+      "name": "design-selection",
+      "ok": true,
+      "ms": 41,
+      "data": { "changed": { "state": "hover" } }
+    },
+    {
+      "t": -10.9,
+      "at": 1791994794220,
+      "type": "action",
+      "name": "update-file",
+      "ok": true,
+      "status": 200,
+      "ms": 180,
+      "requestId": "req_a1",
+      "data": { "method": "POST" }
+    }
+  ],
+  "watched": {
+    "inspector": {
+      "state": "focus",
+      "fields": [{ "label": "Opacity", "shown": "91%" }]
+    }
+  },
+  "pending": [],
+  "dropped": 0
+}
+```
+
+- **app**: the app id. Without one it falls back to the page's host, such as `localhost:8080`, so it is never empty.
+- **url**: the route path. Every query value is redacted and the hash is left out.
+- **windowSeconds**: how many seconds the report covers.
+- **pending**: actions and state writes still in flight, each with its `ageMs`.
+- **dropped**: events lost to the caps since the page loaded or the user signed out. Events that aged out of the window are not counted.
+
+## The SDK {#sdk}
+
+### `recorder.report()` {#report}
+
+`recorder.report()` returns the current report. It is synchronous. It accepts one optional object:
+
+- **seconds**: keep only the last `seconds` of the window.
+- **reason**: `"user"`, `"error"`, `"test"`, or `"manual"`. The default is `"manual"`.
+
+```ts
+const report = recorder.report();
+```
+
+Pass `seconds` for a shorter slice, such as the half minute before a recording started:
+
+```ts
+const before = recorder.report({ seconds: 30 });
+```
+
+Every reason except `"manual"` also sends the report to the `recorder.onReport()` listeners. A plain `recorder.report()` call never does, so a listener can build a report without looping.
+
+### `recorder.log()` {#log}
+
+`recorder.log()` adds an event in the app's own words. It accepts a name and optional data. Data that is not a plain object is recorded as `{ value }`.
+
+Design logs the new id of each screen that undo brings back, because undo re-creates deleted screens with new ids:
+
+```ts
+recorder.log("screen.restored", { from: file.id, to: result.id });
+```
+
+### `recorder.watch()` {#watch}
+
+`recorder.watch()` adds a live value to every report. It accepts a name and a function that returns the value, and it returns a function that stops watching.
+
+Design's inspector adds what it is showing and the interaction state it is editing. Neither is in `application_state`, so without this a report could not show them:
+
+```tsx
+useEffect(
+  () =>
+    recorder.watch("inspector", () => ({
+      state: interactionState ?? "default",
+      fields: readVisualScrubInputs(),
+    })),
+  [interactionState],
+);
+```
+
+A function that throws is reported as `{ unreadable: "<message>" }` rather than left out.
+
+### `recorder.onReport()` {#on-report}
+
+`recorder.onReport()` sends reports to a destination. It accepts a listener and returns a function that removes it. The listener receives every report built with a reason other than `"manual"`. That covers Report a problem (`"user"`), uncaught errors (`"error"`), and tests (`"test"`).
+
+```ts
+recorder.onReport((report) => posthog.capture("problem_report", report));
+```
+
+```ts
+recorder.onReport((report) =>
+  navigator.sendBeacon("/api/logs", JSON.stringify(report)),
+);
+```
+
+An uncaught error sends at most one report every ten seconds, so an error loop cannot flood a destination. A listener that throws is logged and the other listeners still run.
+
+### `recorder.redact()` {#redact}
+
+`recorder.redact()` hides more fields from every event recorded after the call and from every watched value. Pass field names, or dotted paths that start with the event's name. A `*` matches any one field.
+
+```ts
+recorder.redact("email");
+recorder.redact("compose.body", "payment.*");
+```
+
+### `recorder.pending()` {#pending}
+
+`recorder.pending()` lists the actions and state writes still in flight. Tests use it to wait for real idle instead of a fixed sleep. Design's end-to-end rails wait for it to be empty in `app.settled()`, and attach `recorder.json` to every failed test.
+
+```ts
+await expect
+  .poll(() =>
+    page.evaluate(
+      () => window.__agentNativeRecorder?.report({ seconds: 0 }).pending,
+    ),
+  )
+  .toEqual([]);
+```
+
+### `recorder.disable()` {#disable}
+
+`recorder.disable()` turns the recorder off. It does the same as `configureRecorder({ enabled: false })`.
+
+## `configureRecorder()` {#configure}
+
+`configureRecorder()` is one optional call. These are the defaults:
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({
+  windowSeconds: 120,
+  maxEvents: 2000,
+  sentry: true,
+  enabled: true,
+});
+```
+
+- **windowSeconds**: how far back the recorder keeps events.
+- **maxEvents**: the most events it keeps. When the cap is reached, the oldest events are dropped and counted in `dropped`.
+- **sentry**: whether Sentry errors get the recent events. It only acts when the app has browser Sentry.
+- **enabled**: whether the recorder runs at all.
+
+A window or cap that is not a positive number throws a `RangeError` instead of falling back to a default. The recorder also caps its total size at about 512 KB of JSON, whatever `maxEvents` is, which keeps it under 2 MB of memory per tab.
+
+## Destinations {#destinations}
+
+### Report a problem {#report-a-problem}
+
+Every app has **Report a problem**. It is at the bottom of the sidebar, in the agent panel's options menu, and in the command menu (⌘K).
+
+- It asks whether to attach what the app did in the last two minutes, and previews the counts, the failures, and the first events. It asks every time.
+- When the user agrees, the full report is stored as a private file that only that user can read. The app's agent receives a short summary with a reference to the file.
+- The agent reads more of the report with the `read-problem-report` action, filtered by event type or time.
+- When the page has no agent chat, the button copies the summary and the reference instead.
+- The report needs file storage. Without it, the dialog says the report was not attached, and nothing is sent.
+
+### Sentry {#sentry}
+
+When an app has browser Sentry configured through Agent-Native (see [Error reporting](/docs/observability#sentry)), every Sentry error event gets:
+
+- the last 100 events as breadcrumbs in the `recorder.action`, `recorder.state`, and similar categories, each with its outcome, status, and request id
+- the whole report as a `recorder.json` attachment
+
+This needs no app code. `configureRecorder({ sentry: false })` turns it off.
+
+### Your own destination {#own-destination}
+
+Register a listener with [`recorder.onReport()`](#on-report).
+
+### Clips and browser extensions {#extensions}
+
+The page exposes `window.__agentNativeRecorder.report()`. A browser extension reads it from the page's main world.
+
+When developer logs are on, the Clips extension reads it in the recorded tab when the recording starts (the last 30 seconds) and when it stops. The events join the recording's console and network entries on the same clock, and the clip's agent gets a summary of the failures. See [Clips browser logs](/docs/template-clips-features#chrome-extension-browser-logs).
+
+## Privacy {#privacy}
+
+- **It stays in the browser.** A report leaves only when a destination sends it: Report a problem after the user agrees, a Clips recording the user started, Sentry, or a listener the developer registered.
+- **Secrets are removed.** A field whose name looks secret (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) reads `"[redacted]"`. Token-looking text inside any value, such as JWTs, bearer tokens, and provider API keys, is replaced with `[redacted]` too. These are the same redactors core uses for error reports.
+- **Values are bounded.** Strings are cut at 200 characters and each event at about 2 KB. A cut says what it dropped. Request and response bodies are never recorded.
+- **It forgets.** It keeps only the window, up to its caps. It is cleared on reload and on sign-out.
+- **No new access.** The recorder only sees what already passes through the app. Action calls already go to the server, and `application_state` is already stored and read by the agent.
+
+## Turning it off {#off}
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({ enabled: false });
+```
+
+A disabled recorder forgets what it held, stops listening, and removes `window.__agentNativeRecorder` from the page. Its `recorder.report()` returns no events and no watched values, and it sends nothing to listeners. `configureRecorder({ enabled: true })` starts it again.

@@ -89,6 +89,21 @@ beforeEach(() => {
   executeProviderApiRequest.mockClear();
 });
 
+describe("Gong response size limit", () => {
+  it("throws on a truncated response instead of returning an empty body", async () => {
+    executeProviderApiRequest.mockResolvedValueOnce({
+      response: {
+        ok: true,
+        status: 200,
+        truncated: true,
+        text: '{"calls":[{"id":"1"',
+      },
+    } as never);
+
+    await expect(getCalls()).rejects.toThrow(/cut at the response size limit/);
+  });
+});
+
 describe("Gong call limits", () => {
   it("defaults to a small analysis batch", () => {
     expect(normalizeGongCallLimit(undefined)).toBe(DEFAULT_GONG_CALL_LIMIT);

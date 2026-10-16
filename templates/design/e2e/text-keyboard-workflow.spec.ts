@@ -8,8 +8,7 @@ const FIXTURE = `<!doctype html>
   </main>
 </body></html>`;
 
-// fixme: product bug: The duplicate's Layers row stays 'First title' after its text became 'Second title': both rows read 'First title' (duplication froze the
-test.fixme("Cmd+Enter commits a text edit so Cmd+D duplicates the layer, and each copy keeps its own text and name", async ({
+test("Cmd+Enter commits a text edit so Cmd+D duplicates the layer, and each copy keeps its own text and name", async ({
   app,
 }) => {
   const id = await app.seed(FIXTURE);

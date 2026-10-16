@@ -549,6 +549,37 @@ const intentsSchema = z.preprocess(
   z.union([intentSchema, z.array(intentSchema).min(1)]),
 );
 
+// Only intents that set a fixed value may replay. Move, wrap, unwrap, delete, boolean,
+// and auto-layout intents act on the already-patched file, so a second run changes it again.
+const RETRY_SAFE_INTENT_KINDS = new Set([
+  "style",
+  "class",
+  "responsive-class",
+  "breakpoint-style",
+  "textContent",
+  "attribute",
+]);
+
+function visualEditIsRetrySafe(input: {
+  source?: unknown;
+  intent?: unknown;
+}): boolean {
+  const source = parseJsonString(input.source);
+  if (typeof source !== "object" || source === null) return false;
+  const kind = (source as { kind?: unknown }).kind ?? "design-file";
+  // Preview-only sources never write; local-file persistence is not covered here.
+  if (kind !== "design-file") {
+    return kind === "inline-html" || kind === "remote-url";
+  }
+  const intents = parseJsonString(input.intent);
+  return (Array.isArray(intents) ? intents : [intents]).every(
+    (intent) =>
+      typeof intent === "object" &&
+      intent !== null &&
+      RETRY_SAFE_INTENT_KINDS.has(String((intent as { kind?: unknown }).kind)),
+  );
+}
+
 async function resolveEditableDesignFile(
   source: VisualEditActionSource,
 ): Promise<{
@@ -884,6 +915,7 @@ export default defineAction({
         "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
       ),
   }),
+  retrySafe: visualEditIsRetrySafe,
   run: async (
     {
       source,

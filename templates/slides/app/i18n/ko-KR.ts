@@ -2,6 +2,33 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 const messages = {
   composer: { menu: { integrations: "연동" } },
+  appMenu: {
+    label: "앱 메뉴",
+    actions: "작업…",
+    backToDashboard: "대시보드로 돌아가기",
+    file: "파일",
+    edit: "편집",
+    view: "보기",
+    preferences: "환경설정",
+    help: "도움말",
+    importFile: "파일 가져오기…",
+    export: "내보내기…",
+    saveLocalCopy: "로컬 사본 저장…",
+    versionHistory: "버전 기록",
+    duplicateSelection: "선택 항목 복제",
+    deleteSelection: "선택 항목 삭제",
+    zoomIn: "확대",
+    zoomOut: "축소",
+    previousSlide: "이전 슬라이드",
+    nextSlide: "다음 슬라이드",
+    appearance: "모양…",
+    themeLight: "라이트",
+    themeDark: "다크",
+    themeSystem: "시스템",
+    documentation: "문서",
+    whatsNew: "새로운 기능",
+    sendFeedback: "피드백 보내기…",
+  },
   templatesPage: {
     actions: "{{title}} 템플릿 작업",
     previewAction: "미리보기",
@@ -605,6 +632,8 @@ const messages = {
     addTransition: "전환 추가",
     effect: "효과",
     onClick: "클릭 시",
+    withPrevious: "이전과 함께",
+    trigger: "시작",
     byParagraph: "단락별",
     expand: "전환 펼치기",
     collapse: "전환 접기",
@@ -704,6 +733,16 @@ const messages = {
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
+    voiceNavigation: "음성 탐색",
+    voiceNavigationNextCommand: "다음 슬라이드",
+    voiceNavigationPreviousCommand: "이전 슬라이드",
+    voiceNavigationHint:
+      "탐색하려면 “{{next}}” 또는 “{{previous}}”라고 말하세요.",
+    voiceNavigationListening: "“{{next}}” 또는 “{{previous}}”를 듣고 있습니다.",
+    voiceNavigationUnavailable:
+      "이 브라우저에서는 음성 탐색을 사용할 수 없습니다.",
+    voiceNavigationError:
+      "음성 탐색이 중지되었습니다. 마이크 권한과 연결을 확인한 후 다시 시도해 주세요.",
     exitPresentation: "退出演示",
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
@@ -794,6 +833,8 @@ const messages = {
       "슬라이드를 만들지 못했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
     generationOutcomeUnresolved:
       "슬라이드가 만들어졌는지 확인할 수 없습니다. 다시 시도하기 전에 덱을 확인하세요.",
+    generationOutcomeUnresolvedWithSlides:
+      "슬라이드 생성이 완료되었는지 확인할 수 없습니다. 계속하기 전에 여기에 표시된 슬라이드를 확인하세요.",
     partialGenerationFailed:
       "슬라이드 만들기를 완료하지 못했어요. 계속하기 전에 이미 만들어진 슬라이드와 처음 요청한 내용을 확인해 주세요.",
     originalPrompt: "요청하신 내용",
@@ -816,6 +857,9 @@ const messages = {
     leaveWithoutSaving: "저장하지 않고 나가기",
     editorMarkupNotSaved:
       "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
+    historyStepConflict:
+      "현재 프레젠테이션과 충돌하여 이 기록 단계를 건너뛰었습니다.",
+    historyStepFailed: "이 기록 단계는 적용할 수 없어 건너뛰었습니다.",
     textEditConflictNotSaved:
       "같은 텍스트가 동시에 다른 곳에서 변경되어 텍스트 편집이 저장되지 않았습니다.",
   },

@@ -53,6 +53,11 @@ vi.mock("drizzle-orm", () => ({
   asc: (value: unknown) => ({ kind: "asc", value }),
   desc: (value: unknown) => ({ kind: "desc", value }),
   eq: (target: unknown, value: unknown) => ({ kind: "eq", target, value }),
+  inArray: (target: unknown, values: unknown[]) => ({
+    kind: "inArray",
+    target,
+    values,
+  }),
   isNotNull: (target: unknown) => ({ kind: "isNotNull", target }),
   isNull: (target: unknown) => ({ kind: "isNull", target }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
@@ -134,6 +139,7 @@ vi.mock("../db/index.js", () => {
 
 const {
   assertDashboardNameIsAvailable,
+  loadAccessibleDashboardMetadataByIds,
   listAnalyses,
   listDashboardSummaries,
   normalizeDashboardName,
@@ -387,6 +393,54 @@ describe("listDashboardSummaries", () => {
     await expect(
       assertDashboardNameIsAvailable("New dashboard", ctx),
     ).rejects.toBe(error);
+  });
+});
+
+describe("loadAccessibleDashboardMetadataByIds", () => {
+  it("uses one scoped metadata query for a bounded, deduplicated ID set", async () => {
+    const ids = [" dashboard-0 ", "dashboard-0"];
+    ids.push(
+      ...Array.from({ length: 109 }, (_, index) => `dashboard-${index + 1}`),
+    );
+    state.rows = [
+      {
+        id: "dashboard-0",
+        kind: "sql",
+        title: "Private dashboard",
+        ownerEmail: ctx.email,
+        orgId: ctx.orgId,
+        visibility: "private",
+      },
+    ];
+
+    const result = await loadAccessibleDashboardMetadataByIds(ctx, ids);
+
+    expect(state.accessFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { userEmail: ctx.email, orgId: ctx.orgId },
+    );
+    expect(Object.keys(state.projection ?? {}).sort()).toEqual(
+      ["id", "kind", "title", "ownerEmail", "orgId", "visibility"].sort(),
+    );
+    expect(state.projection).not.toHaveProperty("config");
+    expect(state.where).toMatchObject({
+      kind: "and",
+      conditions: [
+        { kind: "access" },
+        {
+          kind: "inArray",
+          values: [
+            "dashboard-0",
+            ...Array.from(
+              { length: 99 },
+              (_, index) => `dashboard-${index + 1}`,
+            ),
+          ],
+        },
+      ],
+    });
+    expect(result).toEqual(state.rows);
   });
 });
 

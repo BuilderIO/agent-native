@@ -58,6 +58,7 @@ import {
   stampContentHistorySelectionAfter,
 } from "@/pages/design-editor/history";
 import {
+  authoredAbsoluteChildOriginForNode,
   getAbsolutePositioningForNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
 } from "@/pages/design-editor/html-layer-positioning";
@@ -247,6 +248,24 @@ function isNodeParentFlow(
     : undefined;
   if (parent) return isFlowContainerNode(parent);
   return isFlowDisplay(node.layout.parentDisplay);
+}
+
+function authoredReparentedChildPosition(
+  content: string,
+  nodeAttrId: string,
+  newParentAttrId: string,
+): { x: number; y: number } | null {
+  const sourcePosition = getAbsolutePositioningForNodeInHtml(
+    content,
+    nodeAttrId,
+  );
+  const childOrigin = authoredAbsoluteChildOriginForNode(
+    content,
+    newParentAttrId,
+  );
+  return sourcePosition && childOrigin
+    ? computeReparentedChildPosition(sourcePosition, childOrigin)
+    : null;
 }
 
 function tryDuplicateOnPanelDrop(
@@ -876,9 +895,12 @@ export function runLayerMove(
         continue;
       }
       nextDestContent = patch.content;
+      const flowsIntoEmptyParent =
+        !sourceIsOutOfFlow && newParentOwnerNode?.children.length === 0;
       if (
         isCrossParent &&
         newParentId &&
+        !flowsIntoEmptyParent &&
         (!destinationIsAutoLayout || sourceWasIgnoredInAutoLayout)
       ) {
         const movedNodeAttrId =
@@ -894,19 +916,20 @@ export function runLayerMove(
             : (codeLayerOwnerByNodeId.get(newParentId)?.node.dataAttributes[
                 "data-agent-native-node-id"
               ] ?? newParentId);
-        const sourcePosition = getAbsolutePositioningForNodeInHtml(
-          prevContentForRebase,
-          draggedAttrId,
-        );
-        const targetPosition = getAbsolutePositioningForNodeInHtml(
-          prevContentForRebase,
-          newParentAttrId,
-        );
-        if (sourcePosition && targetPosition) {
+        const childPosition =
+          liveLayout.status === "resolved" &&
+          liveLayout.sourceAbsoluteOffsetInDestination
+            ? liveLayout.sourceAbsoluteOffsetInDestination
+            : authoredReparentedChildPosition(
+                prevContentForRebase,
+                draggedAttrId,
+                newParentAttrId,
+              );
+        if (childPosition) {
           nextDestContent = setAbsolutePositioningForNodeInHtml(
             nextDestContent,
             movedNodeAttrId,
-            computeReparentedChildPosition(sourcePosition, targetPosition),
+            childPosition,
           );
         }
       }

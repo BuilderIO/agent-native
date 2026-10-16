@@ -87,6 +87,14 @@ jobs:
         with:
           workspaces: ${{ env.TAURI_APP_PATH }}/src-tauri
 
+      - name: Test popover behavior while Control Center is frontmost
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: |
+          output=$(cargo test --locked --manifest-path src-tauri/Cargo.toml --lib tests::keeps_popover_open_only_for_visible_camera_bubble_when_control_center_is_frontmost -- --exact)
+          printf '%s\n' "$output"
+          grep -Eq '^test result: ok\. [1-9][0-9]* passed;' <<< "$output"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

@@ -239,6 +239,11 @@ async function markFailed(
 ): Promise<void> {
   const message =
     error instanceof Error && error.message ? error.message : FALLBACK_ERROR;
+  console.error("[lookback] earlier screen time export failed:", {
+    itemId: item.id,
+    recordingId: item.recordingId,
+    message,
+  });
   try {
     await deps.update({ id: item.id, status: "failed", error: message });
   } catch (writeError) {

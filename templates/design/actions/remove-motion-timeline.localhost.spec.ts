@@ -261,6 +261,7 @@ describe("remove-motion-timeline localhost React source", () => {
     const result = await action.run({
       designId: "design-1",
       timelineId: "timeline-1",
+      timelineVersionHash: beforeHash,
     });
 
     expect(mocks.readLocal).toHaveBeenNthCalledWith(1, {
@@ -317,6 +318,7 @@ describe("remove-motion-timeline localhost React source", () => {
     const result = await action.run({
       designId: "design-1",
       timelineId: "timeline-1",
+      timelineVersionHash: beforeHash,
     });
 
     expect(mocks.writeLocal).toHaveBeenCalledWith({
@@ -337,6 +339,42 @@ describe("remove-motion-timeline localhost React source", () => {
     });
   });
 
+  it("preserves source and timeline when the localhost source version is stale", async () => {
+    mocks.readLocal
+      .mockReset()
+      .mockResolvedValueOnce({ reachable: true })
+      .mockResolvedValueOnce({
+        content: managedSource,
+        versionHash: afterHash,
+      });
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        timelineId: "timeline-1",
+        timelineVersionHash: beforeHash,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_local_source_stale_timeline",
+      statusCode: 409,
+    });
+
+    expect(mocks.writeLocal).not.toHaveBeenCalled();
+    expect(mocks.db.delete).not.toHaveBeenCalled();
+  });
+
+  it("requires the source version captured with a localhost timeline", async () => {
+    await expect(
+      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_local_source_stale_timeline",
+      statusCode: 409,
+    });
+
+    expect(mocks.writeLocal).not.toHaveBeenCalled();
+    expect(mocks.db.delete).not.toHaveBeenCalled();
+  });
+
   it("preserves the timeline row when the bridge cannot verify cleanup", async () => {
     mocks.readLocal.mockReset();
     mocks.readLocal
@@ -351,7 +389,11 @@ describe("remove-motion-timeline localhost React source", () => {
       });
 
     await expect(
-      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+      action.run({
+        designId: "design-1",
+        timelineId: "timeline-1",
+        timelineVersionHash: beforeHash,
+      }),
     ).rejects.toThrow(/could not be confirmed/);
 
     expect(mocks.writeLocal).toHaveBeenCalledTimes(1);
@@ -365,7 +407,11 @@ describe("remove-motion-timeline localhost React source", () => {
       .mockResolvedValueOnce({ content: managedSource });
 
     await expect(
-      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+      action.run({
+        designId: "design-1",
+        timelineId: "timeline-1",
+        timelineVersionHash: beforeHash,
+      }),
     ).rejects.toThrow(/SHA-256 source version hash/);
 
     expect(mocks.writeLocal).not.toHaveBeenCalled();
@@ -379,7 +425,11 @@ describe("remove-motion-timeline localhost React source", () => {
       .mockResolvedValueOnce({ versionHash: beforeHash });
 
     await expect(
-      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+      action.run({
+        designId: "design-1",
+        timelineId: "timeline-1",
+        timelineVersionHash: beforeHash,
+      }),
     ).rejects.toMatchObject({
       errorCode: "motion_local_source_read_invalid",
       statusCode: 502,
@@ -402,6 +452,7 @@ describe("remove-motion-timeline localhost React source", () => {
     const result = await action.run({
       designId: "design-1",
       timelineId: "timeline-1",
+      timelineVersionHash: beforeHash,
     });
 
     expect(mocks.writeLocal).toHaveBeenCalledWith(
@@ -428,6 +479,7 @@ describe("remove-motion-timeline localhost React source", () => {
     const result = await action.run({
       designId: "design-1",
       timelineId: "timeline-1",
+      timelineVersionHash: beforeHash,
     });
 
     expect(mocks.writeLocal).toHaveBeenCalledWith(

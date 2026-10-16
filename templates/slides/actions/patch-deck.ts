@@ -56,6 +56,7 @@ import {
   assertSlideAnimationsResolve,
   type SlideAnimationBaseline,
 } from "../server/lib/validate-slide-animations.js";
+import { ANIMATION_TRIGGERS } from "../shared/api.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { isRealSlide } from "../shared/blank-slide.js";
 import { stableStringify } from "../shared/deck-content.js";
@@ -140,6 +141,12 @@ const SlideAnimationSchema = z.object({
     .optional()
     .describe(
       "Reveal each paragraph or list item inside this element as its own click step, in document order. A paragraph reveal starts at that paragraph and runs through the rest of its container. With nothing to split it is one step.",
+    ),
+  trigger: z
+    .enum(ANIMATION_TRIGGERS)
+    .optional()
+    .describe(
+      "When this step plays. on-click (default) waits for its own click. with-previous plays in the same click as the step before it, so the objects appear together. The first step always waits for a click.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
@@ -1301,6 +1308,42 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
   );
 }
 
+// Replay is safe only where an op sets end state by id or is CAS-guarded. A
+// content-replacing patch-slide qualifies only with its own baseContentHash:
+// the agent path sends no revision, and edits resolve against stored content,
+// so an unhashed occurrence-based edit would re-apply to another match on replay.
+function patchDeckRetrySafe(input: {
+  operations?: readonly unknown[];
+}): boolean {
+  if (!Array.isArray(input.operations)) return false;
+  return input.operations.every((raw) => {
+    const operation = raw as {
+      op?: unknown;
+      slideId?: unknown;
+      edits?: unknown;
+      baseContentHash?: unknown;
+      fields?: { content?: unknown };
+    };
+    switch (operation.op) {
+      case "patch-slide":
+        return (
+          (operation.edits === undefined &&
+            operation.fields?.content === undefined) ||
+          typeof operation.baseContentHash === "string"
+        );
+      // applyOperation skips an add-slide whose slideId already exists.
+      case "add-slide":
+        return typeof operation.slideId === "string";
+      case "delete-slide":
+      case "reorder-slides":
+      case "patch-deck-fields":
+        return true;
+      default:
+        return false;
+    }
+  });
+}
+
 export default defineAction({
   title: "Patch Slides deck",
   description:
@@ -1372,6 +1415,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  retrySafe: patchDeckRetrySafe,
   run: async (
     {
       deckId,

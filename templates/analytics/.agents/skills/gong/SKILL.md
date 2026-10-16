@@ -10,29 +10,47 @@ description: >-
 Use Gong for sales-call evidence. Call metadata alone is not enough for a deep
 dive that asks what happened in customer conversations.
 
+## Answer Questions With Gong's Own Search First
+
+Gong's MCP (`ask_account`, `ask_deal`, `generate_brief`) searches and analyzes
+the calls server-side and answers in seconds. That is how Claude answers Gong
+questions, and it is the default here too.
+
+- A question about an account, deal, customer, competitor, or topic ("what did
+  X say about Y", risks, objections, themes, next steps, call prep) →
+  `run-gong-native-insight` first, one consolidated call. Do not page `/calls`
+  or `/calls/extensive`, and do not pull transcripts, to answer a question.
+- Reach for the raw paths below only when the user needs verbatim quotes, an
+  exact count, or proof that something was absent across all calls, or when the
+  native operations are not connected (`gong-native-insights` lists them).
+- If a blocking Gong request returns a size-limit error, stop paging and switch
+  to the native operation or a narrower `gong-calls` search. Never retry the
+  same wide window.
+
 ## Actions
 
 - `gong-native-insights` — lists the connected provider-native qualitative
   synthesis operations (`ask_account`, `ask_deal`, `generate_brief`) and their
   schemas. It never calls Gong AI or spends a credit request.
 - `run-gong-native-insight` — sends one of those operations through Gong's
-  connected MCP. Use it for themes, risks, summaries, and deck narrative when
-  the native tools are connected. One invocation makes at most one Gong AI
-  request; set `allowCreditRequest=true` only for the one consolidated request
-  you intend to send, and each paid request asks for approval. Paid calls also
-  require a workspace owner to enable them once with
-  `configure-gong-native-insights`; the policy defaults off and disabling it
-  never blocks the raw evidence path.
-- `account-deep-dive` — first choice for named account/deal deep dives that
-  need HubSpot plus Gong. It searches by account/deal/company/contact domain,
-  loads Gong call details, and returns compact transcript excerpts for synthesis.
+  connected MCP. This is the first choice for questions, themes, risks,
+  summaries, and deck narrative when the native tools are connected. One
+  invocation makes one Gong AI request (one credit request), so put related
+  sub-questions in one call. It is on by default; a workspace owner can turn it
+  off with `configure-gong-native-insights`, which never blocks the raw
+  evidence path.
+- `account-deep-dive` — first choice for a named account/deal when the answer
+  needs HubSpot CRM context alongside Gong. For a question about what was said
+  in the calls, use `run-gong-native-insight` first. It searches by
+  account/deal/company/contact domain, loads Gong call details, and returns
+  compact transcript excerpts for synthesis.
 - `gong-calls` — bounded convenience reads: list recent calls, search by
   company/domain/person/email, fetch a single transcript by call ID, or return
   transcript excerpts for a small matching cohort. Its `transcriptQuery` is a
   local scan after batched transcript retrieval, not Gong's server-side
   keyword search.
 
-For broad or absence-sensitive Gong work, prefer the raw provider API surface:
+For exhaustive, count, or absence-sensitive Gong work, use the raw provider API surface:
 use `provider-api-catalog` / `provider-api-docs`, then stage `/calls/extensive`
 or another raw endpoint with `provider-api-request`. Reduce staged tracker or
 call data with `query-staged-dataset` or a Data Program. Use
@@ -41,14 +59,15 @@ native/indexed search can answer the question.
 
 ## Route Synthesis and Evidence Separately
 
-- Use `run-gong-native-insight` for qualitative synthesis where Gong may retrieve
-  and analyze evidence internally. Its result is provider synthesis: coverage
-  is unknown and raw transcript evidence is unavailable.
+- Use `run-gong-native-insight` to answer the question where Gong retrieves
+  and analyzes evidence internally. Its result is provider synthesis: coverage
+  is unknown and raw transcript evidence is unavailable, so say that when the
+  user asked for completeness.
 - Use `gong-calls` or `provider-corpus-job` for quotes, exact counts, transcript
   records, coverage-sensitive claims, and proof that something was absent.
 - Consolidate related native questions into one narrowly scoped request. Each
-  native operation independently consumes Gong credits, so do not make one call
-  per slide, bullet, or sub-question.
+  native operation independently consumes a Gong credit request, so do not make
+  one call per slide, bullet, or sub-question.
 - From a sibling app, ask Analytics a natural-language question by default.
   Analytics owns Gong/HubSpot routing, source coverage, credentials, transcript
   strategy, joins, and synthesis. Use `call-agent`'s direct `action` + `input`
@@ -90,8 +109,10 @@ When analyzing customer sentiment, objections, or voice of the customer:
 
 For account or deal deep dives:
 
-1. Call `account-deep-dive` first when the request also needs CRM context,
-   contacts, stages, amount, close date, or an overall opportunity narrative.
+1. Ask `run-gong-native-insight` first for what customers said, risks,
+   objections, and next steps. Call `account-deep-dive` first when the request
+   also needs CRM context, contacts, stages, amount, close date, or an overall
+   opportunity narrative, or when native operations are not connected.
 2. Use `gong-calls` for targeted follow-up searches by account name, domain,
    person, or email.
 3. Set `includeTranscripts=true` when the user asks for context, risks,

@@ -357,7 +357,7 @@ Les racines du modèle appellent `configureTracking()` une fois au démarrage. L
 - `llm_connection_source` — `app_secrets`, `settings` ou `env`
 - `llm_connection_configured` – si une connexion LLM est disponible
 
-Le framework suit également `builder connect clicked` lorsqu’un utilisateur sélectionne un CTA pour utiliser Builder.io, et les routes de connexion Builder côté serveur suivent les événements de cycle de vie démarrés/réussis/échoués. `configureTracking()` est appelé automatiquement par le framework ; vous n'avez pas besoin de l'appeler dans votre propre code de modèle.
+Le framework suit également `builder_connect_clicked` lorsqu’un utilisateur sélectionne un CTA pour utiliser Builder.io, et les routes de connexion Builder côté serveur suivent les événements de cycle de vie démarrés/réussis/échoués. La création de compte en un clic ajoute `connect_url_kind: "provision"` ; la fenêtre de connexion enregistre aussi l’ancien nom `builder connect clicked`, qui n’inclut pas les créations en un clic. `configureTracking()` est appelé automatiquement par le framework ; vous n'avez pas besoin de l'appeler dans votre propre code de modèle.
 
 </details>
 

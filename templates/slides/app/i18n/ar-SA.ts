@@ -2,6 +2,33 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 const messages = {
   composer: { menu: { integrations: "التكاملات" } },
+  appMenu: {
+    label: "قائمة التطبيق",
+    actions: "الإجراءات…",
+    backToDashboard: "العودة إلى لوحة التحكم",
+    file: "ملف",
+    edit: "تحرير",
+    view: "عرض",
+    preferences: "التفضيلات",
+    help: "مساعدة",
+    importFile: "استيراد ملف…",
+    export: "تصدير…",
+    saveLocalCopy: "حفظ نسخة محلية…",
+    versionHistory: "سجل الإصدارات",
+    duplicateSelection: "تكرار التحديد",
+    deleteSelection: "حذف التحديد",
+    zoomIn: "تكبير",
+    zoomOut: "تصغير",
+    previousSlide: "الشريحة السابقة",
+    nextSlide: "الشريحة التالية",
+    appearance: "المظهر…",
+    themeLight: "فاتح",
+    themeDark: "داكن",
+    themeSystem: "النظام",
+    documentation: "الوثائق",
+    whatsNew: "ما الجديد",
+    sendFeedback: "إرسال ملاحظات…",
+  },
   templatesPage: {
     actions: "إجراءات القالب {{title}}",
     previewAction: "معاينة",
@@ -608,6 +635,8 @@ const messages = {
     addTransition: "إضافة انتقال",
     effect: "التأثير",
     onClick: "عند النقر",
+    withPrevious: "مع السابق",
+    trigger: "البدء",
     byParagraph: "حسب الفقرة",
     expand: "توسيع الانتقال",
     collapse: "طي الانتقال",
@@ -721,6 +750,14 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "التنقل الصوتي",
+    voiceNavigationNextCommand: "الشريحة التالية",
+    voiceNavigationPreviousCommand: "الشريحة السابقة",
+    voiceNavigationHint: "قل «{{next}}» أو «{{previous}}» للتنقل.",
+    voiceNavigationListening: "يستمع إلى «{{next}}» أو «{{previous}}».",
+    voiceNavigationUnavailable: "التنقل الصوتي غير متاح في هذا المتصفح.",
+    voiceNavigationError:
+      "توقف التنقل الصوتي. تحقّق من إذن الميكروفون واتصاله، ثم حاول مرة أخرى.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -812,6 +849,8 @@ const messages = {
       "لم يتم إنشاء الشرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
     generationOutcomeUnresolved:
       "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض قبل المحاولة مرة أخرى.",
+    generationOutcomeUnresolvedWithSlides:
+      "تعذر علينا التأكد من اكتمال إنشاء الشرائح. راجع الشرائح المعروضة هنا قبل المتابعة.",
     partialGenerationFailed:
       "تعذّر علينا إكمال إنشاء الشرائح. راجع الشرائح الموجودة وطلبك الأصلي قبل المتابعة.",
     originalPrompt: "ما طلبته",
@@ -838,6 +877,9 @@ const messages = {
     leaveWithoutSaving: "الخروج دون حفظ",
     editorMarkupNotSaved:
       "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
+    historyStepConflict:
+      "تم تخطي خطوة السجل هذه لتعارضها مع العرض التقديمي الحالي.",
+    historyStepFailed: "تم تخطي هذه الخطوة من السجل لتعذر تطبيقها.",
     textEditConflictNotSaved:
       "لم يتم حفظ تعديل النص لأن النص نفسه تم تغييره في مكان آخر في الوقت نفسه.",
   },

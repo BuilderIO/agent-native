@@ -126,6 +126,72 @@ describe("add-comment reply boundary", () => {
     });
   });
 
+  it("rejects a mention whose @name is not in the text, before saving or notifying", async () => {
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Samuel check this?",
+        mentions: JSON.stringify([
+          { kind: "person", email: "sam@example.com", name: "Sam" },
+        ]),
+      }),
+    ).rejects.toThrow("@Sam");
+    expect(state.inserted).toHaveLength(0);
+    expect(notifyDocumentComment).not.toHaveBeenCalled();
+
+    await run({
+      documentId: "doc-1",
+      content: "Can @Sam check this?",
+      mentions: JSON.stringify([
+        { kind: "person", email: "sam@example.com", name: "Sam" },
+      ]),
+    });
+    expect(notifyDocumentComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mentions: [{ kind: "person", email: "sam@example.com", name: "Sam" }],
+      }),
+    );
+  });
+
+  it("rejects malformed mention metadata as the caller's error", async () => {
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Sam check this?",
+        mentions: JSON.stringify([{ kind: "person", name: "Sam" }]),
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Comment mention email is required",
+    });
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it("saves and notifies both people who share a name, and rejects one no @name reaches", async () => {
+    const first = { kind: "person", email: "a@example.com", name: "Sam" };
+    const second = { kind: "person", email: "b@example.com", name: "Sam" };
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Sam check this?",
+        mentions: JSON.stringify([first, second]),
+      }),
+    ).rejects.toThrow("@Sam (b@example.com)");
+    expect(notifyDocumentComment).not.toHaveBeenCalled();
+
+    await run({
+      documentId: "doc-1",
+      content: "Can @Sam and @Sam check this?",
+      mentions: JSON.stringify([first, second]),
+    });
+    expect(state.inserted[0]?.mentionsJson).toBe(
+      JSON.stringify([first, second]),
+    );
+    expect(notifyDocumentComment).toHaveBeenCalledWith(
+      expect.objectContaining({ mentions: [first, second] }),
+    );
+  });
+
   it("derives authorship from the authenticated caller", async () => {
     await run({
       documentId: "doc-1",

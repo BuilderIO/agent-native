@@ -57,6 +57,10 @@ import {
   elementAtPortableStylePath,
   styleHost,
 } from "./portable-style";
+import {
+  measureAbsoluteSiblingVisualOrigin,
+  type PositionCoordinateRenderOffset,
+} from "./position-coordinate-context";
 
 function restoreClosedPenPathPaint(path: SVGPathElement): void {
   restoreClosedPenPathFill(path);
@@ -595,6 +599,7 @@ export function cloneHtmlLayerAtPosition(
 function clearRootLayerPosition(element: Element) {
   const host = styleHost(element);
   if (!host) return;
+  host.style.removeProperty("inset");
   host.style.position = "";
   host.style.left = "";
   host.style.top = "";
@@ -625,10 +630,12 @@ export function preserveClipboardLayerName(
 }
 
 type ClonePositionSpace = "layout" | "visual";
-type CloneLayerPosition = {
+export type CloneLayerPosition = {
   x: number;
   y: number;
   space?: ClonePositionSpace;
+  visualOffset?: { x: number; y: number };
+  positionMode?: "relative";
 };
 
 function cssLength(value: string, reference: number): number {
@@ -655,16 +662,56 @@ function transformOriginCoordinate(
   return cssLength(origin, size);
 }
 
-function inlineLength(value: string, reference: number): number | null {
+function normalizedTransformOrigin(value: string): [string, string] {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return ["50%", "50%"];
+  if (parts.length === 1) {
+    const [only] = parts;
+    if (only === "top" || only === "bottom") return ["50%", only];
+    if (only === "left" || only === "right") return [only, "50%"];
+    return [only!, "50%"];
+  }
+  const [first, second] = parts;
+  if (
+    (first === "top" || first === "bottom") &&
+    (second === "left" || second === "right")
+  ) {
+    return [second!, first!];
+  }
+  return [first!, second!];
+}
+
+function inlineLength(value: string, reference: number | null): number | null {
   if (!value || value === "auto") return null;
-  return cssLength(value, reference);
+  if (value.endsWith("%")) {
+    return reference === null ? null : cssLength(value, reference);
+  }
+  return cssLength(value, reference ?? 0);
+}
+
+function inlineMarginLength(value: string): number | null {
+  const normalized = value.trim();
+  if (!normalized || normalized === "0") return 0;
+  return parsePixelValue(normalized);
 }
 
 function transformedBoundsOffset(
   element: HTMLElement | SVGElement,
 ): { x: number; y: number } | null {
+  const marginX = inlineMarginLength(element.style.marginLeft);
+  const marginY = inlineMarginLength(element.style.marginTop);
+  if (marginX === null || marginY === null) return null;
+  if (
+    [element.style.translate, element.style.rotate, element.style.scale].some(
+      (value) => value && value !== "none",
+    )
+  ) {
+    return null;
+  }
   const transform = element.style.transform;
-  if (!transform || transform === "none") return { x: 0, y: 0 };
+  if (!transform || transform === "none") {
+    return { x: marginX, y: marginY };
+  }
   if (typeof DOMMatrixReadOnly === "undefined") {
     throw new Error("DOMMatrixReadOnly is required for transformed placement");
   }
@@ -672,18 +719,12 @@ function transformedBoundsOffset(
   if (!matrix.is2D) {
     throw new Error(`Cannot resolve 3D transform placement: ${transform}`);
   }
-  const width = inlineLength(element.style.width, 0);
-  const height = inlineLength(element.style.height, 0);
+  const width = inlineLength(element.style.width, null);
+  const height = inlineLength(element.style.height, null);
   if (width === null || height === null) return null;
-  let [originX, originY] = element.style.transformOrigin
-    .split(/\s+/)
-    .slice(0, 2);
-  if (
-    (originX === "top" || originX === "bottom") &&
-    (originY === "left" || originY === "right")
-  ) {
-    [originX, originY] = [originY, originX];
-  }
+  const [originX, originY] = normalizedTransformOrigin(
+    element.style.transformOrigin,
+  );
   const ox = transformOriginCoordinate(originX, width, "x");
   const oy = transformOriginCoordinate(originY, height, "y");
   const corners = [
@@ -696,25 +737,51 @@ function transformedBoundsOffset(
     y: oy + matrix.b * (x! - ox) + matrix.d * (y! - oy) + matrix.f,
   }));
   return {
-    x: Math.min(...corners.map((point) => point.x)),
-    y: Math.min(...corners.map((point) => point.y)),
+    x: marginX + Math.min(...corners.map((point) => point.x)),
+    y: marginY + Math.min(...corners.map((point) => point.y)),
   };
 }
 
-function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
+function setRootLayerPosition(
+  element: Element,
+  position: CloneLayerPosition,
+): boolean {
   const host = styleHost(element);
-  if (!host) return;
-  const offset = (position.space === "visual"
-    ? transformedBoundsOffset(host)
-    : null) ?? {
-    x: 0,
-    y: 0,
-  };
-  host.style.position = "absolute";
-  host.style.left = `${Math.round(position.x - offset.x)}px`;
-  host.style.top = `${Math.round(position.y - offset.y)}px`;
-  host.style.right = "";
-  host.style.bottom = "";
+  if (!host) return false;
+  const offset =
+    position.space === "visual"
+      ? (position.visualOffset ?? transformedBoundsOffset(host))
+      : { x: 0, y: 0 };
+  if (!offset || !Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
+    return false;
+  }
+  if (position.positionMode === "relative") {
+    host.style.position = "relative";
+  } else {
+    host.style.removeProperty("inset");
+    host.style.position = "absolute";
+    host.style.right = "";
+    host.style.bottom = "";
+  }
+  const measuredVisualOffset =
+    position.space === "visual" && position.visualOffset !== undefined;
+  const preserveFractional =
+    measuredVisualOffset || position.positionMode === "relative";
+  host.style.left = formatClonePosition(
+    position.x - offset.x,
+    preserveFractional,
+  );
+  host.style.top = formatClonePosition(
+    position.y - offset.y,
+    preserveFractional,
+  );
+  return true;
+}
+
+function formatClonePosition(value: number, preserveFractional: boolean) {
+  return preserveFractional
+    ? `${Number(value.toFixed(4))}px`
+    : `${Math.round(value)}px`;
 }
 
 function claimClonedNodeId(
@@ -1139,7 +1206,11 @@ export function prepareClonedHtmlLayer(
     !resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute))
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
-    if (sourceNode && sourceNode.layerNameSource !== "tag") {
+    if (
+      sourceNode &&
+      sourceNode.layerNameSource !== "tag" &&
+      sourceNode.layerNameSource !== "text"
+    ) {
       clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
     }
   }
@@ -1206,7 +1277,7 @@ export function prepareClonedHtmlLayer(
 const ACTIVE_CLONED_LAYER_ELEMENTS =
   "script,style,template,noscript,link,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set";
 
-function sanitizeClonedHtmlLayer(element: Element): boolean {
+export function sanitizeClonedHtmlLayer(element: Element): boolean {
   if (
     /^(?:body|head|html)$/i.test(element.tagName) ||
     element.matches(ACTIVE_CLONED_LAYER_ELEMENTS)
@@ -1234,6 +1305,198 @@ function sanitizeClonedHtmlLayer(element: Element): boolean {
     });
   });
   return true;
+}
+
+function snapshotWithEmptyRootStyles(
+  snapshot: PortableStyleSnapshot,
+): { snapshot: PortableStyleSnapshot; rootNodeIndex: number } | null {
+  const rootNodeIndexes = snapshot.nodes.flatMap((node, index) =>
+    node.path.length === 0 ? [index] : [],
+  );
+  if (rootNodeIndexes.length !== 1) return null;
+  const rootNodeIndex = rootNodeIndexes[0]!;
+  return {
+    snapshot: {
+      ...snapshot,
+      nodes: snapshot.nodes.map((node, index) =>
+        index === rootNodeIndex ? { ...node, styles: {} } : node,
+      ),
+    },
+    rootNodeIndex,
+  };
+}
+
+const PROBE_OWNED_ROOT_STYLE_PROPERTIES = new Set([
+  "bottom",
+  "left",
+  "pointer-events",
+  "position",
+  "right",
+  "top",
+  "visibility",
+]);
+
+function cssPropertyName(property: string): string {
+  return property.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`);
+}
+
+function portableComputedStyleValue(
+  element: Element,
+  computed: CSSStyleDeclaration,
+  property: string,
+): string | null {
+  if (property.startsWith("--")) {
+    const value = computed.getPropertyValue(property).trim();
+    return value || null;
+  }
+  if (property === "width" || property === "height") {
+    const typedElement = element as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap === "function") {
+      const value = typedElement.computedStyleMap().get(property);
+      return value == null ? null : String(value).trim() || null;
+    }
+  }
+  const indexedValue = (computed as unknown as Record<string, unknown>)[
+    property
+  ];
+  if (typeof indexedValue === "string" && indexedValue.trim()) {
+    return indexedValue.trim();
+  }
+  const value = computed.getPropertyValue(cssPropertyName(property)).trim();
+  return value || null;
+}
+
+function isProbeOwnedRootStyleProperty(property: string): boolean {
+  return PROBE_OWNED_ROOT_STYLE_PROPERTIES.has(
+    cssPropertyName(property).toLowerCase(),
+  );
+}
+
+function applyProbePresentation(host: HTMLElement | SVGElement): void {
+  host.style.position = "absolute";
+  host.style.left = "0px";
+  host.style.top = "0px";
+  host.style.right = "";
+  host.style.bottom = "";
+  host.style.visibility = "hidden";
+  host.style.pointerEvents = "none";
+}
+
+export function measurePreparedCloneVisualOffset(
+  target: Element,
+  layerHtml: string,
+  options: {
+    styleSnapshot?: PortableStyleSnapshot;
+    managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
+    preserveSourceAuthoredRootStyles?: boolean;
+    placement?: "before" | "after" | "inside";
+    view: Window;
+    renderOffset: PositionCoordinateRenderOffset;
+  },
+): { x: number; y: number; styleSnapshot?: PortableStyleSnapshot } | null {
+  const doc = target.ownerDocument;
+  const placement = options.placement ?? "before";
+  const insertionParent =
+    placement === "inside" ? target : target.parentElement;
+  if (
+    !insertionParent ||
+    !target.isConnected ||
+    doc.defaultView !== options.view
+  ) {
+    return null;
+  }
+
+  const rootSnapshot =
+    options.preserveSourceAuthoredRootStyles && options.styleSnapshot
+      ? snapshotWithEmptyRootStyles(options.styleSnapshot)
+      : null;
+  const probeStyleSnapshot = rootSnapshot?.snapshot ?? options.styleSnapshot;
+  const prepared = prepareClonedHtmlLayer(doc, layerHtml, probeStyleSnapshot);
+  if (!prepared || !sanitizeClonedHtmlLayer(prepared.element)) return null;
+  const host = styleHost(prepared.element);
+  const head = doc.head;
+  if (!host || !head) return null;
+
+  const probeStyles: HTMLStyleElement[] = [];
+  try {
+    if (options.managedStyleSnapshot) {
+      const styledHtml = applyDesignClipboardManagedStyles(
+        `<!doctype html><html><head></head><body>${prepared.element.outerHTML}</body></html>`,
+        [options.managedStyleSnapshot],
+        prepared.nodeIdMap,
+        { ensureGroupRuntime: false },
+      );
+      const styledDocument = new DOMParser().parseFromString(
+        styledHtml,
+        "text/html",
+      );
+      styledDocument
+        .querySelectorAll<HTMLStyleElement>(
+          "style[data-agent-native-breakpoints], style[data-agent-native-states], style[data-agent-native-state-breakpoints]",
+        )
+        .forEach((source) => {
+          const style = doc.importNode(source, true);
+          style.setAttribute(
+            "data-agent-native-edit-overlay",
+            "paste-position-probe-style",
+          );
+          head.appendChild(style);
+          probeStyles.push(style);
+        });
+    }
+
+    host.setAttribute("data-agent-native-edit-overlay", "paste-position-probe");
+    applyProbePresentation(host);
+    if (placement === "inside") {
+      insertionParent.appendChild(prepared.element);
+    } else if (placement === "after") {
+      insertionParent.insertBefore(prepared.element, target.nextSibling);
+    } else {
+      insertionParent.insertBefore(prepared.element, target);
+    }
+    let styleSnapshot: PortableStyleSnapshot | undefined;
+    if (rootSnapshot && options.styleSnapshot) {
+      const rootNode = options.styleSnapshot.nodes[rootSnapshot.rootNodeIndex]!;
+      const computed = options.view.getComputedStyle(prepared.element);
+      const retainedStyles = Object.fromEntries(
+        Object.entries(rootNode.styles).filter(([property, carriedValue]) => {
+          if (isProbeOwnedRootStyleProperty(property)) return true;
+          const actualValue = portableComputedStyleValue(
+            prepared.element,
+            computed,
+            property,
+          );
+          return actualValue === null || actualValue !== carriedValue.trim();
+        }),
+      );
+      applyPortableStyles(prepared.element, retainedStyles);
+      applyProbePresentation(host);
+      styleSnapshot = {
+        ...options.styleSnapshot,
+        nodes: options.styleSnapshot.nodes.map((node, index) =>
+          index === rootSnapshot.rootNodeIndex
+            ? { ...node, styles: retainedStyles }
+            : node,
+        ),
+      };
+    }
+    const visualOffset = measureAbsoluteSiblingVisualOrigin(
+      prepared.element,
+      options.view,
+      options.renderOffset,
+    );
+    return visualOffset
+      ? { ...visualOffset, ...(styleSnapshot ? { styleSnapshot } : {}) }
+      : null;
+  } catch {
+    // coercion-ok: an unreadable destination preview fails paste before source content changes.
+    return null;
+  } finally {
+    prepared.element.remove();
+    probeStyles.forEach((style) => style.remove());
+  }
 }
 
 export function prepareClonedHtmlLayersForLiveInsert(
@@ -1276,7 +1539,7 @@ export function prepareClonedHtmlLayersForLiveInsert(
       if (!prepared) return;
       const position = options.positions?.[index];
       if (position) {
-        setRootLayerPosition(prepared.element, position);
+        if (!setRootLayerPosition(prepared.element, position)) return;
       } else if (options.stripRootPosition) {
         clearRootLayerPosition(prepared.element);
       }
@@ -1354,7 +1617,7 @@ export function insertClonedHtmlLayers(
       if (!prepared) return;
       const position = options.positions?.[index];
       if (position) {
-        setRootLayerPosition(prepared.element, position);
+        if (!setRootLayerPosition(prepared.element, position)) return;
       } else if (options.stripRootPosition) {
         clearRootLayerPosition(prepared.element);
       }

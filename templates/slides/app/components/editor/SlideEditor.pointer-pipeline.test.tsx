@@ -457,7 +457,8 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
   });
 
   it("moves only the card when dragged from its padding (oracle 4.4, oracle 6.7)", async () => {
-    const editor = await mountEditor(CLIP_SLIDE);
+    const onUpdateSlide = vi.fn();
+    const editor = await mountEditor(CLIP_SLIDE, { onUpdateSlide });
 
     editor.press("card", { x: 85, y: 300 });
     fireEvent.pointerMove(window, { clientX: 125, clientY: 330, pointerId: 1 });
@@ -471,6 +472,10 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     for (const id of ["h2", "callout", "left", "container", "cardBody"]) {
       expect(editor.el(id).style.position, id).not.toBe("absolute");
     }
+    expect(onUpdateSlide.mock.calls.at(-1)?.[2]).toMatchObject({
+      separateUndo: true,
+      persistence: "immediate",
+    });
   });
 
   it("leaves the card where it was when Escape cancels the drag (oracle 4.7)", async () => {

@@ -489,7 +489,9 @@ describe("Motion animation style menu", () => {
       ),
     ).toBe(true);
     expect(
-      document.body.querySelector('[role="menu"]')?.classList.contains("w-32"),
+      document.body
+        .querySelector('[role="menu"]')
+        ?.classList.contains("w-[7.5rem]"),
     ).toBe(true);
   });
 
@@ -971,10 +973,60 @@ describe("MotionDock time units and Size preset", () => {
     });
 
     expect(onDurationChange.mock.calls).toEqual([
-      [2010],
-      [1000],
+      [2001],
+      [1990],
       [50],
       [120000],
+    ]);
+  });
+
+  it("steps the duration field by the active time format", async () => {
+    const onDurationChange = vi.fn();
+    await renderInteractive({ durationMs: 2000, onDurationChange });
+    const durationInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Duration"]',
+    )!;
+
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      ),
+    );
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+    expect(onDurationChange.mock.calls).toEqual([[2001], [2011]]);
+
+    const timeFormatButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Change time format"]',
+    )!;
+    await act(async () => timeFormatButton.click());
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      ),
+    );
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+
+    expect(onDurationChange.mock.calls).toEqual([
+      [2001],
+      [2011],
+      [2100],
+      [3100],
     ]);
   });
 
@@ -1083,6 +1135,17 @@ describe("MotionDock time units and Size preset", () => {
     expect(markup).toContain('aria-valuetext="0.000 seconds"');
     expect(markup).toContain('style="left:-4px;width:2910.6px"');
     expect(markup).toContain('aria-label="Motion dock"');
+  });
+
+  it("distinguishes unsupported source syntax from an empty timeline", () => {
+    const reason = "Authored animation syntax is unsupported.";
+    const markup = render({ sourceReadUnavailableReason: reason });
+
+    expect(markup).toContain(
+      'data-motion-source-read-unavailable="true" role="status"',
+    );
+    expect(markup).toContain(reason);
+    expect(render({})).not.toContain("data-motion-source-read-unavailable");
   });
 });
 

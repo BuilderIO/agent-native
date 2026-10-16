@@ -31,11 +31,22 @@ parts on the server domain, so each run uses an address like
 Mailosaur rate limits are reported as `INCONCLUSIVE` and do not page; HTTP and
 session failures from the app remain failing assertions.
 
-The workflow runs daily at 16:15 UTC on beta and can also be started manually
-with comma-separated `apps` and `environments` inputs for beta or production. A
-failed run opens or updates one GitHub issue. If PagerDuty is configured, it
-also triggers the existing signup canary incident and resolves it after a
-successful recovery run.
+The workflow is scheduled daily at 16:15 UTC, but the Beta schedule stays
+skipped until every Beta runtime and migration database is verified isolated
+from production and the repository variable `BETA_DATABASES_ISOLATED` is set to
+`true`. Each run creates durable canary accounts. The workflow can also be
+started manually with comma-separated `apps` and `environments` inputs for
+beta or production. Beta apps may still write to production-shared data until
+each runtime and migration database is verified isolated. Production is opt-in
+through that manual dispatch. A failed run opens or updates one GitHub issue.
+If PagerDuty is configured, it also triggers the existing signup canary
+incident and resolves it after a successful recovery run.
+
+The exploratory Signup agent review is manual-only. `BETA_DATABASES_ISOLATED`
+does not control it; restoring a schedule requires an explicit workflow
+change. Manual Beta dispatches also create durable accounts and may write to
+production-shared data until each database used by the run is verified
+isolated.
 
 ## Local run
 
