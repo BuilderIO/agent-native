@@ -271,9 +271,12 @@ it is indexed as a Brain Source. Gong is query-on-demand through
 organization-scoped `GONG_ACCESS_KEY` and `GONG_ACCESS_SECRET`; callers do not
 need a personal Gong seat, and Gong calls do not appear in indexed Source
 counts. For weekly customer/prospect reviews, use an explicit date range,
-request Extended CRM context at `TimeOfCall`, finish cursor pagination, and
-classify lifecycle only from CRM evidence or a user-provided mapping. Report
-unclassified calls and incomplete scans separately. If credential status is
+request Extended CRM context at `TimeOfCall`, and finish cursor pagination.
+When a paginated `provider-api-request` saves to a workspace file, include
+`fetchAllPages`; `saveToFile` alone writes only the current page. For server-side
+staging, configure `pagination` with `stageAs`. Classify lifecycle only from
+CRM evidence or a user-provided mapping. Report unclassified calls and
+incomplete scans separately. If credential status is
 unavailable, do not claim keys are missing or ask users to connect a personal
 Gong account. Agents should inspect readiness via `list-connection-providers`
 before asking for duplicate provider credentials.

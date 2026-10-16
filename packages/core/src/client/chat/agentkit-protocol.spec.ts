@@ -1116,6 +1116,28 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("does not accept a decline when a non-resumable run cannot be verified", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          rich: { connectionRequests: true },
+        },
+      }),
+    );
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "unknown-run",
+        requestId: "unknown-request",
+        response: { status: "declined" },
+      }),
+    ).rejects.toThrow("Unknown AgentKit run: unknown-run");
+    await transport.dispose();
+  });
+
   it("restores the pending request before declining an excluded provider", async () => {
     async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
     const subscribe = vi.fn(async () => {

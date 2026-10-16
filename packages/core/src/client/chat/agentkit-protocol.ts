@@ -4149,18 +4149,7 @@ export function createAgentKitProtocolAdapter(
         if (runs.has(input.runId)) {
           throw new Error(`Unknown AgentKit run: ${input.runId}`);
         }
-        try {
-          run = await restoreRunFromRuntime(input);
-        } catch (error) {
-          if (
-            input.response.status === "declined" &&
-            error instanceof Error &&
-            error.message === `Unknown AgentKit run: ${input.runId}`
-          ) {
-            return;
-          }
-          throw error;
-        }
+        run = await restoreRunFromRuntime(input);
         if (run.pumpPromise) await run.pumpPromise;
       }
       touchRun(run);
