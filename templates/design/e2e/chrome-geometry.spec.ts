@@ -293,8 +293,8 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
   );
   expect(fillGeometry.height).toBeCloseTo(hugGeometry.height, 1);
   expect(fillGeometry.y - hugGeometry.y).toBeCloseTo(hugGeometry.height, 0);
-  expect(hugGeometry.styles["padding-top"]).toBe("6px");
-  expect(hugGeometry.styles["padding-bottom"]).toBe("6px");
+  expect(hugGeometry.styles["padding-top"]).toBe("4px");
+  expect(hugGeometry.styles["padding-bottom"]).toBe("4px");
   expect(
     Number.parseFloat(hugGeometry.styles["line-height"]),
   ).toBeGreaterThanOrEqual(12);
