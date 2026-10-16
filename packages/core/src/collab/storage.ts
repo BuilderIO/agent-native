@@ -170,10 +170,20 @@ export interface YDocStamp {
   digest: string;
 }
 
+const STATE_DIGEST_SQL = `encode(sha256(convert_to(yjs_state, 'UTF8')), 'hex')`;
+
 export async function loadYDocStamp(docId: string): Promise<YDocStamp | null> {
   await ensureTable();
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT version, encode(sha256(convert_to(yjs_state, 'UTF8')), 'hex') AS digest FROM _collab_docs WHERE doc_id = ?`,
+  return loadYDocStampWithClient(getDbExec(), docId);
+}
+
+export async function loadYDocStampWithClient(
+  client: DbExec,
+  docId: string,
+  options: { forShare?: boolean } = {},
+): Promise<YDocStamp | null> {
+  const { rows } = await client.execute({
+    sql: `SELECT version, ${STATE_DIGEST_SQL} AS digest FROM _collab_docs WHERE doc_id = ?${options.forShare ? " FOR SHARE" : ""}`,
     args: [docId],
   });
   if (rows.length === 0) return null;
@@ -223,6 +233,8 @@ export async function trySaveYDocStateWithClient(
   state: Uint8Array,
   textSnapshot: string,
   expectedVersion: number | null,
+  /** Also requires the stored text to have this digest; see `YDocStamp`. */
+  expectedDigest?: string,
 ): Promise<boolean> {
   const b64 = uint8ArrayToBase64(state);
   const nowExpr = "NOW()::text";
@@ -234,10 +246,17 @@ export async function trySaveYDocStateWithClient(
     return result.rowsAffected > 0;
   }
 
-  const result = await client.execute({
-    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
-    args: [b64, textSnapshot, docId, expectedVersion],
-  });
+  const result = await client.execute(
+    expectedDigest === undefined
+      ? {
+          sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
+          args: [b64, textSnapshot, docId, expectedVersion],
+        }
+      : {
+          sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ? AND ${STATE_DIGEST_SQL} = ?`,
+          args: [b64, textSnapshot, docId, expectedVersion, expectedDigest],
+        },
+  );
   return result.rowsAffected > 0;
 }
 

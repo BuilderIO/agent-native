@@ -1,5 +1,6 @@
 export {
   loadYDocState,
+  loadYDocVersion,
   hasCollabState,
   deleteCollabState,
   uint8ArrayToBase64,

@@ -98,7 +98,7 @@ describe("getCollabState cache policy", () => {
 
     vi.mocked(manager.getIncUpdate).mockClear();
     // Base64 for a vector that announces five entries and holds none.
-    for (const stateVector of ["BQ==", "not base64"]) {
+    for (const stateVector of ["BQ==", "not base64", ""]) {
       const bad = event({ docId: "doc-1" });
       bad._query = { stateVector };
       expect(await getCollabState(bad)).toEqual({

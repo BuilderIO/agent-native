@@ -975,15 +975,15 @@ describe("mutateLiveCopy", () => {
       });
     };
 
-    // A peer commit forces a second attempt; the first attempt's claim
-    // rolls back with it.
+    // A peer commit forces a second attempt; the first stops before the
+    // call's persist runs.
     const accepted = await manager.mutateLiveCopy(binding, "live:doc", {
       edit: "append",
       input: { text: "accepted" },
       persist: claimWith("claim:1"),
     });
     expect(accepted).toMatchObject({ changed: true, version: 2, attempts: 2 });
-    expect(order).toEqual(["binding", "binding", "call", "binding", "call"]);
+    expect(order).toEqual(["binding", "binding", "binding", "call"]);
     expect(await claim("claim:1")).toEqual({
       body: JSON.stringify({ changed: true, version: 2, text: accepted.text }),
       version: 2,
@@ -1058,6 +1058,141 @@ describe("mutateLiveCopy", () => {
     expect(await pglite.prepare("SELECT version FROM bodies").all()).toEqual([
       { version: 1 },
     ]);
+  });
+
+  it("stops a stale attempt before a call's persist sees a peer's rows", async () => {
+    let peer: (() => Promise<void>) | undefined;
+    const binding = define({
+      runner: intercepted(async (task) => {
+        if (task !== "liveCopy.edit" || !peer) return;
+        const write = peer;
+        peer = undefined;
+        await write();
+      }),
+    });
+    const seeded = await manager.seedLiveCopy(binding, "live:doc", {
+      source: "base",
+    });
+    const { loadYDocVersion } = await import("./storage.js");
+
+    // Refuses a copy that moved since the attempt's read, as an app that
+    // checks its own rows against the edit refuses them.
+    const bases: number[] = [];
+    peer = async () => {
+      const { trySaveYDocStateWithClient } = await import("./storage.js");
+      const update = clientEdit(seeded.state, appendParagraph("peer"));
+      await trySaveYDocStateWithClient(
+        exec,
+        "live:doc",
+        Y.mergeUpdates([seeded.state, update]),
+        "base\npeer",
+        0,
+      );
+    };
+    const changed = await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "mine" },
+      persist: async (_tx, change) => {
+        bases.push(change.version - 1);
+        if ((await loadYDocVersion("live:doc")) !== change.version - 1) {
+          throw new Error("stale");
+        }
+      },
+    });
+    expect(changed).toMatchObject({ changed: true, version: 2, attempts: 2 });
+    expect(bases).toEqual([1]);
+
+    // An unchanged edit commits nothing core could check first: the app
+    // checks under its own lock and returns without deciding, and core's
+    // check after it redoes the edit.
+    const decided: number[] = [];
+    peer = async () => {
+      await pglite
+        .prepare(
+          "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
+        )
+        .run("live:doc");
+    };
+    const unchanged = await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "unchanged",
+      persist: async (_tx, change) => {
+        if ((await loadYDocVersion("live:doc")) !== change.version) return;
+        decided.push(change.version);
+      },
+    });
+    expect(unchanged).toMatchObject({
+      changed: false,
+      version: 3,
+      attempts: 2,
+    });
+    expect(decided).toEqual([3]);
+
+    // With no peer, the persist's own error is the answer.
+    let calls = 0;
+    const refusal = new Error("refused");
+    await expect(
+      manager.mutateLiveCopy(binding, "live:doc", {
+        edit: "append",
+        input: { text: "never" },
+        persist: async () => {
+          calls += 1;
+          throw refusal;
+        },
+      }),
+    ).rejects.toBe(refusal);
+    expect(calls).toBe(1);
+  });
+
+  it("keeps a row recreated at the same version while an edit runs", async () => {
+    let recreate = false;
+    const binding = define({
+      runner: intercepted(async (task) => {
+        if (task !== "liveCopy.edit" || !recreate) return;
+        recreate = false;
+        await pglite
+          .prepare("DELETE FROM _collab_docs WHERE doc_id = ?")
+          .run("live:doc");
+        const recreated = new Y.Doc();
+        appendParagraph("new")(recreated);
+        await insertRow("live:doc", base64(Y.encodeStateAsUpdate(recreated)));
+        recreated.destroy();
+      }),
+    });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "old" });
+    recreate = true;
+    const result = await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "mine" },
+    });
+    expect(result).toMatchObject({ text: "new\nmine", attempts: 2 });
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "new\nmine",
+      version: 1,
+    });
+  });
+
+  it("never re-runs an edit whose commit was not acknowledged", async () => {
+    const binding = define();
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+    // The commit lands but its acknowledgement is lost; the caller learns
+    // of a failure and must not get the edit applied twice.
+    const transaction = exec.transaction!.bind(exec);
+    const lost = new Error("lost COMMIT acknowledgement");
+    exec.transaction = (async (write: (tx: DbExec) => Promise<void>) => {
+      await transaction(write);
+      exec.transaction = transaction;
+      throw lost;
+    }) as DbExec["transaction"];
+    await expect(
+      manager.mutateLiveCopy(binding, "live:doc", {
+        edit: "append",
+        input: { text: "mine" },
+      }),
+    ).rejects.toBe(lost);
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "base\nmine",
+      version: 1,
+    });
   });
 
   it("rolls back the whole commit when the persist hook throws", async () => {

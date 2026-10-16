@@ -550,9 +550,15 @@ async function loadLiveCopyState(
   if (cached) {
     return cached.stamp === null
       ? { kind: "absent" }
-      : { kind: "stored", state: cached.state, version: cached.stamp.version };
+      : { kind: "stored", state: cached.state, ...cached.stamp };
   }
   return readStoredLiveCopy(binding, getDbExec(), docId);
+}
+
+function stampOf(stored: StoredLiveCopy): YDocStamp | null {
+  return stored.kind === "absent"
+    ? null
+    : { version: stored.version, digest: stored.digest };
 }
 
 /**
@@ -599,15 +605,19 @@ async function commitLiveCopyUpdate(
     if (result.kind === "unchanged") return { liveCopy: "unchanged" };
     const previousVersion = stored.kind === "absent" ? null : stored.version;
     const version = previousVersion === null ? 0 : previousVersion + 1;
-    const outcome = await commitLiveCopy(binding, {
-      docId,
-      origin: "update",
-      previousVersion,
-      version,
-      text: result.text,
-      state: result.state,
-      ...(requestSource ? { requestSource } : {}),
-    });
+    const outcome = await commitLiveCopy(
+      binding,
+      {
+        docId,
+        origin: "update",
+        previousVersion,
+        version,
+        text: result.text,
+        state: result.state,
+        ...(requestSource ? { requestSource } : {}),
+      },
+      stampOf(stored),
+    );
     if (!outcome) continue;
     await cacheLiveCopyState(
       binding,
@@ -747,12 +757,15 @@ export async function mutateLiveCopy(
       if (result.kind === "unchanged") {
         if (
           callPersist &&
-          !(await persistLiveCopyCall(docId, stored.version, (tx) =>
-            callPersist(tx, {
-              changed: false,
-              version: stored.version,
-              text: result.text,
-            }),
+          !(await persistLiveCopyCall(
+            docId,
+            { version: stored.version, digest: stored.digest },
+            (tx) =>
+              callPersist(tx, {
+                changed: false,
+                version: stored.version,
+                text: result.text,
+              }),
           ))
         ) {
           continue;
@@ -781,6 +794,7 @@ export async function mutateLiveCopy(
             ? { requestSource: options.requestSource }
             : {}),
         },
+        stampOf(stored),
         callPersist &&
           ((tx) =>
             callPersist(tx, { changed: true, version, text: result.text })),
@@ -874,17 +888,21 @@ export async function seedLiveCopy(
       }
       const previousVersion = stored.kind === "absent" ? null : stored.version;
       const version = previousVersion === null ? 0 : previousVersion + 1;
-      const outcome = await commitLiveCopy(binding, {
-        docId,
-        origin: "seed",
-        previousVersion,
-        version,
-        text: result.text,
-        state: result.state,
-        ...(options.requestSource
-          ? { requestSource: options.requestSource }
-          : {}),
-      });
+      const outcome = await commitLiveCopy(
+        binding,
+        {
+          docId,
+          origin: "seed",
+          previousVersion,
+          version,
+          text: result.text,
+          state: result.state,
+          ...(options.requestSource
+            ? { requestSource: options.requestSource }
+            : {}),
+        },
+        stampOf(stored),
+      );
       if (!outcome) continue;
       await cacheLiveCopyState(
         binding,

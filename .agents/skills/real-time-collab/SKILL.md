@@ -292,7 +292,14 @@ Then:
   `readLiveCopy`. Do not work around either. Call these writers outside any
   transaction; they refuse a caller's. Rows that must commit with one edit
   (say, the suggestion it accepts) go in `mutateLiveCopy`'s `persist` option,
-  which runs in the edit's own transaction.
+  which runs in the edit's own transaction. On a changed edit, core stops an
+  attempt a peer overtook before that persist runs, so a persist that checks
+  the app's rows against the edit sees the edit's own base. That check is
+  exact only when the binding's persist takes the lock every commit of the
+  document shares, such as the page row. An edit that changes nothing commits
+  no row core can check first: lock the app's rows, compare
+  `loadYDocVersion(docId)` with `change.version`, and return without writing
+  when it moved; core then redoes the edit. A persist's error is never retried.
 - Write the app's own rows in the binding's `persist` hook, which runs in the
   commit transaction before `_collab_docs`. Do not save derived text elsewhere.
   Return `{ derived: false, reason }` when it leaves them alone: the Yjs state
