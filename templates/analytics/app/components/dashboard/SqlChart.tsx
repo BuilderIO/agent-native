@@ -1974,9 +1974,12 @@ export function safeDashboardLinkHref(value: unknown): string | null {
   if (href.startsWith("//")) return null;
 
   try {
+    const relativeBase = new URL("https://agent-native.local");
     const parsed = href.startsWith("/")
-      ? new URL(href, "https://agent-native.local")
+      ? new URL(href, relativeBase)
       : new URL(href);
+    if (href.startsWith("/") && parsed.origin !== relativeBase.origin)
+      return null;
     return parsed.protocol === "http:" || parsed.protocol === "https:"
       ? href
       : null;

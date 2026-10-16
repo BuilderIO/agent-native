@@ -126,6 +126,7 @@ describe("safeDashboardLinkHref", () => {
     expect(safeDashboardLinkHref("javascript:alert(1)")).toBeNull();
     expect(safeDashboardLinkHref("data:text/html,hi")).toBeNull();
     expect(safeDashboardLinkHref("//evil.example/path")).toBeNull();
+    expect(safeDashboardLinkHref("/\\evil.example/path")).toBeNull();
     expect(safeDashboardLinkHref("example.com/path")).toBeNull();
     expect(safeDashboardLinkHref("")).toBeNull();
   });
