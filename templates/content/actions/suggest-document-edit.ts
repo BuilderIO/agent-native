@@ -19,7 +19,7 @@ import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
 } from "../shared/document-text-edits.js";
-import { canonicalizeNfm, nfmToDoc, type PMNode } from "../shared/nfm.js";
+import { canonicalizeNfm, nfmToDoc } from "../shared/nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "../shared/suggestion-diff.js";
 import { contentSuggestionPath } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
@@ -141,38 +141,49 @@ function inStoredForm(text: string): string | undefined {
 }
 
 const ESCAPABLE = /[!-/:-@[-`{-~]/;
-const PROBE = "";
 
-/** How many times `PROBE` shows inside code on the page. */
-function probesInCode(nodes: PMNode[] | undefined, inCode = false): number {
-  let count = 0;
-  for (const node of nodes ?? []) {
-    const code =
-      inCode ||
-      node.type === "codeBlock" ||
-      !!node.marks?.some((mark) => mark.type === "code");
-    if (node.type === "text" && code)
-      count += (node.text ?? "").split(PROBE).length - 1;
-    count += probesInCode(node.content, code);
+/** A character `text` doesn't use, so the parse shows it only where it's put. */
+function unusedCharacter(text: string) {
+  const used = new Set(text.match(/[\uE000-\uF8FF]/g));
+  for (let code = 0xe000; code <= 0xf8ff; code += 1) {
+    const character = String.fromCharCode(code);
+    if (!used.has(character)) return character;
   }
-  return count;
+  return undefined;
+}
+
+/** What follows `probe` each place the parse shows it, in text or an attribute. */
+function shownAfter(value: unknown, probe: string, after: string[] = []) {
+  if (typeof value === "string")
+    for (const shown of value.split(probe).slice(1)) after.push(shown[0] ?? "");
+  else if (value && typeof value === "object")
+    for (const child of Object.values(value)) shownAfter(child, probe, after);
+  return after;
 }
 
 /**
  * Whether the backslashes before `index` escape the character there. Code
- * shows a backslash as written. Only the parse can tell, and asking it must
- * move no delimiter: a character standing in for the backslash lands in code
- * exactly when the backslash is in code.
+ * keeps a backslash as written, and so does a link's destination except
+ * before a parenthesis: only the parse can tell. A character the page
+ * doesn't use, put just before the backslash, changes no escape, and the
+ * parse shows the backslash after it wherever it kept the backslash.
  */
 function escapedAt(text: string, index: number) {
   let slashes = 0;
   while (text[index - slashes - 1] === "\\") slashes += 1;
   if (slashes % 2 === 0 || !ESCAPABLE.test(text[index] ?? "")) return false;
-  const probe = `${text.slice(0, index - 1)}${PROBE}${text.slice(index)}`;
-  return (
-    probesInCode(nfmToDoc(probe).content) ===
-    probesInCode(nfmToDoc(text).content)
-  );
+  const probe = unusedCharacter(text);
+  const shown =
+    probe === undefined
+      ? []
+      : shownAfter(
+          nfmToDoc(
+            `${text.slice(0, index - 1)}${probe}${text.slice(index - 1)}`,
+          ),
+          probe,
+        );
+  // Taking a kept backslash for an escape only refuses the match.
+  return !shown.length || shown.some((next) => next !== "\\");
 }
 
 /**

@@ -1490,7 +1490,20 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
     );
   });
 
-  // Code shows a backslash as written, so it escapes nothing there.
+  it("is not misled by a private-use character already on the page", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage("Cost \\`foo then `\uE000` here.");
+        expect(page.content).toContain("\\`foo");
+        await expect(
+          suggestOwnSpelling(page, "`foo", "bar"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  // Where the parse keeps a backslash as written, it escapes nothing.
   for (const { name, content, find, replace } of [
     {
       name: "inline code",
@@ -1509,6 +1522,18 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
       content: "Path `C:\\` here.",
       find: "C:\\",
       replace: "D:\\",
+    },
+    {
+      name: "a link's destination",
+      content: "[a](https://example.com/\\$foo)",
+      find: "$foo",
+      replace: "$bar",
+    },
+    {
+      name: "a code block's language",
+      content: "```lang\\$foo\ncode\n```",
+      find: "$foo",
+      replace: "$bar",
     },
     {
       name: "inline code it ends after another backslash",
