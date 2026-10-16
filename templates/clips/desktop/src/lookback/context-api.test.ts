@@ -68,7 +68,7 @@ describe("requestRecordingContext", () => {
     });
   });
 
-  it("retries temporary failures after a successful stop releases its context", async () => {
+  it("keeps its context until a successful-stop request retry succeeds", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
       .fn()
@@ -118,12 +118,13 @@ describe("requestRecordingContext", () => {
       true,
       vi.fn(),
     );
-    expect(contexts.has("rec1")).toBe(false);
+    expect(contexts.has("rec1")).toBe(true);
     await vi.advanceTimersByTimeAsync(999);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
 
     await expect(item).resolves.toMatchObject({ id: "ctx1" });
+    expect(contexts.has("rec1")).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

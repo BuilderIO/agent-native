@@ -749,9 +749,20 @@ describe("processRecordingContextItem", () => {
       "failed",
     );
     expect(deps.trashed).toEqual([]);
-    expect(deps.updates).toEqual([
-      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
-    ]);
+    expect(deps.update).toHaveBeenNthCalledWith(1, {
+      id: "ctx1",
+      status: "processing",
+      mediaRecordingId: "media-1",
+    });
+    expect(deps.update).toHaveBeenNthCalledWith(2, {
+      id: "ctx1",
+      status: "ready",
+      mediaRecordingId: "media-1",
+      durationMs: 29_600,
+      width: 1280,
+      height: 720,
+    });
+    expect(deps.update).toHaveBeenCalledTimes(2);
   });
 
   it("never sends an empty or non-Error failure as the error text", async () => {
