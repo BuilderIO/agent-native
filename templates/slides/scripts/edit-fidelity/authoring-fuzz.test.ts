@@ -4143,9 +4143,19 @@ it("ignores cleanup heartbeat failures only for a matching canceled registration
   };
   const warning =
     "[Agent-Native browser session] heartbeat failed: TypeError: Load failed";
+  const sessionHeartbeatCandidate = {
+    ...candidate,
+    url: "http://localhost:45715/_agent-native/browser-sessions/retired-session/heartbeat",
+    pathname: "/_agent-native/browser-sessions/retired-session/heartbeat",
+  };
 
   expect(
     isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [candidate]),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
+      sessionHeartbeatCandidate,
+    ]),
   ).toBe(true);
   expect(
     isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
@@ -4176,9 +4186,33 @@ it("ignores cleanup heartbeat failures only for a matching canceled registration
       ]),
     ).toBe(false);
   }
+  for (const mismatchedHeartbeat of [
+    { ...sessionHeartbeatCandidate, requestSessionId: null },
+    { ...sessionHeartbeatCandidate, requestSessionId: "new-session" },
+    { ...sessionHeartbeatCandidate, retiredSessionId: null },
+    { ...sessionHeartbeatCandidate, retiredSessionId: "new-session" },
+    { ...sessionHeartbeatCandidate, competingSameTypeRequest: true },
+    {
+      ...sessionHeartbeatCandidate,
+      pathname: "/_agent-native/browser-sessions/another-session/heartbeat",
+    },
+  ]) {
+    expect(
+      isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
+        mismatchedHeartbeat,
+      ]),
+    ).toBe(false);
+  }
   expect(isExpectedCleanupNavigationError(warning, [candidate], true)).toBe(
     true,
   );
+  expect(
+    isExpectedCleanupNavigationError(
+      warning,
+      [sessionHeartbeatCandidate],
+      true,
+    ),
+  ).toBe(true);
   expect(isExpectedCleanupNavigationError(warning, [candidate], false)).toBe(
     false,
   );

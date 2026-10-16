@@ -1824,7 +1824,10 @@ export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
     ) &&
     hasExactlyOneExpectedBrowserSessionAbort(
       candidates,
-      [browserSessionRegistrationRequestRule],
+      [
+        browserSessionRegistrationRequestRule,
+        browserSessionHeartbeatRequestRule,
+      ],
       false,
       false,
       cleanupNavigationBrowserSessionMaxRequestAgeMs,
