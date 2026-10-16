@@ -113,20 +113,58 @@ export async function liveBodyWriterFlagsOn(
   row: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
   options: { transaction?: DbExec } = {},
 ): Promise<boolean> {
-  const scope = { userEmail: row.ownerEmail, orgId: row.orgId };
   const [writer, shadow] = await Promise.all(
-    [LIVE_BODY_WRITER_FLAG, LIVE_BODY_SHADOW_FLAG].map(async (flag) =>
-      evaluateFeatureFlagRules(
-        flag.key,
-        await getFeatureFlagRulesStrict(flag.key, {
-          ...scope,
-          transaction: options.transaction,
-        }),
-        scope,
-      ),
+    [LIVE_BODY_WRITER_FLAG, LIVE_BODY_SHADOW_FLAG].map((flag) =>
+      flagOnForPage(flag.key, row, options.transaction),
     ),
   );
   return writer && shadow;
+}
+
+async function flagOnForPage(
+  key: string,
+  row: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
+  transaction: DbExec | undefined,
+): Promise<boolean> {
+  const scope = { userEmail: row.ownerEmail, orgId: row.orgId };
+  const rules = await getFeatureFlagRulesStrict(key, { ...scope, transaction });
+  if (evaluateFeatureFlagRules(key, rules, scope)) return true;
+  if (row.orgId) return false;
+  // `enable-for-current-user` stores an enablement in the org its manager had
+  // active, but a personal page has no org, so look for the owner's own
+  // listing in each of their orgs. Only that listing counts: an org's rollout
+  // covers the org's pages, not its members' personal ones.
+  const owner = row.ownerEmail.trim().toLowerCase();
+  for (const orgId of await ownerOrgIds(owner, transaction)) {
+    const orgRules = await getFeatureFlagRulesStrict(key, {
+      orgId,
+      transaction,
+    });
+    if (orgRules.mode !== "off" && orgRules.emails.includes(owner)) return true;
+  }
+  return false;
+}
+
+// Read here rather than through core's membership cache, which answers for the
+// request's caller and turns an unreadable table into "no orgs".
+async function ownerOrgIds(
+  owner: string,
+  transaction: DbExec | undefined,
+): Promise<string[]> {
+  const exec = transaction ?? getDbExec();
+  const relation = await exec.execute({
+    sql: "SELECT to_regclass('org_members') AS relation",
+    args: [],
+  });
+  // A deployment without organizations has no memberships.
+  if (!relation.rows[0]?.relation) return [];
+  const { rows } = await exec.execute({
+    sql: `SELECT org_id FROM org_members
+          WHERE LOWER(email) = ? AND federation_removal_pending_at IS NULL
+          ORDER BY org_id`,
+    args: [owner],
+  });
+  return rows.map((row) => String((row as { org_id: unknown }).org_id));
 }
 
 type ContentDb = Pick<ReturnType<typeof getDb>, "select">;

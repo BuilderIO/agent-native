@@ -985,6 +985,166 @@ describe("server writers through editContentLiveCopy", () => {
   });
 });
 
+describe("a browser save to a switched page's body", () => {
+  /** What a tab that loaded `base` and typed `candidate` sends. */
+  async function browserSave(
+    id: string,
+    base: { bodyRevision: number; content: string },
+    candidate: string,
+    extra: Record<string, unknown> = {},
+  ) {
+    const action = (await import("../../actions/update-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    const revision = documentRevisionToken(base.bodyRevision, base.content);
+    return asOwner(async () =>
+      action.run(
+        {
+          id,
+          content: candidate,
+          baseRevision: revision,
+          authoredBaseRevision: revision,
+          authoredBaseContent: base.content,
+          authoredCandidateContent: candidate,
+          editorSessionId: "tab-a",
+          editorEditGeneration: 1,
+          browserSaveAttemptId: `${id}-attempt`,
+          ...extra,
+        } as never,
+        { caller: "frontend", userEmail: OWNER } as never,
+      ),
+    );
+  }
+
+  async function receipts(id: string) {
+    return getDb()
+      .select({ attemptId: schema.documentBrowserSaveAttempts.attemptId })
+      .from(schema.documentBrowserSaveAttempts)
+      .where(eq(schema.documentBrowserSaveAttempts.documentId, id));
+  }
+
+  /** Another tab rewrites the page's one paragraph, keeping its structure. */
+  async function typeInOtherTab(id: string, bodies: string[]) {
+    for (const body of bodies) {
+      await asOwner(async () =>
+        collab.applyUpdate(id, await editorUpdate(id, markdownBlocks(body))),
+      );
+    }
+  }
+
+  it("answers a stale tab's body save with the live copy instead of diverting it to History", async () => {
+    await switchedPage("two-tabs", "Hello there");
+    const loaded = await page("two-tabs");
+    // The other tab's commits record no body intents.
+    await typeInOtherTab("two-tabs", ["Hello there B1", "Hello there B2"]);
+    const before = await page("two-tabs");
+    expect(before.bodyRevision).toBe(loaded.bodyRevision + 2);
+
+    const saved = await browserSave("two-tabs", loaded, "Hello there A");
+
+    expect(saved).not.toHaveProperty("preservationRequired");
+    expect(saved).not.toHaveProperty("conflict");
+    expect(saved).toMatchObject({
+      content: "Hello there B2",
+      bodySave: {
+        status: "live_copy",
+        matchesLiveCopy: false,
+        bodyRevision: before.bodyRevision,
+        collabVersion: await collabVersion("two-tabs"),
+      },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await page("two-tabs")).toEqual(before);
+    expect(
+      (await history("two-tabs")).filter((row) =>
+        row.operation?.startsWith("update-document"),
+      ),
+    ).toEqual([]);
+    expect(await bodyIntents("two-tabs")).toEqual([]);
+    await expect(gateFor("two-tabs")).resolves.toEqual({
+      writePath: "live_copy",
+    });
+
+    // A retry of the same attempt replays the answer.
+    await expect(
+      browserSave("two-tabs", loaded, "Hello there A"),
+    ).resolves.toMatchObject({
+      bodySave: { status: "live_copy", matchesLiveCopy: false },
+      browserSaveAttempt: { result: "replayed" },
+    });
+  });
+
+  it("applies a save's title and leaves its body to the live copy", async () => {
+    await switchedPage("titled", "Hello there");
+    const loaded = await page("titled");
+
+    await expect(
+      browserSave("titled", loaded, "Hello there", {
+        title: "Renamed",
+        baseTitle: "titled",
+      }),
+    ).resolves.toMatchObject({
+      title: "Renamed",
+      content: "Hello there",
+      bodySave: { matchesLiveCopy: true, bodyRevision: loaded.bodyRevision },
+    });
+    expect(await page("titled")).toMatchObject({
+      content: "Hello there",
+      bodyRevision: loaded.bodyRevision,
+    });
+  });
+
+  it("keeps a recovery replay's receipt only for a body the live copy holds", async () => {
+    await switchedPage("recovery", "Hello there");
+    const loaded = await page("recovery");
+    const [{ updatedAt }] = await getDb()
+      .select({ updatedAt: schema.documents.updatedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "recovery"));
+
+    await expect(
+      browserSave("recovery", loaded, "Hello there\nDraft", {
+        recoveryExpectedUpdatedAt: updatedAt,
+        browserSaveAttemptId: "recovery-unmatched",
+      }),
+    ).resolves.toMatchObject({
+      content: "Hello there",
+      bodySave: { matchesLiveCopy: false },
+    });
+    expect(await receipts("recovery")).toEqual([]);
+
+    await expect(
+      browserSave("recovery", loaded, "Hello there", {
+        recoveryExpectedUpdatedAt: updatedAt,
+        browserSaveAttemptId: "recovery-matched",
+        editorEditGeneration: 2,
+      }),
+    ).resolves.toMatchObject({
+      bodySave: { matchesLiveCopy: true },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await receipts("recovery")).toEqual([
+      { attemptId: "recovery-matched" },
+    ]);
+  });
+
+  it("takes main's path for the same save once the page's flags are off (SF-11)", async () => {
+    await switchedPage("flags-off", "Hello there");
+    const loaded = await page("flags-off");
+    await typeInOtherTab("flags-off", ["Hello there B1", "Hello there B2"]);
+    await setFlags(false);
+
+    // Main's comparator, which L7 saw divert the gate-on save to History.
+    const saved = await browserSave("flags-off", loaded, "Hello there A");
+
+    expect(saved).not.toHaveProperty("bodySave");
+    expect(saved).toMatchObject({
+      preservationRequired: true,
+      reason: "provenance",
+    });
+  });
+});
+
 describe("with the gate off (SF-11)", () => {
   it("keeps an unswitched page on main's collab path", async () => {
     await insertPage("legacy", "Hello there");
