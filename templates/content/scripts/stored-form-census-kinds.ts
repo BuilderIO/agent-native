@@ -259,9 +259,9 @@ type MdNode = {
 };
 
 /**
- * What one reader sees in a body. Marks count runs, not text nodes, and code
- * counts fenced blocks only: Content writes indented children with tabs,
- * which a GFM reader would otherwise count as indented code.
+ * What one reader sees in a body. Marks count the letters and digits they
+ * cover, and code counts fenced blocks only: Content writes indented children
+ * with tabs, which a GFM reader would otherwise count as indented code.
  */
 type ReadProfile = {
   tokens: Map<string, number>;
@@ -333,10 +333,18 @@ const NFM_TAG_LINE = new RegExp(
 const NFM_INLINE_TAG = new RegExp(NFM_TAG, "g");
 const NFM_BLOCK_ATTRIBUTES =
   /(^|[^\\])[ \t]*\{[a-z][\w-]*="[^"]*"(?:[ \t]+[a-z][\w-]*="[^"]*")*\}[ \t]*$/m;
-// A fence may sit inside blockquotes and list items: `> ```js`, `- ```js`.
+// A fence may open inside blockquotes and list items: `> ```js`, `- ```js`.
+// It closes only at its own quote depth and never after a list marker, which
+// inside the fence is code; a quote that ends takes its fence with it.
 const FENCE =
-  /^(?:[ \t]*(?:>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+))*[ \t]*(`{3,}|~{3,})(.*)$/;
+  /^((?:[ \t]*(?:>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+))*)[ \t]*(`{3,}|~{3,})(.*)$/;
+const CLOSING_FENCE = /^(?:[ \t]*>)*[ \t]*(`{3,}|~{3,})[ \t]*$/;
+const QUOTE_MARKERS = /^(?:[ \t]*>)*/;
 const BACKTICK_RUN = /`+/g;
+
+function quoteDepth(prefix: string): number {
+  return prefix.split(">").length - 1;
+}
 
 function outsideCodeSpans(line: string, edit: (text: string) => string) {
   let result = "";
@@ -356,23 +364,28 @@ function outsideCodeSpans(line: string, edit: (text: string) => string) {
 }
 
 function withoutNfmSyntax(body: string): string {
-  let fence: string | null = null;
+  let fence: { marker: string; depth: number } | null = null;
   return body
     .split("\n")
     .map((line) => {
-      const [, marker, rest = ""] = FENCE.exec(line) ?? [];
       if (fence !== null) {
+        const depth = quoteDepth(QUOTE_MARKERS.exec(line)![0]);
+        const closer = CLOSING_FENCE.exec(line)?.[1];
         if (
-          marker?.[0] === fence[0] &&
-          marker.length >= fence.length &&
-          rest.trim() === ""
-        )
+          depth === fence.depth &&
+          closer?.[0] === fence.marker[0] &&
+          closer.length >= fence.marker.length
+        ) {
           fence = null;
-        return line;
+          return line;
+        }
+        if (depth >= fence.depth) return line;
+        fence = null;
       }
+      const [, prefix = "", marker, rest = ""] = FENCE.exec(line) ?? [];
       // A backtick fence's info string has no backticks; "```x```" is code.
       if (marker && !(marker[0] === "`" && rest.includes("`"))) {
-        fence = marker;
+        fence = { marker, depth: quoteDepth(prefix) };
         return line;
       }
       if (NFM_TAG_LINE.test(line))
@@ -385,66 +398,47 @@ function withoutNfmSyntax(body: string): string {
 }
 
 type Mark = (typeof MARKS)[number];
-/** The marks on one run of text, keyed so a link to another place differs. */
-type MarkSet = Map<string, Mark>;
+
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
 
 /**
- * Count each mark once per run of adjacent text carrying it. Both readers are
- * counted this way, so `**a** and **b**` is two bold runs to each, while
- * `` `a`**`b`** `` is one code run although GFM nests it in two nodes.
+ * Add the letters and digits `text` puts under each of `marks`. Coverage does
+ * not depend on how a reader splits text: GFM nests `` `a`**`b`** `` in two
+ * code nodes Content keeps as one, and `**kept**__lost__` is one run of bold
+ * to GFM although Content keeps only half of it.
  */
-function countMarkRuns(profile: ReadProfile, runs: readonly MarkSet[]) {
-  let open = new Set<string>();
-  for (const marks of runs) {
-    for (const [key, mark] of marks)
-      if (!open.has(key)) profile.marks[mark] += 1;
-    open = new Set(marks.keys());
-  }
+function addMarkedText(
+  profile: ReadProfile,
+  marks: Iterable<Mark>,
+  text: string,
+) {
+  const covered = text.match(LETTER_OR_DIGIT)?.length ?? 0;
+  for (const mark of marks) profile.marks[mark] += covered;
 }
-
-function withMark(marks: MarkSet, key: string, mark: Mark): MarkSet {
-  return new Map(marks).set(key, mark);
-}
-
-const GFM_PHRASING = new Set([
-  "strong",
-  "emphasis",
-  "delete",
-  "link",
-  "linkReference",
-  "text",
-  "inlineCode",
-  "break",
-  "image",
-  "imageReference",
-  "html",
-  "footnoteReference",
-]);
 
 /** What a GitHub-flavored Markdown reader sees, which is how agents write. */
 function gfmProfile(body: string): ReadProfile {
   const markdown = withoutNfmSyntax(body);
   const profile = emptyProfile();
-  const walk = (
-    node: MdNode,
-    listDepth: number,
-    marks: MarkSet,
-    runs: MarkSet[],
-  ) => {
+  const walk = (node: MdNode, listDepth: number, marks: ReadonlySet<Mark>) => {
     let inner = marks;
     switch (node.type) {
       case "strong":
       case "emphasis":
       case "delete":
-        inner = withMark(marks, node.type, node.type as Mark);
+        inner = new Set(marks).add(node.type);
         break;
       case "text":
         addText(profile, node.value ?? "");
-        runs.push(marks);
+        addMarkedText(profile, marks, node.value ?? "");
         break;
       case "inlineCode":
         addText(profile, node.value ?? "");
-        runs.push(withMark(marks, "inlineCode", "inlineCode"));
+        addMarkedText(
+          profile,
+          new Set(marks).add("inlineCode"),
+          node.value ?? "",
+        );
         break;
       case "link":
       case "linkReference": {
@@ -452,12 +446,7 @@ function gfmProfile(body: string): ReadProfile {
         // the writer chose, so only `[text](url)`, `[text][ref]` and `<url>`
         // count.
         const first = markdown[node.position?.start.offset ?? 0];
-        if (first === "[" || first === "<")
-          inner = withMark(
-            marks,
-            `link\u0000${node.url ?? node.identifier}`,
-            "link",
-          );
+        if (first === "[" || first === "<") inner = new Set(marks).add("link");
         break;
       }
       case "code": {
@@ -495,14 +484,9 @@ function gfmProfile(body: string): ReadProfile {
         break;
     }
     const childDepth = node.type === "list" ? listDepth + 1 : listDepth;
-    // Runs end with the block holding them.
-    const isBlock = !GFM_PHRASING.has(node.type);
-    const childRuns = isBlock ? [] : runs;
-    for (const child of node.children ?? [])
-      walk(child, childDepth, inner, childRuns);
-    if (isBlock) countMarkRuns(profile, childRuns);
+    for (const child of node.children ?? []) walk(child, childDepth, inner);
   };
-  walk(gfmReader.parse(markdown) as MdNode, 0, new Map(), []);
+  walk(gfmReader.parse(markdown) as MdNode, 0, new Set());
   return profile;
 }
 
@@ -517,7 +501,14 @@ function nfmProfile(document: PMNode): ReadProfile {
       if (typeof value === "string") addTokens(profile, value);
   };
   const walk = (node: PMNode, listDepth: number) => {
-    if (typeof node.text === "string") addText(profile, node.text);
+    if (typeof node.text === "string") {
+      addText(profile, node.text);
+      addMarkedText(
+        profile,
+        (node.marks ?? []).flatMap((mark) => NFM_MARK[mark.type] ?? []),
+        node.text,
+      );
+    }
     addAttributeWords(node.attrs);
     for (const mark of node.marks ?? []) addAttributeWords(mark.attrs);
     switch (node.type) {
@@ -546,21 +537,6 @@ function nfmProfile(document: PMNode): ReadProfile {
         break;
     }
     const children = node.content ?? [];
-    countMarkRuns(
-      profile,
-      children.map((child) => {
-        const marks: MarkSet = new Map();
-        for (const mark of child.marks ?? []) {
-          const kind = NFM_MARK[mark.type];
-          if (kind)
-            marks.set(
-              kind === "link" ? `link\u0000${String(mark.attrs?.href)}` : kind,
-              kind,
-            );
-        }
-        return marks;
-      }),
-    );
     const isList = ["bulletList", "orderedList", "taskList"].includes(
       node.type,
     );

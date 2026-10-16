@@ -254,6 +254,21 @@ describe("stored-form census guards (SF-09)", () => {
     }
   });
 
+  it("refuses a database name the drivers could read differently", async () => {
+    for (const path of ["", "census%2Ddb"]) {
+      const { run, events } = cli(
+        ["--database-url-env=CENSUS_URL"],
+        { CENSUS_URL: targetUrl("reader", "localhost", path) },
+        neverConnect,
+      );
+      expect(await run, path).toBe(1);
+      expect(events).not.toContain("connect");
+      expect(events[events.length - 1], path).toContain(
+        "must name its database",
+      );
+    }
+  });
+
   it("never prints the password, from a mistyped flag or a driver error", async () => {
     const url = targetUrl("reader", BRANCH_HOST, "neondb");
     const mistyped = cli(
@@ -724,6 +739,18 @@ describe("stored-form census against a local database", () => {
       report.agentFormPages.commentAnchors as Record<string, { items: number }>,
     ).reduce((total, bucket) => total + bucket.items, 0);
     expect(commentTotal).toBe(1);
+  });
+
+  it("never prints the password in a completed report", async () => {
+    const { run, events, stdout } = cli(
+      ["--database-url-env=CENSUS_URL"],
+      { CENSUS_URL: targetUrl("reader", "localhost", PASSWORD) },
+      async () => ({ ...db, close: async () => {} }),
+    );
+    expect(await run).toBe(0);
+    expect(events.join("\n")).not.toContain(PASSWORD);
+    expect(stdout.join("")).not.toContain(PASSWORD);
+    expect(JSON.parse(stdout.join("")).target.database).toBe("***");
   });
 
   it("reports a section whose table is missing as skipped and the run as incomplete", async () => {

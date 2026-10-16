@@ -99,6 +99,15 @@ describe("body classification", () => {
       status: "canonical",
       losses: ["gfm-headings-lost"],
     });
+    // One run of bold to GFM, half of which Content shows as underscores.
+    expect(classifyBody("**kept**__lost__")).toEqual({
+      status: "canonical",
+      losses: ["gfm-strong-dropped"],
+    });
+    // A toggle's summary is plain text, so its asterisks show.
+    expect(classifyBody(L('## **Toggle** {toggle="true"}', "\tChild"))).toEqual(
+      { status: "canonical", losses: ["gfm-strong-dropped"] },
+    );
   });
 
   it("flags formatting canonicalizing removes", () => {
@@ -110,6 +119,14 @@ describe("body classification", () => {
     expect(
       classifyBody(L("> ```html", '> <a href="C:\\temp">x</a>', "> ```")),
     ).toMatchObject({ losses: ["gfm-code-blocks-lost"] });
+    // A container marker inside a fence is code, not the fence's end.
+    for (const marker of ["- ", "> ", "1. "]) {
+      expect(
+        classifyBody(
+          L("```html", `${marker}\`\`\``, '<a href="C:\\temp">', "```"),
+        ),
+      ).toMatchObject({ status: "non-canonical", losses: [] });
+    }
     expect(canonicalizationLosses("Keep every word", "Keep word")).toContain(
       "gfm-text-dropped",
     );
@@ -144,6 +161,7 @@ describe("body classification", () => {
       'Use `<a href="C:\\temp">` here',
       "`a`**`b`**",
       "~~a~~**~~b~~**",
+      '<span color="red">`a`</span>`b`',
     ]) {
       expect(canonicalizeNfm(body), body).toBe(body);
       expect(classifyBody(body), body).toEqual({

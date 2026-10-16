@@ -161,6 +161,15 @@ export function resolveCensusTarget(
       `${options.databaseUrlEnv} must name one plain hostname; encoded, multiple, trailing-dot and socket hosts are not supported`,
     );
   }
+  // postgres.js keeps `%xx` in a database name where Neon's driver decodes
+  // it, and a missing name falls back to PGDATABASE, so either way the name
+  // printed could differ from the database read.
+  const database = parsed.pathname.slice(1);
+  if (!/^[\w-]+$/.test(database)) {
+    throw new CensusRefusal(
+      `${options.databaseUrlEnv} must name its database in letters, digits, _ and -`,
+    );
+  }
   // The parameter's name is not printed: it could be a misplaced password.
   for (const key of parsed.searchParams.keys()) {
     if (!ALLOWED_URL_PARAMETERS.has(key)) {
@@ -182,8 +191,7 @@ export function resolveCensusTarget(
     sourceEnv: options.databaseUrlEnv,
     kind: LOOPBACK_HOSTS.has(host) ? "local" : "remote",
     host,
-    database:
-      decodeURIComponent(parsed.pathname.replace(/^\//, "")) || "(default)",
+    database,
     redactedUrl: redacted.toString(),
     neon: isNeonHost
       ? {
@@ -352,7 +360,8 @@ export async function runStoredFormCensusCli(
   let db: DbExec | undefined;
   let password = "";
   // Driver errors and odd URLs can quote the password anywhere.
-  const log = (line: string) => deps.log(redactCredentials(line, password));
+  const shown = (text: string) => redactCredentials(text, password);
+  const log = (line: string) => deps.log(shown(line));
   let exitCode: number;
   try {
     const options = parseCensusArgs(deps.argv);
@@ -369,10 +378,14 @@ export async function runStoredFormCensusCli(
       `${JSON.stringify(
         {
           target: {
-            host: target.host,
-            database: target.database,
+            host: shown(target.host),
+            database: shown(target.database),
             sourceEnv: target.sourceEnv,
-            neon: target.neon,
+            neon: target.neon && {
+              project: shown(target.neon.project),
+              branch: shown(target.neon.branch),
+              endpoint: shown(target.neon.endpoint),
+            },
           },
           ...report,
         },
