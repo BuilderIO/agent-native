@@ -1187,6 +1187,61 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("settles an excluded decline when its pending run was cancelled", async () => {
+    const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "connection-request",
+        requestId: "cancelled-request",
+        provider: "gong",
+        reason: "connect",
+      };
+    }
+    const runtime = createRuntime(events, {
+      capabilities: {
+        messages: { streaming: true },
+        rich: { connectionRequests: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "cancelled-run",
+        sessionId: "thread-1",
+        events: events(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Open the connection request")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "connection.requested") break;
+    }
+    expect((await iterator.next()).done).toBe(true);
+
+    await transport.cancelRun({ threadId: "thread-1", runId });
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId,
+        requestId: "cancelled-request",
+        response: { status: "declined" },
+      }),
+    ).resolves.toBeUndefined();
+    expect(cancel).toHaveBeenCalledWith({ reason: "user" });
+    await transport.dispose();
+  });
+
   it("terminates a paused run when connection setup fails", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

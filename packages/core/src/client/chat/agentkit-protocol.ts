@@ -4164,12 +4164,12 @@ export function createAgentKitProtocolAdapter(
         if (run.pumpPromise) await run.pumpPromise;
       }
       touchRun(run);
+      if (input.response.status === "declined" && run.terminal) return;
       if (run.pendingConnectionRequestId !== input.requestId) {
         const staleDecline =
           input.response.status === "declined" &&
-          (run.terminal ||
-            (run.initialAuthorityRead?.kind === "read" &&
-              run.initialAuthorityRead.state.status !== "running"));
+          run.initialAuthorityRead?.kind === "read" &&
+          run.initialAuthorityRead.state.status !== "running";
         if (staleDecline) return;
         throw new Error(
           `Connection response ${input.requestId} does not match pending request ${run.pendingConnectionRequestId ?? "<none>"}.`,
