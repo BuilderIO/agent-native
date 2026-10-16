@@ -1,180 +1,41 @@
-import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-} from "@agent-native/core/server";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
-import { defineEventHandler, createError } from "h3";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { createError, defineEventHandler, readBody } from "h3";
 
-import {
-  documentsPositionScope,
-  nextAppendPosition,
-  withPositionLock,
-} from "../../../../../actions/_position-utils.js";
-import { getDb } from "../../../../db/index.js";
-import { schema } from "../../../../db/index.js";
-import {
-  parseDocumentFavorite,
-  parseDocumentHideFromSearch,
-} from "../../../../lib/documents.js";
-
-async function assertParentIsNotDescendant({
-  db,
-  ownerEmail,
-  id,
-  parentId,
-}: {
-  db: ReturnType<typeof getDb>;
-  ownerEmail: string;
-  id: string;
-  parentId: string | null | undefined;
-}) {
-  if (!parentId) return;
-  const queue = [id];
-  const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    if (visited.has(currentId)) continue;
-    visited.add(currentId);
-
-    const children = await db
-      .select({ id: schema.documents.id })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.parentId, currentId),
-        ),
-      );
-
-    for (const child of children) {
-      if (child.id === parentId) {
-        throw createError({
-          statusCode: 400,
-          statusMessage: "A document cannot be moved under one of its children",
-        });
-      }
-      queue.push(child.id);
-    }
-  }
-}
+import moveDocument from "../../../../../actions/move-document.js";
 
 export default defineEventHandler(async (event) => {
   const id = event.context.params!.id;
-  const body = await readBody(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
+  const body = await readBody<{ parentId?: unknown; position?: unknown }>(
+    event,
+  );
+  if (!body || (body.parentId === undefined && body.position === undefined)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "parentId or position is required",
+    });
+  }
 
+  // A reparent has to hold move-document's page-tree and row locks, or a
+  // concurrent move can close a cycle with it.
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
-    async () => {
-      const access = await assertAccess("document", id, "editor");
-      const ownerEmail = access.resource.ownerEmail as string;
-      const db = getDb();
-
-      const existing = access.resource;
-
-      if (!existing) {
-        throw createError({
-          statusCode: 404,
-          statusMessage: "Document not found",
-        });
-      }
-
-      const updates: Record<string, unknown> = {
-        updatedAt: new Date().toISOString(),
-      };
-
-      if (body.parentId !== undefined) {
-        if (body.parentId) {
-          const parentAccess = await assertAccess(
-            "document",
-            body.parentId,
-            "editor",
-          );
-          if (parentAccess.resource.ownerEmail !== ownerEmail) {
-            throw createError({
-              statusCode: 400,
-              statusMessage: "Parent document must belong to the same owner",
-            });
-          }
-          await assertParentIsNotDescendant({
-            db,
-            ownerEmail,
-            id,
-            parentId: body.parentId,
-          });
-        }
-        updates.parentId = body.parentId;
-      }
-
-      const applyUpdate = () =>
-        db
-          .update(schema.documents)
-          .set(updates)
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.ownerEmail, ownerEmail),
-            ),
-          );
-
-      if (body.position !== undefined) {
-        updates.position = body.position;
-        await applyUpdate();
-      } else if (body.parentId !== undefined) {
-        const parentId = body.parentId;
-        await withPositionLock(
-          documentsPositionScope(ownerEmail, parentId),
-          async () => {
-            const maxPos = await db
-              .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-              .from(schema.documents)
-              .where(
-                parentId
-                  ? and(
-                      eq(schema.documents.ownerEmail, ownerEmail),
-                      eq(schema.documents.parentId, parentId),
-                    )
-                  : and(
-                      eq(schema.documents.ownerEmail, ownerEmail),
-                      sql`parent_id IS NULL`,
-                    ),
-              );
-            updates.position = nextAppendPosition(maxPos[0]?.max);
-            await applyUpdate();
-          },
-        );
-      } else {
-        await applyUpdate();
-      }
-
-      const [doc] = await db
-        .select()
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.id, id),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        );
-
-      return {
-        id: doc.id,
-        parentId: doc.parentId,
-        title: doc.title,
-        content: doc.content,
-        icon: doc.icon,
-        position: doc.position,
-        isFavorite: parseDocumentFavorite(doc.isFavorite),
-        hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-      };
-    },
+    () =>
+      moveDocument.run(
+        {
+          id,
+          parentId: body.parentId as string | null | undefined,
+          position: body.position as number | undefined,
+        },
+        {
+          caller: "http",
+          userEmail: session.email,
+          orgId: session.orgId,
+          actionName: "move-document",
+        },
+      ),
   );
 });

@@ -2145,6 +2145,215 @@ parentId: "${seed.ids.child}"
       expect(await readPage(other)).toMatchObject({ parentId: null });
     });
 
+    it("skips an imported reparent to an unchanged parent that a concurrent move put under the page", async () => {
+      const seed = await seedSpaceMove();
+      const file = (position: number) => ({
+        "child.md": `---
+id: "${seed.ids.child}"
+title: "Child"
+parentId: "${seed.ids.moved}"
+position: ${position}
+---
+`,
+      });
+      // The first import records the source, so the second writes nothing
+      // before its reparent and doesn't wait on the child's row there.
+      await asOwner(() => importContentSource.run({ files: file(0) }));
+      const { action: imported } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.child, seed.ids.moved]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: null })
+            .where(eq(schema.documents.id, seed.ids.child));
+          await tx
+            .update(schema.documents)
+            .set({ parentId: seed.ids.child })
+            .where(eq(schema.documents.id, seed.ids.moved));
+        },
+        () => asOwner(() => importContentSource.run({ files: file(8) })),
+      );
+      await expect(imported).resolves.toMatchObject({
+        skipped: [
+          { path: "child.md", reason: "Skipped parent update: cycle." },
+        ],
+      });
+      expect(await readPage(seed.ids.child)).toMatchObject({ parentId: null });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        parentId: seed.ids.child,
+      });
+    });
+
+    it("skips an imported reparent whose parent moves to Trash while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const other = `${seed.key}_p0`;
+      await getDb()
+        .insert(schema.documents)
+        .values(
+          pageValues(other, null, "Other", { spaceId: seed.ids.fromSpace }),
+        );
+      const { action: imported } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.moved]);
+          await tx
+            .update(schema.documents)
+            .set({ trashedAt: STAMP, trashRootId: seed.ids.moved })
+            .where(eq(schema.documents.id, seed.ids.moved));
+        },
+        () =>
+          asOwner(() =>
+            importContentSource.run({
+              files: {
+                "other.md": `---
+id: "${other}"
+title: "Other"
+parentId: "${seed.ids.moved}"
+---
+`,
+              },
+            }),
+          ),
+      );
+      await expect(imported).resolves.toMatchObject({
+        skipped: [
+          {
+            path: "other.md",
+            reason: `Skipped parent "${seed.ids.moved}" because it is in Trash.`,
+          },
+        ],
+      });
+      expect(await readPage(other)).toMatchObject({ parentId: null });
+    });
+
+    it("refuses a move to another space when a page under it moves out while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.child]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: null })
+            .where(eq(schema.documents.id, seed.ids.child));
+        },
+        () => moveToOtherSpace(seed),
+      );
+      await expect(moved).rejects.toMatchObject({
+        errorCode: "PAGE_SUBTREE_CHANGED",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.child)).toMatchObject({
+        parentId: null,
+        spaceId: seed.ids.fromSpace,
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        spaceId: seed.ids.fromSpace,
+      });
+    });
+
+    it("gives a page moved to another space the access its new parent has once the move holds it", async () => {
+      const seed = await seedSpaceMove();
+      await getDb()
+        .update(schema.documents)
+        .set({ visibility: "public" })
+        .where(eq(schema.documents.id, seed.ids.parent));
+      await getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `${seed.key}_share`,
+          resourceId: seed.ids.parent,
+          principalType: "user",
+          principalId: "viewer@example.test",
+          role: "viewer",
+          createdBy: OWNER,
+          createdAt: STAMP,
+        });
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.parent]);
+          await tx
+            .update(schema.documents)
+            .set({ visibility: "private" })
+            .where(eq(schema.documents.id, seed.ids.parent));
+          await tx
+            .delete(schema.documentShares)
+            .where(eq(schema.documentShares.resourceId, seed.ids.parent));
+        },
+        () => moveToOtherSpace(seed),
+      );
+      await expect(moved).resolves.toMatchObject({ id: seed.ids.moved });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        spaceId: seed.ids.toSpace,
+        visibility: "private",
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.documentShares.id })
+          .from(schema.documentShares)
+          .where(eq(schema.documentShares.resourceId, seed.ids.moved)),
+      ).toEqual([]);
+    });
+
+    it("skips an imported layout update for a page that moves to Trash while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const file = (position: number) => ({
+        "child.md": `---
+id: "${seed.ids.child}"
+title: "Child"
+parentId: "${seed.ids.moved}"
+position: ${position}
+---
+`,
+      });
+      await asOwner(() => importContentSource.run({ files: file(0) }));
+      const { action: imported } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.child]);
+          await tx
+            .update(schema.documents)
+            .set({ trashedAt: STAMP, trashRootId: seed.ids.child })
+            .where(eq(schema.documents.id, seed.ids.child));
+        },
+        () => asOwner(() => importContentSource.run({ files: file(8) })),
+      );
+      await expect(imported).resolves.toMatchObject({
+        skipped: [
+          {
+            path: "child.md",
+            reason:
+              "Skipped layout update: the page was deleted or moved to Trash.",
+          },
+        ],
+      });
+      expect((await readPage(seed.ids.child)).position).not.toBe(8);
+    });
+
+    it("refuses a reorder whose siblings are reordered while it waits", async () => {
+      const seed = await seedPageTree();
+      const { action: reordered } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.later, seed.ids.earlier]);
+          await tx
+            .update(schema.documents)
+            .set({ position: 2 })
+            .where(eq(schema.documents.id, seed.ids.later));
+          await tx
+            .update(schema.documents)
+            .set({ position: 1 })
+            .where(eq(schema.documents.id, seed.ids.earlier));
+        },
+        () =>
+          asOwner(() => moveDocument.run({ id: seed.ids.moved, position: 2 })),
+      );
+      await expect(reordered).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.earlier)).toMatchObject({ position: 1 });
+      expect(await readPage(seed.ids.later)).toMatchObject({ position: 2 });
+    });
+
     it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {
       const seed = await seedPageTree();
       await asOwner(() => deleteDocument.run({ id: seed.ids.otherParent }));
