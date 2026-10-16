@@ -403,11 +403,18 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
   requestSameOrigin = false,
+  requestPendingAtMainFrameNavigation = false,
 ) {
+  const pendingAtNavigation =
+    requestWasPendingAtReloadNavigation ||
+    (pathname === "/_agent-native/actions/get-deck-access-status" &&
+      method === "GET" &&
+      requestPendingAtMainFrameNavigation);
+
   return (
     activePhase === "save/reload" &&
     requestSameOrigin &&
-    requestWasPendingAtReloadNavigation &&
+    pendingAtNavigation &&
     !requestStartedDuringNavigation &&
     !competingClaimStartedAfterNavigation &&
     Number.isFinite(requestAgeMs) &&
@@ -2060,6 +2067,7 @@ export async function runAuthoringFuzz(
     outgoingNavigationAbort: boolean;
   };
   const reloadNavigationRequests = new Map<any, ReloadNavigationRequest>();
+  const watchedRequestsPendingAtMainFrameNavigation = new WeakSet<any>();
   const pendingOutgoingAbortTimers = new Set<ReturnType<typeof setTimeout>>();
   let reloadNavigationStartedAt: number | null = null;
   // Keep the latest start after openSlide returns to correlate late poll errors.
@@ -2403,12 +2411,15 @@ export async function runAuthoringFuzz(
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const navigationCandidate = reloadNavigationRequests.get(request);
+    const requestPendingAtMainFrameNavigation =
+      watchedRequestsPendingAtMainFrameNavigation.has(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
     const competingClaimStartedAfterNavigation =
       hasCompetingClaimStartedAfterNavigation(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    watchedRequestsPendingAtMainFrameNavigation.delete(request);
     inFlightBrowserSessionClaims.delete(request);
     const url = request.url();
     const requestUrl = new URL(url);
@@ -2458,6 +2469,7 @@ export async function runAuthoringFuzz(
         navigationCandidate?.requestStartedDuringNavigation === true,
         competingClaimStartedAfterNavigation,
         requestUrl.origin === authoringPageOrigin,
+        requestPendingAtMainFrameNavigation,
       )
     ) {
       const candidate = navigationCandidate;
@@ -2494,6 +2506,15 @@ export async function runAuthoringFuzz(
       activePhase === "save/reload" &&
       reloadNavigationStartedAt !== null
     ) {
+      for (const watchedRequest of watchedRequests.keys()) {
+        if (
+          watchedRequest !== request &&
+          watchedRequest.serviceWorker() === null &&
+          watchedRequest.frame() === page.mainFrame()
+        ) {
+          watchedRequestsPendingAtMainFrameNavigation.add(watchedRequest);
+        }
+      }
       mainFrameNavigationStartedAt = startedAt;
       mainFrameNavigationRequestSequence = requestSequence;
       mainFrameNavigationCommittedAt = null;
@@ -2598,6 +2619,7 @@ export async function runAuthoringFuzz(
   const onRequestSettled = (request: any) => {
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    watchedRequestsPendingAtMainFrameNavigation.delete(request);
     const settledAt = Date.now();
     const claim = inFlightBrowserSessionClaims.get(request);
     if (claim) {

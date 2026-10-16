@@ -80,6 +80,7 @@ const isExpectedSameOriginSaveReloadAbort = (
   requestAgeMs = Number.POSITIVE_INFINITY,
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
+  requestPendingAtMainFrameNavigation = false,
 ) =>
   isExpectedSaveReloadAbort(
     pathname,
@@ -91,6 +92,7 @@ const isExpectedSameOriginSaveReloadAbort = (
     requestStartedDuringNavigation,
     competingClaimStartedAfterNavigation,
     true,
+    requestPendingAtMainFrameNavigation,
   );
 
 it("keeps authoring page setup errors out of seed regression results", async () => {
@@ -1286,6 +1288,45 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       30_000,
     ),
   ).toBe(true);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      false,
+      100,
+      false,
+      false,
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      false,
+      100,
+      false,
+      false,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "Failed to fetch",
+      "save/reload",
+      "GET",
+      false,
+      100,
+      false,
+      false,
+      true,
+    ),
+  ).toBe(false);
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-deck-access-status",
