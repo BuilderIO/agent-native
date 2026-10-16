@@ -66,6 +66,24 @@ describe("signOut", () => {
     expect(signingOutDuringRequest).toBe(true);
   });
 
+  it("forgets what the recorder kept before it asks the server to revoke the session", async () => {
+    const { signOut } = await loadSignOut();
+    const { recorder } = await import("./recorder.js");
+    recorder.log("compose.opened", { draftId: "d1" });
+    let eventsDuringRequest: unknown[] | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        eventsDuringRequest = recorder.report().events;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    await signOut();
+
+    expect(eventsDuringRequest).toEqual([]);
+  });
+
   it("waits for the revoke to land before navigating away", async () => {
     const { signOut } = await loadSignOut();
     let settleRevoke: (() => void) | undefined;

@@ -76,6 +76,9 @@ describe("find-data scan coverage", () => {
     expect(result.guidance).toContain(
       "Treat missing source-index matches as incomplete",
     );
+    expect(result.guidance).toContain(
+      "exclude aggregates and snapshots as member sources",
+    );
   });
 
   it("keeps missing legacy scan counts unavailable instead of reporting zero", async () => {
@@ -183,6 +186,12 @@ describe("find-data scan coverage", () => {
         staleAfterDays: 90,
         stale: true,
       },
+      sourceIndexSourcesFreshness: {
+        sourceCount: 3,
+        unknownTimestampCount: 0,
+        staleSourceCount: 1,
+        fresh: false,
+      },
     });
 
     const result = await action.run({ question: "workspace users" });
@@ -192,9 +201,18 @@ describe("find-data scan coverage", () => {
       staleAfterDays: 90,
       stale: true,
     });
+    expect(result.sourceIndexSourcesFreshness).toEqual({
+      sourceCount: 3,
+      unknownTimestampCount: 0,
+      staleSourceCount: 1,
+      fresh: false,
+    });
     expect(result.guidance).toContain(
       "The generated source index is stale (104 days old; refresh threshold 90 days)",
     );
     expect(result.guidance).toContain("Use its entries only to discover leads");
+    expect(result.guidance).toContain(
+      "Per-source source-index freshness is stale or unknown",
+    );
   });
 });

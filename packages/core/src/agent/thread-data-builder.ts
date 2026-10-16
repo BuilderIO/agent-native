@@ -1,4 +1,5 @@
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   parseAgentSuggestion,
   type AgentRunSnapshot,
 } from "@agent-native/agentkit/protocol";
@@ -1683,37 +1684,74 @@ export function applySubmittedUserMessage(
     | { kind: "background-operation"; id: string },
 ):
   | { status: "submitted" | "already_submitted"; repo: any }
-  | { status: "already_claimed" | "claim_expired" } {
-  if (!queuedMessage) {
-    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
-  }
-
+  | { status: "already_claimed" | "claim_expired" | "submission_expired" } {
   const userCustom = userMessage.metadata.custom as
     | Record<string, unknown>
     | undefined;
-  const wasSubmitted = Array.isArray(repo?.messages)
-    ? repo.messages.some((entry: unknown) => {
-        const outer = entry as Record<string, unknown> | null;
-        const message = outer?.message ?? outer;
-        if (!message || typeof message !== "object") return false;
-        const metadata = (message as Record<string, unknown>).metadata;
-        if (!metadata || typeof metadata !== "object") return false;
-        const custom = (metadata as Record<string, unknown>).custom;
-        return (
-          custom !== null &&
-          typeof custom === "object" &&
-          (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
-            queuedMessage.id &&
-          (custom as Record<string, unknown>).submittedRunId ===
-            userCustom?.submittedRunId
-        );
-      })
-    : false;
-  if (wasSubmitted) {
+  const wasSubmitted =
+    queuedMessage && Array.isArray(repo?.messages)
+      ? repo.messages.some((entry: unknown) => {
+          const outer = entry as Record<string, unknown> | null;
+          const message = outer?.message ?? outer;
+          if (!message || typeof message !== "object") return false;
+          const metadata = (message as Record<string, unknown>).metadata;
+          if (!metadata || typeof metadata !== "object") return false;
+          const custom = (metadata as Record<string, unknown>).custom;
+          return (
+            custom !== null &&
+            typeof custom === "object" &&
+            (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
+              queuedMessage.id &&
+            (custom as Record<string, unknown>).submittedRunId ===
+              userCustom?.submittedRunId
+          );
+        })
+      : false;
+  if (wasSubmitted && queuedMessage) {
     return {
       status: "already_submitted",
       repo: claimQueuedMessage(repo, queuedMessage.id),
     };
+  }
+  const submittedRunId = userCustom?.submittedRunId;
+  const wasDirectlySubmitted =
+    !queuedMessage &&
+    typeof submittedRunId === "string" &&
+    submittedRunId.trim().length > 0 &&
+    Array.isArray(repo?.messages) &&
+    repo.messages.some((entry: unknown) => {
+      const message = getStoredMessage(entry);
+      const custom = message?.metadata?.custom;
+      return (
+        message?.role === "user" &&
+        custom &&
+        typeof custom === "object" &&
+        !Array.isArray(custom) &&
+        custom.submittedRunId === submittedRunId
+      );
+    });
+  if (wasDirectlySubmitted) {
+    return { status: "already_submitted", repo };
+  }
+  if (
+    userCustom &&
+    Object.prototype.hasOwnProperty.call(
+      userCustom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    const submissionExpiresAt =
+      userCustom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+    if (
+      typeof submissionExpiresAt !== "number" ||
+      !Number.isFinite(submissionExpiresAt) ||
+      submissionExpiresAt <= Date.now()
+    ) {
+      return { status: "submission_expired" };
+    }
+  }
+  if (!queuedMessage) {
+    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
   }
   if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
     return { status: "already_claimed" };
@@ -4141,6 +4179,7 @@ export function buildUserMessage(opts: {
   turnId?: string;
   agentKitMessageId?: string;
   queuedMessageId?: string;
+  submissionExpiresAt?: unknown;
   createdAt?: Date;
   /** The turn was refused before a run started; its retry reads this back. */
   refusedRetry?: RefusedTurnRetryContext;
@@ -4169,6 +4208,12 @@ export function buildUserMessage(opts: {
           : {}),
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(opts, "submissionExpiresAt")
+          ? {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                opts.submissionExpiresAt,
+            }
           : {}),
         ...(opts.refusedRetry ? { [RUN_NOT_STARTED_METADATA_KEY]: true } : {}),
       },

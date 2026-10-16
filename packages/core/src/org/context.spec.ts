@@ -34,7 +34,9 @@ import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
+  hasOrgScopeResolutionUnavailable,
   resolveOrgIdForEmail,
+  resolveOrgScopeForEmail,
   resolveActiveOrgIdForStorageCredential,
   resolveOrgIdForEmailViaEvent,
   createOrganization,
@@ -101,6 +103,19 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx).toEqual({ email: "", orgId: null, orgName: null, role: null });
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("marks a swallowed membership read failure as unavailable org scope", async () => {
+    mockGetSession.mockResolvedValue({ email: "a@b.com" });
+    mockExecute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
+
+    await expect(getOrgContext(EVENT)).resolves.toMatchObject({
+      email: "a@b.com",
+      orgId: null,
+    });
+    expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(true);
   });
 
   it("resolves a verified service identity for an existing unlinked org", async () => {
@@ -1145,6 +1160,22 @@ describe("resolveOrgIdForEmail", () => {
   it("returns null when the user has no memberships", async () => {
     queueSelect([]);
     expect(await resolveOrgIdForEmail("nobody@b.com")).toBeNull();
+  });
+
+  it("confirms personal scope when the membership query succeeds without rows", async () => {
+    queueSelect([]);
+    await expect(resolveOrgScopeForEmail("nobody@b.com")).resolves.toEqual({
+      status: "personal",
+    });
+  });
+
+  it("keeps scope unknown when the membership query is unavailable", async () => {
+    mockExecute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
+    await expect(resolveOrgScopeForEmail("nobody@b.com")).resolves.toEqual({
+      status: "unknown",
+    });
   });
 
   it("returns the single membership when no active-org preference exists", async () => {

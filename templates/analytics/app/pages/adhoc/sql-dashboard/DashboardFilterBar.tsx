@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
@@ -46,8 +47,9 @@ import {
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
+  usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterPreset } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
@@ -445,6 +447,11 @@ function MultiSelectFilter({
       options.find((option) => option.value === selectedValue)?.label ??
       selectedValue,
   );
+  const presets = usableFilterPresets(filter.presets, seenOptionValues);
+  const presetSelected = (preset: FilterPreset) =>
+    new Set(preset.values).size === selectedSet.size &&
+    preset.values.every((presetValue) => selectedSet.has(presetValue));
+  const selectedPreset = presets.find(presetSelected);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = normalizedQuery
     ? options.filter(
@@ -471,6 +478,11 @@ function MultiSelectFilter({
         ]),
       ),
     );
+  const applyPreset = (preset: FilterPreset) => {
+    setSelected(Array.from(new Set(preset.values)));
+    setOpen(false);
+    setQuery("");
+  };
   const toggle = (optionValue: string, checked: boolean) =>
     setSelected(
       checked
@@ -501,13 +513,19 @@ function MultiSelectFilter({
             <span className="min-w-0 truncate">
               {allOptionsSelected
                 ? t("sqlDashboard.allValues")
-                : selectedLabels.length > 0
-                  ? selectedLabels.join(", ")
-                  : t("sqlDashboard.allValues")}
+                : selectedPreset
+                  ? selectedPreset.label
+                  : selectedLabels.length > 0
+                    ? selectedLabels.join(", ")
+                    : t("sqlDashboard.allValues")}
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-64">
+        <PopoverContent
+          align="start"
+          // Room for Select all, a preset and Clear all on one row.
+          className={presets.length > 0 ? "w-72" : "w-64"}
+        >
           <MenuSearchInput
             aria-controls={optionsListId}
             aria-label={t("sqlDashboard.searchValues")}
@@ -515,7 +533,7 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1.5">
             <Button
               type="button"
               variant="ghost"
@@ -525,12 +543,39 @@ function MultiSelectFilter({
             >
               {t("sqlDashboard.selectAll")}
             </Button>
+            {presets.length > 0 && !normalizedQuery && (
+              <div
+                role="group"
+                aria-label={t("sqlDashboard.presets")}
+                className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1"
+              >
+                {presets.map((preset) => {
+                  const active = presetSelected(preset);
+                  return (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      aria-pressed={active}
+                      className={cn(
+                        "min-w-0 max-w-full",
+                        active && "bg-accent",
+                      )}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      {active && <IconCheck />}
+                      <span className="min-w-0 truncate">{preset.label}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
             {selected.length > 0 && (
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="w-full justify-start"
                 onClick={() => setSelected([])}
               >
                 {t("sqlDashboard.clearAll")}

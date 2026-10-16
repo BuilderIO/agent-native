@@ -9630,27 +9630,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       multiSelectionBoundsOverlay = overlay;
       return overlay;
     }
-    function positionMultiSelectionBounds() {
-      var members = [];
-      if (selectedEl && document.documentElement.contains(selectedEl)) {
-        members.push(selectedEl);
-      }
-      passiveSelectionEls.forEach(function(el) {
-        if (el && document.documentElement.contains(el)) members.push(el);
-      });
-      setSelectionOverlayResizeChromeVisible(
-        !readOnly && !activeTextEditEl && members.length < 2
-      );
-      var laidOutMembers = members.filter(hasLayoutBox);
-      if (laidOutMembers.length === 0 || selectionChromeHidden) {
-        if (multiSelectionBoundsOverlay) {
-          multiSelectionBoundsOverlay.style.display = "none";
-        }
-        return;
-      }
-      var rects = laidOutMembers.map(function(el) {
+    function selectionBoundsFromElements(elements) {
+      var rects = elements.filter(hasLayoutBox).map(function(el) {
         return el.getBoundingClientRect();
       });
+      if (rects.length === 0) return null;
       var left = Math.min.apply(
         null,
         rects.map(function(r) {
@@ -9675,6 +9659,40 @@ export const editorChromeBridgeScript: string = `"use strict";
           return r.bottom;
         })
       );
+      return {
+        left,
+        top,
+        right,
+        bottom,
+        width: Math.max(0, right - left),
+        height: Math.max(0, bottom - top)
+      };
+    }
+    function positionMultiSelectionBounds() {
+      var members = [];
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        members.push(selectedEl);
+      }
+      passiveSelectionEls.forEach(function(el) {
+        if (el && document.documentElement.contains(el)) members.push(el);
+      });
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !activeTextEditEl && members.length < 2
+      );
+      var laidOutMembers = members.filter(hasLayoutBox);
+      if (laidOutMembers.length === 0 || selectionChromeHidden) {
+        if (multiSelectionBoundsOverlay) {
+          multiSelectionBoundsOverlay.style.display = "none";
+        }
+        return;
+      }
+      var bounds = selectionBoundsFromElements(laidOutMembers);
+      if (!bounds) return;
+      var left = bounds.left;
+      var top = bounds.top;
+      var right = bounds.right;
+      var bottom = bounds.bottom;
+      if (selectedEl) showSizeBadge(selectedEl);
       if (designCanvasBoardSurface && selectedEl) {
         window.parent.postMessage(
           {
@@ -11526,7 +11544,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       clearActiveMarqueeSelection();
       var events = dragEventNames(e);
-      var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+      var additive = Boolean(e && e.shiftKey);
       function flushMarqueeMove() {
         var session = activeMarqueeSelection;
         if (!session) return;
@@ -14541,6 +14559,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function isFreeformDropContainer(el) {
+      if (isAutoLayoutElement(el)) return false;
+      var hasChild = false;
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (isOverlayElement(child)) continue;
+        var childStyle = window.getComputedStyle(child);
+        if (childStyle.display === "none") continue;
+        if (childStyle.position !== "absolute" && childStyle.position !== "fixed") {
+          return false;
+        }
+        hasChild = true;
+      }
+      return hasChild || window.getComputedStyle(el).position !== "static";
+    }
     function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
@@ -15038,7 +15071,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag) && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag)) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;
@@ -17546,8 +17579,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     var dragChromeSuppressed = false;
     function showSizeBadge(el) {
       if (!el || dragChromeSuppressed) return hideSizeBadge();
-      var rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+      var members = [el].concat(passiveSelectionEls).filter(function(member) {
+        return document.documentElement.contains(member);
+      });
+      var rect = selectionBoundsFromElements(members);
+      if (!rect || rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
       var scale = chromeLineScale();
       var key = rect.left + "|" + rect.bottom + "|" + rect.width + "|" + rect.height + "|" + scale;
       if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
@@ -18728,12 +18764,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
         if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
-          return nearestChildInsertionTarget(
+          var besideContainer = nearestChildInsertionTarget(
             document.body,
             pointerX,
             pointerY,
             excluded
           );
+          if (besideContainer && isFreeformDropContainer(document.body)) {
+            besideContainer.dropMode = "absolute-container";
+          }
+          return besideContainer;
         }
         return null;
       }

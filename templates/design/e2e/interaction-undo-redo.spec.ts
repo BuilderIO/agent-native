@@ -254,47 +254,66 @@ test.fixme("rotating a screen then undoing immediately restores persisted geomet
     .toBe(before.rotation);
 });
 
-// fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-test.fixme("nudging a screen then undoing immediately restores persisted geometry", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await page.goto(appPath(`/design/${id}?view=overview`), {
-    waitUntil: "domcontentloaded",
+for (const platform of ["MacIntel", "Linux x86_64"]) {
+  test(`nudging a screen then undoing immediately restores persisted geometry (${platform})`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript((platform) => {
+      Object.defineProperty(navigator, "platform", { value: platform });
+    }, platform);
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await page.goto(appPath(`/design/${id}?view=overview`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const before = await readIndexFrame(page, id);
+    const screen = page.locator(`[data-frame-id="${before.id}"]`);
+    await screen.locator("[data-frame-label]").click();
+    const renderedX = () =>
+      screen.evaluate((element) =>
+        Number.parseFloat((element as HTMLElement).style.left),
+      );
+    const beforeRenderedX = await renderedX();
+    expect(Number.isFinite(beforeRenderedX)).toBe(true);
+
+    await page.keyboard.down("ArrowRight");
+    await page.keyboard.down("ArrowRight");
+    await page.keyboard.up("ArrowRight");
+    await page.keyboard.up("ArrowRight");
+    await expect.poll(renderedX).toBe(beforeRenderedX + 2);
+
+    await page.keyboard.press(platform === "MacIntel" ? "Meta+Z" : "Control+Z");
+    await expect.poll(renderedX).toBe(beforeRenderedX);
+    await page.waitForTimeout(750);
+    await expect
+      .poll(
+        async () => {
+          const frame = await readIndexFrame(page, id);
+          return [frame.x, frame.y];
+        },
+        {
+          timeout: 15_000,
+          message: "immediate undo must persist the pre-nudge frame geometry",
+        },
+      )
+      .toEqual([before.x, before.y]);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(screen).toBeVisible();
+    await expect.poll(renderedX).toBe(beforeRenderedX);
+    const reloaded = await readIndexFrame(page, id);
+    expect([reloaded.x, reloaded.y]).toEqual([before.x, before.y]);
+    await testInfo.attach("nudge undo after reload", {
+      body: await page.screenshot({
+        path: testInfo.outputPath("nudge-undo-after-reload.png"),
+      }),
+      contentType: "image/png",
+    });
   });
-  await expect(page.locator("[data-screen-card]").first()).toBeVisible({
-    timeout: 30_000,
-  });
-
-  const before = await readIndexFrame(page, id);
-  const screen = page.locator(`[data-frame-id="${before.id}"]`);
-  await screen.locator("[data-frame-label]").click();
-  const beforeBox = await screen.boundingBox();
-  if (!beforeBox) throw new Error("screen frame has no bounding box");
-
-  await page.keyboard.down("ArrowRight");
-  await page.keyboard.down("ArrowRight");
-  await page.keyboard.up("ArrowRight");
-  await page.keyboard.up("ArrowRight");
-  const afterBox = await screen.boundingBox();
-  expect(afterBox?.x).not.toBe(beforeBox.x);
-
-  await page.keyboard.press(UNDO);
-  await page.waitForTimeout(750);
-  await expect
-    .poll(
-      async () => {
-        const frame = await readIndexFrame(page, id);
-        return [frame.x, frame.y];
-      },
-      {
-        timeout: 15_000,
-        message: "immediate undo must persist the pre-nudge frame geometry",
-      },
-    )
-    .toEqual([before.x, before.y]);
-});
+}
 
 test("a fresh edit after undo clears the redo stack", async ({ page }) => {
   const id = await newDesign(page);

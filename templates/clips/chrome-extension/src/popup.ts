@@ -1,9 +1,6 @@
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 
-import {
-  readFileUploadStatusProbe,
-  type FileUploadStatusProbe,
-} from "../../shared/file-upload-status";
+import { type FileUploadStatusProbe } from "../../shared/file-upload-status";
 import {
   MEDIA_PERMISSION_DEVICES,
   hasGrantedDeviceLabels,
@@ -484,13 +481,55 @@ async function readVideoStorageStatus(
 
   try {
     const headers = await authHeaders(settings);
-    const response = await fetch(`${base}/_agent-native/file-upload/status`, {
-      method: "GET",
-      headers,
-      credentials: "include",
-      cache: "no-store",
-    });
-    return await readFileUploadStatusProbe(response);
+    const response = await fetch(
+      `${base}/_agent-native/actions/get-video-storage-status`,
+      {
+        method: "GET",
+        headers,
+        credentials: "include",
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return "unavailable";
+    const body = (await response.json()) as {
+      result?: unknown;
+      configured?: unknown;
+      mode?: unknown;
+      hostedRemaining?: unknown;
+    };
+    const status = body.result ?? body;
+    if (
+      typeof status !== "object" ||
+      status === null ||
+      !(
+        "configured" in status &&
+        "mode" in status &&
+        "hostedRemaining" in status
+      )
+    ) {
+      return "unavailable";
+    }
+    const value = status as {
+      configured: unknown;
+      mode: unknown;
+      hostedRemaining: unknown;
+    };
+    if (
+      typeof value.configured !== "boolean" ||
+      (value.mode !== "own" &&
+        value.mode !== "hosted" &&
+        value.mode !== "none") ||
+      !Number.isSafeInteger(value.hostedRemaining) ||
+      (value.hostedRemaining as number) < 0 ||
+      value.configured !== (value.mode !== "none") ||
+      (value.mode === "hosted" && (value.hostedRemaining as number) < 1)
+    ) {
+      return "unavailable";
+    }
+    return value.mode === "own" ||
+      (value.mode === "hosted" && (value.hostedRemaining as number) > 0)
+      ? "configured"
+      : "missing";
   } catch {
     return "unavailable";
   }

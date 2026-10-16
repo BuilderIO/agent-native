@@ -2109,6 +2109,221 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
   ).toBe(false);
 });
 
+it("accepts Firefox's retired-session warning when the request finished during the reload", () => {
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
+  const heartbeatWarning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource.";
+  // Firefox reports the claim as finished (no requestfailed) while the retired
+  // page's fetch still rejects as the document is torn down.
+  const finishedClaim = {
+    url: "http://localhost/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    pathname:
+      "/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    method: "POST",
+    ageMs: 62,
+    settledAgeMs: 61,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestFinishedSuccessfully: true,
+    requestStartedDuringNavigation: true,
+    requestStartedBeforeReloadCommit: true,
+    outgoingNavigationAbort: false,
+    outgoingRequestKind: "poll" as const,
+    requestSessionId: "retired-session-id",
+    retiredSessionId: "retired-session-id",
+    competingSameTypeRequest: false,
+  };
+  const finishedRegistration = {
+    ...finishedClaim,
+    url: "http://localhost/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    outgoingRequestKind: "heartbeat" as const,
+  };
+  const expected = (
+    message: string,
+    candidates: Parameters<
+      typeof isExpectedSaveReloadBrowserSessionConsoleError
+    >[2],
+    phase = "save/reload",
+  ) =>
+    isExpectedSaveReloadBrowserSessionConsoleError(message, phase, candidates);
+
+  expect(expected(pollWarning, [finishedClaim])).toBe(true);
+  expect(expected(heartbeatWarning, [finishedRegistration])).toBe(true);
+  // Boundaries: the status range and the settle window are half-open.
+  for (const override of [
+    { responseStatus: 200 },
+    { responseStatus: 299 },
+    { settledAgeMs: 0 },
+    { settledAgeMs: 999 },
+  ]) {
+    expect(
+      expected(pollWarning, [{ ...finishedClaim, ...override }]),
+      JSON.stringify(override),
+    ).toBe(true);
+  }
+
+  expect(expected(pollWarning, [finishedClaim], "step 12")).toBe(false);
+  expect(expected(pollWarning, [finishedRegistration])).toBe(false);
+  expect(expected(heartbeatWarning, [finishedClaim])).toBe(false);
+  for (const override of [
+    { requestSessionId: "new-session-id" },
+    { requestSessionId: null, retiredSessionId: null },
+    { requestStartedDuringNavigation: false },
+    // A tab that keeps its session id across the reload: the new document's
+    // request carries the retired id but started after the commit.
+    { requestStartedBeforeReloadCommit: false },
+    { requestStartedBeforeReloadCommit: undefined },
+    { requestFinishedSuccessfully: false },
+    { sameOrigin: false },
+    { responseStatus: undefined },
+    { responseStatus: 199 },
+    { responseStatus: 300 },
+    { responseStatus: 500 },
+    { settledAgeMs: -1 },
+    { settledAgeMs: undefined },
+    { settledAgeMs: 1_000 },
+    { competingSameTypeRequest: true },
+  ]) {
+    expect(
+      expected(pollWarning, [{ ...finishedClaim, ...override }]),
+      JSON.stringify(override),
+    ).toBe(false);
+  }
+
+  // Ages are read after the grace wait, so that delay shifts both bounds: the
+  // request settled by the warning and within one second before it.
+  const readLate = (settledAgeMs: number, evaluationDelayMs: number) =>
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      pollWarning,
+      "save/reload",
+      [{ ...finishedClaim, settledAgeMs }],
+      evaluationDelayMs,
+    );
+  expect(readLate(1_000, 0)).toBe(false);
+  expect(readLate(1_299, 300)).toBe(true);
+  expect(readLate(1_300, 300)).toBe(false);
+  // Settled at the warning counts; settled after it, while the grace wait was
+  // still running, does not.
+  expect(readLate(300, 300)).toBe(true);
+  expect(readLate(299, 300)).toBe(false);
+  expect(readLate(0, 300)).toBe(false);
+  expect(readLate(-1, 0)).toBe(false);
+  // The CI run this fixes: the claim settled 61 ms before the warning arrived
+  // and the candidates were read 302 ms after it (250 ms grace plus Firefox
+  // normalization).
+  expect(readLate(61 + 302, 302)).toBe(true);
+
+  // The retired page polls every 500 ms until the reloaded document commits, so
+  // a slow commit leaves several finished requests; any one excuses the warning.
+  const earlierFinishedClaim = {
+    ...finishedClaim,
+    ageMs: 540,
+    settledAgeMs: 539,
+  };
+  expect(expected(pollWarning, [earlierFinishedClaim, finishedClaim])).toBe(
+    true,
+  );
+  // A request that was already in flight when the reload began cannot belong to
+  // the reloaded document, so it needs no commit-time flag.
+  const pendingAtReload = {
+    ...finishedClaim,
+    requestWasPendingAtNavigation: true,
+    requestStartedDuringNavigation: false,
+    requestStartedBeforeReloadCommit: false,
+  };
+  expect(expected(pollWarning, [pendingAtReload])).toBe(true);
+  expect(
+    expected(pollWarning, [
+      { ...pendingAtReload, requestFinishedSuccessfully: false },
+    ]),
+  ).toBe(false);
+  // Other traffic in the map (the failing run also had a stuck module GET) is
+  // not mistaken for the request, and does not hide it.
+  const pendingModuleGet = {
+    url: "http://localhost/@fs/repo/packages/core/src/demo/redact.ts",
+    pathname: "/@fs/repo/packages/core/src/demo/redact.ts",
+    method: "GET",
+    ageMs: 207_243,
+    sameOrigin: true,
+    requestWasPendingAtNavigation: true,
+    outgoingNavigationAbort: false,
+  };
+  expect(expected(pollWarning, [pendingModuleGet, finishedClaim])).toBe(true);
+  expect(expected(pollWarning, [pendingModuleGet])).toBe(false);
+  expect(expected(pollWarning, [])).toBe(false);
+
+  // Failed requests stay attributed one-to-one: a single one is authoritative
+  // and two are ambiguous, whatever finished alongside them.
+  const abortedClaim = {
+    ...finishedClaim,
+    requestFinishedSuccessfully: false,
+    settledAgeMs: undefined,
+    responseStatus: undefined,
+    outgoingNavigationAbort: true,
+    outgoingAbortWarningAgeMs: 150,
+  };
+  expect(expected(pollWarning, [abortedClaim])).toBe(true);
+  expect(expected(pollWarning, [abortedClaim, finishedClaim])).toBe(true);
+  expect(expected(pollWarning, [abortedClaim, abortedClaim])).toBe(false);
+  expect(
+    expected(pollWarning, [abortedClaim, abortedClaim, finishedClaim]),
+  ).toBe(false);
+});
+
+it("measures the finished-request window from the warning, not from when it was evaluated", async () => {
+  vi.useFakeTimers();
+  try {
+    const warning =
+      "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
+    const finishedClaim = {
+      url: "http://localhost/_agent-native/browser-sessions/retired-session-id/requests/claim",
+      pathname:
+        "/_agent-native/browser-sessions/retired-session-id/requests/claim",
+      method: "POST",
+      ageMs: 1_200,
+      sameOrigin: true,
+      responseStatus: 200,
+      requestFinishedSuccessfully: true,
+      requestStartedDuringNavigation: true,
+      requestStartedBeforeReloadCommit: true,
+      outgoingNavigationAbort: false,
+      outgoingRequestKind: "poll" as const,
+      requestSessionId: "retired-session-id",
+      retiredSessionId: "retired-session-id",
+      competingSameTypeRequest: false,
+    };
+    // settledAgeMs is what the candidates report when they are read, i.e. after
+    // the 250 ms grace wait the wrapper adds.
+    const run = async (settledAgeMs: number, warnedAt?: number) => {
+      const result = isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
+        warning,
+        "save/reload",
+        () => [{ ...finishedClaim, settledAgeMs }],
+        warnedAt,
+      );
+      await vi.advanceTimersByTimeAsync(250);
+      return result;
+    };
+
+    expect(await run(1_249)).toBe(true);
+    expect(await run(1_250)).toBe(false);
+    // Reported age equal to the grace wait means it settled at the warning; any
+    // less means it settled afterwards, so it cannot be the cause.
+    expect(await run(250)).toBe(true);
+    expect(await run(249)).toBe(false);
+    // Time spent before the wrapper ran (Firefox normalizes the message first)
+    // counts too when the caller passes the warning's own timestamp.
+    expect(await run(1_349, Date.now() - 100)).toBe(true);
+    expect(await run(1_350, Date.now() - 100)).toBe(false);
+    expect(await run(350, Date.now() - 100)).toBe(true);
+    expect(await run(349, Date.now() - 100)).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("correlates Firefox reload warnings whether request failure arrives first or second", async () => {
   vi.useFakeTimers();
   try {

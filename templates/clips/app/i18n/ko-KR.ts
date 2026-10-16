@@ -4,6 +4,7 @@ const messages = {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
     off: "끔",
+    none: "없음",
     custom: "사용자 지정…",
     customLabel: "사용자 지정 길이",
     customAmount: "길이",
@@ -15,6 +16,25 @@ const messages = {
     customErrorInvalid: "초 또는 분 단위의 정수를 입력하세요.",
     customErrorTooLong: "5분 이하로 입력하세요.",
     turnOnRewind: "Rewind 켜기",
+    turnOffRewind: "끄기",
+    turnOffRewindFailed:
+      "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
+    turnOnRewindFailed: "Rewind를 켤 수 없습니다. 다시 시도해 주세요.",
+    turnOnRewindPermissionFailed:
+      "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음에서 Clips의 화면 녹화를 허용한 뒤, Clips를 재시동하고 다시 시도하세요.",
+    turnOnRewindUnsupported:
+      "Rewind 화면 녹화는 macOS에서만 사용할 수 있습니다.",
+    turnOnRewindNoSpace:
+      "Rewind를 시작하기에 디스크 공간이 부족합니다. 공간을 확보한 후 다시 시도하세요.",
+    turnOnRewindStopClip: "Rewind를 켜기 전에 현재 Clip을 중지하세요.",
+    turnOnRewindStorageFailed:
+      "Rewind 저장 공간에 접근할 수 없습니다. 디스크 공간과 폴더 권한을 확인한 후 다시 시도하세요.",
+    rewindConsentTitle: "Rewind를 켤까요?",
+    rewindConsentBody:
+      "Clips는 화면을 계속 녹화해 이 기기에 보관합니다. 에이전트에는 텍스트 발췌가 제공되며, 동영상은 사용자가 승인한 경우에만 공유됩니다.",
+    rewindConsentCancel: "나중에",
+    rewindConsentConfirm: "Rewind 켜기",
+    rewindConsentBusy: "Rewind 켜는 중…",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
       "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",
@@ -1544,6 +1564,8 @@ const messages = {
     builderGrantAskAdmin:
       "소유자 또는 관리자에게 클립 업로드 권한으로 Builder.io를 연결해 달라고 요청하세요.",
     statusUnavailable: "비디오 저장소 상태를 확인할 수 없습니다.",
+    hostedStorageUnavailable:
+      "Clips 호스팅 저장소를 일시적으로 사용할 수 없습니다. 무료 클립 할당량은 그대로 유지됩니다. 나중에 다시 업로드해 주세요.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout:
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
@@ -1838,6 +1860,14 @@ const messages = {
     validWebUrl: "유효한 http:// 또는 https:// 주소를 입력하세요.",
   },
   recordRoute: {
+    freeClipsLeft_one: "무료 클립 {{count}}개 남음",
+    freeClipsLeft_other: "무료 클립 {{count}}개 남음",
+    hostedClipsExhaustedTitle: "Builder.io에 무료로 연결하고 계속 녹화하세요",
+    hostedClipsExhaustedDescription:
+      "무료 호스팅 클립을 모두 사용했습니다. Builder.io 저장소를 연결하면 라이브러리에 클립을 계속 저장할 수 있습니다.",
+    clipExceedsSizeLimit: "이 클립이 현재 업로드 크기 제한을 초과합니다.",
+    clipExceedsMaxDuration: "이 클립이 현재 녹화 시간 제한을 초과합니다.",
+    maxClipDurationReached: "클립 최대 길이에 도달했습니다. 녹화를 저장합니다.",
     pageTitle: "New recording — Clips (현지화됨)",
     uploadFailed: "Upload failed (현지화됨)",
     uploadFailedAtChunk:
@@ -2073,6 +2103,10 @@ const messages = {
     vocabularyRemoveFailed: "용어를 삭제하지 못했습니다",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 호스팅 저장 공간이 가득 찼습니다. 클립을 계속 저장하려면 Builder.io 저장소를 연결하세요.",
+    hostedRecordingTakenDown:
+      "이 녹화는 Clips 호스팅 저장 공간에서 삭제되었습니다.",
     splitAtPlayhead: "재생 위치에서 분할 (S)",
     selectedCount: "{{count}}개 선택됨",
     selectAll: "모두 선택",
@@ -2253,9 +2287,15 @@ const messages = {
     issues: "문제",
     consoleSource: "콘솔",
     networkSource: "네트워크",
+    appSource: "앱 활동",
+    appEvent: "이벤트",
+    appData: "데이터",
+    appFailureSummary: "앱 실패 {{count}}개",
+    appUnavailable: "앱 활동을 불러올 수 없습니다.",
     consoleCount: "콘솔 {{count}}",
     networkCount: "네트워크 {{count}}",
     afterRecording: "녹화 종료 후",
+    beforeRecording: "녹화 시작 전",
     seekToTime: "{{time}}로 이동",
     occurrences: "발생 시각",
     message: "메시지",
@@ -2267,6 +2307,7 @@ const messages = {
     noIssuesTitle: "브라우저 문제가 감지되지 않음",
     noConsoleTitle: "콘솔 이벤트 없음",
     noNetworkTitle: "네트워크 요청 없음",
+    noAppTitle: "앱 활동 없음",
     capturedDescription: "이 녹화의 진단 정보를 캡처했습니다.",
   },
   timeline: { clipStartedHere: "클립이 여기서 시작됨" },

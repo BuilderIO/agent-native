@@ -1,5 +1,6 @@
 import { type Page } from "@playwright/test";
 
+import { buildCodeLayerProjection } from "../shared/code-layer";
 import { enterDirectMode, installBridge, waitForBridge } from "./helpers";
 import { expect, test, type App } from "./rails";
 
@@ -105,6 +106,60 @@ test("Select layer lists the exact visible unlocked hit stack and dismisses with
 
   await app.settled();
   expect(await app.savedHtml(designId)).toBe(baselineContent);
+});
+
+test("Select layer on a non-active overview screen preserves exact screen and layer identity", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(STACK_HTML, {
+    files: { "about.html": STACK_HTML },
+  });
+  const { files } = await app.savedRecord(designId);
+  const homeId = files.find((file) => file.filename === "index.html")!.id;
+  const aboutId = files.find((file) => file.filename === "about.html")!.id;
+
+  await app.open(designId);
+  await expect(
+    page.getByRole("button", { name: "Interact" }).first(),
+  ).toBeVisible();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(homeId);
+
+  const homeBaseline = await app.savedHtml(designId, "index.html");
+  const aboutBaseline = await app.savedHtml(designId, "about.html");
+  const nestedChild = buildCodeLayerProjection(aboutBaseline, {
+    source: { kind: "design-file", fileId: aboutId },
+  }).nodes.find(
+    (node) =>
+      node.dataAttributes["data-agent-native-node-id"] === "nested-child",
+  );
+  if (!nestedChild) {
+    throw new Error("The saved About screen does not project its nested child");
+  }
+
+  const menu = await openLayerStack(app, "about.html");
+  await menu.getByText("Nested child", { exact: true }).click();
+
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(aboutId);
+  const selectedRow = page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("treeitem", { selected: true });
+  await expect(selectedRow).toHaveCount(1);
+  await expect(selectedRow.locator("[data-layer-row-button]")).toHaveAttribute(
+    "data-layer-node-id",
+    nestedChild.id,
+  );
+  await expect(selectedRow.locator("[data-layer-row-name]")).toHaveText(
+    "Nested child",
+  );
+
+  await app.settled();
+  expect(await app.savedHtml(designId, "index.html")).toBe(homeBaseline);
+  expect(await app.savedHtml(designId, "about.html")).toBe(aboutBaseline);
 });
 
 // fixme: #7453 removed the canvas menu's "Edit with AI…" entry this test opens (Edit with Agent now opens the agent sidebar); re-author against the new entry point

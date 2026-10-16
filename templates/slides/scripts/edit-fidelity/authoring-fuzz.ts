@@ -643,6 +643,7 @@ type WatchedRequestNavigationCandidate = {
   completedBeforeNavigationAgeMs?: number;
   requestStartedDuringNavigation?: boolean;
   requestStartedAfterNavigation?: boolean;
+  requestStartedBeforeReloadCommit?: boolean;
   competingRequestStartedAfterNavigation?: boolean;
   competingClaimStartedAfterNavigation?: boolean;
   competingRegistrationStartedAfterNavigation?: boolean;
@@ -783,28 +784,78 @@ function outgoingBrowserSessionWarningKind(message: string) {
       : null;
 }
 
+// Firefox can report a claim or registration the retired page sent as finished
+// (its response arrived) while that page's fetch still rejects with
+// NetworkError as the document is torn down. Playwright emits no requestfailed
+// for it, so it never becomes an outgoing abort and the warning would otherwise
+// be counted as an unexpected console error. A tab can keep its session id
+// across the reload, so the id alone does not say which document sent the
+// request: it was either in flight when the reload began or started before the
+// reloaded document committed.
+function isFinishedRetiredSessionRequest(
+  candidate: WatchedRequestNavigationCandidate,
+  requestKind: "poll" | "heartbeat",
+  evaluationDelayMs: number,
+) {
+  return (
+    candidate.requestFinishedSuccessfully === true &&
+    (candidate.requestWasPendingAtNavigation === true ||
+      (candidate.requestStartedDuringNavigation === true &&
+        candidate.requestStartedBeforeReloadCommit === true)) &&
+    candidate.outgoingRequestKind === requestKind &&
+    candidate.sameOrigin === true &&
+    candidate.requestSessionId !== null &&
+    candidate.requestSessionId === candidate.retiredSessionId &&
+    candidate.responseStatus !== undefined &&
+    candidate.responseStatus >= 200 &&
+    candidate.responseStatus < 300 &&
+    candidate.settledAgeMs !== undefined &&
+    // Ages are read when the candidates are evaluated, evaluationDelayMs after
+    // the warning (the grace wait), so both bounds shift by it: the request must
+    // have settled by the warning and within a second before it. One that
+    // settled after the warning cannot be what tore the warned fetch down.
+    candidate.settledAgeMs >= evaluationDelayMs &&
+    candidate.settledAgeMs <
+      reloadNavigationConsoleGraceMs + evaluationDelayMs &&
+    candidate.competingSameTypeRequest !== true
+  );
+}
+
 export function isExpectedSaveReloadBrowserSessionConsoleError(
   message: string,
   activePhase: string,
   candidates: WatchedRequestNavigationCandidate[],
+  // How long after the warning the candidates were read.
+  evaluationDelayMs = 0,
 ) {
   const outgoingRequestKind = outgoingBrowserSessionWarningKind(message);
   if (outgoingRequestKind) {
-    return (
-      activePhase === "save/reload" &&
-      candidates.filter(
-        (candidate) =>
-          candidate.outgoingNavigationAbort === true &&
-          candidate.outgoingRequestKind === outgoingRequestKind &&
-          candidate.requestSessionId !== null &&
-          candidate.requestSessionId === candidate.retiredSessionId &&
-          candidate.outgoingAbortWarningAgeMs !== undefined &&
-          candidate.outgoingAbortWarningAgeMs >= 0 &&
-          candidate.outgoingAbortWarningAgeMs <=
-            retiredBrowserSessionPollConsoleGraceMs &&
-          candidate.competingSameTypeRequest !== true,
-      ).length === 1
-    );
+    if (activePhase !== "save/reload") return false;
+    // A failed request is attributed to its warning one-to-one, so two are
+    // ambiguous. A finished one carries no such attribution, and the retired
+    // page keeps polling until the reloaded document commits, so any of them
+    // excuses the warning.
+    const aborted = candidates.filter(
+      (candidate) =>
+        candidate.outgoingNavigationAbort === true &&
+        candidate.outgoingRequestKind === outgoingRequestKind &&
+        candidate.requestSessionId !== null &&
+        candidate.requestSessionId === candidate.retiredSessionId &&
+        candidate.outgoingAbortWarningAgeMs !== undefined &&
+        candidate.outgoingAbortWarningAgeMs >= 0 &&
+        candidate.outgoingAbortWarningAgeMs <=
+          retiredBrowserSessionPollConsoleGraceMs &&
+        candidate.competingSameTypeRequest !== true,
+    ).length;
+    return aborted > 0
+      ? aborted === 1
+      : candidates.some((candidate) =>
+          isFinishedRetiredSessionRequest(
+            candidate,
+            outgoingRequestKind,
+            evaluationDelayMs,
+          ),
+        );
   }
   const rules =
     message ===
@@ -840,16 +891,23 @@ export async function isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
   message: string,
   activePhase: string,
   getCandidates: () => WatchedRequestNavigationCandidate[],
+  // When the warning was emitted; Firefox normalizes it asynchronously before
+  // this runs, so the caller's own timestamp is the accurate baseline.
+  warnedAt = Date.now(),
 ) {
   if (outgoingBrowserSessionWarningKind(message)) {
     await new Promise<void>((resolve) =>
       setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
     );
   }
+  // Taken just before the candidates are read, so their ages and this delay
+  // share one instant.
+  const evaluationDelayMs = Math.max(0, Date.now() - warnedAt);
   return isExpectedSaveReloadBrowserSessionConsoleError(
     message,
     activePhase,
     getCandidates(),
+    evaluationDelayMs,
   );
 }
 
@@ -1968,6 +2026,7 @@ export async function runAuthoringFuzz(
     mainFrameNavigationStartedAt: number | null;
     mainFrameNavigationRequestSequence: number | null;
     requestStartedBeforeMainFrameCommit: boolean;
+    requestStartedBeforeReloadCommit: boolean;
     retiredSessionId: string | null;
     failureAt: number | null;
     failureText: string | null;
@@ -2137,6 +2196,8 @@ export async function runAuthoringFuzz(
         requestStartedDuringNavigation:
           candidate.requestStartedDuringNavigation,
         requestStartedAfterNavigation: candidate.requestStartedAfterNavigation,
+        requestStartedBeforeReloadCommit:
+          candidate.requestStartedBeforeReloadCommit,
         competingClaimStartedAfterNavigation:
           hasCompetingClaimStartedAfterNavigation(request),
         outgoingNavigationAbort: candidate.outgoingNavigationAbort,
@@ -2214,12 +2275,25 @@ export async function runAuthoringFuzz(
     const consoleTiming = {
       sinceReloadMs:
         lastReloadStartedAt === null ? null : Date.now() - lastReloadStartedAt,
+      // Includes every input of isFinishedRetiredSessionRequest so a failure
+      // that still slips through shows which condition rejected it.
       reloadMap: [...reloadNavigationRequests.entries()].map(
-        ([request, { startedAt, settledAt }]) => ({
+        ([request, candidate]) => ({
           pathname: new URL(request.url()).pathname,
-          ageMs: now - startedAt,
-          settledAgeMs: settledAt === null ? null : now - settledAt,
-          startOffsetMs: startOffsetMs(startedAt),
+          ageMs: now - candidate.startedAt,
+          settledAgeMs:
+            candidate.settledAt === null ? null : now - candidate.settledAt,
+          startOffsetMs: startOffsetMs(candidate.startedAt),
+          kind: candidate.outgoingRequestKind,
+          finished: candidate.finishedSuccessfully,
+          status: candidate.responseStatus,
+          pendingAtReload: candidate.requestWasPendingAtNavigation,
+          duringReload: candidate.requestStartedDuringNavigation,
+          beforeCommit: candidate.requestStartedBeforeReloadCommit,
+          retiredSession:
+            candidate.requestSessionId !== null &&
+            candidate.requestSessionId === candidate.retiredSessionId,
+          competing: hasCompetingOutgoingSessionRequest(request),
         }),
       ),
       watched: [...watchedRequests.entries()].map(([request, startedAt]) => ({
@@ -2247,6 +2321,7 @@ export async function runAuthoringFuzz(
           text,
           consolePhase,
           () => reloadNavigationCandidatesAt(Date.now()),
+          now,
         )) ||
         isExpectedWatchedRequestCorsError(
           text,
@@ -2463,6 +2538,12 @@ export async function runAuthoringFuzz(
           requestSourceIsMainFrame &&
           mainFrameNavigationRequestSequence !== null &&
           requestSequence > mainFrameNavigationRequestSequence &&
+          mainFrameNavigationCommittedAt === null,
+        // Reset when the reload begins, so null means the reloaded document has
+        // not committed and this request still belongs to the retired one even
+        // when it was issued before the navigation request itself was seen.
+        requestStartedBeforeReloadCommit:
+          requestStartedDuringNavigation &&
           mainFrameNavigationCommittedAt === null,
         retiredSessionId: browserSessionIdAtReload,
         failureAt: null,
@@ -7757,6 +7838,7 @@ export async function runAuthoringFuzz(
           mainFrameNavigationStartedAt: null,
           mainFrameNavigationRequestSequence: null,
           requestStartedBeforeMainFrameCommit: false,
+          requestStartedBeforeReloadCommit: false,
           retiredSessionId: browserSessionIdAtReload,
           failureAt: null,
           failureText: null,
@@ -7799,6 +7881,7 @@ export async function runAuthoringFuzz(
           mainFrameNavigationStartedAt: null,
           mainFrameNavigationRequestSequence: null,
           requestStartedBeforeMainFrameCommit: false,
+          requestStartedBeforeReloadCommit: false,
           retiredSessionId: browserSessionIdAtReload,
           failureAt: null,
           failureText: null,
