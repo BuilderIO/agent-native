@@ -227,8 +227,11 @@ export function RowBreakdownSheet({
         side="right"
         showOverlay={false}
         data-no-panel-chat-select
-        className="flex w-[440px] flex-col gap-4 p-5 sm:max-w-[440px]"
+        className="flex w-[440px] flex-col gap-4 p-5 focus:outline-none sm:max-w-[440px]"
         onKeyDown={handleKeyDown}
+        // Focus stays on the clicked row, whose arrow keys move the panel; the
+        // column picker would otherwise take them.
+        onOpenAutoFocus={(event) => event.preventDefault()}
         // Clicking another row of this table moves the panel instead of
         // closing it.
         onInteractOutside={(event) => {

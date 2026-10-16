@@ -419,7 +419,9 @@ point of the SQL; when a CTE aggregates first, carry it through that CTE. A
 normal load drops the blocks, so the panel costs nothing more until someone
 opens a row; one capped breakdown query then serves every row on the same
 filters. If the panel's rows already carry the column, no block is needed and
-no query runs. Rows match their breakdown by the first shown text column. The
+no query runs. For web, desktop or mobile, first-party events carry
+`properties.client_platform` (`web`, `electron`, `mobile`); label `electron`
+Desktop. Rows match their breakdown by the first shown text column. The
 open breakdown is in `view-screen` as `rowBreakdown`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,

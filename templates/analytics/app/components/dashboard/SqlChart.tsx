@@ -2587,9 +2587,11 @@ function TableRenderer({
                 key={i}
                 className={cn(
                   "border-b border-border/50",
-                  onRowClick &&
-                    "cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
-                  isRowActive?.(row) && "bg-muted",
+                  onRowClick && "cursor-pointer focus-visible:outline-none",
+                  isRowActive?.(row)
+                    ? "bg-foreground/10"
+                    : onRowClick &&
+                        "hover:bg-accent/60 focus-visible:bg-accent/60",
                 )}
                 {...(onRowClick
                   ? {
@@ -2605,9 +2607,26 @@ function TableRenderer({
                         onRowClick(row, sortedRows);
                       },
                       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onRowClick(row, sortedRows);
+                          return;
+                        }
+                        if (
+                          event.key !== "ArrowDown" &&
+                          event.key !== "ArrowUp"
+                        )
+                          return;
+                        const offset = event.key === "ArrowDown" ? 1 : -1;
+                        const next = displayRows[i + offset];
+                        const sibling =
+                          offset === 1
+                            ? event.currentTarget.nextElementSibling
+                            : event.currentTarget.previousElementSibling;
+                        if (!next || !(sibling instanceof HTMLElement)) return;
                         event.preventDefault();
-                        onRowClick(row, sortedRows);
+                        sibling.focus();
+                        if (isRowActive?.(row)) onRowClick(next, sortedRows);
                       },
                     }
                   : {})}
