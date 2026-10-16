@@ -36,6 +36,7 @@ const tauriWindow = vi.hoisted(() => ({
   scaleFactor: vi.fn(async () => 1),
 }));
 const copy = vi.hoisted(() => vi.fn());
+const lookback = vi.hoisted(() => ({ requestedIds: [] as (string | null)[] }));
 vi.mock("@tauri-apps/api/event", () => ({
   emit: tauriEvents.emit,
   listen: tauriEvents.listen,
@@ -48,6 +49,20 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => tauriWindow),
 }));
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: copy }));
+vi.mock("../lookback/use-lookback", () => ({
+  currentLookbackTarget: vi.fn(),
+  useLookbackLabEnabled: () => true,
+  useRecordingContext: (recordingId: string | null, enabled: boolean) => {
+    lookback.requestedIds.push(recordingId);
+    return {
+      view:
+        recordingId && enabled
+          ? { status: "error", item: null }
+          : { status: "idle", item: null },
+      setItem: vi.fn(),
+    };
+  },
+}));
 
 vi.mock("../../../shared/recording-playhead", () => ({
   RecordingPlayhead: ({
@@ -88,6 +103,7 @@ describe("completion card actions", () => {
     tauriEvents.listen.mockClear();
     tauriCore.invoke.mockClear();
     tauriWindow.close.mockClear();
+    lookback.requestedIds = [];
     resizeObserverCallbacks = [];
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
@@ -330,6 +346,49 @@ describe("completion card actions", () => {
       tauriEvents.emit("clips:tray-stop-request", undefined),
     );
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
+  });
+
+  it("skips context lookup when this recording did not request it", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+        lookbackEnabled: false,
+      });
+    });
+
+    await showCard();
+
+    expect(lookback.requestedIds[lookback.requestedIds.length - 1]).toBeNull();
+    expect(host.textContent).not.toContain("earlier screen time");
+    expect(host.textContent).not.toContain("Unreadable");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
+  });
+
+  it("checks context when this recording requested it", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+        lookbackEnabled: true,
+      });
+    });
+
+    await showCard();
+
+    expect(lookback.requestedIds[lookback.requestedIds.length - 1]).toBe(
+      "example-clip",
+    );
+    expect(host.textContent).toContain("Unreadable");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
   });
 
   it("re-measures the completion card after a resize during the native layout guard", async () => {

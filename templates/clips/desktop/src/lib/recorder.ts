@@ -2920,6 +2920,7 @@ function emitRecorderSession(
   recordingId: string | null,
   localOnly: boolean,
   microphoneEnabled: boolean,
+  lookbackEnabled = false,
 ) {
   const viewUrl =
     serverUrl && recordingId
@@ -2930,6 +2931,7 @@ function emitRecorderSession(
     recordingId,
     localOnly,
     microphoneEnabled,
+    lookbackEnabled: !localOnly && lookbackEnabled,
   }).catch(() => {});
 }
 
@@ -3638,6 +3640,7 @@ async function tryStartRewindFullscreenRecording(
         id || null,
         localOnly,
         params.micOn,
+        params.lookbackEnabled === true,
       );
       emitState();
     }),
@@ -3650,6 +3653,7 @@ async function tryStartRewindFullscreenRecording(
     id || null,
     localOnly,
     params.micOn,
+    params.lookbackEnabled === true,
   );
   emitState();
   return handle;
@@ -3954,6 +3958,7 @@ async function startNativeFullscreenRecording(
       id || null,
       localOnly,
       params.micOn,
+      params.lookbackEnabled === true,
     );
     emit("clips:recorder-state", {
       paused: false,
@@ -4437,6 +4442,7 @@ async function startNativeFullscreenRecording(
         id || null,
         localOnly,
         params.micOn,
+        params.lookbackEnabled === true,
       );
       emitState();
     }),
@@ -4451,6 +4457,7 @@ async function startNativeFullscreenRecording(
     id || null,
     localOnly,
     params.micOn,
+    params.lookbackEnabled === true,
   );
   emitState();
 
@@ -5607,7 +5614,13 @@ async function startRecordingInner(
         emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
           () => {},
         );
-        emitRecorderSession(params.serverUrl, id, false, params.micOn);
+        emitRecorderSession(
+          params.serverUrl,
+          id,
+          false,
+          params.micOn,
+          params.lookbackEnabled === true,
+        );
         emitState(pausedAt != null);
       }),
     ]);
@@ -5658,7 +5671,13 @@ async function startRecordingInner(
     startedAt = Date.now();
     tickHandle = setInterval(() => emitState(pausedAt != null), 500);
     emit("clips:toolbar-enabled", true).catch(() => {});
-    emitRecorderSession(params.serverUrl, id, false, params.micOn);
+    emitRecorderSession(
+      params.serverUrl,
+      id,
+      false,
+      params.micOn,
+      params.lookbackEnabled === true,
+    );
     emitState(false);
 
     const performStop = async (): Promise<RecorderStopResult> => {

@@ -94,6 +94,7 @@ type RecorderSession = {
   recordingId?: string | null;
   localOnly?: boolean;
   microphoneEnabled?: boolean;
+  lookbackEnabled?: boolean;
 };
 
 const hasTauri = "__TAURI_INTERNALS__" in window;
@@ -619,7 +620,11 @@ export function RecordingPill() {
       console.error("[record-pill] recorder stop dispatch failed:", error),
     );
     resizeWindowTo(340, 180);
-    setContextRecordingId(sessionRef.current.recordingId ?? null);
+    setContextRecordingId(
+      sessionRef.current.lookbackEnabled
+        ? (sessionRef.current.recordingId ?? null)
+        : null,
+    );
     setMode("done");
     if (demoMode) {
       setTimeout(() => {
