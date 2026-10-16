@@ -1367,11 +1367,7 @@ export function SlideContextToolbar({
         <>
           <Divider />
           {quickPicks.length > 0 && onAgentQuickPick ? (
-            <DropdownMenu
-              onOpenChange={(open) => {
-                if (open) onOpenAgent();
-              }}
-            >
+            <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
