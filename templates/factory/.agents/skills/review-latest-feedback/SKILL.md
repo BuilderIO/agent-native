@@ -13,10 +13,9 @@ metadata:
 
 # Review Latest Feedback
 
-Four phases, in order. Phase 0 comes before any investigation, not after.
-Claim in small batches: do not add more `👀` until each newly claimed item has
-a current same-thread status reply and the appropriate reaction decision. A
-bulk claim that outlasts the sweep leaves silent ownership behind.
+Four phases. Phase 0 comes before investigation. Claim only what you
+can reconcile this run: each `👀` needs a current disposition, same-thread
+status reply, and reaction decision before you claim another batch.
 
 0. **Gate, then claim** only the eligible items you can carry through a
    current disposition, same-thread status reply, and reaction decision this
@@ -25,12 +24,11 @@ bulk claim that outlasts the sweep leaves silent ownership behind.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. At the end of each sweep, reconcile every workflow-owned `👀`
-in the scoped inventory, including eyes left by earlier runs. Each needs a
-current disposition and a matching status reply; continuing work gets a
-concrete progress reply, and terminal work gets a final reply after verification.
-Add `✅` only for verified **Fixed** scope and `🎫` only for a distinct
-unfinished human handoff; an existing eye alone earns neither. Follow
+Output is fixes. At sweep end, reconcile every workflow-owned `👀` in scope,
+including inherited eyes. Give each a current disposition and matching status
+reply; continuing work gets a concrete update, terminal work a final reply
+after verification. Add `✅` only for verified **Fixed** scope and `🎫` only for
+an unfinished human handoff; an eye alone earns neither. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
@@ -72,13 +70,11 @@ Resolve known duplicate clusters before claiming. For an eligible item, add
 the Slack ownership gate. Post **In progress** only when work continues beyond
 this run.
 
-**Fix defects or ask directly for the exact reporter-only fact or action
-needed to unblock the next step.** If reporter input gates progress, state the
-specific question and why. Never substitute **Open**, a symptom recap, a
-source-access note, or a vague details request for the ask. Without a reporter
-gate, ask no filler: continue internal investigation or fix, then report the
-concrete action when a reply is due. Inspect supplied logs and evidence
-yourself; never ask for IDs or tool details already given.
+**Fix defects or ask for the reporter-only fact/action that unblocks the next
+step.** Explain why it gates progress; never substitute **Open**, a symptom
+recap, a source-access note, or a vague details request. Otherwise investigate
+or fix first, then report the concrete action when a reply is due. Inspect
+supplied evidence; never ask for IDs or details already given.
 
 A reporter's proposed remedy may be wrong while the bug is real. Trace the
 failure to its owner.
@@ -123,14 +119,13 @@ actor ID. For framework sweeps, complete
 means the inventory is not reconciled. See
 [`channel-inventory.md`](references/channel-inventory.md).
 
-Before recording an evidence limit or asking, try to reproduce the defect from
-the supplied artifact, URL, error, run ID, or logs. Investigate our access,
-config, observability, and deployment gaps. For each defect, continue internal
-work unless one reporter-only fact changes the next action; then ask one direct
-question naming the fact and why it gates progress. Never request supplied
-evidence, generic details, or answers to unrelated questions. Without a
-reporter gate, state the internal action and owner. After four days unanswered,
-record **Abandoned - no answer in 4 days**.
+Before citing an evidence limit or asking, try to reproduce from supplied
+artifacts, URLs, errors, run IDs, or logs; investigate our access, config,
+observability, and deployment gaps. Continue internal work unless one
+reporter-only fact changes the next action; then ask one direct question naming
+the fact and why it gates progress. Never request supplied evidence, generic
+details, or unrelated answers. Otherwise state the internal action and owner.
+After four days unanswered, record **Abandoned - no answer in 4 days**.
 
 For supplied run IDs, query Thread Debug for exact events and tool results. If
 unavailable, query the app's first-party Analytics by exact ID for tool calls,
@@ -205,7 +200,7 @@ queries and cursor details.
   close only that scope as **Resolved elsewhere**.
 - **No answer, under four days:** wait without posting again.
 - **No answer, four days or more:** keep `👀`, mark **Abandoned - no answer in 4
-days**, and carry any remaining defect as internal work; do not re-ask.
+  days**, and carry any remaining defect as internal work; do not re-ask.
 
 For legacy replies without a bot disclosure or eye, search once per connected
 identity and inspect the author and full thread. End every new or edited Slack
@@ -545,6 +540,7 @@ message details.
 
 ```md
 ## Feedback sweep
+
 Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
 Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
 Messages: product N · QA N · dev N (total N)
@@ -555,9 +551,9 @@ Questions asked: N · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
+| Tracker/source or workflow run            | Reporter/owner | Status        | Repro or failed step                      | Pre/post/recovery         | Run/SHA/target/version/artifact/runtime proof | Locales             | Handoff (action/owner/ticket)      | Reply proof             | Reactions                                   |
+| ----------------------------------------- | -------------- | ------------- | ----------------------------------------- | ------------------------- | --------------------------------------------- | ------------------- | ---------------------------------- | ----------------------- | ------------------------------------------- |
+| 18 / [thread](...) or [workflow run](...) | ...            | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
