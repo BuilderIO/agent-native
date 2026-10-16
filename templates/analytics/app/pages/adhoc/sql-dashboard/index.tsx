@@ -70,6 +70,7 @@ import {
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
 import {
@@ -121,7 +122,6 @@ import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
   DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS,
-  DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS,
   dashboardReportCaptureError,
   type DashboardReportCapturePhase,
 } from "@/lib/dashboard-report-capture";
@@ -140,13 +140,16 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
+import { useAnnotationEditing } from "./annotation-editing";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
   dashboardFilterPreferenceSaveState,
+  dashboardFilterPreferenceUpdate,
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
-  sameDashboardFilterMap,
+  serverReadState,
+  type DashboardFilterPreference,
   type DashboardFilterPreferenceSaveGuard,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
@@ -163,10 +166,21 @@ import {
   sameDropSlot,
   type DashboardDropSlot,
 } from "./dashboard-layout";
-import { createDashboardSaveQueue } from "./dashboard-save-queue";
+import {
+  otherViewerCount,
+  useDashboardSaveFeedback,
+  type DashboardSaveUndo,
+} from "./dashboard-save-feedback";
+import {
+  createDashboardSaveQueue,
+  type DashboardSaveOutcome,
+  type DashboardSaveQueue,
+} from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  dashboardVersionAfterSave,
+  releaseDashboardAdoptionHold,
   shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
   type DashboardAdoptionHold,
@@ -179,6 +193,11 @@ import {
 } from "./DashboardFilterBar";
 import { EmailReportDialog } from "./EmailReportDialog";
 import { dashboardExtensionSlotId } from "./extension-slot";
+import {
+  fetchDashboard,
+  parseDashboardCertification,
+  type FetchedDashboard,
+} from "./fetch-dashboard";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
@@ -187,8 +206,8 @@ import { dashboardTileElementId, SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
-  type DashboardCertification,
   type DashboardFilter,
+  type FilterPreset,
   type SqlDashboardConfig,
   type SqlPanel,
   type TableColumnConfig,
@@ -439,141 +458,6 @@ const PanelCell = memo(function PanelCell({
   );
 });
 
-type FetchedDashboard = {
-  id: string;
-  config: SqlDashboardConfig;
-  archivedAt: string | null;
-  hiddenAt: string | null;
-  hiddenBy: string | null;
-  orgId: string | null;
-  visibility: "private" | "org" | "public";
-  createdAt: string | null;
-  createdBy: string | null;
-  updatedAt: string | null;
-  updatedBy: string | null;
-} & ResourceAccess;
-
-function parseDashboardDemoMetadata(
-  value: unknown,
-): SqlDashboardConfig["demo"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const raw = value as Record<string, unknown>;
-  return typeof raw.id === "string" && raw.id
-    ? {
-        id: raw.id,
-        version: typeof raw.version === "string" ? raw.version : undefined,
-        installedAt:
-          typeof raw.installedAt === "string" ? raw.installedAt : undefined,
-      }
-    : undefined;
-}
-
-function parseDashboardCatalogMetadata(
-  value: unknown,
-): SqlDashboardConfig["catalog"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const raw = value as Record<string, unknown>;
-  return {
-    templateId: typeof raw.templateId === "string" ? raw.templateId : undefined,
-    templateVersion:
-      typeof raw.templateVersion === "string" ? raw.templateVersion : undefined,
-    installedAt:
-      typeof raw.installedAt === "string" ? raw.installedAt : undefined,
-  };
-}
-
-function parseDashboardCertification(
-  value: unknown,
-): DashboardCertification | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const raw = value as Record<string, unknown>;
-  if (
-    raw.status !== "certified" ||
-    typeof raw.certifiedAt !== "string" ||
-    typeof raw.certifiedBy !== "string" ||
-    typeof raw.certifiedForUpdatedAt !== "string"
-  ) {
-    return undefined;
-  }
-  return {
-    status: "certified",
-    certifiedAt: raw.certifiedAt,
-    certifiedBy: raw.certifiedBy,
-    certifiedForUpdatedAt: raw.certifiedForUpdatedAt,
-  };
-}
-
-async function fetchDashboard(
-  id: string,
-  options?: { reportScreenshot?: boolean },
-): Promise<FetchedDashboard | null> {
-  try {
-    const data: any = await callAction(
-      "get-sql-dashboard",
-      { id, includeConfig: true },
-      {
-        method: "GET",
-        ...(options?.reportScreenshot
-          ? { timeoutMs: DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS }
-          : {}),
-      },
-    );
-    if (!data) return null;
-    if (data.error) {
-      throw new Error(
-        typeof data.message === "string" && data.message
-          ? data.message
-          : typeof data.error === "string"
-            ? data.error
-            : "Dashboard bootstrap failed",
-      );
-    }
-    return {
-      id,
-      config: {
-        name: data.name ?? "Untitled Dashboard",
-        description: data.description,
-        certification: parseDashboardCertification(data.certification),
-        parentId:
-          typeof data.parentId === "string" && data.parentId.trim().length > 0
-            ? data.parentId
-            : undefined,
-        catalog: parseDashboardCatalogMetadata(data.catalog),
-        demo: parseDashboardDemoMetadata(data.demo),
-        filters: data.filters,
-        variables: data.variables,
-        columns: typeof data.columns === "number" ? data.columns : undefined,
-        panels: data.panels ?? [],
-      },
-      archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-      hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-      hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
-      orgId: typeof data.orgId === "string" ? data.orgId : null,
-      visibility:
-        data.visibility === "org" || data.visibility === "public"
-          ? data.visibility
-          : "private",
-      createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
-      createdBy: typeof data.createdBy === "string" ? data.createdBy : null,
-      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-      updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
-      role: typeof data.role === "string" ? data.role : undefined,
-      canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-      canManage:
-        typeof data.canManage === "boolean" ? data.canManage : undefined,
-    };
-  } catch (error) {
-    if (options?.reportScreenshot) throw error;
-    return null;
-  }
-}
-
 function DashboardReportCaptureSurface({
   phase,
   panelIds,
@@ -610,7 +494,7 @@ async function saveDashboard(
   dashboardId: string,
   data: SqlDashboardConfig,
   expectedUpdatedAt?: string,
-): Promise<{ updatedAt?: string }> {
+): Promise<DashboardSaveOutcome> {
   return await callAction("update-dashboard", {
     dashboardId,
     config: data as unknown as Record<string, unknown>,
@@ -734,10 +618,15 @@ function SqlDashboardPageContent({
   useEffect(() => {
     dashboardUpdatedAtRef.current = dashboardUpdatedAt;
   }, [dashboardUpdatedAt]);
-  const dashboardSaveQueueRef = useRef<{
-    dashboardId: string;
-    queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
-  } | null>(null);
+  const openDashboardIdRef = useRef(dashboardId);
+  useEffect(() => {
+    openDashboardIdRef.current = dashboardId;
+  }, [dashboardId]);
+  // One queue per dashboard for the page's life: a second queue for a
+  // dashboard you come back to would run its saves alongside the first's.
+  const dashboardSaveQueuesRef = useRef(
+    new Map<string, DashboardSaveQueue<SqlDashboardConfig>>(),
+  );
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   // Every dashboard opens in view mode: drag handles, column edits, and inline
@@ -879,6 +768,24 @@ function SqlDashboardPageContent({
     user: currentUser,
   });
 
+  // handleUndo is declared below the saves that offer it, so the save toast's
+  // Undo goes through this ref.
+  const handleUndoRef = useRef<
+    ((write?: DashboardSaveUndo) => Promise<void>) | null
+  >(null);
+  const undoLatestSave = useCallback((write: DashboardSaveUndo) => {
+    void handleUndoRef.current?.(write);
+  }, []);
+  const dashboardShared =
+    dashboardVisibility === "org" || dashboardVisibility === "public";
+  const trackSave = useDashboardSaveFeedback({
+    // Its Undo works only in edit mode, so leaving edit mode closes the toast.
+    dashboardId: editing ? dashboardId : undefined,
+    shared: dashboardShared,
+    otherViewers: otherViewerCount(activeUsers, session?.email),
+    onUndo: undoLatestSave,
+  });
+
   const updateCachedDashboardConfig = useCallback(
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
@@ -900,18 +807,23 @@ function SqlDashboardPageContent({
   );
 
   const holdDashboardConfig = useCallback(() => {
-    if (!dashboardId) return;
-    pendingConfigRef.current = createDashboardAdoptionHold({
+    if (!dashboardId) return null;
+    // The ref, not state: a save that just landed has moved the ref already,
+    // and a hold from the older version would adopt that save's own refetch
+    // over an edit still queued.
+    const hold = createDashboardAdoptionHold({
       dashboardId,
-      currentUpdatedAt: dashboardUpdatedAt,
+      currentUpdatedAt: dashboardUpdatedAtRef.current,
     });
+    pendingConfigRef.current = hold;
     void queryClient.cancelQueries(
       {
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       },
       { revert: false },
     );
-  }, [dashboardId, dashboardScope, dashboardUpdatedAt, queryClient]);
+    return hold;
+  }, [dashboardId, dashboardScope, queryClient]);
 
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
     Map<string, { color: string; name: string }>
@@ -977,26 +889,56 @@ function SqlDashboardPageContent({
   ]);
 
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
-  const {
-    data: savedFilters,
-    isSuccess: filtersLoaded,
-    isError: filtersError,
-    save: saveFilterPref,
-  } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
+  const filterPref = useUserPref<{
+    filters: Record<string, string>;
+    viewId?: string;
+  }>(filterPrefKey);
+  const { data: savedFilters, save: saveFilterPref } = filterPref;
+  const savedFiltersState = serverReadState(filterPref);
 
-  const {
-    views,
-    isSuccess: dashboardViewsLoaded,
-    isSettled: dashboardViewsSettled,
-    saveView,
-  } = useDashboardViews(dashboardId ?? undefined);
+  const dashboardViews = useDashboardViews(dashboardId ?? undefined);
+  const { views, isSuccess: dashboardViewsLoaded, saveView } = dashboardViews;
+  const dashboardViewsState = serverReadState(dashboardViews);
   const defaultView = views.find((view) => view.isDefault);
+  // A deleted view must not come back as a dangling `view` param.
+  const savedViewId = views.some((view) => view.id === savedFilters?.viewId)
+    ? savedFilters?.viewId
+    : undefined;
 
   const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
     status: "pending",
   });
   const skipFilterPreferenceSave =
     useRef<DashboardFilterPreferenceSaveGuard | null>(null);
+  // The address bar's filters and view when a write for them failed.
+  const failedFilterPreference = useRef<
+    ({ dashboardId: string } & DashboardFilterPreference) | null
+  >(null);
+
+  // Edit mode, unfinished edits and open dialogs belong to the dashboard,
+  // account and organization they were opened in; kept, they would reappear
+  // and act on the next one. They reset during render, not in the effect below: the
+  // first render after a switch would otherwise show them under the next
+  // dashboard's id, and a save from that render would write the old config
+  // there. The scope is URI-encoded, so it never contains the separator.
+  const draftsOwner = `${dashboardScope}/${dashboardId ?? ""}`;
+  const [draftsOwnerShown, setDraftsOwnerShown] = useState(draftsOwner);
+  if (draftsOwnerShown !== draftsOwner) {
+    setDraftsOwnerShown(draftsOwner);
+    setEditMode(false);
+    setEditingName(false);
+    setEditingDescription(false);
+    setActiveDropSlot(null);
+    setActiveDragPanelId(null);
+    setEditorOpen(false);
+    setEditingPanel(null);
+    setDashboardActionsOpen(false);
+    setOpenDeleteAfterMenuClose(false);
+    setConfirmDeleteOpen(false);
+    setEmailReportOpen(false);
+    setHistoryOpen(false);
+    setContextSheetOpen(false);
+  }
 
   useEffect(() => {
     filterRestoreProgress.current = { status: "pending" };
@@ -1012,21 +954,6 @@ function SqlDashboardPageContent({
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
-    setEditMode(false);
-    // Unfinished edits and open dialogs belong to the dashboard they were
-    // opened on; kept, they would reappear and act on the next one.
-    setEditingName(false);
-    setEditingDescription(false);
-    setActiveDropSlot(null);
-    setActiveDragPanelId(null);
-    setEditorOpen(false);
-    setEditingPanel(null);
-    setDashboardActionsOpen(false);
-    setOpenDeleteAfterMenuClose(false);
-    setConfirmDeleteOpen(false);
-    setEmailReportOpen(false);
-    setHistoryOpen(false);
-    setContextSheetOpen(false);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
@@ -1035,14 +962,18 @@ function SqlDashboardPageContent({
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
     const fetched = dashboardQuery.data;
+    const saveQueue = dashboardSaveQueuesRef.current.get(dashboardId);
     const adoption = shouldAdoptDashboardQueryResult({
       dashboardId,
       loaded,
       isPlaceholderData: dashboardQuery.isPlaceholderData,
       fetchedId: fetched?.id,
       fetchedUpdatedAt: fetched?.updatedAt,
-      currentUpdatedAt: dashboardUpdatedAt,
+      // The ref, not state: it already has the saves that landed, so a fetch
+      // from between two of them is older news.
+      currentUpdatedAt: dashboardUpdatedAtRef.current,
       hold: pendingConfigRef.current,
+      savesPending: !!saveQueue && saveQueue.pending() > 0,
     });
     if (adoption.clearHold) {
       pendingConfigRef.current = null;
@@ -1129,16 +1060,9 @@ function SqlDashboardPageContent({
       searchParams,
       defaultView,
       savedFilters: savedFilters?.filters,
-      viewsState: dashboardViewsLoaded
-        ? "success"
-        : dashboardViewsSettled
-          ? "error"
-          : "loading",
-      savedFiltersState: filtersLoaded
-        ? "success"
-        : filtersError
-          ? "error"
-          : "loading",
+      savedViewId,
+      viewsState: dashboardViewsState,
+      savedFiltersState,
       progress: previousProgress,
     });
     filterRestoreProgress.current = restoreStep.progress;
@@ -1203,25 +1127,25 @@ function SqlDashboardPageContent({
       { replace: true },
     );
   }, [
-    filtersLoaded,
-    filtersError,
-    dashboardViewsLoaded,
-    dashboardViewsSettled,
+    savedFiltersState,
+    dashboardViewsState,
     loaded,
     dashboard,
     defaultView,
     savedFilters,
+    savedViewId,
     reportScreenshot,
     searchParams,
     setSearchParams,
   ]);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Not gated on filter definitions: the pref also holds the open view, and a
+  // dashboard without filters can still have one open.
   useEffect(() => {
     if (
       reportScreenshot ||
       !loaded ||
-      !dashboard?.filters?.length ||
       !dashboardId ||
       !canPersistDashboardFilterPreference(
         filterRestoreProgress.current,
@@ -1232,15 +1156,9 @@ function SqlDashboardPageContent({
       return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const currentFilters: Record<string, string> = {};
-      searchParams.forEach((v, k) => {
-        if (k.startsWith(FILTER_PARAM_PREFIX)) {
-          currentFilters[k] = v;
-        }
-      });
       const filterPreferenceSaveState = dashboardFilterPreferenceSaveState(
         skipFilterPreferenceSave.current,
-        currentFilters,
+        dashboardFilterParams(searchParams),
         searchParams.get("view") ?? undefined,
       );
       if (filterPreferenceSaveState === "applied") {
@@ -1251,45 +1169,77 @@ function SqlDashboardPageContent({
       if (filterPreferenceSaveState === "changed") {
         skipFilterPreferenceSave.current = null;
       }
-      if (sameDashboardFilterMap(savedFilters?.filters, currentFilters)) return;
-      saveFilterPref({ filters: currentFilters });
+      const filters = dashboardFilterParams(searchParams);
+      const viewId = searchParams.get("view") ?? undefined;
+      // A failed write rereads the old preference; resending it on each reread
+      // would retry forever while saving is down. It is held only while the
+      // address bar still shows what it was for, whatever the read is doing:
+      // coming back to that later is a new change to write.
+      const failed = failedFilterPreference.current;
+      if (
+        failed?.dashboardId === dashboardId &&
+        matchesDashboardFilterRestoreState(
+          searchParams,
+          failed.filters,
+          failed.viewId,
+        )
+      )
+        return;
+      failedFilterPreference.current = null;
+      const result = dashboardFilterPreferenceUpdate({
+        saved: savedFilters,
+        savedState: savedFiltersState,
+        viewsState: dashboardViewsState,
+        searchParams,
+      });
+      if (result.status !== "changed") return;
+      saveFilterPref(result.update, {
+        onError: () => {
+          failedFilterPreference.current = { dashboardId, filters, viewId };
+        },
+      });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
   }, [
     searchParams,
     loaded,
-    dashboard?.filters,
     dashboardId,
     savedFilters,
     saveFilterPref,
     reportScreenshot,
-    filtersLoaded,
-    filtersError,
-    dashboardViewsLoaded,
-    dashboardViewsSettled,
+    savedFiltersState,
+    dashboardViewsState,
   ]);
 
-  const enqueueDashboardSave = useCallback(
-    (id: string, updated: SqlDashboardConfig) => {
-      if (dashboardSaveQueueRef.current?.dashboardId !== id) {
-        dashboardSaveQueueRef.current = {
-          dashboardId: id,
-          queue: createDashboardSaveQueue(async (config) => {
-            const result = await saveDashboard(
-              id,
-              config,
-              dashboardUpdatedAtRef.current ?? undefined,
-            );
-            if (typeof result?.updatedAt === "string") {
-              dashboardUpdatedAtRef.current = result.updatedAt;
-            }
-          }),
+  const dashboardSaveQueue = useCallback((id: string) => {
+    const existing = dashboardSaveQueuesRef.current.get(id);
+    if (existing) return existing;
+    const queue = createDashboardSaveQueue<SqlDashboardConfig>(
+      async (config, expectedUpdatedAt) => {
+        const result = await saveDashboard(id, config, expectedUpdatedAt);
+        dashboardUpdatedAtRef.current = dashboardVersionAfterSave(
+          {
+            dashboardId: openDashboardIdRef.current,
+            updatedAt: dashboardUpdatedAtRef.current,
+          },
+          {
+            dashboardId: id,
+            sentAgainst: expectedUpdatedAt,
+            saved: result.updatedAt,
+          },
+        );
+        return {
+          changed: result.changed,
+          updatedAt: result.updatedAt,
+          revisionId: result.revisionId,
+          changes: result.changes,
+          omittedChanges: result.omittedChanges,
         };
-      }
-      return dashboardSaveQueueRef.current.queue.enqueue(updated);
-    },
-    [],
-  );
+      },
+    );
+    dashboardSaveQueuesRef.current.set(id, queue);
+    return queue;
+  }, []);
 
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
@@ -1299,10 +1249,11 @@ function SqlDashboardPageContent({
         return;
       }
       resetRevisionNavigation();
-      holdDashboardConfig();
+      const hold = holdDashboardConfig();
       updateDashboard(dashboardId, () => updated);
       updateCachedDashboardConfig(updated);
-      void enqueueDashboardSave(dashboardId, updated)
+      const queue = dashboardSaveQueue(dashboardId);
+      void trackSave(queue.enqueue(updated, dashboardUpdatedAtRef.current))
         .then(({ isLatest }) => {
           if (!isLatest) return;
           queryClient.removeQueries({
@@ -1322,7 +1273,13 @@ function SqlDashboardPageContent({
           });
         })
         .catch((err) => {
-          pendingConfigRef.current = null;
+          // A newer queued save sends the whole config again and reports its
+          // own outcome, so this one no longer says what the dashboard holds.
+          if (queue.pending() > 0) return;
+          pendingConfigRef.current = releaseDashboardAdoptionHold(
+            pendingConfigRef.current,
+            hold,
+          );
           void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
           });
@@ -1339,11 +1296,12 @@ function SqlDashboardPageContent({
       dashboardId,
       dashboardScope,
       canEdit,
-      enqueueDashboardSave,
+      dashboardSaveQueue,
       holdDashboardConfig,
       queryClient,
       resetRevisionNavigation,
       t,
+      trackSave,
       updateCachedDashboardConfig,
       updateDashboard,
     ],
@@ -1356,15 +1314,24 @@ function SqlDashboardPageContent({
         throw new Error(t("sqlDashboard.viewOnly"));
       }
       resetRevisionNavigation();
-      holdDashboardConfig();
+      const hold = holdDashboardConfig();
+      const queue = dashboardSaveQueue(dashboardId);
       let isLatest: boolean;
       try {
-        ({ isLatest } = await enqueueDashboardSave(dashboardId, updated));
+        ({ isLatest } = await trackSave(
+          queue.enqueue(updated, dashboardUpdatedAtRef.current),
+        ));
       } catch (err) {
-        pendingConfigRef.current = null;
-        void queryClient.invalidateQueries({
-          queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
-        });
+        // A newer queued save still needs the hold and sends the whole config.
+        if (queue.pending() === 0) {
+          pendingConfigRef.current = releaseDashboardAdoptionHold(
+            pendingConfigRef.current,
+            hold,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+          });
+        }
         throw err;
       }
       if (!isLatest) return;
@@ -1390,74 +1357,89 @@ function SqlDashboardPageContent({
       dashboardId,
       dashboardScope,
       canEdit,
-      enqueueDashboardSave,
+      dashboardSaveQueue,
       holdDashboardConfig,
       queryClient,
       resetRevisionNavigation,
       t,
+      trackSave,
       updateCachedDashboardConfig,
       updateDashboard,
     ],
   );
 
   // Undo and redo restore a revision for everyone, so they run only in edit
-  // mode, whichever control calls them.
-  const handleUndo = useCallback(async () => {
-    if (
-      !dashboardId ||
-      !editing ||
-      restoreDashboardRevision.isPending ||
-      revisionRestoreInFlightRef.current
-    ) {
-      return;
-    }
+  // mode, whichever control calls them. The save toast passes its write, so
+  // Undo restores exactly the revision that write left, and a newer save by
+  // someone else makes the restore fail rather than taking their change back.
+  const handleUndo = useCallback(
+    async (write?: DashboardSaveUndo) => {
+      if (
+        !dashboardId ||
+        !editing ||
+        restoreDashboardRevision.isPending ||
+        revisionRestoreInFlightRef.current
+      ) {
+        return;
+      }
 
-    revisionRestoreInFlightRef.current = true;
-    try {
-      const revisions =
-        dashboardRevisions ?? (await refetchDashboardRevisions()).data;
-      if (!revisions?.length) return;
-      const targetIndex =
-        undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
-      const targetRevision = revisions[targetIndex];
-      if (!targetRevision) return;
+      revisionRestoreInFlightRef.current = true;
+      try {
+        let revisionId = write?.revisionId;
+        if (!revisionId) {
+          // Fetched now: a list held from before the latest save would point
+          // Undo at an older revision. A failed fetch throws, so Undo reports
+          // it didn't run instead of passing for an empty history.
+          const { data: revisions } = await refetchDashboardRevisions({
+            throwOnError: true,
+          });
+          const undoneIndex =
+            revisions?.findIndex(
+              (revision) => revision.id === undoRevisionId,
+            ) ?? -1;
+          revisionId = revisions?.[undoneIndex + 1]?.id;
+          if (!revisionId) return;
+        }
 
-      holdDashboardConfig();
-      const restored = await restoreDashboardRevision.mutateAsync({
-        dashboardId,
-        revisionId: targetRevision.id,
-        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
-      });
-      setUndoRevisionId(targetRevision.id);
-      setRedoRevisionIds((current) => [
-        ...current,
-        restored.snapshotRevisionId,
-      ]);
-      if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
-      toast.success(t("dashboard.undoSuccess"));
-    } catch (error) {
-      resetRevisionNavigation();
-      toast.error(
-        error instanceof Error
-          ? t("dashboard.undoFailedWithMessage", { message: error.message })
-          : t("dashboard.undoFailed"),
-      );
-    } finally {
-      revisionRestoreInFlightRef.current = false;
-    }
-  }, [
-    dashboardId,
-    dashboardRevisions,
-    dashboardUpdatedAt,
-    editing,
-    holdDashboardConfig,
-    restoreDashboardRevision,
-    refetchDashboardRevisions,
-    resetRevisionNavigation,
-    t,
-    undoRevisionId,
-    undoRevisionIndex,
-  ]);
+        holdDashboardConfig();
+        const restored = await restoreDashboardRevision.mutateAsync({
+          dashboardId,
+          revisionId,
+          expectedUpdatedAt:
+            write?.updatedAt ?? dashboardUpdatedAtRef.current ?? undefined,
+        });
+        setUndoRevisionId(revisionId);
+        setRedoRevisionIds((current) => [
+          ...current,
+          restored.snapshotRevisionId,
+        ]);
+        if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
+        toast.success(t("dashboard.undoSuccess"));
+      } catch (error) {
+        resetRevisionNavigation();
+        toast.error(
+          error instanceof Error
+            ? t("dashboard.undoFailedWithMessage", { message: error.message })
+            : t("dashboard.undoFailed"),
+        );
+      } finally {
+        revisionRestoreInFlightRef.current = false;
+      }
+    },
+    [
+      dashboardId,
+      editing,
+      holdDashboardConfig,
+      restoreDashboardRevision,
+      refetchDashboardRevisions,
+      resetRevisionNavigation,
+      t,
+      undoRevisionId,
+    ],
+  );
+  useEffect(() => {
+    handleUndoRef.current = handleUndo;
+  }, [handleUndo]);
 
   const handleRedo = useCallback(async () => {
     if (
@@ -1478,7 +1460,7 @@ function SqlDashboardPageContent({
       const restored = await restoreDashboardRevision.mutateAsync({
         dashboardId,
         revisionId: targetRevisionId,
-        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
+        expectedUpdatedAt: dashboardUpdatedAtRef.current ?? undefined,
       });
       setRedoRevisionIds((current) => current.slice(0, -1));
       setUndoRevisionId(null);
@@ -1497,7 +1479,6 @@ function SqlDashboardPageContent({
   }, [
     canRedo,
     dashboardId,
-    dashboardUpdatedAt,
     editing,
     holdDashboardConfig,
     redoRevisionIds,
@@ -1678,6 +1659,33 @@ function SqlDashboardPageContent({
     persist({ ...dashboard, name });
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
+
+  const handleSaveFilterPreset = useCallback(
+    (filterId: string, preset: FilterPreset) => {
+      if (!dashboard?.filters) return;
+      persist({
+        ...dashboard,
+        filters: dashboard.filters.map((filter) =>
+          filter.id === filterId
+            ? {
+                ...filter,
+                // The page reads config unvalidated, and the filter bar already
+                // skips a hand-edited `presets` that isn't a list.
+                presets: Array.isArray(filter.presets)
+                  ? [...filter.presets, preset]
+                  : [preset],
+              }
+            : filter,
+        ),
+      });
+      trackEvent("dashboard_filter_preset_saved", {
+        app_name: "analytics",
+        template_name: "analytics",
+        value_count: preset.values.length,
+      });
+    },
+    [dashboard, persist],
+  );
 
   const handleSaveDescription = useCallback(() => {
     if (!dashboard) return;
@@ -2140,6 +2148,13 @@ function SqlDashboardPageContent({
     ) : null,
   );
 
+  const annotationEditing = useAnnotationEditing({
+    dashboardId: loadedDashboardId ?? undefined,
+    dashboard,
+    editing,
+    persist,
+  });
+
   useSetHeaderActions(
     reportScreenshot ? null : dashboard ? (
       <>
@@ -2196,6 +2211,7 @@ function SqlDashboardPageContent({
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
+        {annotationEditing.menu}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"
@@ -2557,7 +2573,7 @@ function SqlDashboardPageContent({
     return <BlankDashboard />;
   }
 
-  return (
+  const content = (
     <DashboardReportCaptureSurface
       className="space-y-4"
       phase="ready"
@@ -2697,8 +2713,11 @@ function SqlDashboardPageContent({
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
             filters={dashboard.filters}
-            defaultView={defaultView}
+            views={dashboardViewsLoaded ? views : null}
+            viewsRefreshing={dashboardViewsState === "loading"}
             onSaveView={canEdit ? handleSaveView : undefined}
+            onSavePreset={editing ? handleSaveFilterPreset : undefined}
+            shared={dashboardShared}
           />
         )}
 
@@ -2890,5 +2909,17 @@ function SqlDashboardPageContent({
         />
       ) : null}
     </DashboardReportCaptureSurface>
+  );
+  return (
+    <DashboardAnnotationsProvider
+      dashboardId={loadedDashboardId}
+      annotations={dashboard.annotations}
+      dataNoteActions={
+        reportScreenshot ? undefined : annotationEditing.dataNoteActions
+      }
+    >
+      {content}
+      {annotationEditing.dialogs}
+    </DashboardAnnotationsProvider>
   );
 }

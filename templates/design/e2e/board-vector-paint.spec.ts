@@ -511,8 +511,8 @@ test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadab
   });
 });
 
-// fixme: product bug: The PNG export's first POST /_agent-native/actions/render-export-png returns 403 (console error 'Failed to load resource: 403') before
-test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
+// oracle: none — only the paint type controls changed (Gradient button, Type select); no Figma behavior is claimed.
+test("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
   app,
   page,
   request,

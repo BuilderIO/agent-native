@@ -1837,6 +1837,7 @@ function MarkdownImportDialog({
 
 function SourceListItem({
   source,
+  updating,
   syncPending,
   onReview,
   onRotateIngestToken,
@@ -1846,6 +1847,7 @@ function SourceListItem({
   onArchive,
 }: {
   source: BrainSource;
+  updating: boolean;
   syncPending: boolean;
   onReview: () => void;
   onRotateIngestToken?: () => void;
@@ -1881,7 +1883,14 @@ function SourceListItem({
             <h2 className="truncate text-sm font-medium text-foreground sm:text-[0.9375rem]">
               {sourceName(source)}
             </h2>
-            <StatusBadge status={sourceHealth(source)} />
+            {updating ? (
+              <Badge variant="outline" className="gap-1.5" role="status">
+                <IconLoader2 className="size-3 animate-spin" />
+                {t("sources.updatingSource")}
+              </Badge>
+            ) : (
+              <StatusBadge status={sourceHealth(source)} />
+            )}
             <VisibilityBadge visibility={source.visibility} />
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -1948,11 +1957,14 @@ function SourceListItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
+              <DropdownMenuItem
+                disabled={syncPending || updating}
+                onSelect={onSync}
+              >
                 <IconRefresh className="size-4" />
                 {t("sources.syncNow")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onTune}>
+              <DropdownMenuItem disabled={updating} onSelect={onTune}>
                 <IconSettings2 className="size-4" />
                 {t("sources.tuneSource")}
               </DropdownMenuItem>
@@ -2107,9 +2119,12 @@ export default function SourcesRoute() {
       includeArchived: false,
     } as any,
   );
+  // Checking every provider's credentials takes seconds, and a source edit
+  // doesn't change them, so source saves skip refreshing this query.
   const connectionProvidersQuery = useActionQuery<ConnectionProvidersResponse>(
     "list-connection-providers" as any,
     {} as any,
+    { resources: ["brain-connection-provider"] },
   );
   const healthQuery = useActionQuery<BrainHealthResponse>(
     "get-brain-health" as any,
@@ -2123,7 +2138,8 @@ export default function SourcesRoute() {
       status?: "active" | "paused";
       config?: Record<string, unknown>;
     }
-  >("update-source" as any);
+  >("update-source" as any, { resources: ["brain-source"] });
+  const [updatingSourceId, setUpdatingSourceId] = useState<string | null>(null);
   const createSource = useActionMutation<
     CreateSourceResponse,
     {
@@ -2329,8 +2345,9 @@ export default function SourcesRoute() {
     if (formConfigInvalid) return;
     const config = buildConfig(form);
     if (editingSource) {
+      const sourceId = editingSource.id;
       await updateSource.mutateAsync({
-        id: editingSource.id,
+        id: sourceId,
         title: form.title.trim() || defaultTitle(form.provider, t),
         status: zoomSettingsLocked
           ? undefined
@@ -2339,6 +2356,15 @@ export default function SourcesRoute() {
             : "paused",
         config: zoomSettingsLocked ? undefined : config,
       });
+      setSetupOpen(false);
+      setUpdatingSourceId(sourceId);
+      try {
+        await sourcesQuery.refetch({ cancelRefetch: false });
+      } finally {
+        setUpdatingSourceId((current) =>
+          current === sourceId ? null : current,
+        );
+      }
     } else {
       const result = await createSource.mutateAsync({
         title: form.title.trim() || defaultTitle(form.provider, t),
@@ -2359,7 +2385,6 @@ export default function SourcesRoute() {
       }
       return;
     }
-    setSetupOpen(false);
   }
 
   async function confirmArchiveSource() {
@@ -2452,6 +2477,7 @@ export default function SourcesRoute() {
               <SourceListItem
                 key={source.id}
                 source={source}
+                updating={updatingSourceId === source.id}
                 syncPending={
                   syncSource.isPending || rotateSourceIngestToken.isPending
                 }

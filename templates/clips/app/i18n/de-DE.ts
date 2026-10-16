@@ -660,6 +660,33 @@ const messages = {
     nativeSpeechPrimary:
       "Native Spracherkennung bleibt die primäre Transkriptionsquelle.",
   },
+  transcriptImport: {
+    addFile: "Transkriptdatei hinzufügen",
+    imported: "Importiert",
+    replaceTitle: "Transkript ersetzen?",
+    replaceDescription: "{{fileName}} ersetzt das aktuelle Transkript.",
+    replace: "Ersetzen",
+    regenerateOverImportTitle: "Importiertes Transkript ersetzen?",
+    regenerateOverImportDescription:
+      "Ein neues Transkript aus dem Ton der Aufnahme ersetzt das aus einer Datei importierte.",
+    added: "Transkript hinzugefügt",
+    replaced: "Transkript ersetzt",
+    failed: "Transkript konnte nicht hinzugefügt werden",
+    invalidFile: "{{fileName}} konnte nicht gelesen werden",
+    errorEmpty: "Die Datei enthält keinen Transkripttext.",
+    errorTooLarge: "Die Datei ist zu groß für den Import.",
+    errorNotUtf8:
+      "Die Datei ist kein UTF-8-Text. Speichere sie als UTF-8 und versuche es erneut.",
+    errorMissingTiming:
+      "Zeile {{line}}: Erwartet wurde eine Zeitzeile für den Untertitel wie 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming:
+      "Zeile {{line}}: Die Zeitangabe des Untertitels konnte nicht gelesen werden.",
+    errorBadRange: "Zeile {{line}}: Der Untertitel endet, bevor er beginnt.",
+    errorMissingTimestamp:
+      "Zeile {{line}}: Erwartet wurde eine Startzeit wie 0:21 oder [0:21].",
+    errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
+    errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
+  },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
     failedGif:

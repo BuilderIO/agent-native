@@ -118,6 +118,7 @@ import {
   updateRecordingBackupMeta,
   type LocalRecorderPlatform,
 } from "@/lib/recording-backup";
+import { isPolicyPermissionError } from "@/lib/recording-error-classification";
 import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import {
   buildCaptureTitle,
@@ -291,6 +292,10 @@ function isEmbeddedWindow(): boolean {
   }
 }
 
+function isEmbeddedWebClient(): boolean {
+  return isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop";
+}
+
 function saveBlobToDisk(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -303,11 +308,18 @@ function saveBlobToDisk(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-function openUrlFromUserGesture(url: string): void {
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
+export function openUrlFromUserGesture(
+  url: string,
+  fallbackToCurrentFrame = true,
+): boolean {
+  // `noopener` returns null even for a successful popup, so clear opener afterward.
+  const opened = window.open(url, "_blank");
   if (!opened) {
-    window.location.href = url;
+    if (fallbackToCurrentFrame) window.location.href = url;
+    return false;
   }
+  opened.opener = null;
+  return true;
 }
 
 function bugReportDonePath(
@@ -359,14 +371,20 @@ function capturePolicy(): BrowserDocumentPolicy | null {
   return doc.permissionsPolicy ?? doc.featurePolicy ?? null;
 }
 
-function isCaptureFeatureBlockedByPolicy(feature: string): boolean {
+function captureFeaturePolicyState(
+  feature: string,
+): "allowed" | "blocked" | "unknown" {
   const policy = capturePolicy();
-  if (!policy?.allowsFeature) return false;
+  if (!policy?.allowsFeature) return "unknown";
   try {
-    return !policy.allowsFeature(feature);
+    return policy.allowsFeature(feature) ? "allowed" : "blocked";
   } catch {
-    return false;
+    return "unknown";
   }
+}
+
+function isCaptureFeatureBlockedByPolicy(feature: string): boolean {
+  return captureFeaturePolicyState(feature) === "blocked";
 }
 
 function getPolicyBlockedCaptureLabel(opts: {
@@ -395,13 +413,15 @@ function getPolicyBlockedCaptureLabel(opts: {
 }
 
 function directRecorderUrl(opts?: {
-  mode: RecordingMode;
-  displaySurface: DisplaySurface;
+  mode?: RecordingMode;
+  displaySurface?: DisplaySurface;
 }): string {
   if (typeof window === "undefined") return "/record";
   const url = new URL(window.location.href);
-  if (opts) {
+  if (opts?.mode) {
     url.searchParams.set("mode", opts.mode);
+  }
+  if (opts?.displaySurface) {
     url.searchParams.set("surface", opts.displaySurface);
   }
   return url.toString();
@@ -426,12 +446,6 @@ function isPermissionError(message: string): boolean {
   );
 }
 
-function isPolicyPermissionError(message: string): boolean {
-  return /permissions-policy|app frame|embedding frame|frame that allows/i.test(
-    message,
-  );
-}
-
 function isScreenPermissionError(message: string): boolean {
   return (
     isPermissionError(message) &&
@@ -447,6 +461,25 @@ function isCameraPermissionError(message: string): boolean {
 
 function isMicrophonePermissionError(message: string): boolean {
   return isPermissionError(message) && /microphone|mic/i.test(message);
+}
+
+function isEmbeddedCapturePolicyUnknownError(message: string): boolean {
+  if (!isEmbeddedWebClient()) return false;
+  if (isCameraPermissionError(message)) {
+    return captureFeaturePolicyState("camera") === "unknown";
+  }
+  if (isMicrophonePermissionError(message)) {
+    return captureFeaturePolicyState("microphone") === "unknown";
+  }
+  return false;
+}
+
+function shouldOpenRecorderInTab(message: string): boolean {
+  return (
+    (isPolicyPermissionError(message) && isEmbeddedWebClient()) ||
+    isEmbeddedCapturePolicyUnknownError(message) ||
+    (isEmbeddedWebClient() && isScreenPermissionError(message))
+  );
 }
 
 function wantsMicrophone(micDeviceId?: string | null): boolean {
@@ -484,13 +517,14 @@ function permissionGuidance(
   if (isUploadFailureError(message)) return null;
   if (!isPermissionError(message)) return null;
   if (isPolicyPermissionError(message)) {
+    if (!isEmbeddedWebClient()) return null;
     if (opts?.mode === "screen") {
       return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates screen capture.";
     }
     return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates the selected capture sources.";
   }
   if (isScreenPermissionError(message)) {
-    if (isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop") {
+    if (isEmbeddedWebClient()) {
       return "The web client is running Clips inside a frame. Open the recorder in its own tab, then start recording; Chrome can block screen sharing in embedded pages even when macOS access is enabled.";
     }
     if (isMacPlatform()) {
@@ -541,6 +575,68 @@ function permissionSettingsUrl(
   if (isMicrophonePermissionError(message)) return MAC_MICROPHONE_PREF_URL;
   if (mode === "screen") return MAC_SCREEN_RECORDING_PREF_URL;
   return MAC_SCREEN_RECORDING_PREF_URL;
+}
+
+export function recordingErrorToastRecoveryAction(
+  message: string,
+  mode: RecordingMode | undefined,
+  directUrl: string,
+): {
+  labelKey: "recordRoute.openRecorderInTab" | "recordRoute.openSettings";
+  url: string;
+} | null {
+  if (isUploadFailureError(message)) return null;
+  if (shouldOpenRecorderInTab(message)) {
+    return { labelKey: "recordRoute.openRecorderInTab", url: directUrl };
+  }
+
+  const url = permissionSettingsUrl(message, mode);
+  return url ? { labelKey: "recordRoute.openSettings", url } : null;
+}
+
+export function buildRecordingErrorToastOptions(
+  message: string,
+  pendingOpts: {
+    mode?: RecordingMode;
+    displaySurface?: DisplaySurface;
+    micDeviceId?: string | null;
+  } | null,
+  t: (
+    key: "recordRoute.openRecorderInTab" | "recordRoute.openSettings",
+  ) => string,
+  openRecoveryUrl: (url: string, fallbackToCurrentFrame: boolean) => boolean,
+  onPopupBlocked: () => void,
+) {
+  const uploadFailure = isUploadFailureError(message);
+  const embeddedCapturePolicyUnknownError =
+    isEmbeddedCapturePolicyUnknownError(message);
+  const guidance =
+    uploadFailure || embeddedCapturePolicyUnknownError
+      ? null
+      : permissionGuidance(message, pendingOpts ?? undefined);
+  const recoveryAction = recordingErrorToastRecoveryAction(
+    message,
+    pendingOpts?.mode,
+    directRecorderUrl(pendingOpts ?? undefined),
+  );
+  return {
+    description: guidance ?? friendlyRecordingErrorMessage(message),
+    duration: guidance ? 20_000 : 10_000,
+    action: recoveryAction
+      ? {
+          label: t(recoveryAction.labelKey),
+          onClick: () => {
+            const fallbackToCurrentFrame =
+              recoveryAction.labelKey === "recordRoute.openSettings";
+            const opened = openRecoveryUrl(
+              recoveryAction.url,
+              fallbackToCurrentFrame,
+            );
+            if (!opened && !fallbackToCurrentFrame) onPopupBlocked();
+          },
+        }
+      : undefined,
+  };
 }
 
 function isDismissedCapturePicker(err: unknown, message: string): boolean {
@@ -646,8 +742,14 @@ function friendlyRecordingErrorMessage(error: string): string {
   if (isUploadFailureError(error)) {
     return "The video could not finish uploading. Retry the upload before starting over.";
   }
-  if (isPolicyPermissionError(error)) {
+  if (
+    isEmbeddedWebClient() &&
+    (isPolicyPermissionError(error) || isScreenPermissionError(error))
+  ) {
     return "This recorder is embedded somewhere that blocks capture permissions.";
+  }
+  if (isPolicyPermissionError(error)) {
+    return "Something blocked the recorder before it could start.";
   }
   if (isScreenPermissionError(error)) {
     if (isMacPlatform()) {
@@ -947,6 +1049,7 @@ function RecorderRouteViewport({ children }: { children: ReactNode }) {
 export function RecordingErrorCard({
   error,
   mode,
+  displaySurface,
   micDeviceId,
   canRetryUpload,
   canDownloadRecording,
@@ -955,6 +1058,7 @@ export function RecordingErrorCard({
 }: {
   error: string;
   mode: RecordingMode;
+  displaySurface?: DisplaySurface;
   micDeviceId: string | null;
   canRetryUpload: boolean;
   canDownloadRecording: boolean;
@@ -963,23 +1067,22 @@ export function RecordingErrorCard({
 }) {
   const t = useT();
   const uploadFailure = isUploadFailureError(error);
-  const guidance = uploadFailure
-    ? null
-    : permissionGuidance(error, { mode, micDeviceId });
+  const embeddedCapturePolicyUnknownError =
+    !uploadFailure && isEmbeddedCapturePolicyUnknownError(error);
+  const guidance =
+    uploadFailure || embeddedCapturePolicyUnknownError
+      ? null
+      : permissionGuidance(error, { mode, micDeviceId });
   const permissionError = !uploadFailure && isPermissionError(error);
   const policyError = !uploadFailure && isPolicyPermissionError(error);
-  const embeddedScreenError =
-    !uploadFailure &&
-    isEmbeddedWindow() &&
-    getCaptureHostApp().kind !== "desktop" &&
-    isScreenPermissionError(error);
-  const settings = permissionError
-    ? getModePermissionLabels(mode, micDeviceId)
-    : [];
-  const directUrl = directRecorderUrl();
+  const openDirectly = !uploadFailure && shouldOpenRecorderInTab(error);
+  const settings =
+    permissionError && !openDirectly
+      ? getModePermissionLabels(mode, micDeviceId)
+      : [];
+  const directUrl = directRecorderUrl({ mode, displaySurface });
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
-  const openDirectly = policyError || embeddedScreenError;
   const downloadIsPrimary = canDownloadRecording && !canRetryUpload;
 
   return (
@@ -1021,7 +1124,11 @@ export function RecordingErrorCard({
         {openDirectly && (
           <Button
             type="button"
-            onClick={() => openUrlFromUserGesture(directUrl)}
+            onClick={() => {
+              if (!openUrlFromUserGesture(directUrl, false)) {
+                toast.error(t("clipsSettings.popupBlocked"));
+              }
+            }}
             className="w-full gap-2"
           >
             <IconExternalLink className="size-4" />
@@ -1558,25 +1665,13 @@ export default function RecordRoute() {
     (message: string) => {
       const pendingOpts = pendingStartOptsRef.current;
       const uploadFailure = isUploadFailureError(message);
-      const guidance = uploadFailure
-        ? null
-        : permissionGuidance(message, pendingOpts ?? undefined);
-      const settingsUrl = uploadFailure
-        ? null
-        : permissionSettingsUrl(message, pendingOpts?.mode);
-      const friendlyMessage = friendlyRecordingErrorMessage(message);
-      const options = {
-        description: guidance ?? friendlyMessage,
-        duration: guidance ? 20_000 : 10_000,
-        action: settingsUrl
-          ? {
-              label: t("recordRoute.openSettings"),
-              onClick: () => {
-                openUrlFromUserGesture(settingsUrl);
-              },
-            }
-          : undefined,
-      };
+      const options = buildRecordingErrorToastOptions(
+        message,
+        pendingOpts,
+        t,
+        openUrlFromUserGesture,
+        () => toast.error(t("clipsSettings.popupBlocked")),
+      );
       if (uploadFailure) {
         failUploadToast(t("recordRoute.uploadFailed"), options);
       } else {
@@ -1601,11 +1696,15 @@ export default function RecordRoute() {
           })
         : null;
       if (blockedFeature) {
-        openUrlFromUserGesture(directRecorderUrl(opts));
-        toast.info(t("recordRoute.openedRecorderInNewTab"), {
-          description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
-          duration: 8000,
-        });
+        const opened = openUrlFromUserGesture(directRecorderUrl(opts), false);
+        if (opened) {
+          toast.info(t("recordRoute.openedRecorderInNewTab"), {
+            description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
+            duration: 8000,
+          });
+        } else {
+          toast.error(t("clipsSettings.popupBlocked"));
+        }
         return;
       }
 
@@ -4565,6 +4664,7 @@ export default function RecordRoute() {
             <RecordingErrorCard
               error={error}
               mode={recordingMode}
+              displaySurface={pendingStartOptsRef.current?.displaySurface}
               micDeviceId={pendingStartOptsRef.current?.micDeviceId ?? null}
               canRetryUpload={!!engineRef.current?.canRetryUpload()}
               canDownloadRecording={

@@ -570,6 +570,32 @@ const messages = {
     waiting: "Waiting…",
     nativeSpeechPrimary: "Native speech remains the primary transcript source.",
   },
+  transcriptImport: {
+    addFile: "Add transcript file",
+    imported: "Imported",
+    replaceTitle: "Replace transcript?",
+    replaceDescription: "{{fileName}} will replace the current transcript.",
+    replace: "Replace",
+    regenerateOverImportTitle: "Replace the imported transcript?",
+    regenerateOverImportDescription:
+      "A new transcript made from the recording's audio will replace the one imported from a file.",
+    added: "Transcript added",
+    replaced: "Transcript replaced",
+    failed: "Couldn't add transcript",
+    invalidFile: "Couldn't read {{fileName}}",
+    errorEmpty: "The file has no transcript text.",
+    errorTooLarge: "The file is too large to import.",
+    errorNotUtf8: "The file isn't UTF-8 text. Save it as UTF-8 and try again.",
+    errorMissingTiming:
+      "Line {{line}}: expected a cue timing line like 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "Line {{line}}: the cue timing couldn't be read.",
+    errorBadRange: "Line {{line}}: the cue ends before it starts.",
+    errorMissingTimestamp:
+      "Line {{line}}: expected a start time like 0:21 or [0:21].",
+    errorOutOfOrder:
+      "Line {{line}}: this time is earlier than the one before it.",
+    errorPastEnd: "Line {{line}}: this time is after the end of the video.",
+  },
   thumbnailPicker: {
     failedCapture: "Failed to capture frame",
     failedGif: "Failed to generate GIF — try a shorter range",

@@ -623,6 +623,33 @@ const messages = {
     waiting: "इंतज़ार में…",
     nativeSpeechPrimary: "नेटिव स्पीच मुख्य प्रतिलेखन स्रोत बनी रहती है।",
   },
+  transcriptImport: {
+    addFile: "प्रतिलेख फ़ाइल जोड़ें",
+    imported: "आयातित",
+    replaceTitle: "प्रतिलेख बदलें?",
+    replaceDescription: "{{fileName}} मौजूदा प्रतिलेख की जगह ले लेगी।",
+    replace: "बदलें",
+    regenerateOverImportTitle: "आयात किया गया प्रतिलेख बदलें?",
+    regenerateOverImportDescription:
+      "रिकॉर्डिंग के ऑडियो से बना नया प्रतिलेख फ़ाइल से आयात किए गए प्रतिलेख की जगह ले लेगा।",
+    added: "प्रतिलेख जोड़ा गया",
+    replaced: "प्रतिलेख बदला गया",
+    failed: "प्रतिलेख नहीं जोड़ा जा सका",
+    invalidFile: "{{fileName}} को पढ़ा नहीं जा सका",
+    errorEmpty: "फ़ाइल में कोई प्रतिलेख टेक्स्ट नहीं है।",
+    errorTooLarge: "फ़ाइल आयात करने के लिए बहुत बड़ी है।",
+    errorNotUtf8:
+      "फ़ाइल UTF-8 टेक्स्ट नहीं है। इसे UTF-8 के रूप में सेव करें और फिर से कोशिश करें।",
+    errorMissingTiming:
+      "पंक्ति {{line}}: 00:00:01.000 --> 00:00:04.000 जैसी उपशीर्षक समय-पंक्ति अपेक्षित थी।",
+    errorBadTiming: "पंक्ति {{line}}: उपशीर्षक का समय पढ़ा नहीं जा सका।",
+    errorBadRange:
+      "पंक्ति {{line}}: उपशीर्षक अपने शुरू होने से पहले ही समाप्त हो जाता है।",
+    errorMissingTimestamp:
+      "पंक्ति {{line}}: 0:21 या [0:21] जैसा शुरुआती समय अपेक्षित था।",
+    errorOutOfOrder: "पंक्ति {{line}}: यह समय पिछले समय से पहले का है।",
+    errorPastEnd: "पंक्ति {{line}}: यह समय वीडियो के समाप्त होने के बाद का है।",
+  },
   thumbnailPicker: {
     failedCapture: "फ़्रेम कैप्चर करने में विफल",
     failedGif: "GIF उत्पन्न करने में विफल - छोटी रेंज का प्रयास करें",

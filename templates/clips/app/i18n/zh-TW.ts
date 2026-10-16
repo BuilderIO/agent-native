@@ -601,6 +601,31 @@ const messages = {
     waiting: "等待…",
     nativeSpeechPrimary: "原生語音仍然是主要的轉錄來源。",
   },
+  transcriptImport: {
+    addFile: "新增逐字稿檔案",
+    imported: "已匯入",
+    replaceTitle: "要取代逐字稿嗎？",
+    replaceDescription: "{{fileName}} 將取代目前的逐字稿。",
+    replace: "取代",
+    regenerateOverImportTitle: "要取代匯入的逐字稿嗎？",
+    regenerateOverImportDescription:
+      "根據錄影音訊產生的新逐字稿將取代從檔案匯入的逐字稿。",
+    added: "已新增逐字稿",
+    replaced: "已取代逐字稿",
+    failed: "無法新增逐字稿",
+    invalidFile: "無法讀取 {{fileName}}",
+    errorEmpty: "檔案中沒有逐字稿內容。",
+    errorTooLarge: "檔案太大，無法匯入。",
+    errorNotUtf8: "檔案不是 UTF-8 文字。請另存為 UTF-8 後再試一次。",
+    errorMissingTiming:
+      "第 {{line}} 行：應為字幕時間行，例如 00:00:01.000 --> 00:00:04.000。",
+    errorBadTiming: "第 {{line}} 行：無法讀取字幕時間。",
+    errorBadRange: "第 {{line}} 行：字幕的結束時間早於開始時間。",
+    errorMissingTimestamp:
+      "第 {{line}} 行：應為開始時間，例如 0:21 或 [0:21]。",
+    errorOutOfOrder: "第 {{line}} 行：此時間早於上一個時間。",
+    errorPastEnd: "第 {{line}} 行：此時間晚於影片結束時間。",
+  },
   thumbnailPicker: {
     failedCapture: "擷取影格失敗",
     failedGif: "無法產生 GIF，請嘗試較短的範圍",

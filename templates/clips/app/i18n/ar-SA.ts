@@ -630,6 +630,32 @@ const messages = {
     waiting: "منتظر…",
     nativeSpeechPrimary: "يبقى الكلام الأصلي مصدر النسخ الأساسي.",
   },
+  transcriptImport: {
+    addFile: "إضافة ملف النص",
+    imported: "مستورد",
+    replaceTitle: "استبدال النص؟",
+    replaceDescription: "سيحل {{fileName}} محل النص الحالي.",
+    replace: "استبدال",
+    regenerateOverImportTitle: "استبدال النص المستورد؟",
+    regenerateOverImportDescription:
+      "سيحل نص جديد من صوت التسجيل محل النص المستورد من ملف.",
+    added: "تمت إضافة النص",
+    replaced: "تم استبدال النص",
+    failed: "تعذّرت إضافة النص",
+    invalidFile: "تعذّرت قراءة {{fileName}}",
+    errorEmpty: "لا يحتوي الملف على نص.",
+    errorTooLarge: "الملف كبير جدًا للاستيراد.",
+    errorNotUtf8:
+      "الملف ليس نصًا بترميز UTF-8. احفظه بترميز UTF-8 ثم حاول مرة أخرى.",
+    errorMissingTiming:
+      "السطر {{line}}: كان المتوقع سطر توقيت للترجمة مثل 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "السطر {{line}}: تعذّرت قراءة توقيت الترجمة.",
+    errorBadRange: "السطر {{line}}: تنتهي الترجمة قبل أن تبدأ.",
+    errorMissingTimestamp:
+      "السطر {{line}}: كان المتوقع وقت بدء مثل 0:21 أو [0:21].",
+    errorOutOfOrder: "السطر {{line}}: هذا الوقت أسبق من الوقت الذي قبله.",
+    errorPastEnd: "السطر {{line}}: هذا الوقت بعد نهاية الفيديو.",
+  },
   thumbnailPicker: {
     failedCapture: "فشل في التقاط الإطار",
     failedGif: "فشل في إنشاء GIF — حاول نطاقًا أقصر",
