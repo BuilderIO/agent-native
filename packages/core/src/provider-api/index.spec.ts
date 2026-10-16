@@ -3798,6 +3798,40 @@ describe("provider API runtime", () => {
         { status: 200, headers: { "content-type": "text/html" } },
       );
 
+    it("keeps only the byte cap of a body with no Content-Length", async () => {
+      const streamed = (status: number, headers: Record<string, string>) => {
+        const chunk = new TextEncoder().encode("x".repeat(2_000));
+        const response = new Response(
+          new ReadableStream({
+            start(controller) {
+              for (let i = 0; i < 3; i++) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+          { status, headers },
+        );
+        vi.spyOn(response, "arrayBuffer");
+        return response;
+      };
+      const hop = streamed(308, { location: "/docs/moved" });
+      const page = streamed(200, { "content-type": "text/plain" });
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(hop)
+        .mockResolvedValueOnce(page);
+
+      const result = (await docsRuntime().fetchDocs({
+        provider: "hubspot",
+        url: "https://developers.hubspot.com/docs/old",
+        maxBytes: 1_000,
+        responseMode: "raw",
+      })) as any;
+
+      expect(hop.arrayBuffer).not.toHaveBeenCalled();
+      expect(page.arrayBuffer).not.toHaveBeenCalled();
+      expect(result.response).toMatchObject({ truncated: true, size: 6_000 });
+      expect(result.response.text).toHaveLength(1_000);
+    });
+
     it("follows a public redirect without credentials and reports the final URL", async () => {
       resolveCredential.mockResolvedValue("hubspot-token");
       const fetchMock = vi

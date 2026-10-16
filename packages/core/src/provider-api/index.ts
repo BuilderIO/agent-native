@@ -6204,11 +6204,27 @@ async function readResponseTextWithLimit(
       size: Number(contentLength),
     };
   }
-  const buffer = await response.arrayBuffer();
-  const size = buffer.byteLength;
-  const bytes = new Uint8Array(buffer.slice(0, maxBytes));
+  // Count past the cap without keeping it: a missing or understated
+  // Content-Length must not let a response force an unbounded allocation,
+  // and callers still report how much was available.
+  const kept: Uint8Array[] = [];
+  let keptBytes = 0;
+  let size = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (keptBytes < maxBytes) {
+        const chunk = value.subarray(0, maxBytes - keptBytes);
+        kept.push(chunk);
+        keptBytes += chunk.byteLength;
+      }
+    }
+  }
   return {
-    text: new TextDecoder().decode(bytes),
+    text: new TextDecoder().decode(Buffer.concat(kept, keptBytes)),
     truncated: size > maxBytes,
     size,
   };
