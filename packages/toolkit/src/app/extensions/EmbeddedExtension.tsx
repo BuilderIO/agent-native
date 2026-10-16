@@ -45,8 +45,8 @@ import {
 } from "./iframe-bridge.js";
 import {
   EXTENSION_OPEN_URL_MESSAGE,
+  useExtensionFrameKey,
   useOpenUrlLatch,
-  useOpenUrlLatchDocument,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
@@ -204,8 +204,7 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
-  const frameKey = useOpenUrlLatchDocument(
-    openUrl,
+  const frameKey = useExtensionFrameKey(
     `${extensionId}|${extension?.updatedAt ?? ""}|${iframeSrc}`,
   );
 

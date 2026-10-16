@@ -68,8 +68,8 @@ import {
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import {
   EXTENSION_OPEN_URL_MESSAGE,
+  useExtensionFrameKey,
   useOpenUrlLatch,
-  useOpenUrlLatchDocument,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
@@ -1075,8 +1075,7 @@ export function ExtensionViewer({
     return buildExtensionViewerSrcDoc(extension, isDark, iframeMetaCsp);
   }, [extension, iframeMetaCsp, isDark, usesSrcDoc]);
 
-  const frameKey = useOpenUrlLatchDocument(
-    openUrl,
+  const frameKey = useExtensionFrameKey(
     `${extensionId}|${extension?.updatedAt}|${refreshKey}|${usesSrcDoc ? "" : iframeSrc}|${iframeSrcDoc ?? ""}`,
   );
   const unavailableStatus = extensionLoadErrorStatus(

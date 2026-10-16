@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { openExtensionLink, readOpenUrlToken } from "./open-extension-link.js";
+import {
+  createOpenUrlLatch,
+  openExtensionLink,
+  readOpenUrlToken,
+} from "./open-extension-link.js";
 
 const TOKEN = "0123456789abcdef0123456789abcdef";
 
@@ -64,5 +68,74 @@ describe("readOpenUrlToken", () => {
     expect(readOpenUrlToken({ openUrlToken: "" })).toBeNull();
     expect(readOpenUrlToken({ openUrlToken: 42 })).toBeNull();
     expect(readOpenUrlToken(null)).toBeNull();
+  });
+});
+
+describe("createOpenUrlLatch", () => {
+  const OTHER = "fedcba9876543210fedcba9876543210";
+  const READY = { type: "agent-native-extension-open-url-ready" };
+  const frameWindow = () => ({ postMessage: vi.fn() }) as unknown as Window;
+  const binding = (openUrlToken: string) => ({
+    type: "agent-native-extension-binding",
+    openUrlToken,
+  });
+  const request = (token: string) => ({ url: "https://example.com/", token });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("latches a window's first binding and ignores later ones from it", () => {
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const latch = createOpenUrlLatch();
+    const frame = frameWindow();
+
+    latch.latch(binding(TOKEN), frame);
+    // A page the frame navigated to re-announces from the same window.
+    latch.latch(binding(OTHER), frame);
+
+    expect(frame.postMessage).toHaveBeenCalledTimes(1);
+    expect(frame.postMessage).toHaveBeenCalledWith(READY, "*");
+    expect(latch.open(request(OTHER))).toBe(false);
+    expect(latch.open(request(TOKEN))).toBe(true);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it("latches afresh for a new iframe window, however it was mounted", () => {
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const latch = createOpenUrlLatch();
+    const first = frameWindow();
+    const remounted = frameWindow();
+
+    latch.latch(binding(TOKEN), first);
+    latch.latch(binding(OTHER), remounted);
+
+    expect(remounted.postMessage).toHaveBeenCalledWith(READY, "*");
+    expect(latch.open(request(OTHER))).toBe(true);
+    // The old window's token no longer opens anything.
+    expect(latch.open(request(TOKEN))).toBe(false);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it("never opens or offers to when disabled or the binding has no token", () => {
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const disabled = createOpenUrlLatch();
+    const frame = frameWindow();
+    disabled.latch(binding(TOKEN), frame, false);
+    const tokenless = createOpenUrlLatch();
+    const other = frameWindow();
+    tokenless.latch({ type: "agent-native-extension-binding" }, other);
+
+    expect(frame.postMessage).not.toHaveBeenCalled();
+    expect(other.postMessage).not.toHaveBeenCalled();
+    expect(disabled.open(request(TOKEN))).toBe(false);
+    expect(open).not.toHaveBeenCalled();
   });
 });

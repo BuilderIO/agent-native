@@ -16,8 +16,8 @@ import {
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import {
   EXTENSION_OPEN_URL_MESSAGE,
+  useExtensionFrameKey,
   useOpenUrlLatch,
-  useOpenUrlLatchDocument,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
@@ -418,8 +418,7 @@ export function InlineExtensionFrame({
     );
   }, [extension, iframeMetaCsp, isTransient]);
 
-  const frameKey = useOpenUrlLatchDocument(
-    openUrl,
+  const frameKey = useExtensionFrameKey(
     `${resolvedId}|${extension?.updatedAt ?? "inline"}|${isTransient}|${iframeSrc ?? ""}|${srcDoc ?? ""}`,
   );
 

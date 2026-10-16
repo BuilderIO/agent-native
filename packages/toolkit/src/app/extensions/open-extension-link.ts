@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 
 export const EXTENSION_OPEN_URL_MESSAGE = "agent-native-extension-open-url";
 export const EXTENSION_OPEN_URL_READY_MESSAGE =
@@ -54,55 +54,41 @@ export function openExtensionLink(
   return true;
 }
 
-// Binds link opening to one document the host loaded into an extension
-// iframe. The binding latch alone isn't enough: it also resets on re-renders
-// that keep the document, and by then the iframe may have navigated to
-// another page that would latch its own token. Pair it with
-// useOpenUrlLatchDocument so it resets only when the frame's document does.
+// Binds link opening to one iframe window: the first binding from a window
+// latches its token, later bindings from that window are ignored (a page the
+// frame navigated to can't latch its own), and open-url requests must carry
+// the latched token. A new iframe element is a new window, so it latches
+// afresh (replacing the token) however it came to be mounted. Hosts must
+// only pass messages whose event.source is their current iframe's window.
+export function createOpenUrlLatch() {
+  let latchedWindow: MessageEventSource | null = null;
+  let token: string | null = null;
+  return {
+    latch(message: unknown, source: MessageEventSource | null, enabled = true) {
+      if (!source || source === latchedWindow) return;
+      latchedWindow = source;
+      token = enabled ? readOpenUrlToken(message) : null;
+      if (token) announceOpenUrlSupport(source);
+    },
+    open(message: unknown) {
+      return openExtensionLink(message, token);
+    },
+  };
+}
+
 export function useOpenUrlLatch() {
-  const latchedRef = useRef(false);
-  const tokenRef = useRef<string | null>(null);
-  return useMemo(
-    () => ({
-      // Call with every binding message; only the document's first one counts.
-      latch(
-        message: unknown,
-        source: MessageEventSource | null,
-        enabled = true,
-      ) {
-        if (latchedRef.current) return;
-        latchedRef.current = true;
-        tokenRef.current = enabled ? readOpenUrlToken(message) : null;
-        if (tokenRef.current) announceOpenUrlSupport(source);
-      },
-      open(message: unknown) {
-        return openExtensionLink(message, tokenRef.current);
-      },
-      reset() {
-        latchedRef.current = false;
-        tokenRef.current = null;
-      },
-    }),
-    [],
-  );
+  return useMemo(createOpenUrlLatch, []);
 }
 
 let frameDocuments = 0;
 
-// Returns a key to put in the iframe's `key`, and resets the latch, whenever
-// `documentIdentity` (whatever determines the frame's document: its src,
-// srcdoc or key) changes. The frame's window outlives its documents, so
-// event.source alone can't tell a message from the previous document, or
-// from a page it navigated to, from the new document's. A new element is a
-// new window, so those messages fail the hosts' event.source check instead.
-export function useOpenUrlLatchDocument(
-  openUrl: ReturnType<typeof useOpenUrlLatch>,
-  documentIdentity: string,
-): string {
+// A key for the iframe's `key` that changes whenever `documentIdentity`
+// (whatever determines the frame's document: its src, srcdoc or key) does.
+// The frame's window outlives its documents, so without a new element a new
+// document would share the window the latch already holds. A new element is
+// a new window, so the new document latches its own token and messages from
+// any earlier document fail the hosts' event.source check.
+export function useExtensionFrameKey(documentIdentity: string): string {
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new document is what makes a new key
-  const frameKey = useMemo(() => `doc-${++frameDocuments}`, [documentIdentity]);
-  useLayoutEffect(() => {
-    openUrl.reset();
-  }, [openUrl, frameKey]);
-  return frameKey;
+  return useMemo(() => `doc-${++frameDocuments}`, [documentIdentity]);
 }
