@@ -56,7 +56,7 @@ describe("ChapterList", () => {
       />,
     );
     expect(container.querySelector("h3")?.textContent).toBe("chapters.title");
-    expect(rows()).toEqual(["00:00Intro", "00:55Demo"]);
+    expect(rows()).toEqual(["0:00 Intro", "0:55 Demo"]);
   });
 
   it("seeks to the chapter's stored time when a row is clicked", () => {
