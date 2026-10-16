@@ -363,6 +363,17 @@ describe("resolveDataNoteBands", () => {
     ]);
   });
 
+  it("closes a band at the chart's ends when rows are not in date order", () => {
+    // Oct 9 leads only because it has the most rows; the note's end past Oct 9 isn't on either side.
+    expect(
+      resolveDataNoteBands(SETUP_INCIDENT, [
+        "2026-10-09",
+        "2026-10-01",
+        "2026-10-02",
+      ]),
+    ).toEqual([{ startIndex: 0, endIndex: 0, startEdge: true, endEdge: true }]);
+  });
+
   it("steps hourly rows sorted by value by the hour, not by the gaps between rows", () => {
     const oct10 = {
       ...SETUP_INCIDENT,

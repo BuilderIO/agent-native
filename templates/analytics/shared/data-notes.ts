@@ -383,7 +383,8 @@ export interface DataNoteBand {
   /**
    * Draw an edge at startIndex: the date row before it is one the note does
    * not cover, or, at the chart's first date row, the note's start falls
-   * inside the chart (its end on a newest-first axis).
+   * inside the chart (its end on a newest-first axis, and always on an axis
+   * not in date order).
    */
   startEdge: boolean;
   /** Draw an edge at endIndex: the same, after it and at the last date row. */
@@ -445,7 +446,17 @@ function bandsOnAxis(
   );
   const startInside = start >= axis.start;
   const endInside = end <= axis.end;
-  const newestFirst = buckets[0].start > buckets[buckets.length - 1].start;
+  const inOrder = (later: (a: number, b: number) => boolean) =>
+    buckets.every(
+      (bucket, i) => i === 0 || later(bucket.start, buckets[i - 1].start),
+    );
+  // Rows sorted by a metric have no first or last date at the chart's ends, so
+  // a band closes there instead of running on past the chart.
+  const [firstEdge, lastEdge] = inOrder((a, b) => a >= b)
+    ? [startInside, endInside]
+    : inOrder((a, b) => a <= b)
+      ? [endInside, startInside]
+      : [true, true];
   const runs: { first: number; last: number }[] = [];
   covers.forEach((covered, i) => {
     if (!covered) return;
@@ -464,14 +475,8 @@ function bandsOnAxis(
   return runs.map(({ first, last }) => ({
     startIndex: buckets[first].row,
     endIndex: buckets[last].row,
-    startEdge:
-      first > 0 ? !covers[first - 1] : newestFirst ? endInside : startInside,
-    endEdge:
-      last < buckets.length - 1
-        ? !covers[last + 1]
-        : newestFirst
-          ? startInside
-          : endInside,
+    startEdge: first > 0 ? !covers[first - 1] : firstEdge,
+    endEdge: last < buckets.length - 1 ? !covers[last + 1] : lastEdge,
   }));
 }
 
