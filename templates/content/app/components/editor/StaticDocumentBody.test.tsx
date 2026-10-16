@@ -9,9 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+const locale = vi.hoisted(() => ({ prefix: "" }));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
-  useT: () => (key: string) => key,
+  useT: () => (key: string) => `${locale.prefix}${key}`,
 }));
 
 import {
@@ -66,6 +67,14 @@ const BODY = [
 ].join("\n");
 
 const LABELS = { imageBroken: "editor.media.imageBroken" };
+
+const IMAGE_BODY = [
+  "Before.",
+  "",
+  "![Alt text](https://example.com/missing.png)",
+  "",
+  "After.",
+].join("\n");
 
 // Icons, and controls the stylesheet takes out of the flow, take no part in
 // where a block sits.
@@ -128,7 +137,54 @@ describe("the static document body", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    locale.prefix = "";
   });
+
+  const inApp = (element: ReturnType<typeof createElement>) =>
+    createElement(
+      MemoryRouter,
+      null,
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(
+          QueryClientProvider,
+          { client: new QueryClient() },
+          element,
+        ),
+      ),
+    );
+  const imageStoredBody = () =>
+    createElement(StaticDocumentBody, {
+      schema: getContentEditorSchema(),
+      content: IMAGE_BODY,
+    });
+  const imageEditor = () =>
+    createElement(VisualEditor, {
+      documentId: "page",
+      content: IMAGE_BODY,
+      ydoc: null,
+      editable: true,
+      onChange: () => {},
+    });
+  const show = async (element: ReturnType<typeof createElement> | null) => {
+    await act(async () => root.render(element && inApp(element)));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  };
+  const failImage = (image: Element) =>
+    act(async () => {
+      image.dispatchEvent(new Event("error"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  const blocks = () =>
+    [
+      ...container.querySelector("[data-static-document-body], .ProseMirror")!
+        .children,
+    ]
+      .filter(laidOut)
+      .map(shape);
 
   it("has a stand-in for every node the editor draws with a node view", () => {
     const viewed = resolveExtensions(createVisualEditorExtensions())
@@ -191,60 +247,38 @@ describe("the static document body", () => {
   });
 
   it("draws an image that failed to load as the image block draws one", async () => {
-    const content = [
-      "Before.",
-      "",
-      "![Alt text](https://example.com/missing.png)",
-      "",
-      "After.",
-    ].join("\n");
-    const blocks = async (element: ReturnType<typeof createElement>) => {
-      await act(async () =>
-        root.render(
-          createElement(
-            MemoryRouter,
-            null,
-            createElement(
-              TooltipProvider,
-              null,
-              createElement(
-                QueryClientProvider,
-                { client: new QueryClient() },
-                element,
-              ),
-            ),
-          ),
-        ),
-      );
-      await act(async () => {
-        container.querySelector("img")!.dispatchEvent(new Event("error"));
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      });
-      const body = container.querySelector(
-        "[data-static-document-body], .ProseMirror",
-      )!;
-      return [...body.children].filter(laidOut).map(shape);
-    };
-
-    const standIn = await blocks(
-      createElement(StaticDocumentBody, {
-        schema: getContentEditorSchema(),
-        content,
-      }),
-    );
+    await show(imageStoredBody());
+    await failImage(container.querySelector("img")!);
+    const standIn = blocks();
     // With no body on screen, the editor loads the image itself.
-    await act(async () => root.render(null));
-    const editor = await blocks(
-      createElement(VisualEditor, {
-        documentId: "page",
-        content,
-        ydoc: null,
-        editable: true,
-        onChange: () => {},
-      }),
-    );
+    await show(null);
+    await show(imageEditor());
+    await failImage(container.querySelector("img")!);
 
     expect(standIn.join()).toContain(".media-block__broken");
-    expect(standIn).toEqual(editor);
+    expect(standIn).toEqual(blocks());
+  });
+
+  it("forgets an image failure that arrives after its body has left", async () => {
+    await show(imageStoredBody());
+    const image = container.querySelector("img")!;
+    await show(null);
+    await failImage(image);
+    await show(imageEditor());
+
+    expect(container.querySelector(".ProseMirror img")).not.toBeNull();
+    expect(container.querySelector(".media-block__broken")).toBeNull();
+  });
+
+  it("redraws a failed image in the reader's new language", async () => {
+    await show(imageStoredBody());
+    await failImage(container.querySelector("img")!);
+    locale.prefix = "fr:";
+    await show(imageStoredBody());
+    await failImage(container.querySelector("img")!);
+
+    expect(
+      container.querySelector(".media-block__broken-title")?.textContent,
+    ).toBe("fr:editor.media.imageBroken");
   });
 });

@@ -247,6 +247,10 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
     image.addEventListener(
       "error",
       () => {
+        // A load can fail after its body has left the page and its failures
+        // were forgotten; noting it then would start a later editor's working
+        // image broken.
+        if (!image.isConnected) return;
         noteStoredBodyImageFailed(src);
         image.replaceWith(brokenImage(document, alt, labels.imageBroken));
       },
@@ -668,8 +672,13 @@ export function renderStaticDocumentBody(
 
 // DocumentEditor's static body gives way to VisualEditor's in the commit that
 // mounts the editor. The drawn nodes move across instead of being drawn again,
-// so a long body costs nothing to hand over and its images stay loaded.
-let handedOver: { content: string; nodes: ChildNode[] } | null = null;
+// so a long body costs nothing to hand over and its images stay loaded. The
+// nodes carry the reader's words, so a body drawn in other words draws its own.
+let handedOver: {
+  content: string;
+  labels: StaticBodyLabels;
+  nodes: ChildNode[];
+} | null = null;
 
 /**
  * The stored body, drawn without an editor, for the moments before the page's
@@ -698,14 +707,21 @@ export function StaticDocumentBody({
     const body = bodyRef.current;
     if (!body) return;
     const handOver = () => {
-      const slot = { content, nodes: [...body.childNodes] };
+      const slot = {
+        content,
+        labels: { imageBroken },
+        nodes: [...body.childNodes],
+      };
       handedOver = slot;
       // Only a body mounting in this commit can take it.
       queueMicrotask(() => {
         if (handedOver === slot) handedOver = null;
       });
     };
-    if (handedOver?.content === content) {
+    if (
+      handedOver?.content === content &&
+      handedOver.labels.imageBroken === imageBroken
+    ) {
       body.replaceChildren(...handedOver.nodes);
       handedOver = null;
       return handOver;
