@@ -521,6 +521,47 @@ describe("record route lifecycle shell", () => {
     ).toBe(false);
   });
 
+  it("offers tab recovery for embedded camera denials when policy state is unknown", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Camera access is blocked by the browser, macOS, or this app frame."
+          mode="camera"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(true);
+    expect(container.textContent).not.toContain(
+      "Allow Camera for this site first.",
+    );
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Camera"),
+    ).toBe(true);
+  });
+
   it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/routes/record.tsx"),

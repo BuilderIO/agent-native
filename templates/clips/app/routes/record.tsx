@@ -360,14 +360,20 @@ function capturePolicy(): BrowserDocumentPolicy | null {
   return doc.permissionsPolicy ?? doc.featurePolicy ?? null;
 }
 
-function isCaptureFeatureBlockedByPolicy(feature: string): boolean {
+function captureFeaturePolicyState(
+  feature: string,
+): "allowed" | "blocked" | "unknown" {
   const policy = capturePolicy();
-  if (!policy?.allowsFeature) return false;
+  if (!policy?.allowsFeature) return "unknown";
   try {
-    return !policy.allowsFeature(feature);
+    return policy.allowsFeature(feature) ? "allowed" : "blocked";
   } catch {
-    return false;
+    return "unknown";
   }
+}
+
+function isCaptureFeatureBlockedByPolicy(feature: string): boolean {
+  return captureFeaturePolicyState(feature) === "blocked";
 }
 
 function getPolicyBlockedCaptureLabel(opts: {
@@ -442,6 +448,19 @@ function isCameraPermissionError(message: string): boolean {
 
 function isMicrophonePermissionError(message: string): boolean {
   return isPermissionError(message) && /microphone|mic/i.test(message);
+}
+
+function isEmbeddedCapturePolicyUnknownError(message: string): boolean {
+  if (!isEmbeddedWindow() || getCaptureHostApp().kind === "desktop") {
+    return false;
+  }
+  if (isCameraPermissionError(message)) {
+    return captureFeaturePolicyState("camera") === "unknown";
+  }
+  if (isMicrophonePermissionError(message)) {
+    return captureFeaturePolicyState("microphone") === "unknown";
+  }
+  return false;
 }
 
 function wantsMicrophone(micDeviceId?: string | null): boolean {
@@ -958,9 +977,12 @@ export function RecordingErrorCard({
 }) {
   const t = useT();
   const uploadFailure = isUploadFailureError(error);
-  const guidance = uploadFailure
-    ? null
-    : permissionGuidance(error, { mode, micDeviceId });
+  const embeddedCapturePolicyUnknownError =
+    !uploadFailure && isEmbeddedCapturePolicyUnknownError(error);
+  const guidance =
+    uploadFailure || embeddedCapturePolicyUnknownError
+      ? null
+      : permissionGuidance(error, { mode, micDeviceId });
   const permissionError = !uploadFailure && isPermissionError(error);
   const policyError = !uploadFailure && isPolicyPermissionError(error);
   const embeddedScreenError =
@@ -974,7 +996,8 @@ export function RecordingErrorCard({
   const directUrl = directRecorderUrl();
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
-  const openDirectly = policyError || embeddedScreenError;
+  const openDirectly =
+    policyError || embeddedScreenError || embeddedCapturePolicyUnknownError;
   const downloadIsPrimary = canDownloadRecording && !canRetryUpload;
 
   return (
@@ -1553,9 +1576,12 @@ export default function RecordRoute() {
     (message: string) => {
       const pendingOpts = pendingStartOptsRef.current;
       const uploadFailure = isUploadFailureError(message);
-      const guidance = uploadFailure
-        ? null
-        : permissionGuidance(message, pendingOpts ?? undefined);
+      const embeddedCapturePolicyUnknownError =
+        isEmbeddedCapturePolicyUnknownError(message);
+      const guidance =
+        uploadFailure || embeddedCapturePolicyUnknownError
+          ? null
+          : permissionGuidance(message, pendingOpts ?? undefined);
       const settingsUrl = uploadFailure
         ? null
         : permissionSettingsUrl(message, pendingOpts?.mode);
