@@ -197,6 +197,17 @@ describe("rebaselineSuggestions", () => {
       ).toBeNull();
     });
 
+    it("is stale when its before-state is the canonical text but not the stored body", () => {
+      const canonical = canonicalizeNfm(stored);
+      expect(
+        rebaselineSuggestions(
+          [{ id: "s1", group: "s1", operation: wholePage(canonical) }],
+          stored,
+          canonical,
+        ).get("s1"),
+      ).toEqual({ kind: "stale" });
+    });
+
     it("is stale on a page that no longer reads as its before-state", () => {
       expect(
         rebaselineSuggestions(

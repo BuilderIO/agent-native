@@ -29,7 +29,7 @@ export type SuggestionRebaseline<T> =
   /** Already on the canonical text. */
   | { kind: "unchanged" }
   | { kind: "rebased"; operation: T }
-  /** The suggestion couldn't be placed on the stored body either. */
+  /** Accepting it on the stored body would refuse it. */
   | { kind: "stale" }
   /**
    * Canonicalizing would change what accepting does: the change vanishes,
@@ -70,22 +70,33 @@ type Placed = {
   after: string;
 };
 
-function placeOnCanonical(
+type OnStored = { range: MarkdownRange | null; after: string };
+
+/** What accepting `operation` on the stored body does; null when it's stale there. */
+function acceptedOnStored(
   operation: MarkdownSuggestionOperationLike,
   stored: string,
-  canonical: string,
-): Placed | "stale" | { blocked: "change_vanishes" | "structure_unsupported" } {
+): OnStored | null {
   const after = markdownPayload(operation.after, "after");
-  const storedRange = resolveMarkdownSuggestionRange(stored, operation);
+  const range = resolveMarkdownSuggestionRange(stored, operation);
+  if (range)
+    return {
+      range,
+      after: `${stored.slice(0, range.from)}${after.changedText ?? ""}${stored.slice(range.to)}`,
+    };
   // Accepting a suggestion with no range replaces a page that still reads as
   // its before-state.
-  const storedAfter = storedRange
-    ? `${stored.slice(0, storedRange.from)}${after.changedText ?? ""}${stored.slice(storedRange.to)}`
-    : anchorOf(operation) === null &&
-        markdownPayload(operation.before, "before").markdown === stored
-      ? after.markdown
-      : null;
-  if (storedAfter === null) return "stale";
+  return anchorOf(operation) === null &&
+    markdownPayload(operation.before, "before").markdown === stored
+    ? { range: null, after: after.markdown }
+    : null;
+}
+
+function placeOnCanonical(
+  { range: storedRange, after: storedAfter }: OnStored,
+  stored: string,
+  canonical: string,
+): Placed | { blocked: "change_vanishes" | "structure_unsupported" } {
   const canonicalAfter = canonicalizeNfm(storedAfter);
   if (canonicalAfter === canonical) return { blocked: "change_vanishes" };
   if (
@@ -167,13 +178,17 @@ export function rebaselineSuggestions<
   for (const suggestion of suggestions) {
     const before = markdownPayload(suggestion.operation.before, "before");
     anchorOf(suggestion.operation);
+    const onStored = acceptedOnStored(suggestion.operation, stored);
+    if (!onStored) {
+      outcomes.set(suggestion.id, { kind: "stale" });
+      continue;
+    }
     if (before.markdown === canonical) {
       outcomes.set(suggestion.id, { kind: "unchanged" });
       continue;
     }
-    const result = placeOnCanonical(suggestion.operation, stored, canonical);
-    if (result === "stale") outcomes.set(suggestion.id, { kind: "stale" });
-    else if ("blocked" in result)
+    const result = placeOnCanonical(onStored, stored, canonical);
+    if ("blocked" in result)
       outcomes.set(suggestion.id, { kind: "blocked", reason: result.blocked });
     else placed.set(suggestion.id, result);
   }
