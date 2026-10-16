@@ -117,6 +117,12 @@ describe("resolveOverviewScreenSourceType", () => {
     ).toBe("inline");
   });
 
+  it("uses the localhost fallback for an unannotated empty screen", () => {
+    expect(resolveOverviewScreenSourceType({ content: "" }, "localhost")).toBe(
+      "localhost",
+    );
+  });
+
   it("keeps an unannotated URL screen on the localhost fallback", () => {
     expect(
       resolveOverviewScreenSourceType(

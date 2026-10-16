@@ -1868,6 +1868,7 @@ export function resolveOverviewScreenSourceType(
       : undefined) ??
     (fallbackSourceType === "localhost" &&
     typeof screen.content === "string" &&
+    screen.content.trim().length > 0 &&
     !/^\s*https?:\/\//i.test(screen.content)
       ? "inline"
       : undefined) ??
