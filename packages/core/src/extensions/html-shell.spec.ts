@@ -138,6 +138,22 @@ describe("buildExtensionHtml", () => {
     expect(html).not.toContain("clientSecret");
   });
 
+  it("sets up link routing before extension content can run", () => {
+    const html = buildExtensionHtml(
+      "<main id=extension-content></main>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
+    const content = html.indexOf("<main id=extension-content>");
+
+    // Behavior is covered in toolkit's extension-link-routing.spec.ts.
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeGreaterThan(-1);
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeLessThan(content);
+    expect(html.indexOf("})(_openUrlToken);")).toBeGreaterThan(-1);
+    expect(html.indexOf("})(_openUrlToken);")).toBeLessThan(content);
+  });
+
   it("exposes a chat bridge helper to extension code", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 

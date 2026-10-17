@@ -15,7 +15,8 @@ vi.mock("./auth.js", () => ({
 vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
-vi.mock("../db/migrations.js", () => ({
+vi.mock("../db/migrations.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/migrations.js")>()),
   runMigrations: () => async () => undefined,
 }));
 vi.mock("../deploy/route-discovery.js", () => ({

@@ -11,11 +11,12 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
-  listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp,
   resolveWorkspaceConnectionCredentialForApp,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { rowReadiness, tokenConfiguredFor } from "../server/lib/dbt-readiness";
 import { executeProviderApiRequest } from "../server/lib/provider-api";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
@@ -192,7 +193,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.enum(["connection_error", "provider_error"]),
     metricName: z.string(),
-    connection: metricConnectionSchema,
+    connection: metricConnectionSchema.optional(),
     queryId: z.string().optional(),
     nextPage: z.string().optional(),
     querySpec: metricQuerySpecSchema.optional(),
@@ -945,7 +946,12 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 export default defineAction({
   description:
-    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. Each scalar query must choose a bounded inclusive date range up to 366 days or explicitly set allTime:true; grouped queries require a bounded range. Daily-capable metrics accept exact dates; monthly-only metrics require complete calendar months. Unsupported filter grains return an explicit error. Returns the metric definition, querySpec, rows, and explicit permission, deployment, or connection states. Grouped time columns are returned as metric_time__<GRAIN>. It cannot run dbt jobs or accept arbitrary GraphQL.",
+    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. " +
+    "Choose a bounded inclusive date range up to 366 days for scalar queries or explicitly set allTime:true; grouped queries require a bounded range. " +
+    "Daily-capable metrics accept exact dates; monthly-only metrics require complete calendar months. Unsupported filter grains return an explicit error. " +
+    "The action returns the metric definition, querySpec, and live rows with explicit permission, deployment, or connection states. Grouped time columns are returned as metric_time__<GRAIN>. It cannot run dbt jobs or accept arbitrary GraphQL. " +
+    "On `not_found`, search `find-data` for the exact name once, then retry. On `ambiguous_metric`, list the matching names and ask which metric is meant; retrying the same name returns the same ambiguity. " +
+    "On `connection_selection_required`, pass a `connectionId` from its `connections` list. On a connection-required error, report the Settings step (Settings → Integrations) and do not answer with a different metric.",
   schema: z
     .object({
       metricName: z
@@ -1100,7 +1106,9 @@ export default defineAction({
       });
     }
     const orgId = getRequestOrgId() || null;
-    const connections = await listWorkspaceConnectionsForApp({
+    // Choices come only from connections this caller may use, so a restricted
+    // row cannot be listed, selected, or force a selection step.
+    const connections = await resolveWorkspaceConnectionsForApp({
       appId: ANALYTICS_APP_ID,
       provider: "dbt",
       includeDisabled: true,
@@ -1139,11 +1147,43 @@ export default defineAction({
         ? connections[0]
         : null;
     if (!selected && connections.length > 1 && !selectedConnectionId) {
+      // Asking for a choice among rows that cannot run a query only sends the user
+      // round in a circle. Offer only the rows that are ready to query.
+      if (!orgId) {
+        return {
+          status: "connection_error",
+          metricName,
+          message:
+            "The active organization is unavailable, so dbt connection readiness cannot be checked. Restore the organization context before retrying.",
+        };
+      }
+      const tokenConfigured = await tokenConfiguredFor(orgId);
+      // A failed secret lookup is unknown, not a missing token, so it is not
+      // reported as an unready connection.
+      if (tokenConfigured === null) {
+        return {
+          status: "connection_error",
+          metricName,
+          message:
+            "The dbt token could not be checked. Retry the request or check the workspace secrets.",
+        };
+      }
+      const ready = connections.filter(
+        (connection) => rowReadiness(connection, tokenConfigured) === "ready",
+      );
+      if (ready.length === 0) {
+        return {
+          status: "connection_unavailable",
+          metricName,
+          connection: { id: connections[0].id, label: connections[0].label },
+          message:
+            "None of the dbt workspace connections is ready. Check them in Settings → Integrations.",
+        };
+      }
       return {
         status: "connection_selection_required",
-        message:
-          "Choose a connected dbt workspace connection to run this metric.",
-        connections: connections.map(({ id, label, status }) => ({
+        message: "Choose a dbt workspace connection to run this metric.",
+        connections: ready.map(({ id, label, status }) => ({
           id,
           label,
           status,

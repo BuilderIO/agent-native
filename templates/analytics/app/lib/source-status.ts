@@ -5,9 +5,11 @@ import {
   IconDatabase,
 } from "@tabler/icons-react";
 
+import { isDbtUsable } from "../../server/lib/dbt-connection";
 import {
   getGrantedWorkspaceConnectionStatuses,
   type DataSourceStatusResponse,
+  type WorkspaceConnectionProviderSummary,
 } from "./data-source-status";
 
 export const SOURCE_HEALTH_SOURCES = [
@@ -27,6 +29,25 @@ export type SourceHealthState =
   | "needs_reauth"
   | "error"
   | "unknown";
+
+// A granted dbt row is connected only when the org token and environment ID are
+// saved too. A missing readiness value is unknown, so it reads as an error.
+function dbtHealthState(
+  connection: WorkspaceConnectionProviderSummary | undefined,
+): SourceHealthState {
+  const readiness = connection?.dbtReadiness;
+  // A saved but malformed environment ID needs repair, so it is an error, not a missing setup step.
+  if (
+    readiness === undefined ||
+    readiness === "error" ||
+    readiness === "environment_invalid" ||
+    readiness === "checking"
+  ) {
+    return "error";
+  }
+  if (readiness === "needs_reauth") return "needs_reauth";
+  return isDbtUsable(readiness) ? "connected" : "not_connected";
+}
 
 export function sourceHealthState(
   sourceId: SourceHealthId,
@@ -51,7 +72,21 @@ export function sourceHealthState(
   const grantState = connection?.grantState;
   // The aggregate status list includes connections granted to other apps.
   // Use the per-connection list filtered for Analytics when assessing health.
-  if (grantState === "connected") return "connected";
+  // dbt health comes from readiness whatever the grant state, so a granted row
+  // in error cannot fall through to "configured".
+  // A failed dbt lookup reports no grant, so its error must win over the grant.
+  if (
+    sourceId === "dbt" &&
+    (connection?.dbtReadiness === "error" ||
+      connection?.dbtReadiness === "checking" ||
+      grantState === "connected" ||
+      grantState === "granted")
+  ) {
+    return dbtHealthState(connection);
+  }
+  if (grantState === "connected") {
+    return "connected";
+  }
   if (provider?.connectionHealth === "checking") return "checking";
   if (grantState === "needs_grant") {
     const missingRequiredKeys = provider?.missingRequiredKeys;

@@ -36,7 +36,18 @@ import {
 } from "@/pages/design-editor/motion-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
-function motionAutosaveErrorMessage(error: unknown): string {
+function motionAutosaveErrorMessage(
+  error: unknown,
+  unresolvedStylesheetsMessage: string,
+): string {
+  if (
+    error &&
+    typeof error === "object" &&
+    "errorCode" in error &&
+    error.errorCode === "motion_html_source_unresolved_stylesheet"
+  ) {
+    return unresolvedStylesheetsMessage;
+  }
   if (error instanceof Error && error.message) return error.message;
   if (
     error &&
@@ -138,6 +149,7 @@ export interface MotionAutosaveArgs {
   setMotionTracksDirty: Dispatch<SetStateAction<boolean>>;
   writeMotionAvailable: boolean;
   sourceWriteUnavailableMessage: string;
+  unresolvedStylesheetsMessage: string;
 }
 
 export function runMotionAutosave({
@@ -189,6 +201,7 @@ export function runMotionAutosave({
   setMotionTracksDirty,
   writeMotionAvailable,
   sourceWriteUnavailableMessage,
+  unresolvedStylesheetsMessage,
 }: MotionAutosaveArgs) {
   if (!writeMotionAvailable) {
     clearMotionAutosaveTimer();
@@ -215,7 +228,10 @@ export function runMotionAutosave({
       ? activeCodeLayerProjection.source.connectionId?.trim()
       : undefined;
   const reportError = (error: unknown) => {
-    const message = motionAutosaveErrorMessage(error);
+    const message = motionAutosaveErrorMessage(
+      error,
+      unresolvedStylesheetsMessage,
+    );
     toast.error(
       message.startsWith(`${MOTION_SOURCE_WRITE_UNAVAILABLE}:`)
         ? sourceWriteUnavailableMessage

@@ -71,6 +71,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Choisissez l’espace de travail Sigma dont vous voulez parcourir les classeurs.",
     sigmaNoConnection: "Sigma n’est pas connecté",
+    sigmaApiRegion: "Région de l’API Sigma",
+    sigmaOAuthConnect: "Connecter mon compte Sigma personnel",
+    sigmaOAuthAddAnother: "Connecter un autre compte Sigma",
+    sigmaOAuthCancel: "Annuler",
+    sigmaOAuthDescription:
+      "Connectez-vous à Sigma avec votre compte pour parcourir les classeurs auxquels vous avez accès.",
     sigmaClientId: "ID client",
     sigmaClientSecret: "Secret client",
     sigmaBaseUrl: "URL de base de l’API (facultatif)",
@@ -84,7 +90,7 @@ export default {
     sigmaCredentialsRequired:
       "Enregistrez d’abord l’ID client et le secret client Sigma.",
     sigmaBaseUrlInvalid:
-      "Utilisez une URL HTTPS de l’API Sigma sur un domaine sigmacomputing.com.",
+      "Choisissez une URL officielle d’une région de l’API Sigma prise en charge.",
     sigmaPersistenceUnavailable:
       "Analytics ne peut pas enregistrer la connexion Sigma de manière sécurisée pour le moment. Réessayez.",
     sigmaPolicyInvalid:
@@ -99,7 +105,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Impossible de lire les identifiants Sigma enregistrés pour Analytics. Un administrateur de l’organisation peut reconnecter Sigma dans Dispatch ou saisir à nouveau les identifiants dans Analytics.",
     sigmaNoConnectionDescription:
-      "Saisissez ici les identifiants pour créer une connexion réservée à Analytics. Les connexions Sigma autorisées pour Analytics dans Dispatch s’affichent automatiquement ici ; seuls les administrateurs de l’organisation peuvent enregistrer directement des identifiants.",
+      "Connectez votre compte Sigma personnel ou utilisez les identifiants enregistrés par un administrateur de l’organisation. Les connexions Dispatch autorisées pour Analytics s’affichent aussi ici.",
     sigmaOpenDispatch: "Connecter dans Dispatch",
     sigmaOpenVault: "Ouvrir Vault",
     sigmaWorkbooksLoadFailed: "Impossible de charger les classeurs Sigma",
@@ -1441,6 +1447,9 @@ export default {
       "Impossible d’exporter vers Google Sheets : {{message}}",
     viewSql: "Voir SQL",
     dragToReorder: "Faites glisser pour réorganiser",
+    resizePanelWidth: "Redimensionner la largeur du panneau",
+    resizePanelHeight: "Redimensionner la hauteur du panneau",
+    resetPanelHeight: "Réinitialiser la hauteur du panneau",
     columnFormat: "Format",
     columnFormatText: "Texte brut",
     columnFormatNumber: "Nombre",
@@ -2211,6 +2220,8 @@ export default {
     dbtAdminOnly:
       "Seuls les administrateurs de l’organisation peuvent modifier cette connexion.",
     dbtReadFailed: "La connexion dbt n’a pas pu être chargée.",
+    dbtSeveralConnections:
+      "Plusieurs connexions dbt sont accordées à Analytics, donc ce panneau ne peut en modifier aucune. Supprimez les connexions en trop dans Paramètres → Intégrations pour n'en garder qu'une.",
     dbtSave: "Enregistrer la connexion",
     dbtChecking: "Vérification",
     dbtSaveFailed: "La connexion dbt n’a pas pu être enregistrée.",

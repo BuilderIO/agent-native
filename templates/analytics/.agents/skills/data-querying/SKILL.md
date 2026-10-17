@@ -22,6 +22,8 @@ The analytics app connects to multiple data sources. This skill covers general p
 For a question naming a dbt metric, use `tool-search` to load
 `query-dbt-semantic-metric` and pass its exact dbt name. Use dbt as the metric-
 definition and grain source; Sigma and Amplitude are examples or cross-checks.
+
+If no dbt connection is available, use the source-selection path below.
 If the metric is not defined or its deployment is not ready, report that state
 and use a verified warehouse path only when it answers the same definition.
 
@@ -44,7 +46,7 @@ ambiguous.
 - A bounded date or partition scan supports conclusions only for the scanned range. State that range and any bytes or query limit; an empty result in those partitions does not establish absence elsewhere.
 - For a source inventory, call `data-source-status` and distinguish configured credentials from a healthy workspace connection. A provider appearing in the tool catalog is not evidence that this workspace has connected it.
 
-For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
+For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification only when multiple configured sources are plausible and the choice would change the numbers; otherwise name the source you used. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
 For first-party counts, active-user, and retention questions, prefer the compact
 tenant-scoped daily event and user-day rollups. Use `analytics_events` only for a
@@ -87,8 +89,10 @@ a requirement to use BigQuery. The health result lists the supported options:
 - BigQuery for warehouse SQL and complete historical analysis.
 - Amplitude for product analytics, funnels, and retention.
 
-If a suitable backend is not configured, use its returned setup link or
-`data-source-status --key <provider>` to guide the user through the existing
+A `recommend_bigquery` result is advice, not a stop: answer the bounded question
+first. Use the setup link only for a historical or high-volume request with no
+suitable backend configured, via its returned link or
+`data-source-status --key <provider>`, to guide the user through the existing
 Data Sources walkthrough. Connecting a query backend alone does not move the
 collector or copy existing Neon events. For the Builder.io production
 organization, the hidden `migrate-first-party-analytics-to-bigquery` action is

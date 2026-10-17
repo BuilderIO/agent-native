@@ -17,11 +17,22 @@ export class ClipsActionError extends Error {
   }
 }
 
+export class ClipsActionTimeoutError extends Error {
+  constructor(action: string, timeoutMs: number) {
+    super(`Action ${action} timed out after ${timeoutMs}ms.`);
+    this.name = "ClipsActionTimeoutError";
+  }
+}
+
 export async function callClipsActionFor<T>(
   target: ClipsActionTarget,
   name: string,
   body: Record<string, unknown>,
-  opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
+  opts?: {
+    method?: "GET" | "POST";
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  },
 ): Promise<T> {
   const base = target.serverUrl.replace(/\/+$/, "");
   const method = opts?.method ?? "POST";
@@ -52,45 +63,76 @@ export async function callClipsActionFor<T>(
     headers.set("Content-Type", "application/json");
     requestBody = JSON.stringify(body);
   }
-  const response = await fetch(url, {
-    method,
-    credentials: "include",
-    headers,
-    body: requestBody,
-    signal: opts?.signal,
-  });
-  const text = await response.text();
-  let json: any = null;
-  let parseError: unknown;
-  if (text) {
-    try {
-      json = JSON.parse(text);
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) throw error;
-      parseError = error;
-    }
+  const timeoutMs = opts?.timeoutMs;
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+  ) {
+    throw new RangeError("Action timeout must be a positive finite number.");
   }
-  if (!response.ok) {
-    const message =
-      json?.error ||
-      json?.message ||
-      (response.status === 401
-        ? "Sign in to transcribe meetings."
-        : text.slice(0, 180) || `Request failed (${response.status})`);
-    throw new ClipsActionError(
-      message,
-      response.status,
-      typeof json?.errorCode === "string" ? json.errorCode : undefined,
+  const timeoutController =
+    timeoutMs === undefined ? undefined : new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let relayAbort: (() => void) | undefined;
+  if (timeoutController && timeoutMs !== undefined) {
+    if (opts?.signal?.aborted) {
+      timeoutController.abort(opts.signal.reason);
+    } else if (opts?.signal) {
+      relayAbort = () => timeoutController.abort(opts.signal?.reason);
+      opts.signal.addEventListener("abort", relayAbort, { once: true });
+    }
+    timeoutId = setTimeout(
+      () =>
+        timeoutController.abort(new ClipsActionTimeoutError(name, timeoutMs)),
+      timeoutMs,
     );
   }
-  if (!text) {
-    throw new Error("Action returned an empty response.");
+  try {
+    const response = await fetch(url, {
+      method,
+      credentials: "include",
+      headers,
+      body: requestBody,
+      signal: timeoutController?.signal ?? opts?.signal,
+    });
+    const text = await response.text();
+    let json: any = null;
+    let parseError: unknown;
+    if (text) {
+      try {
+        json = JSON.parse(text);
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        parseError = error;
+      }
+    }
+    if (!response.ok) {
+      const message =
+        json?.error ||
+        json?.message ||
+        (response.status === 401
+          ? "Sign in to transcribe meetings."
+          : text.slice(0, 180) || `Request failed (${response.status})`);
+      throw new ClipsActionError(
+        message,
+        response.status,
+        typeof json?.errorCode === "string" ? json.errorCode : undefined,
+      );
+    }
+    if (!text) {
+      throw new Error("Action returned an empty response.");
+    }
+    if (parseError) {
+      // The desktop tsconfig targets ES2021, which has no Error `cause` option.
+      const failure = new Error("Action returned an invalid JSON response.");
+      Object.assign(failure, { cause: parseError });
+      throw failure;
+    }
+    return (json?.result ?? json) as T;
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    if (relayAbort && opts?.signal) {
+      opts.signal.removeEventListener("abort", relayAbort);
+    }
   }
-  if (parseError) {
-    // The desktop tsconfig targets ES2021, which has no Error `cause` option.
-    const failure = new Error("Action returned an invalid JSON response.");
-    Object.assign(failure, { cause: parseError });
-    throw failure;
-  }
-  return (json?.result ?? json) as T;
 }

@@ -294,10 +294,26 @@ describe("real data action classification", () => {
       hasDataQueryAttempt([
         {
           name: "query_dbt_semantic_metric",
-          content: JSON.stringify({ status: "success", rows: [] }),
+          content: JSON.stringify({
+            status: "success",
+            rows: [],
+            rowCount: 0,
+          }),
         },
       ]),
     ).toBe(false);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query-dbt-semantic-metric",
+          content: JSON.stringify({
+            status: "success",
+            rows: [[42]],
+            rowCount: 1,
+          }),
+        },
+      ]),
+    ).toBe(true);
 
     const emptyResultFailure = failedDataQueryAttemptMessage([
       {

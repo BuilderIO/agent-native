@@ -10,6 +10,7 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+import { resolveWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
@@ -22,7 +23,16 @@ import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
 import "../lib/sigma-setup-secret-sweep.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import {
+  DBT_CONNECTION_READINESS,
+  DBT_PROVIDER_ID,
+  dbtConnectionReadinessReason,
+  isDbtUsable,
+  type DbtConnectionReadiness,
+} from "../lib/dbt-connection";
+import { dbtProviderReadiness } from "../lib/dbt-readiness";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
+import { ANALYTICS_APP_ID } from "../lib/provider-credentials";
 import {
   deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
@@ -36,6 +46,7 @@ import {
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
+  isBigQueryRowsPayload,
   hasIncompleteDataEvidence,
   hasEmptyFindDataResult,
   hasCompleteBigQuerySchemaSearch,
@@ -202,6 +213,11 @@ const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   view: "data-sources",
   to: "/data-sources",
 });
+const DBT_SEMANTIC_LAYER_LINK = buildDeepLink({
+  app: "analytics",
+  view: "semantic-layer",
+  to: "/semantic-layer",
+});
 
 const DASHBOARD_BUILD_PAUSE_PATTERN =
   /\b(?:want me to|would you like me to|shall i|should i|can i|may i|do you want me to)\b[\s\S]{0,160}\b(?:proceed|continue|seed|populate|save|embed|finish|run|apply|create|build)\b/i;
@@ -327,8 +343,47 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
 ];
 
-export function analyticsExtraContext(): string {
-  return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
+export function analyticsExtraContext(dbtReadinessLine?: string): string {
+  const lines = ANALYTICS_PROMPT_RULES.map((rule) => rule.text);
+  if (dbtReadinessLine) lines.push(dbtReadinessLine);
+  return `<data-source-guidance>\n${lines.join("\n")}\n</data-source-guidance>`;
+}
+
+const DBT_READINESS_UNKNOWN_LINE =
+  "dbt Semantic Layer: unknown (the readiness check failed).";
+
+// Runs on every agent run. A throw here drops the whole guidance block (core
+// returns an empty string), so a failed lookup must become the "unknown" line.
+// Returns null when the org has no dbt connection at all, so the guidance does
+// not spend tokens on a source the org cannot use.
+async function dbtReadinessLine(event: any): Promise<string | null> {
+  try {
+    const ctx = await getOrgContext(event);
+    const grantedConnections = await resolveWorkspaceConnectionsForApp({
+      appId: ANALYTICS_APP_ID,
+      provider: DBT_PROVIDER_ID,
+      includeDisabled: true,
+    });
+    const readiness = await dbtProviderReadiness(
+      grantedConnections,
+      ctx.orgId ?? null,
+    );
+    if (readiness === "not_connected") return null;
+    if (readiness === "ready") return "dbt Semantic Layer: ready.";
+    if (isDbtUsable(readiness)) {
+      return `dbt Semantic Layer: ${dbtConnectionReadinessReason(readiness)}`;
+    }
+    return `dbt Semantic Layer: not ready (${readiness}). ${dbtConnectionReadinessReason(readiness)} Setup: [Semantic Layer](${DBT_SEMANTIC_LAYER_LINK}).`;
+  } catch (error) {
+    console.warn("[analytics] dbt readiness unavailable for agent context", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return DBT_READINESS_UNKNOWN_LINE;
+  }
+}
+
+async function analyticsRequestExtraContext(event: any): Promise<string> {
+  return analyticsExtraContext((await dbtReadinessLine(event)) ?? undefined);
 }
 
 // A request stays inside one sentence or one bulleted list: a summary of the
@@ -487,6 +542,137 @@ function exhaustedDraftPrefixFor({
   );
 }
 
+const DBT_FALLBACK_DISCLOSURE =
+  "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+// Shown alone when an exhausted retry withholds a draft that claims approval, so it
+// must not refer to a figure the user never sees.
+const DBT_FALLBACK_WITHHELD =
+  "The dbt Semantic Layer metric query did not complete, so no owner-approved figure is available for this answer. A BigQuery figure would be warehouse-derived, not the owner-approved Semantic Layer definition, so it is not shown here.";
+const DBT_FALLBACK_SOURCE = /\bwarehouse[-\s]derived\b|\bfrom\s+BigQuery\b/i;
+// Any mention of approval that is not negated within its own sentence claims it.
+// "not the owner-approved definition" is a disclaimer; "call it the owner-approved
+// value" is a claim. A draft with a claim is not a disclosure, even with a disclaimer.
+function claimsApproval(text: string): boolean {
+  return [...text.matchAll(/\b(?:owner[-\s]approved|approved)\b/gi)].some(
+    (match) => {
+      const before = text.slice(0, match.index ?? 0);
+      // Negation covers only its own clause: a comma or conjunction ends it.
+      const sentence =
+        before
+          .split(
+            /[.!?;:,]|\b(?:but|however|yet|whereas|while|although|though|and)\b/i,
+          )
+          .pop() ?? "";
+      return !/\bnot\b|n't\b|\bno\b|\brather\s+than\b|\bnever\b/i.test(
+        sentence,
+      );
+    },
+  );
+}
+const DBT_FALLBACK_NOT_APPROVED =
+  /\bnot\s+(?:the\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?definition\b/i;
+
+// A dbt-defined metric answered from BigQuery after dbt did not answer must say
+// so. Only that case retries, and only once: unrelated BigQuery answers never
+// asked dbt, so they pass through untouched.
+function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
+  // An empty draft has no figure for the disclosure to describe.
+  if (context.text.trim() === "") return null;
+  const results = context.toolResults ?? [];
+  const named = (name: unknown, target: string) =>
+    String(name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-") === target;
+  let latestDbtIndex = -1;
+  results.forEach((result, index) => {
+    if (named(result.name, DBT_QUERY_TOOL)) latestDbtIndex = index;
+  });
+  // Only a dbt metric query that did not complete counts. A readiness status
+  // alone does not show that this answer was meant to be a dbt metric.
+  if (
+    latestDbtIndex === -1 ||
+    !dbtQueryDidNotComplete(results[latestDbtIndex])
+  ) {
+    return null;
+  }
+  // The fallback answer is the first warehouse read after the dbt failure. A later
+  // read, or one that errored, is not the answer to this metric.
+  const firstReadAfterDbt = results.find(
+    (result, index) => index > latestDbtIndex && named(result.name, "bigquery"),
+  );
+  const warehouseAnswered =
+    firstReadAfterDbt !== undefined &&
+    firstReadAfterDbt.isError !== true &&
+    isBigQueryRowsPayload(firstReadAfterDbt.content);
+  if (!warehouseAnswered) return null;
+  const disclosed =
+    DBT_FALLBACK_SOURCE.test(context.text) &&
+    DBT_FALLBACK_NOT_APPROVED.test(context.text) &&
+    !claimsApproval(context.text);
+  if (disclosed) return null;
+  return {
+    retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer.`,
+    fallbackMessage: DBT_FALLBACK_WITHHELD,
+    // An exhausted retry keeps the draft only as a prefix, and only when the draft
+    // makes no approval claim. A draft that claims approval must not reach the user.
+    ...(claimsApproval(context.text)
+      ? {}
+      : { exhaustedDraftPrefix: DBT_FALLBACK_DISCLOSURE }),
+    maxRetries: 1,
+  };
+}
+
+// Names dbt only when this turn gives a reason to: the in-turn status check
+// reported a dbt connection that is not ready, or this turn queried dbt. An org
+// with no dbt connection gets no note unless it asked for dbt. Silence is not "ready".
+function dbtUnverifiedNote(
+  sourceStatus: DataSourceStatusSummary,
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): string | null {
+  const dbtResults = (toolResults ?? []).filter(
+    (result) =>
+      String(result.name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-") === DBT_QUERY_TOOL,
+  );
+  const readiness = sourceStatus.dbtReadiness;
+  if (
+    readiness !== undefined &&
+    !isDbtUsable(readiness) &&
+    (readiness !== "not_connected" || dbtResults.length > 0)
+  ) {
+    return `The dbt Semantic Layer is not ready: ${dbtConnectionReadinessReason(readiness)} Set it up on the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}), then ask again.`;
+  }
+  // Only the latest dbt call matters: an earlier failure followed by a successful
+  // retry is not a failed turn.
+  const latest = dbtResults[dbtResults.length - 1];
+  return latest !== undefined && dbtQueryDidNotComplete(latest)
+    ? `The dbt Semantic Layer query did not complete this turn. Check the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}) for the connection status, then ask again.`
+    : null;
+}
+
+const DBT_QUERY_TOOL = "query-dbt-semantic-metric";
+
+// Normal failure states (connection_error, not_found, ...) return without
+// isError, so the payload status decides too. An unreadable payload counts as
+// not completed rather than as success.
+function dbtQueryDidNotComplete(result: {
+  isError?: boolean;
+  content?: unknown;
+}): boolean {
+  if (result.isError === true) return true;
+  try {
+    const parsed = JSON.parse(String(result.content ?? "")) as {
+      status?: unknown;
+    };
+    return parsed.status !== "success";
+  } catch {
+    return true;
+  }
+}
+
 function isRealUserTextMessage(message: {
   role?: string;
   content?: unknown;
@@ -564,6 +750,15 @@ interface DataSourceStatusSummary {
     setupLink?: string;
   }>;
   setupLink: string;
+  // Absent when no in-turn status reported dbt. Absent means unknown, not
+  // not-connected.
+  dbtReadiness?: DbtConnectionReadiness;
+}
+
+function parseDbtReadiness(value: unknown): DbtConnectionReadiness | undefined {
+  return (DBT_CONNECTION_READINESS as readonly unknown[]).includes(value)
+    ? (value as DbtConnectionReadiness)
+    : undefined;
 }
 
 function inferRequiredCredentialsConfigured(
@@ -743,6 +938,7 @@ function dataSourceStatusSummary(
   >();
   let checked = false;
   let setupLink = ANALYTICS_DATA_SOURCES_LINK;
+  let dbtReadiness: DbtConnectionReadiness | undefined;
 
   const addAvailableExternalSource = (
     provider: unknown,
@@ -1003,24 +1199,47 @@ function dataSourceStatusSummary(
       const label = record.label ?? providerId;
       const grantState =
         typeof record.grantState === "string" ? record.grantState : null;
-      const configured =
-        record.configured === true ||
-        grantState === "connected" ||
-        grantState === "granted"
+      const isDbt = providerId === DBT_PROVIDER_ID;
+      if (isDbt) dbtReadiness = parseDbtReadiness(record.dbtReadiness);
+      // Mirrors data-source-status: dbt is configured or healthy only when its
+      // readiness is "ready". An absent readiness is unknown, not healthy, so the
+      // grant alone must not restore health.
+      const dbtNotReady = isDbt && !isDbtUsable(dbtReadiness);
+      // Absent and error readiness both mean the state is unknown, not disconnected.
+      const configured = dbtNotReady
+        ? dbtReadiness === undefined ||
+          dbtReadiness === "error" ||
+          dbtReadiness === "checking" ||
+          dbtReadiness === "needs_reauth" ||
+          dbtReadiness === "environment_invalid"
+          ? null
+          : false
+        : record.configured === true ||
+            grantState === "connected" ||
+            grantState === "granted"
           ? true
           : record.configured === false ||
               grantState === "needs_grant" ||
               grantState === "not_connected"
             ? false
             : null;
-      addAvailableExternalSource(providerId, label, configured, undefined, {
-        ...(grantState ? { workspaceGrantState: grantState } : {}),
-      });
+      addAvailableExternalSource(
+        providerId,
+        label,
+        configured,
+        dbtNotReady ? record.setupLink : undefined,
+        {
+          ...(grantState && !dbtNotReady
+            ? { workspaceGrantState: grantState }
+            : {}),
+        },
+      );
       if (configured && typeof label === "string" && label.trim()) {
         configuredSourceLabels.add(label.trim());
       }
       if (
         grantState === "connected" &&
+        !dbtNotReady &&
         typeof label === "string" &&
         label.trim()
       ) {
@@ -1035,6 +1254,7 @@ function dataSourceStatusSummary(
     workspaceConnectedSourceLabels: [...workspaceConnectedSourceLabels],
     availableExternalSources: [...availableExternalSources.values()],
     setupLink,
+    dbtReadiness,
   };
 }
 
@@ -2640,6 +2860,9 @@ export function realDataFinalGuard(
     };
   }
 
+  const dbtFallback = dbtFallbackGuard(context);
+  if (dbtFallback) return dbtFallback;
+
   // A verified dashboard save that rendered a data panel ran its SQL, so its
   // receipt is the live-query evidence for the figures the draft quotes. A
   // save that checked no panel (`noRenderAffected`) or only section and
@@ -2792,19 +3015,26 @@ export function realDataFinalGuard(
     ? ` \`data-source-status\` reports ${sourceStatusDetails}. It checks configuration and workspace grants but does not run a source query. Treat configured credentials separately from healthy workspace connections; do not call a credential-only source connected or ask the user to reconnect before trying its query action.`
     : "";
   const catalogSearched = hasCatalogSearchAttempt(context.toolResults);
-  const exhaustedDraftPrefix = exhaustedDraftPrefixFor({
-    toolResults: context.toolResults,
-    setupMarkdown,
-    includeConnectOption: !catalogSearched,
-  });
+  // The draft prefix is what the user sees when a draft exists, so the dbt
+  // note goes there as well as into the fallbacks.
+  const dbtNote = dbtUnverifiedNote(sourceStatus, context.toolResults);
+  const withDbtNote = (text: string) => (dbtNote ? `${text} ${dbtNote}` : text);
+  const exhaustedDraftPrefix = withDbtNote(
+    exhaustedDraftPrefixFor({
+      toolResults: context.toolResults,
+      setupMarkdown,
+      includeConnectOption: !catalogSearched,
+    }),
+  );
 
   if (catalogSearched) {
     return {
       retryMessage:
         "You already ran data-reference discovery this turn. If it returned a usable dashboard or query, adapt and run it now and cite the dashboard; if not, inspect exact metadata with search-bigquery-schema or data-source-status, then run one bounded query." +
         UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
-      fallbackMessage:
+      fallbackMessage: withDbtNote(
         "I searched the dashboard/query catalog but didn't finish a real source query. Please retry; I'll adapt a matching dashboard or query if one exists, or run the next discovery pass and query it directly.",
+      ),
       maxRetries: 2,
       expandToolSurface: true,
       exhaustedDraftPrefix,
@@ -2817,9 +3047,11 @@ export function realDataFinalGuard(
       configuredSourceGuidance +
       " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead." +
       UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
-    fallbackMessage: configuredSources.length
-      ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
-      : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
+    fallbackMessage: withDbtNote(
+      configuredSources.length
+        ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
+        : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
+    ),
     maxRetries: 2,
     expandToolSurface: true,
     exhaustedDraftPrefix,
@@ -2940,7 +3172,7 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  extraContext: analyticsExtraContext,
+  extraContext: analyticsRequestExtraContext,
   mentionProviders: {
     dashboards: {
       label: "Dashboards",

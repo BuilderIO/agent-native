@@ -418,7 +418,7 @@ describe("getOnboardingHtml", () => {
       ".auth-marketing-home .card input {\n      color: var(--auth-marketing-foreground);\n      border-color: var(--auth-marketing-border);",
     );
     expect(html).toContain(
-      ".auth-marketing-home .auth-marketing-description-link {\n    color: var(--auth-marketing-muted);",
+      ".auth-marketing-home .auth-marketing-description-link {\n    color: var(--auth-marketing-foreground);",
     );
     expect(html).toContain("--auth-marketing-muted: #9a9997;");
     expect(html).toContain(".auth-marketing-home .card input:focus {");

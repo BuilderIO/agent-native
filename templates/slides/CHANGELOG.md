@@ -11,6 +11,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Slides can research public sources when creating presentations
 - Slides keeps the original prompt available if saving a failed generation status does not work.
 
 ## 2026-10-15

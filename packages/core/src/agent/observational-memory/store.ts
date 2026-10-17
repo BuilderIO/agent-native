@@ -15,7 +15,9 @@
 import { getDbExec } from "../../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../../db/ddl-guard.js";
 import { defineStore } from "../../db/store-registry.js";
+import { fromMigrationEntries } from "../../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../../db/widen-columns.js";
+import { OBSERVATIONAL_MEMORY_MIGRATIONS } from "./migrations.js";
 import type {
   ObservationalMemoryEntry,
   ObservationalMemoryOwner,
@@ -67,6 +69,11 @@ export const observationalMemoryStore = defineStore({
         ]);
       },
     },
+    ...fromMigrationEntries(
+      "_observational_memory_migrations",
+      OBSERVATIONAL_MEMORY_MIGRATIONS,
+      { ranAtBoot: true },
+    ),
   ],
 });
 

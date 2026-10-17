@@ -282,6 +282,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Choose the Sigma workspace to browse its workbooks.",
     sigmaNoConnection: "Sigma isn't connected",
+    sigmaApiRegion: "Sigma API region",
+    sigmaOAuthConnect: "Connect personal Sigma",
+    sigmaOAuthAddAnother: "Connect another Sigma account",
+    sigmaOAuthCancel: "Cancel",
+    sigmaOAuthDescription:
+      "Sign in to Sigma with your account to browse the workbooks you can access.",
     sigmaClientId: "Client ID",
     sigmaClientSecret: "Client secret",
     sigmaBaseUrl: "API base URL (optional)",
@@ -293,8 +299,7 @@ export default {
     sigmaCredentialStageFailed:
       "Couldn't securely stage the Sigma credentials. Check Vault access and try again.",
     sigmaCredentialsRequired: "Enter the Sigma client ID and client secret.",
-    sigmaBaseUrlInvalid:
-      "Use an HTTPS Sigma API URL on a sigmacomputing.com domain.",
+    sigmaBaseUrlInvalid: "Choose a supported official Sigma API region URL.",
     sigmaPersistenceUnavailable:
       "Analytics can't securely save the Sigma connection right now. Try again.",
     sigmaPolicyInvalid:
@@ -309,7 +314,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Couldn't read Analytics's saved Sigma credentials. An organization admin can reconnect in Dispatch or enter them again in Analytics.",
     sigmaNoConnectionDescription:
-      "Enter credentials here to create an Analytics-only connection. Dispatch connections granted to Analytics appear here automatically; only organization admins can save credentials directly.",
+      "Connect your personal Sigma account or use credentials saved by an organization admin. Dispatch connections granted to Analytics also appear here.",
     sigmaOpenDispatch: "Connect in Dispatch",
     sigmaOpenVault: "Open Vault",
     sigmaWorkbooksLoadFailed: "Couldn't load Sigma workbooks",
@@ -1031,6 +1036,9 @@ export default {
     googleSheetsExportFailed: "Couldn't export to Google Sheets: {{message}}",
     viewSql: "View SQL",
     dragToReorder: "Drag to reorder",
+    resizePanelWidth: "Resize panel width",
+    resizePanelHeight: "Resize panel height",
+    resetPanelHeight: "Reset panel height",
     columnFormat: "Format",
     columnFormatText: "Plain text",
     columnFormatNumber: "Number",
@@ -2127,6 +2135,8 @@ export default {
     dbtDisabled: "Disabled",
     dbtAdminOnly: "Only organization admins can change this connection.",
     dbtReadFailed: "The dbt connection could not be loaded.",
+    dbtSeveralConnections:
+      "Several dbt connections are granted to Analytics, so this panel cannot edit one of them. Remove the extra connections in Settings → Integrations to keep one.",
     dbtSave: "Save connection",
     dbtChecking: "Checking",
     dbtSaveFailed: "The dbt connection could not be saved.",

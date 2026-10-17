@@ -7,6 +7,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  resolveWorkspaceConnectionsForApp,
   summarizeWorkspaceConnectionProviderForApp,
   type SerializedWorkspaceConnectionGrant,
   type SerializedWorkspaceConnection,
@@ -19,6 +20,8 @@ import {
 } from "../server/lib/credential-keys";
 import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
+import { DBT_PROVIDER_ID, isDbtUsable } from "../server/lib/dbt-connection";
+import { dbtProviderReadiness } from "../server/lib/dbt-readiness";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
 import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
@@ -27,6 +30,12 @@ const DATA_SOURCES_SETUP_LINK = buildDeepLink({
   app: APP_ID,
   view: "data-sources",
   to: "/data-sources",
+});
+// dbt's org token and environment ID are saved on the Semantic Layer page.
+const DBT_SETUP_LINK = buildDeepLink({
+  app: APP_ID,
+  view: "semantic-layer",
+  to: "/semantic-layer",
 });
 
 function dataSourceSetupLink(provider: string): string {
@@ -166,7 +175,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "Report Analytics source status without secrets. `ready` indicates a query path is configured because required local credentials are present or an Analytics workspace connection is marked connected; it is not a live health check. `credentialsConfigured` reports required local credential presence and `connectionHealth` reports workspace connection state. First-party Analytics events are built in; use `query-agent-native-analytics` to query them. Each provider includes a setup link; key accepts a credential name or provider alias.",
+    "Report Analytics source status without secrets. `ready` indicates a configured query path because required local credentials are present or an Analytics workspace connection is marked connected; it is not a live health check. `credentialsConfigured` reports required local credential presence and `connectionHealth` reports workspace connection state. A null `configured` or `hasConnectedExternalDataSources` value means status is unknown; report it as unknown, not disconnected. For dbt, `dbtReadiness` names the missing step; only `ready` means the Semantic Layer can answer. First-party Analytics events are built in; use `query-agent-native-analytics` to query them. Each provider includes a setup link; key accepts a credential name or provider alias.",
   schema: z.object({
     key: z
       .string()
@@ -205,6 +214,40 @@ export default defineAction({
         ...workspace.connections.map((connection) => connection.provider),
       ]),
     ];
+    // The caller-visible dbt rows come from one batch lookup. A failed lookup is
+    // unknown dbt readiness, not an absent connection, and must not fail the
+    // other providers in this response.
+    let dbtAccessFailed = false;
+    let dbtConnections: SerializedWorkspaceConnection[] = [];
+    try {
+      dbtConnections = await resolveWorkspaceConnectionsForApp({
+        appId: APP_ID,
+        provider: DBT_PROVIDER_ID,
+        includeDisabled: true,
+      });
+    } catch (error) {
+      dbtAccessFailed = true;
+      console.warn("[analytics] dbt connection access lookup failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+    const dbtGrantedIds = new Set(
+      summarizeWorkspaceConnections(
+        DBT_PROVIDER_ID,
+        dbtConnections,
+        workspace.grants,
+      ).connections.map((connection) => connection.id),
+    );
+    // A failed workspace listing means the rows are unknown, not absent.
+    const dbtReadiness =
+      workspace.error || dbtAccessFailed
+        ? "error"
+        : await dbtProviderReadiness(
+            dbtConnections.filter((connection) =>
+              dbtGrantedIds.has(connection.id),
+            ),
+            ctx.orgId ?? null,
+          );
     const workspaceProviderStatuses = workspaceProviderIds.map((providerId) => {
       const catalogProvider =
         workspaceCatalog.find((provider) => provider.id === providerId) ??
@@ -223,13 +266,18 @@ export default defineAction({
           })) ?? [],
         recommendedForAnalytics:
           catalogProvider?.recommendedTemplateUses.includes(APP_ID) ?? false,
+        ...(providerId === DBT_PROVIDER_ID
+          ? { setupLink: DBT_SETUP_LINK, dbtReadiness }
+          : {}),
         ...summarizeWorkspaceConnections(
           providerId,
-          workspaceConnectionsForProviderStatus(
-            providerId,
-            workspace.connections,
-            ctx.userEmail,
-          ),
+          providerId === DBT_PROVIDER_ID
+            ? dbtConnections
+            : workspaceConnectionsForProviderStatus(
+                providerId,
+                workspace.connections,
+                ctx.userEmail,
+              ),
           workspace.grants,
         ),
       };
@@ -398,6 +446,8 @@ export default defineAction({
       if (
         (provider.grantState !== "connected" &&
           provider.grantState !== "granted") ||
+        (provider.id === DBT_PROVIDER_ID &&
+          !isDbtUsable(provider.dbtReadiness)) ||
         (scopedProviderIds && !scopedProviderIds.has(provider.id)) ||
         configuredProviderIds.has(provider.id)
       ) {
@@ -419,12 +469,24 @@ export default defineAction({
     // grant has a healthy active connection.
     const connectedExternalDataSources = workspaceProviderStatuses.filter(
       (provider) =>
-        provider.grantState === "connected" &&
+        (provider.id === DBT_PROVIDER_ID
+          ? isDbtUsable(provider.dbtReadiness)
+          : provider.grantState === "connected") &&
         (scopedProviderIds === null || scopedProviderIds.has(provider.id)),
     );
+    // A dbt readiness error means its status could not be read, so the
+    // aggregate is unknown rather than "no connected sources".
     const hasUnknownProviderStatus =
       workspace.error !== null ||
-      providers.some((provider) => provider.configured === null);
+      providers.some((provider) => provider.configured === null) ||
+      workspaceProviderStatuses.some(
+        (provider) =>
+          provider.id === DBT_PROVIDER_ID &&
+          (provider.dbtReadiness === "error" ||
+            provider.dbtReadiness === "checking") &&
+          (scopedProviderIds === null ||
+            scopedProviderIds.has(DBT_PROVIDER_ID)),
+      );
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.

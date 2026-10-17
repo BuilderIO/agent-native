@@ -62,6 +62,7 @@ import {
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
   motionTimelineDurationForContent,
   readTimelinePlaybackMode,
+  withMotionTrackIds,
 } from "../shared/motion-timeline.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import {
@@ -131,7 +132,7 @@ function parseTrackJson(raw: string | null): MotionTrack[] {
       statusCode: 500,
     });
   }
-  return parsed as MotionTrack[];
+  return withMotionTrackIds(parsed as MotionTrack[]);
 }
 
 function parseStoredMotionTextDocument(
@@ -333,16 +334,19 @@ async function readManagedCssFromFile(
   const legacyTracks = document ? [] : parseLegacyMotionCss(css);
   const authoredTracks = recoveredAuthoredHtmlDocument?.tracks ?? [];
   const tracks = document?.tracks ?? [...legacyTracks, ...authoredTracks];
-  const trackKeys = new Set<string>();
-  for (const track of tracks) {
-    const key = `${track.targetNodeId}:${track.property}`;
-    if (trackKeys.has(key)) {
+  const authoredTrackKeys = new Set(
+    authoredTracks.map((track) =>
+      JSON.stringify([track.targetNodeId, track.property]),
+    ),
+  );
+  for (const track of legacyTracks) {
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    if (authoredTrackKeys.has(key)) {
       throw invalidManagedSource(
         "motion_html_source_unsupported_authored_motion",
         "Legacy managed HTML Motion and authored CSS both animate the same target property.",
       );
     }
-    trackKeys.add(key);
   }
   const animationStyles =
     document?.animationStyles ??
@@ -847,7 +851,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "For the Design editor's background hydration query only. Known unsupported source syntax is returned as an explicit sourceReadCapability; other validation errors still fail.",
+        "For the Design editor's background hydration query only. Known unsupported source conditions are returned as an explicit sourceReadCapability; other validation errors still fail.",
       ),
   }),
   run: async (args, context) => {
