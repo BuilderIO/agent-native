@@ -315,6 +315,27 @@
   min-height: max(320px, 50vh);
 }
 
+/* TipTap injects these for `.ProseMirror` only once an editor exists. The
+   static body that stands in for the editor needs them to wrap and space text
+   exactly as the editor that replaces it. */
+.notion-editor[data-static-document-body] {
+  position: relative;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+}
+
+.notion-editor[data-static-document-body] [contenteditable="false"] {
+  white-space: normal;
+}
+
+.notion-editor[data-static-document-body] pre {
+  white-space: pre-wrap;
+}
+
 .block-field-content .visual-editor-wrapper,
 .block-field-content .visual-editor-wrapper .notion-editor {
   min-height: 6rem;
