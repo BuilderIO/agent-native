@@ -171,4 +171,55 @@ describe("reconcileTerminalRunFromEvents convergence", () => {
     expect(row.status).toBe("errored");
     expect(row.error_code).toBe("test_error");
   });
+
+  it("does not let a readable terminal event hide a newer unreadable event", async () => {
+    const runId = "run-newer-unreadable-terminal";
+    const threadId = "thread-newer-unreadable-terminal";
+    const turnId = "turn-newer-unreadable-terminal";
+    await insertRun(runId, threadId, turnId);
+
+    const insert = await pglite.prepare(
+      "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+    );
+    await insert.run(
+      runId,
+      0,
+      Date.now(),
+      JSON.stringify({ type: "error", errorCode: "older_error" }),
+    );
+    await insert.run(runId, 1, Date.now(), '{"type":"done"'); // Invalid JSON
+
+    await expect(reconcileTerminalRunFromEvents(runId)).resolves.toBe(true);
+
+    const row = (await (
+      await pglite.prepare(
+        `SELECT status, error_code FROM agent_runs WHERE id = ?`,
+      )
+    ).get(runId)) as { status: string; error_code: string };
+    expect(row.status).toBe("errored");
+    expect(row.error_code).toBe("terminal_event_unreadable");
+  });
+
+  it("does not let an older readable terminal event hide a newer unreadable event", async () => {
+    const runId = "run-newer-unreadable-over-done";
+    const threadId = "thread-newer-unreadable-over-done";
+    const turnId = "turn-newer-unreadable-over-done";
+    await insertRun(runId, threadId, turnId);
+
+    const insert = await pglite.prepare(
+      "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+    );
+    await insert.run(runId, 0, Date.now(), JSON.stringify({ type: "done" }));
+    await insert.run(runId, 1, Date.now(), '{"type":"done"'); // Invalid JSON
+
+    await expect(reconcileTerminalRunFromEvents(runId)).resolves.toBe(true);
+
+    const row = (await (
+      await pglite.prepare(
+        `SELECT status, error_code FROM agent_runs WHERE id = ?`,
+      )
+    ).get(runId)) as { status: string; error_code: string };
+    expect(row.status).toBe("errored");
+    expect(row.error_code).toBe("terminal_event_unreadable");
+  });
 });

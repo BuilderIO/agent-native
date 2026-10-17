@@ -1518,15 +1518,17 @@ async function getRunEventForReconciliation(runId: string): Promise<{
   let latestTerminal: {
     event: AgentChatEvent;
     eventAt: number | null;
+    sequence: bigint;
   } | null = null;
-  let unreadableTerminalRows = 0;
+  let newestUnreadableSequence: bigint | null = null;
   for (const row of rows as Array<{
-    seq?: number | string;
+    seq: number | string;
     event_at?: number | string | null;
     event_data?: string;
   }>) {
     const raw = row.event_data;
     if (!raw) continue;
+    const sequence = BigInt(row.seq);
     try {
       const event = JSON.parse(raw) as AgentChatEvent;
       if (!terminalStatusForEvent(event) || !terminalReasonForEvent(event)) {
@@ -1537,24 +1539,47 @@ async function getRunEventForReconciliation(runId: string): Promise<{
         event,
         eventAt:
           Number.isFinite(rawEventAt) && rawEventAt > 0 ? rawEventAt : null,
+        sequence,
       };
-      if (!latestTerminal) latestTerminal = parsed;
-      if (isRealFailureTerminalEvent(event)) return parsed;
+      if (!latestTerminal || sequence > latestTerminal.sequence) {
+        latestTerminal = parsed;
+      }
+      if (isRealFailureTerminalEvent(event)) {
+        if (
+          newestUnreadableSequence !== null &&
+          newestUnreadableSequence > sequence
+        ) {
+          return {
+            event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+            eventAt: null,
+          };
+        }
+        return parsed;
+      }
     } catch (err) {
-      unreadableTerminalRows += 1;
+      if (
+        newestUnreadableSequence === null ||
+        sequence > newestUnreadableSequence
+      ) {
+        newestUnreadableSequence = sequence;
+      }
       console.error(
         `[run-store] unreadable terminal event runId=${runId} seq=${String(row.seq)}: ${raw.slice(0, 120)}`,
         err instanceof Error ? err.message : err,
       );
     }
   }
-  if (!latestTerminal && unreadableTerminalRows > 0) {
+  if (
+    newestUnreadableSequence !== null &&
+    (!latestTerminal || newestUnreadableSequence > latestTerminal.sequence)
+  ) {
     return {
       event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
       eventAt: null,
     };
   }
-  return latestTerminal;
+  if (!latestTerminal) return null;
+  return { event: latestTerminal.event, eventAt: latestTerminal.eventAt };
 }
 
 function errorCodeForTerminalEvent(event: AgentChatEvent): string | null {
