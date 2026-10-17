@@ -319,6 +319,42 @@ describe("canonicalizeNfmWithFidelity", () => {
     expect(nfmToDoc("![a](u)").content[0].type).toBe("image");
   });
 
+  it("reads a backtick run with no closer of its length as main does", () => {
+    const [line] = nfmToDoc("a ````x``` b").content;
+    expect(
+      line.content?.map((node) => [node.text, node.marks?.[0]?.type]),
+    ).toEqual([
+      ["a `", undefined],
+      ["x", "code"],
+      [" b", undefined],
+    ]);
+    expect(lossKinds("a ````x``` b")).toEqual([]);
+  });
+
+  it("reads bold inside an italic that closes after it, in linear time", () => {
+    const [line] = nfmToDoc("*Run **npm** install*").content;
+    expect(
+      line.content?.map((node) => [
+        node.text,
+        node.marks?.map((mark) => mark.type).sort(),
+      ]),
+    ).toEqual([
+      ["Run ", ["italic"]],
+      ["npm", ["bold", "italic"]],
+      [" install", ["italic"]],
+    ]);
+    expect(canonicalizeNfm("*a ****b**** c*")).toBe("*a ****b**** c*");
+    expect(canonicalizeNfm("*a **~~b~~** c*")).toBe("*a **~~b~~** c*");
+    expect(canonicalizeNfm("*a **b** **c** d")).toBe("*a b c*\\* d");
+    const started = performance.now();
+    canonicalizeNfm(`*${" **a**".repeat(40_000)}`);
+    canonicalizeNfm(`*${" **a**".repeat(40_000)} x*`);
+    canonicalizeNfm("*x **a** ".repeat(40_000));
+    canonicalizeNfm("* **a".repeat(40_000));
+    canonicalizeNfm("*a **b ".repeat(40_000));
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   it("reads a table with more rows than a call takes arguments", () => {
     const table = canonicalizeNfm(`| a |\n| - |\n${"| b |\n".repeat(130_000)}`);
     expect(table.startsWith('<table header-row="true">')).toBe(true);
