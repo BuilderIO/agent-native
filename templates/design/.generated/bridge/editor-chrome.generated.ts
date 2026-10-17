@@ -3831,6 +3831,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!ev || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || !hit || !selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
+      if (selectionContainerScope && document.documentElement.contains(selectionContainerScope) && selectionContainerScope.contains(selectedEl)) {
+        return null;
+      }
+      if (!isGeneratedGroupWrapper(selectedEl)) return null;
       var target = selectionTargetForHit(hit, true);
       return target && target !== selectedEl && selectedEl.contains(target) ? selectedEl : null;
     }
@@ -21367,7 +21371,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var preservesNestedHit = Boolean(
           isModifierCycleClick && !continuesModifierCycle && selectedEl && hit && selectedEl.contains(hit) && primaryClickTarget && primaryClickTarget !== selectedEl
         );
-        var cycleTarget = cycledEl && !preservesNestedHit ? cycledEl : null;
+        var cycleTarget = cycledEl && cycledEl !== selectedEl && !preservesNestedHit ? cycledEl : null;
         var nextClickTarget = cycleTarget || primaryClickTarget || dragTarget;
         selectTarget(nextClickTarget, ev, true);
         if (isModifierCycleClick && selectedEl) {
