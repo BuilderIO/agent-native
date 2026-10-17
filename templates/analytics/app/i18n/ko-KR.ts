@@ -68,6 +68,12 @@ export default {
     sigmaChooseConnectionDescription:
       "워크북을 찾아볼 Sigma 작업공간을 선택하세요.",
     sigmaNoConnection: "Sigma가 연결되지 않았습니다",
+    sigmaApiRegion: "Sigma API 리전",
+    sigmaOAuthConnect: "개인 Sigma 계정 연결",
+    sigmaOAuthAddAnother: "다른 Sigma 계정 연결",
+    sigmaOAuthCancel: "취소",
+    sigmaOAuthDescription:
+      "계정으로 Sigma에 로그인해 액세스할 수 있는 워크북을 확인하세요.",
     sigmaClientId: "클라이언트 ID",
     sigmaClientSecret: "클라이언트 시크릿",
     sigmaBaseUrl: "API 기본 URL(선택 사항)",
@@ -80,8 +86,7 @@ export default {
       "임시 Sigma 자격 증명을 저장하지 못했습니다. Vault 액세스 권한을 확인한 후 다시 시도하세요.",
     sigmaCredentialsRequired:
       "먼저 Sigma 클라이언트 ID와 클라이언트 시크릿을 저장하세요.",
-    sigmaBaseUrlInvalid:
-      "sigmacomputing.com 도메인의 HTTPS Sigma API URL을 사용하세요.",
+    sigmaBaseUrlInvalid: "Sigma에서 공식 지원하는 API 리전 URL을 선택하세요.",
     sigmaPersistenceUnavailable:
       "현재 Analytics에서 Sigma 연결을 안전하게 저장할 수 없습니다. 다시 시도하세요.",
     sigmaPolicyInvalid:
@@ -96,7 +101,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics에 저장된 Sigma 자격 증명을 읽을 수 없습니다. 조직 관리자가 Dispatch에서 다시 연결하거나 Analytics에서 자격 증명을 다시 입력할 수 있습니다.",
     sigmaNoConnectionDescription:
-      "여기에 자격 증명을 입력하면 Analytics 전용 연결을 만들 수 있습니다. Dispatch에서 Analytics에 허용된 Sigma 연결은 여기에 자동으로 표시되며, 자격 증명을 직접 저장할 수 있는 사용자는 조직 관리자뿐입니다.",
+      "개인 Sigma 계정을 연결하거나 조직 관리자가 저장한 자격 증명을 사용하세요. Analytics에 허용된 Dispatch 연결도 여기에 표시됩니다.",
     sigmaOpenDispatch: "Dispatch에서 연결",
     sigmaOpenVault: "Vault 열기",
     sigmaWorkbooksLoadFailed: "Sigma 워크북을 불러오지 못했습니다",
@@ -1386,6 +1391,9 @@ export default {
       "Google Sheets로 내보내지 못했습니다: {{message}}",
     viewSql: "SQL 보기",
     dragToReorder: "드래그하여 재정렬하세요.",
+    resizePanelWidth: "패널 너비 조정",
+    resizePanelHeight: "패널 높이 조정",
+    resetPanelHeight: "패널 높이 초기화",
     columnFormat: "형식",
     columnFormatText: "일반 텍스트",
     columnFormatNumber: "숫자",

@@ -64,6 +64,21 @@ describe("EditorLayout media loading", () => {
       /await runEdit\(\(\) => onCutRange\(selectionRange\)\)/,
     );
   });
+
+  it("passes an exact timeline range to Cut Selection and Delete", () => {
+    const source = readSource();
+    const deleteSelection = source
+      .split("const deleteSelection = useCallback(async () => {")[1]
+      ?.split("const seek = useCallback(")[0];
+
+    expect(source).toContain('selection?.kind === "range"');
+    expect(source).toContain("selection.startMs, endMs: selection.endMs");
+    expect(source).toContain("selectionRange={selectedRange}");
+    expect(deleteSelection).toContain(
+      "addCut(savedEdits, selectedRange.startMs",
+    );
+    expect(deleteSelection).toContain("selectedRange.endMs");
+  });
 });
 
 describe("EditorLayout timeline geometry", () => {

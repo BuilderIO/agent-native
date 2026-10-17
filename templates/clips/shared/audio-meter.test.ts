@@ -101,6 +101,7 @@ describe("micSignalWarning", () => {
         microphoneEnabled: false,
         paused: false,
         silentForMs: 0,
+        hasHeardAudio: false,
       }),
     ).toBe("muted");
   });
@@ -111,6 +112,7 @@ describe("micSignalWarning", () => {
         microphoneEnabled: true,
         paused: false,
         silentForMs: MIC_SILENCE_WARNING_MS - 1,
+        hasHeardAudio: false,
       }),
     ).toBeNull();
     expect(
@@ -118,8 +120,25 @@ describe("micSignalWarning", () => {
         microphoneEnabled: true,
         paused: false,
         silentForMs: MIC_SILENCE_WARNING_MS,
+        hasHeardAudio: false,
       }),
     ).toBe("silent");
+    expect(
+      micSignalWarning({
+        microphoneEnabled: true,
+        paused: false,
+        silentForMs: MIC_SILENCE_WARNING_MS,
+        hasHeardAudio: true,
+      }),
+    ).toBeNull();
+    expect(
+      micSignalWarning({
+        microphoneEnabled: false,
+        paused: false,
+        silentForMs: MIC_SILENCE_WARNING_MS,
+        hasHeardAudio: true,
+      }),
+    ).toBe("muted");
   });
 
   it("does not warn while paused or before mic state is known", () => {
@@ -128,6 +147,7 @@ describe("micSignalWarning", () => {
         microphoneEnabled: true,
         paused: true,
         silentForMs: MIC_SILENCE_WARNING_MS,
+        hasHeardAudio: false,
       }),
     ).toBeNull();
     expect(
@@ -135,6 +155,7 @@ describe("micSignalWarning", () => {
         microphoneEnabled: null,
         paused: false,
         silentForMs: MIC_SILENCE_WARNING_MS,
+        hasHeardAudio: false,
       }),
     ).toBeNull();
   });

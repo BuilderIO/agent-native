@@ -488,6 +488,12 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         required: false,
       },
     ],
+    oauth: {
+      provider: "sigma",
+      authorizationUrl: "https://aws-api.sigmacomputing.com/mcp/authorize",
+      tokenUrl: "https://aws-api.sigmacomputing.com/mcp/token",
+      scopes: ["api:access"],
+    },
     capabilities: ["search"],
     recommendedTemplateUses: ["analytics"],
   }),

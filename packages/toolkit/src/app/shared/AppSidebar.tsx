@@ -9,12 +9,10 @@ import {
   type AppSidebarHeaderProps as ToolkitAppSidebarHeaderProps,
   type AppSidebarFooterProps as ToolkitAppSidebarFooterProps,
 } from "@agent-native/toolkit/app-shell";
-import { cn } from "@agent-native/toolkit/utils";
-import { forwardRef, type ReactNode } from "react";
+import { forwardRef } from "react";
 import { useHref, useLinkClickHandler } from "react-router";
 
 import { FeedbackButton } from "../feedback/FeedbackButton.js";
-import { ReportProblemButton } from "../feedback/ReportProblemButton.js";
 import { AgentNativeIcon } from "./AgentNativeIcon.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
 
@@ -101,25 +99,6 @@ export const AppSidebarHeader = forwardRef<
 );
 AppSidebarHeader.displayName = "AppSidebarHeader";
 
-// Every app's feedback row also offers Report a problem; an app that hides feedback hides both.
-function withReportProblem(
-  feedback: ReactNode,
-  collapsed: boolean | undefined,
-): ReactNode {
-  if (!feedback) return feedback;
-  return (
-    <div
-      className={cn(
-        "flex flex-col",
-        collapsed ? "items-center gap-1" : "gap-0.5",
-      )}
-    >
-      {feedback}
-      <ReportProblemButton variant={collapsed ? "icon" : "sidebar"} />
-    </div>
-  );
-}
-
 export interface AppSidebarFooterProps extends ToolkitAppSidebarFooterProps {}
 
 export const AppSidebarFooter = forwardRef<
@@ -139,7 +118,7 @@ export const AppSidebarFooter = forwardRef<
     <ToolkitAppSidebarFooter
       ref={ref}
       collapsed={collapsed}
-      feedback={withReportProblem(resolvedFeedback, collapsed)}
+      feedback={resolvedFeedback}
       {...props}
     />
   );
@@ -199,7 +178,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
         badge={resolvedBadge}
         linkComponent={resolvedLinkComponent}
         {...props}
-        feedback={withReportProblem(resolvedFeedback, props.collapsed)}
+        feedback={resolvedFeedback}
       />
     );
   },

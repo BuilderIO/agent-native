@@ -207,6 +207,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.webSearch.label": "웹 검색",
+  "onboarding.capability.webSearch.keySummary": "Builder 관리 웹 검색",
+  "onboarding.capability.webSearch.why":
+    "웹의 최신 공개 자료를 검색합니다. Builder 관리 검색은 포함된 Builder AI 크레딧을 사용하므로 별도의 검색 API 키가 필요하지 않습니다.",
   "onboarding.capability.systemOne.why":
     "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
@@ -2598,6 +2602,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "앱 기본 모델",
   "settingsShell.search.backgroundAgents": "백그라운드 에이전트",
   "settingsShell.search.browserAutomation": "브라우저 자동화",
+  "settingsShell.search.webSearch": "웹 검색",
   "settingsShell.search.connectedAgents": "연결된 에이전트",
   "settingsShell.search.database": "데이터베이스",
   "settingsShell.search.defaultModel": "기본 모델",
@@ -2732,6 +2737,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "프로덕션에서 코드를 변경합니다.",
   "settingsInfra.whyBrowser":
     "에이전트가 프로덕션에서 브라우저를 사용할 수 있게 합니다.",
+  "settingsInfra.whyWebSearch": "최신 공개 정보와 공식 문서를 찾습니다.",
   "settingsInfra.provider": "제공업체",
   "settingsInfra.keyOrg": "조직의 {{provider}} 키를 사용합니다.",
   "settingsInfra.manageKey": "키 관리",
@@ -2827,6 +2833,8 @@ const messages: ToolkitAgentChatTranslation = {
     "{{owner}}에서 생성하고 교체합니다. 연결 해제도 그곳에서 하세요.",
   "settingsApiKeys.membersLocked":
     "소유자와 관리자만 {{org}}와(과) 키를 공유할 수 있습니다.",
+  "settingsApiKeys.modelFootnote": "자체 모델 제공업체를 사용하려면 {{link}}.",
+  "settingsApiKeys.modelFootnoteLink": "모델에서 추가하세요",
   "settingsApiKeys.name": "이름",
   "settingsApiKeys.noKeys": "아직 키가 없습니다",
   "settingsApiKeys.noKeysDescription":
