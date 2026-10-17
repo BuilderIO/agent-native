@@ -250,7 +250,6 @@ import {
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
-  clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   syncPageDraftJournalBeforePersistingRecoveryDraft,
@@ -3292,24 +3291,11 @@ function PageEditorSessionBody({
     [isLinkedLocalSourceDocument, isLocalFileDocument, journalScope, t],
   );
   const clearConfirmedDraftJournal = useCallback(
-    (
-      saved: Document & {
-        bodyIntentOutcome?: { status: "applied" | "displaced-preserved" };
-      },
-      editGeneration: number,
-    ) => {
+    (editGeneration: number) => {
       const scope = journalScope();
       if (!scope) return;
       try {
-        if (saved.bodyIntentOutcome) {
-          clearPageDraftJournalGeneration(scope, editGeneration);
-        } else {
-          clearPageDraftJournal(scope, {
-            editGeneration,
-            title: saved.title,
-            content: saved.content,
-          });
-        }
+        clearPageDraftJournalGeneration(scope, editGeneration);
       } catch {
         if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
@@ -4296,17 +4282,13 @@ function PageEditorSessionBody({
             : null,
         });
       }
-      if (
-        contentEditVersionRef.current === contentEditVersion &&
-        contentObservationEpochRef.current === contentObservationEpoch
-      ) {
+      // Text another writer added while this save was in flight is theirs to
+      // save, so it holds back neither the confirmation nor the journal clear.
+      // An entry kept for it outlives this tab's edits, and the next tab to
+      // open the page replays it as a save of its own.
+      if (contentEditVersionRef.current === contentEditVersion) {
         confirmedContentEditVersionRef.current = contentEditVersion;
-        if (
-          saved.title === localTitleRef.current &&
-          saved.content === localContentRef.current
-        ) {
-          clearConfirmedDraftJournal(saved, editorEditGeneration);
-        }
+        clearConfirmedDraftJournal(editorEditGeneration);
       }
 
       if (autoSync) {
